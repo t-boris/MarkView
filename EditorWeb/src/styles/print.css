@@ -1,0 +1,302 @@
+/**
+ * Print-specific styles for PDF export and printing
+ */
+
+@media print {
+  /* Hide editor UI */
+  .editor-toolbar,
+  .editor-status,
+  .toolbar-button,
+  .toolbar-group {
+    display: none !important;
+  }
+
+  /* Layout adjustments */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: auto;
+    overflow: visible;
+  }
+
+  .editor-container {
+    height: auto;
+    overflow: visible;
+    flex-direction: column;
+  }
+
+  .editor-content {
+    flex-direction: column;
+    overflow: visible;
+    border: none;
+  }
+
+  .editor-pane {
+    border: none;
+    overflow: visible;
+    flex: none;
+  }
+
+  .editor-input {
+    display: none !important;
+  }
+
+  .editor-rendered {
+    overflow: visible;
+    padding: 40px;
+    max-width: 8.5in;
+    margin: 0 auto;
+  }
+
+  /* Page setup */
+  @page {
+    size: A4;
+    margin: 40px;
+  }
+
+  /* Heading page breaks */
+  .markdown-body h1 {
+    page-break-before: always;
+    page-break-after: avoid;
+  }
+
+  .markdown-body h1:first-child {
+    page-break-before: avoid;
+  }
+
+  .markdown-body h2,
+  .markdown-body h3 {
+    page-break-after: avoid;
+  }
+
+  /* Content preservation */
+  .markdown-body img,
+  .markdown-body pre,
+  .markdown-body table,
+  .admonition,
+  .mermaid,
+  .graphviz-diagram,
+  .plantuml-diagram {
+    break-inside: avoid;
+    break-after: avoid;
+    page-break-inside: avoid;
+    page-break-after: avoid;
+  }
+
+  .markdown-body p {
+    orphans: 3;
+    widows: 3;
+  }
+
+  .markdown-body li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Image sizing */
+  .markdown-body img {
+    max-width: 100%;
+    height: auto;
+    margin: 1em 0;
+  }
+
+  /* Code blocks */
+  .markdown-body pre {
+    background-color: #f5f5f5 !important;
+    border: 1px solid #e0e0e0 !important;
+    padding: 16px !important;
+    overflow: visible !important;
+    font-size: 11px !important;
+  }
+
+  .markdown-body code {
+    background-color: #f5f5f5 !important;
+    padding: 2px 6px !important;
+    font-size: 0.9em !important;
+  }
+
+  /* Tables */
+  .markdown-body table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    border: 1px solid #ddd !important;
+    margin: 1.5em 0 !important;
+  }
+
+  .markdown-body table th {
+    background-color: #f5f5f5 !important;
+    border: 1px solid #ddd !important;
+    padding: 12px !important;
+    text-align: left !important;
+    font-weight: bold !important;
+  }
+
+  .markdown-body table td {
+    border: 1px solid #ddd !important;
+    padding: 12px !important;
+  }
+
+  /* Blockquotes */
+  .markdown-body blockquote {
+    border-left: 4px solid #0066cc !important;
+    margin: 1.5em 0 !important;
+    padding: 0.5em 0 0.5em 1em !important;
+    page-break-inside: avoid;
+  }
+
+  /* Admonitions */
+  .admonition {
+    border-left: 4px solid !important;
+    padding: 12px 16px !important;
+    margin: 1.5em 0 !important;
+    background-color: #fafafa !important;
+  }
+
+  .admonition.info {
+    border-left-color: #0066cc !important;
+  }
+
+  .admonition.warning {
+    border-left-color: #ffa500 !important;
+  }
+
+  .admonition.tip {
+    border-left-color: #00b386 !important;
+  }
+
+  .admonition.danger {
+    border-left-color: #ff6b6b !important;
+  }
+
+  .admonition-title {
+    font-weight: 600 !important;
+    margin-bottom: 8px !important;
+    text-transform: uppercase !important;
+    font-size: 0.85em !important;
+  }
+
+  /* Links */
+  .markdown-body a {
+    color: #0066cc !important;
+    text-decoration: underline !important;
+  }
+
+  .markdown-body a[href]:after {
+    content: none !important;
+  }
+
+  /* Lists */
+  .markdown-body ul,
+  .markdown-body ol {
+    margin: 1em 0 !important;
+    padding-left: 2em !important;
+  }
+
+  .markdown-body li {
+    margin: 0.5em 0 !important;
+  }
+
+  .markdown-body ul.task-list {
+    list-style: none !important;
+    padding-left: 1.5em !important;
+  }
+
+  .markdown-body .task-list-item {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+
+  /* Diagrams */
+  .mermaid,
+  .graphviz-diagram,
+  .plantuml-diagram {
+    display: block !important;
+    text-align: center !important;
+    margin: 1.5em 0 !important;
+    break-inside: avoid;
+  }
+
+  .mermaid svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  .diagram-loading,
+  .diagram-error {
+    display: none !important;
+  }
+
+  .diagram-details {
+    display: none !important;
+  }
+
+  /* TOC styling */
+  .toc {
+    page-break-after: always;
+    border: 1px solid #ddd !important;
+    padding: 12px 16px !important;
+    margin: 0 0 1.5em 0 !important;
+    background-color: #fafafa !important;
+  }
+
+  .toc a {
+    color: #0066cc !important;
+    text-decoration: none !important;
+  }
+
+  /* Horizontal rules */
+  .markdown-body hr {
+    border: none !important;
+    border-top: 1px solid #ddd !important;
+    margin: 2em 0 !important;
+    page-break-before: avoid;
+  }
+
+  /* Text selection */
+  body {
+    color: #000 !important;
+  }
+
+  .markdown-body {
+    color: #000 !important;
+  }
+
+  /* Last page handling */
+  .editor-rendered > *:last-child {
+    page-break-after: avoid;
+  }
+
+  /* Empty state */
+  .editor-empty,
+  .editor-empty-content {
+    display: none !important;
+  }
+
+  /* Scrollbar hiding */
+  ::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* Focus styles */
+  :focus {
+    outline: none !important;
+  }
+}
+
+/* Print media query for landscape (optional) */
+@media print and (orientation: landscape) {
+  .editor-rendered {
+    max-width: 11in;
+  }
+
+  @page {
+    size: A4 landscape;
+  }
+}

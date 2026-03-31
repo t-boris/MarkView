@@ -1,0 +1,44 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserdata
+*.xcworkspace
+!*.xcodeproj
+xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# App artifacts
+*.app
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Dependencies
+Pods/
+Carthage/Build/
+.build/
+Package.resolved
+
+# DDE workspace data
+.dde/
+
+# Temporary
+*.swp
+*.swo
+*~
+.claude/
+
+# Debug entitlements (contains sandbox-off — don't ship)
+# MarkView/MarkViewDebug.entitlements

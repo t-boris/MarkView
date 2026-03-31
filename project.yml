@@ -1,0 +1,60 @@
+name: MarkView
+options:
+  bundleIdPrefix: com.markview
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  defaultConfig: Release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    ARCHS: "$(ARCHS_STANDARD)"
+    SUPPORTS_MACCATALYST: false
+    CODE_SIGN_STYLE: Automatic
+    PRODUCT_NAME: MarkView
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: 1
+    INFOPLIST_FILE: MarkView/Info.plist
+    GENERATE_INFOPLIST_FILE: false
+
+targets:
+  MarkView:
+    type: application
+    platform: macOS
+    sources:
+      - path: MarkView
+        excludes:
+          - "Resources/Editor/node_modules/**"
+    resources:
+      - path: MarkView/Resources/Editor
+        buildPhase: resources
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: MarkView/MarkView.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    preBuildScripts:
+      - name: "Build Web Editor (optional)"
+        script: |
+          set -e
+          DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Editor"
+          mkdir -p "${DEST}"
+          /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/index.html" "${DEST}/index.html"
+          if [ -d "${SRCROOT}/MarkView/Resources/Editor/vendor" ]; then
+            rm -rf "${DEST}/vendor"
+            /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/vendor" "${DEST}/vendor"
+          fi
+          echo "Copied pre-built Editor bundle"
+        basedOnDependencyAnalysis: false
+
+schemes:
+  MarkView:
+    build:
+      targets:
+        MarkView: all
+    run:
+      config: Debug
+    archive:
+      config: Release

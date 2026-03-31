@@ -1,0 +1,51 @@
+{
+  "name": "markview-editor-web",
+  "version": "1.0.0",
+  "description": "Web editor component for MarkView macOS app",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.es.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.es.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@milkdown/core": "^7.1.0",
+    "@milkdown/preset-commonmark": "^7.1.0",
+    "@milkdown/preset-gfm": "^7.1.0",
+    "@milkdown/plugin-footnote": "^7.1.0",
+    "@milkdown/plugin-table": "^7.1.0",
+    "@milkdown/plugin-math": "^7.1.0",
+    "@milkdown/plugin-diagram": "^7.1.0",
+    "@milkdown/plugin-cursor": "^7.1.0",
+    "@milkdown/plugin-history": "^7.1.0",
+    "@milkdown/plugin-clipboard": "^7.1.0",
+    "@milkdown/theme-nord": "^7.1.0",
+    "mermaid": "^10.9.0",
+    "katex": "^0.16.9",
+    "prismjs": "^1.29.0",
+    "markdown-it": "^13.0.1",
+    "markdown-it-footnote": "^3.0.3",
+    "markdown-it-task-lists": "^2.1.1",
+    "markdown-it-container": "^4.0.0",
+    "@viz-js/viz": "^3.2.4"
+  },
+  "devDependencies": {
+    "@types/prismjs": "^1.26.0",
+    "@types/markdown-it": "^13.0.0",
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10"
+  }
+}

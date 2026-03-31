@@ -1,0 +1,2370 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MarkView Editor</title>
+
+    <!-- KaTeX CSS -->
+    <link rel="stylesheet" href="vendor/css/katex.min.css">
+
+    <!-- Prism.js CSS -->
+    <link rel="stylesheet" href="vendor/css/prism-okaidia.min.css">
+    <link rel="stylesheet" href="vendor/css/prism-line-numbers.css">
+    <link rel="stylesheet" href="vendor/css/prism-diff-highlight.css">
+
+    <style>
+        :root {
+            /* VS Code Dark+ theme */
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --bg-tertiary: #2d2d30;
+            --text-primary: #d4d4d4;
+            --text-secondary: #808080;
+            --text-tertiary: #6a6a6a;
+            --border-color: #3c3c3c;
+            --border-color-light: #333333;
+            --accent-primary: #569cd6;
+            --accent-secondary: #4ec9b0;
+            --accent-tertiary: #f44747;
+            --accent-warning: #ce9178;
+            --accent-info: #569cd6;
+            --accent-success: #4ec9b0;
+            --accent-danger: #f44747;
+
+            /* Code block colors */
+            --code-bg: #1e1e1e;
+            --code-text: #d4d4d4;
+            --code-border: #3c3c3c;
+
+            /* Selection */
+            --selection-bg: rgba(38, 79, 120, 0.5);
+            --selection-color: #569cd6;
+
+            /* Shadows */
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.5);
+
+            /* Typography */
+            --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            --font-mono: 'Menlo', 'Monaco', 'Courier New', monospace;
+            --line-height-normal: 1.6;
+            --line-height-tight: 1.4;
+        }
+
+        /* Light theme overrides */
+        html[data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f3f3f3;
+            --bg-tertiary: #e8e8e8;
+            --text-primary: #1e1e1e;
+            --text-secondary: #6e7681;
+            --text-tertiary: #8b949e;
+            --border-color: #d4d4d4;
+            --border-color-light: #e1e4e8;
+            --accent-primary: #0366d6;
+            --accent-secondary: #22863a;
+            --accent-tertiary: #cb2431;
+            --accent-warning: #b08800;
+            --accent-info: #0366d6;
+            --accent-success: #22863a;
+            --accent-danger: #cb2431;
+            --code-bg: #f6f8fa;
+            --code-text: #24292e;
+            --code-border: #e1e4e8;
+            --selection-bg: rgba(3, 102, 214, 0.2);
+            --selection-color: #0366d6;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.07);
+            --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.12);
+        }
+
+        html[data-theme="light"] .markdown-body pre {
+            background-color: #f6f8fa;
+            border-color: #e1e4e8;
+        }
+        html[data-theme="light"] .markdown-body pre code {
+            color: #24292e;
+        }
+        html[data-theme="light"] .markdown-body h1 { color: #0366d6; }
+        html[data-theme="light"] .markdown-body h2 { color: #0550ae; }
+        html[data-theme="light"] .markdown-body h3 { color: #0550ae; }
+        html[data-theme="light"] .format-bar { background: #f3f3f3; border-color: #d4d4d4; }
+        html[data-theme="light"] .format-bar button { color: #1e1e1e; }
+        html[data-theme="light"] .format-bar button:hover { background: #e8e8e8; }
+        html[data-theme="light"] .wysiwyg-toolbar { background: #f3f3f3; border-color: #d4d4d4; }
+        html[data-theme="light"] .wysiwyg-toolbar button { color: #505050; }
+        html[data-theme="light"] .wysiwyg-toolbar button:hover { background: #e0e0e0; color: #1e1e1e; }
+        html[data-theme="light"] .wysiwyg-toolbar .sep { background: #d4d4d4; }
+        html[data-theme="light"] .editor-status { background: #f3f3f3; border-color: #d4d4d4; color: #6e7681; }
+        html[data-theme="light"] .font-slider { background: #d4d4d4; }
+        html[data-theme="light"] .editor-input { background: #ffffff; color: #1e1e1e; }
+        html[data-theme="light"] .editor-input::-webkit-scrollbar-track { background: #f3f3f3; }
+        html[data-theme="light"] .editor-input::-webkit-scrollbar-thumb { background: #c1c1c1; }
+        html[data-theme="light"] .editor-rendered::-webkit-scrollbar-track { background: #f3f3f3; }
+        html[data-theme="light"] .editor-rendered::-webkit-scrollbar-thumb { background: #c1c1c1; }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .editor-container {
+            display: flex;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        .editor-toolbar {
+            display: none; /* Hidden — compatibility only */
+        }
+
+        /* WYSIWYG toolbar — always visible */
+        .wysiwyg-toolbar {
+            display: flex;
+            align-items: center;
+            padding: 3px 10px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            gap: 1px;
+            flex-shrink: 0;
+        }
+        .wysiwyg-toolbar button {
+            width: 28px; height: 26px;
+            border: none; border-radius: 3px;
+            background: transparent; color: #b0b0b0;
+            font-size: 13px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.15s;
+        }
+        .wysiwyg-toolbar button:hover { background: #37373d; color: #d4d4d4; }
+        .wysiwyg-toolbar button.active { background: #264f78; color: white; }
+        .wysiwyg-toolbar .sep { width: 1px; height: 18px; background: #3c3c3c; margin: 0 4px; }
+        .wysiwyg-toolbar .spacer { flex: 1; }
+        .wysiwyg-toolbar .mode-label {
+            font-size: 10px; color: #6a6a6a; padding: 0 6px; cursor: pointer;
+            user-select: none;
+        }
+        .wysiwyg-toolbar .mode-label:hover { color: #b0b0b0; }
+        .graph-menu-item {
+            padding: 5px 10px; cursor: pointer; font-size: 11px;
+            color: var(--text-primary);
+        }
+        .graph-menu-item:hover { background: var(--bg-tertiary); }
+
+        /* Canvas popup */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .canvas-popup {
+            position: absolute; display: none; z-index: 400;
+            background: var(--bg-secondary); border: 1px solid var(--border-color);
+            border-radius: 6px; padding: 8px 12px; min-width: 180px; max-width: 300px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4); font-size: 11px; color: var(--text-primary);
+        }
+        .canvas-popup .popup-title { font-weight: 700; font-size: 12px; margin-bottom: 4px; }
+        .canvas-popup .popup-type { font-size: 9px; color: #808080; margin-bottom: 6px; }
+        .canvas-popup .popup-desc { font-size: 10px; line-height: 1.4; margin-bottom: 6px; }
+        .canvas-popup .popup-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+        .canvas-popup .popup-btn {
+            padding: 2px 8px; border: 1px solid var(--border-color); border-radius: 3px;
+            background: var(--bg-tertiary); color: var(--text-primary); font-size: 9px; cursor: pointer;
+        }
+        .canvas-popup .popup-btn:hover { background: var(--accent-primary); color: white; }
+        .canvas-popup .popup-btn.danger { border-color: #f44747; color: #f44747; }
+        .canvas-popup .popup-btn.danger:hover { background: #f44747; color: white; }
+        .canvas-popup .popup-input {
+            width: 100%; padding: 3px 6px; border: 1px solid var(--border-color);
+            border-radius: 3px; background: var(--bg-primary); color: var(--text-primary);
+            font-size: 10px; margin-bottom: 4px;
+        }
+
+        .editor-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            gap: 0;
+        }
+
+        .editor-pane {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .editor-pane.preview-only {
+            border-right: none;
+        }
+
+        .editor-input {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 14px;
+            line-height: var(--line-height-normal);
+            color: var(--text-primary);
+            background-color: var(--bg-primary);
+            border: none;
+            outline: none;
+            resize: none;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .editor-input::selection {
+            background-color: var(--selection-bg);
+            color: inherit;
+        }
+
+        .editor-input::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .editor-input::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        .editor-input::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        .editor-input::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        .editor-rendered {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+            background-color: var(--bg-primary);
+            font-size: var(--base-font-size, 13px);
+            cursor: text;
+            outline: none;
+        }
+        .editor-rendered:focus {
+            box-shadow: inset 0 0 0 1px rgba(86,156,214,0.15);
+        }
+
+        .editor-rendered::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .editor-rendered::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        .editor-rendered::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        .editor-rendered::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* Markdown rendering styles */
+        .markdown-body {
+            max-width: 100%;
+            line-height: var(--line-height-normal);
+        }
+
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3,
+        .markdown-body h4,
+        .markdown-body h5,
+        .markdown-body h6 {
+            margin-top: 1.5em;
+            margin-bottom: 0.75em;
+            font-weight: 600;
+            line-height: var(--line-height-tight);
+            scroll-margin-top: 80px;
+        }
+
+        .markdown-body h1 {
+            font-size: 1.6em;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.25em;
+            color: var(--accent-primary);
+        }
+
+        .markdown-body h2 {
+            font-size: 1.35em;
+            border-bottom: 1px solid var(--border-color-light);
+            padding-bottom: 0.2em;
+            color: #9cdcfe;
+        }
+
+        .markdown-body h3 {
+            font-size: 1.2em;
+            color: #9cdcfe;
+        }
+
+        .markdown-body h4 {
+            font-size: 1.05em;
+        }
+
+        .markdown-body h5 {
+            font-size: 0.95em;
+        }
+
+        .markdown-body h6 {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+        }
+
+        .markdown-body p {
+            margin: 0.7em 0;
+        }
+
+        .markdown-body a {
+            color: var(--accent-primary);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(0, 102, 204, 0.3);
+            transition: all 0.2s ease;
+        }
+
+        html[data-theme="dark"] .markdown-body a {
+            border-bottom-color: rgba(77, 166, 255, 0.3);
+        }
+
+        .markdown-body a:hover {
+            color: var(--accent-primary);
+            border-bottom-color: var(--accent-primary);
+        }
+
+        .markdown-body code {
+            background-color: var(--code-bg);
+            color: var(--code-text);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: var(--font-mono);
+            font-size: 0.9em;
+        }
+
+        .markdown-body pre {
+            background-color: #282c34;
+            border: 1px solid #3a3f4b;
+            border-radius: 4px;
+            padding: 12px;
+            overflow-x: auto;
+            margin: 1em 0;
+            line-height: 1.45;
+            font-size: 0.88em;
+        }
+
+        .markdown-body pre code {
+            background-color: transparent;
+            color: #abb2bf;
+            padding: 0;
+            border-radius: 0;
+        }
+
+        .markdown-body blockquote {
+            margin: 1.5em 0;
+            padding: 0.5em 0 0.5em 1em;
+            border-left: 4px solid var(--accent-primary);
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        .markdown-body ul,
+        .markdown-body ol {
+            margin: 0.6em 0;
+            padding-left: 1.8em;
+        }
+
+        .markdown-body li {
+            margin: 0.3em 0;
+        }
+
+        .markdown-body ul.task-list {
+            list-style: none;
+            padding-left: 1.5em;
+        }
+
+        .markdown-body .task-list-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .markdown-body .task-list-item input[type="checkbox"] {
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: var(--accent-primary);
+        }
+
+        .markdown-body table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1.5em 0;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .markdown-body table th,
+        .markdown-body table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .markdown-body table th {
+            background-color: var(--bg-secondary);
+            font-weight: 600;
+        }
+
+        .markdown-body table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .markdown-body table tr:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .markdown-body img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 1.5em 0;
+            border-radius: 6px;
+            box-shadow: var(--shadow-md);
+        }
+
+        .markdown-body hr {
+            border: none;
+            border-top: 2px solid var(--border-color);
+            margin: 2em 0;
+        }
+
+        /* Admonitions */
+        .admonition {
+            margin: 1.5em 0;
+            padding: 12px 16px;
+            border-left: 4px solid var(--accent-primary);
+            border-radius: 6px;
+            background-color: var(--bg-secondary);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .admonition.info {
+            border-left-color: var(--accent-info);
+        }
+
+        .admonition.warning {
+            border-left-color: var(--accent-warning);
+        }
+
+        .admonition.tip {
+            border-left-color: var(--accent-success);
+        }
+
+        .admonition.danger {
+            border-left-color: var(--accent-danger);
+        }
+
+        .admonition-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            font-size: 0.85em;
+            letter-spacing: 0.5px;
+        }
+
+        .admonition.info .admonition-title {
+            color: var(--accent-info);
+        }
+
+        .admonition.warning .admonition-title {
+            color: var(--accent-warning);
+        }
+
+        .admonition.tip .admonition-title {
+            color: var(--accent-success);
+        }
+
+        .admonition.danger .admonition-title {
+            color: var(--accent-danger);
+        }
+
+        /* Mermaid diagrams */
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 1.5em 0;
+        }
+
+        .mermaid svg {
+            max-width: 100%;
+            height: auto;
+        }
+
+        /* KaTeX */
+        .math {
+            display: block;
+            overflow-x: auto;
+            padding: 0.5em 0;
+        }
+
+        .math.inline {
+            display: inline;
+        }
+
+        /* Prism line numbers */
+        .line-numbers {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Status bar — compact, VS Code style */
+        .editor-status {
+            padding: 2px 12px;
+            background-color: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            height: 24px;
+            user-select: none;
+        }
+
+        .status-item {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .status-item span { opacity: 0.7; }
+
+        /* Font size slider */
+        .font-slider-wrap {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .font-slider-wrap label { font-size: 10px; opacity: 0.5; }
+        .font-slider {
+            -webkit-appearance: none;
+            width: 60px;
+            height: 3px;
+            background: var(--border-color);
+            border-radius: 2px;
+            outline: none;
+        }
+        .font-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-primary);
+            cursor: pointer;
+        }
+
+        /* Floating format toolbar — appears on text selection */
+        .format-bar {
+            position: fixed;
+            display: none;
+            background: #2d2d30;
+            border: 1px solid #3c3c3c;
+            border-radius: 6px;
+            padding: 3px;
+            gap: 1px;
+            z-index: 200;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            flex-direction: row;
+        }
+        .format-bar.visible { display: flex; }
+        .format-bar button {
+            width: 28px; height: 26px;
+            border: none; border-radius: 4px;
+            background: transparent; color: #d4d4d4;
+            font-size: 13px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .format-bar button:hover { background: #37373d; }
+        .format-bar .sep { width: 1px; background: #3c3c3c; margin: 2px 2px; }
+
+        /* Print styles */
+        @media print {
+            .editor-toolbar,
+            .editor-status {
+                display: none;
+            }
+
+            .editor-container {
+                height: auto;
+            }
+
+            .editor-content {
+                flex-direction: column;
+                overflow: visible;
+            }
+
+            .editor-pane {
+                border: none;
+                overflow: visible;
+            }
+
+            .editor-input {
+                display: none;
+            }
+
+            .editor-rendered {
+                overflow: visible;
+                padding: 40px;
+                max-width: 8.5in;
+                margin: 0 auto;
+            }
+
+            .markdown-body h1,
+            .markdown-body h2,
+            .markdown-body h3 {
+                break-after: avoid;
+            }
+
+            .markdown-body img,
+            .markdown-body pre,
+            .markdown-body table,
+            .admonition,
+            .mermaid {
+                break-inside: avoid;
+                break-after: auto;
+            }
+
+            .markdown-body p {
+                orphans: 3;
+                widows: 3;
+            }
+        }
+
+        /* Empty state */
+        .editor-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-tertiary);
+            text-align: center;
+        }
+
+        .editor-empty-content {
+            pointer-events: none;
+        }
+
+        .editor-empty-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .editor-empty-text {
+            font-size: 14px;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="editor-container">
+        <!-- Hidden elements for JS compatibility -->
+        <div class="editor-toolbar" style="display:none">
+            <button id="btn-toggle-mode"></button>
+        </div>
+
+        <!-- WYSIWYG Toolbar -->
+        <div class="wysiwyg-toolbar" id="wysiwyg-toolbar">
+            <button onclick="fmtCmd('bold')" title="Bold (⌘B)"><b>B</b></button>
+            <button onclick="fmtCmd('italic')" title="Italic (⌘I)"><i>I</i></button>
+            <button onclick="fmtCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+            <button onclick="fmtCmd('code')" title="Inline code" style="font-family:monospace;font-size:11px">&lt;/&gt;</button>
+            <div class="sep"></div>
+            <button onclick="fmtBlock('H1')" title="Heading 1" style="font-weight:800;font-size:14px">H1</button>
+            <button onclick="fmtBlock('H2')" title="Heading 2" style="font-weight:700;font-size:12px">H2</button>
+            <button onclick="fmtBlock('H3')" title="Heading 3" style="font-weight:600;font-size:11px">H3</button>
+            <div class="sep"></div>
+            <button onclick="fmtCmd('insertUnorderedList')" title="Bullet list">•&mdash;</button>
+            <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1.</button>
+            <button onclick="fmtCmd('formatBlock','blockquote')" title="Quote" style="font-size:15px">❝</button>
+            <button onclick="fmtLink()" title="Insert link (⌘K)">🔗</button>
+            <button onclick="fmtImage()" title="Insert image">🖼</button>
+            <button onclick="fmtHR()" title="Horizontal rule">&mdash;</button>
+            <div class="sep"></div>
+            <button onclick="fmtCodeBlock()" title="Code block" style="font-family:monospace;font-size:10px">{ }</button>
+            <button onclick="fmtTable()" title="Insert table">▦</button>
+            <div class="sep"></div>
+            <div style="position:relative;display:inline-block;" id="graph-menu-wrap">
+                <button onclick="toggleGraphMenu()" title="AI Tools" style="font-size:10px">⟁ AI Tools ▾</button>
+                <div id="graph-menu" style="display:none;position:absolute;top:28px;left:0;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;min-width:200px;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,0.4);">
+                    <div style="padding:3px 10px;font-size:8px;color:#808080;text-transform:uppercase;">Diagrams</div>
+                    <div class="graph-menu-item" onclick="generateGraph('architecture')">🏗 System Architecture</div>
+                    <div class="graph-menu-item" onclick="generateGraph('dataflow')">🔀 Data Flow</div>
+                    <div class="graph-menu-item" onclick="generateGraph('pipeline')">⚙ Pipeline</div>
+                    <div class="graph-menu-item" onclick="generateGraph('deployment')">☁ Deployment</div>
+                    <div class="graph-menu-item" onclick="generateGraph('sequence')">↔ Sequence</div>
+                    <div class="graph-menu-item" onclick="generateGraph('er')">◆ Entity-Relationship</div>
+                    <div style="border-top:1px solid var(--border-color);margin:2px 0;"></div>
+                    <div style="padding:3px 10px;font-size:8px;color:#808080;text-transform:uppercase;">Analysis</div>
+                    <div class="graph-menu-item" onclick="aiTool('critic')">🔍 Constructive Critic</div>
+                    <div class="graph-menu-item" onclick="aiTool('research')">🌐 Deep Research</div>
+                    <div class="graph-menu-item" onclick="aiTool('audit')">📋 Full Codebase Audit</div>
+                    <div class="graph-menu-item" onclick="aiTool('codemap')">🗂 Code Structure Map</div>
+                    <div class="graph-menu-item" onclick="aiTool('fulldocs')">📚 Generate Full Documentation</div>
+                    <div style="border-top:1px solid var(--border-color);margin:2px 0;"></div>
+                    <div class="graph-menu-item" onclick="fmtMermaid()">◇ Insert Empty Mermaid</div>
+                </div>
+            </div>
+            <div class="spacer"></div>
+            <button onclick="translateToEnglish()" title="Translate to English (opens new tab)" style="font-size:11px">EN</button>
+            <button onclick="saveFile()" title="Save (⌘S)" style="font-size:11px">💾</button>
+            <button onclick="refreshFile()" title="Reload file from disk (⌘R)" style="font-size:12px">↻</button>
+            <div class="sep"></div>
+            <span class="mode-label" id="mode-toggle" onclick="toggleMode()" title="Switch to source markdown (⌘⇧P)">Source ↗</span>
+        </div>
+
+        <div class="editor-content">
+            <!-- Hidden textarea — stores raw markdown, syncs with contentEditable -->
+            <div class="editor-pane" id="editor-pane" style="display: none;">
+                <textarea class="editor-input" id="editor-input"></textarea>
+            </div>
+            <!-- WYSIWYG editor — contentEditable rendered markdown -->
+            <div class="editor-pane preview-only" id="preview-pane" style="display: flex;">
+                <div class="editor-rendered" id="editor-rendered" contenteditable="true" spellcheck="true">
+                    <div class="editor-empty">
+                        <div class="editor-empty-content">
+                            <div class="editor-empty-title">MarkView</div>
+                            <div class="editor-empty-text">Open a file to begin</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating format toolbar — appears on text selection -->
+        <div class="format-bar" id="format-bar">
+            <button onclick="fmtCmd('bold')" title="Bold (⌘B)"><b>B</b></button>
+            <button onclick="fmtCmd('italic')" title="Italic (⌘I)"><i>I</i></button>
+            <button onclick="fmtCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
+            <button onclick="fmtCmd('code')" title="Inline code">⟨⟩</button>
+            <div class="sep"></div>
+            <button onclick="fmtHeading()" title="Heading">H</button>
+            <button onclick="fmtCmd('insertUnorderedList')" title="Bullet list">•</button>
+            <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1.</button>
+            <button onclick="fmtLink()" title="Link">🔗</button>
+            <button onclick="fmtCmd('formatBlock', 'blockquote')" title="Quote">❝</button>
+        </div>
+
+        <!-- Compact status bar -->
+        <div class="editor-status">
+            <div class="status-item">
+                <span id="status-words"></span>
+                <span id="status-chars"></span>
+                <span id="status-mode" style="display:none">Preview</span>
+            </div>
+            <div class="status-item">
+                <div id="toc-status"></div>
+                <div class="font-slider-wrap">
+                    <label>A</label>
+                    <input type="range" class="font-slider" id="font-slider" min="10" max="20" value="13" step="0.5" title="Font size">
+                    <label style="font-size:13px">A</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- markdown-it library -->
+    <script src="vendor/js/markdown-it.min.js"></script>
+
+    <!-- markdown-it plugins -->
+    <script src="vendor/js/markdown-it-footnote.min.js"></script>
+    <script src="vendor/js/markdown-it-task-lists.min.js"></script>
+    <script src="vendor/js/markdown-it-container.min.js"></script>
+
+    <!-- Mermaid -->
+    <script src="vendor/js/mermaid.min.js"></script>
+
+    <!-- KaTeX -->
+    <script src="vendor/js/katex.min.js"></script>
+    <script src="vendor/js/auto-render.min.js"></script>
+
+    <!-- D3.js + Dagre for interactive layered mermaid canvas -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@dagrejs/dagre@1.1.4/dist/dagre.min.js"></script>
+
+    <!-- Turndown: HTML → Markdown (for WYSIWYG save) -->
+    <script src="https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.min.js"></script>
+
+    <!-- Prism.js -->
+    <script src="vendor/js/prism.min.js"></script>
+    <script src="vendor/js/prism-line-numbers.min.js"></script>
+
+    <!-- Language support for Prism -->
+    <script src="vendor/js/prism-typescript.min.js"></script>
+    <script src="vendor/js/prism-python.min.js"></script>
+    <script src="vendor/js/prism-swift.min.js"></script>
+    <script src="vendor/js/prism-rust.min.js"></script>
+    <script src="vendor/js/prism-go.min.js"></script>
+    <script src="vendor/js/prism-java.min.js"></script>
+    <script src="vendor/js/prism-c.min.js"></script>
+    <script src="vendor/js/prism-cpp.min.js"></script>
+    <script src="vendor/js/prism-bash.min.js"></script>
+    <script src="vendor/js/prism-json.min.js"></script>
+    <script src="vendor/js/prism-yaml.min.js"></script>
+    <script src="vendor/js/prism-html.min.js"></script>
+    <script src="vendor/js/prism-css.min.js"></script>
+    <script src="vendor/js/prism-sql.min.js"></script>
+    <script src="vendor/js/prism-markdown.min.js"></script>
+
+    <script>
+        // ============================================================================
+        // INITIALIZATION
+        // ============================================================================
+
+        const state = {
+            mode: 'source', // 'source' or 'preview'
+            theme: localStorage.getItem('markview-theme') || 'light',
+            markdown: '',
+            headings: [],
+            activeHeadingId: null,
+            isRendering: false,
+            documentBaseURL: null, // file:// URL of the current document's directory
+        };
+
+        const DOM = {
+            container: document.querySelector('.editor-container'),
+            toolbar: document.querySelector('.editor-toolbar'),
+            editor: document.getElementById('editor-input'),
+            editorPane: document.getElementById('editor-pane'),
+            previewPane: document.getElementById('preview-pane'),
+            rendered: document.getElementById('editor-rendered'),
+            statusMode: document.getElementById('status-mode'),
+            statusWords: document.getElementById('status-words'),
+            statusChars: document.getElementById('status-chars'),
+            btnToggleMode: document.getElementById('btn-toggle-mode'),
+            tocStatus: document.getElementById('toc-status'),
+        };
+
+        // ============================================================================
+        // MARKDOWN-IT CONFIGURATION
+        // ============================================================================
+
+        let md = null;
+        try {
+            md = window.markdownit({
+                html: true,
+                breaks: true,
+                linkify: true,
+                typographer: true,
+            });
+
+            // Add plugins (check availability — CDN may fail)
+            if (window.markdownitFootnote) md.use(window.markdownitFootnote);
+            if (window.markdownitTaskLists) md.use(window.markdownitTaskLists, { label: true });
+
+            // Admonition containers
+            if (window.markdownitContainer) {
+                const containerConfig = {
+                    info:    { emoji: 'ℹ️', label: 'Info' },
+                    warning: { emoji: '⚠️', label: 'Warning' },
+                    tip:     { emoji: '💡', label: 'Tip' },
+                    danger:  { emoji: '🔴', label: 'Danger' },
+                };
+                Object.entries(containerConfig).forEach(([name, cfg]) => {
+                    md.use(window.markdownitContainer, name, {
+                        render: function (tokens, idx) {
+                            if (tokens[idx].nesting === 1) {
+                                return '<div class="admonition ' + name + '">\n<div class="admonition-title">' + cfg.emoji + ' ' + cfg.label + '</div>\n';
+                            } else {
+                                return '</div>\n';
+                            }
+                        }
+                    });
+                });
+            }
+
+            // Override image rendering for responsive sizing
+            md.renderer.rules.image = function (tokens, idx, options, env, renderer) {
+                const token = tokens[idx];
+                return '<img src="' + token.attrGet('src') + '" alt="' + token.content + '" title="' + (token.attrGet('title') || '') + '" style="max-width: 100%; height: auto; border-radius: 6px;">';
+            };
+        } catch (e) {
+            console.warn('markdown-it initialization failed:', e);
+        }
+
+        // ============================================================================
+        // MERMAID CONFIGURATION
+        // ============================================================================
+
+        try {
+            if (typeof mermaid !== 'undefined') {
+                mermaid.initialize({ startOnLoad: false, theme: state.theme === 'dark' ? 'dark' : 'default' });
+            }
+        } catch (e) {
+            console.warn('Mermaid initialization failed:', e);
+        }
+
+        // ============================================================================
+        // MARKDOWN RENDERING
+        // ============================================================================
+
+        function resolveLocalURLs() {
+            if (!state.documentBaseURL) return;
+
+            // Resolve relative image src to absolute file:// URLs
+            DOM.rendered.querySelectorAll('img').forEach(img => {
+                const src = img.getAttribute('src');
+                if (!src || src.startsWith('http://') || src.startsWith('https://')
+                    || src.startsWith('file://') || src.startsWith('data:')) return;
+                try {
+                    img.setAttribute('src', new URL(src, state.documentBaseURL).href);
+                } catch (e) {}
+            });
+
+            // Resolve relative link hrefs (skip anchors)
+            DOM.rendered.querySelectorAll('a').forEach(a => {
+                const href = a.getAttribute('href');
+                if (!href || href.startsWith('#') || href.startsWith('http://') || href.startsWith('https://')
+                    || href.startsWith('file://') || href.startsWith('mailto:') || href.startsWith('data:')) return;
+                try {
+                    a.setAttribute('href', new URL(href, state.documentBaseURL).href);
+                } catch (e) {}
+            });
+        }
+
+        function renderMarkdown() {
+            if (state.isRendering) return;
+            state.isRendering = true;
+
+            try {
+                const markdown = DOM.editor.value;
+                state.markdown = markdown;
+
+                // Extract YAML frontmatter if present
+                let frontmatter = null;
+                let contentMd = markdown;
+                const fmMatch = markdown.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+                if (fmMatch) {
+                    frontmatter = fmMatch[1];
+                    contentMd = fmMatch[2];
+                }
+
+                // Render markdown to HTML
+                let html;
+                if (md) {
+                    html = md.render(contentMd);
+                } else {
+                    // Fallback when markdown-it is unavailable
+                    html = '<pre style="white-space: pre-wrap; word-break: break-word;">'
+                        + markdown.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                        + '</pre>';
+                }
+
+                // Frontmatter panel (collapsible)
+                let fmPanel = '';
+                if (frontmatter) {
+                    const lines = frontmatter.split('\n').filter(l => l.trim());
+                    let rows = '';
+                    lines.forEach(line => {
+                        const colonIdx = line.indexOf(':');
+                        if (colonIdx > 0) {
+                            const key = line.substring(0, colonIdx).trim();
+                            let val = line.substring(colonIdx + 1).trim();
+                            // Color-code some values
+                            if (val === 'active') val = '<span style="color:#4ec9b0">●</span> ' + val;
+                            else if (val === 'deprecated') val = '<span style="color:#f44747">●</span> ' + val;
+                            else if (val === 'high') val = '<span style="color:#4ec9b0">▲</span> ' + val;
+                            else if (val === 'low') val = '<span style="color:#ce9178">▼</span> ' + val;
+                            // Arrays
+                            if (val.startsWith('[') && val.endsWith(']')) {
+                                const items = val.slice(1,-1).split(',').map(s => s.trim()).filter(Boolean);
+                                val = items.map(i => '<span style="background:var(--bg-tertiary);padding:1px 5px;border-radius:3px;font-size:10px;margin:1px;">' + i + '</span>').join(' ');
+                            }
+                            rows += '<tr><td style="padding:2px 8px;color:#808080;font-size:10px;white-space:nowrap;vertical-align:top;">' + key + '</td><td style="padding:2px 8px;font-size:10px;">' + val + '</td></tr>';
+                        }
+                    });
+                    fmPanel = `<details class="frontmatter-panel" open>
+                        <summary style="cursor:pointer;font-size:10px;color:#808080;padding:6px 10px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px 4px 0 0;user-select:none;">
+                            <span style="font-weight:600;">Metadata</span>
+                        </summary>
+                        <div style="background:var(--bg-secondary);border:1px solid var(--border-color);border-top:none;border-radius:0 0 4px 4px;padding:4px 0;">
+                            <table style="width:100%;border-collapse:collapse;">${rows}</table>
+                        </div>
+                    </details>`;
+                }
+
+                // Wrap in markdown-body class
+                html = fmPanel + '<div class="markdown-body">' + html + '</div>';
+
+                DOM.rendered.innerHTML = html;
+
+                // Resolve relative URLs (images, links) to absolute file:// paths
+                resolveLocalURLs();
+
+                // Convert mermaid code blocks
+                const mermaidBlocks = DOM.rendered.querySelectorAll('pre code.language-mermaid');
+                mermaidBlocks.forEach((code, idx) => {
+                    const pre = code.parentElement;
+                    const mermaidSource = code.textContent;
+
+                    // Check if this should be interactive D3 canvas (%%INTERACTIVE marker)
+                    // or standard Mermaid SVG rendering
+                    if (mermaidSource.includes('%%INTERACTIVE')) {
+                        // Interactive D3 canvas
+                        const container = document.createElement('div');
+                        container.className = 'mermaid-canvas';
+                        container.setAttribute('data-source', mermaidSource);
+                        container.id = 'mermaid-canvas-' + idx;
+                        const viewportH = window.innerHeight || 800;
+                        const canvasH = Math.max(viewportH - 120, 500);
+                        container.style.cssText = 'width:100%;height:' + canvasH + 'px;border:1px solid var(--border-color);border-radius:6px;margin:12px 0;position:relative;overflow:hidden;';
+                        pre.replaceWith(container);
+                        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;gap:8px;"><div style="width:20px;height:20px;border:2px solid #569cd6;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></div><span style="color:#808080;font-size:11px;">Building interactive graph...</span></div>';
+                        setTimeout(() => initMermaidCanvas(container, mermaidSource), 200);
+                    } else {
+                        // Standard Mermaid SVG rendering
+                        const div = document.createElement('div');
+                        div.className = 'mermaid';
+                        div.textContent = mermaidSource;
+                        div.setAttribute('data-source', mermaidSource);
+                        pre.replaceWith(div);
+                    }
+                });
+
+                // Highlight code blocks (Prism.js) — skip mermaid (already converted)
+                if (typeof Prism !== 'undefined') {
+                    setTimeout(() => {
+                        DOM.rendered.querySelectorAll('pre code').forEach(el => {
+                            Prism.highlightElement(el);
+                        });
+                    }, 0);
+                }
+
+                // Render mermaid diagrams
+                if (typeof mermaid !== 'undefined') {
+                    setTimeout(() => {
+                        try {
+                            const nodes = DOM.rendered.querySelectorAll('.mermaid');
+                            if (nodes.length > 0) {
+                                mermaid.run({ nodes: nodes });
+                            }
+                        } catch(e) {
+                            // Fallback for older mermaid API
+                            try { mermaid.contentLoaded(); } catch(e2) {}
+                        }
+                    }, 0);
+                }
+
+                // Render KaTeX
+                if (typeof renderMathInElement === 'function') {
+                    setTimeout(() => {
+                        try {
+                            renderMathInElement(DOM.rendered, {
+                                delimiters: [
+                                    { left: '$$', right: '$$', display: true },
+                                    { left: '$', right: '$', display: false },
+                                    { left: '\\(', right: '\\)', display: false },
+                                    { left: '\\[', right: '\\]', display: true }
+                                ]
+                            });
+                        } catch(e) {}
+                    }, 100);
+                }
+
+                // Extract headings
+                extractHeadings();
+
+                // Extract semantic blocks and send delta to Swift
+                try {
+                    const newBlocks = extractBlocks(markdown);
+                    const delta = diffBlocks(previousBlocks, newBlocks);
+                    previousBlocks = newBlocks; // reassign, don't spread (large arrays overflow stack)
+
+                    if (delta.added.length || delta.removed.length || delta.changed.length) {
+                        // Send only block metadata, not full content (avoid huge payloads)
+                        const slim = (blocks) => blocks.map(b => ({
+                            id: b.id, documentId: b.documentId, type: b.type,
+                            level: b.level, content: b.content, plainText: b.plainText,
+                            contentHash: b.contentHash, headingPath: b.headingPath,
+                            parentBlockId: b.parentBlockId, lineStart: b.lineStart,
+                            lineEnd: b.lineEnd, position: b.position,
+                            language: b.language, anchor: b.anchor
+                        }));
+                        sendToSwift('blocksChanged', {
+                            added: slim(delta.added),
+                            removed: delta.removed,
+                            changed: slim(delta.changed),
+                            unchanged: delta.unchanged
+                        });
+                    }
+                } catch(e) {
+                    console.warn('Block extraction error:', e);
+                }
+
+                // Update character count
+                updateStats();
+
+                // Send to Swift bridge
+                sendToSwift('contentChanged', {
+                    markdown: state.markdown,
+                    html: DOM.rendered.innerHTML
+                });
+            } catch (error) {
+                console.error('Render error:', error);
+            } finally {
+                state.isRendering = false;
+            }
+        }
+
+        // ============================================================================
+        // HEADING EXTRACTION & TOC
+        // ============================================================================
+
+        let headingIdCounter = 0;
+
+        function extractHeadings() {
+            const headings = [];
+            const headingMap = new Map();
+
+            DOM.rendered.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+                const level = parseInt(heading.tagName[1]);
+                let id = heading.id;
+
+                if (!id) {
+                    // Generate stable ID from text (Unicode-aware — supports Cyrillic, CJK, etc.)
+                    let text = heading.textContent.trim();
+                    id = text
+                        .toLowerCase()
+                        .replace(/\s+/g, '-')
+                        .replace(/[^\p{L}\p{N}-]/gu, '')
+                        .replace(/--+/g, '-')
+                        .replace(/^-+|-+$/g, '') || `heading-${headingIdCounter++}`;
+
+                    // Ensure uniqueness
+                    if (headingMap.has(id)) {
+                        let count = headingMap.get(id) + 1;
+                        headingMap.set(id, count);
+                        id = `${id}-${count}`;
+                    } else {
+                        headingMap.set(id, 1);
+                    }
+
+                    heading.id = id;
+                }
+
+                headings.push({
+                    id: id,
+                    level: level,
+                    text: heading.textContent.trim()
+                });
+            });
+
+            state.headings = headings;
+
+            // Update TOC in status
+            updateTOCStatus();
+
+            // Send to Swift
+            sendToSwift('headingsUpdated', headings);
+        }
+
+        function updateTOCStatus() {
+            const items = state.headings.slice(0, 5);
+            if (items.length === 0) {
+                DOM.tocStatus.innerHTML = '';
+            } else {
+                const tocHTML = 'Headings: ' + items.map(h => `<strong>${h.text}</strong>`).join(' → ');
+                DOM.tocStatus.innerHTML = tocHTML;
+            }
+        }
+
+        // ============================================================================
+        // BLOCK EXTRACTION (DDE Stage 1)
+        // ============================================================================
+
+        var previousBlocks = [];
+
+        function fnv1a(str) {
+            let hash = 0x811c9dc5;
+            for (let i = 0; i < str.length; i++) {
+                hash ^= str.charCodeAt(i);
+                hash = (hash * 0x01000193) >>> 0;
+            }
+            return hash.toString(16);
+        }
+
+        function extractBlocks(markdownText) {
+            const lines = markdownText.split('\n');
+            const blocks = [];
+            const headingStack = []; // current heading path
+            let currentBlock = null;
+            let position = 0;
+
+            function flushBlock() {
+                if (currentBlock && currentBlock.content.trim()) {
+                    currentBlock.contentHash = fnv1a(currentBlock.content);
+                    const pathKey = currentBlock.headingPath.join('/') + ':' + currentBlock.position;
+                    currentBlock.id = fnv1a(pathKey);
+                    currentBlock.plainText = currentBlock.content
+                        .replace(/[#*_`~\[\]()>!|]/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    blocks.push(currentBlock);
+                }
+            }
+
+            function newBlock(type, lineStart, level, language) {
+                return {
+                    id: '',
+                    documentId: '',
+                    type: type,
+                    level: level || null,
+                    content: '',
+                    plainText: '',
+                    contentHash: '',
+                    headingPath: [...headingStack],
+                    parentBlockId: null,
+                    lineStart: lineStart,
+                    lineEnd: lineStart,
+                    position: position++,
+                    language: language || null,
+                    anchor: null
+                };
+            }
+
+            let inCodeBlock = false;
+            let codeBlockLang = null;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+
+                // Code block fences
+                if (line.trimStart().startsWith('```')) {
+                    if (!inCodeBlock) {
+                        flushBlock();
+                        codeBlockLang = line.trim().slice(3).trim() || null;
+                        currentBlock = newBlock('codeBlock', i + 1, null, codeBlockLang);
+                        currentBlock.content = line + '\n';
+                        inCodeBlock = true;
+                        continue;
+                    } else {
+                        currentBlock.content += line;
+                        currentBlock.lineEnd = i + 1;
+                        inCodeBlock = false;
+                        flushBlock();
+                        currentBlock = null;
+                        continue;
+                    }
+                }
+
+                if (inCodeBlock) {
+                    currentBlock.content += line + '\n';
+                    currentBlock.lineEnd = i + 1;
+                    continue;
+                }
+
+                // Headings
+                const headingMatch = line.match(/^(#{1,6})\s+(.+)/);
+                if (headingMatch) {
+                    flushBlock();
+                    const level = headingMatch[1].length;
+                    const text = headingMatch[2].trim();
+
+                    // Update heading stack
+                    while (headingStack.length >= level) headingStack.pop();
+                    headingStack.push(text);
+
+                    currentBlock = newBlock('section', i + 1, level);
+                    currentBlock.content = line;
+                    currentBlock.lineEnd = i + 1;
+                    currentBlock.anchor = text.toLowerCase()
+                        .replace(/\s+/g, '-')
+                        .replace(/[^\p{L}\p{N}-]/gu, '')
+                        .replace(/--+/g, '-')
+                        .replace(/^-+|-+$/g, '');
+                    flushBlock();
+                    currentBlock = null;
+                    continue;
+                }
+
+                // Empty line — flush current block
+                if (line.trim() === '') {
+                    if (currentBlock) {
+                        currentBlock.content += '\n';
+                        currentBlock.lineEnd = i + 1;
+                    }
+                    flushBlock();
+                    currentBlock = null;
+                    continue;
+                }
+
+                // Table rows
+                if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+                    if (!currentBlock || currentBlock.type !== 'table') {
+                        flushBlock();
+                        currentBlock = newBlock('table', i + 1);
+                    }
+                    currentBlock.content += line + '\n';
+                    currentBlock.lineEnd = i + 1;
+                    continue;
+                }
+
+                // Blockquotes
+                if (line.trimStart().startsWith('>')) {
+                    if (!currentBlock || currentBlock.type !== 'quote') {
+                        flushBlock();
+                        currentBlock = newBlock('quote', i + 1);
+                    }
+                    currentBlock.content += line + '\n';
+                    currentBlock.lineEnd = i + 1;
+                    continue;
+                }
+
+                // List items
+                if (/^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line)) {
+                    if (!currentBlock || (currentBlock.type !== 'list' && currentBlock.type !== 'listItem')) {
+                        flushBlock();
+                        currentBlock = newBlock('list', i + 1);
+                    }
+                    currentBlock.content += line + '\n';
+                    currentBlock.lineEnd = i + 1;
+                    continue;
+                }
+
+                // Paragraph (default)
+                if (!currentBlock) {
+                    currentBlock = newBlock('paragraph', i + 1);
+                }
+                currentBlock.content += line + '\n';
+                currentBlock.lineEnd = i + 1;
+            }
+
+            // Flush last block
+            flushBlock();
+
+            return blocks;
+        }
+
+        function diffBlocks(oldBlocks, newBlocks) {
+            const oldMap = new Map(oldBlocks.map(b => [b.id, b]));
+            const newMap = new Map(newBlocks.map(b => [b.id, b]));
+
+            const added = [];
+            const removed = [];
+            const changed = [];
+            const unchanged = [];
+
+            // Find added and changed
+            for (const block of newBlocks) {
+                const old = oldMap.get(block.id);
+                if (!old) {
+                    added.push(block);
+                } else if (old.contentHash !== block.contentHash) {
+                    changed.push(block);
+                } else {
+                    unchanged.push(block.id);
+                }
+            }
+
+            // Find removed
+            for (const block of oldBlocks) {
+                if (!newMap.has(block.id)) {
+                    removed.push(block.id);
+                }
+            }
+
+            return { added, removed, changed, unchanged };
+        }
+
+        // IntersectionObserver for active heading
+        function setupHeadingObserver() {
+            const options = {
+                root: DOM.rendered,
+                rootMargin: '-80px 0px -66% 0px',
+                threshold: 0
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                let activeId = null;
+                for (let entry of entries) {
+                    if (entry.isIntersecting && entry.target.id) {
+                        activeId = entry.target.id;
+                        break;
+                    }
+                }
+
+                if (activeId !== state.activeHeadingId) {
+                    state.activeHeadingId = activeId;
+                    sendToSwift('scrollPosition', { activeHeadingId: activeId });
+                }
+            }, options);
+
+            // Observe headings
+            setTimeout(() => {
+                DOM.rendered.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(heading => {
+                    observer.observe(heading);
+                });
+            }, 100);
+        }
+
+        // ============================================================================
+        // STATS
+        // ============================================================================
+
+        function updateStats() {
+            const text = DOM.editor.value;
+            const words = text.trim().split(/\s+/).filter(w => w.length > 0).length;
+            const chars = text.length;
+
+            DOM.statusWords.textContent = `${words} words`;
+            DOM.statusChars.textContent = `${chars} chars`;
+        }
+
+        // ============================================================================
+        // FONT SIZE CONTROL
+        // ============================================================================
+
+        (function initFontSlider() {
+            const slider = document.getElementById('font-slider');
+            if (!slider) return;
+            const saved = localStorage.getItem('markview-font-size');
+            if (saved) { slider.value = saved; applyFontSize(parseFloat(saved)); }
+            slider.addEventListener('input', function() {
+                const size = parseFloat(this.value);
+                applyFontSize(size);
+                localStorage.setItem('markview-font-size', size);
+            });
+        })();
+
+        function applyFontSize(size) {
+            document.documentElement.style.setProperty('--base-font-size', size + 'px');
+            const rendered = document.getElementById('editor-rendered');
+            if (rendered) rendered.style.fontSize = size + 'px';
+        }
+
+        // ============================================================================
+        // WYSIWYG MODE — Rich text editing with markdown save
+        // ============================================================================
+
+        // Turndown instance for HTML → Markdown conversion
+        let turndownService = null;
+        function initTurndown() {
+            if (typeof TurndownService === 'undefined') return;
+            turndownService = new TurndownService({
+                headingStyle: 'atx',
+                codeBlockStyle: 'fenced',
+                bulletListMarker: '-',
+                emDelimiter: '*'
+            });
+            if (typeof turndownPluginGfm !== 'undefined') {
+                turndownService.use(turndownPluginGfm.gfm);
+            }
+            // Preserve mermaid — handle both old .mermaid divs and new .mermaid-canvas containers
+            turndownService.addRule('mermaid', {
+                filter: function(node) {
+                    return (node.classList && node.classList.contains('mermaid')) ||
+                           (node.classList && node.classList.contains('mermaid-canvas'));
+                },
+                replacement: function(content, node) {
+                    const source = node.getAttribute('data-source') || node.textContent;
+                    return '\n```mermaid\n' + source.trim() + '\n```\n';
+                }
+            });
+            // Preserve SVG elements (rendered mermaid) — don't try to convert them
+            turndownService.addRule('svg', {
+                filter: 'svg',
+                replacement: function() { return ''; }
+            });
+        }
+
+        function toggleMode() {
+            if (state.mode === 'source') { switchToPreview(); } else { switchToSource(); }
+        }
+
+        function switchToPreview() {
+            state.mode = 'preview';
+            DOM.editorPane.style.display = 'none';
+            DOM.previewPane.style.display = 'flex';
+            DOM.statusMode.textContent = 'WYSIWYG';
+            document.getElementById('wysiwyg-toolbar').style.display = 'flex';
+            document.getElementById('mode-toggle').textContent = 'Source ↗';
+            renderMarkdown();
+            setupHeadingObserver();
+            updateStats();
+        }
+
+        function switchToSource() {
+            state.mode = 'source';
+            // Sync WYSIWYG changes back to textarea before showing source
+            syncWysiwygToMarkdown();
+            DOM.editorPane.style.display = 'flex';
+            DOM.previewPane.style.display = 'none';
+            DOM.statusMode.textContent = 'Source';
+            document.getElementById('wysiwyg-toolbar').style.display = 'flex';
+            document.getElementById('mode-toggle').textContent = 'WYSIWYG ↗';
+            updateStats();
+            DOM.editor.focus();
+        }
+
+        // Track if user edited in WYSIWYG mode
+        let wysiwygDirty = false;
+
+        // Sync contentEditable HTML → markdown → textarea
+        function syncWysiwygToMarkdown() {
+            // Only run Turndown if user actually edited in WYSIWYG
+            if (!wysiwygDirty) return;
+            if (!turndownService) initTurndown();
+            if (!turndownService) return;
+
+            const html = DOM.rendered.innerHTML;
+            if (!html || html.includes('editor-empty')) return;
+
+            const md = turndownService.turndown(html);
+            if (md && md.trim().length > 0) {
+                DOM.editor.value = md;
+                state.markdown = md;
+            }
+        }
+
+        // Debounced change handler for contentEditable
+        let wysiwygTimer = null;
+        const rendered = document.getElementById('editor-rendered');
+
+        rendered.addEventListener('input', function() {
+            wysiwygDirty = true;
+            // Do NOT auto-sync via Turndown — it corrupts markdown formatting
+            // Turndown only runs on explicit Save (⌘S) or switch to Source mode
+        });
+
+        // Format commands for toolbar buttons
+        function fmtCmd(cmd, value) {
+            document.execCommand(cmd, false, value || null);
+            rendered.focus();
+        }
+
+        function fmtHeading() {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+            const node = sel.anchorNode.parentElement;
+            // Cycle: p → h2 → h3 → h4 → p
+            const tag = node.tagName;
+            let next = 'H2';
+            if (tag === 'H2') next = 'H3';
+            else if (tag === 'H3') next = 'H4';
+            else if (tag === 'H4') next = 'P';
+            document.execCommand('formatBlock', false, next);
+        }
+
+        function fmtBlock(tag) {
+            document.execCommand('formatBlock', false, tag);
+            rendered.focus();
+        }
+
+        function fmtLink() {
+            const url = prompt('URL:');
+            if (url) document.execCommand('createLink', false, url);
+        }
+
+        function fmtHR() {
+            document.execCommand('insertHorizontalRule');
+            rendered.focus();
+        }
+
+        function fmtImage() {
+            const url = prompt('Image URL or filename:');
+            if (!url) return;
+            const alt = prompt('Alt text:', 'image') || 'image';
+            document.execCommand('insertHTML', false, `<img src="${url}" alt="${alt}" style="max-width:100%">`);
+            rendered.focus();
+        }
+
+        function fmtCodeBlock() {
+            const lang = prompt('Language (e.g. python, javascript):', '') || '';
+            const placeholder = '// code here';
+            const html = `<pre><code class="language-${lang}">${placeholder}</code></pre><p><br></p>`;
+            document.execCommand('insertHTML', false, html);
+            rendered.focus();
+        }
+
+        function fmtMermaid() {
+            const types = {
+                '1': 'graph TD\\n    A[Start] --> B[Process]\\n    B --> C[End]',
+                '2': 'sequenceDiagram\\n    Alice->>Bob: Hello\\n    Bob-->>Alice: Hi',
+                '3': 'pie title Distribution\\n    "A" : 40\\n    "B" : 30\\n    "C" : 30',
+                '4': 'flowchart LR\\n    A --> B --> C'
+            };
+            const choice = prompt('Mermaid diagram type:\\n1 = Flowchart\\n2 = Sequence\\n3 = Pie\\n4 = Horizontal flow\\n\\nEnter number:', '1');
+            const code = types[choice] || types['1'];
+            // Insert as a code block that Turndown will preserve, then re-render will make it mermaid
+            const html = `<pre><code class="language-mermaid">${code.replace(/\\n/g, '\n')}</code></pre><p><br></p>`;
+            document.execCommand('insertHTML', false, html);
+            // Re-render to show the actual mermaid diagram
+            wysiwygDirty = true;
+            setTimeout(() => { renderMarkdown(); }, 100);
+        }
+
+        function fmtTable() {
+            const cols = parseInt(prompt('Columns:', '3')) || 3;
+            const rows = parseInt(prompt('Rows:', '3')) || 3;
+            let html = '<table><thead><tr>';
+            for (let c = 0; c < cols; c++) html += `<th>Header ${c+1}</th>`;
+            html += '</tr></thead><tbody>';
+            for (let r = 0; r < rows; r++) {
+                html += '<tr>';
+                for (let c = 0; c < cols; c++) html += '<td>&nbsp;</td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table><p><br></p>';
+            document.execCommand('insertHTML', false, html);
+            rendered.focus();
+        }
+
+        function fmtCode() {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            const code = document.createElement('code');
+            range.surroundContents(code);
+        }
+        // Override the generic code button
+        window.fmtCmd = function(cmd, value) {
+            if (cmd === 'code') { fmtCode(); return; }
+            document.execCommand(cmd, false, value || null);
+            rendered.focus();
+        };
+
+        // Show/hide floating toolbar on selection
+        document.addEventListener('selectionchange', function() {
+            const sel = window.getSelection();
+            const bar = document.getElementById('format-bar');
+            if (!sel.rangeCount || sel.isCollapsed || !rendered.contains(sel.anchorNode)) {
+                bar.classList.remove('visible');
+                return;
+            }
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            bar.style.left = Math.max(8, rect.left + rect.width/2 - 120) + 'px';
+            bar.style.top = Math.max(4, rect.top - 38) + 'px';
+            bar.classList.add('visible');
+        });
+
+        function saveFile() {
+            // Only convert WYSIWYG→markdown if user actually edited in WYSIWYG
+            if (wysiwygDirty) {
+                syncWysiwygToMarkdown();
+            }
+            sendToSwift('contentChanged', { markdown: DOM.editor.value });
+            sendToSwift('saveRequested', {});
+        }
+
+        function translateToEnglish() {
+            // Use original markdown from textarea, not Turndown-converted
+            sendToSwift('translateRequested', { markdown: DOM.editor.value, targetLang: 'English' });
+        }
+
+        function refreshFile() {
+            sendToSwift('refreshRequested', {});
+        }
+
+        function toggleGraphMenu() {
+            const menu = document.getElementById('graph-menu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+        // Close menu on click outside
+        document.addEventListener('click', e => {
+            const wrap = document.getElementById('graph-menu-wrap');
+            if (wrap && !wrap.contains(e.target)) {
+                document.getElementById('graph-menu').style.display = 'none';
+            }
+        });
+
+        function generateGraph(type) {
+            document.getElementById('graph-menu').style.display = 'none';
+            sendToSwift('generateGraph', { type: type });
+        }
+
+        function aiTool(tool) {
+            document.getElementById('graph-menu').style.display = 'none';
+            sendToSwift('aiTool', { tool: tool, content: DOM.editor.value.substring(0, 15000) });
+        }
+
+        // Keyboard shortcuts in WYSIWYG mode
+        rendered.addEventListener('keydown', function(e) {
+            if (e.metaKey || e.ctrlKey) {
+                if (e.key === 'b') { e.preventDefault(); fmtCmd('bold'); }
+                if (e.key === 'i') { e.preventDefault(); fmtCmd('italic'); }
+                if (e.key === 'k') { e.preventDefault(); fmtLink(); }
+                if (e.key === 's') { e.preventDefault(); saveFile(); }
+                if (e.key === 'r') { e.preventDefault(); refreshFile(); }
+            }
+            // Cmd+Shift+P → switch to source
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'p') {
+                e.preventDefault(); switchToSource();
+            }
+        });
+
+        // Also catch Cmd+S in source mode
+        DOM.editor.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault(); saveFile();
+            }
+        });
+
+        // Escape from source → back to WYSIWYG
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && state.mode === 'source') { switchToPreview(); }
+        });
+
+        // ============================================================================
+        // THEME SWITCHING
+        // ============================================================================
+
+        function applyTheme(theme) {
+            if (state.theme === theme) return;
+            state.theme = theme;
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('markview-theme', theme);
+
+            const isDark = theme === 'dark';
+
+            if (typeof mermaid !== 'undefined') {
+                try { mermaid.initialize({ theme: isDark ? 'dark' : 'default' }); } catch(e) {}
+            }
+        }
+
+        function toggleTheme() {
+            const newTheme = state.theme === 'light' ? 'dark' : 'light';
+            applyTheme(newTheme);
+        }
+
+        // ============================================================================
+        // SWIFT BRIDGE
+        // ============================================================================
+
+        function sendToSwift(type, payload) {
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
+                window.webkit.messageHandlers.bridge.postMessage({
+                    type: type,
+                    payload: payload
+                });
+            }
+        }
+
+        // Global functions called from Swift
+        window.setContent = function(markdown) {
+            DOM.editor.value = markdown;
+            state.markdown = markdown;
+            wysiwygDirty = false; // Fresh content — don't run Turndown until user edits
+            initTurndown();
+            switchToPreview();
+        };
+
+        window.setDocumentBase = function(baseURL) {
+            state.documentBaseURL = baseURL;
+        };
+
+        window.setTheme = function(theme) {
+            applyTheme(theme);
+        };
+
+        window.toggleSourceMode = function() {
+            toggleMode();
+        };
+
+        window.scrollToHeading = function(id) {
+            const heading = document.getElementById(id);
+            if (heading) {
+                heading.scrollIntoView({ behavior: 'smooth' });
+            }
+        };
+
+        window.scrollToText = function(searchText) {
+            if (!searchText || !DOM.rendered) return;
+            // Walk all text-containing elements and find one that contains the search text
+            const elements = DOM.rendered.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th,pre,blockquote,div');
+            const needle = searchText.toLowerCase().trim();
+            let found = null;
+            for (const el of elements) {
+                if (el.textContent && el.textContent.toLowerCase().includes(needle)) {
+                    found = el;
+                    break;
+                }
+            }
+            if (found) {
+                found.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Highlight briefly
+                found.style.outline = '2px solid #569cd6';
+                found.style.outlineOffset = '4px';
+                found.style.transition = 'outline 0.3s';
+                setTimeout(() => { found.style.outline = ''; found.style.outlineOffset = ''; }, 2500);
+            }
+        };
+
+        window.getHTML = function() {
+            return DOM.rendered.innerHTML;
+        };
+
+        window.getMarkdown = function() {
+            return DOM.editor.value;
+        };
+
+        window.preparePrintLayout = function() {
+            switchToPreview();
+
+            // Hide chrome
+            DOM.toolbar.style.display = 'none';
+            document.querySelector('.editor-status').style.display = 'none';
+
+            // Unlock ALL height/overflow constraints so content expands to full length.
+            // Without this, webView.pdf() only sees one viewport = one page.
+            document.documentElement.style.cssText += '; height: auto !important; overflow: visible !important;';
+            document.body.style.cssText += '; height: auto !important; overflow: visible !important;';
+
+            const container = document.querySelector('.editor-container');
+            const content = document.querySelector('.editor-content');
+            container.style.height = 'auto';
+            container.style.overflow = 'visible';
+            content.style.overflow = 'visible';
+            content.style.height = 'auto';
+            content.style.flex = 'none';
+            DOM.previewPane.style.overflow = 'visible';
+            DOM.previewPane.style.height = 'auto';
+            DOM.previewPane.style.flex = 'none';
+            DOM.rendered.style.overflow = 'visible';
+            DOM.rendered.style.height = 'auto';
+            DOM.rendered.style.flex = 'none';
+            DOM.rendered.style.padding = '40px';
+
+            // Inject print pagination rules
+            const style = document.createElement('style');
+            style.id = 'markview-print-styles';
+            style.textContent = `
+                img, .mermaid, table, pre, .admonition, blockquote {
+                    break-inside: avoid !important;
+                    page-break-inside: avoid !important;
+                }
+                h1, h2, h3, h4, h5, h6 {
+                    break-after: avoid !important;
+                    page-break-after: avoid !important;
+                }
+                table { table-layout: fixed !important; width: 100% !important; word-break: break-word !important; }
+                pre { white-space: pre-wrap !important; word-break: break-word !important; }
+                img { max-width: 100% !important; height: auto !important; }
+                .mermaid, .mermaid svg { max-width: 100% !important; overflow: visible !important; }
+            `;
+            document.head.appendChild(style);
+        };
+
+        window.restoreEditLayout = function() {
+            // Remove print styles
+            const ps = document.getElementById('markview-print-styles');
+            if (ps) ps.remove();
+
+            // Restore chrome
+            DOM.toolbar.style.display = '';
+            document.querySelector('.editor-status').style.display = '';
+
+            // Restore all layout constraints
+            document.documentElement.style.height = '';
+            document.documentElement.style.overflow = '';
+            document.body.style.height = '';
+            document.body.style.overflow = '';
+
+            const container = document.querySelector('.editor-container');
+            const content = document.querySelector('.editor-content');
+            container.style.height = '';
+            container.style.overflow = '';
+            content.style.overflow = '';
+            content.style.height = '';
+            content.style.flex = '';
+            DOM.previewPane.style.overflow = '';
+            DOM.previewPane.style.height = '';
+            DOM.previewPane.style.flex = '';
+            DOM.rendered.style.overflow = '';
+            DOM.rendered.style.height = '';
+            DOM.rendered.style.flex = '';
+            DOM.rendered.style.padding = '';
+
+            switchToSource();
+        };
+
+        // ============================================================================
+        // EVENT LISTENERS
+        // ============================================================================
+
+        DOM.editor.addEventListener('input', () => {
+            renderMarkdown();
+            updateStats();
+        });
+
+        DOM.btnToggleMode.addEventListener('click', toggleMode);
+        // Intercept all link clicks in rendered content
+        DOM.rendered.addEventListener('click', function(e) {
+            const link = e.target.closest('a');
+            if (!link) return;
+
+            const rawHref = link.getAttribute('href');
+            if (!rawHref) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Anchor links — scroll to heading in-page
+            if (rawHref.startsWith('#')) {
+                const targetId = decodeURIComponent(rawHref.substring(1));
+                const target = document.getElementById(targetId);
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                    sendToSwift('scrollPosition', { activeHeadingId: targetId });
+                }
+                return;
+            }
+
+            // Use link.href (DOM property) which resolves relative paths against the page's baseURL
+            // e.g., "./other.md" → "file:///path/to/doc/dir/other.md"
+            sendToSwift('linkClicked', { href: link.href });
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Cmd/Ctrl+Shift+P to toggle mode
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyP') {
+                e.preventDefault();
+                toggleMode();
+            }
+            // Cmd/Ctrl+Shift+T to toggle theme
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'KeyT') {
+                e.preventDefault();
+                toggleTheme();
+            }
+        });
+
+        // ============================================================================
+        // INITIALIZATION
+        // ============================================================================
+
+        function init() {
+            // Auto-detect document base URL from the page's baseURI
+            // (set by loadHTMLString(html, baseURL: documentDir))
+            if (!state.documentBaseURL && document.baseURI && document.baseURI.startsWith('file://')) {
+                state.documentBaseURL = document.baseURI;
+            }
+
+            // Set initial theme
+            applyTheme(state.theme);
+
+            // Focus editor
+            DOM.editor.focus();
+
+            // Send ready signal to Swift
+            sendToSwift('ready', {});
+        }
+
+        // Initialize when DOM is ready
+        // ============================================================================
+        // D3 INTERACTIVE CANVAS FOR MERMAID DIAGRAMS
+        // ============================================================================
+
+        function initMermaidCanvas(container, mermaidSource) {
+            if (typeof d3 === 'undefined' || typeof dagre === 'undefined') {
+                container.innerHTML = '<div style="padding:20px;color:#808080;">Loading libraries...</div>';
+                return;
+            }
+
+            const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+            const bg = isDark ? '#1e1e1e' : '#ffffff';
+            const textColor = isDark ? '#d4d4d4' : '#1e1e1e';
+            const linkColor = isDark ? '#555' : '#bbb';
+            const tc = {service:'#4ec9b0',database:'#c586c0',api:'#569cd6',queue:'#ce9178',
+                system:'#9cdcfe',gateway:'#dcdcaa',cache:'#d7ba7d',pipeline:'#dcdcaa',
+                worker:'#ce9178',scheduler:'#c586c0',process:'#4ec9b0',strategy:'#569cd6',
+                risk:'#f44747',instrument:'#c586c0',default:'#808080'};
+            const groupColors = ['#264f78','#2d4a22','#4a2d22','#2d2d4a','#4a4a22','#224a4a'];
+
+            function guessType(label) {
+                const l = label.toLowerCase();
+                if (l.includes('db') || l.includes('database') || l.includes('postgres') || l.includes('redis') || l.includes('mongo') || l.includes('sql')) return 'database';
+                if (l.includes('api') || l.includes('endpoint') || l.includes('rest') || l.includes('grpc')) return 'api';
+                if (l.includes('queue') || l.includes('kafka') || l.includes('rabbit') || l.includes('nats')) return 'queue';
+                if (l.includes('gateway') || l.includes('nginx') || l.includes('proxy') || l.includes('cdn')) return 'gateway';
+                if (l.includes('pipeline') || l.includes('flow') || l.includes('stage')) return 'pipeline';
+                if (l.includes('service') || l.includes('svc') || l.includes('worker')) return 'service';
+                return 'default';
+            }
+
+            const {nodes, links, groups} = parseMermaid(mermaidSource);
+            if (nodes.length === 0) { container.innerHTML = '<div style="padding:20px;color:#808080;font-size:11px;">No nodes found</div>'; return; }
+
+            nodes.forEach(n => { n.type = guessType(n.label); n.color = tc[n.type] || tc.default; });
+            const uniqueGroups = [...new Set(nodes.map(n=>n.group).filter(Boolean))];
+            const groupColorMap = {};
+            uniqueGroups.forEach((g,i) => { groupColorMap[g] = groupColors[i % groupColors.length]; });
+
+            // Dagre layout — layered, no overlaps
+            const dagreGraph = new dagre.graphlib.Graph({compound:true});
+            dagreGraph.setGraph({rankdir:'TB', nodesep:40, ranksep:60, edgesep:20, marginx:30, marginy:30});
+            dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+            // Add groups as parent nodes
+            uniqueGroups.forEach(g => { dagreGraph.setNode('group_'+g, {label:g, clusterLabelPos:'top', style:'fill:none'}); });
+
+            // Add nodes — calculate size based on label lines
+            nodes.forEach(n => {
+                const lines = n.label.replace(/<br\s*\/?>/gi, '\n').split('\n');
+                const maxLineLen = Math.max(...lines.map(l => l.trim().length));
+                const w = Math.max(maxLineLen * 7.5 + 20, 70);
+                const h = 20 + lines.length * 14;
+                dagreGraph.setNode(n.id, {label:n.label, width:w, height:h});
+                if (n.group) dagreGraph.setParent(n.id, 'group_'+n.group);
+            });
+
+            // Add edges
+            links.forEach(l => { dagreGraph.setEdge(l.source, l.target, {label:l.label||''}); });
+
+            dagre.layout(dagreGraph);
+
+            // Apply positions
+            nodes.forEach(n => {
+                const pos = dagreGraph.node(n.id);
+                if (pos) { n.x = pos.x; n.y = pos.y; n.w = pos.width; n.h = pos.height; }
+            });
+
+            const w = container.clientWidth || 800;
+            const h = container.clientHeight || 600;
+            container.innerHTML = '';
+
+            // Popup element
+            const popup = document.createElement('div');
+            popup.className = 'canvas-popup';
+            popup.id = 'popup-'+container.id;
+            container.appendChild(popup);
+
+            const svg = d3.select(container).append('svg')
+                .attr('width','100%').attr('height','100%').style('background',bg);
+            const g = svg.append('g');
+
+            // Arrow marker
+            svg.append('defs').append('marker')
+                .attr('id','arr-'+container.id).attr('viewBox','0 -5 10 10')
+                .attr('refX',16).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6)
+                .attr('orient','auto').append('path').attr('d','M0,-5L10,0L0,5').attr('fill',linkColor);
+
+            // Group backgrounds
+            uniqueGroups.forEach((gName,i) => {
+                const members = nodes.filter(n=>n.group===gName);
+                if (!members.length) return;
+                const pad = 20;
+                const x1 = d3.min(members, d=>d.x-d.w/2)-pad, y1 = d3.min(members, d=>d.y-d.h/2)-pad-12;
+                const x2 = d3.max(members, d=>d.x+d.w/2)+pad, y2 = d3.max(members, d=>d.y+d.h/2)+pad;
+                g.append('rect').attr('x',x1).attr('y',y1).attr('width',x2-x1).attr('height',y2-y1)
+                    .attr('rx',8).attr('ry',8).attr('fill',groupColorMap[gName]||'#333')
+                    .attr('fill-opacity',0.12).attr('stroke',groupColorMap[gName]||'#555').attr('stroke-opacity',0.3);
+                g.append('text').attr('x',x1+6).attr('y',y1+10).attr('font-size',9)
+                    .attr('fill','#808080').attr('font-weight','bold').text(gName);
+            });
+
+            // Build node map for quick lookup
+            const nodeById = {};
+            nodes.forEach(n => { nodeById[n.id] = n; });
+
+            // Resolve link source/target to node objects
+            links.forEach(l => {
+                if (typeof l.source === 'string') l.srcNode = nodeById[l.source];
+                else l.srcNode = l.source;
+                if (typeof l.target === 'string') l.tgtNode = nodeById[l.target];
+                else l.tgtNode = l.target;
+            });
+
+            // Edges
+            const edgeGroup = g.append('g');
+            const edgeElements = [];
+            links.forEach((l,i) => {
+                if (!l.srcNode || !l.tgtNode) return;
+                const line = edgeGroup.append('line')
+                    .attr('x1',l.srcNode.x).attr('y1',l.srcNode.y)
+                    .attr('x2',l.tgtNode.x).attr('y2',l.tgtNode.y)
+                    .attr('stroke',linkColor).attr('stroke-width',1.5)
+                    .attr('marker-end','url(#arr-'+container.id+')')
+                    .style('cursor','pointer')
+                    .attr('data-idx',i);
+
+                const labelEl = l.label ? edgeGroup.append('text')
+                    .attr('x',(l.srcNode.x+l.tgtNode.x)/2).attr('y',(l.srcNode.y+l.tgtNode.y)/2-4)
+                    .attr('font-size',8).attr('fill','#808080').attr('text-anchor','middle')
+                    .text(l.label).style('pointer-events','none').attr('data-idx',i) : null;
+
+                edgeElements.push({line, labelEl, link: l});
+
+                line.on('click', (event) => {
+                    event.stopPropagation();
+                    showPopup(popup, event.pageX-container.getBoundingClientRect().left,
+                        event.pageY-container.getBoundingClientRect().top,
+                        `<div class="popup-title">${l.srcNode.label} → ${l.tgtNode.label}</div>
+                         <div class="popup-type">Relationship: ${l.label||'depends_on'}</div>
+                         <div class="popup-actions">
+                           <input class="popup-input" id="edge-prompt-${container.id}" placeholder="Ask AI to change..." />
+                           <button class="popup-btn" onclick="aiEditGraph('${container.id}','Change relationship between ${l.srcNode.label} and ${l.tgtNode.label}: '+document.getElementById('edge-prompt-${container.id}').value)">AI Edit</button>
+                         </div>`);
+                });
+            });
+
+            // Function to update all edges connected to a node
+            function updateEdges() {
+                edgeElements.forEach(({line, labelEl, link}) => {
+                    if (!link.srcNode || !link.tgtNode) return;
+                    line.attr('x1',link.srcNode.x).attr('y1',link.srcNode.y)
+                        .attr('x2',link.tgtNode.x).attr('y2',link.tgtNode.y);
+                    if (labelEl) labelEl.attr('x',(link.srcNode.x+link.tgtNode.x)/2)
+                        .attr('y',(link.srcNode.y+link.tgtNode.y)/2-4);
+                });
+            }
+
+            // Nodes — draggable with edge updates
+            const nodeGroup = g.append('g');
+            nodes.forEach(n => {
+                const ng = nodeGroup.append('g')
+                    .attr('transform',`translate(${n.x},${n.y})`)
+                    .attr('data-id',n.id).attr('data-group',n.group||'')
+                    .style('cursor','grab')
+                    .call(d3.drag()
+                        .on('drag', function(event) {
+                            n.x = event.x; n.y = event.y;
+                            d3.select(this).attr('transform',`translate(${n.x},${n.y})`);
+                            updateEdges();
+                        })
+                    );
+
+                ng.append('rect').attr('rx',6).attr('ry',6)
+                    .attr('width',n.w||70).attr('height',n.h||32)
+                    .attr('x',-(n.w||70)/2).attr('y',-(n.h||32)/2)
+                    .attr('fill',n.color).attr('fill-opacity',0.15)
+                    .attr('stroke',n.color).attr('stroke-width',1.5);
+
+                // Multi-line label support: split on <br/> or <br>
+                const labelLines = n.label.replace(/<br\s*\/?>/gi, '\n').split('\n');
+                const textEl = ng.append('text').attr('text-anchor','middle')
+                    .attr('font-size',10).attr('fill',textColor).style('pointer-events','none');
+                labelLines.forEach((line, li) => {
+                    textEl.append('tspan').attr('x',0)
+                        .attr('dy', li === 0 ? -(labelLines.length-1)*6 + 4 : 13)
+                        .text(line.trim());
+                });
+
+                ng.on('click', (event) => {
+                    event.stopPropagation();
+                    const rect = container.getBoundingClientRect();
+                    showPopup(popup, event.pageX-rect.left, event.pageY-rect.top,
+                        `<div class="popup-title">${n.label}</div>
+                         <div class="popup-type">[${n.type}] ${n.group?'• '+n.group:''}</div>
+                         <div class="popup-actions">
+                           <input class="popup-input" id="node-prompt-${container.id}" placeholder="Ask AI: remove, replace, modify..." />
+                           <button class="popup-btn" onclick="aiEditGraph('${container.id}','Regarding ${n.label}: '+document.getElementById('node-prompt-${container.id}').value)">AI Edit</button>
+                           <button class="popup-btn danger" onclick="aiEditGraph('${container.id}','Remove ${n.label} from the diagram and adjust connections')">Delete</button>
+                         </div>`);
+                });
+            });
+
+            // Close popup on background click
+            svg.on('click', () => { popup.style.display = 'none'; });
+
+            // Zoom
+            const zoom = d3.zoom().scaleExtent([0.1,5]).on('zoom', e => g.attr('transform', e.transform));
+            svg.call(zoom);
+
+            // Auto-fit
+            const graphBounds = g.node().getBBox();
+            if (graphBounds.width > 0) {
+                const scale = Math.min(w/(graphBounds.width+60), h/(graphBounds.height+60), 1.5);
+                const tx = (w - graphBounds.width*scale)/2 - graphBounds.x*scale;
+                const ty = (h - graphBounds.height*scale)/2 - graphBounds.y*scale;
+                svg.call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
+            }
+
+            // Filter + controls bar
+            const filterBar = document.createElement('div');
+            filterBar.style.cssText = 'position:absolute;top:4px;left:4px;display:flex;gap:3px;flex-wrap:wrap;max-width:80%;';
+            const btnStyle = `padding:2px 6px;border:1px solid #3c3c3c;background:${isDark?'#252526':'#f3f3f3'};color:${textColor};border-radius:3px;font-size:9px;cursor:pointer;`;
+
+            // "All" filter
+            filterBar.innerHTML = `<button style="${btnStyle}" onclick="filterCanvasGroup('${container.id}','all')">All</button>`;
+
+            // Group filter buttons
+            uniqueGroups.forEach(gName => {
+                const btn = document.createElement('button');
+                btn.style.cssText = btnStyle;
+                btn.textContent = gName;
+                btn.onclick = () => filterCanvasGroup(container.id, gName);
+                filterBar.appendChild(btn);
+            });
+            container.appendChild(filterBar);
+
+            // Bottom controls
+            const ctrl = document.createElement('div');
+            ctrl.style.cssText = 'position:absolute;bottom:4px;right:4px;display:flex;gap:4px;align-items:center;';
+            ctrl.innerHTML = `
+                <span style="font-size:8px;color:#808080;">${nodes.length} nodes, ${links.length} edges</span>
+            `;
+            container.appendChild(ctrl);
+
+            // Store references for filtering
+            container._canvasData = {nodes, links, edgeElements, nodeGroup, edgeGroup, uniqueGroups};
+        }
+
+        function showPopup(popup, x, y, html) {
+            popup.innerHTML = html;
+            popup.style.display = 'block';
+            popup.style.left = Math.min(x, popup.parentElement.clientWidth - 200) + 'px';
+            popup.style.top = Math.min(y, popup.parentElement.clientHeight - 150) + 'px';
+        }
+
+        function filterCanvasGroup(containerId, groupName) {
+            const container = document.getElementById(containerId);
+            if (!container || !container._canvasData) return;
+            const {nodes, edgeElements, nodeGroup, edgeGroup} = container._canvasData;
+
+            nodeGroup.selectAll('g').each(function() {
+                const el = d3.select(this);
+                const group = el.attr('data-group');
+                const show = groupName === 'all' || group === groupName;
+                el.style('opacity', show ? 1 : 0.08);
+                el.style('pointer-events', show ? 'all' : 'none');
+            });
+
+            edgeElements.forEach(({line, labelEl, link}) => {
+                const srcGroup = link.srcNode?.group || '';
+                const tgtGroup = link.tgtNode?.group || '';
+                const show = groupName === 'all' || srcGroup === groupName || tgtGroup === groupName;
+                line.style('opacity', show ? 1 : 0.05);
+                if (labelEl) labelEl.style('opacity', show ? 1 : 0.05);
+            });
+        }
+
+        function aiEditGraph(containerId, instruction) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const source = container.getAttribute('data-source');
+            // Close popup
+            container.querySelector('.canvas-popup').style.display = 'none';
+            // Send mermaid source + instruction to AI
+            sendToSwift('generateGraph', {
+                type: 'edit',
+                editInstruction: instruction,
+                currentMermaid: source
+            });
+        }
+
+        // Parse mermaid code into {nodes, links, groups}
+        function parseMermaid(code) {
+            const nodes = [], links = [], groups = [];
+            const nodeMap = {};
+            const lines = code.split('\n');
+            let currentGroup = null;
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.startsWith('%%') || trimmed.startsWith('classDef') ||
+                    trimmed.startsWith('class ') || trimmed.startsWith('pie')) continue;
+
+                // Track subgroups
+                const sgMatch = trimmed.match(/^subgraph\s+(?:"([^"]+)"|(\S+))/);
+                if (sgMatch) {
+                    currentGroup = sgMatch[1] || sgMatch[2];
+                    groups.push(currentGroup);
+                    continue;
+                }
+                if (trimmed === 'end') { currentGroup = null; continue; }
+                if (trimmed.startsWith('graph') || trimmed.startsWith('flowchart') ||
+                    trimmed.startsWith('erDiagram') || trimmed.startsWith('sequenceDiagram')) continue;
+
+                // Match edges: A --> B, A -->|label| B
+                const edgeMatch = trimmed.match(/^(\w+)(?:\[([^\]]*)\])?\s*(-+->|-->|==>|-.->|--)\s*(?:\|([^|]*)\|)?\s*(\w+)(?:\[([^\]]*)\])?/);
+                if (edgeMatch) {
+                    const [_, srcId, srcLabel, arrow, edgeLabel, tgtId, tgtLabel] = edgeMatch;
+                    if (!nodeMap[srcId]) { nodeMap[srcId] = {id:srcId, label:srcLabel||srcId, group:currentGroup}; nodes.push(nodeMap[srcId]); }
+                    else { if (srcLabel) nodeMap[srcId].label = srcLabel; if (currentGroup && !nodeMap[srcId].group) nodeMap[srcId].group = currentGroup; }
+                    if (!nodeMap[tgtId]) { nodeMap[tgtId] = {id:tgtId, label:tgtLabel||tgtId, group:currentGroup}; nodes.push(nodeMap[tgtId]); }
+                    else { if (tgtLabel) nodeMap[tgtId].label = tgtLabel; if (currentGroup && !nodeMap[tgtId].group) nodeMap[tgtId].group = currentGroup; }
+                    links.push({source:srcId, target:tgtId, label:edgeLabel||''});
+                    continue;
+                }
+
+                // Match standalone nodes: A[Label] or A{Label} or A(Label) or A((Label))
+                const nodeMatch = trimmed.match(/^(\w+)[\[({]+([^\]})]+)[\]})]+/);
+                if (nodeMatch) {
+                    const [_, id, label] = nodeMatch;
+                    if (!nodeMap[id]) { nodeMap[id] = {id, label, group:currentGroup}; nodes.push(nodeMap[id]); }
+                    else { nodeMap[id].label = label; if (currentGroup) nodeMap[id].group = currentGroup; }
+                    continue;
+                }
+
+                // ER diagram: Entity ||--o{ Other : relation
+                const erMatch = trimmed.match(/^(\w+)\s+(\|[|o{}<>-]+)\s+(\w+)\s*:\s*(.+)/);
+                if (erMatch) {
+                    const [_, src, rel, tgt, label] = erMatch;
+                    if (!nodeMap[src]) { nodeMap[src] = {id:src, label:src, group:currentGroup}; nodes.push(nodeMap[src]); }
+                    if (!nodeMap[tgt]) { nodeMap[tgt] = {id:tgt, label:tgt, group:currentGroup}; nodes.push(nodeMap[tgt]); }
+                    links.push({source:src, target:tgt, label:label.trim()});
+                    continue;
+                }
+
+                // C4 syntax: Component(id, "Label", "Tech", "Description")
+                const c4Match = trimmed.match(/^(?:Component|Container|System|Person|ComponentDb|ContainerDb|SystemDb|System_Ext|Container_Ext|Component_Ext)\((\w+),\s*"([^"]+)"(?:,\s*"([^"]*)")?(?:,\s*"([^"]*)")?\)/);
+                if (c4Match) {
+                    const [_, id, label, tech, desc] = c4Match;
+                    if (!nodeMap[id]) { nodeMap[id] = {id, label: label + (tech ? ' ['+tech+']' : ''), group:currentGroup, description:desc||''}; nodes.push(nodeMap[id]); }
+                    continue;
+                }
+
+                // C4 Container_Boundary / Boundary
+                const boundaryMatch = trimmed.match(/^(?:Container_Boundary|Boundary|Enterprise_Boundary|System_Boundary)\((\w+),\s*"([^"]+)"\)/);
+                if (boundaryMatch) {
+                    currentGroup = boundaryMatch[2];
+                    groups.push(currentGroup);
+                    continue;
+                }
+
+                // C4 Relations: Rel(from, to, "label"), BiRel, Rel_D, Rel_U, Rel_L, Rel_R
+                const relMatch = trimmed.match(/^(?:Rel|BiRel|Rel_D|Rel_U|Rel_L|Rel_R|Rel_Back)\((\w+),\s*(\w+),\s*"([^"]+)"(?:,\s*"([^"]*)")?\)/);
+                if (relMatch) {
+                    const [_, src, tgt, label] = relMatch;
+                    if (nodeMap[src] && nodeMap[tgt]) {
+                        links.push({source:src, target:tgt, label:label});
+                    }
+                    continue;
+                }
+            }
+            return {nodes, links, groups};
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>

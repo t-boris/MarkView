@@ -1,0 +1,174 @@
+MarkView macOS App - Swift Source Files
+=========================================
+
+Created on: 2026-03-25
+Target: macOS 13.0+ (Ventura)
+Framework: SwiftUI + WKWebView
+
+DIRECTORY STRUCTURE
+===================
+
+MarkView/
+├── App/
+│   └── MarkViewApp.swift
+├── Models/
+│   ├── FileNode.swift
+│   ├── DocumentState.swift
+│   ├── ThemeManager.swift
+│   └── WorkspaceManager.swift
+├── Views/
+│   ├── ContentView.swift
+│   ├── FileTreeView.swift
+│   ├── EditorView.swift
+│   ├── TOCView.swift
+│   └── TabBarView.swift
+└── Bridge/
+    ├── WebViewBridge.swift
+    └── PDFExporter.swift
+
+TOTAL: 12 Swift source files
+
+FILE DESCRIPTIONS
+==================
+
+APP LAYER
+---------
+MarkViewApp.swift
+  - Main entry point with @main attribute
+  - Document-based app for opening .md files
+  - Menu bar: File (Open, Open Folder, Save, Export PDF), View (Toggle Theme, TOC, File Tree)
+  - Keyboard shortcuts configured
+  - Environment object setup (ThemeManager, WorkspaceManager)
+
+MODEL LAYER
+-----------
+FileNode.swift
+  - Represents file/folder in workspace tree
+  - Identifiable, ObservableObject, Hashable
+  - Recursive tree loading
+  - Markdown file detection
+  - Sorting: folders first, then alphabetical
+
+DocumentState.swift
+  - HeadingItem: Table of contents entry
+  - OpenTab: Represents open file with state
+  - Includes content, modified flag, headings, scroll position
+
+ThemeManager.swift
+  - ObservableObject for theme management
+  - @AppStorage integration for persistence
+  - Supports: Light, Dark, System themes
+  - Notifies observers of theme changes
+  - CSS class and color helpers
+
+WorkspaceManager.swift
+  - Manages open files and folders
+  - Tab system with active tab tracking
+  - File watching via DispatchSource
+  - Recent files persistence (JSON)
+  - Markdown heading extraction
+  - File I/O operations
+
+VIEW LAYER
+----------
+ContentView.swift
+  - Main 3-panel layout via NavigationSplitView
+  - Left: FileTreeView (togglable)
+  - Center: TabBarView + EditorView
+  - Right: TOCView (togglable)
+  - Toolbar with theme toggle, panel toggles
+  - File drop support
+
+FileTreeView.swift
+  - Recursive file tree display
+  - Search/filter capability
+  - Context menu: Show in Finder, Copy Path
+  - Single click to open files in tabs
+  - Folder disclosure groups
+
+EditorView.swift
+  - NSViewRepresentable wrapper for WKWebView
+  - Loads index.html from Resources/Editor
+  - WKUserContentController setup
+  - Bridge message handling
+  - Content loading and theme sync
+  - PDF export integration
+
+TOCView.swift
+  - Right sidebar showing table of contents
+  - Indented headings based on level
+  - Click to scroll to heading
+  - Active heading highlighting
+  - Smooth animations
+
+TabBarView.swift
+  - Horizontal tab bar for open files
+  - Shows file name with icon
+  - Modified indicator (orange dot)
+  - Close button (x)
+  - Click to switch tabs
+
+BRIDGE LAYER
+------------
+WebViewBridge.swift
+  - Central JS-Swift communication hub
+  - WKScriptMessageHandler implementation
+  - Message routing system
+  - JavaScript evaluation wrappers
+  - Delegate pattern for event handling
+  - Type definitions for bridge messages
+
+PDFExporter.swift
+  - PDF export functionality
+  - NSSavePanel integration
+  - WKPDFConfiguration setup
+  - A4 size output
+  - Layout preparation/restoration
+  - Error handling with user alerts
+
+FEATURES IMPLEMENTED
+=====================
+✓ 3-panel layout (file tree, editor, TOC)
+✓ Markdown file opening and viewing
+✓ Folder browsing with recursive tree
+✓ Tab system for multiple open files
+✓ Dark/light theme toggle
+✓ PDF export via WKWebView
+✓ JS-Swift bridge communication
+✓ File watching for changes
+✓ Recent files tracking
+✓ Search/filter in file tree
+✓ Table of contents extraction
+✓ Heading navigation
+✓ File persistence (save)
+✓ Keyboard shortcuts
+✓ Context menus
+✓ Modified file indicators
+
+DESIGN PRINCIPLES
+==================
+- Native macOS look and feel (AppKit integration where needed)
+- SwiftUI-first architecture
+- Responsive 3-panel layout
+- Clean separation of concerns
+- MVVM/observation patterns
+- Thread-safe operations (@MainActor)
+- Comprehensive error handling
+- Accessible UI (SF Symbols)
+- Support for Apple Silicon and Intel
+
+DEPLOYMENT NOTES
+==================
+Minimum: macOS 13.0 (Ventura)
+Architectures: arm64, x86_64
+
+Required in Info.plist:
+- CFBundleDocumentTypes for .md files
+- NSDocumentTypes declarations
+- UTImportedTypeDeclarations for markdown
+- LSItemContentTypes configuration
+
+Additional Requirements:
+- Resources/Editor/index.html (WKWebView HTML template)
+- JavaScript bridge helpers for markdown rendering
+- Asset catalog for app icon and images
