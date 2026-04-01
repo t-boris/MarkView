@@ -32,40 +32,39 @@ class FileNode: Identifiable, ObservableObject, Hashable {
 
         let fileManager = FileManager.default
         do {
-            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-            let sorted = contents
-                .filter { !$0.lastPathComponent.hasPrefix(".") } // Hide hidden files
-                .sorted { a, b in
-                    let aIsDir = (try? a.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                    let bIsDir = (try? b.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            // Prefetch isDirectoryKey to avoid extra syscalls during sort/map
+            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey])
 
-                    if aIsDir && !bIsDir { return true }
-                    if !aIsDir && bIsDir { return false }
-                    return a.lastPathComponent.lowercased() < b.lastPathComponent.lowercased()
-                }
-
-            self.children = sorted.map { url in
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                return FileNode(url: url, isDirectory: isDir)
+            // Build (url, isDir) pairs once, filter to relevant items only
+            let items: [(url: URL, isDir: Bool)] = contents.compactMap { itemURL in
+                let name = itemURL.lastPathComponent
+                guard !name.hasPrefix(".") else { return nil } // Hide hidden files
+                let isDir = (try? itemURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                // Only keep directories and markdown files — UI shows nothing else
+                guard isDir || itemURL.pathExtension.lowercased() == "md" else { return nil }
+                return (itemURL, isDir)
             }
+
+            let sorted = items.sorted { a, b in
+                if a.isDir && !b.isDir { return true }
+                if !a.isDir && b.isDir { return false }
+                return a.url.lastPathComponent.lowercased() < b.url.lastPathComponent.lowercased()
+            }
+
+            self.children = sorted.map { FileNode(url: $0.url, isDirectory: $0.isDir) }
         } catch {
             self.children = []
         }
     }
 
-    /// Recursively build the entire tree
+    /// Build tree with only the root's immediate children loaded.
+    /// Subdirectory contents are loaded on-demand when expanded.
     static func buildTree(from url: URL) -> FileNode {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let node = FileNode(url: url, isDirectory: isDirectory)
 
         if isDirectory {
             node.loadChildren()
-            // Optionally load one level deep
-            for child in node.children ?? [] {
-                if child.isDirectory {
-                    child.loadChildren()
-                }
-            }
         }
 
         return node

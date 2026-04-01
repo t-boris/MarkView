@@ -50,6 +50,7 @@ class WorkspaceManager: ObservableObject {
     private var recentFilesURL: URL
 
     init() {
+        Self.debugLog("WorkspaceManager init START")
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let appDir = appSupport.appendingPathComponent("MarkView", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
@@ -68,35 +69,84 @@ class WorkspaceManager: ObservableObject {
         }
 
         loadRecentFiles()
+        Self.debugLog("WorkspaceManager init DONE")
     }
 
     /// Open a folder and set it as the root node
-    func openFolder(_ url: URL) {
-        let node = FileNode.buildTree(from: url)
-        self.rootNode = node
-        loadExcludedFolders()
-        startFileWatcher(for: url)
-        addRecentFile(url)
-        initDDEWorkspace(at: url)
+    /// Write debug log to /tmp/markview_debug.log
+    static func debugLog(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
+        let path = NSHomeDirectory() + "/markview_debug.log"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            handle.closeFile()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
     }
 
-    /// Initialize .dde/ workspace structure and SQLite database
-    private func initDDEWorkspace(at url: URL) {
+    func openFolder(_ url: URL) {
+        rootNode = nil  // Clear previous tree so progress spinner is shown
+        openTabs = []
+        activeTabIndex = -1
+        indexingProgress = "Loading folder structure..."
+        Self.debugLog("openFolder START: \(url.path)")
+
+        // Run setup steps asynchronously — sleep briefly to let SwiftUI render each step
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms — let UI render progress
+            Self.debugLog("Task started, building tree...")
+
+            // Build tree on background thread to avoid blocking UI
+            let node = await Task.detached {
+                FileNode.buildTree(from: url)
+            }.value
+            self.rootNode = node
+            loadExcludedFolders()
+            Self.debugLog("Tree loaded: \(node.children?.count ?? 0) children")
+
+            indexingProgress = "Setting up workspace..."
+            try? await Task.sleep(nanoseconds: 100_000_000)
+
+            startFileWatcher(for: url)
+            addRecentFile(url)
+            Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
+
+            await initDDEWorkspaceAsync(at: url)
+            Self.debugLog("openFolder COMPLETE")
+        }
+    }
+
+    /// Initialize .dde/ workspace structure and SQLite database — async to keep UI responsive
+    private func initDDEWorkspaceAsync(at url: URL) async {
         let fm = FileManager.default
         let ddeRoot = url.appendingPathComponent(".dde")
 
-        // Create directory structure
+        indexingProgress = "Creating workspace structure..."
+        Self.debugLog("initDDE: creating dirs...")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
         for subdir in ["cache/provider_responses", "cache/embeddings", "cache/indexes", "overlays"] {
             let dir = ddeRoot.appendingPathComponent(subdir)
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 
-        // Open/create SQLite database
+        indexingProgress = "Opening database..."
+        Self.debugLog("initDDE: opening database...")
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
         do {
             let db = try SemanticDatabase(workspacePath: url)
+            Self.debugLog("initDDE: database opened")
             let projectId = url.lastPathComponent
             try db.ensureProject(id: projectId, name: url.lastPathComponent, rootPath: url.path)
             self.semanticDatabase = db
+
+            indexingProgress = "Initializing engines..."
+            Self.debugLog("initDDE: creating engines...")
+            try? await Task.sleep(nanoseconds: 100_000_000)
+
             self.incrementalCompiler = IncrementalCompiler(workspacePath: url, database: db)
             let provider = incrementalCompiler!.orchestrator.providerClient
             self.actionEngine = ActionEngine(db: db, providerClient: provider)
@@ -112,18 +162,23 @@ class WorkspaceManager: ObservableObject {
                 self?.handleClaudeFileChanges(files)
             }
             self.aiConsoleEngine = aiEngine
-            // Check Ollama + Git
+            Self.debugLog("initDDE: engines created")
+
+            indexingProgress = "Connecting services..."
+            try? await Task.sleep(nanoseconds: 100_000_000)
+
             Task { await ollamaClient.checkConnection() }
             gitClient.setup(at: url)
-            NSLog("[DDE] Workspace initialized: \(ddeRoot.path)")
+            Self.debugLog("initDDE: git setup done")
 
-            // V1: Deterministic structural indexing (instant, no LLM)
+            // Structural indexing runs silently in background — no progress indicator
+            indexingProgress = nil
             runStructuralIndex(at: url)
+            Self.debugLog("initDDE: structural index started")
 
-            // Legacy AI analysis disabled — user triggers via Refresh button
-            // analyzeAllFiles(in: url)
         } catch {
-            NSLog("[DDE] Failed to init database: \(error)")
+            Self.debugLog("initDDE: ERROR: \(error)")
+            indexingProgress = nil
         }
     }
 
@@ -613,6 +668,55 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
+    /// Close all tabs except the one at the given index
+    func closeOtherTabs(except index: Int) {
+        guard index >= 0 && index < openTabs.count else { return }
+        let kept = openTabs[index]
+        openTabs = [kept]
+        activeTabIndex = 0
+    }
+
+    /// Close all tabs to the right of the given index
+    func closeTabsToRight(of index: Int) {
+        guard index >= 0 && index < openTabs.count else { return }
+        openTabs = Array(openTabs.prefix(index + 1))
+        if activeTabIndex >= openTabs.count {
+            activeTabIndex = openTabs.count - 1
+        }
+    }
+
+    /// Close all tabs
+    func closeAllTabs() {
+        openTabs = []
+        activeTabIndex = -1
+    }
+
+    /// Reveal a file in the file tree by expanding parent folders
+    func revealInFileTree(url: URL) {
+        guard let root = rootNode else { return }
+        showFileTree = true
+        expandToReveal(node: root, targetURL: url)
+    }
+
+    /// Recursively expand nodes along the path to the target URL
+    @discardableResult
+    private func expandToReveal(node: FileNode, targetURL: URL) -> Bool {
+        if node.url == targetURL { return true }
+        guard node.isDirectory, targetURL.path.hasPrefix(node.url.path + "/") else { return false }
+
+        if node.children == nil || node.children?.isEmpty == true {
+            node.loadChildren()
+        }
+        node.isExpanded = true
+
+        for child in node.children ?? [] {
+            if expandToReveal(node: child, targetURL: targetURL) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Save the active tab's file
     func saveActiveFile() {
         guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
@@ -857,6 +961,8 @@ Each component needs a correct type and one-sentence description.
 
     private var fileWatchTimer: Timer?
 
+    private var fileWatchDebounce: DispatchWorkItem?
+
     private func startFileWatcher(for url: URL) {
         fileWatcher?.cancel()
         fileWatchTimer?.invalidate()
@@ -868,41 +974,53 @@ Each component needs a correct type and one-sentence description.
         let queue = DispatchQueue.main
         fileWatcher = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
-            eventMask: .all,
+            eventMask: .write,
             queue: queue
         )
 
         fileWatcher?.setEventHandler { [weak self] in
-            self?.reloadFileTree()
+            // Debounce: wait 1s after last event before reloading
+            self?.fileWatchDebounce?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard self?.indexingProgress == nil else { return } // Skip during indexing
+                self?.reloadFileTree()
+            }
+            self?.fileWatchDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
         }
 
         fileWatcher?.setCancelHandler { close(fd) }
         fileWatcher?.resume()
 
-        // Also poll every 3 seconds to catch subdirectory changes
-        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+        // Poll every 10 seconds to catch subdirectory changes (only when idle)
+        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
             self?.checkForFileTreeChanges()
         }
     }
 
-    private var lastFileCount: Int = 0
+    private var lastRootModDate: Date?
 
     private func checkForFileTreeChanges() {
         guard let rootURL = rootNode?.url else { return }
-        let fm = FileManager.default
-        var count = 0
-        if let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            while enumerator.nextObject() != nil { count += 1 }
-        }
-        if count != lastFileCount {
-            lastFileCount = count
+        guard indexingProgress == nil else { return } // Skip during indexing
+        // Lightweight check: only inspect root directory's modification date
+        // instead of enumerating all 200K+ files every 3 seconds
+        guard let values = try? rootURL.resourceValues(forKeys: [.contentModificationDateKey]),
+              let modDate = values.contentModificationDate else { return }
+        if modDate != lastRootModDate {
+            lastRootModDate = modDate
             reloadFileTree()
         }
     }
 
     private func reloadFileTree() {
         guard let rootURL = rootNode?.url else { return }
-        rootNode = FileNode.buildTree(from: rootURL)
+        Task {
+            let node = await Task.detached {
+                FileNode.buildTree(from: rootURL)
+            }.value
+            self.rootNode = node
+        }
     }
 
     // MARK: - Recent Files
@@ -1001,24 +1119,19 @@ Each component needs a correct type and one-sentence description.
         guard let db = semanticDatabase else { return }
         let provider = incrementalCompiler?.orchestrator.providerClient
         let indexer = StructuralIndexer(db: db, rootURL: url, providerClient: provider)
-        indexer.progress = { [weak self] msg in
-            self?.indexingProgress = msg
+        indexer.progress = { msg in
+            NSLog("[DDE] Index: %@", msg)
         }
 
-        // Step 1: Deterministic (instant)
-        indexer.indexAll()
-        NSLog("[DDE] Structural index complete")
+        // Run indexing silently in background — no UI progress indicator
+        Task {
+            await indexer.indexAll()
+            NSLog("[DDE] Structural index complete")
 
-        // Step 2: Haiku module extraction — disabled by default, user triggers via Refresh button
-        if false && provider?.hasAPIKey == true {
-            Task {
-                indexingProgress = "Extracting modules (Haiku)..."
+            if false && provider?.hasAPIKey == true {
                 await indexer.extractContentModules()
-                indexingProgress = nil
                 NSLog("[DDE] Content module extraction complete")
             }
-        } else {
-            indexingProgress = nil
         }
     }
 

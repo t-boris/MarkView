@@ -54,5 +54,42 @@ struct TabBarView: View {
         .overlay(Rectangle().frame(width: 1).foregroundColor(VSDark.border), alignment: .trailing)
         .contentShape(Rectangle())
         .onTapGesture { workspaceManager.activeTabIndex = index }
+        .help(relativePath(for: tab))
+        .contextMenu {
+            Button("Reveal in File Tree") {
+                workspaceManager.revealInFileTree(url: tab.url)
+            }
+            Divider()
+            Button("Close") {
+                workspaceManager.closeTab(at: index)
+            }
+            Button("Close Others") {
+                workspaceManager.closeOtherTabs(except: index)
+            }
+            Button("Close Tabs to the Right") {
+                workspaceManager.closeTabsToRight(of: index)
+            }
+            Button("Close All") {
+                workspaceManager.closeAllTabs()
+            }
+            Divider()
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(tab.url.path, forType: .string)
+            }
+            Button("Show in Finder") {
+                NSWorkspace.shared.selectFile(tab.url.path, inFileViewerRootedAtPath: "")
+            }
+        }
+    }
+
+    private func relativePath(for tab: OpenTab) -> String {
+        guard let root = workspaceManager.rootNode?.url else { return tab.url.path }
+        let rootPath = root.path
+        let filePath = tab.url.path
+        if filePath.hasPrefix(rootPath) {
+            return String(filePath.dropFirst(rootPath.count + 1))
+        }
+        return filePath
     }
 }

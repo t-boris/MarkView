@@ -151,8 +151,11 @@ struct ContentView: View {
             workspaceManager.themeVersion += 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .openInActiveWindow)) { notification in
-            // Only handle in the key (active) window
             guard let url = notification.object as? URL else { return }
+            // Only one ContentView should handle — prefer the one with no folder open
+            let hasFolder = workspaceManager.rootNode != nil
+            let otherEmptyExists = NSApp.windows.count > 1
+            if hasFolder && otherEmptyExists { return }
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDir {
                 workspaceManager.openFolder(url)

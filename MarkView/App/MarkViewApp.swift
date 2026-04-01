@@ -22,11 +22,26 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func log(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) [AppDelegate] \(msg)\n"
+        let path = NSHomeDirectory() + "/markview_debug.log"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            handle.closeFile()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
+        log("application:open: \(urls.count) URLs, handler=\(onOpenURLs != nil ? "set" : "nil")")
+        for url in urls { log("  URL: \(url.path)") }
         if let handler = onOpenURLs {
             handler(urls)
         } else {
             pendingURLs.append(contentsOf: urls)
+            log("  Queued \(pendingURLs.count) pending URLs")
         }
     }
 }
@@ -38,12 +53,17 @@ struct MarkViewApp: App {
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @State private var ddeSettingsWindow: NSWindow?
 
+    init() {
+    }
+
     var body: some Scene {
-        WindowGroup {
+        Self.debugLogStatic("MarkViewApp body evaluated")
+        return WindowGroup {
             ContentView()
                 .environmentObject(themeManager)
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
+                    appDelegate.log("ContentView onAppear START")
                     NSApp.appearance = NSAppearance(named: .darkAqua)
                     for window in NSApp.windows {
                         window.appearance = NSAppearance(named: .darkAqua)
@@ -53,15 +73,15 @@ struct MarkViewApp: App {
                         }
                     }
                     // Handle files/folders opened via Finder Services
-                    appDelegate.onOpenURLs = { urls in
-                        // Open in the active window's workspace, or create new
+                    appDelegate.onOpenURLs = { [self] urls in
+                        appDelegate.log("onOpenURLs callback fired with \(urls.count) URLs")
                         for url in urls {
-                            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                            // Find the key window's workspace via notification
+                            appDelegate.log("  posting openInActiveWindow for: \(url.path)")
                             NotificationCenter.default.post(name: .openInActiveWindow, object: url)
                         }
                     }
 
+                    appDelegate.log("ContentView onAppear: handler set, starting timer")
                     // Poll for Finder Quick Action requests
                     Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                         Self.checkFinderOpenRequest { urls in
@@ -163,6 +183,18 @@ struct MarkViewApp: App {
     // MARK: - File Actions
 
     /// Check if Finder Quick Action wrote a path for us to open
+    private static func debugLogStatic(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) [Static] \(msg)\n"
+        let path = NSHomeDirectory() + "/markview_debug.log"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            handle.closeFile()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+    }
+
     private static func checkFinderOpenRequest(handler: @escaping ([URL]) -> Void) {
         let path = "/tmp/markview_open_path.txt"
         let fm = FileManager.default
@@ -174,8 +206,9 @@ struct MarkViewApp: App {
         try? fm.removeItem(atPath: path)
 
         let url = URL(fileURLWithPath: content)
+        debugLogStatic("checkFinderOpenRequest: found \(content), calling handler")
         handler([url])
-        NSLog("[MarkView] Opened from Finder: \(content)")
+        debugLogStatic("checkFinderOpenRequest: handler called, notification posted")
     }
 
     private func openFile() {

@@ -56,10 +56,25 @@ struct FileTreeView: View {
 
             if let root = workspaceManager.rootNode {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         FileNodeView(node: root, level: 0, searchText: searchText)
                     }
                 }
+                .background(VSDark.bgSidebar)
+            } else if workspaceManager.indexingProgress != nil {
+                // Loading state — folder is being opened
+                VStack(spacing: 12) {
+                    Spacer()
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text(workspaceManager.indexingProgress ?? "")
+                        .font(.system(size: 11))
+                        .foregroundColor(VSDark.blue)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(VSDark.bgSidebar)
             } else {
                 VStack(spacing: 8) {
@@ -74,6 +89,24 @@ struct FileTreeView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(VSDark.bgSidebar)
+            }
+
+            // Progress bar at the bottom — shows indexing status
+            if let progress = workspaceManager.indexingProgress {
+                Divider().background(VSDark.border)
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.4)
+                        .frame(width: 12, height: 12)
+                    Text(progress)
+                        .font(.system(size: 10))
+                        .foregroundColor(VSDark.blue)
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(VSDark.bgActive)
             }
         }
         .background(VSDark.bgSidebar)
@@ -109,7 +142,7 @@ struct FileNodeView: View {
                         set: { node.isExpanded = $0 }
                     )
                 ) {
-                    VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         if let children = node.children {
                             ForEach(children, id: \.self) { child in
                                 FileNodeView(node: child, level: level + 1, searchText: searchText)
@@ -161,6 +194,7 @@ struct FileNodeView: View {
                     }
                     Divider()
                     Button("Show in Finder") { NSWorkspace.shared.selectFile(node.url.path, inFileViewerRootedAtPath: "") }
+                    Button("Open in Terminal") { openTerminal(at: node.url) }
                     Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(node.url.path, forType: .string) }
                 }
                 .opacity(workspaceManager.isExcluded(node.url) ? 0.4 : 1.0)
@@ -195,6 +229,7 @@ struct FileNodeView: View {
                         Divider()
                     }
                     Button("Show in Finder") { NSWorkspace.shared.selectFile(node.url.path, inFileViewerRootedAtPath: "") }
+                    Button("Open in Terminal") { openTerminal(at: node.url.deletingLastPathComponent()) }
                     Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(node.url.path, forType: .string) }
                 }
             )
@@ -242,6 +277,14 @@ struct FileNodeView: View {
                     _ = await workspaceManager.gitClient.push()
                 }
             }
+        }
+    }
+
+    private func openTerminal(at folderURL: URL) {
+        let script = "tell application \"Terminal\"\nactivate\ndo script \"cd \(folderURL.path.replacingOccurrences(of: "\"", with: "\\\""))\"\nend tell"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
         }
     }
 
