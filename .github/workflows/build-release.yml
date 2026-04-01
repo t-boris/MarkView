@@ -1,0 +1,68 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Build Release
+        run: |
+          xcodebuild -scheme MarkView \
+            -destination 'platform=macOS' \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
+            build
+
+      - name: Package .app into .zip
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "MarkView.app" -path "*/Release/*" | head -1)
+          echo "Found app at: $APP_PATH"
+          cd "$(dirname "$APP_PATH")"
+          ditto -c -k --keepParent "MarkView.app" MarkView.zip
+          mv MarkView.zip "$GITHUB_WORKSPACE/"
+
+      - name: Get short SHA and date
+        id: meta
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Delete previous 'latest' release
+        run: gh release delete latest --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete previous 'latest' tag
+        run: |
+          git tag -d latest 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+
+      - name: Create Release
+        run: |
+          gh release create latest \
+            --title "MarkView — ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.sha }})" \
+            --notes "Automatic build from \`main\` branch.
+
+          **Commit:** ${{ github.sha }}
+          **Date:** ${{ steps.meta.outputs.date }}
+
+          ### Install
+          1. Download \`MarkView.zip\` below
+          2. Unzip and drag \`MarkView.app\` to \`/Applications\`
+          3. On first launch: right-click → Open (to bypass Gatekeeper)" \
+            --latest \
+            MarkView.zip
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
