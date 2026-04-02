@@ -353,21 +353,19 @@ Begin scanning the current directory now and generate all documentation.
 
             var errorData = Data()
             var codexLog = ""
+            let skipPrefixes = ["OpenAI Codex v", "workdir:", "provider:", "approval:",
+                                "sandbox:", "reasoning", "session id:"]
             stderr.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if !data.isEmpty {
                     errorData.append(data)
-                    // For Codex: stream stderr as live activity into the assistant message
+                    // For Codex: stream ALL stderr as live activity
                     if currentBackend == .codex, let text = String(data: data, encoding: .utf8) {
                         let lines = text.components(separatedBy: "\n")
                         for line in lines {
                             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                             if trimmed.isEmpty || trimmed == "--------" { continue }
-                            // Skip boilerplate header
-                            if trimmed.hasPrefix("OpenAI Codex v") || trimmed.hasPrefix("workdir:") ||
-                               trimmed.hasPrefix("provider:") || trimmed.hasPrefix("approval:") ||
-                               trimmed.hasPrefix("sandbox:") || trimmed.hasPrefix("reasoning") ||
-                               trimmed.hasPrefix("session id:") || trimmed.hasPrefix("user") { continue }
+                            if skipPrefixes.contains(where: { trimmed.hasPrefix($0) }) { continue }
 
                             codexLog += trimmed + "\n"
                             DispatchQueue.main.async {
