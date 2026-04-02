@@ -364,19 +364,27 @@ Begin scanning the current directory now and generate all documentation.
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
 
+            // Read any remaining stdout data after process exits
+            let remaining = stdout.fileHandleForReading.readDataToEndOfFile()
+            if let extra = String(data: remaining, encoding: .utf8), !extra.isEmpty {
+                lineBuffer += extra
+            }
+            // Process any remaining text in lineBuffer (last line without trailing \n)
+            let leftover = lineBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !leftover.isEmpty {
+                fullText += leftover + "\n"
+            }
+
             DispatchQueue.main.async {
                 self.currentProcess = nil
                 self.isProcessing = false
                 self.currentStatus = nil
 
-                // If we got no text from streaming, check for plain output
-                if fullText.isEmpty {
-                    let remaining = stdout.fileHandleForReading.readDataToEndOfFile()
-                    if let text = String(data: remaining, encoding: .utf8), !text.isEmpty {
-                        fullText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if msgIndex < self.messages.count {
-                            self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: fullText)
-                        }
+                // Update assistant message with final text
+                if !fullText.isEmpty {
+                    let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if msgIndex < self.messages.count {
+                        self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: finalText)
                     }
                 }
 
