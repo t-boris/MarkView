@@ -244,7 +244,7 @@ Begin scanning the current directory now and generate all documentation.
                 process.arguments = args
             case .codex:
                 process.executableURL = URL(fileURLWithPath: Self.codexPath)
-                process.arguments = ["exec", "--full-auto", text]
+                process.arguments = ["exec", "--full-auto", "--skip-git-repo-check", text]
             }
             process.currentDirectoryURL = root
 
