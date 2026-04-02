@@ -352,23 +352,30 @@ Begin scanning the current directory now and generate all documentation.
             }
 
             var errorData = Data()
+            var codexLog = ""
             stderr.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if !data.isEmpty {
                     errorData.append(data)
-                    // For Codex: parse stderr for status updates (model info, progress)
+                    // For Codex: stream stderr as live activity into the assistant message
                     if currentBackend == .codex, let text = String(data: data, encoding: .utf8) {
-                        // Extract useful status from stderr lines
                         let lines = text.components(separatedBy: "\n")
                         for line in lines {
                             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                             if trimmed.isEmpty || trimmed == "--------" { continue }
-                            if trimmed.hasPrefix("model:") || trimmed.hasPrefix("mcp:") ||
-                               trimmed.hasPrefix("user") || trimmed.hasPrefix("codex") ||
-                               trimmed.hasPrefix("tokens") || trimmed.hasPrefix("session") {
-                                DispatchQueue.main.async {
-                                    self.currentStatus = "Codex: \(trimmed)"
+                            // Skip boilerplate header
+                            if trimmed.hasPrefix("OpenAI Codex v") || trimmed.hasPrefix("workdir:") ||
+                               trimmed.hasPrefix("provider:") || trimmed.hasPrefix("approval:") ||
+                               trimmed.hasPrefix("sandbox:") || trimmed.hasPrefix("reasoning") ||
+                               trimmed.hasPrefix("session id:") || trimmed.hasPrefix("user") { continue }
+
+                            codexLog += trimmed + "\n"
+                            DispatchQueue.main.async {
+                                if msgIndex < self.messages.count {
+                                    self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog)
+                                    self.objectWillChange.send()
                                 }
+                                self.currentStatus = "Codex is working..."
                             }
                         }
                     }
@@ -417,11 +424,17 @@ Begin scanning the current directory now and generate all documentation.
                 self.isProcessing = false
                 self.currentStatus = nil
 
-                // Update assistant message with final text
-                if !fullText.isEmpty {
-                    let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+                // For Codex: stdout has the final answer, replace the stderr log with it
+                // For Claude: fullText was built from streaming JSON
+                let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !finalText.isEmpty {
                     if msgIndex < self.messages.count {
                         self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: finalText)
+                    }
+                } else if !codexLog.isEmpty && currentBackend == .codex {
+                    // No stdout — keep the stderr log as the response
+                    if msgIndex < self.messages.count {
+                        self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                 }
 
@@ -431,7 +444,7 @@ Begin scanning the current directory now and generate all documentation.
                 }
 
                 // Mark session as started on success
-                if process.terminationStatus == 0 && !fullText.isEmpty {
+                if process.terminationStatus == 0 && (!fullText.isEmpty || !codexLog.isEmpty) {
                     self.hasSessionStarted = true
                 }
 
