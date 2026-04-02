@@ -234,6 +234,13 @@ Begin scanning the current directory now and generate all documentation.
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
+            func debugLog(_ msg: String) {
+                let line = "\(ISO8601DateFormatter().string(from: Date())) [Console] \(msg)\n"
+                let p = NSHomeDirectory() + "/markview_debug.log"
+                if let h = FileHandle(forWritingAtPath: p) { h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile() }
+                else { try? line.write(toFile: p, atomically: true, encoding: .utf8) }
+            }
+
             let process = Process()
             let currentBackend = self.backend
             switch currentBackend {
@@ -247,6 +254,8 @@ Begin scanning the current directory now and generate all documentation.
                 process.arguments = ["exec", "--full-auto", "--skip-git-repo-check", text]
             }
             process.currentDirectoryURL = root
+            debugLog("Launching \(currentBackend.rawValue): \(process.executableURL?.path ?? "?") \(process.arguments ?? [])")
+            debugLog("CWD: \(root.path)")
 
             var env = ProcessInfo.processInfo.environment
             env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\(NSHomeDirectory())/.local/bin"
@@ -264,6 +273,7 @@ Begin scanning the current directory now and generate all documentation.
             stdout.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+                debugLog("stdout chunk (\(data.count) bytes): \(chunk.prefix(200))")
 
                 lineBuffer += chunk
                 while let newlineRange = lineBuffer.range(of: "\n") {
@@ -344,13 +354,36 @@ Begin scanning the current directory now and generate all documentation.
             var errorData = Data()
             stderr.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
-                if !data.isEmpty { errorData.append(data) }
+                if !data.isEmpty {
+                    errorData.append(data)
+                    // For Codex: parse stderr for status updates (model info, progress)
+                    if currentBackend == .codex, let text = String(data: data, encoding: .utf8) {
+                        // Extract useful status from stderr lines
+                        let lines = text.components(separatedBy: "\n")
+                        for line in lines {
+                            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if trimmed.isEmpty || trimmed == "--------" { continue }
+                            if trimmed.hasPrefix("model:") || trimmed.hasPrefix("mcp:") ||
+                               trimmed.hasPrefix("user") || trimmed.hasPrefix("codex") ||
+                               trimmed.hasPrefix("tokens") || trimmed.hasPrefix("session") {
+                                DispatchQueue.main.async {
+                                    self.currentStatus = "Codex: \(trimmed)"
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             do {
                 try process.run()
                 self.currentProcess = process
+                debugLog("Process launched, PID: \(process.processIdentifier)")
+                if currentBackend == .codex {
+                    DispatchQueue.main.async { self.currentStatus = "Codex is working..." }
+                }
             } catch {
+                debugLog("Process LAUNCH FAILED: \(error)")
                 DispatchQueue.main.async {
                     self.isProcessing = false
                     self.currentStatus = nil
@@ -360,6 +393,10 @@ Begin scanning the current directory now and generate all documentation.
             }
 
             process.waitUntilExit()
+            let exitCode = process.terminationStatus
+            let stderrText = String(data: errorData, encoding: .utf8) ?? ""
+            debugLog("Process exited: \(exitCode), fullText=\(fullText.count) chars, lineBuffer=\(lineBuffer.count) chars")
+            debugLog("stderr: \(stderrText.prefix(500))")
 
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
