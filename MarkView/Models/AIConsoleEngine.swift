@@ -251,7 +251,11 @@ Begin scanning the current directory now and generate all documentation.
                 process.arguments = args
             case .codex:
                 process.executableURL = URL(fileURLWithPath: Self.codexPath)
-                process.arguments = ["exec", "--full-auto", "--skip-git-repo-check", text]
+                if self.hasSessionStarted {
+                    process.arguments = ["exec", "resume", "--last", "--full-auto", "--skip-git-repo-check", text]
+                } else {
+                    process.arguments = ["exec", "--full-auto", "--skip-git-repo-check", text]
+                }
             }
             process.currentDirectoryURL = root
             debugLog("Launching \(currentBackend.rawValue): \(process.executableURL?.path ?? "?") \(process.arguments ?? [])")
@@ -354,11 +358,13 @@ Begin scanning the current directory now and generate all documentation.
             var errorData = Data()
             var codexLog = ""
             let skipPrefixes = ["OpenAI Codex v", "workdir:", "provider:", "approval:",
-                                "sandbox:", "reasoning", "session id:"]
+                                "sandbox:", "reasoning", "session id:", "tokens used"]
+            var skipNextLine = false // skip the user's prompt echo
             stderr.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if !data.isEmpty {
                     errorData.append(data)
+                    debugLog("stderr data: \(data.count) bytes")
                     // For Codex: show each stderr line as a separate system message
                     if currentBackend == .codex, let text = String(data: data, encoding: .utf8) {
                         let lines = text.components(separatedBy: "\n")
@@ -366,10 +372,16 @@ Begin scanning the current directory now and generate all documentation.
                             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                             if trimmed.isEmpty || trimmed == "--------" { continue }
                             if skipPrefixes.contains(where: { trimmed.hasPrefix($0) }) { continue }
+                            if trimmed == "user" { skipNextLine = true; continue }
+                            if skipNextLine { skipNextLine = false; continue }
 
                             codexLog += trimmed + "\n"
+                            // Stream activity into the assistant message bubble (like Claude does)
                             DispatchQueue.main.async {
-                                self.messages.append(ConsoleMessage(role: .system, content: trimmed))
+                                if msgIndex < self.messages.count {
+                                    self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog)
+                                    self.objectWillChange.send()
+                                }
                                 self.currentStatus = "Codex is working..."
                             }
                         }
@@ -419,16 +431,24 @@ Begin scanning the current directory now and generate all documentation.
                 self.isProcessing = false
                 self.currentStatus = nil
 
-                // For Claude: fullText was built from streaming JSON
-                // For Codex: activity was shown as system messages; stdout has the final answer
                 let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !finalText.isEmpty {
-                    if msgIndex < self.messages.count {
-                        self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: finalText)
+
+                if currentBackend == .codex {
+                    // Codex: activity log stays in the assistant bubble at msgIndex
+                    // If there's a final stdout answer, append it as a new assistant message
+                    if codexLog.isEmpty && msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
+                        self.messages.remove(at: msgIndex)
+                    }
+                    if !finalText.isEmpty {
+                        self.messages.append(ConsoleMessage(role: .assistant, content: finalText))
                     }
                 } else {
-                    // Remove the empty assistant placeholder — for Codex, system messages already show the activity
-                    if msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
+                    // Claude: fullText was built from streaming JSON
+                    if !finalText.isEmpty {
+                        if msgIndex < self.messages.count {
+                            self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: finalText)
+                        }
+                    } else if msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
                         self.messages.remove(at: msgIndex)
                     }
                 }
