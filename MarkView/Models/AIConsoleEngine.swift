@@ -221,7 +221,7 @@ Begin scanning the current directory now and generate all documentation.
 
         messages.append(ConsoleMessage(role: .user, content: text))
         isProcessing = true
-        currentStatus = "Claude is starting..."
+        currentStatus = backend == .claude ? "Claude is starting..." : "Codex is starting..."
 
         // Add empty assistant message that we'll update incrementally
         let assistantMsg = ConsoleMessage(role: .assistant, content: "")
@@ -244,12 +244,12 @@ Begin scanning the current directory now and generate all documentation.
                 process.arguments = args
             case .codex:
                 process.executableURL = URL(fileURLWithPath: Self.codexPath)
-                process.arguments = ["-q", "--full-auto", text]
+                process.arguments = ["exec", "--full-auto", text]
             }
             process.currentDirectoryURL = root
 
             var env = ProcessInfo.processInfo.environment
-            env["PATH"] = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\(NSHomeDirectory())/.local/bin"
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\(NSHomeDirectory())/.local/bin"
             process.environment = env
 
             let stdout = Pipe()
