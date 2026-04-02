@@ -359,7 +359,7 @@ Begin scanning the current directory now and generate all documentation.
                 let data = handle.availableData
                 if !data.isEmpty {
                     errorData.append(data)
-                    // For Codex: stream ALL stderr as live activity
+                    // For Codex: show each stderr line as a separate system message
                     if currentBackend == .codex, let text = String(data: data, encoding: .utf8) {
                         let lines = text.components(separatedBy: "\n")
                         for line in lines {
@@ -369,10 +369,7 @@ Begin scanning the current directory now and generate all documentation.
 
                             codexLog += trimmed + "\n"
                             DispatchQueue.main.async {
-                                if msgIndex < self.messages.count {
-                                    self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog)
-                                    self.objectWillChange.send()
-                                }
+                                self.messages.append(ConsoleMessage(role: .system, content: trimmed))
                                 self.currentStatus = "Codex is working..."
                             }
                         }
@@ -422,23 +419,18 @@ Begin scanning the current directory now and generate all documentation.
                 self.isProcessing = false
                 self.currentStatus = nil
 
-                // For Codex: stdout has the final answer, replace the stderr log with it
                 // For Claude: fullText was built from streaming JSON
+                // For Codex: activity was shown as system messages; stdout has the final answer
                 let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !finalText.isEmpty {
                     if msgIndex < self.messages.count {
                         self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: finalText)
                     }
-                } else if !codexLog.isEmpty && currentBackend == .codex {
-                    // No stdout — keep the stderr log as the response
-                    if msgIndex < self.messages.count {
-                        self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog.trimmingCharacters(in: .whitespacesAndNewlines))
+                } else {
+                    // Remove the empty assistant placeholder — for Codex, system messages already show the activity
+                    if msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
+                        self.messages.remove(at: msgIndex)
                     }
-                }
-
-                // Remove empty assistant message if still empty
-                if msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
-                    self.messages.remove(at: msgIndex)
                 }
 
                 // Mark session as started on success
