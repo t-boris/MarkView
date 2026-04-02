@@ -436,15 +436,26 @@ Begin scanning the current directory now and generate all documentation.
                 let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 if currentBackend == .codex {
-                    // Replace compact activity with full log in the bubble
-                    if !codexLog.isEmpty, msgIndex < self.messages.count {
-                        self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog.trimmingCharacters(in: .whitespacesAndNewlines))
-                    } else if msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
+                    // Remove the compact activity bubble
+                    if msgIndex < self.messages.count {
                         self.messages.remove(at: msgIndex)
                     }
-                    // Final stdout answer as a new message below
+                    // Show final answer (or error from stderr if no stdout)
                     if !finalText.isEmpty {
                         self.messages.append(ConsoleMessage(role: .assistant, content: finalText))
+                    } else if !codexLog.isEmpty {
+                        // Extract just the last meaningful response from the log
+                        let logLines = codexLog.trimmingCharacters(in: .whitespacesAndNewlines)
+                            .components(separatedBy: "\n")
+                        // Find the last "codex" block — that's the actual response
+                        if let lastCodexIdx = logLines.lastIndex(where: { $0 == "codex" }) {
+                            let response = logLines.suffix(from: logLines.index(after: lastCodexIdx))
+                                .joined(separator: "\n")
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !response.isEmpty {
+                                self.messages.append(ConsoleMessage(role: .assistant, content: response))
+                            }
+                        }
                     }
                 } else {
                     // Claude: fullText was built from streaming JSON

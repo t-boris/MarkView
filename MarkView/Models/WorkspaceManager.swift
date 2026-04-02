@@ -171,6 +171,10 @@ class WorkspaceManager: ObservableObject {
             gitClient.setup(at: url)
             Self.debugLog("initDDE: git setup done")
 
+            // Load cached diagrams and analysis results from database
+            loadCachedResults()
+            ensureArchitectureDiagrams()
+
             // Structural indexing runs silently in background — no progress indicator
             indexingProgress = nil
             runStructuralIndex(at: url)
