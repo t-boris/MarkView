@@ -357,15 +357,14 @@ Begin scanning the current directory now and generate all documentation.
 
             var errorData = Data()
             var codexLog = ""
+            var codexRecentLines: [String] = []
             let skipPrefixes = ["OpenAI Codex v", "workdir:", "provider:", "approval:",
                                 "sandbox:", "reasoning", "session id:", "tokens used"]
-            var skipNextLine = false // skip the user's prompt echo
+            var skipNextLine = false
             stderr.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if !data.isEmpty {
                     errorData.append(data)
-                    debugLog("stderr data: \(data.count) bytes")
-                    // For Codex: show each stderr line as a separate system message
                     if currentBackend == .codex, let text = String(data: data, encoding: .utf8) {
                         let lines = text.components(separatedBy: "\n")
                         for line in lines {
@@ -376,10 +375,13 @@ Begin scanning the current directory now and generate all documentation.
                             if skipNextLine { skipNextLine = false; continue }
 
                             codexLog += trimmed + "\n"
-                            // Stream activity into the assistant message bubble (like Claude does)
+                            // Keep only last 3 lines for the compact display
+                            codexRecentLines.append(trimmed)
+                            if codexRecentLines.count > 3 { codexRecentLines.removeFirst() }
+                            let display = codexRecentLines.joined(separator: "\n")
                             DispatchQueue.main.async {
                                 if msgIndex < self.messages.count {
-                                    self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog)
+                                    self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: display)
                                     self.objectWillChange.send()
                                 }
                                 self.currentStatus = "Codex is working..."
@@ -434,11 +436,13 @@ Begin scanning the current directory now and generate all documentation.
                 let finalText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 if currentBackend == .codex {
-                    // Codex: activity log stays in the assistant bubble at msgIndex
-                    // If there's a final stdout answer, append it as a new assistant message
-                    if codexLog.isEmpty && msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
+                    // Replace compact activity with full log in the bubble
+                    if !codexLog.isEmpty, msgIndex < self.messages.count {
+                        self.messages[msgIndex] = ConsoleMessage(role: .assistant, content: codexLog.trimmingCharacters(in: .whitespacesAndNewlines))
+                    } else if msgIndex < self.messages.count && self.messages[msgIndex].content.isEmpty {
                         self.messages.remove(at: msgIndex)
                     }
+                    // Final stdout answer as a new message below
                     if !finalText.isEmpty {
                         self.messages.append(ConsoleMessage(role: .assistant, content: finalText))
                     }
