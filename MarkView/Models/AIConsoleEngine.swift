@@ -17,6 +17,7 @@ class AIConsoleEngine: ObservableObject {
     let db: SemanticDatabase?
     private var currentProcess: Process?
     private var hasSessionStarted = false
+    private var claudeSessionId: String?
     var onFilesChanged: (([String]) -> Void)?
 
     static let claudePath = "/Users/boris/.local/bin/claude"
@@ -247,7 +248,9 @@ Begin scanning the current directory now and generate all documentation.
             case .claude:
                 process.executableURL = URL(fileURLWithPath: Self.claudePath)
                 var args = ["-p", text, "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"]
-                if self.hasSessionStarted { args.append("--continue") }
+                if let sessionId = self.claudeSessionId {
+                    args.append(contentsOf: ["--resume", sessionId])
+                }
                 process.arguments = args
             case .codex:
                 process.executableURL = URL(fileURLWithPath: Self.codexPath)
@@ -306,6 +309,13 @@ Begin scanning the current directory now and generate all documentation.
 
                     DispatchQueue.main.async {
                         switch type {
+                        case "system":
+                            // Capture session_id from init event
+                            if json["subtype"] as? String == "init",
+                               let sid = json["session_id"] as? String {
+                                self.claudeSessionId = sid
+                            }
+
                         case "assistant":
                             if let message = json["message"] as? [String: Any],
                                let content = message["content"] as? [[String: Any]] {
@@ -646,6 +656,7 @@ Begin scanning the current directory now and generate all documentation.
 
     func clearHistory() {
         messages.removeAll()
-        hasSessionStarted = false // Start fresh session
+        hasSessionStarted = false
+        claudeSessionId = nil
     }
 }
