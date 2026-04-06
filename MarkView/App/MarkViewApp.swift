@@ -6,17 +6,67 @@ extension UTType {
     static let markdownText = UTType(importedAs: "net.daringfireball.markdown", conformingTo: .plainText)
 }
 
-final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
-    var onOpenURLs: (([URL]) -> Void)? {
-        didSet {
-            // Deliver any URLs that arrived before the handler was set
-            if let handler = onOpenURLs, !pendingURLs.isEmpty {
-                handler(pendingURLs)
-                pendingURLs.removeAll()
-            }
+// MARK: - Custom NSApplication subclass
+// Captures open-document Apple Events BEFORE SwiftUI can intercept them.
+// Set as NSPrincipalClass in Info.plist.
+class MarkViewApplication: NSApplication {
+    /// URLs received via Apple Events before any UI is ready
+    static var launchURLs: [URL] = []
+
+    private static func debugLog(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) [NSApp] \(msg)\n"
+        let path = NSHomeDirectory() + "/markview_debug.log"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            handle.closeFile()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
         }
     }
-    private var pendingURLs: [URL] = []
+
+    override init() {
+        super.init()
+        Self.debugLog("MarkViewApplication init — registering Apple Event handler")
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleOpenDocumentsEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
+    @objc private func handleOpenDocumentsEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        Self.debugLog("handleOpenDocumentsEvent fired")
+        guard let docList = event.paramDescriptor(forKeyword: keyDirectObject) else {
+            Self.debugLog("  no keyDirectObject")
+            return
+        }
+        for i in 1...docList.numberOfItems {
+            guard let desc = docList.atIndex(i) else { continue }
+            if let fileURLDesc = desc.coerce(toDescriptorType: typeFileURL) {
+                let data = fileURLDesc.data
+                if let urlString = String(data: data, encoding: .utf8),
+                   let url = URL(string: urlString) {
+                    Self.launchURLs.append(url)
+                    Self.debugLog("  captured URL: \(url.path)")
+                }
+            } else if let pathDesc = desc.coerce(toDescriptorType: typeUTF8Text),
+                      let path = pathDesc.stringValue {
+                Self.launchURLs.append(URL(fileURLWithPath: path))
+                Self.debugLog("  captured path: \(path)")
+            }
+        }
+        Self.debugLog("  total captured: \(Self.launchURLs.count)")
+    }
+}
+
+final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
+    var onOpenURLs: (([URL]) -> Void)?
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
@@ -35,13 +85,14 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        log("application:open: \(urls.count) URLs, handler=\(onOpenURLs != nil ? "set" : "nil")")
-        for url in urls { log("  URL: \(url.path)") }
-        if let handler = onOpenURLs {
-            handler(urls)
-        } else {
-            pendingURLs.append(contentsOf: urls)
-            log("  Queued \(pendingURLs.count) pending URLs")
+        log("application:open: \(urls.count) URLs")
+        for url in urls {
+            log("  URL: \(url.path)")
+        }
+        // Save URL for the new window's onAppear to pick up
+        if let url = urls.first {
+            MarkViewApp.pendingOpenURL = url
+            log("  saved as pendingOpenURL")
         }
     }
 }
@@ -53,6 +104,9 @@ struct MarkViewApp: App {
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @State private var ddeSettingsWindow: NSWindow?
 
+    /// Build timestamp for debugging — visible in window title
+    static let buildID = "\(Int(Date().timeIntervalSince1970) % 100000)"
+
     init() {
     }
 
@@ -62,6 +116,7 @@ struct MarkViewApp: App {
             ContentView()
                 .environmentObject(themeManager)
                 .frame(minWidth: 900, minHeight: 600)
+                .navigationTitle("MarkView [\(Self.buildID)]")
                 .onAppear {
                     appDelegate.log("ContentView onAppear START")
                     NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -76,8 +131,9 @@ struct MarkViewApp: App {
                     appDelegate.onOpenURLs = { [self] urls in
                         appDelegate.log("onOpenURLs callback fired with \(urls.count) URLs")
                         for url in urls {
-                            appDelegate.log("  posting openInActiveWindow for: \(url.path)")
-                            NotificationCenter.default.post(name: .openInActiveWindow, object: url)
+                            let id = UUID()
+                            appDelegate.log("  posting openInActiveWindow for: \(url.path) id=\(id)")
+                            NotificationCenter.default.post(name: .openInActiveWindow, object: ["url": url, "id": id] as [String: Any])
                         }
                     }
 
@@ -86,7 +142,7 @@ struct MarkViewApp: App {
                     Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                         Self.checkFinderOpenRequest { urls in
                             for url in urls {
-                                NotificationCenter.default.post(name: .openInActiveWindow, object: url)
+                                NotificationCenter.default.post(name: .openInActiveWindow, object: ["url": url, "id": UUID()] as [String: Any])
                             }
                         }
                     }
@@ -226,6 +282,8 @@ struct MarkViewApp: App {
 
     /// Pending folder URL for new window to pick up
     static var pendingFolderURL: URL?
+    /// URL from .onOpenURL — saved for the new window that Finder "Open With" creates
+    static var pendingOpenURL: URL?
 
     private func newWindow() {
         // Use SwiftUI's built-in new window action (we kept .newItem intact)
@@ -270,6 +328,11 @@ extension Notification.Name {
     static let exportPDFRequested = Notification.Name("exportPDFRequested")
     static let themeDidChange = Notification.Name("ThemeDidChange")
     static let openInActiveWindow = Notification.Name("openInActiveWindow")
+    static let triggerAITool = Notification.Name("triggerAITool")
+    static let performPDFExport = Notification.Name("PerformPDFExport")
+    static let scrollToHeading = Notification.Name("ScrollToHeading")
+    static let scrollToText = Notification.Name("ScrollToText")
+    static let openGraphCreator = Notification.Name("openGraphCreator")
 }
 
 // MARK: - Markdown Document Type

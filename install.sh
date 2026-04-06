@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Kill running instance so the new binary actually loads
+pkill -9 MarkView 2>/dev/null && sleep 1 || true
+
 echo "Building MarkView (Release)..."
 xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Release archive -archivePath build/MarkView.xcarchive -quiet
 

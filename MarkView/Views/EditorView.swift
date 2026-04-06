@@ -80,7 +80,7 @@ struct EditorView: NSViewRepresentable {
 
             // Listen for PDF export requests
             pdfExportObserver = NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("PerformPDFExport"),
+                forName: .performPDFExport,
                 object: nil, queue: .main
             ) { [weak self] notification in
                 let fileName = notification.object as? String ?? "document.pdf"
@@ -89,7 +89,7 @@ struct EditorView: NSViewRepresentable {
 
             // Listen for TOC scroll-to-heading requests
             scrollToHeadingObserver = NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("ScrollToHeading"),
+                forName: .scrollToHeading,
                 object: nil, queue: .main
             ) { [weak self] notification in
                 if let headingId = notification.object as? String {
@@ -99,7 +99,7 @@ struct EditorView: NSViewRepresentable {
 
             // Listen for scroll-to-text requests (from Semantic Panel)
             NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("ScrollToText"),
+                forName: .scrollToText,
                 object: nil, queue: .main
             ) { [weak self] notification in
                 if let text = notification.object as? String {
@@ -426,7 +426,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
                 wm.showSemanticPanel = true
             } else {
                 // New graph — open creator sheet
-                NotificationCenter.default.post(name: NSNotification.Name("openGraphCreator"), object: type)
+                NotificationCenter.default.post(name: .openGraphCreator, object: type)
             }
         }
     }
@@ -488,7 +488,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             } else if tool == "audit" {
                 engine.sendMessage(AIConsoleEngine.codebaseAuditPrompt)
             } else if tool == "codemap" || tool == "fulldocs" {
-                NotificationCenter.default.post(name: NSNotification.Name("triggerAITool"), object: tool)
+                NotificationCenter.default.post(name: .triggerAITool, object: tool)
             } else if tool == "research" {
                 let prompt = """
                 You are a DEEP RESEARCHER. Analyze the following document and identify research points.

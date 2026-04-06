@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Represents a file or folder in the workspace tree
 class FileNode: Identifiable, ObservableObject, Hashable {
-    let id = UUID()
+    let id: String
     let url: URL
     let name: String
     let isDirectory: Bool
@@ -12,9 +12,11 @@ class FileNode: Identifiable, ObservableObject, Hashable {
     @Published var isExpanded: Bool = false
 
     init(url: URL, isDirectory: Bool) {
-        self.url = url
+        let normalizedURL = url.standardizedFileURL
+        self.url = normalizedURL
+        self.id = normalizedURL.path
         self.isDirectory = isDirectory
-        self.name = url.lastPathComponent
+        self.name = normalizedURL.lastPathComponent
 
         if isDirectory {
             self.children = []
@@ -68,6 +70,38 @@ class FileNode: Identifiable, ObservableObject, Hashable {
         }
 
         return node
+    }
+
+    /// Capture expanded directory paths so a rebuilt tree can restore UI state.
+    func expandedDirectoryPaths() -> Set<String> {
+        guard isDirectory else { return [] }
+
+        var paths: Set<String> = isExpanded ? [id] : []
+        for child in children ?? [] {
+            paths.formUnion(child.expandedDirectoryPaths())
+        }
+        return paths
+    }
+
+    /// Restore expanded folders on a rebuilt tree without forcing unrelated folders open.
+    func restoreExpansionState(from expandedPaths: Set<String>) {
+        guard isDirectory else { return }
+
+        let expandedHere = expandedPaths.contains(id)
+        let descendantPrefix = id + "/"
+        let hasExpandedDescendant = expandedPaths.contains { $0.hasPrefix(descendantPrefix) }
+
+        isExpanded = expandedHere
+
+        guard expandedHere || hasExpandedDescendant else { return }
+
+        if children?.isEmpty != false {
+            loadChildren()
+        }
+
+        for child in children ?? [] {
+            child.restoreExpansionState(from: expandedPaths)
+        }
     }
 
     // MARK: - Hashable Conformance

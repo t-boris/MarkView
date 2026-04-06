@@ -434,7 +434,7 @@ struct ModuleExplorerView: View {
                     // Extract search term from snippet for scroll
                     let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        NotificationCenter.default.post(name: NSNotification.Name("ScrollToText"), object: String(searchTerm))
+                        NotificationCenter.default.post(name: .scrollToText, object: String(searchTerm))
                     }
                     break
                 }
@@ -752,7 +752,7 @@ struct ModuleExplorerView: View {
         guard let text = text, !text.isEmpty else { return }
         let snippet = String(text.prefix(50)).replacingOccurrences(of: "'", with: "\\'")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NotificationCenter.default.post(name: NSNotification.Name("ScrollToText"), object: snippet)
+            NotificationCenter.default.post(name: .scrollToText, object: snippet)
         }
     }
 

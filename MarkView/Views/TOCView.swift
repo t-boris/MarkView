@@ -20,7 +20,7 @@ struct TOCView: View {
                             ForEach(tab.headings) { heading in
                                 Button(action: {
                                     workspaceManager.updateActiveHeading(heading.id)
-                                    NotificationCenter.default.post(name: NSNotification.Name("ScrollToHeading"), object: heading.id)
+                                    NotificationCenter.default.post(name: .scrollToHeading, object: heading.id)
                                 }) {
                                     HStack(spacing: 4) {
                                         if heading.level > 1 {

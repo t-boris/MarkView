@@ -150,42 +150,67 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
             workspaceManager.themeVersion += 1
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openInActiveWindow)) { notification in
-            guard let url = notification.object as? URL else { return }
-            // Only one ContentView should handle — prefer the one with no folder open
-            let hasFolder = workspaceManager.rootNode != nil
-            let otherEmptyExists = NSApp.windows.count > 1
-            if hasFolder && otherEmptyExists { return }
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if isDir {
-                workspaceManager.openFolder(url)
-            } else {
-                workspaceManager.openFile(url)
-            }
-        }
+        // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
+        // folder URLs, preventing application:open: from receiving them.
         .focusedSceneValue(\.workspaceManager, workspaceManager)
         .sheet(isPresented: $showGraphCreator) {
             GraphCreatorSheet(workspaceManager: workspaceManager, isPresented: $showGraphCreator, preselectedType: graphPreselectedType)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("triggerAITool"))) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .triggerAITool)) { notification in
             if let tool = notification.object as? String {
                 triggerAITool(tool)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("openGraphCreator"))) { notification in
+        .onReceive(NotificationCenter.default.publisher(for: .openGraphCreator)) { notification in
             graphPreselectedType = notification.object as? String ?? "architecture"
             showGraphCreator = true
         }
         .onAppear {
-            // Check if a new window was requested with a pending folder
-            if let url = MarkViewApp.pendingFolderURL {
+            // Check pending URLs from various sources (Open Folder menu, Finder Open With)
+            let url = MarkViewApp.pendingFolderURL ?? MarkViewApp.pendingOpenURL
+            if let url = url {
                 MarkViewApp.pendingFolderURL = nil
-                workspaceManager.openFolder(url)
+                MarkViewApp.pendingOpenURL = nil
+                WorkspaceManager.debugLog("onAppear: opening \(url.path)")
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if isDir { workspaceManager.openFolder(url) } else { workspaceManager.openFile(url) }
+                return
             }
+            // Delayed check: application:open: may fire AFTER onAppear
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak workspaceManager] in
+                guard let wm = workspaceManager, wm.rootNode == nil,
+                      let url = MarkViewApp.pendingOpenURL else { return }
+                MarkViewApp.pendingOpenURL = nil
+                WorkspaceManager.debugLog("onAppear delayed: opening \(url.path)")
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if isDir { wm.openFolder(url) } else { wm.openFile(url) }
+            }
+            // Close this window later if it never got content (SwiftUI ghost window)
+            closeIfEmpty()
         }
     }
 
     private var themeToken: Int { workspaceManager.themeVersion }
+
+    /// Close the empty "ghost" window that SwiftUI creates for document types.
+    /// Only closes windows with no content; windows with loaded folders are kept.
+    private func closeIfEmpty() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak workspaceManager] in
+            guard let wm = workspaceManager,
+                  wm.rootNode == nil,
+                  wm.openTabs.isEmpty else { return }
+            // This window never got content — it's a ghost. Close it.
+            for window in NSApp.windows where window.isVisible {
+                // Find our window by checking if it's not the key/main window
+                // and has the default title
+                if window.title.contains("MarkView") && window != NSApp.keyWindow && window != NSApp.mainWindow {
+                    WorkspaceManager.debugLog("Closing ghost window")
+                    window.close()
+                    return
+                }
+            }
+        }
+    }
 
     private func triggerAITool(_ tool: String) {
         guard let engine = workspaceManager.aiConsoleEngine else {
@@ -339,9 +364,7 @@ struct ContentView: View {
             try? template.write(to: url, atomically: true, encoding: .utf8)
             workspaceManager.openFile(url)
             // Refresh file tree if in same workspace
-            if let root = workspaceManager.rootNode?.url {
-                workspaceManager.rootNode = FileNode.buildTree(from: root)
-            }
+            workspaceManager.refreshFileTree()
         }
     }
 
@@ -489,7 +512,7 @@ struct ContentView: View {
 
         let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
         let fileName = activeTab.url.deletingPathExtension().lastPathComponent + ".pdf"
-        NotificationCenter.default.post(name: NSNotification.Name("PerformPDFExport"), object: fileName)
+        NotificationCenter.default.post(name: .performPDFExport, object: fileName)
     }
 
     private func handleFileDrop(_ providers: [NSItemProvider]) -> Bool {

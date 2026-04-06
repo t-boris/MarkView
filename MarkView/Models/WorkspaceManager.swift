@@ -2,10 +2,189 @@ import Foundation
 import SwiftUI
 import Combine
 
+/// Owns file-tree state, exclusion rules, and file-system watching for the active workspace.
+@MainActor
+final class WorkspaceFileTreeStore: ObservableObject {
+    @Published var rootNode: FileNode?
+    @Published private(set) var excludedFolders: Set<String> = []
+
+    var shouldAutoRefresh: () -> Bool = { true }
+
+    private var fileWatcher: DispatchSourceFileSystemObject?
+    private var fileWatchTimer: Timer?
+    private var fileWatchDebounce: DispatchWorkItem?
+    private var lastRootModDate: Date?
+
+    func reset() {
+        stopWatching()
+        rootNode = nil
+        excludedFolders = []
+        lastRootModDate = nil
+    }
+
+    func setRootNode(_ node: FileNode?) {
+        rootNode = node
+        lastRootModDate = node.map { rootModificationDate(for: $0.url) } ?? nil
+    }
+
+    func loadExcludedFolders() {
+        let key = "excludedFolders.\(rootNode?.url.lastPathComponent ?? "default")"
+        if let saved = UserDefaults.standard.stringArray(forKey: key) {
+            excludedFolders = Set(saved)
+        } else {
+            excludedFolders = []
+        }
+    }
+
+    @discardableResult
+    func excludeFolder(_ folderURL: URL) -> String? {
+        guard let relativePath = relativePath(for: folderURL) else { return nil }
+        excludedFolders.insert(relativePath)
+        saveExcludedFolders()
+        return relativePath
+    }
+
+    @discardableResult
+    func includeFolder(_ relativePath: String) -> Bool {
+        let removed = excludedFolders.remove(relativePath) != nil
+        if removed {
+            saveExcludedFolders()
+        }
+        return removed
+    }
+
+    func isExcluded(_ url: URL) -> Bool {
+        guard let relativePath = relativePath(for: url) else { return false }
+        return excludedFolders.contains { relativePath.hasPrefix($0) }
+    }
+
+    func refresh() {
+        reloadFileTree()
+    }
+
+    func reveal(url: URL) {
+        guard let root = rootNode else { return }
+        expandToReveal(node: root, targetURL: url)
+    }
+
+    func startWatchingCurrentRoot() {
+        guard let rootURL = rootNode?.url else { return }
+        startFileWatcher(for: rootURL)
+    }
+
+    func stopWatching() {
+        fileWatchDebounce?.cancel()
+        fileWatchDebounce = nil
+        fileWatchTimer?.invalidate()
+        fileWatchTimer = nil
+        fileWatcher?.cancel()
+        fileWatcher = nil
+    }
+
+    private func saveExcludedFolders() {
+        let key = "excludedFolders.\(rootNode?.url.lastPathComponent ?? "default")"
+        UserDefaults.standard.set(Array(excludedFolders), forKey: key)
+    }
+
+    private func relativePath(for url: URL) -> String? {
+        guard let root = rootNode?.url else { return nil }
+        let rootPath = root.standardizedFileURL.path
+        let targetPath = url.standardizedFileURL.path
+
+        if targetPath == rootPath { return "" }
+        guard targetPath.hasPrefix(rootPath + "/") else { return nil }
+        return String(targetPath.dropFirst(rootPath.count + 1))
+    }
+
+    @discardableResult
+    private func expandToReveal(node: FileNode, targetURL: URL) -> Bool {
+        if node.url == targetURL { return true }
+        guard node.isDirectory, targetURL.path.hasPrefix(node.url.path + "/") else { return false }
+
+        if node.children == nil || node.children?.isEmpty == true {
+            node.loadChildren()
+        }
+        node.isExpanded = true
+
+        for child in node.children ?? [] {
+            if expandToReveal(node: child, targetURL: targetURL) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func startFileWatcher(for url: URL) {
+        stopWatching()
+        lastRootModDate = rootModificationDate(for: url)
+
+        let fd = open(url.path, O_EVTONLY)
+        guard fd != -1 else { return }
+
+        let queue = DispatchQueue.main
+        fileWatcher = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: .write,
+            queue: queue
+        )
+
+        fileWatcher?.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.fileWatchDebounce?.cancel()
+
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.shouldAutoRefresh() else { return }
+                self.reloadFileTree()
+            }
+
+            self.fileWatchDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+        }
+
+        fileWatcher?.setCancelHandler { close(fd) }
+        fileWatcher?.resume()
+
+        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+            self?.checkForFileTreeChanges()
+        }
+    }
+
+    private func checkForFileTreeChanges() {
+        guard let rootURL = rootNode?.url else { return }
+        guard shouldAutoRefresh() else { return }
+        guard let modDate = rootModificationDate(for: rootURL) else { return }
+
+        if modDate != lastRootModDate {
+            lastRootModDate = modDate
+            reloadFileTree()
+        }
+    }
+
+    private func reloadFileTree() {
+        guard let currentRoot = rootNode else { return }
+        let rootURL = currentRoot.url
+        let expandedPaths = currentRoot.expandedDirectoryPaths()
+
+        Task {
+            let node = await Task.detached {
+                let rebuilt = FileNode.buildTree(from: rootURL)
+                rebuilt.restoreExpansionState(from: expandedPaths)
+                return rebuilt
+            }.value
+            self.rootNode = node
+            self.lastRootModDate = self.rootModificationDate(for: rootURL)
+        }
+    }
+
+    private func rootModificationDate(for url: URL) -> Date? {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+        return values?.contentModificationDate
+    }
+}
+
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
 class WorkspaceManager: ObservableObject {
-    @Published var rootNode: FileNode?
     @Published var openTabs: [OpenTab] = []
     @Published var activeTabIndex: Int = -1
     @Published var recentFiles: [URL] = []
@@ -43,11 +222,14 @@ class WorkspaceManager: ObservableObject {
     @Published var themeVersion: Int = 0
     @Published var activeDiagramGenerationModes: Set<String> = []
     @Published var diagramPrompts: [String: String] = AIProviderClient.defaultDiagramPrompts
-
-    @Published var excludedFolders: Set<String> = [] // relative paths from root
-
-    private var fileWatcher: DispatchSourceFileSystemObject?
+    private let fileTreeStore = WorkspaceFileTreeStore()
+    private var cancellables: Set<AnyCancellable> = []
     private var recentFilesURL: URL
+
+    var rootNode: FileNode? {
+        get { fileTreeStore.rootNode }
+        set { fileTreeStore.setRootNode(newValue) }
+    }
 
     init() {
         Self.debugLog("WorkspaceManager init START")
@@ -69,6 +251,14 @@ class WorkspaceManager: ObservableObject {
         }
 
         loadRecentFiles()
+        fileTreeStore.shouldAutoRefresh = { [weak self] in
+            self?.indexingProgress == nil
+        }
+        fileTreeStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")
     }
 
@@ -87,7 +277,7 @@ class WorkspaceManager: ObservableObject {
     }
 
     func openFolder(_ url: URL) {
-        rootNode = nil  // Clear previous tree so progress spinner is shown
+        fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         openTabs = []
         activeTabIndex = -1
         indexingProgress = "Loading folder structure..."
@@ -102,14 +292,14 @@ class WorkspaceManager: ObservableObject {
             let node = await Task.detached {
                 FileNode.buildTree(from: url)
             }.value
-            self.rootNode = node
-            loadExcludedFolders()
+            self.fileTreeStore.setRootNode(node)
+            self.fileTreeStore.loadExcludedFolders()
             Self.debugLog("Tree loaded: \(node.children?.count ?? 0) children")
 
             indexingProgress = "Setting up workspace..."
             try? await Task.sleep(nanoseconds: 100_000_000)
 
-            startFileWatcher(for: url)
+            self.fileTreeStore.startWatchingCurrentRoot()
             addRecentFile(url)
             Self.debugLog("File watcher started, calling initDDEWorkspaceAsync...")
 
@@ -192,10 +382,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Exclude a folder — removes all its entities from the DB
     func excludeFolder(_ folderURL: URL) {
-        guard let root = rootNode?.url else { return }
-        let relativePath = folderURL.path.replacingOccurrences(of: root.path + "/", with: "")
-        excludedFolders.insert(relativePath)
-        saveExcludedFolders()
+        guard let relativePath = fileTreeStore.excludeFolder(folderURL) else { return }
 
         // Remove all DB entities for files in this folder
         guard let db = semanticDatabase else { return }
@@ -224,8 +411,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Re-include a previously excluded folder
     func includeFolder(_ relativePath: String) {
-        excludedFolders.remove(relativePath)
-        saveExcludedFolders()
+        guard fileTreeStore.includeFolder(relativePath) else { return }
         // Re-index would happen on next Refresh
         objectWillChange.send()
         NSLog("[DDE] Re-included folder: \(relativePath)")
@@ -233,21 +419,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Check if a path is excluded
     func isExcluded(_ url: URL) -> Bool {
-        guard let root = rootNode?.url else { return false }
-        let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
-        return excludedFolders.contains { relativePath.hasPrefix($0) }
-    }
-
-    private func saveExcludedFolders() {
-        let key = "excludedFolders.\(rootNode?.url.lastPathComponent ?? "default")"
-        UserDefaults.standard.set(Array(excludedFolders), forKey: key)
-    }
-
-    private func loadExcludedFolders() {
-        let key = "excludedFolders.\(rootNode?.url.lastPathComponent ?? "default")"
-        if let saved = UserDefaults.standard.stringArray(forKey: key) {
-            excludedFolders = Set(saved)
-        }
+        fileTreeStore.isExcluded(url)
     }
 
     /// Handle files created/modified by Claude Code — auto-open and refresh tree
@@ -255,7 +427,7 @@ class WorkspaceManager: ObservableObject {
         guard let root = rootNode?.url ?? aiConsoleEngine?.workspaceRoot else { return }
 
         // Refresh file tree
-        rootNode = FileNode.buildTree(from: root)
+        refreshFileTree()
 
         // Open or refresh each changed file
         for relativePath in relativePaths {
@@ -364,7 +536,8 @@ class WorkspaceManager: ObservableObject {
 
             // Build file tree showing just the parent dir
             if rootNode == nil {
-                rootNode = FileNode.buildTree(from: parentDir)
+                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir))
+                fileTreeStore.loadExcludedFolders()
             }
 
             // Index this single file: create root module, parse document, index FTS
@@ -697,28 +870,8 @@ Each component needs a correct type and one-sentence description.
 
     /// Reveal a file in the file tree by expanding parent folders
     func revealInFileTree(url: URL) {
-        guard let root = rootNode else { return }
         showFileTree = true
-        expandToReveal(node: root, targetURL: url)
-    }
-
-    /// Recursively expand nodes along the path to the target URL
-    @discardableResult
-    private func expandToReveal(node: FileNode, targetURL: URL) -> Bool {
-        if node.url == targetURL { return true }
-        guard node.isDirectory, targetURL.path.hasPrefix(node.url.path + "/") else { return false }
-
-        if node.children == nil || node.children?.isEmpty == true {
-            node.loadChildren()
-        }
-        node.isExpanded = true
-
-        for child in node.children ?? [] {
-            if expandToReveal(node: child, targetURL: targetURL) {
-                return true
-            }
-        }
-        return false
+        fileTreeStore.reveal(url: url)
     }
 
     /// Save the active tab's file
@@ -961,70 +1114,8 @@ Each component needs a correct type and one-sentence description.
         openTabs[activeTabIndex].activeHeadingId = headingId
     }
 
-    // MARK: - File Watching
-
-    private var fileWatchTimer: Timer?
-
-    private var fileWatchDebounce: DispatchWorkItem?
-
-    private func startFileWatcher(for url: URL) {
-        fileWatcher?.cancel()
-        fileWatchTimer?.invalidate()
-
-        // DispatchSource for root directory
-        let fd = open(url.path, O_EVTONLY)
-        guard fd != -1 else { return }
-
-        let queue = DispatchQueue.main
-        fileWatcher = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: .write,
-            queue: queue
-        )
-
-        fileWatcher?.setEventHandler { [weak self] in
-            // Debounce: wait 1s after last event before reloading
-            self?.fileWatchDebounce?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard self?.indexingProgress == nil else { return } // Skip during indexing
-                self?.reloadFileTree()
-            }
-            self?.fileWatchDebounce = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-        }
-
-        fileWatcher?.setCancelHandler { close(fd) }
-        fileWatcher?.resume()
-
-        // Poll every 10 seconds to catch subdirectory changes (only when idle)
-        fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.checkForFileTreeChanges()
-        }
-    }
-
-    private var lastRootModDate: Date?
-
-    private func checkForFileTreeChanges() {
-        guard let rootURL = rootNode?.url else { return }
-        guard indexingProgress == nil else { return } // Skip during indexing
-        // Lightweight check: only inspect root directory's modification date
-        // instead of enumerating all 200K+ files every 3 seconds
-        guard let values = try? rootURL.resourceValues(forKeys: [.contentModificationDateKey]),
-              let modDate = values.contentModificationDate else { return }
-        if modDate != lastRootModDate {
-            lastRootModDate = modDate
-            reloadFileTree()
-        }
-    }
-
-    private func reloadFileTree() {
-        guard let rootURL = rootNode?.url else { return }
-        Task {
-            let node = await Task.detached {
-                FileNode.buildTree(from: rootURL)
-            }.value
-            self.rootNode = node
-        }
+    func refreshFileTree() {
+        fileTreeStore.refresh()
     }
 
     // MARK: - Recent Files
@@ -1317,7 +1408,7 @@ Each component needs a correct type and one-sentence description.
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            NotificationCenter.default.post(name: NSNotification.Name("ScrollToText"), object: trimmedText)
+            NotificationCenter.default.post(name: .scrollToText, object: trimmedText)
         }
     }
 

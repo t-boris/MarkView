@@ -41,6 +41,15 @@ struct FileTreeView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .foregroundColor(VSDark.text)
+                if workspaceManager.rootNode != nil {
+                    Button(action: { workspaceManager.refreshFileTree() }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh file tree")
+                }
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {
                         Image(systemName: "xmark.circle.fill")
@@ -144,7 +153,7 @@ struct FileNodeView: View {
                 ) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if let children = node.children {
-                            ForEach(children, id: \.self) { child in
+                            ForEach(children) { child in
                                 FileNodeView(node: child, level: level + 1, searchText: searchText)
                             }
                         }
@@ -306,9 +315,7 @@ struct FileNodeView: View {
             let template = "# \(name.replacingOccurrences(of: ".md", with: ""))\n\n"
             try? template.write(to: fileURL, atomically: true, encoding: .utf8)
             // Reload tree and open file
-            if let root = workspaceManager.rootNode?.url {
-                workspaceManager.rootNode = FileNode.buildTree(from: root)
-            }
+            workspaceManager.refreshFileTree()
             workspaceManager.openFile(fileURL)
         }
     }
@@ -328,9 +335,7 @@ struct FileNodeView: View {
             guard !name.isEmpty else { return }
             let folderURL = parentURL.appendingPathComponent(name)
             try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-            if let root = workspaceManager.rootNode?.url {
-                workspaceManager.rootNode = FileNode.buildTree(from: root)
-            }
+            workspaceManager.refreshFileTree()
         }
     }
 }
