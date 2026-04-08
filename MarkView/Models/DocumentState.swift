@@ -1,6 +1,32 @@
 import Foundation
 import SwiftUI
 
+/// Supported file types for viewing/editing
+enum FileType: String {
+    case markdown
+    case json
+    case xml
+    case yaml
+
+    /// All file extensions the app can open
+    static let supportedExtensions: Set<String> = [
+        "md", "markdown", "mdown", "mkd",
+        "json",
+        "xml", "plist", "xsd", "xsl", "xslt", "svg",
+        "yml", "yaml"
+    ]
+
+    /// Determine file type from URL extension
+    static func from(url: URL) -> FileType {
+        switch url.pathExtension.lowercased() {
+        case "json": return .json
+        case "xml", "plist", "xsd", "xsl", "xslt", "svg": return .xml
+        case "yml", "yaml": return .yaml
+        default: return .markdown
+        }
+    }
+}
+
 /// Represents a table of contents heading entry
 struct HeadingItem: Identifiable, Codable {
     let id: String
@@ -33,8 +59,13 @@ struct OpenTab: Identifiable {
         url.lastPathComponent
     }
 
+    /// The file type of this tab
+    var fileType: FileType {
+        FileType.from(url: url)
+    }
+
     /// Check if this tab is for a markdown file
     var isMarkdown: Bool {
-        url.pathExtension.lowercased() == "md"
+        fileType == .markdown
     }
 }

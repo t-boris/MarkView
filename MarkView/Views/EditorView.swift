@@ -211,6 +211,13 @@ struct EditorView: NSViewRepresentable {
             guard markdown != lastLoadedContent else { return }
             lastLoadedContent = markdown
 
+            // Route by file type
+            let fileType = documentURL.map { FileType.from(url: $0) } ?? .markdown
+            if fileType != .markdown {
+                bridge.loadStructuredContent(markdown, fileType: fileType.rawValue, into: webView) {}
+                return
+            }
+
             // Resolve relative image paths to data URIs so WKWebView can display them
             // (WKWebView sandbox blocks direct file:// access to user files)
             let resolved = documentURL != nil
@@ -349,10 +356,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didChangeScrollPosition position: CGFloat) {
         Task { @MainActor in
-            let idx = self.parent.workspaceManager.activeTabIndex
-            if idx >= 0, idx < self.parent.workspaceManager.openTabs.count {
-                self.parent.workspaceManager.openTabs[idx].scrollPosition = position
-            }
+            self.parent.workspaceManager.updateActiveTabScrollPosition(position)
         }
     }
 
@@ -395,161 +399,25 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String) {
         Task { @MainActor in
+            let wm = self.parent.workspaceManager
             if type == "edit" {
-                // AI edit of existing graph
-                let wm = self.parent.workspaceManager
-                guard let engine = wm.aiConsoleEngine else { return }
-
-                let editPrompt = """
-                I have a Mermaid diagram. Please modify it according to this instruction:
-
-                INSTRUCTION: \(prompt)
-
-                CURRENT MERMAID CODE:
-                ```mermaid
-                \(content)
-                ```
-
-                RULES:
-                1. Modify the diagram as requested
-                2. Keep ALL other components that weren't mentioned
-                3. Maintain the subgraph structure and layers
-                4. Return the COMPLETE updated mermaid code
-                5. The FIRST LINE inside the mermaid block MUST be: %%INTERACTIVE
-                6. Update the current file with the new diagram (replace the old mermaid block)
-
-                Save the updated diagram to the currently open file.
-                """
-
-                engine.sendMessage(editPrompt)
-                wm.showTOC = true
-                wm.showSemanticPanel = true
+                wm.runGraphEdit(instruction: prompt, currentMermaid: content)
             } else {
-                // New graph — open creator sheet
-                NotificationCenter.default.post(name: .openGraphCreator, object: type)
+                wm.presentGraphCreator(for: type)
             }
         }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String) {
         Task { @MainActor in
-            let wm = self.parent.workspaceManager
-            guard let engine = wm.aiConsoleEngine else { return }
-
-            let fileName = wm.activeTabIndex >= 0 && wm.activeTabIndex < wm.openTabs.count
-                ? wm.openTabs[wm.activeTabIndex].url.lastPathComponent : "document"
-
-            if tool == "critic" {
-                let prompt = """
-                You are a CONSTRUCTIVE CRITIC reviewing documentation. Analyze the following document thoroughly.
-
-                Create a file called "review-\(fileName)" with your review. Structure it as:
-
-                # Constructive Review: \(fileName)
-
-                ## Summary
-                Brief overview of what the document covers and its overall quality.
-
-                ## Strengths
-                What's done well — be specific with examples.
-
-                ## Issues Found
-                For each issue:
-                ### Issue N: [Title]
-                - **Severity**: Critical / Major / Minor / Suggestion
-                - **Location**: Where in the document
-                - **Problem**: What's wrong
-                - **Recommendation**: How to fix it
-                - **Example**: Show the fix if applicable
-
-                ## Missing Content
-                What should be documented but isn't.
-
-                ## Consistency Issues
-                Terminology, formatting, style inconsistencies.
-
-                ## Action Items
-                Numbered list of concrete tasks to improve this document.
-                Each with priority (P1/P2/P3) and estimated effort.
-
-                ## Overall Score
-                Rate 1-10 with brief justification.
-
-                ---
-                Also create a file called "tasks/review-tasks-\(fileName)" with just the action items as a task list:
-                - [ ] P1: task description
-                - [ ] P2: task description
-                etc.
-
-                Document to review:
-                \(content)
-                """
-                engine.sendMessage(prompt)
-            } else if tool == "audit" {
-                engine.sendMessage(AIConsoleEngine.codebaseAuditPrompt)
-            } else if tool == "codemap" || tool == "fulldocs" {
-                NotificationCenter.default.post(name: .triggerAITool, object: tool)
-            } else if tool == "research" {
-                let prompt = """
-                You are a DEEP RESEARCHER. Analyze the following document and identify research points.
-
-                STEP 1: Read the document and identify all:
-                - External APIs, services, and integrations mentioned
-                - Technologies, frameworks, libraries referenced
-                - Architectural patterns and approaches used
-                - Claims about performance, scalability, or capabilities
-                - Third-party dependencies
-
-                STEP 2: For each research point, search online to find:
-                - Current status (is it still maintained? latest version?)
-                - Best practices and recommendations
-                - Known issues or limitations
-                - Alternatives and comparisons
-                - How it applies to this project specifically
-
-                STEP 3: Create a file called "research-\(fileName)" with findings:
-
-                # Deep Research Report: \(fileName)
-
-                ## Research Points Identified
-                List all points found.
-
-                ## Detailed Findings
-
-                ### 1. [Technology/API Name]
-                - **What it is**: Brief description
-                - **Current status**: Version, maintenance status
-                - **How it's used here**: Context from the document
-                - **Best practices**: What experts recommend
-                - **Risks/Issues**: Known problems
-                - **Alternatives**: Other options to consider
-                - **Recommendation**: Keep / Replace / Update / Investigate
-
-                (repeat for each research point)
-
-                ## Summary & Recommendations
-                Overall findings and priority actions.
-
-                Document to research:
-                \(content)
-                """
-                engine.sendMessage(prompt)
-            }
-
-            wm.showTOC = true
-            wm.showSemanticPanel = true
+            self.parent.workspaceManager.runAITool(named: tool, contentOverride: content)
         }
     }
 
     func bridgeRefreshRequested(_ bridge: WebViewBridge) {
         Task { @MainActor in
             let wm = self.parent.workspaceManager
-            let idx = wm.activeTabIndex
-            guard idx >= 0, idx < wm.openTabs.count else { return }
-            let url = wm.openTabs[idx].url
-            if let content = try? String(contentsOf: url, encoding: .utf8) {
-                wm.openTabs[idx].content = content
-                wm.openTabs[idx].isModified = false
+            if let content = wm.reloadActiveTabFromDisk() {
                 self.lastLoadedContent = content
                 if let webView = self.webView {
                     self.bridge.loadContent(content, into: webView) {}

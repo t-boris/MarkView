@@ -7,6 +7,13 @@ import Combine
 final class WorkspaceFileTreeStore: ObservableObject {
     @Published var rootNode: FileNode?
     @Published private(set) var excludedFolders: Set<String> = []
+    @Published var sortOrder = FileTreeSortOrder() {
+        didSet {
+            UserDefaults.standard.set(sortOrder.field.rawValue, forKey: "fileTree.sortField")
+            UserDefaults.standard.set(sortOrder.ascending, forKey: "fileTree.sortAscending")
+            refresh()
+        }
+    }
 
     var shouldAutoRefresh: () -> Bool = { true }
 
@@ -14,6 +21,17 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private var fileWatchTimer: Timer?
     private var fileWatchDebounce: DispatchWorkItem?
     private var lastRootModDate: Date?
+
+    init() {
+        let ud = UserDefaults.standard
+        if let savedField = ud.string(forKey: "fileTree.sortField"),
+           let field = FileTreeSortField(rawValue: savedField) {
+            sortOrder.field = field
+        }
+        if ud.object(forKey: "fileTree.sortAscending") != nil {
+            sortOrder.ascending = ud.bool(forKey: "fileTree.sortAscending")
+        }
+    }
 
     func reset() {
         stopWatching()
@@ -59,6 +77,11 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     func refresh() {
+        Self.log("refresh() called, rootNode=\(rootNode?.url.path ?? "nil")")
+        // Clear all cached resource values for the root URL tree
+        if let rootURL = rootNode?.url {
+            (rootURL as NSURL).removeAllCachedResourceValues()
+        }
         reloadFileTree()
     }
 
@@ -152,6 +175,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
     private func checkForFileTreeChanges() {
         guard let rootURL = rootNode?.url else { return }
         guard shouldAutoRefresh() else { return }
+        // Clear cached resource values so we see fresh modification dates
+        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
         guard let modDate = rootModificationDate(for: rootURL) else { return }
 
         if modDate != lastRootModDate {
@@ -161,32 +186,148 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     private func reloadFileTree() {
-        guard let currentRoot = rootNode else { return }
+        guard let currentRoot = rootNode else {
+            Self.log("reloadFileTree: rootNode is nil, skipping")
+            return
+        }
         let rootURL = currentRoot.url
+        Self.log("reloadFileTree: rebuilding from \(rootURL.path)")
         let expandedPaths = currentRoot.expandedDirectoryPaths()
+        let sort = sortOrder
 
-        Task {
-            let node = await Task.detached {
-                let rebuilt = FileNode.buildTree(from: rootURL)
-                rebuilt.restoreExpansionState(from: expandedPaths)
-                return rebuilt
-            }.value
-            self.rootNode = node
-            self.lastRootModDate = self.rootModificationDate(for: rootURL)
+        // Clear URL resource cache so FileManager sees new files
+        (rootURL as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
+
+        Task.detached {
+            let rebuilt = FileNode.buildTree(from: rootURL, sortOrder: sort)
+            rebuilt.restoreExpansionState(from: expandedPaths, sortOrder: sort)
+            let childCount = rebuilt.children?.count ?? 0
+            Self.log("reloadFileTree: rebuilt with \(childCount) children")
+            await MainActor.run {
+                self.rootNode = rebuilt
+                self.lastRootModDate = self.rootModificationDate(for: rootURL)
+                Self.log("reloadFileTree: rootNode updated on MainActor")
+            }
+        }
+    }
+
+    private nonisolated static func log(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) [FileTree] \(msg)\n"
+        let path = NSHomeDirectory() + "/markview_debug.log"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            handle.closeFile()
+        } else {
+            try? line.write(toFile: path, atomically: true, encoding: .utf8)
         }
     }
 
     private func rootModificationDate(for url: URL) -> Date? {
+        // Must clear cache — URL resource values are aggressively cached by Foundation
+        (url as NSURL).removeCachedResourceValue(forKey: .contentModificationDateKey)
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
         return values?.contentModificationDate
+    }
+}
+
+/// Owns the open-tab session state for a workspace.
+@MainActor
+final class WorkspaceTabsStore: ObservableObject {
+    @Published var openTabs: [OpenTab] = []
+    @Published var activeTabIndex: Int = -1
+
+    func reset() {
+        openTabs = []
+        activeTabIndex = -1
+    }
+
+    func firstIndex(of url: URL) -> Int? {
+        openTabs.firstIndex(where: { $0.url == url })
+    }
+
+    @discardableResult
+    func selectTab(matching url: URL) -> Int? {
+        guard let index = firstIndex(of: url) else { return nil }
+        activeTabIndex = index
+        return index
+    }
+
+    func appendTab(_ tab: OpenTab, activate: Bool = true) {
+        openTabs.append(tab)
+        if activate {
+            activeTabIndex = openTabs.count - 1
+        }
+    }
+
+    func updateTab(at index: Int, _ mutate: (inout OpenTab) -> Void) {
+        guard index >= 0 && index < openTabs.count else { return }
+        var tab = openTabs[index]
+        mutate(&tab)
+        openTabs[index] = tab
+    }
+
+    func updateActiveTab(_ mutate: (inout OpenTab) -> Void) {
+        updateTab(at: activeTabIndex, mutate)
+    }
+
+    func removeTab(at index: Int) {
+        guard index >= 0 && index < openTabs.count else { return }
+        openTabs.remove(at: index)
+        normalizeActiveTabIndex(preferred: activeTabIndex)
+    }
+
+    func keepOnlyTab(at index: Int) {
+        guard index >= 0 && index < openTabs.count else { return }
+        let kept = openTabs[index]
+        openTabs = [kept]
+        activeTabIndex = 0
+    }
+
+    func keepTabs(through index: Int) {
+        guard index >= 0 && index < openTabs.count else { return }
+        openTabs = Array(openTabs.prefix(index + 1))
+        normalizeActiveTabIndex(preferred: activeTabIndex)
+    }
+
+    func normalizeActiveTabIndex(preferred: Int? = nil) {
+        let candidate = preferred ?? activeTabIndex
+
+        guard !openTabs.isEmpty else {
+            activeTabIndex = -1
+            return
+        }
+
+        activeTabIndex = min(max(candidate, 0), openTabs.count - 1)
+    }
+}
+
+enum WorkspaceAITool: String {
+    case architecture
+    case dataflow
+    case pipeline
+    case deployment
+    case sequence
+    case er
+    case critic
+    case research
+    case audit
+    case codemap
+    case fulldocs
+
+    var opensGraphCreator: Bool {
+        switch self {
+        case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er:
+            return true
+        case .critic, .research, .audit, .codemap, .fulldocs:
+            return false
+        }
     }
 }
 
 /// Manages the workspace state including open files, tabs, and folder structure
 @MainActor
 class WorkspaceManager: ObservableObject {
-    @Published var openTabs: [OpenTab] = []
-    @Published var activeTabIndex: Int = -1
     @Published var recentFiles: [URL] = []
     @Published var showFileTree: Bool = true {
         didSet { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") }
@@ -222,13 +363,30 @@ class WorkspaceManager: ObservableObject {
     @Published var themeVersion: Int = 0
     @Published var activeDiagramGenerationModes: Set<String> = []
     @Published var diagramPrompts: [String: String] = AIProviderClient.defaultDiagramPrompts
+    @Published var pendingGraphCreatorType: String?
     private let fileTreeStore = WorkspaceFileTreeStore()
+    private let tabsStore = WorkspaceTabsStore()
     private var cancellables: Set<AnyCancellable> = []
     private var recentFilesURL: URL
 
     var rootNode: FileNode? {
         get { fileTreeStore.rootNode }
         set { fileTreeStore.setRootNode(newValue) }
+    }
+
+    var openTabs: [OpenTab] {
+        get { tabsStore.openTabs }
+        set { tabsStore.openTabs = newValue }
+    }
+
+    var activeTabIndex: Int {
+        get { tabsStore.activeTabIndex }
+        set { tabsStore.activeTabIndex = newValue }
+    }
+
+    var activeTab: OpenTab? {
+        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return nil }
+        return openTabs[activeTabIndex]
     }
 
     init() {
@@ -259,6 +417,11 @@ class WorkspaceManager: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+        tabsStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")
     }
 
@@ -278,8 +441,7 @@ class WorkspaceManager: ObservableObject {
 
     func openFolder(_ url: URL) {
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
-        openTabs = []
-        activeTabIndex = -1
+        tabsStore.reset()
         indexingProgress = "Loading folder structure..."
         Self.debugLog("openFolder START: \(url.path)")
 
@@ -289,8 +451,9 @@ class WorkspaceManager: ObservableObject {
             Self.debugLog("Task started, building tree...")
 
             // Build tree on background thread to avoid blocking UI
+            let sort = self.fileTreeStore.sortOrder
             let node = await Task.detached {
-                FileNode.buildTree(from: url)
+                FileNode.buildTree(from: url, sortOrder: sort)
             }.value
             self.fileTreeStore.setRootNode(node)
             self.fileTreeStore.loadExcludedFolders()
@@ -438,12 +601,14 @@ class WorkspaceManager: ObservableObject {
     }
 
     func openOrRefreshFile(_ url: URL) {
-        if let index = openTabs.firstIndex(where: { $0.url == url }) {
+        if let index = tabsStore.firstIndex(of: url) {
             if let content = try? String(contentsOf: url, encoding: .utf8) {
-                openTabs[index].content = content
-                openTabs[index].originalContent = content
-                openTabs[index].isModified = false
-                activeTabIndex = index
+                tabsStore.updateTab(at: index) { tab in
+                    tab.content = content
+                    tab.originalContent = content
+                    tab.isModified = false
+                }
+                tabsStore.activeTabIndex = index
             }
         } else {
             openFile(url)
@@ -458,8 +623,7 @@ class WorkspaceManager: ObservableObject {
         }
 
         // Check if file is already open
-        if let index = openTabs.firstIndex(where: { $0.url == url }) {
-            activeTabIndex = index
+        if tabsStore.selectTab(matching: url) != nil {
             return
         }
 
@@ -473,8 +637,7 @@ class WorkspaceManager: ObservableObject {
                 tab.headings = extractHeadings(from: content)
             }
 
-            openTabs.append(tab)
-            activeTabIndex = openTabs.count - 1
+            tabsStore.appendTab(tab)
             addRecentFile(url)
         } catch {
             NSLog("Error opening file: \(error)")
@@ -536,7 +699,7 @@ class WorkspaceManager: ObservableObject {
 
             // Build file tree showing just the parent dir
             if rootNode == nil {
-                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir))
+                fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
                 fileTreeStore.loadExcludedFolders()
             }
 
@@ -838,34 +1001,22 @@ Each component needs a correct type and one-sentence description.
             }
         }
 
-        openTabs.remove(at: index)
-
-        if activeTabIndex >= openTabs.count {
-            activeTabIndex = max(0, openTabs.count - 1)
-        }
+        tabsStore.removeTab(at: index)
     }
 
     /// Close all tabs except the one at the given index
     func closeOtherTabs(except index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        let kept = openTabs[index]
-        openTabs = [kept]
-        activeTabIndex = 0
+        tabsStore.keepOnlyTab(at: index)
     }
 
     /// Close all tabs to the right of the given index
     func closeTabsToRight(of index: Int) {
-        guard index >= 0 && index < openTabs.count else { return }
-        openTabs = Array(openTabs.prefix(index + 1))
-        if activeTabIndex >= openTabs.count {
-            activeTabIndex = openTabs.count - 1
-        }
+        tabsStore.keepTabs(through: index)
     }
 
     /// Close all tabs
     func closeAllTabs() {
-        openTabs = []
-        activeTabIndex = -1
+        tabsStore.reset()
     }
 
     /// Reveal a file in the file tree by expanding parent folders
@@ -894,9 +1045,8 @@ Each component needs a correct type and one-sentence description.
         let newURL = sourceTab?.url.deletingLastPathComponent()
             .appendingPathComponent("\(sourceName)_\(targetLang.lowercased()).md") ?? URL(fileURLWithPath: "/tmp/translated.md")
 
-        var translatedTab = OpenTab(url: newURL, content: "# Translating to \(targetLang)...\n\nPlease wait...", originalContent: "")
-        openTabs.append(translatedTab)
-        activeTabIndex = openTabs.count - 1
+        let translatedTab = OpenTab(url: newURL, content: "# Translating to \(targetLang)...\n\nPlease wait...", originalContent: "")
+        tabsStore.appendTab(translatedTab)
 
         // Split markdown into chunks at heading boundaries for better translation
         let chunks = splitForTranslation(markdown, maxChars: 4000)
@@ -950,9 +1100,9 @@ Each component needs a correct type and one-sentence description.
                 translatedParts.append(text)
 
                 // Update tab content progressively
-                if tabIndex < openTabs.count {
-                    openTabs[tabIndex].content = translatedParts.joined(separator: "\n\n")
-                    openTabs[tabIndex].isModified = true
+                tabsStore.updateTab(at: tabIndex) { tab in
+                    tab.content = translatedParts.joined(separator: "\n\n")
+                    tab.isModified = true
                 }
             } catch {
                 NSLog("[DDE] Translation chunk \(i + 1) error: \(error)")
@@ -961,11 +1111,11 @@ Each component needs a correct type and one-sentence description.
         }
 
         // Final update
-        if tabIndex < openTabs.count {
-            openTabs[tabIndex].content = translatedParts.joined(separator: "\n\n")
-            openTabs[tabIndex].isModified = true
-            activeTabIndex = tabIndex
+        tabsStore.updateTab(at: tabIndex) { tab in
+            tab.content = translatedParts.joined(separator: "\n\n")
+            tab.isModified = true
         }
+        tabsStore.activeTabIndex = tabIndex
         indexingProgress = nil
         NSLog("[DDE] Translation complete: \(chunks.count) chunks")
     }
@@ -1001,8 +1151,10 @@ Each component needs a correct type and one-sentence description.
         let tab = openTabs[index]
         do {
             try tab.content.write(to: tab.url, atomically: true, encoding: .utf8)
-            openTabs[index].isModified = false
-            openTabs[index].originalContent = tab.content // new baseline
+            tabsStore.updateTab(at: index) { mutableTab in
+                mutableTab.isModified = false
+                mutableTab.originalContent = tab.content // new baseline
+            }
         } catch {
             NSLog("Error saving file: \(error)")
         }
@@ -1096,26 +1248,121 @@ Each component needs a correct type and one-sentence description.
 
     /// Update the content of the active tab
     func updateActiveTabContent(_ content: String) {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-
-        openTabs[activeTabIndex].content = content
-        openTabs[activeTabIndex].isModified = (content != openTabs[activeTabIndex].originalContent)
+        tabsStore.updateActiveTab { tab in
+            tab.content = content
+            tab.isModified = (content != tab.originalContent)
+        }
     }
 
     /// Update the headings for the active tab
     func updateActiveTabHeadings(_ headings: [HeadingItem]) {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        openTabs[activeTabIndex].headings = headings
+        tabsStore.updateActiveTab { tab in
+            tab.headings = headings
+        }
+    }
+
+    /// Persist scroll state from the editor for the active tab.
+    func updateActiveTabScrollPosition(_ position: CGFloat) {
+        tabsStore.updateActiveTab { tab in
+            tab.scrollPosition = position
+        }
     }
 
     /// Update the active heading for the active tab
     func updateActiveHeading(_ headingId: String) {
-        guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        openTabs[activeTabIndex].activeHeadingId = headingId
+        tabsStore.updateActiveTab { tab in
+            tab.activeHeadingId = headingId
+        }
+    }
+
+    /// Reload the active tab from disk and return the fresh content for the editor.
+    func reloadActiveTabFromDisk() -> String? {
+        let idx = activeTabIndex
+        guard idx >= 0 && idx < openTabs.count else { return nil }
+
+        let url = openTabs[idx].url
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+
+        tabsStore.updateTab(at: idx) { tab in
+            tab.content = content
+            tab.originalContent = content
+            tab.isModified = false
+        }
+
+        return content
     }
 
     func refreshFileTree() {
+        Self.debugLog("refreshFileTree() called")
         fileTreeStore.refresh()
+    }
+
+    var fileTreeSortOrder: FileTreeSortOrder {
+        get { fileTreeStore.sortOrder }
+        set { fileTreeStore.sortOrder = newValue }
+    }
+
+    func presentGraphCreator(for type: String = "architecture") {
+        pendingGraphCreatorType = type
+    }
+
+    func dismissGraphCreator() {
+        pendingGraphCreatorType = nil
+    }
+
+    func runAITool(named toolName: String, contentOverride: String? = nil) {
+        guard let tool = WorkspaceAITool(rawValue: toolName) else { return }
+
+        if tool.opensGraphCreator {
+            presentGraphCreator(for: tool.rawValue)
+            return
+        }
+
+        guard let engine = aiConsoleEngine,
+              let prompt = aiPrompt(for: tool, contentOverride: contentOverride) else {
+            return
+        }
+
+        engine.sendMessage(prompt)
+        showAIConsole()
+    }
+
+    func runGraphEdit(instruction: String, currentMermaid: String) {
+        guard let engine = aiConsoleEngine else { return }
+
+        let editPrompt = """
+        I have a Mermaid diagram. Please modify it according to this instruction:
+
+        INSTRUCTION: \(instruction)
+
+        CURRENT MERMAID CODE:
+        ```mermaid
+        \(currentMermaid)
+        ```
+
+        RULES:
+        1. Modify the diagram as requested
+        2. Keep ALL other components that weren't mentioned
+        3. Maintain the subgraph structure and layers
+        4. Return the COMPLETE updated mermaid code
+        5. The FIRST LINE inside the mermaid block MUST be: %%INTERACTIVE
+        6. Update the current file with the new diagram (replace the old mermaid block)
+
+        Save the updated diagram to the currently open file.
+        """
+
+        engine.sendMessage(editPrompt)
+        showAIConsole()
+    }
+
+    func generateDocumentation(into outputURL: URL) {
+        guard let engine = aiConsoleEngine else {
+            NSLog("[Docs] No AI engine")
+            return
+        }
+
+        engine.sendMessage(documentationGenerationPrompt(outputDir: outputURL))
+        showAIConsole()
     }
 
     // MARK: - Recent Files
@@ -1176,7 +1423,8 @@ Each component needs a correct type and one-sentence description.
         guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
         guard !delta.isEmpty else { return }
 
-        var tab = openTabs[activeTabIndex]
+        let tabIndex = activeTabIndex
+        var tab = openTabs[tabIndex]
 
         tab.blocks.removeAll { delta.removed.contains($0.id) }
 
@@ -1189,7 +1437,9 @@ Each component needs a correct type and one-sentence description.
         tab.blocks.append(contentsOf: delta.added)
         tab.blocks.sort { $0.position < $1.position }
 
-        openTabs[activeTabIndex] = tab
+        tabsStore.updateTab(at: tabIndex) { currentTab in
+            currentTab = tab
+        }
 
         // Persist to SQLite
         if let db = semanticDatabase {
@@ -1445,8 +1695,9 @@ Each component needs a correct type and one-sentence description.
 
     /// Cursor moved to a different block
     func handleCursorBlockChange(_ blockId: String) {
-        guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
-        openTabs[activeTabIndex].activeBlockId = blockId
+        tabsStore.updateActiveTab { tab in
+            tab.activeBlockId = blockId
+        }
     }
 
     private func generateArchitectureDiagram(mode: String, force: Bool) async {
@@ -1473,6 +1724,293 @@ Each component needs a correct type and one-sentence description.
         } catch {
             NSLog("[DDE] Failed \(mode.capitalized) diagram: \(error)")
         }
+    }
+
+    private func showAIConsole() {
+        showTOC = true
+        showSemanticPanel = true
+    }
+
+    private func activeDocumentContext(contentLimit: Int = 15000, contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
+        let fileName = activeTab?.url.lastPathComponent ?? defaultFileName
+
+        if let contentOverride {
+            return (fileName, contentOverride)
+        }
+
+        let content = activeTab.map { String($0.content.prefix(contentLimit)) } ?? ""
+        return (fileName, content)
+    }
+
+    private func aiPrompt(for tool: WorkspaceAITool, contentOverride: String?) -> String? {
+        let context = activeDocumentContext(contentOverride: contentOverride)
+
+        switch tool {
+        case .audit:
+            return AIConsoleEngine.codebaseAuditPrompt
+
+        case .fulldocs:
+            return AIConsoleEngine.fullDocumentationPrompt
+
+        case .codemap:
+            return """
+            Scan the current directory recursively and generate a VISUAL CODE STRUCTURE MAP.
+
+            Create a file called "code-structure-map.md" with the following sections:
+
+            # Code Structure Map
+
+            ## Directory Tree
+            Show the full directory tree with annotations for each folder/file purpose.
+            Use indentation and icons:
+            📁 folder — description
+            📄 file — description
+            ⚙️ config file — what it configures
+            🧪 test file — what it tests
+            🐳 Docker — what it builds
+            📦 package manifest — dependencies
+
+            ## Architecture Layers Diagram
+            ```mermaid
+            %%INTERACTIVE
+            graph TD
+            subgraph "Entry Points"
+            ...
+            end
+            subgraph "Application Layer"
+            ...
+            end
+            subgraph "Domain / Business Logic"
+            ...
+            end
+            subgraph "Data Access / Persistence"
+            ...
+            end
+            subgraph "Infrastructure / External"
+            ...
+            end
+            ```
+            Show ALL files/modules as nodes grouped by architectural layer.
+            Connect them by actual import/dependency relationships found in code.
+
+            ## Configuration Map
+            Table showing:
+            | Config File | Purpose | Key Settings | Environment Vars | Notes |
+            For every config file found (.env, .yaml, .json, .toml, Dockerfile, CI files, etc.)
+
+            ## Dependency Graph
+            ```mermaid
+            %%INTERACTIVE
+            graph LR
+            ```
+            Show package/module dependencies — what imports what, what depends on what.
+            Use subgraph for internal vs external dependencies.
+
+            ## Entry Points
+            List all entry points:
+            - Main app entry
+            - API routes/endpoints
+            - CLI commands
+            - Background workers
+            - Scheduled tasks
+            - Event handlers
+            For each: file path, purpose, how it's triggered.
+
+            ## Data Flow
+            ```mermaid
+            %%INTERACTIVE
+            graph TD
+            ```
+            Show how data flows through the system:
+            - User input → API → Service → DB
+            - Events → Queue → Worker → Storage
+            - Cron → Batch → External API
+
+            ## File Statistics
+            | Metric | Value |
+            |--------|-------|
+            | Total files | ... |
+            | Source files | ... |
+            | Test files | ... |
+            | Config files | ... |
+            | Languages | ... |
+            | Largest files | top 10 |
+            | Most connected modules | top 10 |
+
+            Be thorough — scan EVERY file. Use %%INTERACTIVE in mermaid blocks for interactive diagrams.
+            """
+
+        case .critic:
+            if contentOverride != nil {
+                return """
+                You are a CONSTRUCTIVE CRITIC reviewing documentation. Analyze the following document thoroughly.
+
+                Create a file called "review-\(context.fileName)" with your review. Structure it as:
+
+                # Constructive Review: \(context.fileName)
+
+                ## Summary
+                Brief overview of what the document covers and its overall quality.
+
+                ## Strengths
+                What's done well — be specific with examples.
+
+                ## Issues Found
+                For each issue:
+                ### Issue N: [Title]
+                - **Severity**: Critical / Major / Minor / Suggestion
+                - **Location**: Where in the document
+                - **Problem**: What's wrong
+                - **Recommendation**: How to fix it
+                - **Example**: Show the fix if applicable
+
+                ## Missing Content
+                What should be documented but isn't.
+
+                ## Consistency Issues
+                Terminology, formatting, style inconsistencies.
+
+                ## Action Items
+                Numbered list of concrete tasks to improve this document.
+                Each with priority (P1/P2/P3) and estimated effort.
+
+                ## Overall Score
+                Rate 1-10 with brief justification.
+
+                ---
+                Also create a file called "tasks/review-tasks-\(context.fileName)" with just the action items as a task list:
+                - [ ] P1: task description
+                - [ ] P2: task description
+                etc.
+
+                Document to review:
+                \(context.content)
+                """
+            }
+
+            return """
+            You are a CONSTRUCTIVE CRITIC. Analyze the current workspace documentation thoroughly.
+            Create a file "review-\(context.fileName).md" with: Summary, Strengths, Issues (with severity/location/fix), Missing Content, Consistency Issues, Action Items (P1/P2/P3), Overall Score 1-10.
+            Also create "tasks/review-tasks-\(context.fileName).md" with action items as checkboxes.
+            \(context.content.isEmpty ? "Scan all files in the current directory." : "Document:\n\(context.content)")
+            """
+
+        case .research:
+            if contentOverride != nil {
+                return """
+                You are a DEEP RESEARCHER. Analyze the following document and identify research points.
+
+                STEP 1: Read the document and identify all:
+                - External APIs, services, and integrations mentioned
+                - Technologies, frameworks, libraries referenced
+                - Architectural patterns and approaches used
+                - Claims about performance, scalability, or capabilities
+                - Third-party dependencies
+
+                STEP 2: For each research point, search online to find:
+                - Current status (is it still maintained? latest version?)
+                - Best practices and recommendations
+                - Known issues or limitations
+                - Alternatives and comparisons
+                - How it applies to this project specifically
+
+                STEP 3: Create a file called "research-\(context.fileName)" with findings:
+
+                # Deep Research Report: \(context.fileName)
+
+                ## Research Points Identified
+                List all points found.
+
+                ## Detailed Findings
+
+                ### 1. [Technology/API Name]
+                - **What it is**: Brief description
+                - **Current status**: Version, maintenance status
+                - **How it's used here**: Context from the document
+                - **Best practices**: What experts recommend
+                - **Risks/Issues**: Known problems
+                - **Alternatives**: Other options to consider
+                - **Recommendation**: Keep / Replace / Update / Investigate
+
+                (repeat for each research point)
+
+                ## Summary & Recommendations
+                Overall findings and priority actions.
+
+                Document to research:
+                \(context.content)
+                """
+            }
+
+            return """
+            You are a DEEP RESEARCHER. Analyze the current workspace and identify all external APIs, technologies, dependencies.
+            For each, search online for: current status, best practices, known issues, alternatives.
+            Create "research-\(context.fileName).md" with detailed findings and recommendations (Keep/Replace/Update).
+            \(context.content.isEmpty ? "Scan all files in the current directory." : "Document:\n\(context.content)")
+            """
+
+        case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er:
+            return nil
+        }
+    }
+
+    private func documentationGenerationPrompt(outputDir: URL) -> String {
+        var prompt = """
+        Create a comprehensive documentation structure in the folder: \(outputDir.path)
+
+        Generate the following structure based on the project files in this workspace:
+
+        1. README.md — project overview with links to all sections
+        2. architecture/ folder:
+           - overview.md — high-level architecture with mermaid diagrams
+           - components.md — all components/modules listed with descriptions
+           - data-flow.md — how data flows between components
+        3. modules/ folder — one .md file per major component/service, with:
+           - Description, responsibilities
+           - Dependencies (links to other module files)
+           - API/interfaces
+           - Configuration
+        4. decisions/ folder:
+           - ADR-001.md (and more) — key architectural decisions
+        5. guides/ folder:
+           - getting-started.md
+           - deployment.md
+
+        Requirements:
+        - Every file must use proper markdown with headings, lists, code blocks
+        - Cross-reference between files using relative markdown links: [Component X](../modules/component-x.md)
+        - Include mermaid diagrams where appropriate (architecture overview, data flow)
+        - Be thorough and detailed — this should be production-quality documentation
+        - Write in English unless instructed otherwise
+        """
+
+        if let db = semanticDatabase {
+            let modules = db.allModules()
+            let contentModules = modules.filter { $0.id.hasPrefix("cmod_") }
+            if !contentModules.isEmpty {
+                prompt += "\n\nExisting components found in workspace (\(contentModules.count)):\n"
+                for mod in contentModules.prefix(50) {
+                    let symbols = db.symbolsForModule(mod.id)
+                    let desc = symbols.first(where: { $0.kind == "component" })?.context ?? ""
+                    prompt += "- \(mod.name): \(desc)\n"
+                }
+            }
+
+            var relations: [String] = []
+            for mod in contentModules.prefix(30) {
+                for rel in db.relationsForModule(mod.id) {
+                    relations.append("\(mod.name) → \(rel.targetId) (\(rel.type))")
+                }
+            }
+            if !relations.isEmpty {
+                prompt += "\nDependencies:\n"
+                for rel in relations.prefix(30) {
+                    prompt += "- \(rel)\n"
+                }
+            }
+        }
+
+        return prompt
     }
 
     private func diagramSummaries() -> (entities: String, claims: String)? {

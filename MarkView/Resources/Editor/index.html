@@ -687,6 +687,53 @@
             font-size: 14px;
             max-width: 300px;
         }
+
+        /* ============================================================================
+           STRUCTURED DATA TREE VIEW (JSON / XML / YAML)
+           ============================================================================ */
+        .struct-tree { padding: 12px; font-family: var(--font-mono); font-size: inherit; line-height: 1.6; overflow: auto; }
+        .struct-node { position: relative; }
+        .struct-line { display: flex; align-items: baseline; padding: 1px 0; cursor: default; border-radius: 3px; }
+        .struct-line:hover { background: rgba(255,255,255,0.04); }
+        .struct-toggle { cursor: pointer; user-select: none; width: 16px; flex-shrink: 0; text-align: center;
+                         color: var(--text-secondary); font-size: 10px; transition: transform 0.15s; }
+        .struct-toggle.collapsed { transform: rotate(-90deg); }
+        .struct-placeholder { width: 16px; flex-shrink: 0; }
+        .struct-key { color: #9cdcfe; }
+        .struct-string { color: #ce9178; }
+        .struct-number { color: #b5cea8; }
+        .struct-boolean { color: #569cd6; }
+        .struct-null { color: #6a737d; font-style: italic; }
+        .struct-bracket { color: #808080; }
+        .struct-colon { color: #808080; margin: 0 4px; }
+        .struct-comma { color: #808080; }
+        .struct-tag { color: #569cd6; }
+        .struct-attr-name { color: #9cdcfe; }
+        .struct-attr-value { color: #ce9178; }
+        .struct-comment { color: #6a9955; font-style: italic; }
+        .struct-text { color: var(--text-primary); }
+        .struct-children { padding-left: 20px; }
+        .struct-children.collapsed { display: none; }
+        .struct-count { color: #6a737d; font-size: 11px; margin-left: 6px; font-style: italic; }
+        .struct-error { background: rgba(244,71,71,0.1); border: 1px solid #f44747; border-radius: 6px;
+                        padding: 12px 16px; margin: 12px; color: #f44747; font-family: var(--font-mono); font-size: 12px;
+                        white-space: pre-wrap; }
+        .struct-toolbar { display: flex; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border-color);
+                          background: var(--bg-secondary); align-items: center; }
+        .struct-toolbar button { background: var(--bg-tertiary, #2d2d2d); color: var(--text-secondary); border: 1px solid var(--border-color);
+                                 border-radius: 4px; padding: 3px 10px; font-size: 11px; cursor: pointer; font-family: var(--font-sans); }
+        .struct-toolbar button:hover { background: var(--accent-primary); color: #fff; }
+        .struct-toolbar .spacer { flex: 1; }
+        .struct-toolbar .struct-path { color: var(--text-secondary); font-size: 11px; font-family: var(--font-mono); }
+
+        html[data-theme="light"] .struct-key { color: #0451a5; }
+        html[data-theme="light"] .struct-string { color: #a31515; }
+        html[data-theme="light"] .struct-number { color: #098658; }
+        html[data-theme="light"] .struct-boolean { color: #0000ff; }
+        html[data-theme="light"] .struct-tag { color: #800000; }
+        html[data-theme="light"] .struct-attr-name { color: #e50000; }
+        html[data-theme="light"] .struct-attr-value { color: #0451a5; }
+        html[data-theme="light"] .struct-line:hover { background: rgba(0,0,0,0.04); }
     </style>
 </head>
 <body>
@@ -743,7 +790,7 @@
             <button onclick="saveFile()" title="Save (⌘S)" style="font-size:11px">💾</button>
             <button onclick="refreshFile()" title="Reload file from disk (⌘R)" style="font-size:12px">↻</button>
             <div class="sep"></div>
-            <span class="mode-label" id="mode-toggle" onclick="toggleMode()" title="Switch to source markdown (⌘⇧P)">Source ↗</span>
+            <span class="mode-label" id="mode-toggle" onclick="toggleModeWrapper ? toggleModeWrapper() : toggleMode()" title="Switch mode (⌘⇧P)">Source ↗</span>
         </div>
 
         <div class="editor-content">
@@ -840,6 +887,9 @@
     <script src="vendor/js/prism-sql.min.js"></script>
     <script src="vendor/js/prism-markdown.min.js"></script>
 
+    <!-- YAML parser for structured data view -->
+    <script src="vendor/js/js-yaml.min.js"></script>
+
     <script>
         // ============================================================================
         // INITIALIZATION
@@ -853,6 +903,7 @@
             activeHeadingId: null,
             isRendering: false,
             documentBaseURL: null, // file:// URL of the current document's directory
+            fileType: 'markdown', // 'markdown' | 'json' | 'xml' | 'yaml'
         };
 
         const DOM = {
@@ -1783,6 +1834,295 @@
             switchToPreview();
         };
 
+        // ============================================================================
+        // STRUCTURED DATA SUPPORT (JSON / XML / YAML)
+        // ============================================================================
+
+        window.setStructuredContent = function(content, fileType) {
+            DOM.editor.value = content;
+            state.markdown = content;
+            state.fileType = fileType;
+            wysiwygDirty = false;
+            switchToStructuredView();
+        };
+
+        function switchToStructuredView() {
+            state.mode = 'structured';
+            state.markdown = DOM.editor.value; // sync from source textarea
+            DOM.editorPane.style.display = 'none';
+            DOM.previewPane.style.display = 'flex';
+            DOM.previewPane.style.flexDirection = 'column';
+            DOM.rendered.contentEditable = 'false';
+            DOM.statusMode.textContent = state.fileType.toUpperCase();
+            document.getElementById('mode-toggle').textContent = 'Source ↗';
+            document.getElementById('wysiwyg-toolbar').style.display = 'none';
+            renderStructuredContent();
+        }
+
+        function switchToStructuredSource() {
+            state.mode = 'structured-source';
+            DOM.editorPane.style.display = 'flex';
+            DOM.previewPane.style.display = 'none';
+            DOM.statusMode.textContent = state.fileType.toUpperCase() + ' Source';
+            document.getElementById('wysiwyg-toolbar').style.display = 'none';
+            document.getElementById('mode-toggle').textContent = 'Tree ↗';
+            // Apply current font size to source editor
+            const currentSize = getComputedStyle(DOM.rendered).fontSize;
+            if (currentSize) DOM.editor.style.fontSize = currentSize;
+            DOM.editor.focus();
+        }
+
+        function renderStructuredContent() {
+            let html = '';
+            try {
+                if (state.fileType === 'json') {
+                    const parsed = JSON.parse(state.markdown);
+                    html = '<div class="struct-tree">' + renderStructToolbar() + renderJSON(parsed, '', true) + '</div>';
+                    extractStructHeadings(parsed, 'json');
+                } else if (state.fileType === 'xml') {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(state.markdown, 'text/xml');
+                    const parseError = doc.querySelector('parsererror');
+                    if (parseError) throw new Error(parseError.textContent);
+                    html = '<div class="struct-tree">' + renderStructToolbar() + renderXML(doc.documentElement, '', true) + '</div>';
+                    extractStructHeadings(doc.documentElement, 'xml');
+                } else if (state.fileType === 'yaml') {
+                    const parsed = jsyaml.load(state.markdown);
+                    html = '<div class="struct-tree">' + renderStructToolbar() + renderJSON(parsed, '', true) + '</div>';
+                    extractStructHeadings(parsed, 'yaml');
+                }
+            } catch (e) {
+                // Parse error — show error + syntax-highlighted source
+                html = '<div class="struct-error">Parse Error: ' + escapeHTML(e.message) + '</div>'
+                     + '<pre class="language-' + state.fileType + '" style="padding:12px;margin:0;overflow:auto;"><code>'
+                     + escapeHTML(state.markdown) + '</code></pre>';
+                if (typeof Prism !== 'undefined') {
+                    setTimeout(() => Prism.highlightAllUnder(DOM.rendered), 50);
+                }
+            }
+            DOM.rendered.innerHTML = html;
+            // Wire up toggle buttons
+            DOM.rendered.querySelectorAll('.struct-toggle').forEach(el => {
+                el.addEventListener('click', () => toggleStructNode(el));
+            });
+        }
+
+        function renderStructToolbar() {
+            return '<div class="struct-toolbar">'
+                + '<button onclick="structFoldAll()">Fold All</button>'
+                + '<button onclick="structUnfoldAll()">Unfold All</button>'
+                + (state.fileType !== 'xml' ? '<button onclick="structFormat()">Format</button>' : '')
+                + (state.fileType !== 'xml' ? '<button onclick="structMinify()">Minify</button>' : '')
+                + '<span class="spacer"></span>'
+                + '<button onclick="toggleStructMode()">' + (state.mode === 'structured' ? 'Source ↗' : 'Tree ↗') + '</button>'
+                + '</div>';
+        }
+
+        // --- JSON / YAML tree renderer ---
+        function renderJSON(value, key, isLast) {
+            if (value === null) return renderJSONLeaf(key, '<span class="struct-null">null</span>', isLast);
+            if (typeof value === 'boolean') return renderJSONLeaf(key, '<span class="struct-boolean">' + value + '</span>', isLast);
+            if (typeof value === 'number') return renderJSONLeaf(key, '<span class="struct-number">' + value + '</span>', isLast);
+            if (typeof value === 'string') return renderJSONLeaf(key, '<span class="struct-string">"' + escapeHTML(value) + '"</span>', isLast);
+
+            const isArray = Array.isArray(value);
+            const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value);
+            const open = isArray ? '[' : '{';
+            const close = isArray ? ']' : '}';
+            const count = entries.length;
+            const id = 'sn-' + Math.random().toString(36).substr(2, 8);
+
+            let html = '<div class="struct-node" id="' + id + '">';
+            html += '<div class="struct-line">';
+            html += '<span class="struct-toggle" data-target="' + id + '-children">▼</span>';
+            if (key !== '') html += '<span class="struct-key">' + (typeof key === 'number' ? key : '"' + escapeHTML(String(key)) + '"') + '</span><span class="struct-colon">: </span>';
+            html += '<span class="struct-bracket">' + open + '</span>';
+            html += '<span class="struct-count">' + count + (count === 1 ? ' item' : ' items') + '</span>';
+            html += '</div>';
+            html += '<div class="struct-children" id="' + id + '-children">';
+            entries.forEach(([k, v], i) => {
+                html += renderJSON(v, k, i === entries.length - 1);
+            });
+            html += '</div>';
+            html += '<div class="struct-line"><span class="struct-placeholder"></span><span class="struct-bracket">' + close + '</span>' + (isLast ? '' : '<span class="struct-comma">,</span>') + '</div>';
+            html += '</div>';
+            return html;
+        }
+
+        function renderJSONLeaf(key, valueHtml, isLast) {
+            let html = '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span>';
+            if (key !== '') html += '<span class="struct-key">' + (typeof key === 'number' ? key : '"' + escapeHTML(String(key)) + '"') + '</span><span class="struct-colon">: </span>';
+            html += valueHtml;
+            if (!isLast) html += '<span class="struct-comma">,</span>';
+            html += '</div></div>';
+            return html;
+        }
+
+        // --- XML tree renderer ---
+        function renderXML(node, indent, isLast) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                const text = node.textContent.trim();
+                if (!text) return '';
+                return '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span><span class="struct-text">' + escapeHTML(text) + '</span></div></div>';
+            }
+            if (node.nodeType === Node.COMMENT_NODE) {
+                return '<div class="struct-node"><div class="struct-line"><span class="struct-placeholder"></span><span class="struct-comment">&lt;!-- ' + escapeHTML(node.textContent) + ' --&gt;</span></div></div>';
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+            const children = Array.from(node.childNodes).filter(c => c.nodeType === Node.ELEMENT_NODE || (c.nodeType === Node.TEXT_NODE && c.textContent.trim()));
+            const hasChildren = children.length > 0;
+            const id = 'sn-' + Math.random().toString(36).substr(2, 8);
+            let attrs = '';
+            for (const attr of node.attributes) {
+                attrs += ' <span class="struct-attr-name">' + escapeHTML(attr.name) + '</span>=<span class="struct-attr-value">"' + escapeHTML(attr.value) + '"</span>';
+            }
+
+            let html = '<div class="struct-node" id="' + id + '">';
+            html += '<div class="struct-line">';
+            if (hasChildren) {
+                html += '<span class="struct-toggle" data-target="' + id + '-children">▼</span>';
+            } else {
+                html += '<span class="struct-placeholder"></span>';
+            }
+            html += '<span class="struct-bracket">&lt;</span><span class="struct-tag">' + escapeHTML(node.tagName) + '</span>' + attrs;
+
+            if (!hasChildren) {
+                // Self-closing or text-only
+                const textContent = node.textContent.trim();
+                if (textContent && textContent.length < 80) {
+                    html += '<span class="struct-bracket">&gt;</span><span class="struct-text">' + escapeHTML(textContent) + '</span>';
+                    html += '<span class="struct-bracket">&lt;/</span><span class="struct-tag">' + escapeHTML(node.tagName) + '</span><span class="struct-bracket">&gt;</span>';
+                } else {
+                    html += '<span class="struct-bracket"> /&gt;</span>';
+                }
+                html += '</div></div>';
+                return html;
+            }
+
+            html += '<span class="struct-bracket">&gt;</span>';
+            html += '<span class="struct-count">' + children.length + '</span>';
+            html += '</div>';
+            html += '<div class="struct-children" id="' + id + '-children">';
+            children.forEach((child, i) => {
+                html += renderXML(child, indent + '  ', i === children.length - 1);
+            });
+            html += '</div>';
+            html += '<div class="struct-line"><span class="struct-placeholder"></span><span class="struct-bracket">&lt;/</span><span class="struct-tag">' + escapeHTML(node.tagName) + '</span><span class="struct-bracket">&gt;</span></div>';
+            html += '</div>';
+            return html;
+        }
+
+        // --- Fold/unfold ---
+        function toggleStructNode(toggleEl) {
+            const targetId = toggleEl.getAttribute('data-target');
+            const children = document.getElementById(targetId);
+            if (!children) return;
+            const collapsed = children.classList.toggle('collapsed');
+            toggleEl.textContent = collapsed ? '▶' : '▼';
+            toggleEl.classList.toggle('collapsed', collapsed);
+        }
+
+        window.structFoldAll = function() {
+            DOM.rendered.querySelectorAll('.struct-children').forEach(el => { el.classList.add('collapsed'); });
+            DOM.rendered.querySelectorAll('.struct-toggle').forEach(el => { el.textContent = '▶'; el.classList.add('collapsed'); });
+        };
+        window.structUnfoldAll = function() {
+            DOM.rendered.querySelectorAll('.struct-children').forEach(el => { el.classList.remove('collapsed'); });
+            DOM.rendered.querySelectorAll('.struct-toggle').forEach(el => { el.textContent = '▼'; el.classList.remove('collapsed'); });
+        };
+        window.structFormat = function() {
+            try {
+                if (state.fileType === 'json') {
+                    const parsed = JSON.parse(state.markdown);
+                    const formatted = JSON.stringify(parsed, null, 2);
+                    DOM.editor.value = formatted;
+                    state.markdown = formatted;
+                    renderStructuredContent();
+                    sendToSwift('contentChanged', { markdown: formatted, html: '' });
+                } else if (state.fileType === 'yaml') {
+                    const parsed = jsyaml.load(state.markdown);
+                    const formatted = jsyaml.dump(parsed, { indent: 2 });
+                    DOM.editor.value = formatted;
+                    state.markdown = formatted;
+                    renderStructuredContent();
+                    sendToSwift('contentChanged', { markdown: formatted, html: '' });
+                }
+            } catch(e) {}
+        };
+        window.structMinify = function() {
+            try {
+                if (state.fileType === 'json') {
+                    const parsed = JSON.parse(state.markdown);
+                    const minified = JSON.stringify(parsed);
+                    DOM.editor.value = minified;
+                    state.markdown = minified;
+                    renderStructuredContent();
+                    sendToSwift('contentChanged', { markdown: minified, html: '' });
+                }
+            } catch(e) {}
+        };
+        window.toggleStructMode = function() {
+            if (state.mode === 'structured') {
+                switchToStructuredSource();
+            } else {
+                // Re-parse from source textarea
+                state.markdown = DOM.editor.value;
+                switchToStructuredView();
+            }
+        };
+
+        // --- Structure headings for TOC ---
+        function extractStructHeadings(data, type) {
+            const headings = [];
+            let idCounter = 0;
+            function addHeading(text, level) {
+                headings.push({ id: 'struct-h-' + (idCounter++), level: level, text: text });
+            }
+            if (type === 'json' || type === 'yaml') {
+                if (data && typeof data === 'object' && !Array.isArray(data)) {
+                    for (const key of Object.keys(data)) {
+                        addHeading(key, 1);
+                        const val = data[key];
+                        if (val && typeof val === 'object' && !Array.isArray(val)) {
+                            for (const k2 of Object.keys(val)) {
+                                addHeading(k2, 2);
+                            }
+                        }
+                    }
+                }
+            } else if (type === 'xml') {
+                // data is the root element
+                addHeading(data.tagName, 1);
+                for (const child of data.children) {
+                    addHeading(child.tagName, 2);
+                    for (const grandchild of child.children) {
+                        addHeading(grandchild.tagName, 3);
+                    }
+                }
+            }
+            sendToSwift('headingsUpdated', headings);
+        }
+
+        function escapeHTML(str) {
+            if (typeof str !== 'string') return String(str);
+            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // Override mode toggle for structured files
+        const originalToggleMode = typeof toggleMode === 'function' ? toggleMode : null;
+        function toggleModeWrapper() {
+            if (state.fileType !== 'markdown') {
+                toggleStructMode();
+            } else if (originalToggleMode) {
+                originalToggleMode();
+            }
+        }
+
+        // ============================================================================
+        // END STRUCTURED DATA SUPPORT
+        // ============================================================================
+
         window.setDocumentBase = function(baseURL) {
             state.documentBaseURL = baseURL;
         };
@@ -1917,11 +2257,18 @@
         // ============================================================================
 
         DOM.editor.addEventListener('input', () => {
-            renderMarkdown();
-            updateStats();
+            state.markdown = DOM.editor.value;
+            if (state.fileType === 'markdown') {
+                renderMarkdown();
+                updateStats();
+            } else {
+                sendToSwift('contentChanged', { markdown: state.markdown, html: '' });
+            }
         });
 
-        DOM.btnToggleMode.addEventListener('click', toggleMode);
+        DOM.btnToggleMode.addEventListener('click', function() {
+            if (state.fileType !== 'markdown') { toggleStructMode(); } else { toggleMode(); }
+        });
         // Intercept all link clicks in rendered content
         DOM.rendered.addEventListener('click', function(e) {
             const link = e.target.closest('a');

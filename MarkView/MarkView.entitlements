@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- App Sandbox -->
+    <!-- App Sandbox disabled — needed for Process() to launch claude/codex CLI tools -->
     <key>com.apple.security.app-sandbox</key>
-    <true/>
+    <false/>
 
     <!-- File access: read/write user-selected files -->
     <key>com.apple.security.files.user-selected.read-write</key>

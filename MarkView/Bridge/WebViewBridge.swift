@@ -210,6 +210,25 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// Load structured data (JSON/XML/YAML) content into the editor
+    func loadStructuredContent(_ content: String, fileType: String, into webView: WKWebView, completion: @escaping () -> Void) {
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: [content], options: []),
+              let jsonArrayString = String(data: jsonData, encoding: .utf8) else {
+            NSLog("Error encoding structured content")
+            completion()
+            return
+        }
+        let jsonString = String(jsonArrayString.dropFirst().dropLast())
+        let js = "window.setStructuredContent(\(jsonString), '\(fileType)')"
+
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("Error setting structured content: \(error)")
+            }
+            completion()
+        }
+    }
+
     /// Set the document base URL for resolving relative image/link paths
     func setDocumentBase(_ directoryURL: URL, in webView: WKWebView) {
         var base = directoryURL.absoluteString

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="MarkView" version="1.0.0">
+  <features>
+    <feature name="markdown" enabled="true"/>
+    <feature name="json" enabled="true"/>
+    <feature name="xml" enabled="true"/>
+    <feature name="yaml" enabled="true"/>
+  </features>
+  <authors>
+    <author>Boris</author>
+    <author>Claude</author>
+  </authors>
+  <config>
+    <theme>dark</theme>
+    <fontSize>14</fontSize>
+    <plugins>
+      <plugin name="prism" version="1.29"/>
+      <plugin name="mermaid" version="10.0"/>
+    </plugins>
+  </config>
+</project>

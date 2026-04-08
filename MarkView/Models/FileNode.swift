@@ -1,6 +1,18 @@
 import Foundation
 import SwiftUI
 
+/// Sort field for file tree
+enum FileTreeSortField: String, CaseIterable {
+    case name = "Name"
+    case dateModified = "Date Modified"
+}
+
+/// Sort order for file tree
+struct FileTreeSortOrder: Equatable {
+    var field: FileTreeSortField = .name
+    var ascending: Bool = true
+}
+
 /// Represents a file or folder in the workspace tree
 class FileNode: Identifiable, ObservableObject, Hashable {
     let id: String
@@ -29,28 +41,41 @@ class FileNode: Identifiable, ObservableObject, Hashable {
     }
 
     /// Load children from the file system
-    func loadChildren() {
+    func loadChildren(sortOrder: FileTreeSortOrder = FileTreeSortOrder()) {
         guard isDirectory else { return }
 
         let fileManager = FileManager.default
         do {
-            // Prefetch isDirectoryKey to avoid extra syscalls during sort/map
-            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey])
+            let needsDate = sortOrder.field == .dateModified
+            let prefetchKeys: [URLResourceKey] = needsDate
+                ? [.isDirectoryKey, .contentModificationDateKey]
+                : [.isDirectoryKey]
+            let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: prefetchKeys)
 
-            // Build (url, isDir) pairs once, filter to relevant items only
-            let items: [(url: URL, isDir: Bool)] = contents.compactMap { itemURL in
+            let items: [(url: URL, isDir: Bool, modDate: Date?)] = contents.compactMap { itemURL in
                 let name = itemURL.lastPathComponent
-                guard !name.hasPrefix(".") else { return nil } // Hide hidden files
-                let isDir = (try? itemURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                // Only keep directories and markdown files — UI shows nothing else
-                guard isDir || itemURL.pathExtension.lowercased() == "md" else { return nil }
-                return (itemURL, isDir)
+                guard !name.hasPrefix(".") else { return nil }
+                let vals = try? itemURL.resourceValues(forKeys: Set(prefetchKeys))
+                let isDir = vals?.isDirectory ?? false
+                let ext = itemURL.pathExtension.lowercased()
+                guard isDir || FileType.supportedExtensions.contains(ext) else { return nil }
+                return (itemURL, isDir, vals?.contentModificationDate)
             }
 
+            let asc = sortOrder.ascending
             let sorted = items.sorted { a, b in
                 if a.isDir && !b.isDir { return true }
                 if !a.isDir && b.isDir { return false }
-                return a.url.lastPathComponent.lowercased() < b.url.lastPathComponent.lowercased()
+                switch sortOrder.field {
+                case .name:
+                    let cmp = a.url.lastPathComponent.lowercased() < b.url.lastPathComponent.lowercased()
+                    return asc ? cmp : !cmp
+                case .dateModified:
+                    let da = a.modDate ?? .distantPast
+                    let db = b.modDate ?? .distantPast
+                    let cmp = da < db
+                    return asc ? cmp : !cmp
+                }
             }
 
             self.children = sorted.map { FileNode(url: $0.url, isDirectory: $0.isDir) }
@@ -61,12 +86,12 @@ class FileNode: Identifiable, ObservableObject, Hashable {
 
     /// Build tree with only the root's immediate children loaded.
     /// Subdirectory contents are loaded on-demand when expanded.
-    static func buildTree(from url: URL) -> FileNode {
+    static func buildTree(from url: URL, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) -> FileNode {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
         let node = FileNode(url: url, isDirectory: isDirectory)
 
         if isDirectory {
-            node.loadChildren()
+            node.loadChildren(sortOrder: sortOrder)
         }
 
         return node
@@ -84,7 +109,7 @@ class FileNode: Identifiable, ObservableObject, Hashable {
     }
 
     /// Restore expanded folders on a rebuilt tree without forcing unrelated folders open.
-    func restoreExpansionState(from expandedPaths: Set<String>) {
+    func restoreExpansionState(from expandedPaths: Set<String>, sortOrder: FileTreeSortOrder = FileTreeSortOrder()) {
         guard isDirectory else { return }
 
         let expandedHere = expandedPaths.contains(id)
@@ -96,11 +121,11 @@ class FileNode: Identifiable, ObservableObject, Hashable {
         guard expandedHere || hasExpandedDescendant else { return }
 
         if children?.isEmpty != false {
-            loadChildren()
+            loadChildren(sortOrder: sortOrder)
         }
 
         for child in children ?? [] {
-            child.restoreExpansionState(from: expandedPaths)
+            child.restoreExpansionState(from: expandedPaths, sortOrder: sortOrder)
         }
     }
 

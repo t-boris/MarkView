@@ -1,0 +1,18 @@
+name: MarkView
+version: 1.0.0
+features:
+  markdown: true
+  json: true
+  xml: true
+  yaml: true
+authors:
+  - Boris
+  - Claude
+config:
+  theme: dark
+  fontSize: 14
+  plugins:
+    - name: prism
+      version: "1.29"
+    - name: mermaid
+      version: "10.0"

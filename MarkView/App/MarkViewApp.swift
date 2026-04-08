@@ -291,26 +291,28 @@ struct MarkViewApp: App {
     }
 
     private func openFolder() {
-        let currentIsEmpty = activeWorkspace?.rootNode == nil && activeWorkspace?.openTabs.isEmpty != false
         let ws = activeWorkspace
+        let currentIsEmpty = ws?.rootNode == nil && ws?.openTabs.isEmpty != false
 
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
+        panel.message = "Choose a folder to open in MarkView"
 
-        if panel.runModal() == .OK, let url = panel.url {
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            // Always open in current window if it's empty, otherwise new window
             if currentIsEmpty, let ws = ws {
                 ws.openFolder(url)
             } else {
-                // Open in new window: store URL, trigger new window
                 Self.pendingFolderURL = url
-                newWindow()
-                // If newWindow didn't work, fallback after delay
+                self.newWindow()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     if Self.pendingFolderURL != nil {
-                        // New window didn't pick it up — open in current
                         Self.pendingFolderURL = nil
+                        // Fallback: open in whatever workspace is available
                         ws?.openFolder(url)
                     }
                 }
@@ -328,11 +330,9 @@ extension Notification.Name {
     static let exportPDFRequested = Notification.Name("exportPDFRequested")
     static let themeDidChange = Notification.Name("ThemeDidChange")
     static let openInActiveWindow = Notification.Name("openInActiveWindow")
-    static let triggerAITool = Notification.Name("triggerAITool")
     static let performPDFExport = Notification.Name("PerformPDFExport")
     static let scrollToHeading = Notification.Name("ScrollToHeading")
     static let scrollToText = Notification.Name("ScrollToText")
-    static let openGraphCreator = Notification.Name("openGraphCreator")
 }
 
 // MARK: - Markdown Document Type
