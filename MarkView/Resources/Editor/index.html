@@ -688,6 +688,38 @@
             max-width: 300px;
         }
 
+        /* Find Bar */
+        .find-bar {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+        }
+        .find-bar.visible { display: flex; }
+        .find-bar input {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-family: var(--font-mono);
+            width: 200px;
+            outline: none;
+        }
+        .find-bar input:focus { border-color: var(--accent-primary); }
+        .find-bar .find-count { color: var(--text-secondary); font-size: 11px; min-width: 60px; }
+        .find-bar button {
+            background: none; border: none; color: var(--text-secondary);
+            cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 3px;
+        }
+        .find-bar button:hover { background: var(--bg-tertiary, #2d2d2d); color: var(--text-primary); }
+        .find-highlight { background: rgba(255, 215, 0, 0.35); border-radius: 2px; }
+        .find-highlight-active { background: rgba(255, 165, 0, 0.6); outline: 1px solid #ffa500; }
+
         /* ============================================================================
            STRUCTURED DATA TREE VIEW (JSON / XML / YAML)
            ============================================================================ */
@@ -741,6 +773,17 @@
         <!-- Hidden elements for JS compatibility -->
         <div class="editor-toolbar" style="display:none">
             <button id="btn-toggle-mode"></button>
+        </div>
+
+        <!-- Find Bar -->
+        <div class="find-bar" id="find-bar">
+            <input type="text" id="find-input" placeholder="Find..." spellcheck="false">
+            <span class="find-count" id="find-count"></span>
+            <button onclick="findPrev()" title="Previous (⇧Enter)">▲</button>
+            <button onclick="findNext()" title="Next (Enter)">▼</button>
+            <button id="find-case-btn" onclick="toggleFindCase()" title="Match Case" style="font-size:11px;font-weight:bold;">Aa</button>
+            <button id="find-regex-btn" onclick="toggleFindRegex()" title="Use Regex" style="font-size:11px;font-family:monospace;">.*</button>
+            <button onclick="closeFind()" title="Close (Esc)">✕</button>
         </div>
 
         <!-- WYSIWYG Toolbar -->
@@ -1788,6 +1831,225 @@
         // Escape from source → back to WYSIWYG
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' && state.mode === 'source') { switchToPreview(); }
+        });
+
+        // ============================================================================
+        // FIND IN DOCUMENT
+        // ============================================================================
+
+        const findState = {
+            visible: false,
+            caseSensitive: false,
+            useRegex: false,
+            matches: [],      // Array of {node, start, end} or Range objects
+            currentIndex: -1,
+            highlights: [],    // DOM mark elements
+        };
+
+        function openFind() {
+            findState.visible = true;
+            const bar = document.getElementById('find-bar');
+            bar.classList.add('visible');
+            const input = document.getElementById('find-input');
+            input.focus();
+            input.select();
+        }
+
+        function closeFind() {
+            findState.visible = false;
+            document.getElementById('find-bar').classList.remove('visible');
+            clearHighlights();
+            document.getElementById('find-count').textContent = '';
+        }
+
+        function toggleFindCase() {
+            findState.caseSensitive = !findState.caseSensitive;
+            const btn = document.getElementById('find-case-btn');
+            btn.style.color = findState.caseSensitive ? 'var(--accent-primary)' : '';
+            btn.style.borderBottom = findState.caseSensitive ? '2px solid var(--accent-primary)' : '';
+            performFind();
+        }
+
+        function toggleFindRegex() {
+            findState.useRegex = !findState.useRegex;
+            const btn = document.getElementById('find-regex-btn');
+            btn.style.color = findState.useRegex ? 'var(--accent-primary)' : '';
+            btn.style.borderBottom = findState.useRegex ? '2px solid var(--accent-primary)' : '';
+            performFind();
+        }
+
+        function clearHighlights() {
+            findState.highlights.forEach(mark => {
+                const parent = mark.parentNode;
+                if (parent) {
+                    parent.replaceChild(document.createTextNode(mark.textContent), mark);
+                    parent.normalize();
+                }
+            });
+            findState.highlights = [];
+            findState.matches = [];
+            findState.currentIndex = -1;
+        }
+
+        function performFind() {
+            clearHighlights();
+            const query = document.getElementById('find-input').value;
+            if (!query) {
+                document.getElementById('find-count').textContent = '';
+                return;
+            }
+
+            // Determine which container to search
+            const container = (state.mode === 'source' || state.mode === 'structured-source')
+                ? null  // For source mode, use textarea search
+                : DOM.rendered;
+
+            if (!container) {
+                // Source mode: search in textarea
+                findInTextarea(query);
+                return;
+            }
+
+            // Build regex from query
+            let regex;
+            try {
+                const flags = findState.caseSensitive ? 'g' : 'gi';
+                regex = findState.useRegex ? new RegExp(query, flags) : new RegExp(escapeRegex(query), flags);
+            } catch(e) {
+                document.getElementById('find-count').textContent = 'Invalid regex';
+                return;
+            }
+
+            // Walk text nodes and highlight matches
+            const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+            const textNodes = [];
+            let node;
+            while (node = walker.nextNode()) {
+                if (node.textContent.length > 0) textNodes.push(node);
+            }
+
+            for (const textNode of textNodes) {
+                const text = textNode.textContent;
+                const matches = [...text.matchAll(regex)];
+                if (matches.length === 0) continue;
+
+                const frag = document.createDocumentFragment();
+                let lastIdx = 0;
+                for (const match of matches) {
+                    const start = match.index;
+                    const end = start + match[0].length;
+                    if (start > lastIdx) {
+                        frag.appendChild(document.createTextNode(text.substring(lastIdx, start)));
+                    }
+                    const mark = document.createElement('mark');
+                    mark.className = 'find-highlight';
+                    mark.textContent = text.substring(start, end);
+                    frag.appendChild(mark);
+                    findState.highlights.push(mark);
+                    lastIdx = end;
+                }
+                if (lastIdx < text.length) {
+                    frag.appendChild(document.createTextNode(text.substring(lastIdx)));
+                }
+                textNode.parentNode.replaceChild(frag, textNode);
+            }
+
+            findState.matches = findState.highlights;
+            const count = findState.matches.length;
+            document.getElementById('find-count').textContent = count > 0 ? `${count} found` : 'No results';
+            if (count > 0) {
+                findState.currentIndex = 0;
+                highlightCurrent();
+            }
+        }
+
+        function findInTextarea(query) {
+            const text = DOM.editor.value;
+            let regex;
+            try {
+                const flags = findState.caseSensitive ? 'g' : 'gi';
+                regex = findState.useRegex ? new RegExp(query, flags) : new RegExp(escapeRegex(query), flags);
+            } catch(e) {
+                document.getElementById('find-count').textContent = 'Invalid regex';
+                return;
+            }
+            const matches = [...text.matchAll(regex)];
+            document.getElementById('find-count').textContent = matches.length > 0 ? `${matches.length} found` : 'No results';
+            if (matches.length > 0) {
+                findState.matches = matches;
+                findState.currentIndex = 0;
+                // Select the first match in textarea
+                selectTextareaMatch(0);
+            }
+        }
+
+        function selectTextareaMatch(index) {
+            if (index < 0 || index >= findState.matches.length) return;
+            const match = findState.matches[index];
+            DOM.editor.focus();
+            DOM.editor.setSelectionRange(match.index, match.index + match[0].length);
+            // Scroll textarea to show selection
+            const lineHeight = parseInt(getComputedStyle(DOM.editor).lineHeight) || 18;
+            const linesAbove = DOM.editor.value.substring(0, match.index).split('\n').length;
+            DOM.editor.scrollTop = (linesAbove - 3) * lineHeight;
+            document.getElementById('find-count').textContent = `${index + 1}/${findState.matches.length}`;
+        }
+
+        function highlightCurrent() {
+            // In rendered mode with mark highlights
+            findState.highlights.forEach(m => m.className = 'find-highlight');
+            if (findState.currentIndex >= 0 && findState.currentIndex < findState.highlights.length) {
+                const current = findState.highlights[findState.currentIndex];
+                current.className = 'find-highlight find-highlight-active';
+                current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                document.getElementById('find-count').textContent = `${findState.currentIndex + 1}/${findState.highlights.length}`;
+            }
+        }
+
+        function findNext() {
+            if (findState.matches.length === 0) return;
+            findState.currentIndex = (findState.currentIndex + 1) % findState.matches.length;
+            if (state.mode === 'source' || state.mode === 'structured-source') {
+                selectTextareaMatch(findState.currentIndex);
+            } else {
+                highlightCurrent();
+            }
+        }
+
+        function findPrev() {
+            if (findState.matches.length === 0) return;
+            findState.currentIndex = (findState.currentIndex - 1 + findState.matches.length) % findState.matches.length;
+            if (state.mode === 'source' || state.mode === 'structured-source') {
+                selectTextareaMatch(findState.currentIndex);
+            } else {
+                highlightCurrent();
+            }
+        }
+
+        function escapeRegex(str) {
+            return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Cmd+F keyboard shortcut
+        document.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+                e.preventDefault();
+                openFind();
+            }
+            if (e.key === 'Escape' && findState.visible) {
+                closeFind();
+            }
+        });
+
+        // Find input events
+        document.getElementById('find-input').addEventListener('input', function() {
+            performFind();
+        });
+        document.getElementById('find-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) { findPrev(); } else { findNext(); }
+            }
         });
 
         // ============================================================================
