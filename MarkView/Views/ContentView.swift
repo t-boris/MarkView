@@ -51,17 +51,19 @@ struct ContentView: View {
             }
             .frame(minWidth: 400)
 
-            // MARK: - Right Panel: TOC or Semantic (no max width — can expand fully)
+            // MARK: - Right Panel: TOC or Semantic
+            // Single container with stable width — only content switches inside
             if workspaceManager.showTOC {
-                if workspaceManager.showSemanticPanel {
-                    ModuleExplorerView()
-                        .environmentObject(workspaceManager)
-                        .frame(minWidth: 260, idealWidth: 380)
-                } else {
-                    TOCView()
-                        .environmentObject(workspaceManager)
-                        .frame(minWidth: 200, idealWidth: 250)
+                VStack(spacing: 0) {
+                    if workspaceManager.showSemanticPanel {
+                        ModuleExplorerView()
+                            .environmentObject(workspaceManager)
+                    } else {
+                        TOCView()
+                            .environmentObject(workspaceManager)
+                    }
                 }
+                .frame(minWidth: 200, idealWidth: 300)
             }
         }
         .toolbar {

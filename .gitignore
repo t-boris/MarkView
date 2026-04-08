@@ -34,6 +34,10 @@ Package.resolved
 # DDE workspace data
 .dde/
 
+# VS Code
+.vscode/
+*.code-workspace
+
 # Temporary
 *.swp
 *.swo
