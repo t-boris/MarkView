@@ -310,10 +310,13 @@ struct AIConsoleInnerView: View {
     private func toggleRecording() {
         if whisper.isRecording {
             // Stop recording → transcribe → insert text for review
-            Task {
-                if let text = await whisper.stopRecording() {
-                    inputText = text
-                    // Don't auto-send — let user review/edit the transcription first
+            Task { @MainActor in
+                WorkspaceManager.debugLog("[Whisper] stopping recording...")
+                let text = await whisper.stopRecording()
+                WorkspaceManager.debugLog("[Whisper] got: \(text?.prefix(80) ?? "nil"), error: \(whisper.error ?? "none")")
+                if let text = text {
+                    self.inputText = text
+                    WorkspaceManager.debugLog("[Whisper] set inputText to: \(text.prefix(40))")
                 }
             }
         } else {

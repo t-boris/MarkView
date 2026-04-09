@@ -397,6 +397,23 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
+    func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
+        Task { @MainActor in
+            let wm = self.parent.workspaceManager
+            await wm.handleSelectionAction(action: action, text: text) { title, result in
+                if let webView = self.webView {
+                    let titleJSON = (try? JSONSerialization.data(withJSONObject: [title]))
+                        .flatMap { String(data: $0, encoding: .utf8) }
+                        .map { String($0.dropFirst().dropLast()) } ?? "\"\(title)\""
+                    let resultJSON = (try? JSONSerialization.data(withJSONObject: [result]))
+                        .flatMap { String(data: $0, encoding: .utf8) }
+                        .map { String($0.dropFirst().dropLast()) } ?? "\"\""
+                    webView.evaluateJavaScript("window.showSelectionResult(\(titleJSON), \(resultJSON))") { _, _ in }
+                }
+            }
+        }
+    }
+
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String) {
         Task { @MainActor in
             let wm = self.parent.workspaceManager

@@ -13,8 +13,11 @@ class OllamaClient: ObservableObject {
     // MARK: - Connection Check
 
     func checkConnection() async {
+        WorkspaceManager.debugLog("[Ollama] checkConnection starting...")
         do {
-            let (data, _) = try await URLSession.shared.data(from: URL(string: "\(Self.baseURL)/api/tags")!)
+            let (data, response) = try await URLSession.shared.data(from: URL(string: "\(Self.baseURL)/api/tags")!)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            WorkspaceManager.debugLog("[Ollama] HTTP \(status), data: \(data.count) bytes")
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let models = json["models"] as? [[String: Any]] {
                 availableModels = models.compactMap { $0["name"] as? String }
@@ -22,11 +25,14 @@ class OllamaClient: ObservableObject {
                 if !availableModels.contains(selectedModel), let first = availableModels.first {
                     selectedModel = first
                 }
-                NSLog("[Ollama] Connected: \(availableModels.count) models")
+                WorkspaceManager.debugLog("[Ollama] Connected: \(availableModels.count) models")
+            } else {
+                WorkspaceManager.debugLog("[Ollama] Failed to parse response")
+                isConnected = false
             }
         } catch {
             isConnected = false
-            NSLog("[Ollama] Not available: \(error.localizedDescription)")
+            WorkspaceManager.debugLog("[Ollama] Not available: \(error.localizedDescription)")
         }
     }
 

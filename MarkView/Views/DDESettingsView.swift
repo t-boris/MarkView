@@ -10,6 +10,8 @@ struct DDESettingsView: View {
     @State private var saved = false
     @State private var anthropicStatus: KeyStatus = .unknown
     @State private var openaiStatus: KeyStatus = .unknown
+    @State private var ollamaConnected = false
+    @State private var ollamaModelCount = 0
 
     enum KeyStatus { case unknown, checking, valid, invalid(String) }
 
@@ -55,10 +57,10 @@ struct DDESettingsView: View {
             GroupBox("Ollama (local LLM — free, private)") {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        if workspaceManager.ollamaClient.isConnected {
+                        if ollamaConnected {
                             Label("Connected", systemImage: "checkmark.circle.fill")
                                 .font(.caption).foregroundColor(.green)
-                            Text("(\(workspaceManager.ollamaClient.availableModels.count) models)")
+                            Text("(\(ollamaModelCount) models)")
                                 .font(.caption).foregroundColor(.secondary)
                         } else {
                             Label("Not running", systemImage: "xmark.circle")
@@ -68,7 +70,11 @@ struct DDESettingsView: View {
                         }
                         Spacer()
                         Button("Check") {
-                            Task { await workspaceManager.ollamaClient.checkConnection() }
+                            Task {
+                                await workspaceManager.ollamaClient.checkConnection()
+                                ollamaConnected = workspaceManager.ollamaClient.isConnected
+                                ollamaModelCount = workspaceManager.ollamaClient.availableModels.count
+                            }
                         }
                     }
                     if !workspaceManager.ollamaClient.availableModels.isEmpty {
@@ -210,9 +216,17 @@ struct DDESettingsView: View {
         .onAppear {
             apiKey = AIProviderClient.loadKeyFromKeychain() ?? ""
             openaiKey = EmbeddingClient.loadKey() ?? ""
-            // Auto-verify saved keys
+            WorkspaceManager.debugLog("[DDE Settings] loaded anthropic key: \(apiKey.prefix(20))... (\(apiKey.count) chars)")
+            WorkspaceManager.debugLog("[DDE Settings] loaded openai key: \(openaiKey.prefix(20))... (\(openaiKey.count) chars)")
+            ollamaConnected = workspaceManager.ollamaClient.isConnected
+            ollamaModelCount = workspaceManager.ollamaClient.availableModels.count
             if !apiKey.isEmpty { verifyAnthropicKey(apiKey) }
             if !openaiKey.isEmpty { verifyOpenAIKey(openaiKey) }
+            Task {
+                await workspaceManager.ollamaClient.checkConnection()
+                ollamaConnected = workspaceManager.ollamaClient.isConnected
+                ollamaModelCount = workspaceManager.ollamaClient.availableModels.count
+            }
         }
     }
 
@@ -246,6 +260,7 @@ struct DDESettingsView: View {
 
     private func verifyAnthropicKey(_ key: String) {
         anthropicStatus = .checking
+        WorkspaceManager.debugLog("[DDE Verify] Anthropic key to verify: \(key.prefix(20))... (\(key.count) chars)")
         Task {
             var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
             request.httpMethod = "POST"

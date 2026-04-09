@@ -1032,6 +1032,76 @@ Each component needs a correct type and one-sentence description.
     }
 
     /// Translate document to target language, chunk by chunk, open result in new tab
+    /// Handle selection actions: translate or explain selected text via Anthropic API
+    func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
+        guard let provider = incrementalCompiler?.orchestrator.providerClient,
+              let apiKey = provider.apiKeyValue else {
+            completion("Error", "No API key configured. Set it in DDE Settings.")
+            return
+        }
+
+        let (systemPrompt, title): (String, String) = {
+            switch action {
+            case "translate_ru":
+                return ("You are a professional translator. Translate the user's text to Russian word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Перевод на русский")
+            case "translate_en":
+                return ("You are a professional translator. Translate the user's text to English word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to English")
+            case "explain":
+                return ("You are a knowledgeable assistant. Explain the following text clearly and concisely. Use markdown formatting. If it contains technical terms, define them. If it contains code, explain what it does.", "Explanation")
+            default:
+                return ("Process the following text.", "Result")
+            }
+        }()
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 8192,
+            "system": systemPrompt,
+            "messages": [["role": "user", "content": text]]
+        ]
+
+        do {
+            let data = try JSONSerialization.data(withJSONObject: body)
+            var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            request.httpBody = data
+            request.timeoutInterval = 60
+
+            let (responseData, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                completion(title, "API error: HTTP \(code)")
+                return
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                  let contentBlocks = json["content"] as? [[String: Any]] else {
+                completion(title, "Failed to parse API response")
+                return
+            }
+
+            // Track usage
+            if let usage = json["usage"] as? [String: Any],
+               let db = semanticDatabase {
+                let inp = usage["input_tokens"] as? Int ?? 0
+                let out = usage["output_tokens"] as? Int ?? 0
+                db.addUsage(inputTokens: inp, outputTokens: out, costCents: Double(inp) * 0.0003 + Double(out) * 0.0015)
+            }
+
+            let result = contentBlocks.compactMap { block -> String? in
+                guard block["type"] as? String == "text" else { return nil }
+                return block["text"] as? String
+            }.joined()
+
+            completion(title, result.isEmpty ? "No response from AI" : result)
+        } catch {
+            completion(title, "Error: \(error.localizedDescription)")
+        }
+    }
+
     func translateDocument(markdown: String, targetLang: String) async {
         guard let provider = incrementalCompiler?.orchestrator.providerClient,
               let apiKey = provider.apiKeyValue else {

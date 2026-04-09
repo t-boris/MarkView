@@ -156,6 +156,8 @@
     <!-- App Transport Security: allow local WKWebView content -->
     <key>NSAppTransportSecurity</key>
     <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
         <key>NSAllowsArbitraryLoadsInWebContent</key>
         <true/>
         <key>NSAllowsLocalNetworking</key>

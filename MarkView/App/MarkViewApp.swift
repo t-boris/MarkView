@@ -84,6 +84,30 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        log("applicationDidFinishLaunching")
+        ensureWindowExists()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        ensureWindowExists()
+    }
+
+    private func ensureWindowExists() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let visibleWindows = NSApp.windows.filter { $0.isVisible && !$0.className.contains("Panel") }
+            if visibleWindows.isEmpty {
+                self.log("No visible windows — creating one")
+                // Try SwiftUI's built-in new window action
+                if NSApp.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil) {
+                    return
+                }
+                // Fallback: use File > New Window menu item
+                NSApp.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
+            }
+        }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         log("application:open: \(urls.count) URLs")
         for url in urls {
@@ -157,7 +181,7 @@ struct MarkViewApp: App {
                 .keyboardShortcut("o", modifiers: .command)
 
                 Button("Open Folder...") {
-                    openFolder()
+                    NotificationCenter.default.post(name: .showFolderPicker, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
             }
@@ -292,7 +316,7 @@ struct MarkViewApp: App {
 
     private func openFolder() {
         let ws = activeWorkspace
-        let currentIsEmpty = ws?.rootNode == nil && ws?.openTabs.isEmpty != false
+        let keyWindow = NSApp.keyWindow
 
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -300,10 +324,9 @@ struct MarkViewApp: App {
         panel.canChooseFiles = false
         panel.message = "Choose a folder to open in MarkView"
 
-        panel.begin { response in
+        let handler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-
-            // Always open in current window if it's empty, otherwise new window
+            let currentIsEmpty = ws?.rootNode == nil && ws?.openTabs.isEmpty != false
             if currentIsEmpty, let ws = ws {
                 ws.openFolder(url)
             } else {
@@ -312,11 +335,17 @@ struct MarkViewApp: App {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     if Self.pendingFolderURL != nil {
                         Self.pendingFolderURL = nil
-                        // Fallback: open in whatever workspace is available
                         ws?.openFolder(url)
                     }
                 }
             }
+        }
+
+        // Show as sheet on current window to prevent window from closing
+        if let keyWindow = keyWindow {
+            panel.beginSheetModal(for: keyWindow, completionHandler: handler)
+        } else {
+            panel.begin(completionHandler: handler)
         }
     }
 
@@ -330,6 +359,7 @@ extension Notification.Name {
     static let exportPDFRequested = Notification.Name("exportPDFRequested")
     static let themeDidChange = Notification.Name("ThemeDidChange")
     static let openInActiveWindow = Notification.Name("openInActiveWindow")
+    static let showFolderPicker = Notification.Name("showFolderPicker")
     static let performPDFExport = Notification.Name("PerformPDFExport")
     static let scrollToHeading = Notification.Name("ScrollToHeading")
     static let scrollToText = Notification.Name("ScrollToText")

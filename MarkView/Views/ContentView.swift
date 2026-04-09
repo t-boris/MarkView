@@ -15,6 +15,7 @@ extension FocusedValues {
 struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var workspaceManager = WorkspaceManager()
+    @State private var showFolderPicker = false
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -153,6 +154,14 @@ struct ContentView: View {
         // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
         // folder URLs, preventing application:open: from receiving them.
         .focusedSceneValue(\.workspaceManager, workspaceManager)
+        .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result {
+                workspaceManager.openFolder(url)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showFolderPicker)) { _ in
+            showFolderPicker = true
+        }
         .sheet(isPresented: graphCreatorSheetBinding) {
             GraphCreatorSheet(
                 workspaceManager: workspaceManager,
@@ -180,8 +189,6 @@ struct ContentView: View {
                 let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 if isDir { wm.openFolder(url) } else { wm.openFile(url) }
             }
-            // Close this window later if it never got content (SwiftUI ghost window)
-            closeIfEmpty()
         }
     }
 
@@ -197,25 +204,6 @@ struct ContentView: View {
         )
     }
 
-    /// Close the empty "ghost" window that SwiftUI creates for document types.
-    /// Only closes windows with no content; windows with loaded folders are kept.
-    private func closeIfEmpty() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak workspaceManager] in
-            guard let wm = workspaceManager,
-                  wm.rootNode == nil,
-                  wm.openTabs.isEmpty else { return }
-            // This window never got content — it's a ghost. Close it.
-            for window in NSApp.windows where window.isVisible {
-                // Find our window by checking if it's not the key/main window
-                // and has the default title
-                if window.title.contains("MarkView") && window != NSApp.keyWindow && window != NSApp.mainWindow {
-                    WorkspaceManager.debugLog("Closing ghost window")
-                    window.close()
-                    return
-                }
-            }
-        }
-    }
 
     private func createNewFileFromToolbar() {
         let panel = NSSavePanel()

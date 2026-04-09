@@ -720,6 +720,70 @@
         .find-highlight { background: rgba(255, 215, 0, 0.35); border-radius: 2px; }
         .find-highlight-active { background: rgba(255, 165, 0, 0.6); outline: 1px solid #ffa500; }
 
+        /* Selection action popup */
+        .action-popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: min(600px, 80vw);
+            max-height: 70vh;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 500;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .action-popup.visible { display: flex; }
+        .action-popup-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-primary);
+        }
+        .action-popup-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        .action-popup-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .action-popup-close:hover { background: var(--bg-tertiary, #2d2d2d); color: var(--text-primary); }
+        .action-popup-content {
+            padding: 16px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text-primary);
+            user-select: text;
+            -webkit-user-select: text;
+        }
+        .action-popup-content p { margin: 0 0 8px; }
+        .action-popup-content code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+        .action-popup-content pre { background: var(--code-bg); padding: 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+        .action-popup-content pre code { background: none; padding: 0; }
+        .action-popup-loading { color: var(--text-secondary); font-style: italic; }
+        .action-popup-backdrop {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.3);
+            z-index: 499;
+        }
+        .action-popup-backdrop.visible { display: block; }
+
         /* ============================================================================
            STRUCTURED DATA TREE VIEW (JSON / XML / YAML)
            ============================================================================ */
@@ -829,7 +893,9 @@
                 </div>
             </div>
             <div class="spacer"></div>
-            <button onclick="translateToEnglish()" title="Translate to English (opens new tab)" style="font-size:11px">EN</button>
+            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_ru')" title="Translate selection to Russian" style="font-size:10px">RU</button>
+            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_en')" title="Translate selection to English" style="font-size:10px">EN</button>
+            <button onmousedown="event.preventDefault()" onclick="selectionAction('explain')" title="Explain selection" style="font-size:10px">?</button>
             <button onclick="saveFile()" title="Save (⌘S)" style="font-size:11px">💾</button>
             <button onclick="refreshFile()" title="Reload file from disk (⌘R)" style="font-size:12px">↻</button>
             <div class="sep"></div>
@@ -866,7 +932,21 @@
             <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1.</button>
             <button onclick="fmtLink()" title="Link">🔗</button>
             <button onclick="fmtCmd('formatBlock', 'blockquote')" title="Quote">❝</button>
+            <div class="sep"></div>
+            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_ru')" title="Translate to Russian" style="font-size:10px">RU</button>
+            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_en')" title="Translate to English" style="font-size:10px">EN</button>
+            <button onmousedown="event.preventDefault()" onclick="selectionAction('explain')" title="Explain selection" style="font-size:10px">?</button>
         </div>
+
+        <!-- Selection action popup overlay -->
+        <div class="action-popup" id="action-popup">
+            <div class="action-popup-header">
+                <span class="action-popup-title" id="action-popup-title">Result</span>
+                <button class="action-popup-close" onclick="closeActionPopup()">✕</button>
+            </div>
+            <div class="action-popup-content" id="action-popup-content"></div>
+        </div>
+        <div class="action-popup-backdrop" id="action-popup-backdrop" onclick="closeActionPopup()"></div>
 
         <!-- Compact status bar -->
         <div class="editor-status">
@@ -1751,6 +1831,10 @@
             rendered.focus();
         };
 
+        // Stores the selected text when format-bar becomes visible.
+        // This is the definitive text for RU/EN/? buttons.
+        let formatBarSelectedText = '';
+
         // Show/hide floating toolbar on selection
         document.addEventListener('selectionchange', function() {
             const sel = window.getSelection();
@@ -1764,6 +1848,8 @@
             bar.style.left = Math.max(8, rect.left + rect.width/2 - 120) + 'px';
             bar.style.top = Math.max(4, rect.top - 38) + 'px';
             bar.classList.add('visible');
+            // Capture selection text now — by the time user clicks a button it may be gone
+            formatBarSelectedText = sel.toString().trim();
         });
 
         function saveFile() {
@@ -1831,6 +1917,74 @@
         // Escape from source → back to WYSIWYG
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape' && state.mode === 'source') { switchToPreview(); }
+        });
+
+        // ============================================================================
+        // SELECTION ACTIONS (Translate / Explain)
+        // ============================================================================
+
+        function selectionAction(action) {
+            // Use the selection captured when format-bar appeared
+            let selectedText = formatBarSelectedText;
+            // Also try current selection as fallback
+            if (!selectedText) {
+                const sel = window.getSelection();
+                if (sel.rangeCount && !sel.isCollapsed) {
+                    selectedText = sel.toString().trim();
+                }
+            }
+
+            // DEBUG: show in title bar what selection we captured
+            document.title = 'SEL[' + selectedText.length + ']: ' + (selectedText ? selectedText.substring(0,60) : 'EMPTY');
+
+            if (!selectedText) return; // nothing selected — do nothing
+
+            // Hide format bar
+            document.getElementById('format-bar').classList.remove('visible');
+
+            let title = 'Result';
+            if (action === 'translate_ru') title = 'Перевод на русский';
+            else if (action === 'translate_en') title = 'Translation to English';
+            else if (action === 'explain') title = 'Explanation';
+
+            showActionPopup(title, '<span class="action-popup-loading">Processing...</span>');
+            sendToSwift('selectionAction', { action: action, text: selectedText });
+        }
+
+        function showActionPopup(title, htmlContent) {
+            document.getElementById('action-popup-title').textContent = title;
+            document.getElementById('action-popup-content').innerHTML = htmlContent;
+            document.getElementById('action-popup').classList.add('visible');
+            document.getElementById('action-popup-backdrop').classList.add('visible');
+        }
+
+        function closeActionPopup() {
+            document.getElementById('action-popup').classList.remove('visible');
+            document.getElementById('action-popup-backdrop').classList.remove('visible');
+        }
+
+        // Called from Swift when AI result is ready
+        window.showSelectionResult = function(title, markdownContent) {
+            // Render markdown to HTML using markdown-it
+            let html;
+            if (typeof md !== 'undefined') {
+                html = md.render(markdownContent);
+            } else {
+                html = '<pre>' + markdownContent.replace(/</g, '&lt;') + '</pre>';
+            }
+            showActionPopup(title, html);
+            // Apply syntax highlighting
+            const content = document.getElementById('action-popup-content');
+            if (typeof Prism !== 'undefined') {
+                content.querySelectorAll('pre code').forEach(el => Prism.highlightElement(el));
+            }
+        };
+
+        // Close popup with Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && document.getElementById('action-popup').classList.contains('visible')) {
+                closeActionPopup();
+            }
         });
 
         // ============================================================================

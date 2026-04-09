@@ -246,6 +246,7 @@ Begin scanning the current directory now and generate all documentation.
             let currentBackend = self.backend
             switch currentBackend {
             case .claude:
+                // Resolve symlinks — sandbox needs the real binary path
                 process.executableURL = URL(fileURLWithPath: Self.claudePath)
                 var args = ["-p", text, "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"]
                 if let sessionId = self.claudeSessionId {
