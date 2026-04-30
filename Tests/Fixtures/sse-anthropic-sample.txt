@@ -1,3 +1,30 @@
+: ──────────────────────────────────────────────────────────────────────────────
+: Synthetic SSE fixture for AIProviderClient.streamCompletion hand-trace.
+:
+: Format: SSE per W3C eventsource spec — `event:` field, `data:` field,
+: blank line dispatches an event. `:` lines are server keepalive comments
+: and are silently ignored by the parser.
+:
+: This fixture exercises:
+:   - message_start / content_block_start lifecycle (silently ignored)
+:   - inline `: keepalive` comment (silently ignored)
+:   - `event: ping` block (silently ignored)
+:   - 20 content_block_delta events of varied length
+:   - message_delta + message_stop terminator
+:
+: DoS-safety hand-trace cases (NOT present in this fixture — verify by code
+: inspection of streamCompletion's byte loop):
+:   1. Oversized line: a `data:` field with > 65_536 bytes before LF should
+:      throw `streamingError("SSE line exceeds 64 KB cap")` AS BYTES ARRIVE,
+:      not after the line is fully buffered. Construct by sending 65_537
+:      non-LF bytes — the 65_537th `lineBuf.append` must throw.
+:   2. Oversized event payload: many `data:` continuation lines whose joined
+:      length > 1_048_576 bytes should throw
+:      `streamingError("SSE event payload exceeds 1 MB cap")`. Construct by
+:      sending 17 consecutive `data:` lines of 64 KB each (no blank between).
+:      The 17th append projects > 1 MB and must throw.
+: ──────────────────────────────────────────────────────────────────────────────
+
 event: message_start
 data: {"type":"message_start","message":{"id":"msg_01XyzAbC123Def456GhiJkl","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":18,"output_tokens":1}}}
 

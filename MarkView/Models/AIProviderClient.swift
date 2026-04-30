@@ -183,8 +183,13 @@ class AIProviderClient {
     // MARK: - Streaming (Anthropic SSE)
 
     /// Maximum size of a single SSE line. Per tech-spec Decision 10 §7 — protects against a
-    /// pathological/oversized response line buffering unboundedly in memory.
+    /// pathological/oversized response line buffering unboundedly in memory. Enforced at the
+    /// byte level, before the line is fully accumulated, so a hostile server cannot OOM us
+    /// by sending one giant unterminated line.
     private static let maxSSELineBytes = 65_536            // 64 KB
+    /// Maximum accumulated payload across multi-line `data:` field continuation per SSE spec.
+    /// Per tech-spec Decision 10 §7 — bounds memory per event regardless of line count.
+    private static let maxSSEEventBytes = 1 * 1024 * 1024  // 1 MB
     private static let maxErrorBodyBytes = 16 * 1024       // 16 KB cap when reading HTTP-error body
 
     /// Sample SSE event handled by this parser:
@@ -197,8 +202,9 @@ class AIProviderClient {
     /// Throws `AIProviderError.streamingError` for `event: error`, oversized SSE lines, or
     /// `AIProviderError.httpError` for non-200 responses (mirrors `extractSingleChunk` shape).
     /// `onDelta` is invoked off-main; caller is responsible for marshalling to its own actor.
-    /// `onDelta` may throw via Swift's normal closure propagation rules — but since the
-    /// signature is non-throwing, callers that need to bail mid-stream should `Task.cancel()`.
+    /// `onDelta` is non-throwing by design. Callers that need to abort mid-stream should call
+    /// `Task.cancel()` on the wrapping task; cancellation is observed between SSE lines and
+    /// exits cleanly within ~1s.
     func streamCompletion(
         systemPrompt: String,
         userMessage: String,
@@ -248,47 +254,59 @@ class AIProviderClient {
         // SSE parser: accumulate `event:` and `data:` (multi-line allowed per spec) until a
         // blank line dispatches the event. Keepalive-comments (`:` lines) and empty lines
         // outside an event reset the state cleanly.
+        //
+        // DoS hardening (Decision 10 §7): we MUST NOT use `bytes.lines` here — that
+        // AsyncSequence buffers an arbitrary-length line into memory before yielding, so a
+        // post-yield size check is too late. Instead iterate raw bytes, enforce the 64 KB
+        // line cap as bytes arrive, and enforce a 1 MB cap on accumulated multi-line
+        // `data:` payloads.
         var currentEvent: String = ""
         var dataBuffer: String = ""
+        var lineBuf: [UInt8] = []
+        lineBuf.reserveCapacity(4096)
 
         do {
-            for try await line in bytes.lines {
-                try Task.checkCancellation()
-
-                if line.utf8.count > Self.maxSSELineBytes {
-                    throw AIProviderError.streamingError("SSE line exceeds 64 KB cap")
-                }
-
-                // Empty line → dispatch accumulated event.
-                if line.isEmpty {
-                    if !currentEvent.isEmpty || !dataBuffer.isEmpty {
-                        if try handleSSEEvent(event: currentEvent, data: dataBuffer, onDelta: onDelta) {
-                            return  // message_stop — clean exit
-                        }
+            for try await byte in bytes {
+                if byte == 0x0A {  // LF — end of line
+                    // Strip a trailing CR for CRLF line endings.
+                    if let last = lineBuf.last, last == 0x0D {
+                        lineBuf.removeLast()
                     }
-                    currentEvent = ""
-                    dataBuffer = ""
-                    continue
-                }
+                    let line = String(decoding: lineBuf, as: UTF8.self)
+                    lineBuf.removeAll(keepingCapacity: true)
 
-                // SSE comment (keepalive) — line starts with `:`.
-                if line.hasPrefix(":") {
-                    continue
-                }
+                    try Task.checkCancellation()
 
-                if line.hasPrefix("event:") {
-                    currentEvent = String(line.dropFirst("event:".count))
-                        .trimmingCharacters(in: .whitespaces)
-                } else if line.hasPrefix("data:") {
-                    let chunk = String(line.dropFirst("data:".count))
-                        .trimmingCharacters(in: .whitespaces)
-                    if dataBuffer.isEmpty {
-                        dataBuffer = chunk
-                    } else {
-                        dataBuffer += "\n" + chunk
+                    if try processSSELine(
+                        line,
+                        currentEvent: &currentEvent,
+                        dataBuffer: &dataBuffer,
+                        onDelta: onDelta
+                    ) {
+                        return  // message_stop — clean exit
                     }
+                } else {
+                    if lineBuf.count >= Self.maxSSELineBytes {
+                        throw AIProviderError.streamingError("SSE line exceeds 64 KB cap")
+                    }
+                    lineBuf.append(byte)
                 }
-                // Any other field (id:, retry:, …) — ignore per SSE spec & forward compat.
+            }
+
+            // EOF without trailing blank line: dispatch any pending event so the final
+            // frame is not silently dropped (SSE spec allows EOF-as-terminator).
+            if !lineBuf.isEmpty {
+                let line = String(decoding: lineBuf, as: UTF8.self)
+                lineBuf.removeAll(keepingCapacity: true)
+                _ = try processSSELine(
+                    line,
+                    currentEvent: &currentEvent,
+                    dataBuffer: &dataBuffer,
+                    onDelta: onDelta
+                )
+            }
+            if !currentEvent.isEmpty || !dataBuffer.isEmpty {
+                _ = try handleSSEEvent(event: currentEvent, data: dataBuffer, onDelta: onDelta)
             }
         } catch let error as AIProviderError {
             throw error
@@ -303,11 +321,59 @@ class AIProviderClient {
         // Stream ended without `message_stop` (EOF or cancellation). Both are valid for caller.
     }
 
+    /// Process a single (already line-bounded, ≤64 KB) SSE line. Mutates the parser state and
+    /// returns `true` when an event dispatch indicates the stream is complete (`message_stop`).
+    private func processSSELine(
+        _ line: String,
+        currentEvent: inout String,
+        dataBuffer: inout String,
+        onDelta: (String) -> Void
+    ) throws -> Bool {
+        // Empty line → dispatch accumulated event.
+        if line.isEmpty {
+            if !currentEvent.isEmpty || !dataBuffer.isEmpty {
+                if try handleSSEEvent(event: currentEvent, data: dataBuffer, onDelta: onDelta) {
+                    return true
+                }
+            }
+            currentEvent = ""
+            dataBuffer = ""
+            return false
+        }
+
+        // SSE comment (keepalive) — line starts with `:`.
+        if line.hasPrefix(":") {
+            return false
+        }
+
+        if line.hasPrefix("event:") {
+            currentEvent = String(line.dropFirst("event:".count))
+                .trimmingCharacters(in: .whitespaces)
+        } else if line.hasPrefix("data:") {
+            let chunk = String(line.dropFirst("data:".count))
+                .trimmingCharacters(in: .whitespaces)
+            // Per-event payload cap — bounds memory across multi-line `data:` accumulation.
+            let projected = dataBuffer.utf8.count
+                + (dataBuffer.isEmpty ? 0 : 1)  // joining "\n"
+                + chunk.utf8.count
+            if projected > Self.maxSSEEventBytes {
+                throw AIProviderError.streamingError("SSE event payload exceeds 1 MB cap")
+            }
+            if dataBuffer.isEmpty {
+                dataBuffer = chunk
+            } else {
+                dataBuffer += "\n" + chunk
+            }
+        }
+        // Any other field (id:, retry:, …) — ignore per SSE spec & forward compat.
+        return false
+    }
+
     /// Dispatch a single fully-accumulated SSE event. Returns `true` if the stream should end
     /// normally (i.e. `message_stop`).
     private func handleSSEEvent(event: String, data: String, onDelta: (String) -> Void) throws -> Bool {
-        // Anthropic sends an event name on most frames, but some payloads ship without one.
-        // Fall back to the `type` field inside the JSON when no event name is present.
+        // Anthropic always sends an `event:` line, so an empty event name lands in the
+        // silent-ignore branch below (forward-compat with future spec relaxations).
         let trimmedEvent = event.trimmingCharacters(in: .whitespaces)
 
         switch trimmedEvent {
