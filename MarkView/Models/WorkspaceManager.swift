@@ -541,6 +541,100 @@ class WorkspaceManager: ObservableObject {
 
     /// Open a file in a new tab or switch to existing tab
     /// Open or refresh a file — if already open, reload content from disk
+    // MARK: - Markdown File Scanning (Recursive Insight)
+
+    /// Hard cap on the number of `.md` files that `scanMarkdownFiles(in:)` will
+    /// accept for a single Recursive Insight session. Folders exceeding this
+    /// cap are rejected with `ScanError.folderTooLarge` (per tech-spec
+    /// Decision 5 / Decision 10 §7).
+    private static let insightFolderFileLimit = 500
+
+    /// Errors raised by `scanMarkdownFiles(in:)`.
+    enum ScanError: Error, LocalizedError {
+        /// Folder contains more than `limit` markdown files.
+        case folderTooLarge(count: Int, limit: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .folderTooLarge(let count, let limit):
+                return "Folder too large for Recursive Insight: found \(count)+ markdown files (limit \(limit)). Try a subfolder instead."
+            }
+        }
+    }
+
+    /// Enumerate `.md` files in `folderURL` for Recursive Insight.
+    ///
+    /// Filters applied (per tech-spec Decision 10 §7):
+    /// - `.skipsHiddenFiles` and `.skipsPackageDescendants` enumerator options
+    ///   (the latter prevents descending into `.app` / `.bundle` / `.docset`).
+    /// - Path extension must be `.md` (case-insensitive).
+    /// - Paths containing `.dde` are excluded (matches existing convention).
+    /// - Symlinks resolving outside `folderURL` are skipped (containment check
+    ///   via `resolvingSymlinksInPath().standardizedFileURL` — order matters:
+    ///   resolve symlinks BEFORE standardizing).
+    ///
+    /// Resource cap: returns `.failure(.folderTooLarge)` once more than
+    /// `insightFolderFileLimit` matching files have been seen. Enumeration
+    /// stops immediately on overflow (DoS-resistant, no full scan).
+    ///
+    /// Per-file size truncation is the caller's responsibility — this helper
+    /// only enumerates URLs.
+    func scanMarkdownFiles(in folderURL: URL) -> Result<[URL], ScanError> {
+        let resolvedFolder = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return .success([])
+        }
+
+        var results: [URL] = []
+        let limit = WorkspaceManager.insightFolderFileLimit
+        while let url = enumerator.nextObject() as? URL {
+            guard url.pathExtension.lowercased() == "md" else { continue }
+            guard !url.path.contains(".dde") else { continue }
+
+            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard resolvedFile.hasPrefix(resolvedFolder) else {
+                NSLog("[Insight] Skipped symlink escape: \(url.path)")
+                continue
+            }
+
+            results.append(url)
+            if results.count > limit {
+                return .failure(.folderTooLarge(count: results.count, limit: limit))
+            }
+        }
+        return .success(results)
+    }
+
+    /// Cheap check for menu disabled-state: returns `true` as soon as one
+    /// markdown file is found inside `rootNode`. Short-circuits on first match
+    /// to keep the menu responsive even on large workspaces. The 500-file cap
+    /// is intentionally NOT applied here — we exit on the first hit anyway.
+    var hasMarkdownFiles: Bool {
+        guard let folderURL = rootNode?.url else { return false }
+        let resolvedFolder = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return false
+        }
+        while let url = enumerator.nextObject() as? URL {
+            guard url.pathExtension.lowercased() == "md" else { continue }
+            guard !url.path.contains(".dde") else { continue }
+            let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard resolvedFile.hasPrefix(resolvedFolder) else { continue }
+            return true
+        }
+        return false
+    }
+
     // MARK: - Folder Exclusion
 
     /// Exclude a folder — removes all its entities from the DB

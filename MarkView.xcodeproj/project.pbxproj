@@ -10,6 +10,7 @@
 		37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5536B20A2DD735F6BA815A /* EditorView.swift */; };
 		48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FB90DA3782A6E99BB4881B /* FileNode.swift */; };
 		565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E3D6A8144A620B1B335381 /* DocumentState.swift */; };
+		F11111111111111111111111 /* InsightSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12222222222222222222222 /* InsightSession.swift */; };
 		602786436B00D473E14BCA6F /* ThemeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AEEAF25CA6416E0EE5FD908 /* ThemeManager.swift */; };
 		6CC857BDBF6BE8DAAF2CECD2 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26726FF62649B52BE2384159 /* FileTreeView.swift */; };
 		730F23C5B6F4B2F9CC919D04 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */; };
@@ -90,6 +91,7 @@
 		DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewBridge.swift; sourceTree = "<group>"; };
 		E143C9957CEAB8D0014627D8 /* MarkView.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MarkView.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7E3D6A8144A620B1B335381 /* DocumentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentState.swift; sourceTree = "<group>"; };
+		F12222222222222222222222 /* InsightSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightSession.swift; sourceTree = "<group>"; };
 		EECF6F51B2E65D4EF42C5C8F /* MANIFEST.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = MANIFEST.md; sourceTree = "<group>"; };
 		F4755545E00CAA90E990A42E /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
 		AA2222222222222222222222 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
+				F12222222222222222222222 /* InsightSession.swift */,
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
 				BB2222222222222222222222 /* SemanticModels.swift */,
 				CC2222222222222222222222 /* SemanticDatabase.swift */,
@@ -351,6 +354,7 @@
 			files = (
 				B3CD83BBB6B21765A1064042 /* ContentView.swift in Sources */,
 				565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */,
+				F11111111111111111111111 /* InsightSession.swift in Sources */,
 				37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */,
 				48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */,
 				6CC857BDBF6BE8DAAF2CECD2 /* FileTreeView.swift in Sources */,

@@ -38,6 +38,15 @@ struct HeadingItem: Identifiable, Codable {
     }
 }
 
+/// Discriminator for the tab's underlying content source.
+/// `.file` (default) preserves source-compat for all existing call sites that
+/// read `tab.url` / `tab.content` — they continue to work unchanged.
+/// `.insight` carries an in-memory Recursive Insight session (Task 4).
+enum TabKind {
+    case file
+    case insight(InsightSession)
+}
+
 /// Represents an open tab with its associated file and state
 struct OpenTab: Identifiable {
     let id = UUID()
@@ -45,6 +54,7 @@ struct OpenTab: Identifiable {
     var content: String
     var originalContent: String // snapshot from disk — used to detect real changes
     var isModified: Bool = false
+    var kind: TabKind = .file
     var headings: [HeadingItem] = []
     var activeHeadingId: String?
     var scrollPosition: CGFloat = 0
