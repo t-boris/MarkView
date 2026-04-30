@@ -1,0 +1,77 @@
+{
+  "status": "approved_with_suggestions",
+  "summary": "GraphRAG.mapReduceForFolder is correctly implemented as a strictly additive change: existing methods (detectCommunities L28-103, deepResearch L108-164, summarizeCommunities L168-185, callLLM L189-219, fnv1a L221-225) are byte-identical to the pre-commit revision (verified via diff of lines 1-186 head and tail helpers). All Decision 5 thresholds (50 KB strict-greater per-file truncation, 200 KB per-community subdivision along file boundaries, hard 500-file cap with strict >), the Decision 10 §5 XML isolation contract (system-role instruction + <file path=\"...\"> tags with quote escaping in the path attribute), parallel map via withThrowingTaskGroup, no SQLite writes, and all empty-input fallback paths are met. Two minor improvements suggested below; no critical or major issues found.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Models/GraphRAG.swift",
+      "line": 444,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "The reduce step hard-codes `model: \"claude-sonnet-4-6\"` while `AIProviderClient.streamCompletion` already defaults to the same string (AIProviderClient.swift L211). The map step (L392-397) correctly omits the parameter and inherits the default. Either drop the explicit argument here (matching map) or extract a shared constant — duplicating the magic string in two places risks drift when the model is bumped (e.g., 4.7).",
+      "benefit": "Single source of truth for the default model; future bumps touch only AIProviderClient.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/GraphRAG.swift",
+      "line": 402,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "`if trimmed.contains(\"NOT_RELEVANT\")` mirrors the existing pattern in deepResearch L136, so it is consistent — but it is a substring match: a legitimate summary that quotes the literal token (e.g., user asks 'which files are NOT_RELEVANT to auth?') would be dropped. A safer check is `trimmed == \"NOT_RELEVANT\"` or `trimmed.hasPrefix(\"NOT_RELEVANT\")`, which also matches the system prompt phrasing 'respond with the single token NOT_RELEVANT'.",
+      "benefit": "Eliminates a low-probability false-negative without changing the contract documented in the system prompt.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/GraphRAG.swift",
+      "line": 314,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "`String(decoding: bytes, as: UTF8.self)` performs lossy UTF-8 decoding — if the 50 KB cap lands in the middle of a multi-byte sequence, up to 3 trailing bytes become U+FFFD. Behaviour is acceptable for LLM input, but a one-line comment noting this would prevent future readers from worrying about whether the truncation can crash on non-ASCII content.",
+      "benefit": "Saves a future reader from re-deriving the safety argument.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/GraphRAG.swift",
+      "line": 398,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "The `catch is CancellationError` branch in the map task is currently unreachable: `streamCompletion` swallows CancellationError internally and returns normally (AIProviderClient.swift L313-315). The catch is harmless defensive code, but a one-line comment explaining why it remains (forward-compatibility if streamCompletion's contract ever changes) would justify keeping dead code under review.",
+      "benefit": "Clarifies intent for reviewers who notice the dead branch.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 1,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 4,
+    "testCoverageAssessment": "insufficient"
+  },
+  "verificationNotes": {
+    "existingMethodsUnchanged": "Verified via `diff` of lines 1-186 (pre vs post f87e1c6) — identical. Helpers callLLM and fnv1a (post-commit lines 452-488) are byte-identical to pre-commit lines 189-225.",
+    "decision5Thresholds": {
+      "fileCap500StrictGreater": "L223 uses `mdFiles.count > 500` — strict > as required.",
+      "perFile50KBStrictGreater": "L314 uses `body.utf8.count > Self.mapReducePerFileByteCap` (= 50*1024) — strict > as required; exactly 50 KB is kept untouched.",
+      "perCommunity200KBSubdivision": "L339 flushes when `currentBytes + entry.bytes > Self.mapReducePerCommunityByteCap` and current chunk is non-empty — chunks are <=200 KB and split happens along file (XML tag) boundaries; tags are never broken because each entry.xml is appended atomically.",
+      "communityLabelPreserved": "L351-353 attaches `(chunk i/N)` suffix only when N>1, otherwise label is unchanged — matches spec."
+    },
+    "xmlIsolation": {
+      "systemRolePromptUsed": "Map step (L392-397) and reduce step (L441-447) call `streamCompletion(systemPrompt:userMessage:...)` — the isolation instruction lives in the system role per Decision 10 §5, not flattened into user as `callLLM` would.",
+      "fileTagWrapping": "L325 wraps each body as `<file path=\"...\">\\n<body>\\n</file>`.",
+      "pathAttrQuoteEscaping": "L324 escapes `\"` in the relative path; L386 also escapes `\"` in the community label attribute. No other XML-significant chars (<, >, &) are escaped, but those cannot appear in the path attribute under macOS POSIX path semantics within the folder."
+    },
+    "cancellation": {
+      "withThrowingTaskGroupPropagation": "Standard Swift TaskGroup semantics: parent cancellation propagates to children; non-Cancellation throws abort the group cleanly.",
+      "explicitCheckBetweenMapAndReduce": "L417 — matches spec hint.",
+      "mapTaskCancellationSwallow": "L398-400 catches CancellationError and returns nil so the dropped task does not surface as a failure (defensive — streamCompletion already swallows internally per AIProviderClient.swift L313-315)."
+    },
+    "noSQLiteWrites": "grep of new method body (L216-448) shows zero `db.upsert*`, `db.execute*`, `db.add*` calls. Only `db.allModules()` (read-only) is used at L243.",
+    "emptyInputHandling": {
+      "emptyMdFiles": "L231 — emits friendly message and returns.",
+      "emptyClusters": "L273 — emits friendly message.",
+      "emptyMapInputs": "L359 — emits friendly message.",
+      "allMapResultsRejected": "L420 — emits 'No relevant content found across communities.'"
+    },
+    "pathTraversalDefence": "L289-302 standardizes the file path, requires it to be inside `folderURL`, rejects `..` prefixed or embedded relative paths. Logs and skips, never throws."
+  }
+}

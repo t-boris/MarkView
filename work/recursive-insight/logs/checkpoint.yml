@@ -1,13 +1,13 @@
 feature: recursive-insight
 total_waves: 9
-last_completed_wave: 1
-next_wave: 2
+last_completed_wave: 2
+next_wave: 3
 mode: variant-B-sequential
 team_name: null
 tasks:
   T1: { status: done, wave: 1, commits: [18c6997, 276064f] }
   T2: { status: done, wave: 1, commits: [94f3a40, bb828a9] }
-  T3: { status: planned, wave: 2 }
+  T3: { status: done, wave: 2, commits: [f87e1c6, e4da9bd, b040692] }
   T4: { status: planned, wave: 3 }
   T5: { status: done, wave: 1, commits: [33cba9d, 7db0ae9] }
   T6: { status: planned, wave: 4 }
@@ -17,3 +17,6 @@ tasks:
   T10: { status: planned, wave: 7 }
   T11: { status: planned, wave: 8 }
   T12: { status: planned, wave: 9 }
+notes:
+  - "T3 critical XML breakout escape required 3 fix rounds (regex template under-escaping)"
+  - "Swift 6 warning about xmlAttrSafeCharacters nonisolated — non-blocking, defer"

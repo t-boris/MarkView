@@ -45,3 +45,27 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - Final CSP directive: `default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'none'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'`
 - Build: SUCCEEDED
 - Commit: 7db0ae9
+
+## Task 3: Extend GraphRAG with folder map-reduce
+- Added mapReduceForFolder(folderURL:mdFiles:question:onDelta:) using parallel map (no-op streaming via streamCompletion) + streaming reduce
+- Decision 5 thresholds applied: 50 KB per-file truncation, 200 KB per-community subdivision
+- Decision 10 §5 XML-tag instruction isolation in both map and reduce system prompts
+- Existing deepResearch() and callLLM() untouched
+- Build: SUCCEEDED
+- Commit: f87e1c613485ab8fb75ae892fb9455c64e9d7ed8
+
+## Task 3 Fix Round 1
+- Escape literal </file> in body to block prompt injection breakout
+- Percent-encode path attribute (handles all XML metacharacters bulletproof)
+- Cap concurrent map calls to 5 (rate-limit + resource safety)
+- Apply .resolvingSymlinksInPath().standardizedFileURL + path-separator hasPrefix containment (matches T2 fix bb828a9)
+- Cancellation propagated, no partial reduce
+- Build: SUCCEEDED
+- Commit: e4da9bd
+
+## Task 3 Fix Round 2
+- Fixed regex template under-escaping (2 backslashes → 4 in Swift source) so escapeXMLEnvelopeBreakout actually rewrites </file> and </community>
+- Tightened attribute encoding CharacterSet to exclude & ' " < > explicitly (added Self.xmlAttrSafeCharacters)
+- Hand-trace verified: escapeXMLEnvelopeBreakout("a</file>b") = "a<\/file>b" (10 chars: a, <, \, /, f, i, l, e, >, b) — substring "</file>" no longer present
+- Build: SUCCEEDED
+- Commit: b040692
