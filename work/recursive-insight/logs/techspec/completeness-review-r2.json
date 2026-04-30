@@ -1,0 +1,145 @@
+{
+  "status": "fail",
+  "sources": {
+    "user_spec": true,
+    "tech_spec": true,
+    "tasks": false
+  },
+  "requirements_total": 11,
+  "requirements_covered": 10,
+  "requirements_partial": 1,
+  "requirements_missing": 0,
+  "iteration": "r2",
+  "previous_report": "completeness-review.json",
+  "fixes_verified": {
+    "G-2_UE-1_retry_path": {
+      "claimed": "setInsightError Swift→JS + insightRetryRequested JS→Swift + session.retryCurrent() wired through Tasks 4, 6, 7. Decision 11 §3 and Risks table.",
+      "verdict": "partially_resolved",
+      "detail": "The retry message protocol is now correctly specified: Decision 11 §3 prescribes the full flow, Task 5 wires the Retry button, Task 6 adds the 5th Swift→JS command (setInsightError) and 5th JS→Swift message (insightRetryRequested), Task 7 implements the delegate, Task 4 implements retryCurrent. However, retryCurrent() is NOT listed in the InsightSession data model method signatures (Data Models section, lines 292-298 of tech-spec). handleStreamError mentioned in Task 4 is also absent from the interface. The canonical interface definition and the behavioral prescriptions are out of sync — a developer implementing from the data model alone would miss these methods."
+    },
+    "UE-2_arc_capture": {
+      "claimed": "Decision 11 §1 mandates [weak self]. Acceptance Criteria includes explicit bullet. Task 4 references Decision 11. Task 9 checks for strong self capture.",
+      "verdict": "resolved",
+      "detail": "Decision 11 §1 explicitly mandates [weak self] in all closures captured by long-lived Tasks. Task 4 description mandates it. Acceptance Criteria has an explicit verifiable bullet: 'All InsightSession closures captured by long-lived Tasks use [weak self] (verified by code-reviewer)'. Task 9 Code Audit explicitly flags this as a check item. Fully addressed."
+    },
+    "UE-3_connection_drop": {
+      "claimed": "Decision 11 §3 specifies preserve buffer, set node.status=.failed, populate lastError, fire setInsightError. Acceptance Criteria bullet added.",
+      "verdict": "resolved",
+      "detail": "Decision 11 §3 specifies exact behavior: buffer preserved, currentNode.status = .failed, lastError populated, JS bridge receives setInsightError(retryable:true). Acceptance Criteria has explicit bullet: 'Connection drop mid-stream: currentNode.status = .failed, lastError populated, partial rawBuffer preserved, JS shows error banner with [Retry] button'. Risks table also updated. Fully addressed."
+    },
+    "minor_US-4_topic_count": {
+      "claimed": "Acceptance Criteria now says 'If parser finds 0 or > 7 topics, accept as-is (no enforcement)' — explicit lenient policy.",
+      "verdict": "resolved",
+      "detail": "Acceptance Criteria bullet explicitly states the lenient policy. This is a valid product decision — makes the parser simpler and less brittle to LLM variance. Resolved."
+    },
+    "minor_G-3_memory_location": {
+      "claimed": "Not directly addressed, may need note that canonical tree is in Swift not JS.",
+      "verdict": "not_resolved",
+      "detail": "Decision 3 correctly states 'InsightSession holds InsightNode tree as Swift class hierarchy' but does not acknowledge the divergence from user-spec wording ('lives only in JS memory of WKWebView'). A reader comparing user-spec to tech-spec still encounters a contradiction without explanation. Remains minor."
+    },
+    "OE-1_setInsightDeepDives_showInsightLoading": {
+      "claimed": "Not addressed; may still be questionable.",
+      "verdict": "not_resolved",
+      "detail": "The streaming pipeline diagram (tech-spec Architecture section) still shows JS handles topic rendering autonomously via the ---DEEP-DIVES--- marker parser. setInsightDeepDives and showInsightLoading appear in Task 6 as commands to implement but neither has a specified trigger condition in the streaming pipeline, the Architecture section, or any Decision. No task description says when Swift would call setInsightDeepDives separately from the streaming path, or when showInsightLoading fires relative to appendInsightDelta. These remain potentially dead-code scaffolding. Severity remains minor."
+    },
+    "minor_UE-4_scanMarkdownFiles": {
+      "claimed": "Now in Task 2 description (symlinks outside folder, 500 file cap).",
+      "verdict": "resolved",
+      "detail": "Task 2 explicitly mandates: skip symlinks resolving outside input folder, .skipsPackageDescendants, return error if count > 500. Acceptance Criteria has matching bullet: 'Folder scan via scanMarkdownFiles does not follow symlinks pointing outside folderURL'. Decision 5 documents the 500-file hard cap. Fully addressed."
+    }
+  },
+  "traceability": {
+    "US-1": {
+      "text": "Menu item AI Tools → Analysis → 🧭 Recursive Insight, active when folder has ≥1 .md file",
+      "status": "covered",
+      "covered_by": ["Task 8 (ContentView button + hasMarkdownFiles guard)", "Architecture: ContentView.swift modification", "Decision 4 (TabKind)", "Acceptance Criteria item"]
+    },
+    "US-2": {
+      "text": "New tab opens and streams root summary token-by-token",
+      "status": "covered",
+      "covered_by": ["Task 1 (streamCompletion)", "Task 4 (InsightSession.generateRoot)", "Task 7 (WorkspaceManager.startRecursiveInsight + openTab)", "Streaming pipeline section", "Decision 1 (bypass AIOrchestrator)"]
+    },
+    "US-3": {
+      "text": "Inline Mermaid blocks render as SVG (standard mermaid.render, no %%INTERACTIVE)",
+      "status": "covered",
+      "covered_by": ["Task 5 (index.html, per-block try/catch around mermaid.run)", "Decision 7 (per-block try/catch)", "Solution section (reuse existing markdown-it and Mermaid pipelines)"]
+    },
+    "US-4": {
+      "text": "After streaming completes, right pane shows 3–7 clickable deep-dive topics",
+      "status": "covered",
+      "covered_by": ["Task 5 (---DEEP-DIVES--- marker parser, right pane topic list)", "Decision 2 (single streaming call with delimiter)", "Acceptance Criteria: explicit lenient policy — accept 0 or >7 as-is"],
+      "note": "3–7 is guidance to the LLM, not a hard parser constraint. Explicit decision in Acceptance Criteria."
+    },
+    "US-5": {
+      "text": "Clicking a topic streams a new node with its own summary + topic list",
+      "status": "covered",
+      "covered_by": ["Task 4 (InsightSession.expand)", "Task 6 (bridge insightDeepDiveClicked)", "Task 7 (delegate wiring)", "Deep-dive expansion section"]
+    },
+    "US-6": {
+      "text": "Breadcrumbs show path Root→current; clicking returns to cached node without re-LLM",
+      "status": "covered",
+      "covered_by": ["Task 5 (breadcrumb DOM)", "Task 6 (insightBreadcrumbClicked bridge message)", "Task 7 (delegate → session.navigateTo)", "Navigation section", "InsightSession.navigateTo model"]
+    },
+    "US-7": {
+      "text": "💾 Save as .md opens NSSavePanel, saves markdownBody (no deep-dive list)",
+      "status": "covered",
+      "covered_by": ["Task 5 (Save button → postMessage)", "Task 7 (didRequestInsightSave → NSSavePanel → currentNode.markdownBody)", "Save as .md section", "Data model (markdownBody field)"]
+    },
+    "US-8": {
+      "text": "↑ Up button returns to parent node",
+      "status": "covered",
+      "covered_by": ["Task 5 (Up button → postMessage)", "Task 6 (insightUpClicked bridge message)", "Task 7 (delegate → session.up())", "Navigation section"]
+    },
+    "US-9": {
+      "text": ">30 files → map-reduce for root; ≤30 → one-shot; deep-dive uses scope_hint subset + parent summary context",
+      "status": "covered",
+      "covered_by": ["Task 1 (streamCompletion)", "Task 3 (mapReduceForFolder)", "Task 4 (InsightSession routing logic)", "Decision 5 (extend GraphRAG)", "Root node generation section", "Deep-dive expansion section (scope_hint + parent excerpt)"]
+    },
+    "US-10": {
+      "text": "Closing tab frees insight tree completely from memory",
+      "status": "covered",
+      "covered_by": ["Task 7 (closeTab branch: session.cancel() + removeTab)", "Tab close section", "Decision 3 (tree in memory only)", "Acceptance Criteria: mandatory Instruments leak check", "Decision 11 §4 (cancel-before-remove ordering)"]
+    },
+    "C-2": {
+      "text": "Tree lives only in JS memory of WKWebView — not in SQLite, not cross-session",
+      "status": "partial",
+      "covered_by": ["Decision 3 explicitly states no SQLite, ARC frees on tab close"],
+      "gap": "User-spec says 'lives only in JS memory of WKWebView'. Tech-spec correctly places the canonical tree in Swift (InsightSession/InsightNode). Decision 3 does not acknowledge or resolve this divergence from user-spec wording. The user-facing constraint (no DB, no cross-session) is met, but the tech-spec should note that 'JS memory' in user-spec was an implementation assumption the team refined — canonical tree is Swift-side, JS holds only rendered snapshots. Minor, as intent is satisfied."
+    }
+  },
+  "findings": [
+    {
+      "id": "F-1",
+      "type": "structural_gap",
+      "source": "tech-spec",
+      "requirement": "Decision 11 §3: session.retryCurrent() method",
+      "detail": "Decision 11 §3 prescribes session.retryCurrent() as the retry entry point. Task 4 mandates its implementation. But the canonical InsightSession data model (Data Models section, method list) does not include retryCurrent() or handleStreamError — only: generateRoot, expand(deepDiveIndex:), navigateTo, up, cancel, currentNode(), breadcrumbs(), snapshot(). A developer implementing from the data model interface would miss both methods. The authoritative interface definition must be kept in sync with behavioral prescriptions. Adding a method in Decision prose without updating the interface listing is the classic 'decision scattered across sections' anti-pattern.",
+      "severity": "critical"
+    },
+    {
+      "id": "F-2",
+      "type": "structural_gap",
+      "source": "tech-spec",
+      "requirement": "Architecture section: WebViewBridge bridge message counts",
+      "detail": "Architecture section (What we're building/modifying, WebViewBridge.swift entry) still reads: 'add 4 Swift→JS commands' and 'Add 4 JS→Swift message types'. Task 6 correctly describes 5 Swift→JS commands (loadInsightView, appendInsightDelta, setInsightDeepDives, showInsightLoading, setInsightError) and 5 JS→Swift message types (insightDeepDiveClicked, insightSaveRequested, insightBreadcrumbClicked, insightUpClicked, insightRetryRequested). The Architecture section is the document-level summary that readers and reviewers consult first. Having it say '4' while Task 6 says '5' creates implementation-time ambiguity — a developer reading Architecture would implement 4 message types and miss setInsightError and insightRetryRequested, which are the entire retry error-recovery path.",
+      "severity": "critical"
+    },
+    {
+      "id": "F-3",
+      "type": "partial",
+      "source": "tech-spec",
+      "requirement": "C-2: Tree lives only in JS memory of WKWebView",
+      "detail": "User-spec explicitly says 'lives only in JS memory of WKWebView, not saved to SQLite'. The actual design stores the canonical tree in Swift (InsightSession, InsightNode as reference types). JS holds only rendered snapshots per navigateTo call. Decision 3 does not acknowledge this divergence. A future reader comparing user-spec to tech-spec will encounter a contradiction without explanation. Decision 3 should explicitly note that 'JS memory' in user-spec was an implementation assumption refined during tech design — the user-facing constraint (no DB, no cross-session persistence) is met by Swift-side ARC lifecycle. Low severity because user intent is satisfied.",
+      "severity": "minor"
+    },
+    {
+      "id": "F-4",
+      "type": "overengineering",
+      "source": "tech-spec",
+      "requirement": "Streaming pipeline: setInsightDeepDives and showInsightLoading trigger conditions unspecified",
+      "detail": "The streaming pipeline diagram (Architecture section) shows JS handles topic rendering autonomously — the ---DEEP-DIVES--- marker parser triggers right-pane rendering inline during appendInsightDelta processing. Neither setInsightDeepDives nor showInsightLoading appears in the streaming pipeline diagram. No task description, no Decision, and no Acceptance Criteria bullet specifies when Swift would call setInsightDeepDives (given JS already renders topics from the marker) or when showInsightLoading fires relative to appendInsightDelta. Task 6 lists them as commands to implement but provides no trigger condition. These two commands risk becoming dead scaffolding — implemented in Task 6, never called. The spec should either (a) define a specific trigger for each command with a code path that invokes it, or (b) remove them and confirm JS autonomously handles loading state and topic rendering.",
+      "severity": "minor"
+    }
+  ],
+  "summary": "10/11 requirements covered, 1 partial (C-2: tree location language mismatch with user-spec, minor). Previous major issues G-2/UE-1, UE-2, UE-3 are resolved or substantially addressed. Two new critical structural gaps introduced by iteration-1 edits: F-1 — InsightSession data model interface is missing retryCurrent() and handleStreamError methods that Decision 11 §3 and Task 4 prescribe (developer implementing from data model would miss the entire retry path); F-2 — Architecture section still says '4 Swift→JS commands' and '4 JS→Swift message types' while Task 6 correctly specifies 5 of each (setInsightError and insightRetryRequested are the error-recovery path added in this iteration). Two minor findings remain: F-3 (G-3 carry-forward: user-spec says JS memory, spec uses Swift memory, no reconciliation note) and F-4 (OE-1 carry-forward: setInsightDeepDives and showInsightLoading have no specified trigger condition in the streaming pipeline). Status: FAIL — 2 critical findings."
+}

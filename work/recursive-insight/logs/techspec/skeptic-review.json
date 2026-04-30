@@ -1,0 +1,37 @@
+{
+  "verdict": "pass",
+  "mirages": [
+    {
+      "claim": "tech-spec L167 (Decision 5): 'Modifying it would break its current callers (`WorkspaceManager.runAITool(named: \"research\")`)' — claims GraphRAG.deepResearch() is called by runAITool(named: \"research\").",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/work/recursive-insight/tech-spec.md",
+      "line": 167,
+      "actual": "GraphRAG.deepResearch() has ZERO callers in the entire codebase. grep -rn '\\.deepResearch(' MarkView/ returns only the definition at GraphRAG.swift:108. WorkspaceManager.runAITool(named: \"research\") at line 1383 dispatches via the WorkspaceAITool enum (case .research at L313) and calls aiPrompt(for: .research) at L1815/L1968 — which sends a Claude Code CLI prompt to AIConsoleEngine, NOT GraphRAG.deepResearch(). The 'breaks existing callers' rationale is false. Severity: MAJOR — the rationale supporting Decision 5 (don't modify deepResearch) is factually wrong, though the conclusion (add a new method instead of modifying) is still defensible on other grounds (single-responsibility, etc.)."
+    },
+    {
+      "claim": "tech-spec L431 (Acceptance Criteria): '`GraphRAG.deepResearch()` (existing method) unchanged in behavior — used by `runAITool(named: \"research\")`.'",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/work/recursive-insight/tech-spec.md",
+      "line": 431,
+      "actual": "Same mirage as above — GraphRAG.deepResearch() is not used by runAITool(named: \"research\"). The acceptance criterion is technically still satisfiable (the method should remain unchanged), but the justification in parentheses is false. Severity: MAJOR (rationale incorrect, criterion intent OK)."
+    },
+    {
+      "claim": "tech-spec L43, L185, L187 reference 'index.html L1098-1099 mermaid init'.",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/work/recursive-insight/tech-spec.md",
+      "line": 187,
+      "actual": "Mermaid initialize call is at L1099 inside a try block at L1097-1103. The single-line range L1098-1099 is slightly imprecise — L1098 is the `if (typeof mermaid !== 'undefined')` guard, L1099 is the actual mermaid.initialize call. Off-by-one but still pointing at the correct construct. Severity: MINOR."
+    },
+    {
+      "claim": "tech-spec L126 (Decision 1) says 'AIOrchestrator.executeJob (Models/AIOrchestrator.swift L140-226) only knows how to call providerClient.extractBlockSemantics(...)' — this matches L140-226 exactly. Also references queue mechanics at L118-138.",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/work/recursive-insight/code-research.md",
+      "line": 160,
+      "actual": "executeJob is exactly at L140-226 (verified). Queue mechanics: maxConcurrent at L118, processQueue at L121-138 — claim L118-138 matches the broader 'queue area' (L118 is `private let maxConcurrent = 3` declaration block, function body L121-138). MINOR imprecision — the function is L121-138, not L118-138."
+    },
+    {
+      "claim": "code-research §11 footer L786: '`hasMarkdownFiles` computed property on `WorkspaceManager`'. Tech-spec also references it in L40 and L495.",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/work/recursive-insight/tech-spec.md",
+      "line": 40,
+      "actual": "Verified — hasMarkdownFiles does not currently exist (correctly described as a new addition). No mirage. Listed for completeness."
+    }
+  ],
+  "verified_count": 47,
+  "summary": "Verified 47 factual claims across tech-spec.md, code-research.md, and user-spec.md. Found 2 substantive mirages (both about the same false claim that GraphRAG.deepResearch() is called by runAITool(named: 'research') — actually it has zero callers in the entire codebase) and 2 minor line-number imprecisions (off by 1-3 lines, still pointing at correct constructs). All major claims confirmed: AIProviderClient.swift structure (model 'claude-sonnet-4-6' L7, diagramModel 'claude-opus-4-6' L294, baseURL L6, x-api-key/anthropic-version headers L139-140, storageKey 'com.markview.dde.apikey' L461, AIProviderError enum L472-486 with cases noAPIKey/invalidResponse/httpError/parseError, extractSingleChunk L117); AIOrchestrator.executeJob L140-226; GraphRAG.deepResearch L108-164 (and confirmed it only sends 'Module: name (count files)' metadata, not bodies, L122); WorkspaceManager.translateDocument L1105-1191 exactly, closeTab L984-1005 exactly, WorkspaceTabsStore L234-303 exactly, enumerator pattern at L553/L930/L1564 confirmed; DocumentState OpenTab struct L42-71, FileType L5-28; ContentView Analysis Section L124-130; EditorView.loadContentIfNeeded L194-227; WebViewBridge userContentController L83-117, WebViewBridgeDelegate L319-334; index.html state L1021-1030, mermaid pipeline L1241-1254 with mermaid.run({nodes: nodes}), state.mode values 'source'/'preview'/'structured'/'structured-source' all confirmed in code, window.setContent L2245, window.setStructuredContent L2257; AIJob/AIJobType (28 cases)/AIJobStatus all in SemanticModels.swift; BlockExtractionResult exists; WorkspaceAITool enum exists with cases architecture/dataflow/.../research/audit/codemap/fulldocs; loadCachedResponse exists in CacheManager.swift L16; fnv1aHash exists in AIOrchestrator L395; apiKeyValue accessor in ActionEngine.swift L260-264; sandbox OFF in MarkView.entitlements (confirmed); Tests/ folder empty, no XCTest imports anywhere, no MarkViewTests target — all true. New symbols correctly absent: startRecursiveInsight, scanMarkdownFiles, hasMarkdownFiles, TabKind, InsightSession, InsightNode (all expected to be NEW). No streaming code (URLSession.bytes or 'stream:true') anywhere — confirmed. Verdict PASS: no critical mirages that would prevent tasks from executing; the two MAJOR mirages concern the rationale for Decision 5 but the decision itself remains sound, and Acceptance Criterion L431 should be edited to remove the false 'used by runAITool' parenthetical."
+}

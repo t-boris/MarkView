@@ -1,0 +1,83 @@
+{
+  "verdict": "warn",
+  "deferral_defensible": true,
+  "summary": "Deferring tests to a follow-up infra task is reasonable in principle for a project with zero XCTest infrastructure — bootstrapping the target during an L-sized streaming feature would inflate scope and the explicit user decision (Decision 9) acknowledges the trade-off. However, the deferral as currently structured is materially under-protected. This feature introduces (a) the first SSE byte-stream parser in the codebase, (b) a hand-rolled `---DEEP-DIVES---` marker parser that must disambiguate from markdown horizontal rules, (c) a non-trivial async lifecycle (Task cancellation, ARC, @MainActor) bridging Swift↔WKWebView, and (d) a new GraphRAG map-reduce path. Build + manual testing will catch happy-path regressions but will routinely miss exactly the failure classes that unit tests are designed for: malformed/partial SSE chunks, marker false positives, cancel-mid-stream races, retain cycles, and edge cases at community boundaries. The follow-up task lists the right four test files but is owner-less, undated, and not gated to merge. Recommend: keep the deferral, but (1) add 2–3 small inline manual reproduction recipes the user can execute against specific adversarial inputs before merge, (2) commit fixture .md files that the agent can use during the Audit Wave to hand-trace marker/SSE parsing, (3) tighten the follow-up task with a target date and a `Tests/Fixtures/` directory committed now so the retroactive task is just `add XCTest target + write assertions` instead of also `find/build fixtures`.",
+  "critical_uncovered_paths": [
+    {
+      "path": "AIProviderClient.streamCompletion — SSE byte-stream parser",
+      "concern": "First SSE code in the codebase. URLSession.bytes(for:).lines splits on \\n but Anthropic SSE frames are blank-line-separated multi-line records (event:/data:/id:). A naive line-loop will work on the happy path but mis-handle: (a) a `data:` line split across two reads, (b) `event: error` followed by JSON `data: {...}` where the JSON itself contains escaped newlines, (c) keep-alive `: ping` comment lines, (d) `event: message_delta` with `stop_reason` (must not be misparsed as content), (e) the final `event: message_stop`. A bug here will appear as silently truncated output or duplicated chunks — invisible during manual testing because the LLM output looks 'mostly fine'.",
+      "recommended_pre_merge_action": "Either (a) commit a fixture file `Tests/Fixtures/sse-anthropic-sample.txt` captured from a real curl response and have the agent hand-trace the parser against it during code review, or (b) add a one-shot debug Swift script (not a test, just `main.swift` in a scratch dir) that feeds the fixture into the parser and prints reconstructed text. Without either, this is the single most likely silent-bug source."
+    },
+    {
+      "path": "JS marker parser for `---DEEP-DIVES---` in index.html",
+      "concern": "Tech-spec specifies `\\n\\n---DEEP-DIVES---\\n` boundaries and 'last occurrence', which is the right intuition but easy to mis-implement in JS. Failure modes: (a) markdown body that happens to contain a thematic break followed by capitalized text on the next paragraph (`\\n\\n---\\n\\nDEEP-DIVES---something`), (b) a code fence containing the marker as example text, (c) marker appearing mid-stream before the LLM finishes the topic list, causing a flicker between split / not-split rendering, (d) CRLF line endings if the LLM emits them, (e) trailing whitespace after the marker. Manual testing won't reliably exercise these.",
+      "recommended_pre_merge_action": "Commit a `Tests/Fixtures/marker-cases/` directory with ~6 hand-written sample LLM outputs (clean marker, marker inside code fence, hr-then-DEEP-DIVES in body text, partial marker mid-stream, CRLF, no marker at all) and have the JS parser hand-traced against each during the Audit Wave. Test-master in Audit Wave should explicitly verify the regex/split logic against these strings."
+    },
+    {
+      "path": "InsightSession lifecycle — cancel during stream + ARC",
+      "concern": "Acceptance criterion explicitly requires 'cancels in-flight URLSession.bytes Task and stops onDelta callbacks within 1 second' and 'all InsightNode instances are deallocated'. Both are classic places for retain cycles: the streaming closure captures `self` (session), the Task is stored on the session, the session is held by OpenTab, and the bridge subscribes to `@Published streamingBuffer`. A `[weak self]` miss on the onDelta closure or the Task body is invisible at build time and only surfaces under Instruments. Manual close-tab-during-stream may appear to 'work' (no crash) while leaking the entire node tree.",
+      "recommended_pre_merge_action": "Acceptance criterion already calls for Instruments → Allocations verification; promote that from a 'should' to a 'must' before merge. Add explicit step in pre-deploy QA: open insight, expand 2 levels, close tab, run mark-generation in Allocations and confirm zero retained `InsightSession`/`InsightNode`. Also have code-reviewer (Task 9) explicitly grep for closures inside `InsightSession` that capture `self` without `[weak self]`."
+    },
+    {
+      "path": "GraphRAG.mapReduceForFolder correctness",
+      "concern": "New code that reads file bodies, clusters via existing `detectCommunities()`, runs N parallel non-streaming map calls, then a streaming reduce. Failure modes: (a) a community whose summed body exceeds context (tech-spec mentions 'subdivide by file size' but Decision section doesn't actually pin a threshold), (b) a single .md file individually >context (no path described), (c) parallel map call rate-limit / partial-failure handling (one community fails — does the whole reduce fail, or do we proceed with N-1?), (d) empty community (zero files matched), (e) file read errors (permission denied, symlinks). Manual testing on TestFiles/ will hit none of these.",
+      "recommended_pre_merge_action": "Pin the per-community size threshold and the per-file size threshold in tech-spec before implementation (currently unspecified). At minimum, the implementation must log a clear user-visible error rather than silently truncate or hang. Consider adding a small fixture folder with ~35 .md files of varied size in `TestFiles/recursive-insight-large/` so the manual >30-file branch is exercised at least once."
+    },
+    {
+      "path": "Bridge message replay across tab switches",
+      "concern": "EditorView subscribes to `session.streamingBuffer` and forwards deltas. If the user switches tabs mid-stream and switches back, the WebView is the same WKWebView instance shared across tabs (per project conventions), so it has been repainted to another file and back. Tech-spec doesn't describe how the insight WebView state is restored — does it replay the entire `rawBuffer`, or does the WKWebView retain its DOM? This is the kind of gap that surfaces only when user tab-hops during a 30-second stream.",
+      "recommended_pre_merge_action": "Tech-spec should add an acceptance criterion: 'Switching to another tab and back during a streaming insight node restores correct rendered state without re-invoking the LLM.' Add a manual verification step in the user-facing flow."
+    }
+  ],
+  "followup_completeness": "tasks/todo.md correctly identifies the four right test files (SSE parser, marker parser, InsightSession lifecycle, GraphRAG mapReduceForFolder) — that scope matches the critical paths above. Gaps: (1) Owner is 'TBD' and there is no target date, so this can languish indefinitely with no accountability — recommend assigning owner and a 'must-complete-by' date in the same commit that merges Recursive Insight. (2) No mention of test fixtures (sample SSE captures, sample LLM outputs, sample .md folders for map-reduce) — these should be committed alongside the feature so the follow-up task is purely 'add target + write assertions' rather than also 'capture fixtures from a now-changed feature surface'. (3) No mention of integration test for the bridge (Swift↔JS message round-trip) — though this may be lower-priority since WKWebView mocking is painful. (4) No smoke test entry (e.g. 'project builds with test target included') — recommended as the very first check after target creation. (5) No mention of testing the streaming-while-cancel race, which is the highest-risk lifecycle bug.",
+  "recommendations": [
+    {
+      "priority": "high",
+      "action": "Commit `Tests/Fixtures/sse-anthropic-sample.txt` (a captured real SSE response) and `Tests/Fixtures/marker-cases/*.md` (hand-written marker edge cases) as part of the Recursive Insight feature, even without a test target. These zero-cost artifacts (a) document expected parser behavior, (b) give code-reviewer concrete inputs to hand-trace against during the Audit Wave, (c) eliminate the largest risk in the follow-up task ('we changed the parser, now we need to recapture fixtures from a moving target')."
+    },
+    {
+      "priority": "high",
+      "action": "Promote the Instruments memory-leak verification (currently noted as 'verified via Instruments' in acceptance criteria) to an explicit pre-deploy QA step in Task 12. Without enforcement this is the kind of criterion that gets quietly skipped and only surfaces months later as 'why is MarkView using 2GB after a few insights'."
+    },
+    {
+      "priority": "high",
+      "action": "Pin the per-community and per-file size thresholds for `mapReduceForFolder` in tech-spec Decision 5 or in Task 3's description before implementation begins. Currently 'subdivide by file size if needed' is hand-wavy and will lead to either (a) silent truncation, (b) HTTP 400 from Anthropic on oversize prompts, or (c) the implementer making up a number that doesn't match user expectations."
+    },
+    {
+      "priority": "medium",
+      "action": "Tighten tasks/todo.md: assign an owner, set a 'complete-by' date (e.g. 'within 2 weeks of Recursive Insight merge'), and add an entry for an XCTest smoke test (`testTargetExistsAndRuns`) as item 5a. Without a date, this task is structurally unlikely to be done."
+    },
+    {
+      "priority": "medium",
+      "action": "Add an explicit code-reviewer instruction in Task 9 to grep `InsightSession.swift` for closures that capture `self` without `[weak self]` and to verify Task storage doesn't create a strong cycle through the session. This is a cheap mechanical check that catches the most likely ARC bug class."
+    },
+    {
+      "priority": "medium",
+      "action": "Add an acceptance criterion covering tab-switch-during-stream: 'Switching to another tab and back during an active streaming insight node correctly restores the rendered state from session memory without re-invoking the LLM and without losing buffered content.' This is a likely manual-test miss."
+    },
+    {
+      "priority": "low",
+      "action": "Consider committing a `Tests/Fixtures/recursive-insight-large/` folder with 35+ small .md files so the >30-file map-reduce branch is exercisable in manual testing. Currently TestFiles/ is unlikely to trigger that branch."
+    },
+    {
+      "priority": "low",
+      "action": "Test-audit task (Task 11) should explicitly cross-reference the critical paths listed in this report (SSE parser, marker parser, lifecycle, map-reduce) and verify none of them slipped through the audit reviews. Currently Task 11's description says 'no critical paths broken' generically — name them."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 3,
+    "litmusTest": {
+      "checked": 0,
+      "passed": 0,
+      "failed": 0,
+      "note": "No test code to apply litmus to — strategy review mode. Tests are explicitly deferred per Decision 9."
+    },
+    "coverageAssessment": "insufficient",
+    "pyramidBalance": {
+      "unit": 0,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "absent — no test target exists in project; deferred by explicit user decision"
+    }
+  }
+}

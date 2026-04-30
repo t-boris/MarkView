@@ -1,0 +1,141 @@
+{
+  "verdict": "pass",
+  "sources": {
+    "user_spec": true,
+    "tech_spec": true,
+    "tasks": false
+  },
+  "requirements_total": 11,
+  "requirements_covered": 10,
+  "requirements_partial": 1,
+  "requirements_missing": 0,
+  "traceability": {
+    "US-1": {
+      "text": "Menu item AI Tools → Analysis → 🧭 Recursive Insight, active when folder has ≥1 .md file",
+      "status": "covered",
+      "covered_by": ["Task 8 (ContentView button + hasMarkdownFiles guard)", "Architecture: ContentView.swift modification", "Decision 4 (TabKind)", "Acceptance Criteria item"]
+    },
+    "US-2": {
+      "text": "New tab opens and streams root summary token-by-token",
+      "status": "covered",
+      "covered_by": ["Task 1 (streamCompletion)", "Task 4 (InsightSession.generateRoot)", "Task 7 (WorkspaceManager.startRecursiveInsight + openTab)", "Streaming pipeline section", "Decision 1 (bypass AIOrchestrator)"]
+    },
+    "US-3": {
+      "text": "Inline Mermaid blocks render as SVG (standard mermaid.render, no %%INTERACTIVE)",
+      "status": "covered",
+      "covered_by": ["Task 5 (index.html, per-block try/catch around mermaid.run)", "Decision 7 (per-block try/catch)", "Solution section (reuse existing markdown-it and Mermaid pipelines)"]
+    },
+    "US-4": {
+      "text": "After streaming completes, right pane shows 3–7 clickable deep-dive topics",
+      "status": "partial",
+      "covered_by": ["Task 5 (---DEEP-DIVES--- marker parser, right pane topic list)", "Decision 2 (single streaming call with delimiter)", "Marker parsing rules section"],
+      "gap": "The 3–7 count constraint is stated in user-spec but tech-spec does not address enforcement or validation of this range. It is left entirely to the LLM prompt, with no parsing-layer guard or fallback if LLM returns 0 or 8+ topics."
+    },
+    "US-5": {
+      "text": "Clicking a topic streams a new node with its own summary + topic list",
+      "status": "covered",
+      "covered_by": ["Task 4 (InsightSession.expand)", "Task 6 (bridge insightDeepDiveClicked)", "Task 7 (delegate wiring)", "Deep-dive expansion section"]
+    },
+    "US-6": {
+      "text": "Breadcrumbs show path Root→current; clicking returns to cached node without re-LLM",
+      "status": "covered",
+      "covered_by": ["Task 5 (breadcrumb DOM)", "Task 6 (insightBreadcrumbClicked bridge message)", "Task 7 (delegate → session.navigateTo)", "Navigation section", "InsightSession.navigateTo model"]
+    },
+    "US-7": {
+      "text": "💾 Save as .md opens NSSavePanel, saves markdownBody (no deep-dive list)",
+      "status": "covered",
+      "covered_by": ["Task 5 (Save button → postMessage)", "Task 7 (didRequestInsightSave → NSSavePanel → currentNode.markdownBody)", "Save as .md section", "Data model (markdownBody field)"]
+    },
+    "US-8": {
+      "text": "↑ Up button returns to parent node",
+      "status": "covered",
+      "covered_by": ["Task 5 (Up button → postMessage)", "Task 6 (insightUpClicked bridge message)", "Task 7 (delegate → session.up())", "Navigation section"]
+    },
+    "US-9": {
+      "text": ">30 files → map-reduce for root; ≤30 → one-shot; deep-dive uses scope_hint subset + parent summary context",
+      "status": "covered",
+      "covered_by": ["Task 1 (streamCompletion)", "Task 3 (mapReduceForFolder)", "Task 4 (InsightSession routing logic)", "Decision 5 (extend GraphRAG)", "Root node generation section", "Deep-dive expansion section (scope_hint + parent excerpt)"]
+    },
+    "US-10": {
+      "text": "Closing tab frees insight tree completely from memory",
+      "status": "covered",
+      "covered_by": ["Task 7 (closeTab branch: session.cancel() + removeTab)", "Tab close section", "Decision 3 (tree in memory only)", "Acceptance Criteria: Memory item", "Risks: Tab close while stream in flight"]
+    },
+    "C-2": {
+      "text": "Tree lives only in JS memory of WKWebView — not in SQLite, not cross-session",
+      "status": "partial",
+      "covered_by": ["Decision 3 explicitly", "Data Models: No SQLite changes"],
+      "gap": "User-spec says 'lives only in JS memory of WKWebView'. Tech-spec correctly defers persistence but clarifies the authoritative tree is actually in Swift (InsightSession/InsightNode as Swift class hierarchy). The JS side holds only the rendered snapshot per navigateTo call. This is a legitimate architectural divergence from user-spec wording — the constraint intent (no DB, no cross-session) is fully met, but the tech-spec should note that the canonical tree is Swift-side, not JS-side. Low severity because the user intent is satisfied."
+    }
+  },
+  "gaps": [
+    {
+      "id": "G-1",
+      "requirement": "US-4: 3–7 deep-dive topics",
+      "detail": "Tech-spec relies entirely on the LLM prompt to produce 3–7 topics. No parsing-layer enforcement is specified — if LLM returns 0, 1, or 8+ topics the spec says nothing about fallback behavior. The marker parser just splits whatever follows the delimiter. For an L feature with first-time LLM output parsing, this is a gap: the spec should state whether to clamp, warn, or surface an error when count is out of range.",
+      "severity": "minor"
+    },
+    {
+      "id": "G-2",
+      "requirement": "Risks section: SSE error recovery / Retry button",
+      "detail": "The Risks table (row: 'Anthropic streaming API rate limit / network failure mid-stream') mentions a JS 'Retry' button that calls session.expand or session.generateRoot. However, no bridge message type for this Retry action is defined in the Architecture section or in the WebViewBridge task (Task 6). The 4 defined JS→Swift message types are: insightDeepDiveClicked, insightSaveRequested, insightBreadcrumbClicked, insightUpClicked. Retry is a 5th interaction path that is mentioned in the Risks table but has no corresponding bridge wire-up, no delegate method, and no implementation task. A developer reading the tasks would not know to implement it.",
+      "severity": "major"
+    },
+    {
+      "id": "G-3",
+      "requirement": "C-2: Tree lives only in JS memory of WKWebView",
+      "detail": "User-spec explicitly says 'lives only in JS memory of WKWebView, not saved to SQLite'. The actual design stores the canonical tree in Swift (InsightSession, InsightNode as reference types). JS holds only rendered snapshots. This is the correct architecture, but the tech-spec does not acknowledge or explain the divergence from user-spec wording. A future reader of user-spec vs tech-spec would see a contradiction. The tech-spec should explicitly note that the user-facing constraint (no DB, no cross-session) is met by the Swift-side ARC lifecycle, and that 'JS memory' in user-spec was an implementation assumption the team refined.",
+      "severity": "minor"
+    }
+  ],
+  "scope_creep": [],
+  "overengineering": [
+    {
+      "id": "OE-1",
+      "element": "setInsightDeepDives and showInsightLoading bridge commands",
+      "detail": "Task 6 and Architecture list 4 Swift→JS commands: loadInsightView, appendInsightDelta, setInsightDeepDives, showInsightLoading. The streaming pipeline diagram shows deep-dive rendering handled entirely in JS (the marker parser triggers right-pane rendering). setInsightDeepDives appears redundant — the JS already knows to render topics when it parses the ---DEEP-DIVES--- marker. Similarly, showInsightLoading is not referenced in the streaming pipeline. If JS handles the full rendering cycle (which the pipeline clearly shows), two of the four Swift→JS commands may be dead code. The spec does not explain when Swift would call setInsightDeepDives separately from the streaming path, or when showInsightLoading would fire relative to appendInsightDelta. These could turn into unused scaffolding.",
+      "severity": "minor"
+    },
+    {
+      "id": "OE-2",
+      "element": "InsightViewSnapshot struct serialized to/from Codable",
+      "detail": "InsightViewSnapshot is declared Codable. In the bridge, it is passed to JS via evaluateJavaScript (JSON-serialized via JSONEncoder, then embedded in JS call). DeepDiveTopic is also Codable. These need Codable. However, the struct includes all breadcrumbs, all deep-dive topics, and the full markdown body — on every navigateTo call this entire snapshot is re-serialized and sent over the bridge. For large nodes with long markdown this could be a noticeable overhead. Not a design error, but there is no mention of a differential update path for breadcrumb-only or topic-only changes. This is minor: the spec could note the payload size concern.",
+      "severity": "minor"
+    }
+  ],
+  "underengineering": [
+    {
+      "id": "UE-1",
+      "element": "Retry button bridge path missing",
+      "detail": "See G-2. The SSE error recovery 'Retry' button mentioned in the Risks table has no defined bridge message type, no delegate method, no corresponding implementation step in any task. This is not just a gap in docs — it means the feature as specified has no implemented error recovery UX path. InsightSession.lastError is published but nothing in the JS layer or bridge layer is specified to consume it to show a retry UI. The code audit task might catch this but the spec itself leaves it unimplemented.",
+      "severity": "major"
+    },
+    {
+      "id": "UE-2",
+      "element": "ARC retain cycle analysis in InsightSession closures",
+      "detail": "InsightSession is @MainActor and uses Task { [weak self?] in ... } for generateRoot and expand. The spec correctly identifies this risk and delegates it to the code audit (Task 9). However, the spec itself does not prescribe the capture semantics: InsightSession.activeTask holds a strong reference to the Task, the Task's closure captures self (InsightSession) via onDelta callbacks. If the closure is not marked [weak self], closing the tab while streaming would still call session.cancel() before ARC frees, but if activeTask is held by something else (e.g., a reference captured in the onDelta chain), a cycle could prevent deallocation. The spec says 'ARC frees InsightSession since OpenTab held the only strong reference' — but the spec does not verify that activeTask (the Task value itself) does not create a secondary strong reference path. This should be stated explicitly in the InsightSession design, not deferred entirely to audit.",
+      "severity": "major"
+    },
+    {
+      "id": "UE-3",
+      "element": "streamCompletion partial JSON / connection-drop handling",
+      "detail": "User-spec Risk 5 explicitly names 'partial JSON / connection breaks' as a known SSE parsing hazard. Tech-spec handles this at the risk table level (mentions the risk) and says to 'strictly follow Anthropic SSE spec'. However, the spec does not define the exact error recovery behavior: what happens if the SSE connection drops mid-stream (TCP RST, timeout, 429)? URLSession.bytes will throw; streamCompletion propagates the throw; InsightSession catches it. But the spec does not say whether the partial buffer is preserved (partial markdown visible) or cleared, and does not specify whether the node transitions to .failed or stays in .streaming. This ambiguity will lead to divergent implementations depending on which developer reads the spec.",
+      "severity": "major"
+    },
+    {
+      "id": "UE-4",
+      "element": "scanMarkdownFiles helper: empty folder and hidden-file edge cases",
+      "detail": "Task 2 adds scanMarkdownFiles(in:) extracting the duplicated enumerator pattern. The spec notes it skips 'hidden + .dde' files. But the spec does not address: (a) symlinks pointing outside the sandbox, (b) extremely deep directory trees causing enumeration to take seconds on main thread if called synchronously, (c) what happens if the folder contains only non-.md files (hasMarkdownFiles = false should guard, but is this checked before or after the menu item is tapped?). For an L feature, these boundary conditions warrant a sentence each in the spec.",
+      "severity": "minor"
+    }
+  ],
+  "solution_depth_assessment": {
+    "verdict": "adequate",
+    "detail": "The Solution section goes well beyond paraphrasing user-spec. It identifies three novel code paths (first streaming path, first non-file tab kind, first folder-content map-reduce), explains why AIOrchestrator is bypassed with a concrete code reference (L140-226), and names the translateDocument precedent (L1105-1191). Architecture section provides a full call-graph for the streaming pipeline, marker parsing rules, data model with Swift syntax, and a shared-resources ownership table. All 9 decisions have rationale and rejected alternatives. This is appropriate depth for an L feature."
+  },
+  "test_deferral_assessment": {
+    "verdict": "defensible_with_caveats",
+    "detail": "The deferral is explicitly documented in Decision 9 with rationale (no test target exists, setting one up is a separate concern), tracked in tasks/todo.md, and compensated by: build-clean requirement, manual smoke flow, and a dedicated three-task Audit Wave (code-reviewer, security-auditor, test-master). The test-master audit task (Task 11) explicitly verifies the deferral is tracked and lists the right retroactive scope (SSE parser, marker parser, InsightSession lifecycle, mapReduceForFolder). The caveat: the SSE parser (streamCompletion) is first-time code with no prior art in the project. The user-spec explicitly called this out as Risk 5 and even suggested unit tests on the parser with mock streams. The tech-spec acknowledges this but defers without a compensating integration check (e.g., a mandatory curl smoke before merge). The curl smoke in the Agent Verification Plan only checks endpoint reachability, not parser correctness with multi-chunk payloads, partial lines, or ping events. For a first-time SSE parser in a Swift app, this is a real gap that the Audit Wave alone cannot close."
+  },
+  "summary": "10/11 tracked requirements covered; 1 partial (US-4: topic count range not enforced). No scope creep found. 3 gaps: G-1 (topic count enforcement, minor), G-2 (Retry bridge path missing, major), G-3 (user-spec says JS memory, spec uses Swift memory, needs clarification, minor). 2 overengineering minor items: setInsightDeepDives/showInsightLoading may be redundant given JS-side marker parsing; InsightViewSnapshot full-payload serialization on every navigate has no differential path. 4 underengineering items: UE-1 (Retry button has no bridge wiring, major), UE-2 (ARC capture semantics for Task closures not specified, major), UE-3 (partial-stream / connection-drop node state transition unspecified, major), UE-4 (scanMarkdownFiles boundary conditions, minor). Test deferral is defensible given zero existing test infrastructure and explicit Decision 9, but the SSE parser specifically warrants a curl multi-chunk smoke or a manual partial-payload test before merge — the current verification plan only checks endpoint reachability. Overall verdict: pass (zero critical findings). Three major underengineering items should be addressed in the spec before implementation begins."
+}

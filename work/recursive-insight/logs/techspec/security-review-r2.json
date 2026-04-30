@@ -1,0 +1,69 @@
+{
+  "verdict": "pass",
+  "summary": "All 5 original HIGH findings are adequately mitigated in the iteration-1 tech-spec. Decision 10 (Prompt safety) and Decision 11 (Async lifecycle) are present with the claimed structure (7 layers and 5 prescriptions respectively); Decision 5 carries the pinned numeric thresholds; the Acceptance Criteria block has the five new sections (SSE correctness, Lifecycle & memory, Resource caps, Security, Marker parsing); the Risks table has the three new rows (prompt injection, resource exhaustion, ARC cycle); Tasks 1-7 explicitly reference the new decisions; Task 10 enumerates each Decision 10 layer as a verification item. Verdict pass with caveats: a few NEW concerns were introduced by the chosen wording — (a) CSP retains script-src 'unsafe-inline' (justified by existing index.html, but means CSP no longer provides defense-in-depth against an inline-script injection that bypasses markdown-it; the spec acknowledges this implicitly but reviewers should treat markdown-it html:false as the sole script barrier), (b) Decision 10 §6 specifies path containment via standardizedFileURL + hasPrefix but does not call resolvingSymlinksInPath() the way Task 2 implies — a symlink-inside-folder pointing outside would still pass §6 as written; recommend tightening §6 to match Task 2's wording, (c) the original MEDIUM findings on WKWebView preferences (allowFileAccessFromFileURLs / allowUniversalAccessFromFileURLs), audit logging, and dependency version pinning (markdown-it >= 13, mermaid >= 10) remain unaddressed — these were not in the iteration-1 fix scope but should not be lost. None of these caveats is critical. The spec is approved to proceed to implementation.",
+  "previous_findings_status": [
+    {
+      "id": "HIGH-1: DOM-XSS via LLM-generated markdown",
+      "status": "fixed",
+      "evidence": "Decision 10 §1 (L226): markdown-it configured with `html: false`, `linkify: true`, link target sanitization rejecting javascript:/data:/file:. Decision 10 §3 (L228): CSP meta tag with default-src 'self', object-src 'none', base-uri 'none', img-src 'self' data:, connect-src 'none' (blocks any LLM-injected exfil-via-image-load or fetch). Decision 10 §4 (L229): Mermaid securityLevel: 'strict' per-render. AC L504, L506-507 lock in the implementation. Task 5 (L554) restates the markdown-it config and CSP directive verbatim. Task 10 (L593) makes security-auditor verify all four layers post-implementation. Note: CSP retains script-src 'unsafe-inline' because existing index.html depends on it — explicitly documented in Decision 10 §3 as a known limitation. This means markdown-it html:false is the sole script barrier; if any future code path inserts LLM HTML directly via innerHTML, CSP will not stop it. Acceptable given the textContent rule in §2 and AC L505, but worth flagging."
+    },
+    {
+      "id": "HIGH-2: DOM-XSS via deep-dive labels and breadcrumbs",
+      "status": "fixed",
+      "evidence": "Decision 10 §2 (L227): explicit rule that deep-dive labels, hints, breadcrumb titles, and error messages are written via Element.textContent (never innerHTML), through a single setText(el, str) utility used everywhere. AC L505 makes this auditable: 'All LLM-derived strings ... rendered into DOM via textContent, never innerHTML. Single utility used.' Task 5 (L554) restates the requirement. Task 10 (L593) explicitly tells the security-auditor to grep for innerHTML on LLM-derived strings."
+    },
+    {
+      "id": "HIGH-3: Prompt injection from .md content",
+      "status": "fixed",
+      "evidence": "Decision 10 §5 (L230): instruction/data separation via `<file path=\"...\">...</file>` XML tag delimiters in the system prompt, with explicit instruction that wrapped content is data only, never instructions. AC L508 locks this in. Task 3 (L538) and Task 4 (L547) both reference Decision 10 §5 by number and require XML-tag wrapping in their respective prompt-construction sites (mapReduceForFolder and InsightSession.expand). Risks table row L467 captures the threat and mitigation linkage. Defense is multi-layer (rendering sanitization + path validation + resource caps form the second/third lines of defense per Decision 10 rationale)."
+    },
+    {
+      "id": "HIGH-4: Path traversal in scope_hint and folder scan",
+      "status": "partial",
+      "evidence": "Decision 10 §6 (L231): scope_hint paths resolved via URL(fileURLWithPath:relativeTo: folderURL).standardizedFileURL and rejected if .path doesn't begin with folderURL.standardizedFileURL.path. AC L509 enforces. Task 4 (L547) restates. For folder scan: Task 2 (L531) requires `.skipsPackageDescendants`, file count > 500 cap, AND 'skip symlinks resolving outside the input folder'. AC L510 requires 'uses .skipsPackageDescendants and resolved-path containment check'. PARTIAL because: Decision 10 §6's wording uses only standardizedFileURL (which does not resolve symlinks), while Task 2 / AC L510 imply symlink resolution. A malicious folder containing a symlink that lives inside folderURL but points outside (e.g., folderURL/subdir/link -> /etc) would pass Decision 10 §6's prefix check but should be caught by Task 2's 'resolved-path containment'. The implementer needs to honor Task 2's stricter wording, not Decision 10 §6's looser wording. Also, Decision 10 §6 does not require dropping non-.md extensions in scope_hint (original recommendation 4-c); minor gap. Recommend: edit Decision 10 §6 to add 'and resolvingSymlinksInPath() before the prefix check' and 'reject entries whose extension is not .md' to match Task 2 / original recommendation."
+    },
+    {
+      "id": "HIGH-5: Resource exhaustion / DoS",
+      "status": "fixed",
+      "evidence": "Decision 10 §7 (L232-236): SSE line cap 64 KB (rejects with streamingError), per-node rawBuffer cap 10 MB (cancels stream + .failed), per-session cap 50 MB across nodes (oldest non-current eviction), plus references to Decision 5 caps. Decision 5 (L169-174): 30 file folder cutoff, 50 KB per-file truncation with [truncated] marker, 200 KB per-community cap with chunked subdivision, 500 file hard cap with user-visible error, 30 file cap inside scope_hint. AC L497-501 enforces all five. Task 1 (L523) requires 64 KB SSE cap. Task 2 (L531) requires 500 file cap. Task 3 (L538) requires Decision 5 thresholds in mapReduceForFolder. Task 4 (L547) requires 10 MB per-node and 50 MB per-session caps in InsightSession. Risks table row L468 captures the DoS scenario and mitigations. All five caps are testable (numeric) and auditable. Note on UX side-effect: the 'oldest non-current eviction' policy will silently break back-navigation to old branches in pathological cases; not a security issue, but the spec does not say what UI feedback the user gets when an evicted node is re-navigated. Out of scope for security but worth noting."
+    }
+  ],
+  "new_findings": [
+    {
+      "severity": "medium",
+      "category": "OWASP A05 - Security Misconfiguration (CSP weakness)",
+      "issue": "Decision 10 §3 specifies CSP `script-src 'self' 'unsafe-inline'` with the comment 'unsafe-inline retained because existing index.html relies on it'. This means CSP provides ZERO protection against an inline-script injection that bypasses markdown-it (e.g., a future code path that uses innerHTML for an LLM string, or a markdown-it bug that allows raw HTML through despite html: false). The defense reduces to a single layer (markdown-it html: false + textContent rule). For a multi-layer hardening decision, leaving CSP toothless on its primary attack vector is a gap the spec should flag explicitly.",
+      "location": "tech-spec.md L228 (Decision 10 §3)",
+      "impact": "If markdown-it is bypassed (config error, library bug, or any future innerHTML on LLM string), an attacker-controlled `.md` can execute JS in the WebView and call any registered bridge handler (insightSaveRequested, etc.).",
+      "recommendation": "Either (a) audit existing index.html to determine which inline scripts it actually needs and migrate them to a separate file or to a hash/nonce-based allowlist (`script-src 'self' 'sha256-<hash>'`), or (b) explicitly add to Decision 10 §3 a note that 'CSP unsafe-inline is a known weakness; markdown-it html:false and the textContent rule (§1, §2) are the actual script barriers. Any new code that inserts LLM-derived HTML must be reviewed for XSS independently of CSP.' Add to Task 10 a check: 'security-auditor greps the entire insight-mode JS for innerHTML, outerHTML, document.write, insertAdjacentHTML, and Function() / new Function constructors; any hit on LLM-derived data is a critical finding.'",
+      "cwe": "CWE-1021"
+    },
+    {
+      "severity": "medium",
+      "category": "OWASP A01 - Broken Access Control (Symlink containment gap in Decision 10 §6)",
+      "issue": "Decision 10 §6 specifies scope_hint validation as: `URL(fileURLWithPath:relativeTo: folderURL).standardizedFileURL` and reject if `.path` does not begin with `folderURL.standardizedFileURL.path`. `standardizedFileURL` performs path normalization (collapses `..`, `.`, double slashes) but DOES NOT resolve symlinks. A malicious folder layout — e.g., `folderURL/subdir/sneaky.md -> /Users/<user>/.ssh/id_rsa` — has a symlink target that lies outside folderURL but a path string that lies inside, so the prefix check passes. Task 2 (L531) wording 'skip symlinks resolving outside the input folder' implies symlink resolution, and AC L510 says 'uses .skipsPackageDescendants and resolved-path containment check'. The two specifications are inconsistent: Decision 10 §6 is the looser one. The implementer must honor the stricter Task 2 wording.",
+      "location": "tech-spec.md L231 (Decision 10 §6) — inconsistent with L531 (Task 2) and L510 (AC).",
+      "impact": "If implementer follows Decision 10 §6 literally, a poisoned `.md` file (or LLM-driven scope_hint) can cause the app to read arbitrary files via symlinks placed inside the analyzed folder, and ship their contents to the Anthropic API as part of the deep-dive prompt.",
+      "recommendation": "Edit Decision 10 §6 to add `.resolvingSymlinksInPath()` after `.standardizedFileURL` on both the candidate path and folderURL before the prefix check. Also add: 'reject entries whose extension is not .md (case-insensitive) to keep behavior consistent with the .md-only constraint'. Specifically, change §6 to: 'every path in scope_hint returned by LLM is resolved via `URL(fileURLWithPath:relativeTo: folderURL).standardizedFileURL.resolvingSymlinksInPath()` and rejected if (a) its `.path` does not begin with `folderURL.standardizedFileURL.resolvingSymlinksInPath().path + \"/\"`, or (b) its extension is not .md.' Apply the same rule to scanMarkdownFiles in Task 2 so the helper and the LLM-driven path both share the same containment primitive.",
+      "cwe": "CWE-22"
+    },
+    {
+      "severity": "low",
+      "category": "OWASP A04 - Insecure Design (Retry-storm / cost amplification)",
+      "issue": "Decision 11 §3 introduces a `[Retry]` button on stream-failed nodes with `insightRetryRequested` -> `session.retryCurrent()`. There is no throttle or attempt cap. If the failure mode is deterministic (e.g., the prompt itself triggers an Anthropic content-policy error, or the chosen folder always exceeds context after the 50 KB truncation), a frustrated user can click Retry repeatedly and spend tokens on each click. Worse, if the failure is intermittent and the partial buffer is preserved (per §3), a user might believe Retry continues from the partial — but the spec says retry 'replaces the failed node's content', meaning each retry is a full re-spend.",
+      "location": "tech-spec.md L254 (Decision 11 §3)",
+      "impact": "Token-cost runaway under user error, not a confidentiality/integrity issue.",
+      "recommendation": "Add to Decision 11 §3: 'Retry button is disabled while a retry is in flight; after 3 consecutive failures with no successful render in between, the button is replaced with a static error and a [Reset] button that requires explicit dismissal before another attempt. UI shows accumulated retry count.' This is not a security blocker, file as a UX/cost guardrail.",
+      "cwe": "CWE-799"
+    },
+    {
+      "severity": "low",
+      "category": "Best Practice (Carry-over of unaddressed MEDIUM/LOW from r1)",
+      "issue": "Iteration 1 fixes targeted only the 5 HIGH findings. The following MEDIUM and LOW findings from the original report remain unaddressed in the current tech-spec and were not in the fix scope: (a) explicit assertion that the insight WKWebView sets `allowFileAccessFromFileURLs = false` and `allowUniversalAccessFromFileURLs = false` (original MEDIUM, OWASP A05) — CSP partially compensates but the explicit pref check is still missing, (b) audit logging for session start, deep-dive expansions, errors, save destinations (original MEDIUM, OWASP A09) — no observability section added, (c) markdown-it >= 13.0.0 and mermaid >= 10.0.0 version pinning check (original LOW, OWASP A06) — not added to acceptance criteria. None of these block iteration-2 sign-off but they should not be silently dropped.",
+      "location": "tech-spec.md (gaps relative to security-review.json findings #6, #9, #10, #14)",
+      "impact": "Residual risks at MEDIUM/LOW from r1; do not block this review's pass verdict but should be tracked.",
+      "recommendation": "File as follow-up tracked in tasks/lessons.md or a follow-up issue. Do NOT block the iteration-2 sign-off on these — they were explicitly out of scope for the iteration-1 HIGH-fix wave, but they should be re-confirmed before merge to main rather than forgotten.",
+      "cwe": "CWE-1059"
+    }
+  ]
+}

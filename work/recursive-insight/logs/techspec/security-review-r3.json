@@ -1,0 +1,54 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 2,
+    "critical": 0,
+    "major": 0,
+    "minor": 2
+  },
+  "round_2_findings_status": [
+    {
+      "id": "R2-MEDIUM-1: Decision 10 §6 symlink containment gap (CWE-22 / OWASP A01)",
+      "status": "closed",
+      "evidence": "tech-spec.md L231 (Decision 10 §6) now reads: 'every path in scope_hint returned by LLM is resolved via URL(fileURLWithPath:relativeTo: folderURL).resolvingSymlinksInPath().standardizedFileURL (resolve symlinks BEFORE standardizing — standardizedFileURL alone does not follow symlinks, so a symlink inside the folder pointing outside would pass containment check otherwise). Rejected if its .path does not begin with folderURL.resolvingSymlinksInPath().standardizedFileURL.path. Additionally rejected if extension is not .md. Prevents both LLM-driven path traversal and symlink escape.' AC L514 updated to match: 'Every scope_hint path resolved via .resolvingSymlinksInPath().standardizedFileURL against folder; paths escaping the folder rejected (logged + skipped, not raised to user). Non-.md extensions also rejected.' Both halves of the r2 recommendation are implemented: (a) symlink-resolve-before-standardize, (b) non-.md extension rejection. The order (resolveSymlinks → standardize) is the correct one — standardizing after symlink resolution catches both `..` traversal in the resolved target and any traversal in the original input. The folderURL side is also resolved+standardized so the prefix comparison happens in the same coordinate system."
+    },
+    {
+      "id": "R2-MEDIUM-2: CSP unsafe-inline gap + missing grep mandate (CWE-1021 / OWASP A05)",
+      "status": "closed",
+      "evidence": "Task 10 (L600) now contains the explicit grep mandate verbatim: 'grep insight-mode JS for `innerHTML`, `outerHTML`, `document.write`, `insertAdjacentHTML`, `Function(`, `eval(` and flag any usage on LLM-derived data'. The CSP unsafe-inline acknowledgement is also present in the same line: '(CSP retains script-src unsafe-inline for compat with existing modes, so JS-side hygiene is the primary script barrier)'. Both pieces of the r2 recommendation are now in the spec: (a) acknowledgement that CSP no longer provides defense-in-depth against inline-script injection (so markdown-it html:false + textContent rule are the actual barriers), (b) explicit verifiable security-auditor task to grep for the dangerous sinks on LLM-derived data. The grep list covers all the known inline-script execution sinks for a WKWebView context."
+    },
+    {
+      "id": "R2-LOW-3: Retry-storm / cost amplification (CWE-799 / OWASP A04)",
+      "status": "closed",
+      "evidence": "Three places lock this in: (1) Data Models comment L303-304: 'Retry-throttle: max 3 retries per node per 60s window. Fourth attempt within window returns AIProviderError.streamingError(\"retry rate limit\") and surfaces to UI.' (2) AC L517: 'Retry throttle: retryCurrent() rejects 4th retry attempt within 60s window for the same node, surfaces \"retry rate limit\" via setInsightError(retryable: false).' (3) Task 10 verification list (L600) includes '3 retries/60s' as one of the resource caps to verify. Cost amplification vector is contained: per-node retry budget is bounded by both attempt count (3) and time window (60s), and the terminal state returns with retryable: false so the UI cannot offer further attempts on the same failed node."
+    },
+    {
+      "id": "R2-LOW-4: Carry-over of unaddressed MEDIUM/LOW from r1 (best-practice)",
+      "status": "carry-over (unchanged in r3 scope)",
+      "evidence": "WKWebView allowFileAccessFromFileURLs/allowUniversalAccessFromFileURLs assertion, audit logging for session/expansion/error/save events, and markdown-it >= 13 / mermaid >= 10 version pinning remain unaddressed. These were explicitly out of scope for both r2 and r3 fix waves. Recommend they be tracked in tasks/lessons.md as known follow-ups before merge to main, not blocking r3 sign-off."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Retry-throttle policy lives in a free-standing comment, not in Decision 11 §3",
+      "description": "The retry rate-limit policy (max 3/60s per node, 4th attempt → streamingError) is documented in three places: a free-standing comment block in the Data Models section (L303-304), Acceptance Criterion L517, and Task 10's verification list. However, Decision 11 §3 itself (L251-254) — which defines the connection-drop / Retry-button behavior — still describes only the [Retry] button without mentioning any throttle. An implementer reading Decision 11 in isolation (as the binding decision for retry behavior) could miss the throttle requirement and only notice it when tripping over the AC during QA. Decisions are the spec's source-of-truth for design intent; a guardrail this important should be in the decision text, not a comment in Data Models.",
+      "location": "tech-spec.md L251-254 (Decision 11 §3) is silent on throttling; L303-304 (Data Models comment), L517 (AC), L600 (Task 10) carry the actual rule.",
+      "impact": "Documentation/consistency gap, not a runtime security gap — the AC and Task 10 audit will catch a missing implementation. Risk is implementer wastes time discovering the requirement late, or the throttle is implemented inconsistently with the implicit window semantics (fixed vs sliding window is also unspecified — minor secondary ambiguity).",
+      "recommendation": "Add to Decision 11 §3 (after the existing [Retry] button sentence): 'Retry button is rate-limited to 3 attempts per node per 60-second sliding window; the 4th attempt within the window returns AIProviderError.streamingError(\"retry rate limit\") and the bridge surfaces the error via setInsightError(sessionId, message, retryable: false), which disables the Retry button on that node until the user navigates away. The throttle is per-node and resets when a successful render replaces the failed node's content.' This puts the policy in the binding design text and clarifies (a) sliding vs fixed window, (b) terminal state UX (Retry disabled), (c) reset semantics on success.",
+      "cwe": "CWE-1059"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Task 4 description still references only .standardizedFileURL (lags Decision 10 §6 and AC L514)",
+      "description": "Decision 10 §6 (L231) and AC L514 now correctly require `.resolvingSymlinksInPath().standardizedFileURL` (with the explicit ordering note). However, Task 4's description (L554) still reads: 'Per Decision 10 §6: validate every scope_hint path against folderURL.standardizedFileURL and reject path-traversal escapes (log + skip).' The phrase `against folderURL.standardizedFileURL` predates the r3 fix and was not updated to match the new wording. The task does delegate to 'Per Decision 10 §6' which is the binding source, so a careful implementer will read §6 and pick up the symlink resolution. But a less-careful implementer who reads Task 4 verbatim might re-introduce the exact symlink-escape vulnerability that r2's MEDIUM-2 was meant to close.",
+      "location": "tech-spec.md L554 (Task 4 description) — out of sync with L231 (Decision 10 §6) and L514 (AC).",
+      "impact": "Low. Decision 10 §6 is the authoritative source and is correctly updated; AC L514 enforces it; Task 10 security audit will verify it. The risk is purely documentation drift causing the implementer to first write the looser version and only realize the gap when the security-auditor reviews. Not a security regression — the auditor catches it before merge.",
+      "recommendation": "Edit Task 4 description (L554) to replace 'validate every scope_hint path against folderURL.standardizedFileURL' with 'validate every scope_hint path against folderURL via .resolvingSymlinksInPath().standardizedFileURL containment plus .md extension check (per Decision 10 §6)'. One-line edit, makes the task self-consistent with the binding decision and AC. Saves one round-trip with the reviewer.",
+      "cwe": "CWE-1059"
+    }
+  ],
+  "verdict_notes": "All 2 r2 MEDIUM findings are CLOSED with verifiable evidence in the spec. The r2 LOW retry-storm finding is also closed (third bonus fix). The two new minor findings in r3 are documentation-consistency issues — Decision 11 §3 should mention the throttle that lives elsewhere, and Task 4's description should be brought in line with the updated Decision 10 §6 wording. Neither is a security regression: AC + Task 10 audit catch them downstream. Both are sub-1-line edits. Status: APPROVED to proceed. The r1 carry-over MEDIUM/LOW findings (WKWebView prefs, audit logging, dependency version pinning) remain explicitly out of scope and should be tracked in tasks/lessons.md before merge to main."
+}

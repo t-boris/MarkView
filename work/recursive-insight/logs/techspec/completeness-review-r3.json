@@ -1,0 +1,56 @@
+{
+  "verdict": "pass",
+  "iteration": "r3",
+  "previous_report": "completeness-review-r2.json",
+  "previous_critical_status": [
+    {
+      "id": "F-1",
+      "r2_finding": "InsightSession data model method list missing retryCurrent() and handleStreamError — developer implementing from interface would miss entire retry path.",
+      "fix_claimed": "retryCurrent() async and handleStreamError(_:) added to Data Models method list; retry-throttle note (max 3/60s) added immediately after.",
+      "verification": "resolved",
+      "evidence": "Data Models section now lists: func retryCurrent() async (line 296, with inline comment 're-run prompt for current node, replace content in-place') and private func handleStreamError(_ error: Error) (line 300, with inline comment). Retry-throttle note at lines 302-304: 'max 3 retries per node per 60s window. Fourth attempt within window returns AIProviderError.streamingError(\"retry rate limit\") and surfaces to UI.' Both methods are present in the canonical interface definition. The gap is closed."
+    },
+    {
+      "id": "F-2",
+      "r2_finding": "Architecture section WebViewBridge entry read '4 Swift→JS commands' / '4 JS→Swift message types' while Task 6 correctly specified 5 of each — setInsightError and insightRetryRequested (the entire error-recovery path) were invisible at the Architecture level.",
+      "fix_claimed": "Architecture section updated to '5 commands' / '5 message types' with setInsightError and insightRetryRequested explicitly listed.",
+      "verification": "resolved",
+      "evidence": "Architecture section, WebViewBridge.swift entry (line 42) now reads: 'add 5 Swift→JS commands: loadInsightView, appendInsightDelta, setInsightDeepDives, showInsightLoading, setInsightError. Add 5 JS→Swift message types: insightDeepDiveClicked, insightSaveRequested, insightBreadcrumbClicked, insightUpClicked, insightRetryRequested.' All 5 commands and all 5 message types are named explicitly. The count is consistent with Task 6 (line 569). The gap is closed."
+    }
+  ],
+  "cross_section_consistency": {
+    "five_messages_agreement": {
+      "architecture": "5 Swift→JS (loadInsightView, appendInsightDelta, setInsightDeepDives, showInsightLoading, setInsightError) and 5 JS→Swift (insightDeepDiveClicked, insightSaveRequested, insightBreadcrumbClicked, insightUpClicked, insightRetryRequested) — line 42.",
+      "data_models": "retryCurrent() async and handleStreamError(_:) present in InsightSession interface — lines 296, 300.",
+      "decision_11_s3": "Prescribes session.retryCurrent() as retry entry point; JS receives setInsightError(retryable: true) for connection drops; insightRetryRequested maps to retryCurrent() — lines 253-254.",
+      "task_4": "Lists retryCurrent in method list and mandates handleStreamError behavior.",
+      "task_5": "Wires Retry button to bridge including insightRetryRequested — line 561.",
+      "task_6": "Lists all 5 Swift→JS and 5 JS→Swift commands explicitly — line 569.",
+      "acceptance_criteria_tab_switch": "Present: 'Tab-switch-during-stream: switching away from an actively-streaming insight tab does not interrupt the stream; switching back re-renders from the current streamingBuffer snapshot with no data loss' — line 516.",
+      "acceptance_criteria_retry_throttle": "Present: 'Retry throttle: retryCurrent() rejects 4th retry attempt within 60s window for the same node, surfaces \"retry rate limit\" via setInsightError(retryable: false)' — line 517.",
+      "verdict": "All four sections (Architecture, Data Models, Implementation Tasks, Acceptance Criteria) are consistent on the 5-message protocol and the full retry path. No contradictions."
+    },
+    "minor_note_decision_11_retryable_false": "Decision 11 §3 prescribes retryable: true for connection drops but does not explicitly state retryable: false for the rate-limit case. The rate-limit behavior is covered in the Data Models retry-throttle note and Acceptance Criteria line 517. This is an omission in Decision 11 prose only — the behavior is fully specified elsewhere. Not a critical gap."
+  },
+  "remaining_findings": [
+    {
+      "id": "F-3",
+      "carry_forward_from": "r2",
+      "type": "partial",
+      "source": "tech-spec",
+      "requirement": "C-2: Tree lives only in JS memory of WKWebView",
+      "detail": "User-spec says 'lives only in JS memory of WKWebView, not saved to SQLite'. The actual design stores the canonical tree in Swift (InsightSession/InsightNode). Decision 3 states no SQLite and ARC-frees on tab close, which satisfies the user-facing constraint, but does not acknowledge the divergence from user-spec wording. A reader comparing user-spec to tech-spec encounters an unexplained contradiction. Decision 3 should note that 'JS memory' in user-spec was an implementation assumption the team refined — canonical tree is Swift-side, JS holds only rendered snapshots. No impact on implementation correctness.",
+      "severity": "minor"
+    },
+    {
+      "id": "F-4",
+      "carry_forward_from": "r2",
+      "type": "overengineering",
+      "source": "tech-spec",
+      "requirement": "Streaming pipeline: setInsightDeepDives and showInsightLoading trigger conditions unspecified",
+      "detail": "The streaming pipeline diagram (Architecture section) shows JS handles topic rendering autonomously via the ---DEEP-DIVES--- marker parser inline during appendInsightDelta processing. Neither setInsightDeepDives nor showInsightLoading appears in the pipeline diagram. No Decision, no task description, and no Acceptance Criteria bullet specifies when Swift would call setInsightDeepDives (given JS already renders topics from the marker) or when showInsightLoading fires relative to appendInsightDelta. Task 6 lists both as commands to implement but provides no trigger condition. These two commands risk being implemented in Task 6 and never called. The spec should either (a) define a specific trigger for each command with a code path that invokes it, or (b) explicitly remove them and confirm JS autonomously handles loading state and topic rendering via the streaming path.",
+      "severity": "minor"
+    }
+  ],
+  "summary": "Both R2 critical findings are closed. F-1: InsightSession data model now includes retryCurrent() async and private handleStreamError(_:) with the retry-throttle note — the canonical interface is in sync with Decision 11 and Task 4 prescriptions. F-2: Architecture section WebViewBridge entry now correctly states 5 Swift→JS commands and 5 JS→Swift message types, matching Task 6 exactly. Cross-section consistency check passes: Architecture, Data Models, Implementation Tasks, and Acceptance Criteria all agree on the 5-message protocol and the full retry path. Tab-switch and retry-throttle acceptance criteria are present. Two minor carry-forward findings remain (F-3: user-spec JS-memory wording not reconciled in Decision 3; F-4: setInsightDeepDives and showInsightLoading have no specified trigger condition in the streaming pipeline). Neither blocks implementation. Verdict: PASS."
+}

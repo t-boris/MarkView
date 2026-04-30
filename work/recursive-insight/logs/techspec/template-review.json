@@ -1,0 +1,44 @@
+{
+  "verdict": "pass",
+  "missing_sections": [],
+  "frontmatter_issues": [],
+  "task_issues": [
+    {
+      "severity": "major",
+      "task": "Task 2: Add TabKind enum and folder scan helper",
+      "category": "task_quality",
+      "issue": "Description contains line number references (L553/L930/L1564). Implementation-level detail belongs in the task file produced during decomposition, not in the tech-spec scope description.",
+      "fix": "Reword description to scope-level only, e.g. 'extracting the duplicated enumerator pattern used three times in WorkspaceManager'. Move precise line numbers to the per-task implementation file."
+    },
+    {
+      "severity": "major",
+      "task": "Task 6: WebViewBridge insight messages and EditorView routing",
+      "category": "task_quality",
+      "issue": "Description contains line number reference 'L194-227' for EditorView.loadContentIfNeeded. Same brevity rule as Task 2.",
+      "fix": "Drop line numbers from description; keep them in 'Files to read' as context hints (already present there)."
+    },
+    {
+      "severity": "major",
+      "task": "Task 8: AI Tools menu integration",
+      "category": "task_quality",
+      "issue": "Description contains line number reference 'insertion point L124-130'. Implementation detail leaking into tech-spec task description.",
+      "fix": "Reword to scope-level: 'Add the menu item under Section(\"Analysis\") in ContentView toolbar AI Tools menu, after \"Generate Full Documentation\"'. Move the precise insertion line to decomposition."
+    },
+    {
+      "severity": "minor",
+      "task": "Task 5: Insight mode in WebView (HTML/JS)",
+      "category": "task_quality",
+      "issue": "Description is approximately 5-6 sentences and packs together multiple scope items (DOM template, debounce, marker parser, mermaid try/catch, button wiring). Borderline against the 'no more than ~5 sentences, scope statement' guidance.",
+      "fix": "Optional: consider splitting into two tasks (HTML/DOM scaffold vs JS streaming/parser logic) or trimming the enumeration to one summary sentence and letting the per-task file expand."
+    },
+    {
+      "severity": "minor",
+      "task": "Tasks 1, 2, 3, 5, 6, 7",
+      "category": "task_quality",
+      "issue": "Multiple task descriptions end with a 'Result: ...' clause that restates the acceptance for the task. Not strictly forbidden, but verges on AC content embedded in description (per Section 8b).",
+      "fix": "Optional: keep the 'Result:' clause only when it adds non-obvious clarification; otherwise let the user-spec/tech-spec acceptance criteria carry the verifiable outcomes."
+    }
+  ],
+  "wave_conflicts": [],
+  "summary": "Tech-spec is well-structured and template-compliant. Frontmatter is valid (created 2026-04-30, status draft, branch feature/recursive-insight, size L). All required sections are present and substantive: Solution, Architecture (with What we're building, How it works, Shared resources table), 9 numbered Decisions with Rationale + Alternatives, Data Models, Dependencies, Testing Strategy (size L, tests deferred per Decision 9), Agent Verification Plan (with Verification approach, Verification steps table, Tools required), 9-row Risks table, Acceptance Criteria (10 technical criteria), and 12 Implementation Tasks across Wave 1-3 + Audit Wave + Final Wave. Skill names match the catalog (code-writing, code-reviewing, security-auditor, test-master, pre-deploy-qa). Reviewer assignments match the default mapping for code-writing (code-reviewer, security-auditor, test-reviewer) and audit/QA tasks correctly use 'none'. Final Wave correctly omits Deploy and Post-deploy verification for this desktop macOS app. Wave-internal file conflicts: none detected (W1: AIProviderClient.swift / DocumentState.swift+WorkspaceManager.swift / GraphRAG.swift; W2: InsightSession.swift / index.html / WebViewBridge.swift+EditorView.swift; W3: WorkspaceManager.swift / ContentView.swift). WorkspaceManager.swift is touched in W1-T2 and W3-T7 but those are in different waves (sequential, no parallel conflict). Task count is 12 (under the 15-task threshold). Main improvement area: three task descriptions (T2, T6, T8) leak line-number references that belong in decomposition-level task files, not the tech-spec scope statement. These are 'major' findings per the brevity rule but are not blockers for approval."
+}
