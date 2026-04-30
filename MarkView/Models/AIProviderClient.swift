@@ -59,6 +59,11 @@ class AIProviderClient {
 
     var hasAPIKey: Bool { apiKey != nil && !(apiKey?.isEmpty ?? true) }
 
+    /// Internal accessor used by sibling models (e.g. `ActionEngine`) that need to redact the
+    /// in-memory key value from log/error strings without re-reading the keychain. Never expose
+    /// publicly — kept `internal` because it is only meant for sanitization helpers.
+    internal var apiKeySnapshot: String? { return apiKey }
+
     init(apiKey: String? = nil) {
         self.apiKey = apiKey ?? Self.loadKeyFromKeychain()
     }
@@ -173,6 +178,183 @@ class AIProviderClient {
         }
 
         return (BlockExtractionResult(entities: [], claims: [], relations: [], temporalContexts: [], transitions: []), inputTokens, outputTokens)
+    }
+
+    // MARK: - Streaming (Anthropic SSE)
+
+    /// Maximum size of a single SSE line. Per tech-spec Decision 10 §7 — protects against a
+    /// pathological/oversized response line buffering unboundedly in memory.
+    private static let maxSSELineBytes = 65_536            // 64 KB
+    private static let maxErrorBodyBytes = 16 * 1024       // 16 KB cap when reading HTTP-error body
+
+    /// Sample SSE event handled by this parser:
+    /// ```
+    /// event: content_block_delta
+    /// data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+    /// ```
+    /// Stream Anthropic Messages API completions via SSE. Calls `onDelta` for each text delta.
+    /// Returns normally on `message_stop` (or when the underlying byte stream ends without one).
+    /// Throws `AIProviderError.streamingError` for `event: error`, oversized SSE lines, or
+    /// `AIProviderError.httpError` for non-200 responses (mirrors `extractSingleChunk` shape).
+    /// `onDelta` is invoked off-main; caller is responsible for marshalling to its own actor.
+    /// `onDelta` may throw via Swift's normal closure propagation rules — but since the
+    /// signature is non-throwing, callers that need to bail mid-stream should `Task.cancel()`.
+    func streamCompletion(
+        systemPrompt: String,
+        userMessage: String,
+        model: String = "claude-sonnet-4-6",
+        maxTokens: Int = 8192,
+        onDelta: @escaping (String) -> Void
+    ) async throws {
+        guard let apiKey = apiKey, !apiKey.isEmpty else {
+            throw AIProviderError.noAPIKey
+        }
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": maxTokens,
+            "system": systemPrompt,
+            "messages": [["role": "user", "content": userMessage]],
+            "stream": true
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var request = URLRequest(url: URL(string: baseURL)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.httpBody = data
+        request.timeoutInterval = 600   // streams may run long; rely on TCP-level timeouts
+
+        let (bytes, response) = try await session.bytes(for: request)
+
+        // HTTP guard — drain a bounded body for diagnostics, then throw.
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            var errorBody = Data()
+            do {
+                for try await byte in bytes {
+                    if errorBody.count >= Self.maxErrorBodyBytes { break }
+                    errorBody.append(byte)
+                }
+            } catch {
+                // ignore — we already have the status; surface what we collected so far.
+            }
+            let bodyString = String(data: errorBody, encoding: .utf8) ?? ""
+            throw AIProviderError.httpError(status, sanitize(bodyString))
+        }
+
+        // SSE parser: accumulate `event:` and `data:` (multi-line allowed per spec) until a
+        // blank line dispatches the event. Keepalive-comments (`:` lines) and empty lines
+        // outside an event reset the state cleanly.
+        var currentEvent: String = ""
+        var dataBuffer: String = ""
+
+        do {
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+
+                if line.utf8.count > Self.maxSSELineBytes {
+                    throw AIProviderError.streamingError("SSE line exceeds 64 KB cap")
+                }
+
+                // Empty line → dispatch accumulated event.
+                if line.isEmpty {
+                    if !currentEvent.isEmpty || !dataBuffer.isEmpty {
+                        if try handleSSEEvent(event: currentEvent, data: dataBuffer, onDelta: onDelta) {
+                            return  // message_stop — clean exit
+                        }
+                    }
+                    currentEvent = ""
+                    dataBuffer = ""
+                    continue
+                }
+
+                // SSE comment (keepalive) — line starts with `:`.
+                if line.hasPrefix(":") {
+                    continue
+                }
+
+                if line.hasPrefix("event:") {
+                    currentEvent = String(line.dropFirst("event:".count))
+                        .trimmingCharacters(in: .whitespaces)
+                } else if line.hasPrefix("data:") {
+                    let chunk = String(line.dropFirst("data:".count))
+                        .trimmingCharacters(in: .whitespaces)
+                    if dataBuffer.isEmpty {
+                        dataBuffer = chunk
+                    } else {
+                        dataBuffer += "\n" + chunk
+                    }
+                }
+                // Any other field (id:, retry:, …) — ignore per SSE spec & forward compat.
+            }
+        } catch let error as AIProviderError {
+            throw error
+        } catch is CancellationError {
+            // Cooperative cancellation — return normally, caller's Task is already cancelled.
+            return
+        } catch {
+            // Network / decode-from-bytes errors — surface sanitized.
+            throw AIProviderError.streamingError(sanitize(String(describing: error)))
+        }
+
+        // Stream ended without `message_stop` (EOF or cancellation). Both are valid for caller.
+    }
+
+    /// Dispatch a single fully-accumulated SSE event. Returns `true` if the stream should end
+    /// normally (i.e. `message_stop`).
+    private func handleSSEEvent(event: String, data: String, onDelta: (String) -> Void) throws -> Bool {
+        // Anthropic sends an event name on most frames, but some payloads ship without one.
+        // Fall back to the `type` field inside the JSON when no event name is present.
+        let trimmedEvent = event.trimmingCharacters(in: .whitespaces)
+
+        switch trimmedEvent {
+        case "content_block_delta":
+            guard let payload = parseJSONObject(data) else {
+                NSLog("[AIProvider] SSE parse warning: malformed content_block_delta payload (skipped)")
+                return false
+            }
+            if let delta = payload["delta"] as? [String: Any],
+               (delta["type"] as? String) == "text_delta",
+               let text = delta["text"] as? String {
+                onDelta(text)
+            }
+            return false
+
+        case "message_stop":
+            return true
+
+        case "error":
+            let payload = parseJSONObject(data)
+            let message = (payload?["error"] as? [String: Any])?["message"] as? String
+                ?? (payload?["message"] as? String)
+                ?? "unknown error"
+            throw AIProviderError.streamingError(sanitize(message))
+
+        case "ping", "message_delta", "message_start",
+             "content_block_start", "content_block_stop", "":
+            // Silent ignore — keepalives / lifecycle events not relevant to text assembly.
+            return false
+
+        default:
+            // Forward-compat: unknown event names are ignored silently.
+            return false
+        }
+    }
+
+    /// Parse a JSON object from a raw `data:` payload string. Returns nil on failure.
+    private func parseJSONObject(_ raw: String) -> [String: Any]? {
+        guard let data = raw.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// Strip the API key (if any) from a string before it is thrown, logged, or returned.
+    /// Applied to every error-path string to satisfy the invariant: API key never leaks.
+    private func sanitize(_ msg: String) -> String {
+        guard let key = apiKey, !key.isEmpty else { return msg }
+        return msg.replacingOccurrences(of: key, with: "[REDACTED]")
     }
 
     // MARK: - Tool Schema (SGR)
@@ -474,6 +656,7 @@ enum AIProviderError: Error, LocalizedError {
     case invalidResponse
     case httpError(Int, String)
     case parseError(String)
+    case streamingError(String)
 
     var errorDescription: String? {
         switch self {
@@ -481,6 +664,10 @@ enum AIProviderError: Error, LocalizedError {
         case .invalidResponse: return "Invalid response from API"
         case .httpError(let code, let body): return "HTTP \(code): \(body.prefix(200))"
         case .parseError(let msg): return "Parse error: \(msg)"
+        // The `msg` payload here is produced by `AIProviderClient.sanitize(_:)` before being
+        // attached to this case — see Models/AIProviderClient.swift `streamCompletion`. Do not
+        // include any value here that could re-introduce the API key.
+        case .streamingError(let msg): return "Streaming error: \(msg.prefix(200))"
         }
     }
 }
