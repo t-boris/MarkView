@@ -510,10 +510,50 @@ final class InsightSession: ObservableObject, Identifiable {
             nodeId: cur?.id.uuidString ?? "",
             title: cur?.title ?? "",
             breadcrumbs: crumbs,
-            markdown: cur?.markdownBody ?? "",
+            markdown: cur.map { Self.currentMarkdown(for: $0) } ?? "",
             deepDives: cur?.deepDives ?? [],
             isStreaming: isStreaming
         )
+    }
+
+    /// Build the markdown string the JS pane should display RIGHT NOW for the given node.
+    ///
+    /// Round 1 review of Task 6 caught a cross-task UX bug: snapshot() returned
+    /// `markdownBody`, which is only populated by `finalizeStream` AFTER the marker is
+    /// parsed. On tab-switch BACK to a still-streaming insight session (Decision 11 §5),
+    /// `routeInsight` calls `bridge.loadInsightView(snapshot:)` with empty markdown — the
+    /// JS pane paints empty, dropping the buffered prefix the user had been watching
+    /// stream. This helper makes the snapshot reflect what the user actually sees:
+    /// - `.pending` → empty (nothing has been received yet)
+    /// - `.streaming` → body portion of `rawBuffer` (what's been received so far, with
+    ///   any partial marker section stripped)
+    /// - `.ready` → clean `markdownBody` (unchanged behaviour for completed nodes)
+    /// - `.failed` → `markdownBody` if non-empty (parser ran), else body portion of
+    ///   `rawBuffer` (preserves whatever was received before the error)
+    private static func currentMarkdown(for node: InsightNode) -> String {
+        switch node.status {
+        case .pending:
+            return ""
+        case .streaming:
+            return bodyPortion(of: node.rawBuffer)
+        case .ready:
+            return node.markdownBody
+        case .failed:
+            return node.markdownBody.isEmpty ? bodyPortion(of: node.rawBuffer) : node.markdownBody
+        }
+    }
+
+    /// Strip the deep-dive marker section (and everything after) from a streaming
+    /// `rawBuffer`. Mirrors `parseMarker`'s LAST-occurrence semantics so a marker
+    /// appearing in body prose is not mistakenly treated as the boundary.
+    /// If no marker is present yet (the common case while the body is still streaming),
+    /// the full `rawBuffer` is returned.
+    private static func bodyPortion(of rawBuffer: String) -> String {
+        let marker = "\n\n---DEEP-DIVES---\n"
+        if let range = rawBuffer.range(of: marker, options: .backwards) {
+            return String(rawBuffer[..<range.lowerBound])
+        }
+        return rawBuffer
     }
 
     // MARK: - Private: stream lifecycle
