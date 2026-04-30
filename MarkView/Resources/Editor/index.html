@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
     <!-- KaTeX CSS -->
@@ -830,6 +831,181 @@
         html[data-theme="light"] .struct-attr-name { color: #e50000; }
         html[data-theme="light"] .struct-attr-value { color: #0451a5; }
         html[data-theme="light"] .struct-line:hover { background: rgba(0,0,0,0.04); }
+
+        /* ============================================================================
+           RECURSIVE INSIGHT MODE — split-pane layout
+           ============================================================================ */
+        .insight-container {
+            display: none;
+            flex: 1;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        .insight-container.visible { display: flex; }
+
+        .insight-breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 6px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            flex-shrink: 0;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .insight-breadcrumb-item {
+            color: var(--accent-primary);
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 3px;
+            user-select: none;
+        }
+        .insight-breadcrumb-item:hover { background: var(--bg-tertiary); }
+        .insight-breadcrumb-item.current { color: var(--text-primary); cursor: default; font-weight: 600; }
+        .insight-breadcrumb-item.current:hover { background: transparent; }
+        .insight-breadcrumb-sep { color: var(--text-tertiary); padding: 0 2px; user-select: none; }
+
+        .insight-body {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+        }
+        .insight-center {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+            background: var(--bg-primary);
+            min-width: 0;
+        }
+        .insight-center .insight-loading {
+            color: var(--text-secondary);
+            font-style: italic;
+            font-size: 12px;
+            padding: 8px 0;
+        }
+        .insight-right {
+            width: 320px;
+            min-width: 240px;
+            max-width: 480px;
+            border-left: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .insight-error-banner {
+            display: none;
+            background: rgba(244, 71, 71, 0.12);
+            border-bottom: 1px solid var(--accent-danger);
+            color: var(--accent-danger);
+            padding: 8px 12px;
+            font-size: 12px;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .insight-error-banner.visible { display: flex; }
+        .insight-error-message {
+            flex: 1;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .insight-error-retry {
+            background: var(--accent-danger);
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            padding: 3px 10px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .insight-error-retry:hover { opacity: 0.85; }
+
+        .insight-deep-dives-header {
+            padding: 8px 12px 4px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .insight-deep-dives-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 8px 8px;
+        }
+        .insight-deep-dive-item {
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            border-radius: 4px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background 0.1s, border-color 0.1s;
+        }
+        .insight-deep-dive-item:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent-primary);
+        }
+        .insight-deep-dive-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+            word-break: break-word;
+        }
+        .insight-deep-dive-hint {
+            font-size: 11px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            word-break: break-word;
+        }
+        .insight-deep-dives-empty {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            font-style: italic;
+            padding: 8px 4px;
+        }
+
+        .insight-button-row {
+            display: flex;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+        .insight-button-row button {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 5px 12px;
+            font-size: 11px;
+            cursor: pointer;
+            font-family: var(--font-sans);
+        }
+        .insight-button-row button:hover {
+            background: var(--accent-primary);
+            color: #fff;
+            border-color: var(--accent-primary);
+        }
+        .insight-button-row .spacer { flex: 1; }
+        .insight-mermaid-error {
+            display: block;
+            color: var(--accent-danger);
+            font-size: 11px;
+            font-style: italic;
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -916,6 +1092,27 @@
                             <div class="editor-empty-text">Open a file to begin</div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Recursive Insight mode — split-pane LLM-driven UI -->
+            <div class="insight-container" id="insight-container">
+                <div class="insight-breadcrumbs" id="insight-breadcrumbs"></div>
+                <div class="insight-body">
+                    <div class="insight-center" id="insight-center"></div>
+                    <div class="insight-right">
+                        <div class="insight-error-banner" id="insight-error-banner">
+                            <span class="insight-error-message" id="insight-error-message"></span>
+                            <button class="insight-error-retry" id="insight-error-retry">Retry</button>
+                        </div>
+                        <div class="insight-deep-dives-header">Deep dives</div>
+                        <div class="insight-deep-dives-list" id="insight-deep-dives-list"></div>
+                    </div>
+                </div>
+                <div class="insight-button-row">
+                    <button id="insight-btn-up" title="Go up to parent">↑ Up</button>
+                    <div class="spacer"></div>
+                    <button id="insight-btn-save" title="Save current node as Markdown">💾 Save as .md</button>
                 </div>
             </div>
         </div>
@@ -1019,7 +1216,7 @@
         // ============================================================================
 
         const state = {
-            mode: 'source', // 'source' or 'preview'
+            mode: 'source', // 'source' | 'preview' | 'structured' | 'structured-source' | 'insight'
             theme: localStorage.getItem('markview-theme') || 'light',
             markdown: '',
             headings: [],
@@ -1027,6 +1224,14 @@
             isRendering: false,
             documentBaseURL: null, // file:// URL of the current document's directory
             fileType: 'markdown', // 'markdown' | 'json' | 'xml' | 'yaml'
+            // Recursive Insight mode state
+            insightSessionId: null,
+            insightBufferText: '',
+            insightDeepDives: [],      // [{label, hint, scopeHint}]
+            insightBreadcrumbs: [],    // [{nodeId, title}]
+            insightIsStreaming: false,
+            insightLastError: null,
+            insightRenderTimer: null,
         };
 
         const DOM = {
@@ -1041,6 +1246,16 @@
             statusChars: document.getElementById('status-chars'),
             btnToggleMode: document.getElementById('btn-toggle-mode'),
             tocStatus: document.getElementById('toc-status'),
+            // Insight mode containers
+            insightContainer: document.getElementById('insight-container'),
+            insightBreadcrumbs: document.getElementById('insight-breadcrumbs'),
+            insightCenter: document.getElementById('insight-center'),
+            insightDeepDivesList: document.getElementById('insight-deep-dives-list'),
+            insightErrorBanner: document.getElementById('insight-error-banner'),
+            insightErrorMessage: document.getElementById('insight-error-message'),
+            insightErrorRetry: document.getElementById('insight-error-retry'),
+            insightBtnUp: document.getElementById('insight-btn-up'),
+            insightBtnSave: document.getElementById('insight-btn-save'),
         };
 
         // ============================================================================
@@ -1676,11 +1891,15 @@
         }
 
         function toggleMode() {
+            // In insight mode, the toggle is a no-op (mode-switching is owned by Swift bridge).
+            if (state.mode === 'insight') return;
             if (state.mode === 'source') { switchToPreview(); } else { switchToSource(); }
         }
 
         function switchToPreview() {
             state.mode = 'preview';
+            // Hide insight container if we're coming from insight mode.
+            if (typeof leaveInsightView === 'function') leaveInsightView();
             DOM.editorPane.style.display = 'none';
             DOM.previewPane.style.display = 'flex';
             DOM.statusMode.textContent = 'WYSIWYG';
@@ -1693,6 +1912,8 @@
 
         function switchToSource() {
             state.mode = 'source';
+            // Hide insight container if we're coming from insight mode.
+            if (typeof leaveInsightView === 'function') leaveInsightView();
             // Sync WYSIWYG changes back to textarea before showing source
             syncWysiwygToMarkdown();
             DOM.editorPane.style.display = 'flex';
@@ -2264,6 +2485,7 @@
 
         function switchToStructuredView() {
             state.mode = 'structured';
+            if (typeof leaveInsightView === 'function') leaveInsightView();
             state.markdown = DOM.editor.value; // sync from source textarea
             DOM.editorPane.style.display = 'none';
             DOM.previewPane.style.display = 'flex';
@@ -2277,6 +2499,7 @@
 
         function switchToStructuredSource() {
             state.mode = 'structured-source';
+            if (typeof leaveInsightView === 'function') leaveInsightView();
             DOM.editorPane.style.display = 'flex';
             DOM.previewPane.style.display = 'none';
             DOM.statusMode.textContent = state.fileType.toUpperCase() + ' Source';
@@ -2528,6 +2751,8 @@
         // Override mode toggle for structured files
         const originalToggleMode = typeof toggleMode === 'function' ? toggleMode : null;
         function toggleModeWrapper() {
+            // Insight mode does not participate in editor source/preview toggling.
+            if (state.mode === 'insight') return;
             if (state.fileType !== 'markdown') {
                 toggleStructMode();
             } else if (originalToggleMode) {
@@ -2537,6 +2762,452 @@
 
         // ============================================================================
         // END STRUCTURED DATA SUPPORT
+        // ============================================================================
+
+        // ============================================================================
+        // RECURSIVE INSIGHT MODE (state.mode === 'insight')
+        // Decision 10 sanitization layer + Decision 6 debounced render +
+        // Decision 7 per-block mermaid try/catch.
+        // ============================================================================
+
+        // --- Separate markdown-it instance for insight mode (html: false + link sanitizer) ---
+        // We do NOT touch the existing global `md` (html: true) used by editor/preview/structured
+        // — see acceptance criteria in tech-spec Decision 10 and tasks/5.md.
+        let insightMd = null;
+        try {
+            if (typeof window.markdownit === 'function') {
+                insightMd = window.markdownit({
+                    html: false,        // SECURITY: no raw HTML from LLM-streamed content
+                    breaks: true,
+                    linkify: true,
+                    typographer: true,
+                });
+                if (window.markdownitFootnote) insightMd.use(window.markdownitFootnote);
+                if (window.markdownitTaskLists) insightMd.use(window.markdownitTaskLists, { label: true });
+
+                // Link target sanitizer: allow only http(s):// and relative paths.
+                // Reject javascript:, data:, file:, vbscript:, etc.
+                // If href is rejected, strip the <a> open token (link text remains as plain text).
+                const isSafeHref = function(href) {
+                    if (!href || typeof href !== 'string') return false;
+                    const trimmed = href.trim();
+                    if (trimmed.length === 0) return false;
+                    // Quick reject of well-known dangerous schemes (case-insensitive).
+                    const lower = trimmed.toLowerCase();
+                    if (lower.startsWith('javascript:')) return false;
+                    if (lower.startsWith('data:')) return false;
+                    if (lower.startsWith('file:')) return false;
+                    if (lower.startsWith('vbscript:')) return false;
+                    // Allow explicit http/https.
+                    if (lower.startsWith('http://') || lower.startsWith('https://')) return true;
+                    // Allow fragment / query-only links and relative paths
+                    // (no scheme — i.e. no "<scheme>:" prefix before any "/" or "#" or "?").
+                    // Reject anything that looks like an unknown scheme: <word>:...
+                    const schemeMatch = trimmed.match(/^([a-z][a-z0-9+.\-]*):/i);
+                    if (schemeMatch) return false;
+                    return true;
+                };
+                const defaultLinkOpen = insightMd.renderer.rules.link_open || function(tokens, idx, options, env, self) {
+                    return self.renderToken(tokens, idx, options);
+                };
+                insightMd.renderer.rules.link_open = function(tokens, idx, options, env, self) {
+                    const token = tokens[idx];
+                    const hrefIdx = token.attrIndex('href');
+                    const href = hrefIdx >= 0 ? token.attrs[hrefIdx][1] : '';
+                    if (!isSafeHref(href)) {
+                        // Mark token to be replaced with empty span open below; close handled in link_close.
+                        token.tag = 'span';
+                        if (hrefIdx >= 0) token.attrs.splice(hrefIdx, 1);
+                        token.attrSet('data-stripped-href', '1');
+                        return self.renderToken(tokens, idx, options);
+                    }
+                    // Add rel/target for safe external links (defense in depth).
+                    if (/^https?:/i.test(href)) {
+                        token.attrSet('rel', 'noopener noreferrer');
+                        token.attrSet('target', '_blank');
+                    }
+                    return defaultLinkOpen(tokens, idx, options, env, self);
+                };
+                const defaultLinkClose = insightMd.renderer.rules.link_close || function(tokens, idx, options, env, self) {
+                    return self.renderToken(tokens, idx, options);
+                };
+                insightMd.renderer.rules.link_close = function(tokens, idx, options, env, self) {
+                    // Mirror the open-side rewrite: if we converted <a> to <span>, close as </span>.
+                    // Find matching open token by walking back over nesting.
+                    let depth = 1;
+                    for (let i = idx - 1; i >= 0; i--) {
+                        const t = tokens[i];
+                        if (t.type === 'link_close') depth++;
+                        else if (t.type === 'link_open') {
+                            depth--;
+                            if (depth === 0) {
+                                if (t.tag === 'span') {
+                                    tokens[idx].tag = 'span';
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    return defaultLinkClose(tokens, idx, options, env, self);
+                };
+            }
+        } catch (e) {
+            console.warn('insight markdown-it init failed:', e);
+        }
+
+        // --- setText utility: single source of truth for LLM-derived strings ---
+        // ALWAYS uses textContent — never innerHTML. Defensive against null/undefined.
+        function setText(el, str) {
+            if (!el) return;
+            el.textContent = String(str == null ? '' : str);
+        }
+
+        // --- Marker parser ---
+        // Form: \n\n---DEEP-DIVES---\n  (boundary newlines required)
+        // Take the LAST occurrence in the buffer (so a marker text that appears
+        // inside an earlier code fence does not steal the real terminal marker).
+        // Returns { body: string, topics: [{label, hint, scopeHint:[]}] }.
+        const INSIGHT_MARKER = '\n\n---DEEP-DIVES---\n';
+        function parseInsightMarker(buffer) {
+            if (typeof buffer !== 'string' || buffer.length === 0) {
+                return { body: '', topics: [] };
+            }
+            const idx = buffer.lastIndexOf(INSIGHT_MARKER);
+            if (idx < 0) {
+                return { body: buffer, topics: [] };
+            }
+            const body = buffer.slice(0, idx);
+            const tail = buffer.slice(idx + INSIGHT_MARKER.length);
+            const topics = [];
+            const lines = tail.split('\n');
+            for (let raw of lines) {
+                const line = raw.replace(/\r$/, '').trim();
+                if (line.length === 0) continue;
+                if (!line.startsWith('- ')) continue;
+                const stripped = line.slice(2);
+                // Tolerate missing :: segments — pad to 3.
+                const parts = stripped.split(' :: ');
+                while (parts.length < 3) parts.push('');
+                const label = (parts[0] || '').trim();
+                const hint = (parts[1] || '').trim();
+                const scopeRaw = (parts[2] || '').trim();
+                const scopeHint = scopeRaw.length === 0
+                    ? []
+                    : scopeRaw.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+                topics.push({ label: label, hint: hint, scopeHint: scopeHint });
+            }
+            return { body: body, topics: topics };
+        }
+
+        // --- Per-block mermaid pipeline (Decision 7) ---
+        // Replace each <pre><code class="language-mermaid"> with .mermaid div, then
+        // call mermaid.run({ nodes: [singleNode] }) inside try/catch. On failure,
+        // restore the raw fenced code + a small error label.
+        async function processInsightMermaidBlocks(rootEl) {
+            if (!rootEl) return;
+            if (typeof mermaid === 'undefined') return;
+            const blocks = Array.from(rootEl.querySelectorAll('pre code.language-mermaid'));
+            for (let i = 0; i < blocks.length; i++) {
+                const code = blocks[i];
+                const pre = code.parentElement;
+                if (!pre) continue;
+                const source = code.textContent || '';
+                const div = document.createElement('div');
+                div.className = 'mermaid';
+                // textContent — never innerHTML — for LLM source.
+                div.textContent = source;
+                div.setAttribute('data-source', source);
+                pre.replaceWith(div);
+                try {
+                    await mermaid.run({
+                        nodes: [div],
+                        suppressErrors: false,
+                        // Decision 10: per-render strict security.
+                        securityLevel: 'strict',
+                    });
+                } catch (err) {
+                    // Restore raw fence + error label. textContent throughout — never innerHTML.
+                    const wrap = document.createElement('div');
+                    const restoredPre = document.createElement('pre');
+                    const restoredCode = document.createElement('code');
+                    restoredCode.className = 'language-mermaid';
+                    restoredCode.textContent = source;
+                    restoredPre.appendChild(restoredCode);
+                    wrap.appendChild(restoredPre);
+                    const label = document.createElement('span');
+                    label.className = 'insight-mermaid-error';
+                    setText(label, 'Diagram error: ' + (err && err.message ? err.message : 'invalid mermaid'));
+                    wrap.appendChild(label);
+                    div.replaceWith(wrap);
+                }
+            }
+        }
+
+        // --- Render ---
+        function renderInsight() {
+            state.insightRenderTimer = null;
+            const parsed = parseInsightMarker(state.insightBufferText || '');
+            // Center pane: render markdown via the SANITIZED insight-mode markdown-it.
+            // If insightMd failed to init, fall back to plain textContent (defense in depth).
+            if (DOM.insightCenter) {
+                if (insightMd) {
+                    let html = '';
+                    try {
+                        html = insightMd.render(parsed.body || '');
+                    } catch (e) {
+                        html = '';
+                    }
+                    // The markdown renderer's HTML output is constructed by markdown-it itself
+                    // (no LLM-controlled raw HTML thanks to html:false). Direct labels/hints from
+                    // LLM that we render around the markdown still go through setText below.
+                    DOM.insightCenter.innerHTML = html;
+                    // Post-process mermaid blocks (per-block try/catch).
+                    processInsightMermaidBlocks(DOM.insightCenter);
+                    // Highlight code blocks via Prism (skip mermaid — already converted).
+                    if (typeof Prism !== 'undefined') {
+                        try {
+                            DOM.insightCenter.querySelectorAll('pre code').forEach(function(el) {
+                                if (el.classList && el.classList.contains('language-mermaid')) return;
+                                Prism.highlightElement(el);
+                            });
+                        } catch (e) {}
+                    }
+                } else {
+                    setText(DOM.insightCenter, parsed.body || '');
+                }
+            }
+            // Right pane: deep dives.
+            renderInsightDeepDivesFromArray(parsed.topics);
+            state.insightDeepDives = parsed.topics;
+        }
+
+        function renderInsightDeepDivesFromArray(topics) {
+            const list = DOM.insightDeepDivesList;
+            if (!list) return;
+            // Clear children.
+            while (list.firstChild) list.removeChild(list.firstChild);
+            if (!Array.isArray(topics) || topics.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'insight-deep-dives-empty';
+                setText(empty, 'No deep dives yet.');
+                list.appendChild(empty);
+                return;
+            }
+            topics.forEach(function(topic, index) {
+                const item = document.createElement('div');
+                item.className = 'insight-deep-dive-item';
+                item.setAttribute('data-topic-index', String(index));
+                const labelEl = document.createElement('div');
+                labelEl.className = 'insight-deep-dive-label';
+                setText(labelEl, topic && topic.label ? topic.label : '(unlabeled topic)');
+                const hintEl = document.createElement('div');
+                hintEl.className = 'insight-deep-dive-hint';
+                setText(hintEl, topic && topic.hint ? topic.hint : '');
+                item.appendChild(labelEl);
+                if (topic && topic.hint) item.appendChild(hintEl);
+                item.addEventListener('click', function() {
+                    sendToSwift('insightDeepDiveClicked', {
+                        sessionId: state.insightSessionId,
+                        topicIndex: index,
+                    });
+                });
+                list.appendChild(item);
+            });
+        }
+
+        function renderInsightBreadcrumbs(crumbs) {
+            const bar = DOM.insightBreadcrumbs;
+            if (!bar) return;
+            while (bar.firstChild) bar.removeChild(bar.firstChild);
+            const arr = Array.isArray(crumbs) ? crumbs : [];
+            arr.forEach(function(crumb, idx) {
+                const isLast = idx === arr.length - 1;
+                const item = document.createElement('span');
+                item.className = 'insight-breadcrumb-item' + (isLast ? ' current' : '');
+                setText(item, crumb && crumb.title ? crumb.title : '(untitled)');
+                if (!isLast) {
+                    item.addEventListener('click', function() {
+                        sendToSwift('insightBreadcrumbClicked', {
+                            sessionId: state.insightSessionId,
+                            nodeId: crumb && crumb.nodeId ? crumb.nodeId : null,
+                        });
+                    });
+                }
+                bar.appendChild(item);
+                if (!isLast) {
+                    const sep = document.createElement('span');
+                    sep.className = 'insight-breadcrumb-sep';
+                    sep.textContent = '›';
+                    bar.appendChild(sep);
+                }
+            });
+        }
+
+        function setInsightErrorBanner(message, retryable) {
+            const banner = DOM.insightErrorBanner;
+            const msgEl = DOM.insightErrorMessage;
+            const retryBtn = DOM.insightErrorRetry;
+            if (!banner) return;
+            if (!message) {
+                banner.classList.remove('visible');
+                if (msgEl) setText(msgEl, '');
+                return;
+            }
+            setText(msgEl, message);
+            if (retryBtn) retryBtn.style.display = retryable ? 'inline-block' : 'none';
+            banner.classList.add('visible');
+        }
+
+        function scheduleInsightRender() {
+            if (state.insightRenderTimer) {
+                clearTimeout(state.insightRenderTimer);
+                state.insightRenderTimer = null;
+            }
+            state.insightRenderTimer = setTimeout(renderInsight, 150);
+        }
+
+        // --- Mode switching ---
+        function switchToInsightView() {
+            state.mode = 'insight';
+            // Hide other panes.
+            if (DOM.editorPane) DOM.editorPane.style.display = 'none';
+            if (DOM.previewPane) DOM.previewPane.style.display = 'none';
+            // Show insight container.
+            if (DOM.insightContainer) {
+                DOM.insightContainer.classList.add('visible');
+                DOM.insightContainer.style.display = 'flex';
+            }
+            // Hide WYSIWYG toolbar (insight has its own controls).
+            const wt = document.getElementById('wysiwyg-toolbar');
+            if (wt) wt.style.display = 'none';
+            if (DOM.statusMode) setText(DOM.statusMode, 'Insight');
+            // Re-render mermaid theme to match current theme.
+            try {
+                if (typeof mermaid !== 'undefined') {
+                    mermaid.initialize({
+                        startOnLoad: false,
+                        theme: state.theme === 'dark' ? 'dark' : 'default',
+                        securityLevel: 'strict',
+                    });
+                }
+            } catch (e) {}
+        }
+
+        function leaveInsightView() {
+            // Helper used when we transition AWAY from insight mode.
+            if (DOM.insightContainer) {
+                DOM.insightContainer.classList.remove('visible');
+                DOM.insightContainer.style.display = 'none';
+            }
+        }
+
+        // --- Window functions called from Swift ---
+
+        // Full repaint from a node snapshot. Resets buffer, breadcrumbs, deep-dives, error.
+        // Accepts either a JS object or a JSON string (defensive).
+        window.loadInsightView = function(snapshot) {
+            let snap = snapshot;
+            if (typeof snap === 'string') {
+                try { snap = JSON.parse(snap); } catch (e) { snap = null; }
+            }
+            if (!snap || typeof snap !== 'object') snap = {};
+
+            state.insightSessionId = snap.sessionId != null ? String(snap.sessionId) : null;
+            state.insightBufferText = typeof snap.markdown === 'string' ? snap.markdown : '';
+            state.insightDeepDives = Array.isArray(snap.deepDives) ? snap.deepDives : [];
+            state.insightBreadcrumbs = Array.isArray(snap.breadcrumbs) ? snap.breadcrumbs : [];
+            state.insightIsStreaming = !!snap.isStreaming;
+            state.insightLastError = null;
+
+            switchToInsightView();
+            renderInsightBreadcrumbs(state.insightBreadcrumbs);
+            setInsightErrorBanner(null, false);
+
+            // If snapshot provided explicit deep-dives, render them; otherwise the marker
+            // parser inside renderInsight() will pick them up from buffer.
+            if (state.insightDeepDives.length > 0) {
+                // Render center from buffer, then overwrite right pane from explicit topics.
+                renderInsight();
+                renderInsightDeepDivesFromArray(state.insightDeepDives);
+            } else {
+                renderInsight();
+            }
+        };
+
+        // Append a streamed chunk and schedule a debounced re-render (~150ms).
+        window.appendInsightDelta = function(sessionId, deltaText) {
+            // Reject deltas for stale sessions.
+            if (sessionId != null && state.insightSessionId != null
+                && String(sessionId) !== String(state.insightSessionId)) {
+                return;
+            }
+            if (typeof deltaText !== 'string') deltaText = String(deltaText == null ? '' : deltaText);
+            state.insightBufferText += deltaText;
+            state.insightIsStreaming = true;
+            scheduleInsightRender();
+        };
+
+        // Explicit topic list from Swift (in case Swift parsed marker server-side).
+        window.setInsightDeepDives = function(sessionId, topics) {
+            if (sessionId != null && state.insightSessionId != null
+                && String(sessionId) !== String(state.insightSessionId)) {
+                return;
+            }
+            let arr = topics;
+            if (typeof arr === 'string') {
+                try { arr = JSON.parse(arr); } catch (e) { arr = []; }
+            }
+            if (!Array.isArray(arr)) arr = [];
+            state.insightDeepDives = arr;
+            renderInsightDeepDivesFromArray(arr);
+        };
+
+        // Show a loading indicator before first delta arrives.
+        window.showInsightLoading = function(sessionId, message) {
+            if (sessionId != null) state.insightSessionId = String(sessionId);
+            if (DOM.insightCenter) {
+                while (DOM.insightCenter.firstChild) DOM.insightCenter.removeChild(DOM.insightCenter.firstChild);
+                const loader = document.createElement('div');
+                loader.className = 'insight-loading';
+                setText(loader, message || 'Loading…');
+                DOM.insightCenter.appendChild(loader);
+            }
+            // Ensure visible.
+            if (state.mode !== 'insight') switchToInsightView();
+        };
+
+        // Display an error banner; show Retry button only when retryable === true.
+        window.setInsightError = function(sessionId, message, retryable) {
+            if (sessionId != null && state.insightSessionId != null
+                && String(sessionId) !== String(state.insightSessionId)) {
+                return;
+            }
+            state.insightLastError = message || null;
+            setInsightErrorBanner(message || '', !!retryable);
+        };
+
+        // --- Button click wiring (one-time, on DOMContentLoaded) ---
+        function initInsightButtons() {
+            if (DOM.insightBtnSave) {
+                DOM.insightBtnSave.addEventListener('click', function() {
+                    sendToSwift('insightSaveRequested', { sessionId: state.insightSessionId });
+                });
+            }
+            if (DOM.insightBtnUp) {
+                DOM.insightBtnUp.addEventListener('click', function() {
+                    sendToSwift('insightUpClicked', { sessionId: state.insightSessionId });
+                });
+            }
+            if (DOM.insightErrorRetry) {
+                DOM.insightErrorRetry.addEventListener('click', function() {
+                    sendToSwift('insightRetryRequested', { sessionId: state.insightSessionId });
+                });
+            }
+        }
+        initInsightButtons();
+
+        // ============================================================================
+        // END RECURSIVE INSIGHT MODE
         // ============================================================================
 
         window.setDocumentBase = function(baseURL) {
