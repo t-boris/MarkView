@@ -1,0 +1,59 @@
+{
+  "status": "approved_with_suggestions",
+  "summary": "T6 wires WebViewBridge insight messages and EditorView routing cleanly: 5 Swift→JS commands with the array-wrap encoding helper, 5 JS→Swift dispatch cases, WebViewBridgeDelegate extended with 5 stubs, and a Coordinator.routeInsight that subscribes via Combine with `[weak self, weak session, weak webView]` and main-queue ordering for currentNodeId/streamingBuffer. Build succeeds, all naming/structure/payload encoding match spec; one cross-task snapshot UX bug (tab-switch-during-stream loses already-buffered text because session.snapshot().markdown is markdownBody not rawBuffer) and a couple of minor robustness suggestions are noted below.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Views/EditorView.swift",
+      "line": 298,
+      "severity": "major",
+      "category": "cross-file-consistency",
+      "suggestion": "Tab-switch-during-stream causes visible data loss in the JS view. routeInsight calls bridge.loadInsightView(snapshot:) — InsightSession.snapshot() returns `markdown: cur?.markdownBody ?? \"\"` (Models/InsightSession.swift:513). markdownBody is only populated in finalizeStream after the stream finishes. So when the user switches AWAY from a streaming insight tab and back, JS gets an empty markdown payload and lastForwardedLength is snapped to streamingBuffer.count, so the already-buffered N chars are never replayed and future deltas append onto an empty pane. This contradicts tech-spec Decision 11 §5 (\"switching back re-renders from current streamingBuffer snapshot, no data loss\") and the corresponding acceptance criterion at line 500/517 of tech-spec.md.",
+      "benefit": "Matches the spec's no-data-loss guarantee on tab switch during a live stream. Two viable fixes: (a) extend InsightViewSnapshot/snapshot() so streaming nodes serialise rawBuffer instead of markdownBody (cleanest, requires touching Task 4 contract), or (b) in routeInsight, after loadInsightView, immediately forward `appendInsightDelta(text: session.streamingBuffer)` when the session is mid-stream (lastForwardedLength is then already correct). Option (b) keeps T6 self-contained.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Views/EditorView.swift",
+      "line": 290,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "When switching from one .insight session to another .insight session, routeInsight resets `lastLoadedContent = \"\"` and `currentDocumentBaseURL = nil`. That's correct for invalidating file-side dedupe, but the comment says \"so a subsequent switch back to a .file tab is forced to re-render from scratch (the WebView's content is now insight)\". The comment is right; consider also calling `bridge.showInsightLoading(...)` (the new T6 command) between the old session's last render and the new snapshot, so the user sees feedback during the cross-session paint.",
+      "benefit": "More polished transition UX; the showInsightLoading command was added in this task but is currently unreferenced anywhere in the EditorView routing path.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Views/EditorView.swift",
+      "line": 316,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "`lastForwardedLength` and `newBuffer.count` use Character (extended grapheme cluster) counting via Swift's String semantics. This is consistent with `streamingBuffer.append(chunk)` in InsightSession (also Character-based), so deltas will not split a grapheme. Worth a one-line comment noting the invariant — it is non-obvious to a future reader and a tempting \"optimization\" might switch to .utf8.count to avoid O(n) scanning, which would silently corrupt multibyte/emoji boundaries.",
+      "benefit": "Documents the invariant so a future reader doesn't break it. No behavioural change.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Bridge/WebViewBridge.swift",
+      "line": 290,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "loadInsightView and setInsightDeepDives create a fresh JSONEncoder each call. Cheap but allocation-y on hot paths (every navigation triggers loadInsightView). Consider hoisting `private static let jsonEncoder = JSONEncoder()` and reusing it. JSONEncoder is thread-safe for encoding once configured.",
+      "benefit": "Tiny perf win, removes a per-call allocation on the navigation path.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Views/EditorView.swift",
+      "line": 599,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "The 5 NSLog stubs for insight delegate methods are correctly intentional (Task 7 wires them). Consider adding `// MARK: - Task 7 wires these` and grouping them at the bottom of the extension so a code search for the TODO finds the seam. Currently the comment block is only above the first stub.",
+      "benefit": "Easier handoff to Task 7; the TODO seam is more discoverable.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 1,
+    "minorIssuesCount": 4,
+    "testCoverageAssessment": "insufficient"
+  }
+}

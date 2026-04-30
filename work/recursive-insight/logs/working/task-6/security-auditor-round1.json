@@ -1,0 +1,81 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 2,
+    "critical": 0,
+    "major": 0,
+    "minor": 2
+  },
+  "scope": {
+    "commit": "f33ea0a",
+    "files": [
+      "MarkView/Bridge/WebViewBridge.swift",
+      "MarkView/Views/EditorView.swift"
+    ],
+    "focus": "XSS via Swift→JS injection, JS→Swift dispatch validation, ARC / Combine retain cycles"
+  },
+  "verifiedSafe": [
+    {
+      "area": "Swift→JS string encoding (encodeStringForJS, WebViewBridge.swift:232-238)",
+      "rationale": "Implementation uses the array-wrap idiom (JSONSerialization.data(withJSONObject: [s]) → String(data:) → dropFirst().dropLast()). JSON spec mandates escaping of \\\", \\\\, \\n, \\r, control chars U+0000–U+001F, so embedding the resulting literal directly into a JS source string passed to evaluateJavaScript is safe against quote-injection, newline-injection, embedded NULs, and emoji/CJK unicode. Critically, the implementation only drops one outer [ and one outer ] — the inner double-quotes that delimit the JSON string are preserved, so escaping is not lost. Identical idiom to existing loadContent (L244-263), which has been in production."
+    },
+    {
+      "area": "Bool serialization in setInsightError (WebViewBridge.swift:368)",
+      "rationale": "Explicit ternary `retryable ? \"true\" : \"false\"` produces JS literals `true` / `false`, never Python-style `True`/`False`, never numeric `1`/`0`, never quoted `\"true\"`. Correct."
+    },
+    {
+      "area": "Snapshot and topics JSON embedding (WebViewBridge.swift:290-303, 323-340)",
+      "rationale": "Snapshot and [DeepDiveTopic] are encoded with JSONEncoder and embedded as bare JSON directly into the JS source. Since the payload is delivered via WKWebView.evaluateJavaScript (NOT injected into an HTML <script> block), the `</script>` end-tag escape problem does not apply. JSON is a syntactic subset of JS object/array literals, so the embed is structurally valid. No HTML parser is in the loop; CSP / DOM XSS not in scope here."
+    },
+    {
+      "area": "JS→Swift dispatch type guards (WebViewBridge.swift:192-216)",
+      "rationale": "All five new cases use `as? String` / `as? Int` guards on data?[\"sessionId\"], data?[\"topicIndex\"], data?[\"nodeId\"]. Failed casts silently ignore the message (no fallback execution). sessionId and nodeId are treated as opaque lookup keys handed to WorkspaceManager (Task 7) — no path traversal, SQL, OS command, or HTML sink in this layer. topicIndex bounds-check is correctly deferred to the consumer (Task 7)."
+    },
+    {
+      "area": "Combine subscription ARC (EditorView.swift:303-371)",
+      "rationale": "All three sinks ($streamingBuffer, $currentNodeId, $lastError) capture `[weak self, weak session, weak webView]`. .store(in: &insightCancellables) on the coordinator. insightCancellables.removeAll() runs both on session change (L292) and on switch to a .file tab (L237). webView weak is the critical capture (WKWebView retain-cycle is a Cocoa classic) and is correctly weak. .receive(on: DispatchQueue.main) does not introduce additional retains. No retain cycle."
+    },
+    {
+      "area": "Delegate stub logging (EditorView.swift:602-616)",
+      "rationale": "Stubs log only sessionId (UUID v4 hex+dashes) and nodeId / topicIndex. No API key, file path, document content, LLM output, or other sensitive material is logged. Acceptance criterion `API key, путь файла или другие чувствительные данные нигде в новых методах не логируются` is satisfied."
+    },
+    {
+      "area": "Hardcoded secrets",
+      "rationale": "Grep across the diff: no API_KEY=, SECRET=, PASSWORD=, TOKEN=, base64 credential blobs, connection strings, or private keys. No secrets in test fixtures (no fixtures touched)."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "A03: Injection",
+      "title": "JSONSerialization does not escape U+2028 / U+2029, relies on ES2019+ runtime tolerance",
+      "description": "Foundation's JSONSerialization (used by encodeStringForJS) and JSONEncoder (used for snapshot / topics) both emit U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) literally instead of escaping them as \\u2028 / \\u2029. In ES2018 and earlier, these characters were illegal inside JS string literals and would cause a SyntaxError when the resulting source was passed to evaluateJavaScript. ES2019 (proposal-json-superset, https://github.com/tc39/proposal-json-superset) made them legal, and WKWebView on every macOS version this app supports ships JavaScriptCore with the proposal applied — so in practice this is not exploitable as XSS, only as a possible reliability issue if the runtime were ever older than ES2019. This is identical behaviour to the existing loadContent / loadStructuredContent on L244 / L266, so it is consistent with the established baseline rather than a new regression. Flagging for awareness only.",
+      "location": "MarkView/Bridge/WebViewBridge.swift:232 (encodeStringForJS), :290 (loadInsightView snapshot), :329 (setInsightDeepDives topics)",
+      "impact": "On a hypothetical pre-ES2019 JS runtime, an LLM-streamed delta containing U+2028 would raise a SyntaxError on evaluateJavaScript and the chunk would be dropped. No code execution, no XSS — evaluateJavaScript bypasses the HTML parser, so the `</script>` escape vector does not exist here. On modern WKWebView the characters are valid string-literal content and the call succeeds.",
+      "recommendation": "Optional hardening, low priority and consistent with existing code: add a post-processing pass to encodeStringForJS that replaces \"\\u{2028}\" with \"\\\\u2028\" and \"\\u{2029}\" with \"\\\\u2029\" in the resulting literal. Same for the bare JSON embeds (snapshot, topics). Belt-and-suspenders against runtime regressions and future migrations to environments that do not implement the JSON-superset proposal. If applied, also retrofit the existing loadContent / loadStructuredContent for consistency.",
+      "cwe": "CWE-94"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "NSLog of sessionId / nodeId is fine but consider redacting at log level for delta / message in future Swift→JS error paths",
+      "description": "The new NSLog statements (delegate stubs L602-616, encoding-failure paths L294, 310, 325, 331, 346, 363) log only sessionId, nodeId, and topicIndex — all opaque non-PII identifiers. This is correct. Forward-looking note: when Task 7 wires these delegate stubs to WorkspaceManager, the temptation will be to add `NSLog(\"... text=\\(text)\")` for debugging. The streaming `text` delta and `message` payloads contain LLM-generated content that may quote the user's source document or paste API responses verbatim. NSLog on macOS writes unbounded plaintext to the unified logging system where it can be retrieved by anyone with `log show` access. Establish a convention now (before Task 7) to never log delta / message / markdown contents at NSLog level.",
+      "location": "MarkView/Views/EditorView.swift:602-616 (delegate stubs), MarkView/Bridge/WebViewBridge.swift:294-373 (encoding-failure NSLog)",
+      "impact": "Currently zero impact — nothing sensitive is being logged. Risk is preventative for Task 7 wiring.",
+      "recommendation": "Add a project-level guideline (or comment near the stubs) that NSLog in the insight pipeline must only ever take session/node identifiers and error codes, never markdown content, deltas, breadcrumb labels, or error message bodies. Consider a lightweight `InsightLog.event(...)` helper that enforces this by typing.",
+      "cwe": "CWE-532"
+    }
+  ],
+  "owaspCoverage": {
+    "A01_BrokenAccessControl": "N/A — no auth boundary in this layer; sessionId is an opaque app-internal key",
+    "A02_CryptographicFailures": "N/A — no crypto in scope",
+    "A03_Injection": "Reviewed. Swift→JS encoding is correct (array-wrap idiom). One minor note on U+2028/U+2029 — see findings.",
+    "A04_InsecureDesign": "OK. Routing by tab.kind, idempotent re-subscription, explicit teardown on switch — sound design.",
+    "A05_SecurityMisconfiguration": "N/A — no config surface changed",
+    "A06_VulnerableComponents": "N/A — no dependency changes",
+    "A07_AuthFailures": "N/A",
+    "A08_SoftwareDataIntegrity": "OK. Inbound JS messages parsed via `as?` casts only, no JSONDecoder-on-untrusted-Codable, no NSKeyedUnarchiver, no insecure deserialization vectors.",
+    "A09_LoggingMonitoring": "OK with forward-looking note — see findings.",
+    "A10_SSRF": "N/A — no network calls in this diff (LLM HTTP traffic lives in Task 4)"
+  }
+}

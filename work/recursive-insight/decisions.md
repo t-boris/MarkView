@@ -93,3 +93,19 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - Retry throttle: counts cancelled+completed in 60s window; resets only on .ready
 - Build: SUCCEEDED
 - Commit: 62b8bff
+
+## Task 6: WebViewBridge insight + EditorView routing
+- Added 5 Swift→JS commands (loadInsightView, appendInsightDelta, setInsightDeepDives, showInsightLoading, setInsightError)
+- Added 5 JS→Swift message types + delegate methods (insightDeepDiveClicked, insightSaveRequested, insightBreadcrumbClicked, insightUpClicked, insightRetryRequested)
+- EditorView.loadContentIfNeeded branches on tab.kind; pendingTab cache for 2nd call site at didFinish (and 3rd at bridgeEditorReady)
+- Combine: $streamingBuffer (delta forward via String(newBuffer.dropFirst(lastForwardedLength)) with reset-detection on shrink), $currentNodeId (full repaint with lastForwardedLength reset BEFORE on .receive(on: .main)), $lastError (forward with session.lastErrorRetryable, never hardcoded)
+- All Swift→JS payloads use array-wrap encoding idiom via private encodeStringForJS helper; bool serialised as literal "true"/"false"; snapshot/topics encoded via JSONEncoder
+- Coordinator delegate stubs (NSLog) — Task 7 will fill in WorkspaceManager forwarders
+- Build: SUCCEEDED, 0 warnings in WebViewBridge.swift / EditorView.swift
+- Commit: f33ea0a
+
+## Task 6 Fix Round 1 (cross-task fix landing in InsightSession.swift)
+- snapshot().markdown now returns body portion of rawBuffer for .streaming/.failed nodes (was: empty markdownBody until .ready)
+- Tab-switch back during streaming preserves visible buffer (Decision 11 §5)
+- Build: SUCCEEDED
+- Commit: 86c07f0

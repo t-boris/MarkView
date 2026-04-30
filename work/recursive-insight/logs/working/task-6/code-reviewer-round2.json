@@ -1,0 +1,13 @@
+{
+  "status": "approved",
+  "summary": "Round 1 major (snapshot().markdown empty during streaming) is correctly fixed in commit 86c07f0. snapshot() now routes through Self.currentMarkdown(for: node) which dispatches on node.status with all 4 cases handled (.pending->\"\", .streaming->bodyPortion(rawBuffer), .ready->markdownBody unchanged, .failed->markdownBody-or-rawBuffer fallback). bodyPortion(of:) uses range(of:options:.backwards) — exact same marker constant `\\n\\n---DEEP-DIVES---\\n` and same backwards search semantics as parseMarker (line 876), so LAST-marker-wins symmetry is preserved. EditorView.swift routeInsight is unchanged: lastForwardedLength = streamingBuffer.count is set at line 292 (initial route, BEFORE loadInsightView at 298) and at line 347 (currentNodeId sink, BEFORE loadInsightView at 350) — Task 6 ordering invariant intact. Build succeeds. No new issues introduced.",
+  "criticalIssues": [],
+  "suggestions": [],
+  "metrics": {
+    "filesReviewed": 2,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 0,
+    "testCoverageAssessment": "adequate"
+  }
+}

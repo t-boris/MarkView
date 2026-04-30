@@ -1,0 +1,98 @@
+{
+  "status": "needs_improvement",
+  "summary": "Tests are formally deferred per Decision 9 (no MarkViewTests target). Existing TDD Anchor section names 8 follow-up tests covering encoding, JS-->Swift dispatch, and EditorView routing. Anchor scope is reasonable for the bridge layer but has notable gaps: (1) encodeStringForJS edge cases are listed only as 'quotes / newlines / unicode / chinese' without enumerating the actually dangerous inputs (U+2028/U+2029, embedded NUL, lone surrogate, single backslash, single quote); (2) ordering critical for $currentNodeId-before-$streamingBuffer is mentioned in spec but has NO dedicated test name in the anchor; (3) reset-detection branch (newBuffer.count < lastForwardedLength) has no test; (4) bool serialization test is named but does not enumerate both true and false; (5) tab-switch subscription cleanup test exists but coordinator.lastLoadedContent='' invalidation on switch back to .file is untested; (6) 5 delegate stub bodies are NSLog-only with explicit Task 7 wiring obligation but no test ensures Task 7 actually replaces them. Litmus check N/A (no test code present). All findings are 'major' against the deferred-test follow-up backlog -- not blocking for f33ea0a merge, but must be added to the post-feature test task before that task is closed.",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: test_loadInsightView_encodes_snapshot_safely / test_appendInsightDelta_encodes_text_safely",
+      "issue": "Anchor lists 'quotes, newlines, backslashes, emoji, chinese' but omits the inputs most likely to break a hand-rolled JS literal: U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR (legal in JSON, ILLEGAL inside a JS string literal pre-ES2019 -- Safari/WKWebView still parses certain contexts strictly), embedded NUL (\\u0000), single lone backslash, lone single quote, lone double quote, empty string, string of only whitespace, lone surrogate halves. Foundation's JSONSerialization with default options does NOT escape U+2028/U+2029 -- if WKWebView's JS parser rejects them, evaluateJavaScript silently fails and the user sees a stuck spinner. This is a real risk for LLM-generated insight markdown which can include emdash/ellipsis-adjacent characters.",
+      "recommendation": "Replace the single anchor with a parameterised test list. Concrete additions: test_encodeStringForJS_handles_empty_string -- input '', expect roundTrip(decoded) == ''; test_encodeStringForJS_handles_double_quote -- input 'a\"b', assert decoded == 'a\"b'; test_encodeStringForJS_handles_single_quote -- input \"a'b\"; test_encodeStringForJS_handles_backslash -- input 'a\\\\b'; test_encodeStringForJS_handles_newline_and_cr -- input 'a\\nb\\rc'; test_encodeStringForJS_handles_line_separator -- input 'a\\u{2028}b' (round-trip via WKWebView.evaluateJavaScript('return ' + encoded) -- if Foundation does not escape it, switch encoder to JSONSerialization with .withoutEscapingSlashes off and post-process via .replacingOccurrences(of: '\\u{2028}', with: '\\\\u2028')); test_encodeStringForJS_handles_paragraph_separator -- input 'a\\u{2029}b'; test_encodeStringForJS_handles_embedded_nul -- input 'a\\u{0000}b' must encode as 'a\\\\u0000b'; test_encodeStringForJS_handles_emoji_and_zwj -- input 'family: \\U0001F468\\u200D\\U0001F469\\u200D\\U0001F466'. For each, assertion is: result is non-nil AND wrapping `var x = ` + encoded + `;` and round-tripping through WKWebView returns the original string byte-exact via `JSON.stringify(x)` callback. This is the only reliable check that the bridge's evaluateJavaScript will succeed.",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: (no test listed for $currentNodeId ordering)",
+      "issue": "The most subtle bug-prone code in this commit is the strict ordering requirement: when $currentNodeId fires, the sink MUST set lastForwardedLength = streamingBuffer.count BEFORE the $streamingBuffer subscriber observes the next emission. If reversed, JS receives a delta containing the entire previous buffer including the '---DEEP-DIVES---' marker -- visible garbage in the UI. The TDD Anchor names test_streamingBuffer_delta_forwarded but no test specifically exercises the navigation-then-stream sequence. This is the single highest-value test for this commit.",
+      "recommendation": "Add test_navigateTo_resets_lastForwardedLength_before_streaming_resumes. Setup: a mock InsightSession (struct holding the two PassthroughSubjects) with streamingBuffer pre-populated to 'OLD CONTENT ---DEEP-DIVES--- {...}'. Action: route(session) -> wait first paint -> session.streamingBuffer = '' (simulates navigateTo internal reset) -> session.currentNodeId = newUUID -> drain main queue -> session.streamingBuffer = 'new chunk'. Assertion: bridge.appendInsightDelta was called EXACTLY ONCE with text == 'new chunk' (NOT with text containing 'OLD CONTENT' or the marker). Use a recording mock bridge with `var calls: [(sessionId: String, text: String)] = []`. Litmus: if the order of the two writes inside the $currentNodeId sink is swapped (paint snapshot first, then assign lastForwardedLength), this test must fail.",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: (no test for reset-detection branch in $streamingBuffer sink)",
+      "issue": "EditorView.swift introduces a reset-detection branch: `if newBuffer.count < self.lastForwardedLength { self.lastForwardedLength = 0 }`. This handles the race where $streamingBuffer fires for an externally-reset buffer before the $currentNodeId sink has a chance to snap lastForwardedLength. There is no test for this branch -- removing it makes a real bug (delta becomes negative-length / wrong substring) but tests still pass.",
+      "recommendation": "Add test_buffer_shrink_resets_forwarded_length. Setup: route session, lastForwardedLength = 100. Action: emit $streamingBuffer with a 50-char value. Assertion: bridge.appendInsightDelta called with text == the entire 50-char value (not empty, not crashed). Bonus assertion: subsequent emission of 60-char value calls appendInsightDelta with the trailing 10 chars (proves lastForwardedLength was reset to 0 then incremented to 50, not left at 100).",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: test_setInsightError_serializes_retryable_flag",
+      "issue": "Anchor names a single test 'serializes retryable flag' without enumerating both Bool values. The implementation uses `retryable ? \"true\" : \"false\"` -- a typo to e.g. `retryable ? \"True\" : \"false\"` would still pass a test that only checked the false case. Also missing: end-to-end check that lastErrorRetryable read from InsightSession (which can be true OR false depending on error type per Decision 11 §3) is faithfully passed through the EditorView Combine sink to the bridge call.",
+      "recommendation": "Replace the single anchor with two tests: test_setInsightError_serializes_retryable_true -- input retryable: true, assert evaluatedJS string ends with ', true)'; test_setInsightError_serializes_retryable_false -- input retryable: false, assert ends with ', false)'. Also add an integration-level anchor: test_lastError_with_retryable_false_forwards_false_to_bridge -- session emits lastError='no api key' with lastErrorRetryable=false; assert bridge.setInsightError received retryable=false (NOT defaulted to true). Litmus: mutating EditorView.swift sink to hardcode `retryable: true` (the bug Decision 11 §3 explicitly warns against) must fail this test.",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: (no test for InsightViewSnapshot / [DeepDiveTopic] JSON round-trip)",
+      "issue": "Both loadInsightView and setInsightDeepDives bypass encodeStringForJS and rely directly on JSONEncoder over Codable types. If a future field is added to InsightViewSnapshot containing a value that JSONEncoder serialises in a way that's invalid as a JS argument (e.g., a Date with default ISO encoding that includes a colon -- legal JSON, legal JS, fine; but a Float.nan -- which JSONEncoder throws on), the methods silently log and skip. No test verifies that a snapshot with markdown containing the same edge characters as encodeStringForJS handles them via the JSONEncoder path.",
+      "recommendation": "Add test_loadInsightView_snapshot_with_dangerous_markdown -- snapshot.markdown = string containing ['...quotes...', '\\n', '\\\\', emoji, U+2028]; encode via the bridge method; assert evaluateJavaScript was invoked with a string that, when prefix-stripped of `window.loadInsightView(` and trailing `)`, parses back via JSONSerialization.jsonObject and reproduces snapshot.markdown byte-exact. Same for test_setInsightDeepDives_topics_with_dangerous_titles. Litmus: switching JSONEncoder to JSONSerialization without proper escaping would break this.",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "EditorView.swift:166 (pendingTab nil fallback in webView(_:didFinish:)) and EditorView.swift:227 (kind defaulting to .file in loadContentIfNeeded)",
+      "issue": "Two code paths default to `.file` when tab is nil: (a) webView(_:didFinish:) reads pendingTab which can be nil if didFinish fires before updateNSView (initial load with no tab), (b) loadContentIfNeeded uses `let kind: TabKind = tab?.kind ?? .file`. If a future caller invokes loadContentIfNeeded for an .insight tab BEFORE pendingTab is set, the content falls into the file path silently -- the insight session is never subscribed and the user sees an empty editor with no error. No test covers this fallback.",
+      "recommendation": "Add test_loadContentIfNeeded_with_nil_tab_uses_file_path -- call loadContentIfNeeded(markdown, documentURL: nil, tab: nil), assert that bridge.loadContent was invoked (file path) and bridge.loadInsightView was NOT invoked, and currentInsightSessionId remains nil. Add test_didFinish_with_pendingTab_insight_routes_to_insight -- simulate isEditorReady=false initial state with pendingContent + pendingTab=insight tab, fire didFinish, assert bridge.loadInsightView is called (verifies the tab cache survives and is consulted, not lost during the pendingContent=nil/pendingDocumentURL=nil reset).",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "major",
+      "category": "anti_pattern",
+      "location": "EditorView.swift:583-610 (5 NSLog-only delegate stubs) and tasks/6.md TDD Anchor (no presence test)",
+      "issue": "All 5 new WebViewBridgeDelegate methods on Coordinator are NSLog-only stubs with `Task 7 wires this to WorkspaceManager` comments. Risk acknowledged in task spec. There is no anchor test that fails when Task 7 forgets to replace any of the 5 stubs. The existing anchor `test_insightDeepDiveClicked_dispatch` only verifies WebViewBridge dispatches to a delegate -- it cannot catch Coordinator's stub still being NSLog instead of WorkspaceManager call.",
+      "recommendation": "Add 5 anchor tests in tasks/7.md (delegated to Task 7's TDD Anchor): test_coordinator_didRequestInsightDeepDive_calls_workspace_manager (and one per delegate method). Each: create mock WorkspaceManager with recording properties (`var deepDiveCalls: [(String, Int)] = []`), instantiate Coordinator, invoke `coordinator.bridge(stub, didRequestInsightDeepDive: 'session-uuid', topicIndex: 2)`, assert `mockWorkspace.deepDiveCalls == [('session-uuid', 2)]`. The litmus test for these is exactly the failure mode you're trying to prevent: if Task 7 ships with the NSLog stub still in place, all 5 tests fail. Document this in tasks/6.md TDD Anchor as 'transferred to tasks/7.md TDD Anchor' so the obligation is tracked.",
+      "litmusTestFailed": false
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: test_tab_switch_releases_subscription",
+      "issue": "Test name covers .insight -> .file transition (subscription cleanup). It does not cover the additional state mutations on that transition: lastLoadedContent='' and currentDocumentBaseURL=nil (forced re-render of .file view because WebView contains insight content). If those lines are removed, switching back to a previously-rendered file tab will skip the file repaint (lastLoadedContent dedupe wins) and leave the insight UI visible.",
+      "recommendation": "Extend the anchor to test_tab_switch_insight_to_file_forces_file_rerender. Setup: route .insight session (lastLoadedContent set to old file content), then route .file with same content as old lastLoadedContent. Assertion: bridge.loadContent IS called (not skipped by dedupe). Litmus: removing the two reset lines (`lastLoadedContent = \"\"` and `currentDocumentBaseURL = nil`) makes this test fail."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: test_loadContentIfNeeded_routes_by_kind",
+      "issue": "Anchor test name covers initial routing but does not cover idempotency: routing the SAME insight session twice in a row must NOT re-subscribe (otherwise duplicate Combine sinks fire and JS receives 2x deltas). The implementation has the early-return `if currentInsightSessionId == sessionId { return }` -- removing it would silently double-emit.",
+      "recommendation": "Add test_route_same_insight_session_twice_is_noop -- call routeInsight(session) twice; assert bridge.loadInsightView was called exactly once (NOT twice) and insightCancellables.count is the expected post-first-route value (NOT doubled). Litmus: removing the early-return breaks this."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/6.md TDD Anchor :: test_unknown_insight_type_ignored",
+      "issue": "Anchor mentions 'unknown insight-like type' but does not mention malformed payloads for known types (missing sessionId, sessionId of wrong type, topicIndex as string instead of Int). The current dispatcher uses `if let sessionId = data?[\"sessionId\"] as? String` which silently no-ops on missing keys -- no error logged, no delegate call. A mistyped JS-side message would simply do nothing with no user-visible feedback.",
+      "recommendation": "Add test_insightDeepDiveClicked_with_missing_sessionId_does_not_crash_and_logs and test_insightDeepDiveClicked_with_topicIndex_string_does_not_call_delegate. Assert: delegate methods NOT invoked AND a NSLog warning is emitted (use OSLog or wrap NSLog in a testable abstraction). This catches silent-failure regressions where a JS-side schema change goes undetected on the Swift side."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 4,
+    "litmusTest": {
+      "checked": 0,
+      "passed": 0,
+      "failed": 0
+    },
+    "coverageAssessment": "insufficient",
+    "pyramidBalance": {
+      "unit": 0,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "deferred-by-decision-9-no-test-target-exists"
+    }
+  }
+}
