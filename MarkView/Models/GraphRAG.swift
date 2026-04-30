@@ -203,6 +203,18 @@ class GraphRAG: ObservableObject {
     /// cannot trigger 429s in a single click.
     private static let mapReduceMaxConcurrent = 5
 
+    /// Allowed-character set for percent-encoding XML attribute values (file paths, community
+    /// labels). Built from `.urlPathAllowed` minus the five XML metacharacters (`&<>"'`) and
+    /// backtick. Without the explicit subtraction `&` and `'` would pass through unencoded —
+    /// the round-2 fix tightens this so any attribute value is safe regardless of which quote
+    /// style the wrapping uses, and so future maintainers cannot accidentally regress by
+    /// switching to single-quoted attributes.
+    private static let xmlAttrSafeCharacters: CharacterSet = {
+        var set = CharacterSet.urlPathAllowed
+        set.subtract(CharacterSet(charactersIn: "&'\"<>`"))
+        return set
+    }()
+
     /// Streaming map-reduce summary over a folder of `.md` files. Reads actual file bodies
     /// (the existing `deepResearch` only sees module names + counts and is unsuitable for
     /// content summarisation — see tech-spec Decision 5). Map step runs N parallel
@@ -348,13 +360,15 @@ class GraphRAG: ObservableObject {
                 // attacker cannot embed a fake sibling envelope mid-stream.
                 let escapedBody = escapeXMLEnvelopeBreakout(truncated)
 
-                // ATTRIBUTE ESCAPING: percent-encode the path attribute via `.urlPathAllowed`.
-                // This is bulletproof against all 5 XML metacharacters (`&<>"'`), newlines, and
-                // unicode oddities — they all become `%XX`. The model sees a strictly opaque
-                // string token and cannot misread it as structural punctuation. (Earlier
-                // version only escaped `"`, which left `<`, `>`, `&` in filenames exploitable.)
+                // ATTRIBUTE ESCAPING: percent-encode the path attribute. We start from
+                // `.urlPathAllowed` and EXPLICITLY subtract the five XML metacharacters
+                // (`&<>"'`) plus backtick, so every one of them is encoded as `%XX` regardless
+                // of which delimiter style the wrapping uses. (Round-2 fix: `.urlPathAllowed`
+                // by itself does NOT encode `&` or `'` — earlier comment overstated coverage.)
+                // The model sees a strictly opaque string token and cannot misread it as
+                // structural punctuation.
                 let safePathAttr = relative.addingPercentEncoding(
-                    withAllowedCharacters: .urlPathAllowed
+                    withAllowedCharacters: Self.xmlAttrSafeCharacters
                 ) ?? relative.replacingOccurrences(of: "\"", with: "%22")
                 let xml = "<file path=\"\(safePathAttr)\">\n\(escapedBody)\n</file>"
                 wrappedFiles.append((bytes: xml.utf8.count, xml: xml))
@@ -414,11 +428,12 @@ class GraphRAG: ObservableObject {
         // Per-task body extracted as an `async` function-shaped closure so we don't have to
         // capture the inout `group` parameter (Swift forbids that). The community-name
         // attribute is percent-encoded with the same rationale as the file-path attribute
-        // above so a label containing `"`, `<`, `>`, `&` cannot close the outer envelope from
-        // the model's perspective.
+        // above (using the explicit `xmlAttrSafeCharacters` set that subtracts `&<>"'`) so a
+        // label containing any XML metacharacter cannot close the outer envelope from the
+        // model's perspective.
         @Sendable func runMapCall(label: String, payload: String) async -> (label: String, summary: String)? {
             let safeLabelAttr = label.addingPercentEncoding(
-                withAllowedCharacters: .urlPathAllowed
+                withAllowedCharacters: Self.xmlAttrSafeCharacters
             ) ?? label.replacingOccurrences(of: "\"", with: "%22")
             let userMessage = """
             Question: \(userQuestion)
@@ -542,11 +557,25 @@ class GraphRAG: ObservableObject {
         // re-match). All four use case-insensitive regex so attempts like `</FILE>` are caught.
         // The replacement inserts a backslash between `<` and the rest, which the model is
         // told (in the map system prompt) is the escape convention.
+        //
+        // ESCAPE-LEVEL NOTE (round-2 fix): the replacement string is consumed TWICE — once by
+        // the Swift compiler (literal-string escape: `\\` -> 1 backslash) and once by the
+        // NSRegularExpression template engine (template escape: `\\` -> 1 literal backslash;
+        // a lone `\` before a non-special char is silently dropped). To emit ONE literal
+        // backslash into the output we therefore need FOUR backslashes in the Swift source:
+        // Swift `"\\\\"` -> in-memory `\\` -> template-emitted `\`.
+        //
+        // SANITY: escapeXMLEnvelopeBreakout("a</file>b") MUST equal "a<\/file>b" and must NOT
+        // contain the substring "</file>". Trace:
+        //   regex `<\s*/\s*file\s*>` matches `</file>`
+        //   Swift literal "<\\\\/file>" -> in-memory `<\\/file>` (4 chars between < and /file>)
+        //   NSRegularExpression template `<\\/file>` -> emitted `<\/file>` (one literal `\`)
+        //   final: "a<\/file>b" — `<` is followed by `\`, not `/`, so the closing tag is broken.
         var out = body
         let patterns: [(pattern: String, replacement: String)] = [
-            (#"<\s*/\s*file\s*>"#, "<\\/file>"),
-            (#"<\s*/\s*community\s*>"#, "<\\/community>"),
-            (#"<\s*file(\s)"#, "<\\\\file$1"),       // opening `<file ` with attrs
+            (#"<\s*/\s*file\s*>"#, "<\\\\/file>"),       // -> emits literal `<\/file>`
+            (#"<\s*/\s*community\s*>"#, "<\\\\/community>"), // -> emits literal `<\/community>`
+            (#"<\s*file(\s)"#, "<\\\\file$1"),       // opening `<file ` with attrs -> `<\file `
             (#"<\s*community(\s)"#, "<\\\\community$1") // opening `<community ` with attrs
         ]
         for (pattern, replacement) in patterns {
