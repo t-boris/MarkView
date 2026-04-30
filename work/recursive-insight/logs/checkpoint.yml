@@ -1,0 +1,19 @@
+feature: recursive-insight
+total_waves: 9
+last_completed_wave: 1
+next_wave: 2
+mode: variant-B-sequential
+team_name: null
+tasks:
+  T1: { status: done, wave: 1, commits: [18c6997, 276064f] }
+  T2: { status: done, wave: 1, commits: [94f3a40, bb828a9] }
+  T3: { status: planned, wave: 2 }
+  T4: { status: planned, wave: 3 }
+  T5: { status: done, wave: 1, commits: [33cba9d, 7db0ae9] }
+  T6: { status: planned, wave: 4 }
+  T7: { status: planned, wave: 5 }
+  T8: { status: planned, wave: 6 }
+  T9: { status: planned, wave: 7 }
+  T10: { status: planned, wave: 7 }
+  T11: { status: planned, wave: 8 }
+  T12: { status: planned, wave: 9 }

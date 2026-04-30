@@ -1,0 +1,58 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 3,
+    "critical": 0,
+    "major": 0,
+    "minor": 3
+  },
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "A05: Security Misconfiguration / Input Validation",
+      "title": ".dde substring filter has false positives on legitimate file/folder names (carryover from round 1)",
+      "description": "Both `scanMarkdownFiles` (L602) and `hasMarkdownFiles` (L642) still reject any URL whose `.path` *contains* the substring `.dde`. This matches not only the intended `.dde/` workspace folder but also legitimate names: `my.ddefile.md`, `.ddesomething.md`, folders like `.dde-cache/`, `widget.dde/`. Round 1 minor finding was scoped out of the round-1 fix — flagging again so it stays on the radar.",
+      "location": "MarkView/Models/WorkspaceManager.swift:602, 642",
+      "impact": "Availability/correctness only — no security impact. A user with a folder named `widget.dde/` containing legitimate notes would silently see them omitted from Insight summaries.",
+      "recommendation": "Tighten to a path-component match: `guard !url.pathComponents.contains(\".dde\") else { continue }`. Defer to a follow-up refactor that unifies the four `.dde` filter sites in this file.",
+      "cwe": "CWE-20 (Improper Input Validation)"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "Symlink-escape rejection still logs full filesystem path via NSLog (carryover from round 1)",
+      "description": "When containment fails, the helper logs `\"[Insight] Skipped symlink escape: \\(url.path)\"` (L609). `NSLog` writes to system unified log. The path may include the workspace root, user folder, and the actual filename of the off-scope file — precisely the path the security control just decided the user should NOT have visibility into. Carryover from round 1.",
+      "location": "MarkView/Models/WorkspaceManager.swift:609",
+      "impact": "Information disclosure to local log readers and sysdiagnose recipients. Low likelihood of exploitation in single-user macOS, but path data ends up in persistent logs the user is likely unaware of.",
+      "recommendation": "Log basename only or gate full-path logging behind a debug flag: `NSLog(\"[Insight] Skipped symlink escape: %@\", url.lastPathComponent)`. Apply the same review to scope_hint rejection logging in Task 4.",
+      "cwe": "CWE-532 (Insertion of Sensitive Information into Log File)"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Resource cap order-of-operations still appends before checking (carryover from round 1)",
+      "description": "At L613-616 the helper still appends to `results` BEFORE the cap check, then `count > limit` triggers and `results.count` is `limit + 1`. The error message `\"found \\(count)+ markdown files\"` therefore always says `found 501+` (the `+` implies more), but enumeration halts at exactly 501. Tech-spec acceptance criterion (`> 500 fails, == 500 passes`) is satisfied — boundary correct — but the reported count is misleading. Carryover from round 1.",
+      "location": "MarkView/Models/WorkspaceManager.swift:613-616",
+      "impact": "None security-wise — DoS protection works as intended (immediate halt at 501). Cosmetic/UX nit only.",
+      "recommendation": "Either swap the order to check before append (`if results.count >= limit { return .failure(.folderTooLarge(count: limit + 1, limit: limit)) }; results.append(url)`), or change the message to `\"more than \\(limit) markdown files\"` to drop the misleading `+`.",
+      "cwe": null
+    }
+  ],
+  "round1FollowUp": {
+    "criticalFinding": "Symlink containment check bypassable via sibling-folder prefix collision",
+    "verdict": "closed",
+    "verification": {
+      "bothCallSitesFixed": "yes — scanMarkdownFiles (L581-608) and hasMarkdownFiles (L627-644) both build resolvedFolderPrefix and use `resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix)`",
+      "trailingSlashHandling": "correct — `hasSuffix(\"/\") ? path : path + \"/\"` avoids `//` artifact; URL.standardizedFileURL.path strips trailing slashes so the guard is defensive but correctly handles the rare root-`/` edge case",
+      "equalityFallbackSafety": "safe — `resolvedFile == resolvedFolderPath` is defensive (folder URL itself never surfaces in enumerator output for a directory). Cannot match any sibling because exact string equality on the resolved folder path is unique. No new bypass.",
+      "symlinkResolveOrder": "correct — `resolvingSymlinksInPath().standardizedFileURL.path` (resolve BEFORE standardize) at L581, L604, L627, L643. Matches tech-spec Decision 10 §6 mandate.",
+      "noSimilarPatternsInNewCode": "confirmed — only the two fixed call sites in the new Recursive Insight code (L540-648) use path-prefix containment. Other `hasPrefix` usages in WorkspaceManager.swift (L76, L118, L125, L673, L761) are pre-existing and outside Task 2 scope.",
+      "exploitWalkthrough": "For folder `/x/foo`: resolvedFolderPath=`/x/foo`, resolvedFolderPrefix=`/x/foo/`. Sibling escape `/x/foobar/secret.md` is NOT equal to `/x/foo` AND does NOT start with `/x/foo/` → correctly rejected. Round 1 reproducer is now blocked."
+    },
+    "regressionChecks": {
+      "resourceCap": "unchanged — still appends then checks `count > limit` returning `.failure` (cap behavior identical to round 1)",
+      "hiddenFilesAndPackageDescendants": "unchanged — `[.skipsHiddenFiles, .skipsPackageDescendants]` still passed to both enumerators (L593, L636)",
+      "includingPropertiesForKeysChange": "noted but benign — reduced from `[.isSymbolicLinkKey]` to `nil`. The new check does not depend on the symlink-flag prefetch; it resolves every URL via `resolvingSymlinksInPath()` regardless. Minor performance win, no security weakening."
+    }
+  }
+}

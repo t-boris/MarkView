@@ -1,0 +1,51 @@
+{
+  "status": "changes_required",
+  "summary": {
+    "totalFindings": 4,
+    "critical": 1,
+    "major": 0,
+    "minor": 3
+  },
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "A01: Broken Access Control / Path Traversal",
+      "title": "Symlink containment check bypassable via sibling-folder prefix collision",
+      "description": "The containment check at WorkspaceManager.swift:600 (and the duplicate at L632 in `hasMarkdownFiles`) uses `resolvedFile.hasPrefix(resolvedFolder)` where `resolvedFolder` is a path string without a trailing separator. `URL.standardizedFileURL.path` strips trailing slashes, so for a folder `/Users/x/foo` the comparison string is `/Users/x/foo`. A sibling path `/Users/x/foobar/secret.md` satisfies `hasPrefix(\"/Users/x/foo\")` and is therefore accepted as 'contained'.\n\nReproduced empirically (Swift script, macOS): symlink `/tmp/prefix_test/foo/escape.md -> /tmp/prefix_test/foobar/secret.md` resolves to `/tmp/prefix_test/foobar/secret.md`, which `.hasPrefix(\"/tmp/prefix_test/foo\")` returns `true` for. Result: the symlink-escape file is ENUMERATED instead of skipped. The mitigation that tech-spec Decision 10 §6 was specifically designed to provide is silently defeated.\n\nAttack vector for Recursive Insight: a user opens folder `/path/to/notes` for an Insight session. Anyone (or a malicious .zip extraction, or a synced workspace) that placed a sibling folder `/path/to/notes_steal/` containing `.md` files plus a symlink inside `notes/` pointing into `notes_steal/` would have the LLM ingest those out-of-folder files. The LLM session then summarizes, displays, and may cache content the user never authorized for that scope. With sandbox OFF (per recent commit), and the WebView bridge exposing save/file actions (Decision 10 rationale), this widens the trust boundary the user assumes.",
+      "location": "MarkView/Models/WorkspaceManager.swift:583, 599-603, 619, 631-632",
+      "impact": "Symlink-driven path traversal: out-of-folder `.md` files are ingested into a Recursive Insight session despite the explicit containment check intended to prevent it. Information disclosure scope = arbitrary `.md` content readable by the user that lives in any sibling folder whose name shares a prefix with the picked folder. The check appears to work in trivial cases but silently fails for the named adversarial layout, which is the worst kind of security control: present in code, absent in effect.",
+      "recommendation": "Append the platform path separator to the resolved folder before the prefix check, OR use a component-wise comparison. Minimal fix:\n\n```swift\nlet resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path\nlet resolvedFolder = resolvedFolderPath.hasSuffix(\"/\") ? resolvedFolderPath : resolvedFolderPath + \"/\"\n// ...later...\nlet resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path\nguard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolder) else {\n    NSLog(\"[Insight] Skipped symlink escape: \\(url.path)\")\n    continue\n}\n```\n\nThe `==` clause covers the (unlikely) case of the folder URL itself being passed in. Apply identical fix to BOTH `scanMarkdownFiles(in:)` and `hasMarkdownFiles`. Add a regression test using `/tmp/X/foo` and `/tmp/X/foobar` once the test target exists (Decision 9). This same defect applies to scope_hint validation (Decision 10 §6) — the helper to be reused there must carry the same fix; consider extracting `func isContained(_ url: URL, in folder: URL) -> Bool` to centralize the rule and prevent re-occurrence across Tasks 4/7.",
+      "cwe": "CWE-22 (Improper Limitation of a Pathname to a Restricted Directory) / CWE-59 (Improper Link Resolution)"
+    },
+    {
+      "severity": "minor",
+      "category": "A05: Security Misconfiguration / Input Validation",
+      "title": ".dde substring filter has false positives on legitimate file/folder names",
+      "description": "Both `scanMarkdownFiles` (L597) and `hasMarkdownFiles` (L630) reject any URL whose `.path` *contains* the substring `.dde`. This matches not only the intended `.dde/` workspace folder but also legitimate names: `my.ddefile.md`, `.ddesomething.md`, folders like `.dde-cache/`, `widget.dde/`. While the same brittle pattern exists at L1028 and L649 (existing convention noted in code comment), inheriting it for the new helper expands the surface area of the inconsistency and may suppress files the user explicitly wants in their Recursive Insight scope.",
+      "location": "MarkView/Models/WorkspaceManager.swift:597, 630",
+      "impact": "Availability/correctness only — no security impact. A user with a folder named `widget.dde/` containing legitimate notes would silently see them omitted from Insight summaries. Counter-intuitive for users who do not know about the `.dde` workspace convention. Not a vulnerability per se, but a defense-in-depth concern when deciding what content the LLM gets to see.",
+      "recommendation": "Tighten to a path-component match: split `url.pathComponents` and check for an exact `.dde` component, or test for `/.dde/` substring. Example:\n\n```swift\nguard !url.pathComponents.contains(\".dde\") else { continue }\n```\n\nDeferring this to a follow-up refactor that unifies the four `.dde` filter sites (L597, L630, L649, L1028) is acceptable since it preserves existing behavior — but at minimum add a code comment acknowledging the substring-match imprecision so it doesn't get copy-pasted further.",
+      "cwe": "CWE-20 (Improper Input Validation)"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "Symlink-escape rejection logs full filesystem path via NSLog",
+      "description": "When containment fails, the helper logs `\"[Insight] Skipped symlink escape: \\(url.path)\"` (L601). `NSLog` writes to system unified log (visible to any local process able to read user logs and to anyone the user shares sysdiagnose with). The path may include the workspace root, user folder, and the actual filename of the off-scope file. Per Decision 10 the threat model treats `.md` content as untrusted, but the *filename* of an escape target may itself be sensitive (e.g. `/Users/alice/personal/medical-results.md`).",
+      "location": "MarkView/Models/WorkspaceManager.swift:601",
+      "impact": "Information disclosure to local log readers and sysdiagnose recipients. Low likelihood of exploitation in single-user macOS, but path data ends up in persistent logs the user is likely unaware of. Notable because the logged path is precisely the one the security control just decided the user should NOT have visibility into.",
+      "recommendation": "Log the *containing folder* and the *basename* only, or redact under a non-debug flag:\n\n```swift\nNSLog(\"[Insight] Skipped symlink escape: %@\", url.lastPathComponent)\n```\n\nFor diagnosability during development, gate full-path logging behind an existing `Self.debugLog`/`Self.log` mechanism rather than `NSLog`. Apply the same review to scope_hint rejection logging in Task 4.",
+      "cwe": "CWE-532 (Insertion of Sensitive Information into Log File)"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Resource cap order-of-operations could double-count near boundary",
+      "description": "At WorkspaceManager.swift:605-608 the helper appends to `results` BEFORE the cap check. So when `count > limit` triggers, `results.count` is `limit + 1` and that final URL has already been retained in the array (which is then discarded as `.failure`, so harmless in practice). More importantly: `count` reported to the user via `errorDescription` is exactly `limit + 1` — i.e. it always says \"found 501+ markdown files (limit 500)\". The error message implies the helper continued counting (the `+`), but in fact enumeration halts at exactly limit+1. Tech-spec acceptance criterion says `> 500 fails, == 500 passes` which the code satisfies (correct boundary), but the messaging is slightly misleading. Not a vulnerability — correctness/UX nit only — flagged because Decision 10 §7 explicitly counts on this cap being DoS-resistant and the contract should be unambiguous.",
+      "location": "MarkView/Models/WorkspaceManager.swift:605-608",
+      "impact": "None security-wise — DoS protection works as intended (immediate halt at 501). Cosmetic: the `count: 501` value reported to the UI suggests an undercount when it is actually the precise stop point.",
+      "recommendation": "Either swap the order to check before append (cleaner contract), or change the message to `\"more than \\(limit) markdown files\"` to drop the misleading `+`. Cleaner: \n\n```swift\nif results.count >= limit {\n    return .failure(.folderTooLarge(count: limit + 1, limit: limit))\n}\nresults.append(url)\n```\n\nNo functional change for callers, but the invariant `results.count <= limit` always holds in the success branch, which is easier to reason about for future maintainers.",
+      "cwe": null
+    }
+  ]
+}

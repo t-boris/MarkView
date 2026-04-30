@@ -1,0 +1,105 @@
+{
+  "status": "changes_required",
+  "summary": "The insight-mode JS implementation is well-structured: the marker parser correctly implements lastIndexOf semantics, the separate insightMd instance leaves the global md untouched, every LLM-derived string flows through setText, the per-block Mermaid pipeline uses individual try/catch, the link sanitizer rejects javascript:/data:/file:/vbscript:/unknown schemes, and all five window functions plus all five JS->Swift message types match the spec exactly. However, the new global CSP <meta> tag breaks four CDN-loaded scripts (D3, dagre, turndown, turndown-plugin-gfm) used by the existing graph view and WYSIWYG-save pipelines, which is a hard regression to the explicit acceptance criterion that existing modes must keep working. Per-render mermaid securityLevel is also passed as a runtime option that the Mermaid v10/v11 run() API does not accept; the actual security-level change is achieved by the initialize() call inside switchToInsightView, which mutates global mermaid config and bleeds back into other modes.",
+  "criticalIssues": [
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 6,
+      "severity": "critical",
+      "category": "cross-file-consistency",
+      "issue": "New CSP <meta> blocks the four CDN scripts that existing modes depend on. The directive `script-src 'self' 'unsafe-inline'` only allows same-origin (vendored) and inline scripts. Lines 1182-1187 load `https://cdn.jsdelivr.net/npm/d3@7.9.0/...`, `https://cdn.jsdelivr.net/npm/@dagrejs/dagre@1.1.4/...`, `https://cdn.jsdelivr.net/npm/turndown@7.1.3/...`, and `https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/...`. After this change the WebView console will report `Refused to load the script ... because it violates the following Content Security Policy directive: script-src 'self' 'unsafe-inline'.` Concretely this disables: (a) the interactive layered Mermaid canvas (D3 + dagre at L1182-1183), (b) HTML→Markdown round-trip for the WYSIWYG save path (turndown + turndown-plugin-gfm at L1186-1187, used in `switchToSource`/`syncWysiwygToMarkdown`/`initTurndown`).",
+      "impact": "Hard violation of the acceptance criterion 'Existing modes (source, preview, structured, structured-source) NOT broken'. Users on the existing build will lose: graph/canvas rendering, WYSIWYG-save fidelity (Turndown-driven HTML->MD on tab switch from preview to source). Build does not catch this — `BUILD SUCCEEDED` only validates HTML bundling, not WebView load. The bug surfaces immediately on the first app launch after the change.",
+      "recommendation": "Either (a) self-host the four CDN libraries under `MarkView/Resources/Editor/vendor/js/` and update the <script> tags to local paths (matches the existing pattern for markdown-it, mermaid, katex) — preferred since the network dependency is itself fragile; or (b) add CDN origins to the CSP: `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;` (and parallel for `default-src` if other resource types are pulled). Verify with the WebInspector console after fix that no CSP violation is logged on initial load."
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 1302,
+      "severity": "critical",
+      "category": "cross-file-consistency",
+      "issue": "CSP `img-src 'self' data:` blocks remote images in the existing preview/WYSIWYG modes. The existing image renderer at L1302 emits `<img src=\"...\" ...>` directly from markdown `![alt](...)` syntax with no scheme rewriting; preview mode (state.mode === 'preview') uses `md` (html: true) which routes through this rule, and L1996 also injects `<img src=\"${url}\" ...>` via `execCommand('insertHTML')` for WYSIWYG image insert.",
+      "impact": "Any markdown file containing an `![alt](https://example.com/foo.png)` image will render as a broken image in preview/structured/structured-source modes after this change. This is a visible regression for any existing user with image-heavy notes. Same acceptance criterion as above is violated.",
+      "recommendation": "Add `https:` to img-src (e.g., `img-src 'self' data: https:` — http: optional, but commonly needed for legacy/intranet content). The CSP set in tech-spec Decision 10 §3 was written with insight-mode-only content in mind, but applying it document-wide regresses existing modes. If the spec really needs to be respected verbatim, raise this with the user before merging — the security gain (insight is the only LLM-driven content surface anyway) does not outweigh the regression to existing image rendering."
+    }
+  ],
+  "suggestions": [
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 2934,
+      "severity": "major",
+      "category": "best-practices",
+      "suggestion": "`mermaid.run({ nodes: [div], suppressErrors: false, securityLevel: 'strict' })` passes `securityLevel` as a runtime option, but the Mermaid v10/v11 RunOptions interface only accepts `querySelector`, `nodes`, `postRenderCallback`, `suppressErrors` — `securityLevel` is silently ignored at the per-call level. The actual strict mode is achieved by `mermaid.initialize({ ..., securityLevel: 'strict' })` inside `switchToInsightView` (L3087-3091). That mutates the GLOBAL mermaid configuration: when the user later switches to preview/structured (which call `applyTheme` -> `mermaid.initialize({ theme: ... })` without re-passing `securityLevel: 'loose'`), the strict mode persists. This is a small functional change to non-insight modes (Mermaid click handlers and HTML in non-insight diagrams stop working).",
+      "benefit": "Removing the dead `securityLevel: 'strict'` from `mermaid.run()` clarifies that strict-mode is global state. To truly scope strict mode to insight only, capture the prior `securityLevel`, call initialize with strict on enter, and call initialize with the original level on `leaveInsightView()`. Or: confirm with the user that always-strict is acceptable globally and note the deliberate behavioral change in commit message.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 3009,
+      "severity": "major",
+      "category": "best-practices",
+      "suggestion": "`processInsightMermaidBlocks(DOM.insightCenter)` is a fire-and-forget async call inside the synchronous `renderInsight()` (L2985 in the snippet, L3009 in the merged file). If the user types fast enough that `appendInsightDelta` fires another debounced render BEFORE the per-block mermaid loop finishes for the previous render, two concurrent loops mutate the same `DOM.insightCenter` subtree. Each loop holds a stale `div` reference; `div.replaceWith(...)` on a node that was already replaced by the second loop will silently no-op (the node is still in memory but disconnected). The visible effect is intermittently-missing or duplicated diagrams during streaming. There is no try/catch around `processInsightMermaidBlocks` itself either — only around the inner `mermaid.run` call. An exception in the dom-mutation code (e.g. `replaceWith` on a frozen-by-shadow-DOM node) would propagate as an unhandled promise rejection.",
+      "benefit": "Track the in-flight pipeline (e.g. `state.insightMermaidInFlight = processInsightMermaidBlocks(...)` and `await previous` at the start) or generate a per-render token and bail if a newer render started. Add `.catch(e => console.warn('insight mermaid pipeline failed:', e))` to capture unhandled rejections.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 3134,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "`loadInsightView` calls `renderInsight()` and then immediately `renderInsightDeepDivesFromArray(state.insightDeepDives)` when explicit deep-dives are provided (L3138-3140). But `renderInsight()` already invokes `renderInsightDeepDivesFromArray(parsed.topics)` inside (L3009), so the right pane is built twice. Branch is harmless but wasteful and makes intent unclear when reading.",
+      "benefit": "Either skip the renderInsight->right-pane render when explicit topics are supplied (e.g. add a flag), or drop the explicit second call and let the marker in the buffer drive both. Cosmetic, but prevents future readers from wondering if there's an ordering dependency.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 3158,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "`appendInsightDelta` accepts deltas when `state.insightSessionId` is null (the session-mismatch guard `if (sessionId != null && state.insightSessionId != null && ...)` short-circuits when local id is null). If Swift races and sends a delta before `loadInsightView` has run, the buffer will accumulate text under no session, then the first `loadInsightView` call resets `insightBufferText` to the snapshot.markdown and discards the early deltas — but downstream click handlers will then send `sessionId: null` until the next load.",
+      "benefit": "Defensive: drop deltas when `state.insightSessionId === null` (early returns and asks Swift to call `showInsightLoading` first to seed the session id). Mirrors the spec's primary path where `loadInsightView`/`showInsightLoading` arrives first.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 2799,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "The link sanitizer is configured for `link_open` and `link_close` but not for `image` tokens. markdown-it `![alt](src)` flows through `image_token` -> default renderer with `src` set verbatim. While modern browsers do not execute javascript: in <img src>, `data:image/svg+xml,...` can still load arbitrary inert SVG content under the insight CSP (img-src includes `data:`).",
+      "benefit": "Defense in depth: also reject non-http(s)/relative `src` on image tokens (override `md.renderer.rules.image` similarly to link_open). Low risk because CSP already restricts <img> targets, but adding the validator removes the implicit dependency on CSP for image-src safety.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 2843,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "Marker parser's topic split uses literal ` :: ` (space-colon-colon-space). If the LLM emits `::` without the surrounding spaces (or `:: ` with one space), the split fails and the entire stripped line becomes the label with empty hint/scope. This is by spec but undocumented in the in-source comment. Consider adding the rationale or a regex `/\\s*::\\s*/` for tolerance — the spec says 'tolerant per-line split', and the looser split would be more LLM-friendly.",
+      "benefit": "Reduces marker-parser fragility against LLM whitespace variation. Behavioral, not security — flag as minor.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 3070,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "`switchToInsightView()` re-runs `mermaid.initialize({ securityLevel: 'strict', ... })` every time the user enters insight mode, mutating the global mermaid singleton. `applyTheme()` at L2443 also calls `mermaid.initialize({ theme: ... })` without `securityLevel`, which Mermaid v10+ defaults to 'strict' but earlier versions defaulted to 'loose'. The interaction means: after a single insight-mode entry, strict mode is locked in for the rest of the app session unless `applyTheme` later overrides it. This is desirable for security but inconsistent with the spec's '(insight mode only) per-render strict' framing.",
+      "benefit": "Either accept the side effect explicitly in code comment + commit message, or save/restore the prior securityLevel on enter/leave. Aligns code intent with documentation.",
+      "optional": true
+    },
+    {
+      "file": "Tests/Fixtures/marker-cases/in-code-fence.md",
+      "line": 1,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "Hand-trace: the current parser will pick the marker on L29 (the trailing real one) because lastIndexOf scans the whole buffer. The marker text inside the fence on L23 is also preceded by `\\n\\n` (L22 is blank) and followed by `\\n` (L24 starts with `- Some example`). So if the trailing real marker were ever absent, the in-fence text WOULD be matched. The fixture comment correctly notes this, but the production parser does not currently distinguish in-fence vs out-of-fence text — it relies on the LLM always emitting the real marker last. Worth a code comment near `INSIGHT_MARKER` documenting this assumption.",
+      "benefit": "Future readers will not be surprised by the in-fence-edge-case behavior. No code change needed if the assumption is acceptable.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 6,
+    "criticalIssuesCount": 2,
+    "majorIssuesCount": 2,
+    "minorIssuesCount": 5,
+    "testCoverageAssessment": "insufficient"
+  }
+}

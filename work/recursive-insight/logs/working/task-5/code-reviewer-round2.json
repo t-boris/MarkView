@@ -1,0 +1,41 @@
+{
+  "verdict": "approved",
+  "summary": "Both Round 1 critical CSP regressions are resolved by commit 7db0ae9. The widened CSP covers all external resources currently loaded by index.html: every <script src=\"https://...\"> targets cdn.jsdelivr.net (lines 1197, 1198, 1201, 1202) which is now allow-listed; remote markdown images render under img-src 'self' data: https:'; same-origin vendor/* assets remain covered by 'self'. Security intent is preserved verbatim — connect-src 'none', object-src 'none', base-uri 'none' all retained, script-src remains an explicit allow-list with no '*' or 'unsafe-eval', default-src 'self' retained. Insight-mode protection layers verified intact: insightMd is constructed with html: false (line 2795), every LLM-derived string flows through setText (textContent only, line 2875), and mermaid is initialized with securityLevel: 'strict' inside switchToInsightView (line 3105) plus passed per-render (line 2941). Explanatory HTML comment (lines 6-20) documents the deviation from Decision 10 §3 and enumerates the compensating controls. No new findings.",
+  "previous_findings_status": [
+    {
+      "round1_id": "critical-1-csp-script-src-blocks-cdn",
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 21,
+      "status": "resolved",
+      "evidence": "CSP now reads `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net`. Verified by grep that all four CDN scripts (D3 L1197, dagre L1198, turndown L1201, turndown-plugin-gfm L1202) target cdn.jsdelivr.net — fully covered. No other external script origins exist in index.html."
+    },
+    {
+      "round1_id": "critical-2-csp-img-src-blocks-remote-https",
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 21,
+      "status": "resolved",
+      "evidence": "CSP now reads `img-src 'self' data: https:`. Markdown image renderer at L1317 and WYSIWYG insertHTML at L2011 will both render https:// images. Note: bare http:// markdown images are still blocked, but this matches Round 1 recommendation (`http: optional`) and no test fixtures use http:// images."
+    },
+    {
+      "round1_id": "major-1-mermaid-securitylevel-runtime-option",
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 2941,
+      "status": "not_addressed_acceptable",
+      "evidence": "`securityLevel: 'strict'` is still passed to `mermaid.run()` at L2941 (silently ignored by Mermaid v10/v11 RunOptions) and the actual strict-mode is set globally via `mermaid.initialize({ ..., securityLevel: 'strict' })` at L3105 inside switchToInsightView. This is a non-blocking architectural observation, not a regression. Strict-mode bleed-through into other modes after first insight entry remains, but it strengthens (not weakens) security and was previously flagged as `optional: false` major rather than critical."
+    },
+    {
+      "round1_id": "major-2-fire-and-forget-mermaid-pipeline",
+      "file": "MarkView/Resources/Editor/index.html",
+      "line": 3009,
+      "status": "not_addressed_acceptable",
+      "evidence": "processInsightMermaidBlocks remains fire-and-forget without in-flight tracking or .catch(). Pre-existing concurrency concern unrelated to the CSP fix scope; non-blocking for the security-regression-focused round 2 verification."
+    }
+  ],
+  "new_findings": [],
+  "metrics": {
+    "filesReviewed": 1,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 0
+  }
+}

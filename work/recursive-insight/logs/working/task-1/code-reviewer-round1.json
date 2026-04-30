@@ -1,0 +1,41 @@
+{
+  "verdict": "approved",
+  "findings": [
+    {
+      "severity": "minor",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/AIProviderClient.swift",
+      "line": 237,
+      "issue": "HTTP-error body drain iterates `for try await byte in bytes` one byte at a time. For a 16 KB error body this incurs ~16,384 async-iteration suspension points and is measurably slow on cold paths. The `extractSingleChunk` non-streaming sibling at L149-152 simply uses `session.data(for:)` which gives the full body in one shot.",
+      "recommendation": "Consider refactoring to either (a) drain via `for try await line in bytes.lines` and append `\\n`-joined lines until the cap (one suspension per line, much fewer), or (b) accept this is an error-path-only cost and add an inline comment acknowledging the trade-off. Not blocking — error paths are infrequent and 16 KB is small."
+    },
+    {
+      "severity": "minor",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/AIProviderClient.swift",
+      "line": 263,
+      "issue": "Empty-line dispatch guard `if !currentEvent.isEmpty || !dataBuffer.isEmpty` will silently DROP the very last event of a stream if the SSE stream terminates WITHOUT a trailing blank line (rare but allowed by the SSE spec). In that case any pending `message_stop` (or final `content_block_delta`) accumulated in `dataBuffer` would be discarded when `bytes.lines` returns EOF. Anthropic always sends a trailing blank line so this is academic, but worth documenting.",
+      "recommendation": "Either (a) after the `for try await line in bytes.lines` loop, dispatch one final `handleSSEEvent` if `dataBuffer` is non-empty, or (b) add a code comment at L303 noting that trailing-blank-line is assumed (it is — Anthropic's SSE always terminates events with `\\n\\n`). Optional, low-impact."
+    },
+    {
+      "severity": "minor",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/AIProviderClient.swift",
+      "line": 199,
+      "issue": "Doc comment at L200-201 says \"`onDelta` may throw via Swift's normal closure propagation rules — but since the signature is non-throwing\" — this is contradictory and confusing. The closure type `@escaping (String) -> Void` cannot throw at all; there are no `try` rules to apply. The intent (caller should `Task.cancel()` to bail) is fine but the wording is misleading.",
+      "recommendation": "Rewrite as: \"`onDelta` is non-throwing by design. Callers that need to abort mid-stream should call `Task.cancel()` on the wrapping task; cancellation is observed between SSE lines and exits cleanly within ~1s.\""
+    },
+    {
+      "severity": "minor",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/AIProviderClient.swift",
+      "line": 309,
+      "issue": "Comment at L309-310 says \"Fall back to the `type` field inside the JSON when no event name is present\" but the implementation does NOT fall back to the JSON `type` field — empty `trimmedEvent` lands in the silent-ignore case at L336-337 (`\"\"` literal). The comment claims behavior the code does not implement.",
+      "recommendation": "Either implement the JSON `type`-field fallback (Anthropic's SSE always sends an `event:` line, so this is genuinely unnecessary in practice), OR delete the misleading comment. Recommend deletion — keep code and comments truthful."
+    },
+    {
+      "severity": "minor",
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/AIProviderClient.swift",
+      "line": 65,
+      "issue": "`internal var apiKeySnapshot: String? { return apiKey }` is added but currently has zero call sites in the codebase (verified via grep). The doc comment at L62-64 mentions `ActionEngine` as a future caller. Per task spec, Task 1 is additive and ActionEngine integration is not part of it. This is dead code on the round-1 commit, though it appears to be intentional groundwork for downstream tasks (see Decision 11 §3 retry-throttle pattern).",
+      "recommendation": "Either (a) remove `apiKeySnapshot` until a downstream task actually calls it (YAGNI), or (b) add a `// TODO(task-N): used by InsightSession.handleStreamError for sanitize` reference so the breadcrumb is explicit. Note: this accessor is the architecturally correct fix for the existing `apiKeyValue` extension at ActionEngine.swift L260-264 which reads UserDefaults directly (bypasses any in-memory key the AIProviderClient was constructed with) — but that fix should land in the task that actually uses it."
+    }
+  ],
+  "summary": "Code is correct, well-structured, and faithfully implements every Acceptance Criterion in task 1.md. SSE parser correctly handles multi-line `data:` accumulation, ignores `event: ping`/`message_delta`/`message_start`/`content_block_start`/`content_block_stop` and `:` keepalive comments, throws on `event: error`, uses strict `> 65536` (NOT `>=`) so a line of exactly 64 KB does not falsely trip, applies `Task.checkCancellation()` on every line iteration, and routes every error-path string through `sanitize()` (verified at L245, L259, L300, L334). Cancellation is correctly handled by catching `CancellationError` and returning normally rather than re-throwing. The `apiKey` used is the in-memory ivar (NOT the `apiKeyValue` extension that reads UserDefaults — verified by grep). Fixture `Tests/Fixtures/sse-anthropic-sample.txt` is well-formed, contains a real `message_start`, ping events, multiple `content_block_delta` of varied lengths, an inline `:` keepalive comment, `content_block_stop`, `message_delta`, and a final `message_stop`. Five minor findings, all stylistic / documentation-quality / dead-code — none block merge. Approved for round 1."
+}

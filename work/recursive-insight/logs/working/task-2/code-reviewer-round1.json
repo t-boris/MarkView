@@ -1,0 +1,27 @@
+{
+  "verdict": "approved",
+  "summary": "Task 2 implementation matches the spec on all hard requirements. TabKind enum + default-valued kind field preserve source-compat (verified: both existing OpenTab call sites at WorkspaceManager.swift:727 and :1212 still compile without changes). InsightSession stub has the exact shape Task 4 needs. scanMarkdownFiles correctly applies .skipsHiddenFiles + .skipsPackageDescendants, .dde exclusion, symlink containment with resolve-then-standardize order, and 500-file cap (exclusive: 500 passes, 501 fails — matches spec). hasMarkdownFiles short-circuits on first match. The three existing enumerator sites (now at L647, L1024, L1658) are untouched as required. pbxproj registrations are well-formed (PBXBuildFile, PBXFileReference, Models group, Sources phase) and xcodebuild succeeds with zero warnings/errors in the modified files. Findings below are minor cleanup opportunities only — none block approval.",
+  "findings": [
+    {
+      "severity": "minor",
+      "file": "MarkView/Models/WorkspaceManager.swift",
+      "line": 542,
+      "issue": "The new `// MARK: - Markdown File Scanning (Recursive Insight)` block was inserted on L544 between two orphaned doc-comment lines (L542 `/// Open a file in a new tab or switch to existing tab`, L543 `/// Open or refresh a file — if already open, reload content from disk`) and the function those comments originally documented (`openOrRefreshFile` now at L697, `openFile` at L712). The comments are now dangling above an unrelated MARK section, while the actual functions ~150 lines down have lost their doc comments. Not a build issue, but degrades readability and code archaeology.",
+      "recommendation": "Either (a) move the new MARK block to insert AFTER L543 ends and before whatever was originally on L544 (the spec said 'before excludeFolder L547', which would have placed it lower in the file), or (b) move the two orphaned doc-comment lines down to immediately precede `openOrRefreshFile`/`openFile` declarations so they re-attach to their functions. Preferred: relocate the entire new block (L544–L636) to just above `// MARK: - Folder Exclusion` (current L638) — that keeps it adjacent to other file-scanning utilities as the spec intended, and the orphaned comments naturally re-attach to `openOrRefreshFile`."
+    },
+    {
+      "severity": "minor",
+      "file": "MarkView/Models/WorkspaceManager.swift",
+      "line": 587,
+      "issue": "`includingPropertiesForKeys: [.isSymbolicLinkKey]` is requested in both enumerators (L587 and L623) but the resource value is never read — symlink handling is done via `resolvingSymlinksInPath()` instead. Pre-fetching an unused key is harmless but slightly misleading and adds a tiny per-file cost.",
+      "recommendation": "Either drop to `includingPropertiesForKeys: nil` (matching the existing three sites), or actually read `(try? url.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink` and use it to short-circuit the containment check for non-symlinks. The former is the cheaper change and matches surrounding code style."
+    },
+    {
+      "severity": "minor",
+      "file": "MarkView/Models/WorkspaceManager.swift",
+      "line": 617,
+      "issue": "`scanMarkdownFiles` (L582) and `hasMarkdownFiles` (L617) duplicate ~15 lines of enumerator setup + filter + symlink-containment logic. The only differences are: (a) accumulate vs early-return, (b) cap enforcement. A small private helper like `private func enumerateMdFiles(in: URL, onMatch: (URL) -> Bool)` (where returning `true` from the closure stops enumeration) would eliminate the duplication and ensure both paths stay in sync if filters evolve (e.g., new exclusion rule added later only to one site = silent inconsistency).",
+      "recommendation": "Optional refactor — extract a private `enumerateMarkdownFiles(in:body:)` helper that both methods call. Not required for this task, but worth doing before Task 7/8 add a third caller. If left as-is, add a comment on each site noting 'keep filters in sync with the other site'."
+    }
+  ]
+}

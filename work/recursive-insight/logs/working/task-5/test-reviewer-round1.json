@@ -1,0 +1,93 @@
+{
+  "verdict": "approved",
+  "summary": "All 5 fixtures hand-trace cleanly against the actual JS parser at index.html:2870-2900 (parseInsightMarker uses lastIndexOf on the literal '\\n\\n---DEEP-DIVES---\\n', then per-line split with ' :: ' and a 3-element pad). Each fixture's HTML header comment matches what the parser would produce. Fixture quality is high: realistic markdown, every fixture has a documentation-comment that names the case + expected output, exercises the documented edge case. The 8 deferred TDD anchors in section 'TDD Anchor' name behavioral assertions (extract three topics, last marker wins, javascript: stripped, 100 deltas coalesce to 1 render) — these are good behavioral tests, not substring-presence checks. NO critical fixture is missing for cases the parser MUST handle. Significant uncovered paths (CRLF line endings, partial marker across delta boundary, mid-stream debounce coalescing under load, Mermaid render error fallback path, link sanitizer scheme rejection) are documented below and should be picked up by the deferred test follow-up — not blockers for this task per Decision 9 (tests deferred, fixtures + hand-trace are the gate).",
+  "fixture_hand_trace": [
+    {
+      "fixture": "Tests/Fixtures/marker-cases/happy.md",
+      "expected": "body = everything up to and including the blank line before '---DEEP-DIVES---'; topics = 3 entries (Auth flow / Storage layer / API surface) with the documented label, hint, scopeHint arrays.",
+      "parser_would_produce": "lastIndexOf('\\n\\n---DEEP-DIVES---\\n') matches the unique marker between the '## Highlights' bullet list (line 22 ends with \\n) + blank line 23 (\\n) + '---DEEP-DIVES---' (line 24) + \\n before line 25. body = file content [0..idx] (exactly through the blank line). tail = lines 25-27. Each line trimmed, starts with '- ', split by ' :: ' yields 3 parts, scopeRaw split by ',' produces the expected scopeHint arrays. Result: 3 topics, label/hint/scopeHint match the comment exactly.",
+      "match": true
+    },
+    {
+      "fixture": "Tests/Fixtures/marker-cases/in-code-fence.md",
+      "expected": "Marker text inside the ```text fenced block (line 23) MUST NOT be matched. Only the trailing real marker (line 29) wins. body = everything before the trailing marker (including the entire code fence + its embedded '---DEEP-DIVES---' literal). topics = 1 entry (Marker semantics).",
+      "parser_would_produce": "lastIndexOf scans from the end and finds the trailing '\\n\\n---DEEP-DIVES---\\n' at line 28 blank + line 29 marker + \\n. The earlier in-fence occurrence at line 22 blank + line 23 also matches the literal substring syntactically (this is exactly why the comment notes 'lastIndexOf semantics naturally pick the trailing real marker' — the in-fence occurrence is shadowed by lastIndexOf). tail = 'Marker semantics :: how the parser disambiguates :: docs/parser.md\\n'. After trim + ' :: ' split → 1 topic with the documented label/hint/scopeHint. body slice [0..idx] preserves the whole code-fenced section unchanged. Result: 1 topic, body intact.",
+      "match": true
+    },
+    {
+      "fixture": "Tests/Fixtures/marker-cases/as-hr.md",
+      "expected": "Bare '---' HRs MUST NOT match. body = full buffer unchanged. topics = [].",
+      "parser_would_produce": "lastIndexOf('\\n\\n---DEEP-DIVES---\\n') returns -1 because the literal token 'DEEP-DIVES' appears nowhere in the file. Parser returns { body: buffer, topics: [] }. Result: 0 topics, full body returned.",
+      "match": true
+    },
+    {
+      "fixture": "Tests/Fixtures/marker-cases/no-marker.md",
+      "expected": "body = full buffer unchanged. topics = [].",
+      "parser_would_produce": "lastIndexOf returns -1 (no marker present). Parser returns { body: buffer, topics: [] }. Result: 0 topics, full body returned.",
+      "match": true
+    },
+    {
+      "fixture": "Tests/Fixtures/marker-cases/multiple-markers.md",
+      "expected": "Two real markers in the buffer. Parser picks the LAST. body = everything before the second marker (includes the first marker line + its now-stale topic list). topics = 2 entries (Final topic A / Final topic B).",
+      "parser_would_produce": "Both '\\n\\n---DEEP-DIVES---\\n' occurrences (line 17 blank+line 18 marker, line 27 blank+line 28 marker) are syntactic matches. lastIndexOf picks the second one at line 27/28. body = file [0..idx] which retains the whole 'First Pass Summary' section, the stale marker line, and the stale topics — matching the fixture comment exactly. tail = lines 29-30 → 2 topics with the documented label/hint/scopeHint. Result: 2 topics, body keeps stale section.",
+      "match": true
+    }
+  ],
+  "uncovered_paths": [
+    {
+      "path": "CRLF line endings (\\r\\n)",
+      "severity": "major",
+      "issue": "INSIGHT_MARKER literal is '\\n\\n---DEEP-DIVES---\\n'. If Swift forwards a buffer that uses CRLF (e.g. an LLM that emits Windows-style newlines, or pasted content), the buffer between paragraphs is '\\r\\n\\r\\n---DEEP-DIVES---\\r\\n', which does NOT contain the LF-only '\\n\\n' sequence. lastIndexOf returns -1 and the marker is missed entirely — body would render the topic list as markdown bullets and the deep-dive pane would stay empty. No fixture exercises this. Per-line CR strip ('line.replace(/\\r$/, \\'\\')') only handles per-line CR after split — it does NOT normalize the boundary.",
+      "fix_recommendation": "Either (a) add buffer-level normalization at the top of parseInsightMarker: 'buffer = buffer.replace(/\\r\\n/g, \\'\\n\\');' before the lastIndexOf call, or (b) commit a 'crlf.md' fixture (saved with CRLF line endings, document expected behavior) and either fix the parser or document the LF-only contract explicitly in the marker spec. Recommend (a) — defensive normalization is one line and handles the realistic LLM/pasted-content case."
+    },
+    {
+      "path": "Partial marker arriving across two appendInsightDelta calls",
+      "severity": "minor",
+      "issue": "The Details section explicitly calls out: 'Stream interrupted mid-marker (\\n\\n---DEEP-DI with no closing): no match, render full buffer as markdown until next chunk arrives.' Current parser handles this correctly (lastIndexOf returns -1 on partial substring), but no fixture documents it. A future test should append delta1 = 'body...\\n\\n---DEEP-DI', verify topics = [] and body preserved, then append delta2 = 'VES---\\n- Topic :: hint :: file.md', verify topics = 1 after the second render.",
+      "fix_recommendation": "Add 'partial-marker.md' fixture OR add a TDD anchor 'test_partial_marker_across_chunks_resolves_on_completion' in the InsightMarkerParserTests / InsightDebounceTests follow-up. Not strictly required to add a fixture — partial-marker behavior is testable by the existing happy.md content split at an arbitrary byte index."
+    },
+    {
+      "path": "Mid-stream debounce coalescing under load",
+      "severity": "minor",
+      "issue": "TDD anchor 'test_rapid_deltas_coalesce' covers '100 deltas in 50 ms → exactly 1 render after ~150 ms'. Good behavioral assertion. But there is no anchor for the case where deltas arrive over a longer window (e.g. 5 deltas, each 200 ms apart, 1 second total) — the expected behavior is 5 renders (each clearTimeout/setTimeout cycle elapses). Without that, the debounce semantics are under-specified: a buggy implementation that uses setInterval, or a too-large debounce, would still pass the rapid-coalesce test.",
+      "fix_recommendation": "Add a second anchor 'test_spaced_deltas_render_separately' — N deltas spaced > 150 ms apart → N renders. Pairs with test_rapid_deltas_coalesce to fully constrain the debounce contract."
+    },
+    {
+      "path": "Mermaid per-block error fallback",
+      "severity": "minor",
+      "issue": "processInsightMermaidBlocks at index.html:2906-2944 has a per-block try/catch that on failure restores raw <pre><code> + an .insight-mermaid-error label. This is critical Decision 7 / Decision 10 behavior (a single bad diagram must not abort the rest of the render) but is not in the TDD anchor list. No fixture and no anchor.",
+      "fix_recommendation": "Add a fixture 'mermaid-mixed.md' (one valid mermaid block + one syntactically broken mermaid block + trailing markdown) and an anchor 'test_one_bad_mermaid_does_not_abort_render' — assert the valid block renders, the bad block shows raw fence + error label, the trailing markdown renders."
+    },
+    {
+      "path": "Link sanitizer (insightMd link_open override)",
+      "severity": "minor",
+      "issue": "TDD anchor 'test_javascript_href_stripped' covers javascript: scheme. Good. But the implementation rejects javascript:/data:/file:/vbscript: AND any unknown scheme, while allowing http(s):// and relative paths. The other rejected schemes (data:, file:, vbscript:, mailto: which would be unknown) and the relative-path allow case are not in the anchor list.",
+      "fix_recommendation": "Expand the InsightSanitizationTests anchor list to enumerate each rejected scheme (data:, file:, vbscript:) and explicitly assert that http://, https://, and relative paths like '../foo.md' or '/path/to.md' are preserved. Each scheme should be one anchor — substring presence is not enough; the assertion must be on the rendered <a> tag's href attribute (or its absence)."
+    },
+    {
+      "path": "Stale-session delta rejection",
+      "severity": "minor",
+      "issue": "appendInsightDelta at index.html:3138 rejects deltas whose sessionId does not match state.insightSessionId. This is correct race-condition handling for session switches mid-stream. No anchor documents this behavior.",
+      "fix_recommendation": "Add anchor 'test_stale_session_delta_dropped' — call loadInsightView({sessionId:'A'}), then appendInsightDelta('B', 'should-not-appear'); assert insightBufferText is unchanged."
+    }
+  ],
+  "fixture_quality": {
+    "assessment": "excellent",
+    "notes": "Every fixture starts with an HTML comment block naming the fixture, its purpose, and the expected parser output (body description + topics array with explicit labels/hints/scopeHints). This is exactly the right format for hand-trace review and as golden inputs for the deferred Swift XCTests. Fixtures are small (17-30 lines), realistic markdown content, no formatting issues, no trailing whitespace problems observed. The in-code-fence.md fixture is particularly well-crafted: it places the 'fake' marker inside a syntactically valid markdown code fence so a real markdown parser would also keep it inert, and it uses lastIndexOf semantics rather than relying on the parser to detect 'inside-fence' context."
+  },
+  "tdd_anchor_quality": {
+    "assessment": "good",
+    "anchors_count": 8,
+    "behavioral_anchors": 8,
+    "substring_only_anchors": 0,
+    "notes": "All 8 anchors describe behavioral assertions (extract N topics, last marker wins, scheme stripped, 100 deltas → 1 render). None are substring-presence checks. Naming follows test_<scenario>_<expected> convention. Anchors map 1:1 to fixtures plus 2 sanitization + 1 debounce. Recommend adding the 4 anchors called out in uncovered_paths (CRLF normalization, spaced-delta debounce, mermaid per-block fallback, expanded scheme matrix, stale-session) when the deferred test infrastructure lands — not blockers for this task."
+  },
+  "metrics": {
+    "filesReviewed": 6,
+    "fixturesHandTraced": 5,
+    "fixturesPassed": 5,
+    "fixturesFailed": 0,
+    "uncoveredPathsFound": 6,
+    "criticalFixtureGaps": 0
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "status": "needs_improvement",
+  "summary": "Tests are deferred per Decision 9 (no MarkViewTests target). The 10 listed TDD anchors cover the headline behaviors (happy path, >500 cap, basic symlink escape, hidden/.dde, package descendants, hasMarkdownFiles nil/empty/early-exit) and are appropriately scoped behavioral assertions — not substring-presence checks. However, several spec-stated edge cases and code-path branches are not covered by anchors and should be added before the test target is created (Wave 3+). Most notable gaps: the exact 500-vs-501 boundary called out explicitly in the Edge cases section, the duplicated containment/.dde/hidden filter logic inside hasMarkdownFiles (no anchors for it), legitimate-symlink-inside-folder acceptance, the silent .success([]) return when FileManager.enumerator(...) returns nil, and a deep-nesting test that proves recursive enumeration descends. None of these are critical (no security-impacting behavior is asserted-wrong; the implementation itself looks correct) but they leave real regression risk for Task 4/7/8 callers.",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor (tasks/2.md L92-99) — ScanMarkdownFilesTests",
+      "issue": "Anchor `testRejectsExceedingFileLimit` only covers `>500`. The Edge cases section explicitly states 'cap exclusive: > 500 fails, == 500 passes', and the implementation orders `results.append(url)` BEFORE `if results.count > limit`. A regression that flips the comparison to `>=` would silently break the boundary, but no anchor pins the EXACTLY-500 success case.",
+      "recommendation": "Add two anchors instead of one: (a) `testAcceptsExactly500Files` — generate 500 .md files in a temp folder, expect `.success(let urls)` with `urls.count == 500`. (b) `testRejectsAt501Files` — generate 501 .md files, expect `.failure(.folderTooLarge(count:, limit: 500))` and assert `count >= 501` (implementation may stop on the 501st). Both tests must use temp dirs created in setUp/tearDown to avoid filesystem leakage."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — HasMarkdownFilesTests",
+      "issue": "`hasMarkdownFiles` re-implements the symlink containment check, the `.dde` filter, and the `.skipsHiddenFiles`/`.skipsPackageDescendants` enumerator options as a parallel copy of `scanMarkdownFiles`. None of the 3 listed anchors for `hasMarkdownFiles` (false-when-no-root, true-on-first-match, false-for-folder-without-md) verify these filters. If the duplicated logic drifts from `scanMarkdownFiles` (likely during refactor), the menu disabled-state could disagree with the actual scan result.",
+      "recommendation": "Add anchors: (a) `testHasMarkdownFiles_skipsSymlinkEscape` — folder containing a single .md that is a symlink to a file outside the folder; expect `false`. (b) `testHasMarkdownFiles_skipsDdeAndHidden` — folder containing only `.notes.md` (hidden) and `.dde/foo.md`; expect `false`. (c) `testHasMarkdownFiles_skipsPackageDescendants` — folder containing only `Foo.app/contents.md`; expect `false`. These mirror the scanMarkdownFiles anchors and prevent the two implementations from drifting."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — ScanMarkdownFilesTests",
+      "issue": "No anchor verifies recursive enumeration descends into nested subdirectories. A regression that swaps `FileManager.enumerator(at:...)` for `contentsOfDirectory(at:...)` would still pass the happy-path anchor (3 .md at top level) but silently break the real Recursive Insight use case (which is *recursive*).",
+      "recommendation": "Add `testDeeplyNestedFilesAreFound` — create folder structure `root/a/b/c/d/deep.md` plus `root/top.md`; expect `.success(let urls)` with both URLs present. This pins the depth-first enumeration contract."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "MarkView/Models/WorkspaceManager.swift:584-590 (scanMarkdownFiles enumerator nil branch) and L612-618 (hasMarkdownFiles enumerator nil branch)",
+      "issue": "Both functions return success-equivalent values (`.success([])` and `false` respectively) when `FileManager.enumerator(...)` returns nil — which happens for non-existent URLs, permission failures, or non-directory URLs. There is no anchor for this branch, AND the design itself silently swallows the error (caller cannot distinguish 'folder is empty' from 'we could not read it'). For the menu disabled-state this is acceptable; for `scanMarkdownFiles` it may hide failures during Task 7 (`startRecursiveInsight`).",
+      "recommendation": "Add anchor `testScanMarkdownFiles_returnsEmptySuccessForUnreadableFolder` — pass a non-existent or chmod-000 URL, document current behavior (`.success([])`). Separately, raise to code-reviewer whether `ScanError` should add a `.unreadable` case so callers can show a better error than 'no markdown files found'. (Test scope only documents current behavior; design change is out-of-scope for Task 2 but should be tracked.)"
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — ScanMarkdownFilesTests (positive symlink case)",
+      "issue": "Edge cases section line 195 explicitly states 'Symlink на файл ВНУТРИ folderURL (валидная reference) → принимается'. No anchor covers this positive-acceptance case. The risk: an over-eager fix to the containment check could start rejecting all symlinks (false negative), and only the escape-rejection anchor would catch it (it would not).",
+      "recommendation": "Add `testAcceptsSymlinkPointingInsideFolder` — create `root/real.md` and `root/link.md -> real.md`; expect `.success(let urls)` containing the symlink URL (or its resolved target — assert on count and that .md content is reachable). This pins the positive containment behavior."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — symlink coverage breadth",
+      "issue": "The single `testSkipsSymlinkEscapingFolder` anchor implicitly covers symlink-to-file-outside-folder. Three related variants are not enumerated: (1) symlink-to-DIRECTORY-outside-folder containing .md files (different code path: symlink dir is descended into), (2) broken symlink (target does not exist — `resolvingSymlinksInPath()` returns the original path, so containment check passes; the .md may or may not appear depending on FileManager behavior), (3) folder URL itself being a symlink (Edge cases L191 says this should resolve correctly via the baseline `resolvingSymlinksInPath()`).",
+      "recommendation": "Add three anchors: (a) `testSkipsSymlinkToExternalDirectory` — folder containing `linkdir -> /tmp/extdir`, where extdir holds .md; expect those .md files NOT in result. (b) `testHandlesBrokenSymlink` — folder containing `dead.md -> /nonexistent.md`; expect graceful exclusion (no crash, .success). (c) `testFolderURLItselfIsSymlink` — pass a symlink to a real folder containing one .md; expect `.success` with that .md (containment baseline must resolve the input)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — TabKindTests::testOpenTabAcceptsInsightKind",
+      "issue": "The anchor description says 'сохраняет ссылку на сессию' but is not explicit about HOW to verify retention. Since `TabKind` is an enum with an associated value and `InsightSession` is a class, a litmus-strong test must extract via pattern match and assert object identity (`===`), not just non-nil. A weak test like `XCTAssertNotNil(tab.kind)` would always pass.",
+      "recommendation": "Make the anchor explicit: `let session = InsightSession(); let tab = OpenTab(url: u, content: \"\", originalContent: \"\", kind: .insight(session)); guard case .insight(let stored) = tab.kind else { XCTFail(); return }; XCTAssertTrue(stored === session)`. Identity check (===) is critical because the associated value carries a class reference."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — empty folder happy path",
+      "issue": "Edge cases L189 states 'Пустая папка → .success([])'. No anchor pins this — `testHappyPath` uses 3 .md + 2 .txt. The empty-success contract distinguishes 'valid scan, nothing found' from `ScanError.folderTooLarge`, and is the contract Task 7 will rely on for 'show empty insight tree'.",
+      "recommendation": "Add `testEmptyFolderReturnsEmptySuccess` — create empty temp folder, expect `.success(let urls)` with `urls.isEmpty`. One-line addition."
+    },
+    {
+      "severity": "minor",
+      "category": "anti_pattern",
+      "location": "Section: TDD Anchor — testTrueOnFirstMatchEarlyExit",
+      "issue": "The anchor description says 'verified via timing, optional'. Timing-based assertions are flaky in CI (jitter, slow runners) and the anchor itself marks it optional. Without a deterministic check, the early-exit contract is not actually pinned.",
+      "recommendation": "Replace timing with deterministic check. Option A (preferred): assert on enumerator side-effects — wrap FileManager in a counting spy (or use a controlled fixture where finding the .md file early provably means the rest were never read). Option B (simpler): assert on result and treat performance as a non-functional concern verified manually. If neither is feasible without test infra, demote to a documentation-only note in the helper's docstring rather than a flaky test."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 4,
+    "litmusTest": {
+      "checked": 10,
+      "passed": 9,
+      "failed": 1
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 10,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "healthy"
+    }
+  }
+}

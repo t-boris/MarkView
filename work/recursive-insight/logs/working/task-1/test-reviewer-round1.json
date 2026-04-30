@@ -1,0 +1,130 @@
+{
+  "verdict": "approved",
+  "fixture_quality": "good",
+  "tdd_scope_complete": false,
+  "summary": "Hand-trace of the SSE parser against Tests/Fixtures/sse-anthropic-sample.txt is clean: the concatenated onDelta outputs reconstruct a coherent reply ('Sure! Here is a count from one to ten:\\n\\n1. One — the first natural number.\\n...10. Ten — fingers on two hands.'), and message_stop triggers normal return at line 266 via the handleSSEEvent return-true branch. The fixture matches Anthropic's SSE format (event/data pairs with blank-line dispatch, ping comments, message_start, content_block_start/delta/stop, message_delta, message_stop, plus one ': keepalive' SSE comment line). All event branches the parser names are exercised by the fixture EXCEPT the three error-path branches (event: error, oversized line, malformed JSON), the multi-line data: coalescer, HTTP non-200 with body sanitization, EOF-without-message_stop, non-text_delta delta types, and unknown event forward-compat. Verdict is 'approved' for the deferred-tests context (XCTest target does not exist; tech-spec Decision 9 explicitly defers): the build + fixture hand-trace is sufficient compensating verification for the happy path, and the 7 TDD anchors listed in tasks/1.md are behaviorally rigorous (none are 'string contains keyword' anti-patterns). However, the TDD anchor list has documented gaps that should be appended before the deferred test task is executed — this is recorded as findings, not a blocker for THIS task.",
+  "fixture_handtrace": {
+    "events_dispatched": 27,
+    "deltas_emitted_in_order": ["Sure", "!", " Here", " is a count", " from one", " to ten", ":\\n\\n", "1. One", " — the first", " natural number.\\n", "2. Two", " — the smallest prime.\\n", "3. Three", " — sides of a triangle.\\n", "4. Four", " — the seasons of the year.\\n", "5. Five", " — fingers on a hand.\\n", "6. Six", " — faces of a cube.\\n", "7. Seven", " — days in a week.\\n", "8. Eight", " — legs of an octopus.\\n", "9. Nine", " — planets if we count Pluto.\\n", "10. Ten", " — fingers on two hands."],
+    "expected_concatenation": "Sure! Here is a count from one to ten:\\n\\n1. One — the first natural number.\\n2. Two — the smallest prime.\\n3. Three — sides of a triangle.\\n4. Four — the seasons of the year.\\n5. Five — fingers on a hand.\\n6. Six — faces of a cube.\\n7. Seven — days in a week.\\n8. Eight — legs of an octopus.\\n9. Nine — planets if we count Pluto.\\n10. Ten — fingers on two hands.",
+    "lifecycle_events_silently_ignored": ["message_start", "content_block_start", "ping (x2 with data)", "content_block_stop", "message_delta"],
+    "comment_lines_ignored": [": keepalive comment from server"],
+    "termination": "event: message_stop dispatched on line 105 → handleSSEEvent returns true → outer for-await returns at line 266"
+  },
+  "uncovered_paths": [
+    {
+      "branch": "event: error → AIProviderError.streamingError(sanitize(message))",
+      "location": "AIProviderClient.swift:329-334",
+      "in_fixture": false,
+      "in_tdd_anchor_list": true,
+      "anchor_name": "test_handles_error_event",
+      "risk_level": "high",
+      "explanation": "Critical error-path. The error branch parses payload['error']['message'] with two fallback layers; without a test, a future Anthropic schema change (e.g., 'error.detail' instead of 'error.message') silently degrades to 'unknown error'. The hand-trace cannot exercise it."
+    },
+    {
+      "branch": "SSE line > 64 KB → AIProviderError.streamingError('SSE line exceeds 64 KB cap')",
+      "location": "AIProviderClient.swift:258-260",
+      "in_fixture": false,
+      "in_tdd_anchor_list": true,
+      "anchor_name": "test_rejects_oversized_line",
+      "risk_level": "high",
+      "explanation": "DoS-protection branch from Decision 10 §7. Off-by-one risk: code uses '> 65536' (exclusive) per the spec note, so a line of EXACTLY 65536 bytes passes — only the deferred test will lock that boundary."
+    },
+    {
+      "branch": "Multi-line data: coalescing (data buffer appends with '\\n')",
+      "location": "AIProviderClient.swift:285-289",
+      "in_fixture": false,
+      "in_tdd_anchor_list": false,
+      "risk_level": "medium",
+      "explanation": "SSE spec allows multiple data: lines per event joined by newline. Anthropic does not currently send these, but the code path exists and is untested. If they ever do, coalescing correctness is unverified."
+    },
+    {
+      "branch": "HTTP non-200 → httpError(status, sanitize(body))",
+      "location": "AIProviderClient.swift:233-246",
+      "in_fixture": false,
+      "in_tdd_anchor_list": "partial",
+      "anchor_name": "test_no_api_key_in_error_messages (covers HTTP 401 sanitize, but not status propagation or 16 KB body cap)",
+      "risk_level": "medium",
+      "explanation": "Body is drained byte-by-byte with a 16 KB cap (Self.maxErrorBodyBytes). The cap, the AIProviderError.httpError shape, and the sanitize() call on the body are all untested. The TDD anchor for sanitization mentions it but does not pin status code or body cap behavior."
+    },
+    {
+      "branch": "Malformed JSON in content_block_delta → NSLog warning, skip",
+      "location": "AIProviderClient.swift:315-318",
+      "in_fixture": false,
+      "in_tdd_anchor_list": false,
+      "risk_level": "medium",
+      "explanation": "parseJSONObject returns nil on bad JSON; code emits NSLog and continues. Untested. Risk: if NSLog message ever inadvertently includes raw payload, an API key in the payload could leak. Currently the message is a static string, so safe — but a regression here would not be caught."
+    },
+    {
+      "branch": "delta.type != 'text_delta' (e.g., input_json_delta for tool-use streams)",
+      "location": "AIProviderClient.swift:319-323",
+      "in_fixture": false,
+      "in_tdd_anchor_list": false,
+      "risk_level": "low",
+      "explanation": "If Recursive Insight ever streams tool-use, a non-text delta is silently dropped. Acceptable for current scope (text-only summaries) but undocumented in tests."
+    },
+    {
+      "branch": "Stream EOF without message_stop → normal return",
+      "location": "AIProviderClient.swift:303-304",
+      "in_fixture": false,
+      "in_tdd_anchor_list": false,
+      "risk_level": "low",
+      "explanation": "Per spec ('cancellation from Task or EOF — both are valid'). No anchor verifies that this is not an error throw. Could regress to throwing in a refactor."
+    },
+    {
+      "branch": "Unknown event name (forward-compat default branch)",
+      "location": "AIProviderClient.swift:341-343",
+      "in_fixture": false,
+      "in_tdd_anchor_list": false,
+      "risk_level": "low",
+      "explanation": "Forward-compat hook. If Anthropic adds a new event name, parser must NOT throw. Untested."
+    },
+    {
+      "branch": "Partial chunks across TCP packets (byte-level splits)",
+      "location": "URLSession.AsyncBytes.lines internals",
+      "in_fixture": false,
+      "in_tdd_anchor_list": true,
+      "anchor_name": "test_partial_chunks_across_packets",
+      "risk_level": "low",
+      "explanation": "URLSession.AsyncBytes.lines handles byte-stream-to-line buffering — this is Apple's framework code, not ours. The TDD anchor exists for paranoia. Hand-trace cannot exercise it because the fixture is line-oriented."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/1.md TDD Anchor section",
+      "issue": "TDD anchor list is missing four behavioral cases that exist in the implementation: (a) multi-line data: coalescing, (b) malformed JSON in content_block_delta (skip-not-throw), (c) stream EOF without message_stop (normal return, not error), (d) unknown event name (forward-compat silent ignore).",
+      "recommendation": "Append four anchors to tasks/1.md TDD Anchor section before the deferred test task is scheduled: `test_multiline_data_coalescing` (feed `event: x\\ndata: line1\\ndata: line2\\n\\n`, assert handler receives 'line1\\nline2'), `test_skips_malformed_content_block_delta` (feed `event: content_block_delta\\ndata: {invalid json\\n\\n` followed by a valid delta, assert no throw and the valid delta is emitted), `test_eof_without_message_stop_returns_normally` (truncate fixture before message_stop, assert function returns without throw), `test_ignores_unknown_event_name` (feed `event: future_event_v2\\ndata: {}\\n\\n`, assert no throw, no onDelta)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Tests/Fixtures/sse-anthropic-sample.txt",
+      "issue": "The committed fixture covers only the happy path. It has no `event: error` block, no oversized line, no multi-line `data:` event, and no malformed JSON payload — all of which are non-trivial parser branches that the fixture is supposed to anchor for the deferred tests.",
+      "recommendation": "Either (a) commit four sibling fixtures as the deferred test task's first deliverable: `Tests/Fixtures/sse-error-event.txt`, `Tests/Fixtures/sse-oversized-line.txt`, `Tests/Fixtures/sse-multiline-data.txt`, `Tests/Fixtures/sse-malformed-delta.txt`; or (b) construct these inline in the test code (acceptable for synthetic SSE, since they don't need to be real Anthropic captures). Add a note to tasks/1.md acknowledging that sse-anthropic-sample.txt is the happy-path golden only, and edge-case fixtures are deferred-test-task scope."
+    },
+    {
+      "severity": "minor",
+      "category": "anti_pattern",
+      "location": "AIProviderClient.swift:258 (oversized-line check)",
+      "issue": "The 64 KB cap uses `> 65536` (exclusive). The spec comment in Edge cases says 'use `> 65536`, not `>=`, чтобы 64 KB ровно не падало', so this matches intent. However, the deferred test `test_rejects_oversized_line` does not specify which side of the boundary it tests. Without a paired 'exactly-at-cap-passes' test, a future change to `>=` (mis-tightening) would be silently accepted.",
+      "recommendation": "When the deferred test is written, split into two anchors: `test_rejects_line_over_64kb` (line of 65537 bytes → throws) AND `test_accepts_line_at_64kb_boundary` (line of exactly 65536 bytes → no throw). Add this pairing to the TDD Anchor list in tasks/1.md."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "AIProviderClient.swift:300 (catch block in streamCompletion)",
+      "issue": "Network/decode errors from the byte iterator are wrapped via `AIProviderError.streamingError(sanitize(String(describing: error)))`. The `String(describing:)` of a Swift Error can include arbitrary debug detail. Sanitization protects against the apiKey-substring case, but no anchor verifies what happens when `error` is a `URLError` whose `userInfo` happens to contain the URL with the API key in a header (it wouldn't normally — headers are not in URLError.userInfo — but the contract isn't pinned).",
+      "recommendation": "Add to `test_no_api_key_in_error_messages` an explicit sub-case: 'force a network mid-stream error (e.g., kill the stream URLSessionTask), assert the thrown streamingError.localizedDescription does not contain the apiKey'. Already implied by the anchor's broad 'force every error branch' wording, but should be made explicit."
+    }
+  ],
+  "deferred_tests_acknowledged": true,
+  "tdd_anchor_quality": {
+    "total_anchors": 7,
+    "behavioral": 7,
+    "string_substring_only": 0,
+    "assessment": "All seven anchors are behavioral. None fall into the 'assert keyword in prompt' anti-pattern. Each describes a concrete input → expected outcome (assembled text, error type, no-call invariant, time bound, substring-absence). This is the right test design — the gap is breadth (4 missing cases) not quality."
+  },
+  "compensating_verification_assessment": "Build + reviewer hand-trace is adequate for THIS task given the explicit deferral in tech-spec Decision 9. The fixture is realistic and exhaustively exercises the happy path. The four error/edge branches uncovered by the fixture (event: error, oversized line, multi-line data, malformed JSON) are real risks that the deferred test task MUST cover — flagged here so the follow-up task scope is not silently shrunk."
+}

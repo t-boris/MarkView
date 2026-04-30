@@ -1,0 +1,65 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 2,
+    "critical": 0,
+    "major": 0,
+    "minor": 2
+  },
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "A05: Security Misconfiguration",
+      "title": "mermaid securityLevel: 'strict' passed to mermaid.run() is likely ignored at the call site (still enforced globally via mermaid.initialize)",
+      "description": "processInsightMermaidBlocks() at index.html:2922-2927 invokes `mermaid.run({ nodes: [div], suppressErrors: false, securityLevel: 'strict' })`. According to Mermaid's API, securityLevel is a configuration-time setting consumed by mermaid.initialize(), not a per-run option of mermaid.run(); when passed inline to run() it is generally ignored. The actual strict-mode protection in this code path comes from the call to mermaid.initialize({ ..., securityLevel: 'strict' }) inside switchToInsightView() at index.html:3087-3091, which is invoked every time the insight pane is shown. So the security control IS in force whenever a Mermaid block is rendered in insight mode — but the per-render argument is misleading: a maintainer reading processInsightMermaidBlocks() in isolation may believe it self-enforces strict, when in fact it relies on switchToInsightView() having run first. There is also a residual concern that initialize() flips Mermaid into strict mode globally, so the setting persists if the user later returns to editor/preview/structured modes (defense-in-depth side-effect, not a regression — those modes only render dev/user-authored Mermaid, never LLM output).",
+      "location": "MarkView/Resources/Editor/index.html:2922-2927 (mermaid.run call) and MarkView/Resources/Editor/index.html:3087-3091 (mermaid.initialize call)",
+      "impact": "If a future refactor calls processInsightMermaidBlocks() outside the switchToInsightView() flow (e.g. background pre-render, unit-test harness, hot-swap), Mermaid would render with the previously-active securityLevel, which could be 'loose' if any other code path re-initializes Mermaid afterwards. In strict mode Mermaid blocks click handlers / HTML labels in LLM-emitted diagram source; if strict were silently downgraded, LLM-injected mermaid-flowchart click handlers could fire when the user clicks a node.",
+      "recommendation": "Move the strict initialization to the per-block boundary so it cannot drift: call `mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: <current> })` immediately before the for-loop in processInsightMermaidBlocks() (or once at module init, with an explicit comment documenting that insight mode requires it and editor mode tolerates it). Optionally drop the misleading `securityLevel: 'strict'` argument from the mermaid.run() call to avoid implying per-call enforcement. No code change required to ship Task 5 — the active code path is already protected.",
+      "cwe": "CWE-1188 (Insecure Default Initialization of Resource)"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "window.appendInsightDelta / setInsightDeepDives / setInsightError accept null sessionId and silently bypass the freshness guard",
+      "description": "The five `window.*` insight setter functions guard against stale-session deltas with the pattern `if (sessionId != null && state.insightSessionId != null && String(sessionId) !== String(state.insightSessionId)) return;` (e.g. index.html:3140-3143, 3152-3155, 3181-3184). When the caller passes `sessionId == null` (or before loadInsightView() has set state.insightSessionId), the guard short-circuits and the call proceeds — appending the supplied deltaText to state.insightBufferText with no session check. This is intentional for the bridge (Swift may not have a session ID yet on first-paint), and the rendered output still flows through insightMd (html: false) + setText, so XSS is not in scope. However, the path means any code in the WebView (including a hypothetical bug in another mode that exposes window.appendInsightDelta to an event handler) could feed arbitrary text into insightBufferText. Combined with CSP `script-src 'unsafe-inline'`, an attacker who has already achieved JS execution gains nothing new — this is purely a hardening note.",
+      "location": "MarkView/Resources/Editor/index.html:3138-3148 (appendInsightDelta), 3151-3163 (setInsightDeepDives), 3180-3187 (setInsightError)",
+      "impact": "Low: requires the attacker to already control the WebView's JS context. The injected content would still pass through markdown-it html:false and the link sanitizer, so it could not produce active script. Worst case is UI spoofing of insight content (defacement) and triggering bridge messages on user click. No exfiltration vector because connect-src 'none' blocks fetch / XHR / WebSocket / EventSource.",
+      "recommendation": "Optional follow-up (not required for Task 5): require a non-null sessionId match in appendInsightDelta and reject otherwise; have the Swift bridge always pass the active sessionId. Document the current 'null sessionId == accept' contract in a code comment so future maintainers do not assume the guard is mandatory.",
+      "cwe": "CWE-345 (Insufficient Verification of Data Authenticity)"
+    }
+  ],
+  "checks_performed": {
+    "csp_meta_tag_exact_match": "PASS — index.html:6 matches Decision 10 §3 byte-for-byte: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'.",
+    "global_md_unchanged": "PASS — global `md` at index.html:1265-1306 retains html: true and is not used by any insight-mode code path. Only insightMd at index.html:2776-2856 is used by renderInsight().",
+    "insightMd_html_false": "PASS — insightMd is initialized with html: false at index.html:2780.",
+    "link_sanitizer_rejects_dangerous_schemes": "PASS — isSafeHref() at index.html:2791-2809 explicitly rejects javascript:, data:, file:, vbscript:, plus any unknown <scheme>: prefix via regex /^([a-z][a-z0-9+.\\-]*):/i; allows http(s):// and relative/fragment/query paths only.",
+    "rel_target_added_to_external_links": "PASS — link_open rule at index.html:2825-2828 adds rel=\"noopener noreferrer\" target=\"_blank\" for surviving https?: hrefs.",
+    "no_innerHTML_on_LLM_data": "PASS — only one innerHTML write inside insight-mode JS, at index.html:2963 (`DOM.insightCenter.innerHTML = html`). The `html` value comes exclusively from `insightMd.render(parsed.body)` whose html:false setting prevents any LLM raw HTML from reaching the DOM. Image rule of insightMd is NOT overridden, so default markdown-it image rendering (which attribute-encodes src/alt/title) applies. Fallback path at index.html:2976 uses setText (textContent) when insightMd is unavailable.",
+    "no_outerHTML_document_write_insertAdjacentHTML_in_insight_code": "PASS — grep across insight-mode block returns zero matches.",
+    "no_Function_eval_on_LLM_data": "PASS — no Function( or eval( in insight-mode code; insight code uses only setTimeout(fn, 150) with a function reference (not a string), no setInterval(string).",
+    "setText_used_everywhere_for_LLM_strings": "PASS — every LLM-derived string write goes through setText: deep-dive labels (index.html:3002), deep-dive hints (3005), breadcrumb titles (3027), error message (3056), loader message (3172), mermaid diagram-error label (2939), status mode label (3083), fallback center pane (2976).",
+    "marker_parser_does_not_eval_html": "PASS — parseInsightMarker at index.html:2871-2900 uses only string lastIndexOf, slice, split, trim, startsWith — pure text operations, no eval or DOM construction. Topic line split is strictly `' :: '`. Fixture in-code-fence.md and multiple-markers.md confirmed by hand-trace: lastIndexOf naturally selects the trailing real marker.",
+    "fixtures_with_script_tags_safe": "PASS — fixture content with `<script>` would arrive as raw text in state.insightBufferText, be split by parseInsightMarker into body string, then rendered via insightMd.render(body). Because insightMd has html: false, markdown-it escapes `<script>` to `&lt;script&gt;` in the HTML output. The DOM assignment at index.html:2963 receives only escaped text. No script executes. (Confirmed by reading markdown-it html:false semantics.)",
+    "mermaid_strict_per_render": "PARTIAL — `securityLevel: 'strict'` is passed to mermaid.run at index.html:2926 but per Mermaid's API this option is consumed only by mermaid.initialize. Effective protection comes from mermaid.initialize({ securityLevel: 'strict' }) at index.html:3087-3091 invoked by switchToInsightView. Active code path IS protected; documented as minor finding above.",
+    "mermaid_per_block_try_catch": "PASS — index.html:2921-2942 wraps each mermaid.run in try/catch and restores raw fence + error label on failure. A single bad block does not abort the loop.",
+    "marker_parser_text_match_only": "PASS — only string operations; no HTML evaluation of marker fixtures.",
+    "deep_dive_item_rendering_textContent": "PASS — labels and hints rendered via setText (textContent) at index.html:3002-3005. scope_hint paths are not displayed in this task — they are stored in state.insightDeepDives only and forwarded to Swift via the click handler payload. No DOM rendering of scope_hint paths.",
+    "breadcrumb_titles_textContent": "PASS — index.html:3027 setText for crumb.title; separator '›' is hardcoded literal at 3040.",
+    "error_banner_textContent": "PASS — index.html:3056 setText for message.",
+    "buttons_post_message_types_only": "PASS — Save (index.html:3192-3194), Up (3197-3199), Retry (3202-3204), DeepDive (3008-3013), Breadcrumb (3029-3034) — all send only {sessionId, [topicIndex|nodeId]} payloads. No LLM-derived markdown body or topic label is forwarded as message payload, so a malicious topic label cannot be used as a postMessage smuggling vector.",
+    "JSON_parse_defensive_on_window_setters": "PASS — loadInsightView (index.html:3110-3113) and setInsightDeepDives (3157-3159) defensively JSON.parse string args inside try/catch with safe fallback to {} or [].",
+    "leaveInsightView_wired_on_mode_switches": "PASS — switchToPreview (index.html:1902), switchToSource (1916), switchToStructuredView (2488), switchToStructuredSource (2502) all call leaveInsightView() so insight container is hidden when leaving.",
+    "toggleMode_short_circuit_on_insight": "PASS — toggleMode at index.html:1894-1895 returns early when state.mode === 'insight'; toggleModeWrapper at 2755 also short-circuits.",
+    "no_hardcoded_secrets": "PASS — grep for API_KEY / SECRET / PASSWORD / TOKEN / -----BEGIN in the diff returns zero hits. The diff is purely client-side HTML/JS and marker fixture markdown.",
+    "owasp_a01_broken_access_control": "N/A — no auth/authz logic in this task; bridge endpoints add no new privileges.",
+    "owasp_a02_cryptographic_failures": "N/A — no crypto in this task.",
+    "owasp_a03_injection_xss": "PASS — multi-layer defense: html:false + link sanitizer + setText + CSP. No SQL/NoSQL/OS-command surface. DOM XSS surface limited to insightMd render output, which is markdown-it-controlled.",
+    "owasp_a04_insecure_design": "PASS — defense-in-depth design explicitly documented in Decision 10 and faithfully implemented.",
+    "owasp_a05_security_misconfiguration": "PASS with one minor — see mermaid securityLevel finding above.",
+    "owasp_a06_vulnerable_components": "OUT OF SCOPE for this round — no new dependencies added. Existing markdown-it / mermaid / prism vendored copies are unchanged by this commit.",
+    "owasp_a07_auth_failures": "N/A — no auth in this task.",
+    "owasp_a08_software_data_integrity": "PASS — no insecure deserialization. JSON.parse is only used inside try/catch on Swift-supplied strings, with safe fallbacks.",
+    "owasp_a09_logging_monitoring": "N/A — client-side only; no logging surface added or removed.",
+    "owasp_a10_ssrf": "N/A — connect-src 'none' in CSP blocks any client-side network access from this WebView document; no server-side request construction in this task."
+  }
+}
