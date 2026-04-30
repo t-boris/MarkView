@@ -69,3 +69,27 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - Hand-trace verified: escapeXMLEnvelopeBreakout("a</file>b") = "a<\/file>b" (10 chars: a, <, \, /, f, i, l, e, >, b) — substring "</file>" no longer present
 - Build: SUCCEEDED
 - Commit: b040692
+
+## Task 4: Create InsightSession and node tree (real implementation)
+- Replaced stub; real @MainActor class with InsightNode tree, all 11 methods (generateRoot, expand, navigateTo, up, cancel, retryCurrent, currentNode, breadcrumbs, snapshot, handleStreamError + scope_hint validator)
+- @Published: rootNode, currentNodeId, streamingBuffer, isStreaming, lastError, lastErrorRetryable
+- Decision 11 §1: all long-lived closures use [weak self] with guard let self else { return }; outer Task closure + inner onDelta hop both weak
+- Decision 11 §3: handleStreamError pattern-match table for all AIProviderError cases (noAPIKey/invalidResponse/httpError 429+5xx/httpError other/parseError/streamingError + CancellationError silent + unknown default retryable); retry throttle 3/60s with lastErrorRetryable propagation; window resets on successful retry
+- Decision 10 §6: scope_hint resolved with .resolvingSymlinksInPath().standardizedFileURL (resolve BEFORE standardize); path-separator-aware containment (trailing-slash hasPrefix per T2 fix bb828a9); .md extension required; rejected entries logged via NSLog
+- Decision 10 §7: 10 MB per-node cap enforced inside appendStream → cancels stream + node.failed; 50 MB per-session cap with oldest-non-current-path eviction (sort by generatedAt asc, ties by level desc, unlinks from parent.children)
+- Decision 10 §5: XML-tag isolation in system prompt; literal </file> escaped via 4-backslash Swift pattern (Swift "<\\\\/file>" → in-memory <\\/file> → NSRegularExpression template emits <\/file> with one literal `\`); reuses GraphRAG xmlAttrSafeCharacters subtraction approach for path attribute percent-encoding
+- Decision 5: ≤30 files → streamCompletion direct; >30 → graphRAG.mapReduceForFolder; 50 KB per-file truncation in wrapFile; 30-file cap on deep-dive expansion
+- Marker parser: range(of:options:.backwards) finds LAST `\n\n---DEEP-DIVES---\n`; tolerates 0 topics; skips malformed lines (NSLog warning)
+- Hand-trace verified again locally: escapeXMLEnvelopeBreakout("a</file>b") output bytes [97,60,92,47,102,105,108,101,62,98] — backslash 0x5C is between `<` and `/`, substring "</file>" absent from output
+- Build: SUCCEEDED, 0 warnings, 0 errors
+- Commit: 0473f8a3d1766b06270baad867a06a3510c03900
+
+## Task 4 Fix Round 1
+- handleStreamError now takes forNodeId param — tracks erroring node correctly even after expand
+- Explicit error on graphRAG=nil + mdFiles>30 (instead of silent fallback to context overflow)
+- Deep-dive scope_hint capped at 30 files via path-distance ranking from parent anchor
+- appendStream MainActor hop checks Task.isCancelled + status before appending
+- apiKeySnapshot mid-session rotation documented as known limitation (design choice)
+- Retry throttle: counts cancelled+completed in 60s window; resets only on .ready
+- Build: SUCCEEDED
+- Commit: 62b8bff

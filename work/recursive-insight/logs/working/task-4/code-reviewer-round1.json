@@ -1,0 +1,87 @@
+{
+  "status": "changes_required",
+  "summary": "InsightSession implementation is comprehensive and matches most of the spec (all 11 methods present with correct signatures, @MainActor correctness, single-owner activeTask, [weak self]/guard let self pattern in every long-lived closure including the inner Task->MainActor hop, retry sliding-window throttle, 10MB/50MB caps with eviction, scope_hint validation with correct .resolvingSymlinksInPath().standardizedFileURL ordering and path-separator-aware containment, marker LAST-occurrence parsing with 0+ topic tolerance, XML envelope-breakout escape with the 4-backslash Swift-literal pattern matching GraphRAG round-2 fix, apiKeySnapshot captured from providerClient.apiKeySnapshot and applied before storing). Build is green. Two correctness defects require fixes: (1) handleStreamError marks the wrong node .failed (uses currentNode() rather than the node whose stream actually errored, opening a race when a non-cancellation error fires after the user navigated away), and (2) when count>30 but graphRAG is nil the code silently falls through into the small-folder path and dumps all >30 files into one prompt, violating Decision 5. Plus the 'take 30 closest in path to parent's scope' ranking from Decision 5 is replaced with plain prefix(30).",
+  "criticalIssues": [
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 583,
+      "severity": "critical",
+      "category": "error-handling",
+      "issue": "handleStreamError marks `currentNode()?.status = .failed` instead of marking the node whose stream actually errored. The error handler is invoked from a Task closure that knows its target nodeId (it is the same nodeId captured for appendStream/finalizeStream), but that id is not threaded into handleStreamError. If the user navigates away (navigateTo cancels activeTask, which usually surfaces as CancellationError and is handled silently), there is a window where a non-cancellation error (e.g. AIProviderError.streamingError from a connection drop the URLSession sees just before observing the cancel) fires after the user navigated to a different node. In that window the WRONG node — the one the user is now looking at — is marked .failed, and lastError appears against an unrelated node.",
+      "impact": "User-visible incorrect state: a healthy node the user navigated to suddenly displays a 'failed' error from an unrelated stream. The cancel-then-set-nil pattern reduces but does not eliminate this race because URLSession can still throw a non-CancellationError between cancellation and the next iteration check. This is a correctness bug, not just cosmetic.",
+      "recommendation": "Thread `nodeId` into handleStreamError: change signature to `private func handleStreamError(_ error: Error, nodeId: UUID)` and call it as `await self.handleStreamError(error, nodeId: nodeId)` from each catch block (root generate, expand, retryCurrent topic and folderRoot branches). Inside, mutate `nodes[nodeId]?.status = .failed` instead of `currentNode()?.status = .failed`. Only set `lastError`/`lastErrorRetryable`/`isStreaming` if `currentNodeId == nodeId` so a background-failing stream does not overwrite the UI state of the node the user is currently viewing."
+    }
+  ],
+  "suggestions": [
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 201,
+      "severity": "major",
+      "category": "architecture",
+      "suggestion": "When `useMapReduce` is true (mdFiles.count > 30) but `self.graphRAG` is nil, `if useMapReduce, let rag = await self.graphRAG` silently falls into the else branch and runs the >30-file folder through the small-folder one-shot streamCompletion path, dumping every file body into a single prompt. This violates Decision 5 (>30 files MUST route through map-reduce). Same issue is duplicated in retryCurrent at line 381.",
+      "benefit": "Either fail fast with a clear lastError ('large folder requires GraphRAG; pass a non-nil graphRAG to InsightSession.init') or change `graphRAG: GraphRAG?` to non-optional and let the caller (Task 7) enforce the precondition. Today a misconfigured caller silently triggers a 30+ file mega-prompt that could blow token budget, hit context window, or trigger the per-node 10 MB cap mid-stream.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 253,
+      "severity": "major",
+      "category": "best-practices",
+      "suggestion": "Decision 5 prescribes 'take the 30 files closest in path to parent's scope' when scope_hint resolves to >30 files. Implementation uses plain `Array(validated.prefix(30))` which keeps whatever order the validator emitted (which mirrors the model's emission order), not path-distance ranking. If the model emits files in a non-priority order, the 31st file (closer to parent's scope) is dropped while a less relevant earlier file is kept.",
+      "benefit": "Aligns with Decision 5 spec. Suggested ranking: compute the longest common path prefix between each candidate URL and the parent node's representative path (parent.scope's files for a topic node, or folderURL for the root), sort descending by prefix length, take 30. If the spec author considered emission order acceptable as a proxy, document the deviation explicitly in a comment.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 488,
+      "severity": "major",
+      "category": "performance",
+      "suggestion": "appendStream lacks an early-return when the target node has already transitioned to .failed (e.g. after a prior cap-trip cancelled activeTask). Because Task.cancel propagation is asynchronous and there are pending `Task { @MainActor [weak self] in ... }` hops already enqueued for chunks already received, those hops will continue to call appendStream after the cap is tripped. Each call appends to rawBuffer (growing past the cap), recomputes utf8.count over the whole buffer (O(n) per chunk), and re-trips the cap branch which re-cancels activeTask and re-sets lastError. Idempotent but wasteful.",
+      "benefit": "Add `guard node.status == .streaming else { return }` at the top of appendStream. Stops further byte accumulation, avoids redundant cancellations, avoids redundant lastError assignments which triggers spurious @Published change notifications to subscribers (bridge layer would forward redundant 'response too large' messages to JS).",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 154,
+      "severity": "major",
+      "category": "best-practices",
+      "suggestion": "apiKeySnapshot is captured once at init from providerClient.apiKeySnapshot. If the user updates their API key in Settings after the session is created (providerClient.updateAPIKey(_:)), the snapshot becomes stale. Subsequent errors that include the NEW api key in their localizedDescription will not be redacted because handleStreamError compares against the OLD snapshot.",
+      "benefit": "Safer to read `providerClient.apiKeySnapshot` at redaction time inside handleStreamError rather than at init: `if let key = providerClient.apiKeySnapshot, !key.isEmpty, message.contains(key)`. Cost is one extra property access per error, which is negligible. This eliminates the staleness window. (The init-time snapshot can be kept as a defense-in-depth: redact against BOTH the snapshot AND the live value in case the key was rotated mid-session.)",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 201,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "Inside `Task { [weak self] in ... }` (lines 198-235, 284-310, 376-441), accesses to MainActor-isolated stored properties are written as `await self.folderURL`, `await self.mdFiles`, `await self.graphRAG`, `await self.providerClient`, `await self.buildRootSystemPrompt()`, etc. Since `Task { ... }` initialised inside a @MainActor method inherits the MainActor by default, these awaits are technically unnecessary (the compiler accepts both forms). They add visual noise that suggests cross-actor hops where none occur.",
+      "benefit": "Drop the await on synchronous MainActor-isolated property/method accesses for clarity. Keep awaits only on the genuine async boundaries (`try await rag.mapReduceForFolder(...)`, `try await self.providerClient.streamCompletion(...)`, `await self.handleStreamError(error)`). Improves readability and signals where actual async suspension can happen.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 699,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "Redundant ternary: `let hint = parts.count >= 2 ? parts[1].trimmingCharacters(in: .whitespaces) : \"\"`. The guard at line 694 (`guard parts.count >= 2 else { ... continue }`) already establishes parts.count >= 2 — the ternary always takes the first branch.",
+      "benefit": "Simplify to `let hint = parts[1].trimmingCharacters(in: .whitespaces)` for clarity.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 542,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "The `Task.isCancelled` check at line 542-545 runs inside `handleStreamError`, which is a @MainActor instance method invoked via `await self.handleStreamError(error)` from the Task continuation. Whether `Task.isCancelled` reads the wrapping Task's cancellation flag from inside this nested actor-hop is subtle and depends on Swift runtime semantics (it does, because the actor-hop preserves the task identity, but this is non-obvious to a reader). The `error is CancellationError` check at line 538 already covers the dominant case.",
+      "benefit": "Either drop the Task.isCancelled fallback (CancellationError catch is sufficient because URLSession.bytes throws CancellationError on task cancellation), or add a clarifying comment explaining why both checks exist (defense-in-depth against frameworks that throw a non-CancellationError when the task is cancelled). Minor — current code is functionally correct.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 1,
+    "criticalIssuesCount": 1,
+    "majorIssuesCount": 4,
+    "minorIssuesCount": 3,
+    "testCoverageAssessment": "insufficient"
+  }
+}

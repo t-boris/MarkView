@@ -1,0 +1,84 @@
+{
+  "status": "needs_improvement",
+  "summary": "Tests are deferred per Decision 9 (no MarkViewTests target exists). The 15 TDD anchors in the spec are reasonable in shape but leave several high-risk paths in this 874-line, heavily concurrent class uncovered: handleStreamError's 8-row pattern table is only spot-checked (redaction only), root-vs-deep-dive retry consistency is unverified, escapeXMLEnvelopeBreakout has no anchor at all (the exact bug that bit T3 round 2 fix b040692), navigateTo's no-LLM-call + $currentNodeId-publish behavior is unverified, and marker parser's 8+ topics / malformed-line tolerance is not anchored. Because Decision 9 forbids adding XCTest in this feature, manual smoke + code-reviewer hand-trace remain the only mitigations — and those cannot reliably catch ARC retain cycles, retry-throttle off-by-one bugs, or regex-template escape regressions. The deferral is a known risk, not a quality issue with the implementation; the spec's TDD anchor section is the surface that needs improvement here. Implementation hand-trace of escapeXMLEnvelopeBreakout (line 860) confirms the 4-backslash Swift literal pattern is correct (matches GraphRAG fix b040692, lines 568-573) — no T3-round-2-style regression.",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor (tasks/4.md L122-141) — handleStreamError pattern table",
+      "issue": "The handleStreamError pattern table (spec Step 10) maps 8 distinct error cases to (retryable, message) pairs. The TDD anchor list has only ONE handleStreamError test — test_handleStreamError_redacts_api_key. Five behavioral rows go untested: CancellationError silent path, AIProviderError.streamingError → retryable=true, AIProviderError.httpError(429|5xx) → retryable=true, AIProviderError.httpError(other 4xx) → retryable=false, AIProviderError.parseError → retryable=false, AIProviderError.noAPIKey → retryable=false, AIProviderError.invalidResponse → retryable=true. A regression flipping 429 to retryable=false (or any of these) would silently produce wrong UI behavior in T6.",
+      "recommendation": "Add 4 anchors to spec TDD section (or the deferred follow-up test task): (a) test_handleStreamError_cancellation_silent — inject CancellationError, assert lastError == nil AND node.status unchanged AND isStreaming == false; (b) test_handleStreamError_httpError_429_retryable — inject AIProviderError.httpError(429, ...), assert lastError contains '429' AND lastErrorRetryable == true; (c) test_handleStreamError_httpError_403_terminal — inject httpError(403,...), assert lastErrorRetryable == false; (d) test_handleStreamError_parseError_terminal — inject parseError('bad'), assert lastErrorRetryable == false."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — escapeXMLEnvelopeBreakout",
+      "issue": "InsightSession.swift L857-873 reproduces escapeXMLEnvelopeBreakout (the exact regex/replacement pair that required the round-2 fix b040692 in GraphRAG). NO TDD anchor exercises it. Hand-trace confirms current source is correct (4-backslash Swift literal `\"<\\\\\\\\/file>\"` at L860 matches the fix), but with no anchored test a future refactor (e.g. someone 'cleaning up' to 2 backslashes) will silently regress prompt-injection defense without any automated detector. This is the highest-impact security regression vector in the file.",
+      "recommendation": "Add anchor: test_escapeXMLEnvelopeBreakout_neutralizes_close_tag — assert InsightSession.escapeXMLEnvelopeBreakout(\"a</file>b\") == \"a<\\\\/file>b\" AND result.contains(\"</file>\") == false. Mirror in spec language: \"hand-trace input `</file>` MUST emit `<\\/file>` (T3 round 2 lesson b040692).\" Same for </community>, <file ... opening, <community ... opening with whitespace and case variants. Without an anchored assertion, the only defense is reviewer memory."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — retryCurrent code-path branching",
+      "issue": "retryCurrent (L343-442) reuses generateRoot's >30-vs-≤30 branching for `.folderRoot` scope but uses streamCompletion-only for `.topic` scope. The spec narrative noted ambiguity here. Implementation chose: root retry → mapReduce-or-direct based on mdFiles.count; topic retry → always streamCompletion. This is consistent with generateRoot/expand — but no TDD anchor verifies either branch, so a later refactor that accidentally routes topic retries through mapReduce (or vice versa) would not fail any test.",
+      "recommendation": "Add 2 anchors: (a) test_retry_root_largeFolder_uses_mapReduce — initialize session with 31 mdFiles, generateRoot, fail it, retryCurrent, assert graphRAG.mapReduceForFolder was called on retry; (b) test_retry_topic_uses_streamCompletion_not_mapReduce — generateRoot then expand to a topic, fail it, retryCurrent, assert providerClient.streamCompletion was called AND graphRAG.mapReduceForFolder was NOT called regardless of mdFiles.count."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — navigateTo behavior",
+      "issue": "navigateTo (L314-323) is the integration point for Task 6's repaint flow: it must (a) make ZERO LLM calls, (b) cancel any in-flight activeTask, (c) refresh streamingBuffer from cached node.rawBuffer, (d) trigger $currentNodeId publication so the WebViewBridge can repaint. None of this is anchored. If a future refactor accidentally calls generateRoot on cache miss, or forgets to assign currentNodeId, T6's tab-switch repaint silently breaks.",
+      "recommendation": "Add 2 anchors: (a) test_navigateTo_cached_node_no_llm_call — pre-populate two nodes in `nodes` dict, navigateTo(child.id) then navigateTo(root.id), assert providerClient.streamCompletion was called ZERO times AND streamingBuffer == root.rawBuffer; (b) test_navigateTo_cancels_inflight_stream — start generateRoot, while in flight call navigateTo(otherNodeId), assert activeTask == nil AND further mock chunks for the original node do NOT mutate streamingBuffer."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — marker parser robustness",
+      "issue": "TDD anchor list has test_marker_parser_uses_last_occurrence and test_marker_parser_zero_topics_accepted, but does NOT cover: (a) 8+ topics (spec says 'tolerate >7' — accept any count), (b) malformed `::` lines (missing fields, only one separator, empty label) — spec Step 15 says 'skip + log', and (c) marker followed by entirely whitespace/empty section. Without these, a regression that throws on >7 topics or crashes on a missing-field line would slip past automated detection.",
+      "recommendation": "Add 3 anchors: (a) test_marker_parser_accepts_eight_topics — buffer with 8 well-formed topic lines returns 8 DeepDiveTopic entries; (b) test_marker_parser_skips_malformed_lines — buffer with mix of `- A :: hint :: paths` and `garbage line with no separator` returns only the valid one; (c) test_marker_parser_empty_label_skipped — line ` :: hint :: paths` skipped. Currently only the happy path and 0-topics path are anchored."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — appendStream guard when currentNodeId differs",
+      "issue": "appendStream (L488-507) has the rule 'if currentNodeId == nodeId, append to streamingBuffer; otherwise only append to node.rawBuffer'. This is the load-bearing invariant for tab-switch-during-stream (raised in user's review prompt as relevant for Task 6). No anchor verifies it. A regression that always appends to streamingBuffer would corrupt the visible buffer when the user navigates between siblings mid-stream.",
+      "recommendation": "Add anchor: test_appendStream_to_non_current_node_does_not_pollute_visible_buffer — start streaming root, navigateTo a child mid-stream, deliver more chunks tagged with root.id, assert streamingBuffer (which now reflects child) is NOT mutated AND root.rawBuffer DOES grow."
+    },
+    {
+      "severity": "minor",
+      "category": "anti_pattern",
+      "location": "Section: TDD Anchor — wording of marker test names",
+      "issue": "test_marker_parser_uses_last_occurrence and test_marker_parser_zero_topics_accepted are good behavioral names. test_no_retain_cycle_on_close is borderline implementation-flavored ('on close' implies invoking a specific lifecycle method); since the TDD anchor body explicitly describes 'spawn session in autoreleasepool, run a stream, drop strong ref, assert deallocated', the intent is fine. No real action needed — flagging only because anchor names are user-visible documentation.",
+      "recommendation": "Optional rename: test_session_deallocates_when_strong_ref_dropped_after_stream. Keeps the behavioral lens (deallocates) instead of the implementation lens (close)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — empty-folder defensive branch (generateRoot)",
+      "issue": "generateRoot L170-175 defensively handles `mdFiles.isEmpty` with lastError = 'no markdown files in folder' AND lastErrorRetryable = false. Spec Step 4 requires this. No anchor verifies the path. Low-risk because Task 7 gates the entry point, but if Task 7's gate ever loosens this becomes an unhandled crash vector.",
+      "recommendation": "Add anchor: test_generateRoot_empty_mdFiles_sets_terminal_error — init session with mdFiles=[], call generateRoot, assert lastError == 'no markdown files in folder' AND lastErrorRetryable == false AND no Task spawned (activeTask == nil)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "Section: TDD Anchor — session memory cap protected-set invariant",
+      "issue": "test_session_memory_cap_evicts_oldest is listed but the assertion described is 'keeps current path intact'. Implementation uses `breadcrumbs()` to compute the protected set (every node from root → current). The test should also verify that protection holds for an INTERMEDIATE node on the path, not just root and current — a regression that protected only currentNode would still pass a naive test.",
+      "recommendation": "Strengthen anchor: test_session_memory_cap_evicts_oldest — build a 3-level chain root→A→B, set currentNodeId=B, then add several large sibling nodes to push past 50 MB. Assert root, A, AND B all survive (full breadcrumb path); siblings of A and B are evicted."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 3,
+    "litmusTest": {
+      "checked": 15,
+      "passed": 15,
+      "failed": 0
+    },
+    "coverageAssessment": "insufficient",
+    "pyramidBalance": {
+      "unit": 15,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "unbalanced"
+    }
+  }
+}

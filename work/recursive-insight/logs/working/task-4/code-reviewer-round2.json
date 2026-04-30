@@ -1,0 +1,32 @@
+{
+  "status": "approved_with_suggestions",
+  "summary": "All 6 Round 1 findings are addressed in commit 62b8bff with substantive, well-commented fixes. The handleStreamError signature change correctly threads forNodeId from all 4 catch sites (root generate, expand, retryCurrent .folderRoot branch, retryCurrent .topic branch) and gracefully handles the eviction case (logs + skips status update). The graphRAG-nil silent fallback is fixed in BOTH generateRoot and retryCurrent with `throw AIProviderError.streamingError(...)` (also adds a finalizeStream `node.status == .streaming` defensive guard so the throttle window cannot be reset on a node already failed). The path-distance ranking algorithm is correct on the edge cases I traced (parent with 1 file → anchor=parent dir of that 1 file; parent with 0 files → empty anchor → all candidates same distance, lex tiebreak; ties broken by lexicographic path). The retry throttle is hardened correctly: history append happens BEFORE task start (lines 382-383), clearRetryHistory is gated behind `lookupNode(nodeId)?.status == .ready` (line 473), and finalizeStream early-returns on Task.isCancelled WITHOUT setting .ready — so cancelled attempts STILL count toward the 3/60s budget. The apiKeySnapshot staleness comment is accurate and well-justified (defense-in-depth via providerClient.sanitize). Build is green. One subtle residual: the `Task.isCancelled` guard at the top of `appendStream` (line 531) is actually a no-op for the activeTask-cancellation case, because the per-chunk `Task { @MainActor }` hop is an unstructured task that does NOT inherit cancellation from the surrounding activeTask. The intent (block post-cancel chunk hops) is partially achieved by the `node.status == .streaming` guard on the next line, but that guard also fails for the cancellation case because navigateTo / cancel / handleStreamError-on-CancellationError do not transition node.status away from .streaming. Practical impact is small (chunks already in transit are bounded; user navigated away so not viewing the node anyway), and the fix prevents the original Round 1 #4 concern (per-node cap re-tripping after navigation) only because activeTask is set to nil in navigateTo, so re-cancellation in appendStream's cap branch is a no-op. Worth a follow-up but not blocking.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 531,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "The `if Task.isCancelled { return }` guard at the top of appendStream does not actually protect against the activeTask-cancellation case the comment describes. Each onDelta callback wraps the appendStream call in `Task { @MainActor [weak self] in ... }` (lines 226-229, 240-243, 324-328, 419-422, 432-436, 459-463). That inner Task is UNSTRUCTURED and does NOT inherit cancellation from the surrounding activeTask in Swift Concurrency. So `Task.isCancelled` inside appendStream reads only the per-chunk inner task's flag, which is never cancelled. The companion `guard node.status == .streaming else { return }` at line 533 also misses the cancellation case because navigateTo/cancel/handleStreamError-on-CancellationError leave node.status == .streaming. In practice this is mitigated (chunks already in flight when activeTask cancels are bounded; navigateTo also sets `activeTask = nil` so the per-node-cap branch's re-cancellation is a no-op), but the original Round 1 finding #4 concern about post-cancel chunk-hops growing rawBuffer past the cap is still technically possible during the brief in-transit window.",
+      "benefit": "Two options: (a) Capture the activeTask reference in onDelta closures and check `task.isCancelled` explicitly via a captured Task<Void, Never>? — but Swift Concurrency makes capturing the wrapping Task awkward. (b) Easier: when activeTask is cancelled (in navigateTo, expand, retryCurrent, cancel, and the per-node-cap branch), explicitly transition the node's status to a sentinel like .failed (with a reason) OR introduce an `evictedNodeIds: Set<UUID>` set, and have appendStream check membership instead of status. This would close the in-transit chunk window. Cost: minimal. Consider deferring to a follow-up.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/InsightSession.swift",
+      "line": 744,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "When `parentScope` is `.topic` with empty `parentFiles` (theoretically possible if a deep-dive's scope_hint validated to nothing), `commonAncestorComponents([])` returns `[]`. Then `rankByPathDistance` takes the `if let anchor = anchor` branch (empty array is non-nil) and computes distances against an empty anchor — every candidate gets distance == its own component count, so the sort effectively degenerates to (component-count asc, then lex). This is deterministic and not wrong per se, but the intent of the `.folderRoot` fallback (pure lex order) is silently bypassed for this degenerate case.",
+      "benefit": "Add `if anchor.isEmpty { return candidates.sorted { $0.path < $1.path } }` after the switch, or change `let anchor: [String]?` to `let anchor: [String]` with the `.folderRoot` branch returning `[]` and the fallback condition becoming `anchor.isEmpty`. Cleaner semantics and matches the intent expressed in the comment.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 1,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 2,
+    "testCoverageAssessment": "insufficient"
+  }
+}
