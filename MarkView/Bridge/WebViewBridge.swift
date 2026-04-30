@@ -187,9 +187,55 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridge(self, didRequestGraph: type, prompt: "", content: "")
             }
 
+        // MARK: Insight messages (Recursive Insight feature, Task 6)
+
+        case "insightDeepDiveClicked":
+            if let sessionId = data?["sessionId"] as? String,
+               let topicIndex = data?["topicIndex"] as? Int {
+                delegate?.bridge(self, didRequestInsightDeepDive: sessionId, topicIndex: topicIndex)
+            }
+
+        case "insightSaveRequested":
+            if let sessionId = data?["sessionId"] as? String {
+                delegate?.bridge(self, didRequestInsightSave: sessionId)
+            }
+
+        case "insightBreadcrumbClicked":
+            if let sessionId = data?["sessionId"] as? String,
+               let nodeId = data?["nodeId"] as? String {
+                delegate?.bridge(self, didRequestInsightBreadcrumb: sessionId, nodeId: nodeId)
+            }
+
+        case "insightUpClicked":
+            if let sessionId = data?["sessionId"] as? String {
+                delegate?.bridge(self, didRequestInsightUp: sessionId)
+            }
+
+        case "insightRetryRequested":
+            if let sessionId = data?["sessionId"] as? String {
+                delegate?.bridge(self, didRequestInsightRetry: sessionId)
+            }
+
         default:
             NSLog("Unknown bridge message type: \(type)")
         }
+    }
+
+    // MARK: - Encoding Helpers
+
+    /// Encode an arbitrary string for safe JS literal embedding using the array-wrap
+    /// idiom: `JSONSerialization` of a single-element array (bare strings cause
+    /// `NSInvalidArgumentException`), then drop the surrounding `[` / `]` brackets,
+    /// leaving a properly JSON-escaped string literal (with quotes + escaped backslashes
+    /// / quotes / control chars / unicode).
+    /// Returns nil on encoding failure (caller should log + bail).
+    private func encodeStringForJS(_ s: String) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: [s], options: []),
+              let arrayString = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        // ["escaped string"] -> "escaped string"
+        return String(arrayString.dropFirst().dropLast())
     }
 
     // MARK: - Commands to JavaScript
@@ -232,6 +278,99 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 NSLog("Error setting structured content: \(error)")
             }
             completion()
+        }
+    }
+
+    // MARK: Insight commands (Recursive Insight feature, Task 6)
+
+    /// Load a full insight view snapshot (markdown + topics + breadcrumbs) into the
+    /// WebView. Encodes the entire `InsightViewSnapshot` as JSON and calls
+    /// `window.loadInsightView(<json>)`. Used both on initial render of an insight tab
+    /// and on full repaint after navigation (breadcrumb / up / expand / retry).
+    func loadInsightView(snapshot: InsightViewSnapshot, into webView: WKWebView) {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(snapshot),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            NSLog("[Insight] Error encoding InsightViewSnapshot")
+            return
+        }
+        let js = "window.loadInsightView(\(jsonString))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in loadInsightView: \(error)")
+            }
+        }
+    }
+
+    /// Append a streaming delta chunk to the live buffer for a given session.
+    /// JS side coalesces re-renders via a debounce timer (~150 ms).
+    func appendInsightDelta(sessionId: String, text: String, into webView: WKWebView) {
+        guard let sessionLiteral = encodeStringForJS(sessionId),
+              let textLiteral = encodeStringForJS(text) else {
+            NSLog("[Insight] Error encoding appendInsightDelta payload")
+            return
+        }
+        let js = "window.appendInsightDelta(\(sessionLiteral), \(textLiteral))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in appendInsightDelta: \(error)")
+            }
+        }
+    }
+
+    /// Replace the deep-dive topic list for a given session (after the marker is parsed
+    /// or after a full snapshot reload).
+    func setInsightDeepDives(sessionId: String, topics: [DeepDiveTopic], into webView: WKWebView) {
+        guard let sessionLiteral = encodeStringForJS(sessionId) else {
+            NSLog("[Insight] Error encoding setInsightDeepDives sessionId")
+            return
+        }
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(topics),
+              let topicsJSON = String(data: data, encoding: .utf8) else {
+            NSLog("[Insight] Error encoding setInsightDeepDives topics")
+            return
+        }
+        let js = "window.setInsightDeepDives(\(sessionLiteral), \(topicsJSON))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in setInsightDeepDives: \(error)")
+            }
+        }
+    }
+
+    /// Show a loading indicator with an optional message.
+    func showInsightLoading(sessionId: String, message: String, into webView: WKWebView) {
+        guard let sessionLiteral = encodeStringForJS(sessionId),
+              let messageLiteral = encodeStringForJS(message) else {
+            NSLog("[Insight] Error encoding showInsightLoading payload")
+            return
+        }
+        let js = "window.showInsightLoading(\(sessionLiteral), \(messageLiteral))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in showInsightLoading: \(error)")
+            }
+        }
+    }
+
+    /// Display an error banner for the given session. The `retryable` flag controls
+    /// whether the JS UI shows a `[Retry]` button (Decision 11 §3 — non-retryable
+    /// errors like noAPIKey / parse failures must not show Retry).
+    func setInsightError(sessionId: String, message: String, retryable: Bool, into webView: WKWebView) {
+        guard let sessionLiteral = encodeStringForJS(sessionId),
+              let messageLiteral = encodeStringForJS(message) else {
+            NSLog("[Insight] Error encoding setInsightError payload")
+            return
+        }
+        // Bool MUST serialise as the JS literal `true` / `false` (not Python-style
+        // `True` / `False`, not `1` / `0`).
+        let retryableLiteral = retryable ? "true" : "false"
+        let js = "window.setInsightError(\(sessionLiteral), \(messageLiteral), \(retryableLiteral))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in setInsightError: \(error)")
+            }
         }
     }
 
@@ -331,4 +470,11 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridgeRefreshRequested(_ bridge: WebViewBridge)
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String)
+
+    // MARK: Insight messages (Recursive Insight feature, Task 6)
+    func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, topicIndex: Int)
+    func bridge(_ bridge: WebViewBridge, didRequestInsightSave sessionId: String)
+    func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String)
+    func bridge(_ bridge: WebViewBridge, didRequestInsightUp sessionId: String)
+    func bridge(_ bridge: WebViewBridge, didRequestInsightRetry sessionId: String)
 }
