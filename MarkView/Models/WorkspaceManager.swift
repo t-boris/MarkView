@@ -1093,6 +1093,18 @@ Each component needs a correct type and one-sentence description.
     func closeTab(at index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
 
+        // Recursive Insight tabs (Decision 11 §4): cancel the in-flight stream
+        // SYNCHRONOUSLY before removing the tab, so the URLSession.bytes Task
+        // observes Task.isCancelled before its strong reference (held by OpenTab)
+        // is dropped. Skip the dirty-save prompt — insight tabs are ephemeral
+        // and never carry isModified == true in the file-save sense.
+        let tab = openTabs[index]
+        if case .insight(let session) = tab.kind {
+            session.cancel()
+            tabsStore.removeTab(at: index)
+            return
+        }
+
         if openTabs[index].isModified {
             let alert = NSAlert()
             alert.messageText = "Save changes?"
@@ -1320,6 +1332,201 @@ Each component needs a correct type and one-sentence description.
         }
         if !current.isEmpty { chunks.append(current) }
         return chunks
+    }
+
+    // MARK: - Recursive Insight (Task 7)
+
+    /// Entry point invoked by the AI Tools menu (Task 8). Validates the workspace,
+    /// scans `.md` files (Task 2 helper), constructs an `InsightSession`, opens a
+    /// new `.insight` tab, and kicks off `generateRoot()` without awaiting.
+    /// Mirrors the `translateDocument` pattern of "create a tab immediately, then
+    /// stream into it" but routes through `InsightSession` rather than driving the
+    /// API call directly here.
+    func startRecursiveInsight() {
+        // 1. A folder must be open.
+        guard let folderURL = rootNode?.url else {
+            let alert = NSAlert()
+            alert.messageText = "No folder open"
+            alert.informativeText = "Open a folder before starting Recursive Insight."
+            alert.runModal()
+            return
+        }
+
+        // 2. AI provider must be ready (engines initialized = folder indexed).
+        guard let provider = incrementalCompiler?.orchestrator.providerClient else {
+            let alert = NSAlert()
+            alert.messageText = "AI engines not ready"
+            alert.informativeText = "Wait for workspace indexing to complete, or set an API key in DDE Settings."
+            alert.runModal()
+            return
+        }
+
+        // 3. Enumerate .md files (Task 2 helper enforces the 500-file hard cap
+        //    via ScanError.folderTooLarge — surface to user as NSAlert).
+        let scanResult = scanMarkdownFiles(in: folderURL)
+        let mdFiles: [URL]
+        switch scanResult {
+        case .success(let urls):
+            mdFiles = urls
+        case .failure(let error):
+            let alert = NSAlert()
+            alert.messageText = "Cannot start Recursive Insight"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+            return
+        }
+
+        // 4. Empty folder check.
+        guard !mdFiles.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No markdown files"
+            alert.informativeText = "This folder contains no .md files for Recursive Insight to summarize."
+            alert.runModal()
+            return
+        }
+
+        // 5. Build the session.
+        let session = InsightSession(
+            folderURL: folderURL,
+            mdFiles: mdFiles,
+            providerClient: provider,
+            graphRAG: graphRAG
+        )
+
+        // 6. Build placeholder URL (never written to disk — exists only so
+        //    `OpenTab.url`, `displayName`, and other file-only consumers keep
+        //    working without special-casing kind).
+        let placeholderURL = folderURL.appendingPathComponent(".insight-\(session.id.uuidString)")
+
+        // 7. Append the new tab and activate it.
+        let tab = OpenTab(
+            url: placeholderURL,
+            content: "",
+            originalContent: "",
+            kind: .insight(session)
+        )
+        tabsStore.appendTab(tab, activate: true)
+
+        // 8. Kick off the root summary stream. We do NOT await — the UI must
+        //    stay responsive while SSE chunks land.
+        Task { await session.generateRoot() }
+    }
+
+    /// Resolve the `InsightSession` referenced by a bridge message. O(N≤20) scan
+    /// of `openTabs`. Returns `nil` if the tab has been closed mid-message (race);
+    /// callers log + return rather than crash.
+    private func findInsightSession(sessionId: String) -> InsightSession? {
+        for tab in openTabs {
+            if case .insight(let session) = tab.kind, session.id.uuidString == sessionId {
+                return session
+            }
+        }
+        return nil
+    }
+
+    /// Bridge forwarder: user clicked a deep-dive topic in the right pane.
+    func didRequestInsightDeepDive(sessionId: String, topicIndex: Int) {
+        guard let session = findInsightSession(sessionId: sessionId) else {
+            NSLog("[Insight] didRequestInsightDeepDive: no session for id \(sessionId) (tab closed?)")
+            return
+        }
+        Task { await session.expand(deepDiveIndex: topicIndex) }
+    }
+
+    /// Bridge forwarder: user clicked Save as .md.
+    func didRequestInsightSave(sessionId: String) {
+        guard let session = findInsightSession(sessionId: sessionId) else {
+            NSLog("[Insight] didRequestInsightSave: no session for id \(sessionId) (tab closed?)")
+            return
+        }
+        guard let node = session.currentNode() else {
+            NSLog("[Insight] didRequestInsightSave: session has no current node")
+            return
+        }
+        saveInsightNode(node, fromSession: session)
+    }
+
+    /// Bridge forwarder: user clicked a breadcrumb. Pure UI navigation —
+    /// switches the current node to a cached one, no LLM call.
+    func didRequestInsightBreadcrumb(sessionId: String, nodeId: String) {
+        guard let session = findInsightSession(sessionId: sessionId) else {
+            NSLog("[Insight] didRequestInsightBreadcrumb: no session for id \(sessionId) (tab closed?)")
+            return
+        }
+        guard let uuid = UUID(uuidString: nodeId) else {
+            NSLog("[Insight] didRequestInsightBreadcrumb: invalid nodeId \(nodeId)")
+            return
+        }
+        session.navigateTo(nodeId: uuid)
+    }
+
+    /// Bridge forwarder: user clicked the ↑ Up button.
+    func didRequestInsightUp(sessionId: String) {
+        guard let session = findInsightSession(sessionId: sessionId) else {
+            NSLog("[Insight] didRequestInsightUp: no session for id \(sessionId) (tab closed?)")
+            return
+        }
+        session.up()
+    }
+
+    /// Bridge forwarder: user clicked Retry on the error banner.
+    func didRequestInsightRetry(sessionId: String) {
+        guard let session = findInsightSession(sessionId: sessionId) else {
+            NSLog("[Insight] didRequestInsightRetry: no session for id \(sessionId) (tab closed?)")
+            return
+        }
+        Task { await session.retryCurrent() }
+    }
+
+    /// Save the current insight node's clean markdown body via NSSavePanel.
+    /// Filename sanitization (Decision 10 §7): replace any character that is not
+    /// `[A-Za-z0-9_]` with `_`, collapse runs of `_`, trim leading/trailing `_`,
+    /// fall back to `"insight"` if the result is empty. `.md` extension forced
+    /// regardless of what the user types in the panel.
+    /// The saved file contains `node.markdownBody` only — no `---DEEP-DIVES---`
+    /// marker, no deep-dives list, no breadcrumb chrome.
+    func saveInsightNode(_ node: InsightNode, fromSession session: InsightSession) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "md")!]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = Self.sanitizeInsightFilename(node.title)
+
+        guard panel.runModal() == .OK, let pickedURL = panel.url else { return }
+
+        // Force `.md` extension regardless of what the user typed.
+        let finalURL: URL
+        if pickedURL.pathExtension.lowercased() == "md" {
+            finalURL = pickedURL
+        } else {
+            finalURL = pickedURL.deletingPathExtension().appendingPathExtension("md")
+        }
+
+        do {
+            try node.markdownBody.write(to: finalURL, atomically: true, encoding: .utf8)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Could not save insight"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    /// Sanitize an insight node title into a safe default filename stem (no
+    /// extension): keep alphanumerics + underscore, replace anything else with
+    /// `_`, collapse runs of `_`, trim leading/trailing `_`, fall back to
+    /// `"insight"` when empty (Decision 10 §7).
+    private static func sanitizeInsightFilename(_ title: String) -> String {
+        let mapped = String(title.map { ch -> Character in
+            (ch.isLetter || ch.isNumber || ch == "_") ? ch : "_"
+        })
+        // Collapse runs of underscores.
+        let collapsed = mapped
+            .split(separator: "_", omittingEmptySubsequences: true)
+            .joined(separator: "_")
+        if collapsed.isEmpty {
+            return "insight"
+        }
+        return collapsed
     }
 
     /// Save a file at the given index

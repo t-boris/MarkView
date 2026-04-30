@@ -589,31 +589,40 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    // MARK: - Insight delegate stubs (Recursive Insight feature, Task 6)
+    // MARK: - Insight delegate methods (Recursive Insight feature, Task 7)
     //
-    // These forward UI events from the JS insight player to the active session.
-    // Task 7 will replace the NSLog stubs with actual `WorkspaceManager` calls
-    // (`handleInsightDeepDive`, `handleInsightSave`, ...). For now they only log so
-    // the protocol conformance compiles and clicks don't crash.
+    // Forward UI events from the JS insight player to `WorkspaceManager`, which
+    // resolves the target `InsightSession` by `sessionId` and dispatches the
+    // appropriate session method (expand / navigateTo / up / retryCurrent / save).
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, topicIndex: Int) {
-        NSLog("[Insight] didRequestInsightDeepDive sessionId=\(sessionId) index=\(topicIndex) — Task 7 wires to WorkspaceManager")
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightDeepDive(sessionId: sessionId, topicIndex: topicIndex)
+        }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightSave sessionId: String) {
-        NSLog("[Insight] didRequestInsightSave sessionId=\(sessionId) — Task 7 wires to WorkspaceManager")
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightSave(sessionId: sessionId)
+        }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String) {
-        NSLog("[Insight] didRequestInsightBreadcrumb sessionId=\(sessionId) nodeId=\(nodeId) — Task 7 wires to WorkspaceManager")
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightBreadcrumb(sessionId: sessionId, nodeId: nodeId)
+        }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightUp sessionId: String) {
-        NSLog("[Insight] didRequestInsightUp sessionId=\(sessionId) — Task 7 wires to WorkspaceManager")
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightUp(sessionId: sessionId)
+        }
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestInsightRetry sessionId: String) {
-        NSLog("[Insight] didRequestInsightRetry sessionId=\(sessionId) — Task 7 wires to WorkspaceManager")
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightRetry(sessionId: sessionId)
+        }
     }
 }
 
