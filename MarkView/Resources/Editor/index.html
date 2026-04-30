@@ -3,7 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+    <!--
+      CSP applies document-wide (meta-tag granularity). Decision 10 §3 was authored
+      with insight-mode-only content in mind, but existing modes (preview, structured,
+      WYSIWYG-save graph canvas) need:
+        - CDN scripts/styles from cdn.jsdelivr.net (D3, dagre, turndown, turndown-plugin-gfm)
+        - Remote https <img> for user markdown image content
+      Widened script-src/style-src/img-src to allow these. Insight-mode security intent
+      is preserved via:
+        - markdown-it `html: false` on insightMd instance (no raw HTML from LLM output)
+        - `setText(el, str)` utility routes every LLM-derived string through textContent
+        - `connect-src 'none'` blocks any LLM-injected fetch/XHR/exfil-via-loading
+        - `object-src 'none'` blocks <object>/<embed> injection
+        - `base-uri 'none'` prevents <base> hijacking
+        - mermaid `securityLevel: 'strict'` per-render in insight mode
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'none'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
     <!-- KaTeX CSS -->
