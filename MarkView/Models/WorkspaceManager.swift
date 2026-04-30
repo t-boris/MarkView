@@ -539,8 +539,6 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Open a file in a new tab or switch to existing tab
-    /// Open or refresh a file — if already open, reload content from disk
     // MARK: - Markdown File Scanning (Recursive Insight)
 
     /// Hard cap on the number of `.md` files that `scanMarkdownFiles(in:)` will
@@ -580,11 +578,18 @@ class WorkspaceManager: ObservableObject {
     /// Per-file size truncation is the caller's responsibility — this helper
     /// only enumerates URLs.
     func scanMarkdownFiles(in folderURL: URL) -> Result<[URL], ScanError> {
-        let resolvedFolder = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
+        // Append the platform path separator so prefix checks cannot be bypassed
+        // by sibling folders sharing a name prefix (e.g. `/x/foo` vs `/x/foobar`).
+        // `URL.standardizedFileURL.path` strips trailing slashes, so guard against
+        // an existing trailing `/` to avoid `//` artifacts on edge cases.
+        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
+            ? resolvedFolderPath
+            : resolvedFolderPath + "/"
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: folderURL,
-            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
             return .success([])
@@ -597,7 +602,10 @@ class WorkspaceManager: ObservableObject {
             guard !url.path.contains(".dde") else { continue }
 
             let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolvedFile.hasPrefix(resolvedFolder) else {
+            // The `==` clause covers the (unlikely) case of the folder URL itself
+            // surfacing here; the prefix clause requires a path-separator boundary
+            // so a sibling like `/x/foobar/secret.md` cannot pass for `/x/foo`.
+            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else {
                 NSLog("[Insight] Skipped symlink escape: \(url.path)")
                 continue
             }
@@ -616,11 +624,15 @@ class WorkspaceManager: ObservableObject {
     /// is intentionally NOT applied here — we exit on the first hit anyway.
     var hasMarkdownFiles: Bool {
         guard let folderURL = rootNode?.url else { return false }
-        let resolvedFolder = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
+        // Same separator-aware containment as `scanMarkdownFiles(in:)` — keep in sync.
+        let resolvedFolderPrefix = resolvedFolderPath.hasSuffix("/")
+            ? resolvedFolderPath
+            : resolvedFolderPath + "/"
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(
             at: folderURL,
-            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
             return false
@@ -629,7 +641,7 @@ class WorkspaceManager: ObservableObject {
             guard url.pathExtension.lowercased() == "md" else { continue }
             guard !url.path.contains(".dde") else { continue }
             let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL.path
-            guard resolvedFile.hasPrefix(resolvedFolder) else { continue }
+            guard resolvedFile == resolvedFolderPath || resolvedFile.hasPrefix(resolvedFolderPrefix) else { continue }
             return true
         }
         return false
@@ -694,6 +706,7 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// Open or refresh a file — if already open, reload content from disk
     func openOrRefreshFile(_ url: URL) {
         if let index = tabsStore.firstIndex(of: url) {
             if let content = try? String(contentsOf: url, encoding: .utf8) {
@@ -709,6 +722,7 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// Open a file in a new tab or switch to existing tab
     func openFile(_ url: URL) {
         // Always init workspace for .md files if DB is missing or file is from different dir
         let isMD = url.pathExtension.lowercased() == "md"
