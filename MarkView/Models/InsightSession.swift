@@ -127,6 +127,17 @@ final class InsightSession: ObservableObject, Identifiable {
     private let graphRAG: GraphRAG?
     /// Snapshot of the api key at init-time, captured via `providerClient.apiKeySnapshot`
     /// (Decision 10 §6 — used only for redaction inside `handleStreamError`).
+    ///
+    /// KNOWN LIMITATION (Task 4 review round 1, finding #5): this snapshot is taken at
+    /// init and never refreshed. If the user rotates their API key mid-session via
+    /// Settings (`AIProviderClient.updateAPIKey(_:)`), errors that include the NEW key
+    /// in their localizedDescription will not be redacted by this layer — only the OLD
+    /// snapshot is matched. Mitigated by `AIProviderClient.streamCompletion`'s own
+    /// `sanitize(_:)` defense-in-depth (lines 251 + 318), so this is a small residual
+    /// gap. Sessions are short-lived (one tab open + manual interactions), so mid-session
+    /// rotation is an extreme edge case. Re-snapshotting on each call would introduce
+    /// thread-safety concerns (apiKey mutation is not synchronised with our reads), so
+    /// the design choice is to accept this limitation.
     private let apiKeySnapshot: String?
     /// Per-node sliding window of retry timestamps (Decision 11 §3 — 3 retries / 60 s).
     private var retryHistory: [UUID: [Date]] = [:]
@@ -198,7 +209,13 @@ final class InsightSession: ObservableObject, Identifiable {
         activeTask = Task { [weak self] in
             guard let self = self else { return }
             do {
-                if useMapReduce, let rag = await self.graphRAG {
+                if useMapReduce {
+                    // Decision 5: >30 files MUST route through map-reduce. If graphRAG is
+                    // nil here, fail fast rather than dumping all files into one prompt
+                    // (review round 1 finding #2).
+                    guard let rag = await self.graphRAG else {
+                        throw AIProviderError.streamingError("GraphRAG required for folders larger than 30 .md files; this should not happen in production")
+                    }
                     try await rag.mapReduceForFolder(
                         folderURL: await self.folderURL,
                         mdFiles: await self.mdFiles,
@@ -230,7 +247,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 // Stream finished cleanly — finalise.
                 await self.finalizeStream(nodeId: nodeId)
             } catch {
-                await self.handleStreamError(error)
+                await self.handleStreamError(error, forNodeId: nodeId)
             }
         }
     }
@@ -249,8 +266,17 @@ final class InsightSession: ObservableObject, Identifiable {
 
         // Validate scope_hint paths now (Decision 10 §6).
         var validated = validateScopeHint(topic.scopeHint)
-        // Decision 5 — cap deep-dive prompts at 30 files.
+        // Decision 5 — cap deep-dive prompts at 30 files. When the validated set
+        // exceeds the cap, take the 30 files closest in path to the parent's scope
+        // (review round 1 finding #3). "Closest" = fewest differing path components
+        // from the parent's anchor. Anchor selection:
+        //   - .folderRoot parent → no semantic anchor; fall back to lexicographic order.
+        //   - .topic parent → common-ancestor directory of the parent's own files.
         if validated.count > Self.maxFilesPerDeepDive {
+            validated = rankByPathDistance(
+                candidates: validated,
+                parentScope: parent.scope
+            )
             validated = Array(validated.prefix(Self.maxFilesPerDeepDive))
         }
 
@@ -304,7 +330,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 )
                 await self.finalizeStream(nodeId: nodeId)
             } catch {
-                await self.handleStreamError(error)
+                await self.handleStreamError(error, forNodeId: nodeId)
             }
         }
     }
@@ -378,7 +404,13 @@ final class InsightSession: ObservableObject, Identifiable {
             do {
                 switch scope {
                 case .folderRoot:
-                    if useMapReduce, let rag = await self.graphRAG {
+                    if useMapReduce {
+                        // Decision 5: >30 files MUST route through map-reduce. If graphRAG
+                        // is nil here, fail fast rather than silently falling through to
+                        // the small-folder one-shot path (review round 1 finding #2).
+                        guard let rag = await self.graphRAG else {
+                            throw AIProviderError.streamingError("GraphRAG required for folders larger than 30 .md files; this should not happen in production")
+                        }
                         try await rag.mapReduceForFolder(
                             folderURL: await self.folderURL,
                             mdFiles: await self.mdFiles,
@@ -433,10 +465,16 @@ final class InsightSession: ObservableObject, Identifiable {
                     )
                 }
                 await self.finalizeStream(nodeId: nodeId)
-                // Successful retry resets the window per Decision 11 §3.
-                await self.clearRetryHistory(for: nodeId)
+                // Successful retry resets the window per Decision 11 §3. We only clear
+                // on natural completion (.ready). Cancellation does NOT clear — review
+                // round 1 finding #6: cancel-then-retry was bypassing the throttle by
+                // resetting the window on every cancel-induced silent return.
+                // finalizeStream sets node.status = .ready; we check that here.
+                if await self.lookupNode(nodeId)?.status == .ready {
+                    await self.clearRetryHistory(for: nodeId)
+                }
             } catch {
-                await self.handleStreamError(error)
+                await self.handleStreamError(error, forNodeId: nodeId)
             }
         }
     }
@@ -486,7 +524,14 @@ final class InsightSession: ObservableObject, Identifiable {
     /// `streamingBuffer` reflects whatever the user is currently looking at).
     /// Enforces the 10 MB per-node cap (Decision 10 §7).
     private func appendStream(_ chunk: String, nodeId: UUID) {
+        // Post-cancel chunk-hop guard (review round 1 finding #4). onDelta hops to
+        // MainActor; between scheduling and execution, cancel() may fire and clear
+        // activeTask, OR the per-node cap may already have flipped status to .failed.
+        // Either way we skip the append: don't touch buffers of an orphaned/failed node.
+        if Task.isCancelled { return }
         guard let node = nodes[nodeId] else { return }
+        guard node.status == .streaming else { return }
+
         node.rawBuffer.append(chunk)
         if currentNodeId == nodeId {
             streamingBuffer.append(chunk)
@@ -507,8 +552,31 @@ final class InsightSession: ObservableObject, Identifiable {
     }
 
     /// Stream finished cleanly — parse marker, populate node fields, transition to ready.
+    ///
+    /// `AIProviderClient.streamCompletion` returns NORMALLY on cancellation (no
+    /// CancellationError thrown), so this method runs even after a cancelled stream.
+    /// Guard against that case (review round 1 finding #6 + security audit finding #2):
+    /// if the surrounding Task was cancelled, do NOT mark the node `.ready` — it would
+    /// claim a partial buffer is complete AND would let `retryCurrent` clear the throttle
+    /// window on a cancelled stream, defeating the rate-limit.
     private func finalizeStream(nodeId: UUID) {
+        if Task.isCancelled {
+            // Cancelled stream — preserve partial buffer, leave status as-is, do not
+            // surface "ready" UX nor reset the retry throttle.
+            if currentNodeId == nodeId {
+                isStreaming = false
+            }
+            return
+        }
         guard let node = nodes[nodeId] else { return }
+        // Defensive: if the node was already marked .failed (e.g. by per-node cap trip
+        // in appendStream), do not flip it back to .ready.
+        guard node.status == .streaming else {
+            if currentNodeId == nodeId {
+                isStreaming = false
+            }
+            return
+        }
         let (body, topics) = Self.parseMarker(node.rawBuffer)
         node.markdownBody = body
         node.deepDives = topics
@@ -533,14 +601,27 @@ final class InsightSession: ObservableObject, Identifiable {
 
     /// Pattern-match `error` against `AIProviderError` cases (Decision 11 §3 table).
     /// Sanitises the api key out of the message before storing.
-    private func handleStreamError(_ error: Error) {
+    ///
+    /// `forNodeId` is the id of the node whose stream actually errored (Task 4 review
+    /// round 1, finding #1). Without this, a non-cancellation error fired after the user
+    /// expand()ed/navigated would mark the WRONG node `.failed` (the new currentNode)
+    /// instead of the parent node whose stream raised. We mark the erroring node `.failed`
+    /// regardless of current focus, but only update the visible UI state (`lastError`,
+    /// `lastErrorRetryable`, `isStreaming`) when the user is still looking at that node.
+    /// If the node was evicted between stream-start and error → log + skip the status
+    /// update but still surface lastError if the erroring stream was the current view.
+    private func handleStreamError(_ error: Error, forNodeId: UUID) {
         // Cancellation is silent (normal lifecycle).
         if error is CancellationError {
-            isStreaming = false
+            if currentNodeId == forNodeId {
+                isStreaming = false
+            }
             return
         }
         if Task.isCancelled {
-            isStreaming = false
+            if currentNodeId == forNodeId {
+                isStreaming = false
+            }
             return
         }
 
@@ -580,12 +661,22 @@ final class InsightSession: ObservableObject, Identifiable {
             message = message.replacingOccurrences(of: key, with: "<redacted>")
         }
 
-        if let node = currentNode() {
-            node.status = .failed
+        // Mark the actual erroring node failed (review round 1 finding #1). If the node
+        // was evicted between stream-start and error, log and continue.
+        if let erroringNode = nodes[forNodeId] {
+            erroringNode.status = .failed
+        } else {
+            NSLog("[Insight] handleStreamError: node \(forNodeId) was evicted before error landed")
         }
-        lastError = message
-        lastErrorRetryable = retryable
-        isStreaming = false
+
+        // Only mutate visible UI state when the user is still looking at the erroring
+        // node. A background-failing stream must not overwrite the UI of a different node
+        // the user navigated to (review round 1 finding #1).
+        if currentNodeId == forNodeId {
+            lastError = message
+            lastErrorRetryable = retryable
+            isStreaming = false
+        }
         // streamingBuffer + currentNode.rawBuffer preserved per Decision 11 §3.
     }
 
@@ -627,6 +718,74 @@ final class InsightSession: ObservableObject, Identifiable {
             result.append(candidate)
         }
         return result
+    }
+
+    // MARK: - Private: deep-dive scope-hint ranking (Decision 5)
+
+    /// Rank candidate `.md` URLs by path-distance from the parent node's scope anchor.
+    /// Used to cap deep-dive prompts at `maxFilesPerDeepDive` when the validated
+    /// scope_hint resolves to more files than the cap (review round 1 finding #3).
+    ///
+    /// Distance metric: number of differing path components between candidate and
+    /// anchor (lower = closer). Ties broken by lexicographic path order for stable
+    /// output. If parent is `.folderRoot` (no semantic anchor) → fall back to plain
+    /// lexicographic order.
+    private func rankByPathDistance(
+        candidates: [URL],
+        parentScope: NodeScope
+    ) -> [URL] {
+        let anchor: [String]?
+        switch parentScope {
+        case .folderRoot:
+            // No semantic anchor — folderRoot covers everything. Lexicographic fallback.
+            anchor = nil
+        case .topic(_, _, let parentFiles):
+            // Common-ancestor directory components of parent's own files.
+            anchor = commonAncestorComponents(of: parentFiles)
+        }
+
+        if let anchor = anchor {
+            return candidates.sorted { (a, b) in
+                let da = pathComponentDistance(a, from: anchor)
+                let db = pathComponentDistance(b, from: anchor)
+                if da != db { return da < db }
+                return a.path < b.path
+            }
+        } else {
+            return candidates.sorted { $0.path < $1.path }
+        }
+    }
+
+    /// Components of the longest directory prefix shared by all URLs in `urls`.
+    /// Empty list if no shared prefix (or empty input).
+    private func commonAncestorComponents(of urls: [URL]) -> [String] {
+        guard let first = urls.first else { return [] }
+        // Use the parent directory of each file (drop the filename).
+        var common = Array(first.deletingLastPathComponent().pathComponents)
+        for url in urls.dropFirst() {
+            let comps = Array(url.deletingLastPathComponent().pathComponents)
+            var i = 0
+            while i < common.count && i < comps.count && common[i] == comps[i] {
+                i += 1
+            }
+            common = Array(common.prefix(i))
+            if common.isEmpty { break }
+        }
+        return common
+    }
+
+    /// Distance = number of path components in `url`'s parent directory that differ
+    /// from `anchor`. Concretely: take the parent-directory components, walk in lock
+    /// step with `anchor`, count divergent components on either side.
+    private func pathComponentDistance(_ url: URL, from anchor: [String]) -> Int {
+        let urlComps = Array(url.deletingLastPathComponent().pathComponents)
+        var i = 0
+        let limit = min(urlComps.count, anchor.count)
+        while i < limit && urlComps[i] == anchor[i] {
+            i += 1
+        }
+        // Components after the divergence point on both sides count as "different".
+        return (urlComps.count - i) + (anchor.count - i)
     }
 
     // MARK: - Private: memory eviction (Decision 10 §7)
