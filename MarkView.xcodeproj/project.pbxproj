@@ -70,6 +70,7 @@
 		E71111111111111111111111 /* TestGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72222222222222222222222 /* TestGenerator.swift */; };
 		E81111111111111111111111 /* GraphRAG.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82222222222222222222222 /* GraphRAG.swift */; };
 		E91111111111111111111111 /* ProviderRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92222222222222222222222 /* ProviderRouter.swift */; };
+		F33333333333333333333333 /* InsightCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44444444444444444444444 /* InsightCache.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -123,6 +124,7 @@
 		E72222222222222222222222 /* TestGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestGenerator.swift; sourceTree = "<group>"; };
 		E82222222222222222222222 /* GraphRAG.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRAG.swift; sourceTree = "<group>"; };
 		E92222222222222222222222 /* ProviderRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRouter.swift; sourceTree = "<group>"; };
+		F44444444444444444444444 /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -139,6 +141,7 @@
 			children = (
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
 				F12222222222222222222222 /* InsightSession.swift */,
+				F44444444444444444444444 /* InsightCache.swift */,
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
 				BB2222222222222222222222 /* SemanticModels.swift */,
 				CC2222222222222222222222 /* SemanticDatabase.swift */,
@@ -401,6 +404,7 @@
 				E71111111111111111111111 /* TestGenerator.swift in Sources */,
 				E81111111111111111111111 /* GraphRAG.swift in Sources */,
 				E91111111111111111111111 /* ProviderRouter.swift in Sources */,
+				F33333333333333333333333 /* InsightCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
