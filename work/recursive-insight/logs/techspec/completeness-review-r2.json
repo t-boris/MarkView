@@ -1,0 +1,140 @@
+{
+  "status": "fail",
+  "round": 2,
+  "sources": {
+    "user_spec": true,
+    "tech_spec": true,
+    "tasks": false
+  },
+  "requirements_total": 18,
+  "requirements_covered": 15,
+  "requirements_partial": 2,
+  "requirements_missing": 1,
+  "round1_critical_resolution": {
+    "blob_url_revocation": {
+      "status": "fixed",
+      "detail": "Decision 11 added with complete two-stage revocation spec (navigation + tab close). AC section 'Blob URL lifecycle' enforces both stages. T8 description specifies the ordered close sequence. However, a new contradiction was introduced: Architecture 'Tab close' section (line 114) still shows session.cancel() FIRST, omitting window.releaseInsightBlobs() entirely — contradicts Decision 11 §2, T8, AC, and Risks table which all require releaseInsightBlobs() BEFORE session.cancel(). See finding structural_gap-tab-close-order."
+    },
+    "cache_write_conflicting_paths": {
+      "status": "fixed",
+      "detail": "Architecture section retitled 'Disk cache write (deterministic rebuild only)'. Explicit note added: 'the spec deliberately does NOT add a 6th postMessage type to round-trip the iframe DOM back to parent — that would violate the 5-type allowlist. The deterministic rebuild approach is the only sanctioned path.' AC enforces the deterministic approach. Ambiguity is fully resolved."
+    },
+    "sectionstate_missing_codable": {
+      "status": "fixed",
+      "detail": "Data Models now declares: struct SectionState: Codable { var buffer: String; var status: Status; enum Status: String, Codable { ... } }. Both SectionState and nested Status are Codable. Compile error is resolved."
+    }
+  },
+  "round1_major_resolution": {
+    "postmessage_rename_undocumented": {
+      "status": "partial",
+      "detail": "Decision 2 now consistently uses insight-prefixed names throughout the spec (insightIframeReady, insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp). However, Decision 2 still does not acknowledge that these names diverge from the user-spec contract (which lists: deepDiveClicked, breadcrumbClicked, requestSave, requestUp, iframeReady) and provides no rationale for the prefix addition. A reviewer cross-checking user-spec AC against tech-spec AC will still encounter an unexplained discrepancy. Downgraded to minor: the internal consistency is now complete and the rename is an obvious namespacing improvement, but the non-acknowledgment of the divergence is a documentation gap."
+    },
+    "zip_breadcrumb_rewriting": {
+      "status": "partial",
+      "detail": "Architecture (Save/Export) and AC describe deep-dive onclick rewriting in exported HTML but use 'same rewriting' for node pages without specifying that breadcrumb links (back-navigation to parent/ancestor nodes) are also rewritten. AC for ZIP says 'Opening the exported ZIP's index.html in Safari renders correctly; breadcrumb navigation between local files works' — this implies breadcrumb links must work but the implementation does not describe the rewriting logic for breadcrumb hrefs in exported node HTMLs. Still open at major severity: AC requires working breadcrumb navigation but Architecture lacks the implementation step to achieve it."
+    },
+    "llm_cdn_injection_sanitization": {
+      "status": "partial",
+      "detail": "AC section 'LLM CDN injection sanitization (runtime enforcement)' is now explicit: parent strips <script src='https://...'> in bridge.updateInsightSection before forwarding to iframe. However, the Architecture Phase 2 flow narrative still does not describe the sanitization step between receiving the HTML chunk and forwarding it. T5 (index.html) and T7 (WebViewBridge) task descriptions also omit it. Implementors reading the Architecture and task descriptions receive no guidance to add stripping. AC-only specification without Architecture or task grounding is a residual gap; downgraded from major to major (same severity, different justification: AC is implementation-binding in this spec, and T8 description covers sanitization implicitly as part of updateInsightSection). Retained as major because the stripping belongs in T5/T7 scope not T8."
+    },
+    "iframe_load_timeout_owner": {
+      "status": "partial",
+      "detail": "Risks table and AC both specify the 10-second iframe load timeout and describe the behavior (show error, destroy + recreate iframe). However, the Architecture Phase 1 flow still does not mention the timer, and no task description (T5, T7) explicitly assigns ownership. The AC owner is 'parent' (parent starts a 10-second timer) — this is parent JS, meaning T5 (index.html) is the natural owner, but T5 does not list timeout as a deliverable. Downgraded from major to minor: the what and where are inferrable (parent JS, T5), only the explicit task assignment is missing."
+    },
+    "mapreducefor_folder_caller_inventory": {
+      "status": "not_fixed",
+      "detail": "The spec still states 'mapReduceForFolder body replaced for v2' and 'Existing deepResearch() untouched' but does NOT confirm a call-site inventory showing mapReduceForFolder is only called from InsightSession. If mapReduceForFolder is called from deepResearch or any other path, the v2 body replacement breaks those callers. The spec's assertion 'deepResearch() untouched' only says deepResearch itself is not modified; it does not confirm that deepResearch does not call mapReduceForFolder. This remains a regression risk. Retained at major severity."
+    },
+    "insight_session_init_missing_apikeysnapshot": {
+      "status": "fixed",
+      "detail": "Data Models now includes comment: '// apiKeySnapshot captured from providerClient.apiKeySnapshot in init body (private setter only)'. The source of the value is explicit. Fixed."
+    },
+    "inflight_process_cleanup_on_tab_close": {
+      "status": "fixed",
+      "detail": "Risks table entry: 'InsightArchiveExporter.bundle runs as a separate Task; session.cancel() cancels it; on cancel, the task spawns a final cleanup of the staging temp dir + any partial .zip.tmp at user destination.' T8 description: 'Process is cancellable: if user closes tab during export, in-flight Process killed + staging + .zip.tmp cleaned.' Both mechanism and cleanup are specified. Fixed."
+    }
+  },
+  "findings": [
+    {
+      "type": "structural_gap",
+      "source": "tech-spec",
+      "requirement": "US-15: Tab close → iframe destroyed, InsightSession freed, active streams cancelled, disk cache cleaned",
+      "detail": "Architecture 'Tab close' section specifies the close sequence as: session.cancel() → cache.cleanup() → tabsStore.removeTab. This contradicts Decision 11 §2, T8 description, the Risks table entry ('Blob URL revocation missed on tab close → closeTab insight branch calls parent JS window.releaseInsightBlobs() BEFORE session.cancel()'), and AC ('On closeTab insight branch: parent JS window.releaseInsightBlobs() called BEFORE session.cancel()'). The Architecture section was not updated when Decision 11 and T8 introduced the ordered sequence. A developer implementing from the Architecture section will produce incorrect close order: blob URLs will be revoked after in-flight Combine subscriptions have already fired (the exact race Decision 11 was designed to prevent). The Architecture must be updated to: window.releaseInsightBlobs() → session.cancel() → cache.cleanup() → tabsStore.removeTab.",
+      "severity": "critical"
+    },
+    {
+      "type": "gap",
+      "source": "tech-spec",
+      "requirement": "US-16: Existing editor functionality not broken — GraphRAG.mapReduceForFolder replacement risk",
+      "detail": "Architecture and T4 replace mapReduceForFolder body for v2. The spec states 'Existing deepResearch() untouched' but does not provide a call-site inventory confirming mapReduceForFolder is only called from InsightSession. If deepResearch or any other code path calls mapReduceForFolder, the v2 body replacement silently breaks those callers. The spec must either (a) confirm 'mapReduceForFolder is called only from InsightSession (verified by grep)' or (b) rename the v2 function and leave the original intact. Without this confirmation, T4 carries an unquantified regression risk for non-insight features.",
+      "severity": "major"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-10: Export Archive — ZIP opens in any browser without MarkView",
+      "detail": "Architecture (Save/Export) describes deep-dive onclick rewriting in exported HTML but uses 'same rewriting' for nodes/<uuid>.html files without specifying breadcrumb link rewriting. Each node page contains breadcrumb links pointing to parent and ancestor nodes. In the exported ZIP, these must be rewritten to relative paths (e.g., '../nodes/<ancestor-uuid>.html' or '<uuid>.html' depending on nesting). The AC says 'breadcrumb navigation between local files works' but neither the Architecture nor T8 description explains how breadcrumb hrefs in node pages are rewritten for the standalone ZIP context. An implementor reading T8 knows to rewrite deep-dive onclicks but has no spec for breadcrumb link rewriting. Without this, breadcrumb back-navigation in the exported ZIP will be broken.",
+      "severity": "major"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-12: postMessage allowlist — user-spec names: deepDiveClicked, breadcrumbClicked, requestSave, requestUp, iframeReady",
+      "detail": "Tech-spec consistently uses insight-prefixed names throughout (insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp, insightIframeReady). Decision 2 establishes the allowlist with these names but does not acknowledge the divergence from the user-spec contract or provide rationale for the prefix. A reviewer cross-checking user-spec AC ('Communication parent ↔ iframe only through postMessage with: deepDiveClicked, breadcrumbClicked, requestSave, requestUp, iframeReady') against the tech-spec AC will encounter an unexplained discrepancy. The rename appears to be namespacing, which is reasonable, but it is an undocumented divergence from a user-visible acceptance criterion.",
+      "severity": "minor"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "US-11 / US-13: Iframe sandbox security — LLM CDN injection sanitization implementation point",
+      "detail": "AC explicitly specifies CDN stripping in bridge.updateInsightSection. However, the Architecture Phase 2 flow does not describe the sanitization step, and neither T5 (index.html — where updateInsightSection is partially implemented) nor T7 (WebViewBridge — where updateInsightSection bridge method is implemented) mentions CDN stripping as a deliverable. The stripping is in T8's implied scope ('new bridge payloads') but T8 is WorkspaceManager + InsightArchiveExporter, not the bridge layer. The implementation owner is ambiguous: T5 (parent JS side) or T7 (Swift bridge side) should own it explicitly. Without explicit task ownership, this AC item may fall through the cracks.",
+      "severity": "major"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "US-2: Phase 1 structure visible within 3 seconds — iframe load timeout implementation ownership",
+      "detail": "Risks table and AC both specify the 10-second timer. AC says 'parent starts a 10-second timer' after setting iframe.srcdoc. But the Architecture Phase 1 flow does not mention the timer, and no task description (T5 — index.html, T6 — InsightSession, T7 — WebViewBridge) lists the timeout as a deliverable. The natural owner is T5 (parent JS in index.html), but T5 description does not mention it. The iframe-ready path is the critical path for the 3-second AC. A developer implementing T5 without reading every risk entry will omit the timeout.",
+      "severity": "minor"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-7 / US-9: Breadcrumb navigation — insightRequestUp handler flow not described",
+      "detail": "Architecture Navigation section describes insightBreadcrumbClicked flow completely (iframe → parent → bridge → WorkspaceManager.didRequestInsightBreadcrumb → session.navigateTo(nodeId:)). The Up button flow is: 'Up button equivalent to navigateTo(parent.id)'. But insightRequestUp has no nodeId payload — the parent must derive parent.id from current session state. The derivation path (session.currentNode() → parentId) is not described. T8 lists 'breadcrumbClicked validates nodeId UUID + manifest membership' but says nothing about insightRequestUp. An implementor of T8 has no spec for the Up handler's server-side logic.",
+      "severity": "minor"
+    },
+    {
+      "type": "partial",
+      "source": "tech-spec",
+      "requirement": "Decision 11: Blob URL navigation-time revocation not in Architecture Navigation flow",
+      "detail": "Decision 11 specifies two revocation stages: (1) on node navigation when lib subset changes — revoke unused libs, create new blobs; (2) on tab close — releaseInsightBlobs(). The Architecture Navigation section describes navigateTo as: 'cache.readNode → sets iframe.srcdoc = HTML; iframe re-loads'. It does not mention the lib-subset diff check or revocation step. AC says 'On node navigation (currentNodeId change): unused libs revoked, new libs created' — but no task description (T5, T6, T7, T8) assigns this as a deliverable. A developer implementing navigation from the Architecture and task specs will produce a navigation without revocation, leaking lib blobs on every back-navigation.",
+      "severity": "major"
+    },
+    {
+      "type": "scope_creep",
+      "source": "tech-spec",
+      "requirement": "US-10: Export Archive",
+      "detail": "Decision 4 specifies _assets/ directory created at InsightCache.init (copies all vendored libs). Every session start copies ~4MB of lib files to disk even if the user never exports. User-spec only requires _assets/ in the exported ZIP. Runtime iframe uses blob URLs (Decision 5), not files from _assets/. Eager copy at session init is overhead not required by any user requirement. Lazy copy inside archiveStagingDirectory() at export time would be sufficient. Retained from R1 at minor severity.",
+      "severity": "minor"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "Risk 4 mitigation: global cache cap 500MB + LRU eviction",
+      "detail": "Risks table defers global cap to 'log only this version'. The deferral is a conscious decision but is not tracked in any follow-up task. T8 updates tasks/todo.md but the description does not mention adding the global cap as a deferred item. Decision 9 test scope and T11 test audit do not list it. For a feature that can accumulate 25MB+ per session, the untracked deferral is an operational risk. Retained from R1 at minor severity.",
+      "severity": "minor"
+    }
+  ],
+  "new_contradictions_introduced": [
+    {
+      "location": "Architecture 'Tab close' section vs Decision 11 + T8 + AC + Risks table",
+      "description": "Architecture Tab close section shows the close sequence WITHOUT window.releaseInsightBlobs(). All other sections of the spec require releaseInsightBlobs() BEFORE session.cancel(). The Architecture section was not updated when Decision 11 and T8 were added. This is a direct contradiction that will produce incorrect implementation if a developer follows the Architecture section. Elevated to critical structural_gap."
+    },
+    {
+      "location": "Architecture 'What we're building — WebViewBridge.swift' (line 50) reference error",
+      "description": "The description says 'Per Decision 6, all v2 handlers gain guard message.frameInfo.isMainFrame'. Decision 6 is 'Single iframe with srcdoc reset on navigation'. The frameInfo guard is Decision 3. The reference is wrong. Minor documentation error, not a functional gap."
+    }
+  ],
+  "summary": "R2 verification: 3 R1 critical findings resolved (blob URL revocation via Decision 11, cache write ambiguity via deterministic-only Architecture, SectionState Codable). 3 R1 major findings resolved (InsightSession.init apiKeySnapshot comment, in-flight Process cleanup via T8 + Risks, InsightArchiveExporter.bundle cancellation). 4 R1 major findings partially resolved or still open: mapReduceForFolder caller inventory still not addressed (major gap); ZIP breadcrumb rewriting still vague (major partial); CDN sanitization task ownership ambiguous (major, T5/T7 not assigned); blob URL navigation-time revocation not in Architecture or any task description (major, new finding from Decision 11 stage 1). 1 new critical finding introduced by the R1 fixes: Architecture 'Tab close' section was NOT updated when Decision 11 and T8 added the ordered close sequence — it still shows session.cancel() first, directly contradicting Decision 11 §2, T8, AC, and Risks. A developer following the Architecture section will produce incorrect blob URL revocation order. Status: FAIL. 1 critical finding (Architecture/Decision 11 contradiction on tab close order). 3 major findings (mapReduceForFolder callers unconfirmed; ZIP breadcrumb rewriting unspecified; blob URL navigation revocation unassigned). 3 minor findings (iframe timeout task ownership; insightRequestUp flow; postMessage rename undocumented). 2 minor carryovers (eager _assets/ copy; global cache cap deferral untracked)."
+}

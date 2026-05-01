@@ -1,0 +1,125 @@
+{
+  "validator": "reality-checker",
+  "batch": [4, 5, 6],
+  "iteration": 1,
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 4,
+      "issue": "Task 4 declares `providerClient.toolCall(name:description:inputSchema:systemPrompt:userMessage:model:maxTokens:)` as the Phase 1 call target, and correctly marks it as a T1 dependency. However, `toolCall` does NOT exist in `AIProviderClient.swift` yet (the file has only `streamCompletion`, `extractBlockSemantics`, `hasAPIKey`, `apiKeySnapshot`). T4 is wave 2 and depends_on T1 — if the executor runs T4 before T1 is merged, the build will fail to compile. This is correctly declared in depends_on but warrants an explicit pre-execution check.",
+      "fix": "Confirm T1 is complete and `toolCall` is present in AIProviderClient.swift before starting T4. The depends_on declaration is correct; the executor must enforce it."
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 4,
+      "issue": "T4 Implementation hints (line ~167) suggest reusing `AIProviderClient.sanitize` via `providerClient.sanitize(_:)` for log sanitization in GraphRAG. In the actual codebase, `sanitize` is declared `private func sanitize(_ msg: String)` at AIProviderClient.swift line 421 — it is private and inaccessible from GraphRAG.swift.",
+      "fix": "Do not reference `AIProviderClient.sanitize` from GraphRAG.swift. Implement a private sanitization helper inside GraphRAG, or pattern-match only `NSLog` with a prefix and avoid logging LLM content (which the task already states). Remove the hint reference to `AIProviderClient.sanitize`."
+    },
+    {
+      "severity": "major",
+      "category": "hallucination",
+      "task": 4,
+      "issue": "T4 caller inventory claim says 'Ожидаемые попадания: 4 строки в InsightSession.swift (комментарии + 2 вызова)'. Actual grep shows 4 matches in InsightSession.swift: line 102 (comment), line 171 (comment), line 219 (actual call), line 414 (actual call) — that is 2 comments + 2 calls = 4 lines. The count is correct. However, T4's Details section also states 'lines 218-538' for the docstring + body removal, but the function definition is at line 233 per actual grep. The docstring starting line differs by ~15 lines from the spec claim. This is a minor mismatch but the executor will need to locate the correct range.",
+      "fix": "Executor should re-grep `func mapReduceForFolder` to confirm actual start line (233) and scan to the end of its body before deleting. Do not rely on the hardcoded line range 218-538 or 233-538 from the spec."
+    },
+    {
+      "severity": "major",
+      "category": "hallucination",
+      "task": 4,
+      "issue": "T4 description says `buildSkeleton` calls `providerClient.toolCall`. However T4 also says 'GraphRAG v2 helpers — чистые prompt-композёры' and that `buildSectionPrompt` is sync/pure. These are contradictory: `buildSkeleton` is async and makes a real network call (toolCall), making it NOT a pure prompt composer. The description (line ~20) explicitly calls `buildSkeleton` a 'prompt composer' for Phase 1, but step 4 makes clear it calls `toolCall`. This creates a semantic inconsistency that the code-reviewer may flag.",
+      "fix": "Clarify in the acceptance criteria and docstrings that `buildSkeleton` is the Phase 1 orchestrator (performs toolCall), while `buildSectionPrompt` is the pure Phase 2 prompt builder. The task is internally consistent if read carefully but the word 'prompt-kompozёr' is misleading for `buildSkeleton`."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 4,
+      "issue": "T4 defines `func buildSkeleton(folderURL:URL, mdFiles:[URL], scopeLabel:String?, scopeHint:String?)` as the exported Phase 1 helper. T6 references this helper as `graphRAG?.buildPhase1Prompts(folderURL:, mdFiles:, scope: node.scope)` in step 6 — a completely different function name and signature. The T4 spec says the method name is `buildSkeleton`; T6 spec calls it `buildPhase1Prompts`. These names do not match and one of the two tasks is using a wrong API name.",
+      "fix": "Align on one canonical name. Tech-spec Architecture section uses neither — it says 'phase 1 helper composes the skeleton prompt and calls toolCall'. T4 is the owner and names it `buildSkeleton`. T6 must be updated to call `graphRAG?.buildSkeleton(folderURL:, mdFiles:, scopeLabel:, scopeHint:)` with the correct argument labels, OR the tech-spec must add a canonical API table. This is a blocking cross-task integration issue."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 4,
+      "issue": "T4 defines `func buildSectionPrompt(section:InsightSection, allFiles:[URL], folderURL:URL)` as the Phase 2 prompt builder. T6 step 7 calls it as `self.graphRAG?.buildPhase2SectionPrompts(...)` — again a different name. T6 also has a fallback path ('или inline') which partially mitigates this, but the mismatch means the happy path call in T6 will fail to compile unless the name is reconciled.",
+      "fix": "Update T6 step 7 to call `graphRAG?.buildSectionPrompt(section:allFiles:folderURL:)` matching the T4 canonical name, or update T4 to rename to `buildPhase2SectionPrompts`. Document the canonical names in decisions.md."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 6,
+      "issue": "T6 depends_on T3 (InsightCache). `InsightCache.swift` does NOT exist in the codebase — `ls MarkView/Models/` shows only InsightSession.swift, no InsightCache. T6 requires `init(workspaceURL:sessionId:)`, `writeNode`, `readNode`, `updateManifest`, `loadManifest`, `cleanup`. If T3 is not complete, T6 will not compile. T6 correctly declares `depends_on: [1, 3, 4]` but the file is absent, meaning T3 has not been executed yet.",
+      "fix": "Confirm T3 is complete and InsightCache.swift exists before starting T6. This is a pre-execution gate."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 6,
+      "issue": "T6 rewrite step 1 places `struct InsightSkeleton`, `struct InsightSection`, `enum SectionType`, `struct SectionState`, `struct AnyCodable` etc. into InsightSession.swift itself (top-to-bottom order). However T4 step 7 creates a separate `MarkView/Models/InsightModels.swift` for these shared types. If T4 runs first and puts the models in InsightModels.swift, then T6 rewriting InsightSession.swift with those same types inline will create duplicate type declarations and fail to build. The two tasks have directly conflicting decisions about where models live.",
+      "fix": "T6 step 1 must be reconciled with T4 step 7. Since T4 creates InsightModels.swift first (T4 is wave 2, T6 is wave 3), T6 must NOT redeclare the types — it should import them from InsightModels.swift instead. Update T6 step 1 and step 2 to remove the type declarations (InsightSkeleton, InsightSection, SectionType, etc.) and instead rely on InsightModels.swift (T4 deliverable)."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 6,
+      "issue": "T6 v1 line reference `handleStreamError (L653-726)` — actual file has this at lines 653-721 (function ends around line 721, not 726). Similarly `validateScopeHint (L728+)` — actual line is 728. `escapeXMLEnvelopeBreakout (L1056+)` — actual line is 1056. `apiKeySnapshot (L141/L165)` — actual lines are 141 and 165. Most references are accurate, but `L653-726` vs actual ~L653-721 is a minor off-by-5 on the end boundary. These are 'read for context' references; the executor will use grep to find them. No blocking issue, but worth noting.",
+      "fix": "Minor: executor should grep for the function names rather than rely on hardcoded line numbers. Actual range for handleStreamError is L653-721."
+    },
+    {
+      "severity": "major",
+      "category": "hallucination",
+      "task": 6,
+      "issue": "T6 Implementation hints reference `v1 InsightSession.swift (L141, L165 для apiKeySnapshot; L250, L333, L477 для error handling)` — these are cited as the `[weak self]` discipline reference lines. Lines 250, 333, 477 are not verified as `[weak self]` occurrences. The hint asks the executor to 'mirror v1 discipline' at these lines but they may be callsites of `handleStreamError`, not `[weak self]` declarations per se. This is not wrong in practice since the executor is told to look, but could mislead.",
+      "fix": "Minor clarification: the hint should direct the executor to grep `[weak self]` rather than reference specific line numbers that may shift."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 5,
+      "issue": "T5 states the v1 insight JS block is 'currently roughly lines 2783-3226 of index.html'. Actual file: the block starts with `// RECURSIVE INSIGHT MODE` at line 2783 and ends `// END RECURSIVE INSIGHT MODE` at line 3226. This is accurate. However, T5 Details section states 'JS block around lines 2783-3226' and also 'CSS block around lines 851-1018' — actual CSS block starts at line 851 but the CSS section has insight-related styles extending through line 1018 (not verified precisely). The line range for CSS is plausible but may be slightly off. Executor must verify actual extent.",
+      "fix": "Minor: executor should use grep to find actual CSS class boundaries rather than rely on hardcoded line ranges."
+    },
+    {
+      "severity": "major",
+      "category": "missing_file",
+      "task": 5,
+      "issue": "T5 depends_on T2 (Chart.js vendoring). `vendor/js/chart-4.4.x.min.js` does NOT exist — ls of vendor/js shows no chart file. T5's lazy lib materialization logic for `chartJsChart` sections will fail at runtime (fetch returns 404) if T2 has not been completed. T5 correctly declares depends_on [1, 2] but this is a pre-execution gate.",
+      "fix": "Confirm T2 is complete and `MarkView/Resources/Editor/vendor/js/chart-4.4.x.min.js` exists before starting T5."
+    },
+    {
+      "severity": "major",
+      "category": "missing_file",
+      "task": 5,
+      "issue": "T5 Verification step 2 requires `Tests/Fixtures/insight-skeleton-sample.json` (T1 deliverable). This file does NOT exist — `ls Tests/Fixtures/` shows only `marker-cases/` and `sse-anthropic-sample.txt`. Manual smoke test step 2 of T5 cannot be completed without T1's fixture.",
+      "fix": "T1 must be completed and its fixture committed before T5 verification can run. This is an ordering gate."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 5,
+      "issue": "T5 states 'existing vendored lib `<script src=\"vendor/js/...\">` tags at lines 1182-1226 (loaded for editor/preview modes; iframe must NOT inherit these and instead reload its own copies via blob URLs from same source files)'. Actual file confirms script tags at lines 1182-1226. The claim that the iframe must not inherit these is correct by architecture (iframe has its own srcdoc with separate blob URL script tags). However, the task does not mention that `mermaid.min.js` is already loaded at line 1190 in the parent page — if the parent page attempts to call `mermaid.*` functions inside `switchToInsightView` (current code at line 3100-3108), and v2 removes that call, this dead initialization might trigger a JS warning. The task says 'no Mermaid theme re-init at the parent' — but this must also clean up the `switchToInsightView` mermaid.initialize call.",
+      "fix": "Ensure T5 explicitly removes the `mermaid.initialize(...)` block inside the new `switchToInsightView` (step 13). Current spec step 13 says 'no Mermaid theme re-init at the parent' but should explicitly state the old mermaid.initialize block in switchToInsightView is deleted."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 6,
+      "issue": "T6 Implementation hints section contains a full code block for the `withThrowingTaskGroup` cap-5 gated scheduling pattern (lines ~293-306) and a full code block for `AnyCodable` struct (~285-291) and `escapeForHTML` (~310-318). These are not 'hints pointing to patterns' — they are complete algorithmic implementations with precise Swift syntax. Per the validation checklist, implementation hints containing pseudocode, step-by-step algorithms, or code blocks with full logic warrant a major finding.",
+      "fix": "Convert the code blocks into pattern references: 'use the same gated scheduling pattern as GraphRAG.mapReduceForFolder v1 (grep: withThrowingTaskGroup in GraphRAG.swift)' and 'use standard AnyCodable pattern — see Foundation community reference'. Remove the inline code bodies from hints."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 4,
+      "issue": "T4 Implementation hints include a specific JSON Schema dict literal example `['type': 'object', 'properties': [...], 'required': [...]]` and the full parsing pattern `JSONSerialization.data + JSONDecoder`. These cross the line from hints into prescribed implementations.",
+      "fix": "Convert to pattern references: 'tool_use inputSchema follows JSON Schema draft-7 — see tech-spec line 515 curl example for structure'. Remove the inline dict literal from hints."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 47,
+    "issues_found": 15
+  }
+}

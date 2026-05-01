@@ -1,0 +1,106 @@
+{
+  "status": "fail",
+  "sources": {
+    "user_spec": true,
+    "tech_spec": true,
+    "tasks": false
+  },
+  "requirements_total": 18,
+  "requirements_covered": 14,
+  "requirements_partial": 3,
+  "requirements_missing": 1,
+  "findings": [
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-12: postMessage allowlist — user-spec names: deepDiveClicked, breadcrumbClicked, requestSave, requestUp, iframeReady",
+      "detail": "Tech-spec renames all 5 types with 'insight' prefix: insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp, insightIframeReady. The rename is a reasonable namespacing decision, but it is not acknowledged or justified anywhere in the Decisions section — it silently diverges from the user-spec contract. Any reviewer comparing the two specs will find a mismatch without explanation. Decision 2 should document the rename.",
+      "severity": "major"
+    },
+    {
+      "type": "structural_gap",
+      "source": "tech-spec",
+      "requirement": "US-15: Tab close → iframe destroyed, InsightSession freed, active streams cancelled, disk cache cleaned",
+      "detail": "The tab-close flow in Architecture (How it works → Tab close) correctly lists session.cancel(), cache.cleanup(), and tabsStore.removeTab. However, blob URL revocation is never mentioned in the Architecture flow. Blob URLs for pre-bundled libs (Mermaid, Chart.js, KaTeX, Prism) are created once at session start (Decision 5), but there is no call to URL.revokeObjectURL() in the tab-close path. The blob URL lifecycle appears only in Decision 9 test scope ('blob URL lifecycle (creation, revocation on session close)') — meaning the revocation requirement is acknowledged as a test concern but has no corresponding implementation step in the Architecture. This is a decision-level omission: the revocation point must be specified (InsightSession.cancel? or a parent-JS cleanup step on tab close?) before implementation.",
+      "severity": "critical"
+    },
+    {
+      "type": "gap",
+      "source": "tech-spec",
+      "requirement": "US-8 / US-9: Node HTML written to disk; deterministic vs. DOM-capture approach must be settled",
+      "detail": "The disk cache write flow (Architecture → 'Disk cache write') presents two mutually exclusive approaches for obtaining the final HTML: (a) request iframe's DOM-mutated state via bridge.captureInsightHTML, or (b) 'simpler: parent re-builds the HTML from skeleton + section buffers + chrome template — deterministic'. The spec says 'or, simpler' without settling which approach is authoritative. These are architecturally different: approach (a) requires a new bridge round-trip and an additional JS→Swift message type (captureInsightHTML) that is NOT in the 5-type postMessage allowlist, making it non-implementable without breaking the security model. Approach (b) is the only viable one given the strict allowlist. This ambiguity must be resolved — and if (b) is chosen, captureInsightHTML must be removed from the architecture text to avoid confusion during implementation.",
+      "severity": "critical"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-10: Export Archive — ZIP opens in any browser without MarkView",
+      "detail": "The tech-spec specifies ZIP staging dir construction and InsightArchiveExporter.bundle correctly. However, the breadcrumb navigation within the exported ZIP relies on HTML files referencing each other via relative paths (nodes/<uuid>.html). The spec does not describe the rewriting logic for breadcrumb onclick handlers in exported HTML — it says 'deep-dive onclicks rewritten to relative <uuid>.html' but breadcrumb links within each node page (which reference parent/ancestor nodes) are not addressed. Only root-level deep-dive rewriting is described. If breadcrumb links in exported nodes are not rewritten, cross-node back-navigation will fail in the standalone browser context.",
+      "severity": "major"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-7 / US-9: Breadcrumb navigation — insightRequestUp handler flow not described",
+      "detail": "The Architecture navigation section traces the full flow for breadcrumb clicks (insightBreadcrumbClicked → bridge → WorkspaceManager → session.navigateTo). The 'Up' button is described as 'equivalent to navigateTo(parent.id)' — but the flow for insightRequestUp (how iframe posts it, how parent validates payload, how WorkspaceManager.didRequestInsightUp resolves parent.id from current session state) is absent. Unlike breadcrumb which carries an explicit nodeId in payload, insightRequestUp has no payload, so the parent must derive the parent node from session state. This derivation path is not specified.",
+      "severity": "minor"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "US-11 / US-13: Iframe sandbox security — LLM CDN injection not blocked at content level",
+      "detail": "User-spec constraint: 'Pre-bundled libs: only from local copies, no <script src=\"https://...\"> from LLM'. Tech-spec Acceptance Criteria state: 'If grep shows CDN URL in LLM output: parent strips and replaces with blob URL (or rejects section as malformed)'. However, the Architecture section never describes where or how this sanitization happens. The section content arrives via Phase 2 streamCompletion onDelta chunks forwarded through updateInsightSection. There is no described sanitization step between receiving the HTML chunk and forwarding it to the iframe. The CSP connect-src 'none' would block network fetch of CDN scripts, but a CDN <script src> tag would still execute if the CSP script-src allows it — and the specified CSP 'script-src blob: unsafe-inline' does allow inline scripts, so a CDN script tag from LLM output would be blocked only by connect-src (network block), not by script-src (the tag itself would parse and attempt to load). The Architecture must describe the sanitization step explicitly.",
+      "severity": "major"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "US-2: Phase 1 structure visible within 3 seconds — iframe load timeout not in Architecture",
+      "detail": "User-spec Risk 1 specifies: 'add timeout on iframe load (if after N seconds iframe does not send iframeReady, consider broken and show error)'. Tech-spec Risks table confirms this: 'Iframe load timeout (10s) → if insightIframeReady not received, parent shows iframe failed to load error'. However, neither the Architecture (How it works → Phase 1) nor any task description specifies where this timeout is implemented (InsightSession? EditorView? parent JS?), what triggers it (after loadInsightSkeleton is called?), and how the error surfaces (setInsightError?). The timeout is a critical path for the 3-second AC and is referenced in the Risks table but has no corresponding architecture specification or implementation task.",
+      "severity": "major"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "US-15: Tab close — resource cleanup completeness",
+      "detail": "The tab-close flow specifies session.cancel() + cache.cleanup() + tabsStore.removeTab in WorkspaceManager.closeTab. It does not address: (1) what happens to in-flight /usr/bin/zip Process if the user closes the tab during export (InsightArchiveExporter.bundle is async — is it owned by a Task that session.cancel() covers, or is it a detached task?); (2) the staging directory created by archiveStagingDirectory() on export failure path — is it cleaned up? These are boundary conditions for a critical lifecycle path on an L-sized feature.",
+      "severity": "major"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "US-16: Existing editor functionality not broken — GraphRAG.mapReduceForFolder replacement risk",
+      "detail": "The tech-spec replaces the body of GraphRAG.mapReduceForFolder entirely (Architecture: 'mapReduceForFolder body replaced for v2'). This method likely has other callers in the codebase (e.g., deepResearch or other analysis paths). The spec explicitly notes 'Existing deepResearch() untouched', but does not verify whether mapReduceForFolder is called only from InsightSession or from other paths. If mapReduceForFolder is a shared entry point, replacing its body breaks callers outside of insight. The spec should confirm the call-site inventory or rename the v2 function to avoid regression risk.",
+      "severity": "major"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "Data Model integrity — SectionState missing Codable conformance",
+      "detail": "InsightNode is declared as 'final class InsightNode: Identifiable, Codable'. InsightNode has a property 'var sectionStates: [String: SectionState]'. SectionState struct is defined but has NO Codable conformance annotation. This will cause a compile error: InsightNode cannot conform to Codable because SectionState does not. Either SectionState needs Codable, or sectionStates must be excluded from encoding (CodingKeys). This is a data model defect that will manifest immediately at compile time in Task 6.",
+      "severity": "critical"
+    },
+    {
+      "type": "underengineering",
+      "source": "tech-spec",
+      "requirement": "Data Model integrity — InsightSession.init parameter missing apiKeySnapshot",
+      "detail": "InsightSession declares 'private let apiKeySnapshot: String?' as a stored property but the init signature shown in the Data Models section does not include it as a parameter: 'init(folderURL:mdFiles:providerClient:graphRAG:cache:)'. The apiKeySnapshot value must come from somewhere (presumably copied from providerClient at init time, following v1 pattern), but this is not specified. Implementors reading the data model spec will either omit it (breaking the API key snapshot isolation pattern from v1) or guess at the source. This must be explicit.",
+      "severity": "major"
+    },
+    {
+      "type": "scope_creep",
+      "source": "tech-spec",
+      "requirement": "US-10: Export Archive",
+      "detail": "Decision 4 specifies that InsightCache._assets/ directory is created inside the session directory at session init (copying all vendored libs). This means every InsightSession immediately copies ~4MB of lib files to disk, even if the user never exports. The user-spec only requires _assets/ in the exported ZIP. The runtime iframe uses blob URLs (Decision 5), not files from _assets/. The InsightCache._assets/ directory serves only the ZIP export staging path. Eagerly creating it at session init is scope beyond what's needed — a lazy copy at export time (inside archiveStagingDirectory) would suffice and avoid the disk write overhead on every session open. This is minor overengineering rather than a functional gap, but is worth flagging.",
+      "severity": "minor"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "Risk 4 mitigation: global cache cap 500MB + LRU eviction",
+      "detail": "User-spec explicitly lists 'global cap 500MB on .insight-cache/; eviction LRU' as a risk mitigation. Tech-spec defers global cap to 'log only this version' (Risks table). This is acceptable as a conscious deferral on an L feature, but the deferral is not tracked in a follow-up task — Decision 9 test scope does not mention it, and the tasks/todo.md reference is vague. For a feature that could accumulate significant disk usage (50 nodes × 500KB per session), the absence of any cap boundary is a real operational risk. The deferral should be an explicit tracked item.",
+      "severity": "minor"
+    }
+  ],
+  "summary": "14/18 requirements covered, 3 partial, 1 missing. 3 critical findings: (1) blob URL revocation is acknowledged as a test concern but has no corresponding implementation step in the Architecture — the revocation point is unspecified; (2) the disk cache write strategy presents two mutually exclusive approaches, one of which (DOM capture via bridge.captureInsightHTML) violates the 5-type postMessage allowlist, leaving the viable approach (deterministic rebuild) unconfirmed; (3) InsightNode.sectionStates: [String: SectionState] will fail to compile because SectionState lacks Codable conformance while InsightNode is declared Codable. 5 major findings: postMessage type names silently renamed vs user-spec without a Decision entry; exported ZIP breadcrumb link rewriting not specified beyond root deep-dives; LLM CDN injection sanitization has no implementation point in Architecture; iframe load timeout (10s) has no implementation home; mapReduceForFolder replacement risks uncatalogued callers; InsightSession.init missing apiKeySnapshot; in-flight Process cleanup on tab-close not addressed. 3 minor findings: insightRequestUp flow not traced; global cache cap deferral not tracked; eager _assets/ copy at session init instead of lazy on export."
+}

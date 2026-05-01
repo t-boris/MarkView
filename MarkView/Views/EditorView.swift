@@ -434,17 +434,21 @@ struct EditorView: NSViewRepresentable {
                 }
                 .store(in: &insightCancellables)
 
-            // Status bar updates. dropFirst() because the initial empty string
-            // shouldn't update the status bar. T6 publishes plain strings (no
-            // separate phase enum); we derive a coarse phase tag from the content
-            // for parent-side tinting (`phase-1` / `phase-2` / `ready` / empty).
+            // Status bar updates. Filter empty strings INSIDE the sink (rather
+            // than .dropFirst()) so the very first non-empty status — which is
+            // the "Phase 1: analyzing N files…" message published by
+            // generateRoot — is always delivered. With .dropFirst() there was
+            // a race: if generateRoot ran before this sink subscribed, the
+            // current value at subscribe time was the Phase-1 message, and
+            // .dropFirst() then swallowed it, leaving the user with NO visible
+            // progress until Phase 1 finished (~60 s).
             session.$statusMessage
-                .dropFirst()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak session, weak webView] status in
                     guard let self = self,
                           let session = session,
                           let webView = webView else { return }
+                    if status.isEmpty { return } // skip the @Published empty initial value
                     let phase = Self.derivePhaseTag(from: status)
                     self.bridge.setInsightStatus(
                         sessionId: session.id.uuidString,

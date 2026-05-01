@@ -1,0 +1,107 @@
+{
+  "status": "fail",
+  "round": 3,
+  "sources": {
+    "user_spec": true,
+    "tech_spec": true,
+    "tasks": false
+  },
+  "requirements_total": 18,
+  "requirements_covered": 16,
+  "requirements_partial": 1,
+  "requirements_missing": 1,
+  "round2_critical_resolution": {
+    "tab_close_architecture_order": {
+      "status": "fixed",
+      "detail": "Architecture 'Tab close' section (lines 112-119) now enumerates the EXACT 4-step ordered close: (1) window.releaseInsightBlobs() via bridge.releaseInsightBlobs(into:), (2) await session.cancel(), (3) try? session.cache.cleanup(), (4) tabsStore.removeTab. Matches Decision 11 §2, T8, AC, and Risks table. The R2 critical contradiction is resolved."
+    }
+  },
+  "round2_major_resolution": {
+    "zip_breadcrumb_rewriting": {
+      "status": "fixed",
+      "detail": "Architecture Save/Export now explicitly states for nodes/<uuid>.html: 'breadcrumb hrefs rewritten from postMessage to window.location.href = \"../<targetNodeUUID>.html\" (root) or \"<targetNodeUUID>.html\" (sibling)'. The implementation path is specified. Fixed."
+    },
+    "llm_cdn_sanitization_owner": {
+      "status": "fixed",
+      "detail": "T5 description now explicitly states: 'bridge.updateInsightSection (per Decision 10: BEFORE forwarding chunk to iframe, parent strips <script src=\"https://...\" / <link rel=\"prefetch|preconnect|dns-prefetch\"'). Task ownership is now T5 (index.html parent JS). Fixed."
+    },
+    "blob_url_navigation_revocation": {
+      "status": "fixed",
+      "detail": "Architecture Navigation section (lines 121-128) now explicitly describes: 'Blob URL navigation revocation (Decision 11 §1): when navigating to a node whose skeleton requires a different lib subset than the previous node, parent JS revokes blob URLs for libs no longer needed AND creates new blob URLs for newly-required libs BEFORE setting iframe.srcdoc.' T5 description lists window.releaseInsightBlobs() as a deliverable. Fixed."
+    },
+    "mapreducefor_folder_caller_inventory": {
+      "status": "fixed",
+      "detail": "Architecture 'What we're building / Modified files / GraphRAG.swift' now includes: 'T4 first verifies caller inventory — confirms only v1 InsightSession (also being replaced in T6) calls mapReduceForFolder. If unexpected callers exist, T4 escalates before replacing.' T4 task description (line 666) also confirms this precondition. Fixed."
+    },
+    "iframe_load_timeout_owner": {
+      "status": "fixed",
+      "detail": "T5 description now explicitly lists: 'Implement 10s iframe-load timeout with retry path' as a deliverable in index.html. Task ownership is clear. Fixed."
+    },
+    "insight_request_up_flow": {
+      "status": "fixed",
+      "detail": "Architecture Navigation section now states: 'Up button equivalent to navigateTo(parent.id) derived from session.currentNode().parentId.' The derivation path is explicit. Fixed."
+    }
+  },
+  "findings": [
+    {
+      "type": "gap",
+      "source": "tech-spec",
+      "requirement": "US-15: Tab close — bridge.releaseInsightBlobs not assigned to any task",
+      "detail": "The 4-step tab close sequence (Architecture lines 112-119) requires step 1 to call bridge.releaseInsightBlobs(into:) via evaluateJavaScript. This method does not appear in the WebViewBridge.swift modified-files bullet (line 50), which lists only 4 new Swift→JS methods: loadInsightSkeleton, updateInsightSection, setInsightError, setInsightStatus. The releaseInsightBlobs bridge method is absent from both the file-level specification AND from T7 task description, which lists the same 4 methods. T8 description references the call but T8 owns WorkspaceManager — it cannot implement a WebViewBridge method. No task is assigned to add bridge.releaseInsightBlobs. A developer implementing T7 from the task description will not add this method, and T8 will call a non-existent bridge method, producing a compile error or silent no-op. The new bridge method must be added to the WebViewBridge modified-files description and to T7's scope.",
+      "severity": "major"
+    },
+    {
+      "type": "structural_gap",
+      "source": "tech-spec",
+      "requirement": "US-15: Tab close — WorkspaceManager modified-files bullet contradicts Architecture Tab close",
+      "detail": "Architecture 'Modified files / WorkspaceManager.swift' (line 52) describes the closeTab insight branch as: 'adds try? session.cache.cleanup() before tabsStore.removeTab'. This omits steps 1 (window.releaseInsightBlobs()) and 2 (await session.cancel()) from the authoritative 4-step sequence defined in Architecture 'Tab close' (lines 112-119). A developer reading the file-level summary before implementation will see only a 2-step close (cleanup + removeTab), producing incorrect code. The contradiction is between two sections of the same spec document. Although T8 has the correct sequence, the modified-files bullet is what an implementor reads to understand the scope of changes to WorkspaceManager. The bullet must be updated to reference the ordered 4-step sequence or inline it.",
+      "severity": "major"
+    },
+    {
+      "type": "structural_gap",
+      "source": "tech-spec",
+      "requirement": "Architecture coherence — WebViewBridge modified-files bullet references Decision 6 for frameInfo guard",
+      "detail": "Architecture 'Modified files / WebViewBridge.swift' (line 50) states: 'Per Decision 6, all v2 handlers gain guard message.frameInfo.isMainFrame else { return } at entry.' Decision 6 is 'Single iframe with srcdoc reset on navigation'. The frameInfo guard is defined and justified in Decision 3 ('Defense-in-depth — frameInfo.isMainFrame check'). This cross-reference error was identified in R2 and remains unfixed. Any developer following the Decision reference will read Decision 6 (srcdoc reset) to understand the guard rationale, finding no relevant explanation. Minor as a documentation error only — the guard itself is correctly described throughout the spec.",
+      "severity": "minor"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "Risk 4 mitigation: global cache cap 500MB + LRU eviction",
+      "detail": "User-spec explicitly lists 'global cap 500MB on .insight-cache/; eviction LRU' as a risk mitigation. Tech-spec defers global cap to 'log only this version' (Risks table). The deferral is not tracked in any follow-up task. T8 updates tasks/todo.md but T8 description does not mention adding the global cap as a deferred item. Decision 9 test scope and T11 test audit do not list it. For a feature that can accumulate 25MB+ per session, the untracked deferral is an operational risk. Retained from R1/R2 at minor severity.",
+      "severity": "minor"
+    },
+    {
+      "type": "partial",
+      "source": "user-spec",
+      "requirement": "US-12: postMessage allowlist — user-spec names differ from tech-spec names",
+      "detail": "Tech-spec consistently uses insight-prefixed names (insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp, insightIframeReady). Decision 2 establishes the allowlist with these names but does not acknowledge the divergence from the user-spec contract ('deepDiveClicked, breadcrumbClicked, requestSave, requestUp, iframeReady') or provide rationale for the prefix. A reviewer cross-checking user-spec AC against tech-spec AC will encounter an unexplained discrepancy. The Agent Verification Plan (line 510) uses the insight-prefixed names while user-spec verification table (line 118) uses the unprefixed names — a direct contradiction in verification criteria. Retained from R1/R2 at minor severity.",
+      "severity": "minor"
+    },
+    {
+      "type": "scope_creep",
+      "source": "tech-spec",
+      "requirement": "US-10: Export Archive",
+      "detail": "Decision 4 specifies _assets/ directory created at InsightCache.init (copies all vendored libs). Every session start copies ~4MB of lib files to disk even if the user never exports. User-spec only requires _assets/ in the exported ZIP. Runtime iframe uses blob URLs (Decision 5), not files from _assets/. Lazy copy inside archiveStagingDirectory() at export time would suffice. Retained from R1/R2 at minor severity.",
+      "severity": "minor"
+    }
+  ],
+  "new_contradictions_introduced": [
+    {
+      "location": "Architecture 'Modified files / WebViewBridge.swift' (line 50) + T7 description (line 693) — missing bridge.releaseInsightBlobs",
+      "description": "The R2 fix added window.releaseInsightBlobs() as step 1 of the tab close sequence (Architecture Tab close + T8 + Decision 11 + AC). However, the bridge method that calls it (bridge.releaseInsightBlobs(into:)) was never added to the WebViewBridge.swift file specification or T7 task scope. The method is called by T8 (WorkspaceManager) but defined nowhere in the spec. This creates a forward dependency: T8 calls a bridge method that T7 was not told to implement. Elevated to major gap."
+    },
+    {
+      "location": "Architecture 'Modified files / WorkspaceManager.swift' (line 52) vs Architecture 'Tab close' (lines 112-119)",
+      "description": "The R2 fix correctly updated the Architecture Tab close section to the 4-step ordered sequence. But the Modified files / WorkspaceManager.swift bullet (line 52) was NOT updated and still shows only the 2-step incomplete sequence (cache.cleanup + tabsStore.removeTab). This creates an internal spec contradiction: two sections of the same document describe the closeTab behavior differently. Elevated to major structural_gap."
+    }
+  ],
+  "r2_fixes_verified": {
+    "tab_close_architecture_rewritten": true,
+    "navigation_section_dropped_and_replaced": true,
+    "zip_breadcrumb_rewriting_added": true,
+    "llm_cdn_sanitization_owner_in_t5": true,
+    "mapreducefor_folder_caller_inventory_in_t4": true
+  },
+  "summary": "R3 verification: the R2 critical finding (Architecture Tab close order) is confirmed fixed — the section now enumerates the exact 4-step ordered close matching Decision 11, T8, AC, and Risks. All 5 claimed R2 fixes are verified correct. However, the R2 fix introduced 2 new contradictions by updating the Tab close section without updating adjacent sections: (1) Architecture Modified files / WorkspaceManager.swift bullet still shows a 2-step incomplete close sequence contradicting the authoritative 4-step sequence (major structural_gap); (2) bridge.releaseInsightBlobs — called in step 1 of Tab close — is absent from WebViewBridge.swift modified-files bullet and T7 task description, leaving the new bridge method unassigned to any task (major gap). All previous R2 major findings are now resolved (blob URL navigation revocation, ZIP breadcrumbs, CDN sanitization owner, mapReduceForFolder caller inventory, iframe timeout owner, insightRequestUp flow). 3 minor findings remain: global cache cap deferral untracked, postMessage type name divergence from user-spec undocumented, Decision reference error in WebViewBridge bullet (Decision 6 vs Decision 3). Status: FAIL. 2 new major findings introduced by R2 fixes; 3 minor carryovers."
+}

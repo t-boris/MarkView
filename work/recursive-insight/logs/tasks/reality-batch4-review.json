@@ -1,0 +1,146 @@
+{
+  "validator": "reality-checker",
+  "batch": [10, 11, 12],
+  "iteration": 1,
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 10,
+      "issue": "T10 step 2 instructs auditor to grep index.html for the v2 iframe sandbox attribute and v2 CSP meta. However, index.html is still the v1 implementation: no '<iframe sandbox>' element exists in the file, no 'loadInsightSkeleton' or 'releaseInsightBlobs' functions exist, no 'insightIframeReady' or 'insightRequestSave' or 'insightRequestUp' message types exist. The v2 insight-mode rewrite (T5) has not landed. T10 explicitly states in its Dependencies section: 'All Wave 1-5 tasks merged. If T8 has not landed, the 9 disk-write guards cannot be re-verified end-to-end; audit must be re-run after T8 completes.' However T10's depends_on is [1,2,3,4,5,6,7,8] which is correct. The problem is that the v2 files do not exist yet, making the entire T10 grep inventory (Step 2: iframe sandbox; Step 3: frameInfo guard; Step 4: CDN stripping; Step 5: escapeForHTMLAttribute/Text; Step 6: blob URL lifecycle; Step 8: innerHTML/eval audit in index.html) currently impossible to verify. All grep steps in T10 Verification will return no matches or wrong results on current codebase.",
+      "fix": "T10 must not start until T5 (index.html v2 rewrite) and T7 (WebViewBridge v2 protocol) are merged. These tasks are already correctly placed in waves 3/4 which precede T10's wave 6. Ensure wave ordering is enforced before T10 is executed."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 10,
+      "issue": "T10 step 3 requires grepping MarkView/Bridge/WebViewBridge.swift for 'frameInfo.isMainFrame' — expects 5 occurrences minimum (one per v2 JS->Swift handler). Current WebViewBridge.swift has zero occurrences of 'frameInfo.isMainFrame'. The file still contains v1 bridge methods: 'loadInsightView', 'appendInsightDelta', 'setInsightDeepDives', 'showInsightLoading', 'insightSaveRequested', 'insightRetryRequested' — none of which have frameInfo guards. The v2 bridge handlers ('insightIframeReady', 'insightDeepDiveClicked' with bounds check, 'insightBreadcrumbClicked' with UUID+manifest check, 'insightRequestSave', 'insightRequestUp') are absent. T7 (WebViewBridge v2 protocol) has not landed.",
+      "fix": "T10 must depend on T7 being merged. T10's depends_on: [1,2,3,4,5,6,7,8] already includes T7, confirming the dependency is modeled correctly. Execution ordering must be enforced."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 10,
+      "issue": "T10 references 'MarkView/Resources/Editor/vendor/MANIFEST.txt' (Context Files + Verification Steps) and 'MarkView/Resources/Editor/vendor/js/chart-4.4.x.min.js' (T2 expected output). Neither file exists in the codebase. Searching the entire project found no MANIFEST.txt under vendor/ and no chart-*.min.js file anywhere. The existing vendor/js/ directory contains only mermaid, katex, prism, and markdown-it libs. T2 (Vendor Chart.js + MANIFEST.txt) has not landed.",
+      "fix": "T10 depends_on already includes T2 (via the [1,2,3,4,5,6,7,8] list). Confirm T2 is executed and its output files are committed before T10 runs. T10 step 4 CDN-tunneling verification and T10 Acceptance Criterion 'Vendored libs SHA-256' verification cannot proceed without MANIFEST.txt."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 10,
+      "issue": "T10 references 'Tests/Fixtures/insight-skeleton-sample.json' as a Context File and as input for hand-trace in multiple steps (Step 4: fixture must not contain CDN-loading directives; Step 5: HTML-escape audit for LLM-controlled strings). This file does not exist. Tests/Fixtures/ contains only 'sse-anthropic-sample.txt' and the 'marker-cases/' subdirectory. T1 (AIProviderClient.toolCall) is supposed to commit this fixture per tech-spec line 501 and T1 task description, but it has not been done.",
+      "fix": "T10 depends_on includes T1. Ensure T1 commits the fixture before T10 runs. T10 step 4 CDN check on the fixture is mandatory per Acceptance Criteria."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 10,
+      "issue": "T10 Context Files include 'MarkView/Models/InsightCache.swift', 'MarkView/Models/InsightArchiveExporter.swift', and 'MarkView/Models/InsightSession.swift' (v2 rewrite). InsightCache.swift and InsightArchiveExporter.swift do not exist in MarkView/Models/. InsightSession.swift exists but is still the v1 version (no reference to InsightCache, no phase1Skeleton/phase2StreamSections, no withThrowingTaskGroup). T3, T6, T8 have not landed.",
+      "fix": "All these files are expected outputs of T3, T6, and T8 respectively. T10's depends_on: [1-8] is correct. Execution order must be enforced."
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 10,
+      "issue": "T10 step 7 instructs the auditor to verify 'the 9 insight-tab disk-write guards' and to check the Acceptance Criterion 'Report enumerates the 9 v1 disk-write guards by name (Cmd+S, refresh, save-on-close, autosave, file rename, file move, drag-and-drop save, AI Console save, Translate save)'. However, T10 step 7 says 'if any of the 9 has been removed or weakened, that is a Critical finding.' The existing v1 WorkspaceManager.swift does contain v1 disk-write guards but T8 (which adapts WorkspaceManager to v2) has not landed. The auditor cannot re-verify what doesn't exist yet. This is not a hallucination of the workflow design, but the audit step will produce a false Critical finding against non-existent T8 output.",
+      "fix": "Same root cause as above — T8 must land before T10 runs. T10 step 7 correctly notes this in its Dependencies section: 'If T8 has not landed, the 9 disk-write guards cannot be re-verified end-to-end.' No change needed to the task text, but execution dependency must be enforced."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "T10 step 8 says to grep iframe-rendered JS for innerHTML/outerHTML/eval/new Function/document.write and classify each as 'inside iframe srcdoc — allowed' or 'in parent chrome — must remediate'. The task correctly notes these are ALLOWED inside iframe. However, current index.html (v1) has 'DOM.insightCenter.innerHTML = html' at line 2978 in the PARENT CHROME (not inside any iframe srcdoc), which renders markdown-it output. This is the v1 design where LLM content renders directly in parent. T10's audit step 8 would incorrectly flag this as a Critical finding on v1 code that is planned to be removed by T5. The task does not clearly distinguish between 'pre-T5 findings are Info, not Critical' per the task's own Edge Cases note ('A finding that feature is not yet implemented because Wave N has not landed is graded Info, not High').",
+      "fix": "T10 should clarify in step 8 that all findings on v1 insight code that will be replaced by T5 are graded Info (not implemented yet), not High/Critical. The task's own Edge Cases section already says this but step 8 doesn't reiterate it for the innerHTML case."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "T10 step 2 specifies the exact CSP that should appear in the iframe srcdoc: 'default-src \\'none\\'; script-src \\'unsafe-inline\\' blob:; style-src \\'unsafe-inline\\'; connect-src \\'none\\'; img-src data: blob:; object-src \\'none\\'; base-uri \\'none\\'; frame-ancestors \\'none\\''. The tech-spec Acceptance Criteria line 584 specifies the same string but adds a note: '(note: \\'self\\' is meaningless in null-origin frame so removed)'. The existing index.html parent CSP meta (line 21) contains 'default-src \\'self\\'; script-src \\'self\\' \\'unsafe-inline\\' https://cdn.jsdelivr.net' — this is the parent frame CSP, not the iframe srcdoc CSP. T10's grep instruction will return this parent CSP line as a false match for 'connect-src \\'none\\''. The task needs to clearly distinguish parent-page CSP from iframe-srcdoc CSP in its grep commands.",
+      "fix": "Add a note to T10 step 2 verification greps: 'The grep for connect-src none must match only within the iframe srcdoc template string, not the parent page CSP meta tag on line 21 of index.html.' Alternatively, the grep should target the string more precisely (e.g., grep within the srcdoc template JS string context)."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 11,
+      "issue": "T11 step 3 requires verifying that tasks/todo.md has been fully rewritten by T8 to remove v1-only test modules and add 8 v2-specific test areas. The actual tasks/todo.md still contains exactly the v1-only modules T11 is supposed to confirm are REMOVED: 'Tests/InsightMarkerParserTests.swift' (line 14), 'Tests/InsightSSEParserTests.swift' referencing SSE byte stream parsing (line 13), and 'Tests/InsightCancellationRaceTests.swift' (line 18). The 8 v2-specific areas (tool_use parsing, postMessage allowlist+frameInfo, InsightCache atomic CRUD, ZIP export, blob URL lifecycle, Phase 2 parallelism cap, iframe srcdoc CSP, iframe load timeout) are entirely absent from tasks/todo.md. This means T8's todo.md rewrite has not happened, which is the core prerequisite for T11.",
+      "fix": "T11 depends_on: [1,2,3,4,5,6,7,8,9,10]. T8 must execute its todo.md rewrite before T11 can run. The static cross-check 'grep -n InsightMarkerParserTests tasks/todo.md should return nothing' will fail, producing a mandatory NO-GO finding. T8 must complete the todo.md rewrite (remove v1 entries: InsightMarkerParserTests, the v1 SSE/marker parser tests; add all 8 v2 paths) before T11 executes."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "T11 description says 'Tests are still deferred per Decision 9 (no XCTest target exists in MarkView)' and then references 'tech-spec line 737' as enumerating '12 scenarios (a) through (l)'. Tech-spec line 737 is in the Task 11 description row (Implementation Tasks section), not in a standalone acceptance criteria block, and that description says '9 Instruments scenarios'. T11 task body (line 50) correctly says 12 scenarios via tech-spec line 737. However, tech-spec line 730 (Task 11 summary in Implementation Tasks) says '9 Instruments scenarios'. This creates a discrepancy within the tech-spec itself: the Task 11 Implementation Tasks summary says 9 scenarios but the T11 body and T12 body both say 12. The actual T12 Details section lists exactly 12 scenarios (a)-(l): 5 happy-path + 7 adversarial.",
+      "fix": "The tech-spec line 730 (Task 11 summary) contains the wrong count — '9 Instruments scenarios' should be '12 Instruments scenarios (a)-(l)'. T11 task body at lines 50 and 55 correctly says 12. T12 Details confirms 12. Update tech-spec line 730 to say '12 scenarios' for consistency. No code impact, documentation only."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "T11 step 3 instructs the auditor to read 'tasks/todo.md (post-T8)' and confirms 'All v1-only deferred test modules are REMOVED. Specifically: InsightMarkerParserTests, InsightSSEParserTests if it referenced v1 marker semantics, any test name implying right-pane deep-dive list, any setInsightDeepDives test, any appendInsightDelta v1-bridge test.' But the T11 Implementation Hints say 'For test naming, follow the v1 style observed in tasks/todo.md (e.g. Tests/InsightSSEParserTests.swift, Tests/InsightCancellationRaceTests.swift).' This is self-contradictory: the hints cite the exact two file names that step 3 instructs to remove as v1-only. An auditor executing T11 will see the conflict between 'remove InsightSSEParserTests' in step 3 and 'follow style like InsightSSEParserTests.swift' in hints.",
+      "fix": "Update T11 Implementation Hints to cite v2-valid naming examples only. Replace 'e.g. Tests/InsightSSEParserTests.swift, Tests/InsightCancellationRaceTests.swift' with v2 examples such as 'e.g. Tests/InsightCacheAtomicWriteTests.swift, Tests/InsightPostMessageAllowlistTests.swift'."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "T11 Acceptance Criteria states 'Report maps the 5 happy-path + 7 adversarial QA scenarios in T12 to the new ARC surfaces'. The actual T12 details section has 5 happy-path (a-e) + 7 adversarial (f-l) = 12 total, which is correct. However, T11's acceptance criteria say '5 happy-path + 7 adversarial' while the tech-spec Implementation Tasks line 730 says '9 Instruments scenarios' (conflicting count). An auditor writing the T11 report would need to reconcile these counts. The actual answer is 12 (T12 Details section is authoritative), but the discrepancy in the tech-spec creates confusion.",
+      "fix": "Same fix as above — update tech-spec line 730 to say 12 scenarios. T11 Acceptance Criteria correctly says '5 happy-path + 7 adversarial' which equals 12, consistent with T12 Details."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 12,
+      "issue": "T12 step 4 requires 'Verify Chart.js (and every other vendored lib) by computing SHA-256 and comparing against MarkView/Resources/Editor/vendor/MANIFEST.txt'. The Acceptance Criterion is 'shasum -a 256 MarkView/Resources/Editor/vendor/js/chart-*.min.js matches MANIFEST.txt; same check passes for Mermaid, KaTeX (CSS+JS), Prism'. Neither MANIFEST.txt nor chart-*.min.js exist. These are T2 outputs. T12 depends_on: [9,10,11] which does not explicitly list T2, but T12 does depend on T2 outputs. The dependency chain (T12 → T9/T10/T11 → T1-T8 → T2) transitively covers T2, so the chain is correct. However, if T2 is skipped or its outputs are missing, T12 step 4 will fail with 'file not found'.",
+      "fix": "T12's transitive dependency via T9/T10/T11 → [1-8] covers T2. No change needed to depends_on. Document in T12 Details: 'MANIFEST.txt and chart-*.min.js must exist as T2 outputs; if missing, fail fast and report blocker before proceeding.'"
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 12,
+      "issue": "T12 step 5 instructs: 'sqlite3 ~/Library/Containers/<bundle-id>/Data/Library/Application Support/MarkView/state.db .schema — confirm no insight-prefixed tables'. The state.db does NOT live in ~/Library/Containers/<bundle-id>/. The codebase uses SemanticDatabase.swift with 'init(workspaceURL: URL, dbName: String = \"state.db\")' which places state.db at '<workspace>/.dde/state.db' (confirmed: TestFiles/.dde/state.db exists at that path). The bundle ID container path would only be used if MarkView runs in a sandboxed container, but the project has sandbox OFF (per tech-spec Decision 7: 'Sandbox is OFF'). T12 Verification Steps give a path with '~/Library/Containers/<bundle-id>/' which will not find the database.",
+      "fix": "Update T12 step 5 and the Verification Steps section to use the correct path: '<workspace>/.dde/state.db'. For a test workspace, this would be e.g. '/path/to/TestFiles/.dde/state.db'. The sqlite3 command should be: sqlite3 \"<workspace>/.dde/state.db\" \".schema\"."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "T12 Acceptance Criterion 'No new SQLite tables created; no writes to existing artifacts/ai_jobs from v2 operations' references 'artifacts' and 'ai_jobs' as the existing tables that should remain unmodified. The SemanticDatabase.swift confirms these tables DO exist (artifacts at line 444, ai_jobs at line 263, compile_artifacts at line 314). The tech-spec uses the term 'No new SQLite tables created' (tech-spec line 563 and Decision 8). The T12 storage spot-check is checking two things: (1) no insight_* tables exist, and (2) no v2 operations write rows to the existing ai_jobs/artifacts tables. The task description uses 'insight tables in state.db' but does not clarify that these two checks are separate. The tech-spec Acceptance Criteria line 563 says 'No new SQLite tables created; no writes to existing artifacts/ai_jobs from v2 operations'. T12's step 5 says 'schema dump shows zero tables matching insight%' which only covers check (1), not check (2).",
+      "fix": "T12 step 5 should include a row count check for ai_jobs/artifacts tables: capture the count before the manual walkthrough, run the walkthrough, capture count again, confirm no new rows were inserted by v2 operations. Add this to the verification procedure."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "T12 Acceptance Criteria line 'All 14 user-spec acceptance criteria checkboxes pass on the TestFiles/ walkthrough' — the user-spec file path is referenced as '../user-spec.md' in Context Files, implying it exists at work/recursive-insight/user-spec.md. The task does not verify this file exists before execution. Additionally the count '14 user-spec criteria' cannot be verified without reading the user-spec, but the user-spec file path is not checked by this validator (it exists per the feature folder structure). However, T12 cites '14 user-spec criteria' while the tech-spec summary for T12 in Implementation Tasks (line 737) does not specify the exact count. T11 and T12 both reference the criteria but neither specifies they are the same count. Minor consistency risk.",
+      "fix": "No structural fix needed — the user-spec file exists. Add a note to T12 that the walkthrough count should be confirmed against the actual user-spec 'Критерии приёмки' section before the QA run (not hardcoded to 14 in case the spec was updated)."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "T12 Verification Steps (Automated) has a xcodebuild command: 'xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug build'. The MarkView.xcodeproj exists and the scheme 'MarkView' exists (verified: MarkView.xcodeproj/xcshareddata/xcschemes/MarkView.xcscheme, BlueprintName = 'MarkView'). However, the command must be run from the project root '/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/' to resolve the relative .xcodeproj path. T12 does not explicitly specify a working directory for this command. The agent instructions note that working directory is reset between bash calls and absolute paths should be used.",
+      "fix": "Change T12 Verification Steps xcodebuild command to use the absolute project path: 'xcodebuild -project /path/to/MarkView.xcodeproj -scheme MarkView -configuration Debug build' or document that the command must be run from the project root."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "T10 Acceptance Criteria: 'Report enumerates the 9 v1 disk-write guards by name (Cmd+S, refresh, save-on-close, autosave, file rename, file move, drag-and-drop save, AI Console save, Translate save)'. The task names these as 'v1 disk-write guards' that 'stay in v2 (same invariant per tech-spec)'. But the Implementation Hints say 'List each guard by name and the v2 WorkspaceManager.swift line range'. If T8 reorganizes the WorkspaceManager, the line numbers from any v1 analysis will be stale. The task should note that line ranges are to be determined by reading the v2 WorkspaceManager after T8 lands, not from v1 knowledge.",
+      "fix": "Minor clarification: add a note that the 9 guard line ranges in the report must reference post-T8 WorkspaceManager.swift line numbers, not v1 line numbers. No structural fix needed."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 11,
+      "issue": "T11 Implementation Hints section says 'The 8 deferred areas come straight from tech-spec Decision 9 Critical paths to add to follow-up scope (lines 273-280) plus the additional T8 rewrite scope listed in tech-spec line 711.' Tech-spec lines 272-280 list 7 paths (tool_use parsing, postMessage allowlist+frameInfo+event.source/origin, InsightCache atomic CRUD, ZIP export staging+HTML rewriting+escape policy, blob URL lifecycle, Phase 2 parallelism cap, iframe srcdoc CSP+timeout are split — timeout appears to be item 8). The hint says 'lines 273-280' but the actual 8th item 'iframe load timeout' is listed separately and appears to come from T5/T8 scope, not Decision 9 itself. The tech-spec Decision 9 text at lines 272-280 lists 7 bullets (blob URL lifecycle is listed as one item with 2 sub-bullets, and iframe srcdoc CSP and iframe load timeout may be merged). The exact derivation of the '8th area' from 'tech-spec line 711' is unclear — line 711 is T8's task description bullet about rewriting todo.md. This creates tracing ambiguity for the auditor.",
+      "fix": "T11 hints could be more precise: 'The 8th deferred area (iframe load timeout) is mentioned in T5 task scope and T8's todo.md rewrite instruction (tech-spec line 711) but is not listed as a separate bullet in Decision 9. Auditors should include it regardless as it is an explicit v2-only risk.'"
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 42,
+    "issues_found": 17
+  }
+}

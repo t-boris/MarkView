@@ -1,0 +1,54 @@
+{
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "tasks",
+      "issue": "Task 2 (Vendor Chart.js + libs MANIFEST) lists only 'code-reviewer, security-auditor' — missing 'test-reviewer' from the default code-writing reviewer set.",
+      "fix": "Either add test-reviewer to match the default mapping, or document why a vendoring/asset-copy task does not need a test reviewer."
+    },
+    {
+      "severity": "minor",
+      "category": "tasks",
+      "issue": "Task 7 (WebViewBridge v2 protocol + EditorView routing) description is ~6 sentences and enumerates new method names, handlers, and Combine subscription details — drifts from a scope statement toward implementation detail.",
+      "fix": "Compress to scope-level wording (e.g. 'Replace v1 5+5 bridge methods with v2 protocol per Architecture, add frameInfo defense-in-depth, retarget EditorView Combine subs to new published surface'). Keep handler-list and method signatures for the task file produced during decomposition."
+    },
+    {
+      "severity": "minor",
+      "category": "tasks",
+      "issue": "Task 5 (index.html v2 insight-mode) description is ~6 sentences and embeds implementation specifics like 'lazy: only load Mermaid blob if any section.type == .mermaidDiagram' which is already encoded in Decision 5 caveats.",
+      "fix": "Trim description to scope; reference Decision 5 instead of restating the lazy-load rule. Implementation detail belongs in the decomposed task file."
+    },
+    {
+      "severity": "minor",
+      "category": "tasks",
+      "issue": "Tasks T3 (InsightCache), T4 (GraphRAG v2 prompts), T6 (InsightSession rewrite), T7 (WebViewBridge protocol), T8 (WorkspaceManager + ZIP export) lack Verify-smoke / Verify-user even though they touch external integration (Anthropic prompts, /usr/bin/zip Process spawn, postMessage protocol, disk cache atomic writes, iframe lifecycle).",
+      "fix": "Add concrete smoke verification per task: T3 — write/read a test node and check atomic temp+rename; T4 — call helper with a fake skeleton schema and assert prompt shape; T6 — generate root with a stub provider client; T7 — grep frameInfo.isMainFrame guard count; T8 — invoke /usr/bin/zip on a temp staging dir and check exit code."
+    },
+    {
+      "severity": "minor",
+      "category": "time_estimates",
+      "issue": "Risks table includes 'rework time ~1 hour' for the WKWebView iframe sandbox risk — this is a time-based effort estimate which violates the time-free sequencing rule.",
+      "fix": "Remove '~1 hour' or replace with non-time-bound mitigation language (e.g. 'small constrained rework — constrain WKWebViewConfiguration to disable bridge handlers in subframes')."
+    },
+    {
+      "severity": "minor",
+      "category": "task_quality",
+      "issue": "Possible duplication between Decisions and task descriptions for specific values: 'capped at 5' appears in Decision 1 and Tasks 5/6; 'lazy load Mermaid' appears in Decision 5 caveats and Task 5; '/usr/bin/zip' specifics appear in Decision 7 and Task 8.",
+      "fix": "Keep concrete values/rationale in Decisions; in task descriptions, reference the decision number ('per Decision 1 — 5 concurrent cap') rather than repeating the value. Reduces drift if a decision changes."
+    },
+    {
+      "severity": "minor",
+      "category": "standards",
+      "issue": "Project Knowledge files (.claude/skills/project-knowledge/references/architecture.md and patterns.md) do not exist in this project — standards compliance check (file-path conventions, naming patterns) cannot be performed automatically.",
+      "fix": "Optional: create project knowledge documentation for MarkView (architecture.md + patterns.md) so future tech-specs can be auto-validated against project conventions. Not blocking for v2."
+    },
+    {
+      "severity": "minor",
+      "category": "verification",
+      "issue": "Agent Verification Plan section uses subsection '### Verification steps' (table) instead of the template-named '### Tools required' as a single subsection. Tools required IS present at the end, so substantively complete — but the structure differs slightly from template.",
+      "fix": "No action required — content is complete. Consider whether to standardize on '### Verification approach' + '### Tools required' only, with verification steps embedded in the approach narrative or in per-task Verify-smoke fields."
+    }
+  ],
+  "summary": "Tech-spec is structurally sound and approved for decomposition. All template sections present, frontmatter correct (size: L, branch: feature/recursive-insight-v2), 12 tasks within ≤15 limit, no wave conflicts (EditorView.swift modified by T7 in Wave 4 and T8 in Wave 5 — sequential, not parallel — OK), Audit Wave + Final Wave correctly structured (Deploy/Post-deploy absent for desktop app, as intended). All skills match catalog, all reviewers exist as agents. Minor findings are stylistic (task brevity in T5/T7, missing test-reviewer in T2, missing per-task smoke in T3/T4/T6/T7/T8, one residual time estimate '~1 hour' in Risks, duplication between Decisions and tasks). Zero critical findings; status = approved."
+}

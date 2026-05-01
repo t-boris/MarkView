@@ -1,0 +1,121 @@
+{
+  "validator": "reality-checker",
+  "batch": [7, 8, 9],
+  "iteration": 1,
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 7,
+      "issue": "T7 step 6 describes subscribing to session.$skeleton, session.$currentNodeSections, and session.$statusMessage, but none of these @Published properties exist in InsightSession.swift. The current InsightSession only publishes: rootNode, currentNodeId, streamingBuffer, isStreaming, lastError, lastErrorRetryable. The v2 surface (skeleton: InsightSkeleton?, currentNodeSections: [String: SectionState], statusMessage: String) is a T6 deliverable that has NOT yet been added to InsightSession. T7 depends_on [5,6] — T6 must produce these properties before T7 can compile.",
+      "fix": "Ensure T6 lands and adds @Published private(set) var skeleton: InsightSkeleton?, @Published private(set) var currentNodeSections: [String: SectionState] = [:], and @Published private(set) var statusMessage: String = \"\" to InsightSession before T7 execution. T7 task body already declares the depends_on correctly — this is a sequencing reminder, not a task-text bug. Flag as blocker if T6 has not shipped when T7 begins."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 7,
+      "issue": "InsightSkeleton type does not exist anywhere in the codebase (no InsightSkeleton.swift, no definition in InsightSession.swift, no definition in any other Swift file). T7 step 2 requires adding loadInsightSkeleton(skeleton: InsightSkeleton, into:) to WebViewBridge.swift, but the type it depends on is a T6 deliverable that is currently absent. Without InsightSkeleton declared, the T7 build will fail with 'cannot find type InsightSkeleton'.",
+      "fix": "T6 must define InsightSkeleton (and related types InsightSection, DeepDiveTopic v2, SectionState). Confirm T6 task produces these types in a file visible to WebViewBridge.swift before T7 compiles."
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 8,
+      "issue": "T8 step 2 instructs adapting didRequestInsightDeepDive to call session.expand(sectionId:topicIndex:), but the actual InsightSession.expand signature is expand(deepDiveIndex: Int) — not expand(sectionId:topicIndex:). The method does not accept a sectionId parameter at all. T8 also states 'look up the session's current node's skeleton' and 'reject if sectionId not in skeleton.sections.keys', but InsightSession currently has no 'skeleton' property and InsightSkeleton does not exist. This is a compound hallucination: wrong method signature + referencing a type that does not yet exist.",
+      "fix": "The signature mismatch requires coordination between T6 (which must add expand(sectionId:topicIndex:) or a compatible v2 overload) and T8 (which calls it). If T6 only adds expand(sectionId:topicIndex:) as a new method, the v1 expand(deepDiveIndex:) can be removed at that time. T8 task text must be updated to confirm the exact T6-delivered API before T8 executes, or the FIXME stub pattern should be applied."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 8,
+      "issue": "InsightCache.swift does not exist in the codebase. T8 depends on session.cache.archiveStagingDirectory() (T3 deliverable) and session.cache.cleanup() being available on InsightSession. Currently InsightSession has no 'cache' property and InsightCache is not defined anywhere. T8 depends_on [6,7] but the actual dependency is also on T3 (InsightCache). The depends_on list is incomplete.",
+      "fix": "Add T3 to T8's depends_on list. Confirm T3 ships InsightCache.swift with archiveStagingDirectory() async throws -> URL and cleanup() throws before T8 executes. The T8 task text at Context Files already mentions InsightCache.swift 'after T3' — the depends_on header needs to be corrected to [3, 6, 7]."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 8,
+      "issue": "InsightArchiveExporter.swift does not exist in the codebase. T8 creates it as a new file, which is correct, but T9 lists it as a file to read 'in full' as a T8 output. T9 depends_on [1,2,3,4,5,6,7,8] which is correct. No finding against T9 for this — but noting that T8 must actually produce the file before T9 runs.",
+      "fix": "No task-text fix needed; the task ordering is correct. The file is a new T8 deliverable."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 8,
+      "issue": "T8 step 3 requires rewriting closeTab's insight branch to call 'await session.cancel()' (async), but the current InsightSession.cancel() at line 360 is synchronous: 'func cancel()'. T8 assumes T6 will make cancel() async. The depends_on does list T6, but T8's step 3 text says 'The async signature is T6's responsibility; this task consumes it' — this is correct sequencing but the T6 task must be confirmed to actually change cancel() to async. If T6 does not change cancel() to async, T8's closeTab rewrite with 'await session.cancel()' will fail to compile.",
+      "fix": "Explicitly document in T6 that cancel() must become async func cancel() async to support T8's closeTab 4-step sequence. Add a cross-reference note in T8 step 3 so the T8 implementer verifies cancel() is async before proceeding."
+    },
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 8,
+      "issue": "T8 step 2 describes didRequestInsightBreadcrumb calling session.navigateTo(nodeId:) with a String, but the actual InsightSession.navigateTo signature takes a UUID: 'func navigateTo(nodeId: UUID)'. T8 instructs 'validate nodeId matches UUID regex (UUID(uuidString:) != nil); validate session.nodes[uuid] != nil' and then 'call session.navigateTo(nodeId:)' — but the call must pass a UUID, not a String. The existing v1 forwarder at line 1494 already does this correctly (converts to UUID first). The T8 description omits the conversion step when describing the new forwarder body, which could mislead the implementer.",
+      "fix": "T8 step 2 should explicitly state: after UUID validation, call session.navigateTo(nodeId: UUID(uuidString: nodeId)!) using the force-unwrap that is safe because UUID(uuidString:) was already validated non-nil in the guard above."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 9,
+      "issue": "T9 dimension (j) requires hand-tracing Tests/Fixtures/insight-skeleton-sample.json, but this file does not exist. Only Tests/Fixtures/sse-anthropic-sample.txt and Tests/Fixtures/marker-cases/ fixtures are present. T9 task body acknowledges this: 'Tests/Fixtures/insight-skeleton-sample.json may not yet exist if T1 deferred its creation to T4'. However T9 depends_on [1,2,3,4,5,6,7,8], so if T4 (GraphRAG) was supposed to create this fixture and did not, the hand-trace is impossible and dimension (j) must be 'deferred' in the audit report. This is a known gap acknowledged in T9 Details.",
+      "fix": "T4 (GraphRAG) task should explicitly create Tests/Fixtures/insight-skeleton-sample.json as a deliverable. If T4 has already shipped without creating it, add the fixture creation as a follow-up item in tasks/todo.md. T9's audit report template already has a fallback clause for this case."
+    },
+    {
+      "severity": "major",
+      "category": "hallucination",
+      "task": 7,
+      "issue": "T7 step 7 and Description say WorkspaceManager already has v1 method 'didRequestInsightSave(sessionId:)' (note: no extra parameters), but the actual current signature at line 1468 is 'func didRequestInsightSave(sessionId: String)' which matches. However T7 also says the v2 bridge drops sessionId from requestSave/requestUp — yet it then says coordinator stubs should call 'workspaceManager.didRequestInsightSave()' (no sessionId). This creates a signature inconsistency: v2 WebViewBridgeDelegate will have 'bridgeRequestInsightSave(_ bridge:)' (no sessionId per step 5), but the coordinator stub forwards to WorkspaceManager which T8 still signatures as 'didRequestInsightSave(sessionId:)'. T7 and T8 disagree on whether sessionId is passed through.",
+      "fix": "Decide definitively in T7 whether the v2 save/up coordinator stubs pass a sessionId to WorkspaceManager or not. T8 step 6 says coordinator calls 'manager.didRequestInsightSave(sessionId:)' (with sessionId), while T7 step 5 drops sessionId from the delegate protocol. The coordinator stub must derive sessionId from its own currentInsightSessionId state if the delegate protocol doesn't carry it. Document this resolution explicitly."
+    },
+    {
+      "severity": "major",
+      "category": "hallucination",
+      "task": 8,
+      "issue": "T8 step 1 references 'v1 forwarders at lines 1458-1535' and 'saveInsightNode at line 1536' and 'sanitizeForLog at line 1445'. Actual codebase line numbers: sanitizeForLog is at line 1445 (correct), findInsightSession is at 1431 (not referenced in task but accurate), didRequestInsightDeepDive at 1458 (correct), didRequestInsightSave at 1468 (within range), didRequestInsightBreadcrumb at 1483, didRequestInsightUp at 1498, didRequestInsightRetry at 1508, saveInsightNode at 1536 (correct). The '1458-1535' range is slightly inaccurate (retryRequested ends at 1515, not 1535) but close enough. Minor inaccuracy only.",
+      "fix": "Update T8 step 1 to read 'forwarders at lines 1458-1515' for precision. Low priority."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 8,
+      "issue": "T8 step 2 says didRequestInsightDeepDive v2 will call session.expand(sectionId:topicIndex:), but T6 must also change the InsightSession.expand signature from the current expand(deepDiveIndex: Int) to accept sectionId. This is a breaking API change to InsightSession that is not explicitly scoped in any visible task description. The T6 task (not in this batch) must document this API addition/replacement or T8 will fail.",
+      "fix": "Verify that T6 explicitly adds expand(sectionId: String, topicIndex: Int) async to InsightSession as a new method (possibly alongside the old expand(deepDiveIndex:) for backward compat, or as a full replacement). Cross-reference T8 against T6's acceptance criteria to confirm."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 8,
+      "issue": "T8 references InsightCache (from T3) but declares depends_on [6, 7] only. T3 is a missing dependency in the task header. If T3 is not complete when T8 runs, session.cache will not exist and archiveStagingDirectory() will not be callable.",
+      "fix": "Update T8 depends_on to [3, 6, 7]."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 9,
+      "issue": "T9 dimension (l) asks auditor to confirm vendor/MANIFEST.txt and chart-4.4.x.min.js exist, but neither file is present in the codebase. The vendor directory at MarkView/Resources/Editor/vendor/ contains mermaid.min.js, prism variants, katex, markdown-it, etc., but no chart-*.js and no MANIFEST.txt. These are T2 deliverables. T9 depends_on [1,2,...,8] so T2 should have produced them — but T2 has apparently not landed yet. The audit will find dimension (l) as a hard blocker if T2 is incomplete.",
+      "fix": "Confirm T2 has shipped chart-4.4.x.min.js and MANIFEST.txt before T9 runs. If T2 is still pending, T9 must wait. T9 depends_on correctly includes T2 (via [1,2,...]) — the ordering is correct but T2 must be executed first."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 7,
+      "issue": "T7 implementation hints at line 'Details — MarkView/Views/EditorView.swift — point 4' say to 'preserve the Task { @MainActor in ... } idiom for new stubs'. This is a valid pattern hint. However T7 Description also says new stubs should wire to WorkspaceManager with new payload shapes (no sessionId for save/up), while keeping the Task { @MainActor in } wrapper. This is a hint, not prescriptive code — within acceptable bounds.",
+      "fix": "No change needed — this is appropriate guidance."
+    },
+    {
+      "severity": "minor",
+      "category": "tdd",
+      "task": 9,
+      "issue": "T9 dimension (j) relies on Tests/Fixtures/insight-skeleton-sample.json which does not exist. T9's task text handles this correctly by saying 'downgrade dimension (j) verdict to deferred' if absent. The TDD anchor for the fixture creation is not assigned to any specific task in this batch.",
+      "fix": "Assign fixture creation to T4's deliverables checklist explicitly."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 47,
+    "issues_found": 15,
+    "critical": 8,
+    "major": 5,
+    "minor": 2
+  }
+}

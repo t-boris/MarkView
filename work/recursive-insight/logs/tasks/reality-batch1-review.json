@@ -1,0 +1,109 @@
+{
+  "validator": "reality-checker",
+  "batch": [1, 2, 3],
+  "iteration": 1,
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "security",
+      "task": 1,
+      "issue": "T1 says to reuse the 'extractSingleChunk' and 'generateMermaidDiagrams' patterns for the httpError path, but both of those existing methods throw `AIProviderError.httpError` WITHOUT calling `sanitize()` on the body (lines 152 and 626 respectively). Only `streamCompletion` (line 251) uses `sanitize(bodyString)` before throwing httpError. An implementer who copies the nearest reference pattern will silently omit sanitization. T1's acceptance criteria do require sanitization, but the hint text pointing to the wrong canonical pattern creates a concrete trap.",
+      "fix": "In T1 implementation hints and 'What to do' step 4, explicitly call out that `extractSingleChunk` and `generateMermaidDiagrams` are broken references for the sanitize discipline — direct the implementer to follow `streamCompletion` line 251 (`throw AIProviderError.httpError(status, sanitize(bodyString))`) as the correct reference for the httpError path. Alternatively add a note that the new `toolCall` method must NOT copy the non-sanitized pattern from lines 152/626."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 1,
+      "issue": "T1 says the class is 'lines 4-718' and `AIProviderError` is 'lines 720-739'. File is 739 lines total — both confirmed correct. However, `extractSingleChunk` is a private method (line 122). T1 correctly treats it as a reference-only pattern, not a public API reuse. No action required; documented for completeness.",
+      "fix": "No action needed."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 1,
+      "issue": "The implementation note at line 113 of task 1 says 'placed immediately after generateMermaidDiagrams (line ~660, before // MARK: - Architecture Graph Generation)'. Actual codebase has `// MARK: - Architecture Graph Generation (legacy — kept for backward compat)` at line 662. The placement guidance is correct but the MARK text differs slightly from actual (task omits '(legacy — kept for backward compat)'). Low risk — implementer will find the correct insertion point.",
+      "fix": "Update placement note to match actual MARK comment text: '// MARK: - Architecture Graph Generation (legacy — kept for backward compat)'."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 3,
+      "issue": "Implementation hint says 'prefer `Data.write(to: tmpURL, options: .atomic)` followed by `FileManager.default.moveItem(at: tmpURL, to: finalURL)`'. `Data.write(to:options:)` with `.atomic` internally writes to an OS-managed temp file and renames to `tmpURL` — then the explicit `moveItem` renames `tmpURL` to `finalURL`. This is a double-rename pattern; it works correctly but the description in the hint is misleading in that it implies `tmpURL` is the intermediate file we own, when actually `Data.write(.atomic)` already handles its own atomicity internally. An implementer who reads the hint literally may be confused about what `.tmp` suffix represents.",
+      "fix": "Clarify the hint: either use `Data.write(to: tmpURL, options: [])` (non-atomic write to our named temp) + `FileManager.moveItem` (our atomic rename), OR use `Data.write(to: finalURL, options: .atomic)` alone. The current combined approach works but the hint should explicitly state which variant is being used to avoid confusion."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 3,
+      "issue": "T3 step 2 instructs `Bundle.main.url(forResource:withExtension:subdirectory:)` with subdirectory 'Resources/Editor/vendor/js'. In macOS app bundles built by Xcode, the actual resource path inside the bundle is typically `Contents/Resources/Editor/vendor/js/` but `Bundle.main.url(forResource:withExtension:subdirectory:)` accepts the subdirectory relative to the bundle's resource root. The ditto build script copies vendor to `${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Editor/vendor/`. The `UNLOCALIZED_RESOURCES_FOLDER_PATH` is typically `Contents/Resources` for macOS apps. So the subdirectory parameter should be `Editor/vendor/js` (relative to the bundle resource root), not `Resources/Editor/vendor/js`. The task also references iterating directories via `FileManager.contentsOfDirectory` against the bundle URL — that approach is more robust than `forResource:withExtension:subdirectory:` for directory enumeration and avoids this ambiguity.",
+      "fix": "The implementation hint already says to use `FileManager.contentsOfDirectory(at:...)` against `Bundle.main.url(forResource: \"vendor/js\", withExtension: nil)` — this is the correct approach. Clarify in the task that the subdirectory path for bundle lookup is `Editor/vendor/js` (relative to bundle resources root), not `Resources/Editor/vendor/js`. The implementer should verify the path with a debug `Bundle.main.bundleURL` inspection if uncertain."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 2,
+      "issue": "T2 step 3 lists `prism-diff-highlight.css` and `prism-line-numbers.css` as CSS files to hash. These exist in `vendor/css/`. T2 also asks to hash 'all prism-*.min.js language plugins that ship'. The vendor/js listing confirms 16 Prism language plugin files (`prism-bash.min.js` through `prism-yaml.min.js`) plus `prism.min.js` (core) and `prism-line-numbers.min.js`. This is a larger set than typical; task correctly identifies 'do not use a wildcard' — no issue with the approach, but the implementer needs to be aware that `prism-line-numbers.min.js` is in `vendor/js/` not `vendor/css/` (despite `prism-line-numbers.css` being in `vendor/css/`). Both must be hashed individually.",
+      "fix": "No fix required. Add a note to T2 clarifying that `prism-line-numbers.min.js` is a JS plugin in `vendor/js/` and `prism-line-numbers.css` is a separate CSS file in `vendor/css/` — both need MANIFEST entries."
+    }
+  ],
+  "verified_claims": {
+    "task_1": {
+      "AIProviderClient_swift_exists": true,
+      "path": "MarkView/Models/AIProviderClient.swift",
+      "extractSingleChunk_lines_122_181": true,
+      "streamCompletion_lines_208_322": true,
+      "generateMermaidDiagrams_lines_568_660": true,
+      "sanitize_line_421_424": true,
+      "AIProviderError_enum_lines_720_739": true,
+      "AIProviderError_cases": ["noAPIKey", "invalidResponse", "httpError(Int,String)", "parseError(String)", "streamingError(String)"],
+      "toolCallError_case_does_not_exist_yet": true,
+      "Tests_Fixtures_dir_exists": true,
+      "sse_anthropic_sample_txt_exists": true,
+      "baseURL_is_https_api_anthropic_com_v1_messages": true,
+      "session_is_URLSession_shared": true,
+      "extractSingleChunk_timeout_180s": true,
+      "generateMermaidDiagrams_uses_diagramModel_not_model": "NOTE: generateMermaidDiagrams uses private let diagramModel = 'claude-opus-4-6', not the instance `model` property. T1 new toolCall should use the `model` parameter (default sonnet-4-6) per spec — this is correct.",
+      "httpError_in_extractSingleChunk_does_NOT_sanitize_body": true,
+      "httpError_in_generateMermaidDiagrams_does_NOT_sanitize_body": true,
+      "httpError_in_streamCompletion_DOES_sanitize_body": true
+    },
+    "task_2": {
+      "vendor_dir_exists": true,
+      "vendor_js_dir_exists": true,
+      "vendor_css_dir_exists": true,
+      "chart_js_not_yet_present": true,
+      "MANIFEST_txt_not_yet_present": true,
+      "pbxproj_build_web_editor_phase_at_line_329": true,
+      "ditto_vendor_copy_present_covers_entire_vendor_dir": true,
+      "pbxproj_edit_not_required": true,
+      "prism_min_js_exists": true,
+      "auto_render_min_js_exists": true,
+      "katex_min_js_exists": true,
+      "mermaid_min_js_exists": true,
+      "prism_language_plugins_count": 16,
+      "prism_diff_highlight_css_exists": true,
+      "prism_line_numbers_css_exists": true,
+      "prism_okaidia_min_css_exists": true,
+      "katex_min_css_exists": true
+    },
+    "task_3": {
+      "InsightCache_swift_does_not_exist_yet": true,
+      "InsightSession_swift_exists": true,
+      "WorkspaceManager_scanMarkdownFiles_lines_564_649_approx_correct": true,
+      "bb828a9_sibling_prefix_fix_pattern_at_lines_582_609": true,
+      "path_separator_append_logic_confirmed_at_587_590": true,
+      "resolvingSymlinksInPath_standardizedFileURL_pattern_confirmed": true,
+      "vendor_js_dir_exists_for_init_copy": true,
+      "vendor_css_dir_exists_for_init_copy": true
+    }
+  },
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 34,
+    "issues_found": 6,
+    "critical": 0,
+    "major": 1,
+    "minor": 5
+  }
+}

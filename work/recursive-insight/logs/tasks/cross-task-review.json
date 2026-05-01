@@ -1,0 +1,176 @@
+{
+  "verdict": "changes_required",
+  "shared_resource_issues": [
+    {
+      "severity": "critical",
+      "resource": "InsightModels.swift types (InsightSkeleton, InsightSection, SectionType, DeepDiveTopic, SectionState, AnyCodable)",
+      "owner_task": 4,
+      "issue": "T6 still declares all v2 model types inline in InsightSession.swift, despite T4 owning them in MarkView/Models/InsightModels.swift. This will cause duplicate-symbol compile errors the moment both tasks land.",
+      "evidence": [
+        "tasks/4.md step 7: 'вынести модели в отдельный файл MarkView/Models/InsightModels.swift (новый)' and AC line 80: 'InsightSkeleton, InsightSection, SectionType, DeepDiveTopic, SectionState, AnyCodable определены в MarkView/Models/InsightModels.swift (новый файл)'",
+        "tasks/6.md step 1: 'Top-to-bottom порядок: imports → enum NodeScope → struct DeepDiveTopic → struct InsightSection → struct InsightSkeleton → struct SectionState → struct BreadcrumbEntry → struct InsightViewSnapshot → final class InsightNode → @MainActor final class InsightSession.'",
+        "tasks/6.md step 2 'Data models' enumerates InsightSkeleton, InsightSection, SectionType, DeepDiveTopic, SectionState, AnyCodable as types to declare in InsightSession.swift",
+        "tasks/6.md AC line 199: 'Файл содержит: enum NodeScope, struct DeepDiveTopic, struct InsightSection, struct InsightSkeleton, enum SectionType, struct SectionState, struct BreadcrumbEntry, struct InsightViewSnapshot, final class InsightNode, @MainActor final class InsightSession.'",
+        "tasks/6.md implementation hint lines 285-292 even shows the AnyCodable struct definition to write in InsightSession.swift"
+      ],
+      "fix": "Edit tasks/6.md to: (a) remove DeepDiveTopic, InsightSection, InsightSkeleton, SectionType, SectionState, AnyCodable from step 1 ordering; (b) replace step 2 with 'Data models live in MarkView/Models/InsightModels.swift (owned by T4) — T6 must NOT redeclare them. T6 only declares InsightSession-private types: enum NodeScope, struct BreadcrumbEntry, struct InsightViewSnapshot, final class InsightNode'; (c) update AC line 199 to require ONLY the InsightSession-private types in InsightSession.swift; (d) drop the AnyCodable code snippet from implementation hints."
+    },
+    {
+      "severity": "critical",
+      "resource": "EditorView.swift Coordinator delegate stubs (5 methods)",
+      "owner_task": "ambiguous (T7 and T8 both claim ownership)",
+      "issue": "Both T7 and T8 explicitly rewrite the 5 Coordinator delegate stub bodies in EditorView.swift. T7 is W4, T8 is W5 — T8 will overwrite T7's work, and during W4 audit/review the stubs may not match the final WorkspaceManager API.",
+      "evidence": [
+        "tasks/7.md step 7: 'Rewrite the 5 EditorView.Coordinator delegate stubs (current EditorView.swift lines ~609-642): match the new delegate protocol signatures from step 5. Each forwards to the corresponding WorkspaceManager method.'",
+        "tasks/7.md AC line 135: '5 EditorView.Coordinator delegate stub bodies rewritten to match new protocol signatures'",
+        "tasks/8.md description line 35: 'EditorView.Coordinator's 5 delegate stub bodies are adapted in this task (not in T7) because their bodies forward to WorkspaceManager — only after WorkspaceManager's public API stabilizes here can the coordinator stubs land.'",
+        "tasks/8.md step 6: 'Adapt EditorView.Coordinator's 5 delegate stub bodies'",
+        "tasks/8.md AC line 124: 'EditorView.Coordinator's 5 delegate stub bodies forward to corresponding WorkspaceManager methods with new payload shapes'"
+      ],
+      "fix": "Pick one owner. Recommendation: assign final body authoring to T8 (it knows WorkspaceManager signatures), and have T7 only update the protocol signatures + leave stub bodies as `// FIXME: T8 wires` NSLog placeholders. Edit tasks/7.md step 7 to clarify 'leave stub bodies as // FIXME: T8 wires up; only update method signatures to match new delegate protocol'. Edit tasks/8.md step 6 to clarify it owns the final body content. Update both ACs accordingly."
+    },
+    {
+      "severity": "minor",
+      "resource": "sanitizeForLog helper",
+      "owner_task": "WorkspaceManager (current location) — referenced by T7 and T8",
+      "issue": "T7 step 3 and Implementation hints say 'add a private sanitizeForLog(_:) helper (or import from WorkspaceManager — coordinate with T8 to share via a common Utilities/LogSanitizer.swift file)'. T8 reuses sanitizeForLog from WorkspaceManager (line 1445) without proposing extraction. Coordination is informal — could lead to duplicated helpers.",
+      "evidence": [
+        "tasks/7.md step 3 / Implementation hints",
+        "tasks/8.md step 1.d (note sanitizeForLog at line 1445 in WorkspaceManager)"
+      ],
+      "fix": "Either explicitly assign extraction to T7 (with a new shared file MarkView/Utilities/LogSanitizer.swift) and have T8 consume it; OR explicitly state in both tasks that the helper stays in WorkspaceManager and WebViewBridge calls it cross-file (requires same module/internal access). Pick one and codify."
+    }
+  ],
+  "api_naming_mismatches": [
+    {
+      "severity": "critical",
+      "task": 6,
+      "issue": "T6 still calls graphRAG?.buildPhase1Prompts and graphRAG?.buildPhase2SectionPrompts — these names do NOT exist on GraphRAG. T4 exports buildSkeleton and buildSectionPrompt instead.",
+      "evidence": [
+        "tasks/4.md step 4: 'func buildSkeleton(folderURL:URL, mdFiles:[URL], scopeLabel:String?, scopeHint:String?) async throws -> InsightSkeleton' and 'func buildSectionPrompt(section:InsightSection, allFiles:[URL], folderURL:URL) -> (systemPrompt: String, userMessage: String)'",
+        "tasks/4.md AC lines 78-79: 'Новый метод buildSkeleton(folderURL:mdFiles:scopeLabel:scopeHint:) присутствует' / 'Новый метод buildSectionPrompt(section:allFiles:folderURL:) возвращает (systemPrompt, userMessage)'",
+        "tasks/6.md step 6: 'let prompts = graphRAG?.buildPhase1Prompts(folderURL:, mdFiles:, scope: node.scope) или эквивалент helper-функции'",
+        "tasks/6.md step 7: 'let prompts = self.graphRAG?.buildPhase2SectionPrompts(...) // или inline'"
+      ],
+      "fix": "Edit tasks/6.md step 6 to call `graphRAG?.buildSkeleton(folderURL:, mdFiles:, scopeLabel:, scopeHint:)` directly (note: T4's buildSkeleton already invokes providerClient.toolCall internally and returns InsightSkeleton, so T6's phase1Skeleton becomes a thin orchestration wrapper around `let skeleton = try await graphRAG.buildSkeleton(...)` — NOT an additional toolCall). Edit step 7 to call `graphRAG.buildSectionPrompt(section:, allFiles:, folderURL:)` and feed the (system, user) tuple into providerClient.streamCompletion. Restructure step 6 description: T4 owns the toolCall invocation; T6 owns the InsightSession state machine and parse-failure fallback handling around the returned InsightSkeleton."
+    },
+    {
+      "severity": "critical",
+      "task": 6,
+      "issue": "T6 declares cancel() as synchronous, but T8 closeTab requires `await session.cancel()` (async). The signatures are incompatible.",
+      "evidence": [
+        "tasks/6.md step 14: 'func cancel() — activeTask?.cancel(); activeTask = nil. Не очищать buffers'",
+        "tasks/8.md step 3: 'Step 2: await session.cancel() — cancel must be async and await all parallel Phase 2 section tasks + any in-flight ZIP export Task to observe Task.isCancelled and exit. (The async signature is T6's responsibility; this task consumes it.)'",
+        "tasks/8.md Dependencies line 191: 'T6 (InsightSession v2 rewrite) — provides session.cancel() as async'"
+      ],
+      "fix": "Edit tasks/6.md step 14 to declare `func cancel() async` and document its body must await all in-flight section tasks (e.g. `activeTask?.cancel(); _ = await activeTask?.value; activeTask = nil`). Add an AC line in T6 explicitly stating cancel() is async and awaits in-flight section tasks. Reference T8's 4-step closeTab order so the contract is bidirectional."
+    },
+    {
+      "severity": "critical",
+      "task": 8,
+      "issue": "T8 didRequestInsightUp passes `parentId.uuidString` (String) to navigateTo, but T6 declares navigateTo(nodeId: UUID). Type mismatch — won't compile.",
+      "evidence": [
+        "tasks/6.md step 12: 'func navigateTo(nodeId: UUID) async'",
+        "tasks/8.md step 2 didRequestInsightUp: 'derive parentId from session.currentNode().parentId; if non-nil call session.navigateTo(nodeId: parentId.uuidString)'"
+      ],
+      "fix": "Edit tasks/8.md step 2 didRequestInsightUp to call `session.navigateTo(nodeId: parentId)` directly (parentId is already UUID per T6 InsightNode.parentId: UUID?). Also clarify in step 2 didRequestInsightBreadcrumb that the bridge receives nodeId as String (per T7 protocol), validates with `UUID(uuidString: nodeIdString)`, and forwards the resulting UUID to session.navigateTo(nodeId:). Add an explicit type-conversion step so it's not silently assumed."
+    },
+    {
+      "severity": "major",
+      "task": 8,
+      "issue": "T8 didRequestInsightDeepDive validates sectionId/topicIndex bounds against `skeleton.sections.keys` — but InsightSkeleton.sections is an Array (per T4/T6 declarations), not a Dict. `.keys` does not apply.",
+      "evidence": [
+        "tasks/4.md and tasks/6.md both declare InsightSkeleton.sections as `[InsightSection]` (Array)",
+        "tasks/8.md step 2: 'reject if sectionId not in skeleton.sections.keys (NSLog warning via sanitizeForLog); reject if topicIndex out of bounds of skeleton.sections[sectionId].deepDiveTopics'"
+      ],
+      "fix": "Edit tasks/8.md step 2 didRequestInsightDeepDive to: 'let section = skeleton.sections.first(where: { $0.id == sectionId }) else { NSLog warning; return }; guard let topics = section.deepDiveTopics, topicIndex >= 0, topicIndex < topics.count else { NSLog warning; return }; await session.expand(sectionId: sectionId, topicIndex: topicIndex)'."
+    },
+    {
+      "severity": "major",
+      "task": 8,
+      "issue": "T8 description references `bridgeInsightDeepDiveClicked(sessionId:sectionId:topicIndex:)` and `bridgeInsightBreadcrumbClicked(sessionId:nodeId:)` etc. with sessionId, but T7 protocol drops sessionId from delegate signatures (only one active session per WebView in v2 per T7 description line 30).",
+      "evidence": [
+        "tasks/7.md step 5 delegate signatures do NOT include sessionId: 'bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sectionId: String, topicIndex: Int)' / 'bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb nodeId: String)' / 'bridgeRequestInsightSave(_ bridge: WebViewBridge)' / 'bridgeRequestInsightUp(_ bridge: WebViewBridge)'",
+        "tasks/8.md step 6 lists Coordinator method names with sessionId: 'bridgeInsightDeepDiveClicked(sessionId:sectionId:topicIndex:)'",
+        "tasks/8.md step 2 lists WorkspaceManager forwarder names with sessionId: 'didRequestInsightDeepDive(sessionId:sectionId:topicIndex:)'"
+      ],
+      "fix": "Pick one. Recommendation: keep sessionId at the WorkspaceManager forwarder layer (it owns the tab store and may have multiple sessions across tabs) but drop it from the delegate protocol (one bridge per webView). Edit tasks/8.md step 2 and step 6 to clarify: Coordinator stubs receive (sectionId, topicIndex, etc.) without sessionId, then look up the active session via the parent EditorView and forward to WorkspaceManager.didRequestInsightDeepDive(sessionId: activeSessionId, sectionId:, topicIndex:). Tech-spec may need a brief note on this routing."
+    }
+  ],
+  "wave_conflicts": [
+    {
+      "severity": "critical",
+      "wave": 5,
+      "files": ["MarkView/Views/EditorView.swift"],
+      "tasks": [7, 8],
+      "issue": "EditorView.swift Coordinator delegate stubs (lines ~609-642 per T7, lines ~609-642 per T8) are claimed by both T7 (Wave 4) and T8 (Wave 5). T8 will overwrite T7's stub bodies. Reviewers in Wave 4 will see a partially-correct coordinator that T8 then mutates.",
+      "fix": "See shared_resource_issues entry for EditorView.swift Coordinator delegate stubs above — pick one owner."
+    }
+  ],
+  "additional_findings": [
+    {
+      "severity": "major",
+      "category": "carry-forward",
+      "task": 6,
+      "issue": "T6 step 6 instructs to construct a strict JSON inputSchema and call providerClient.toolCall directly — but per T4 architecture, buildSkeleton already does this. T6 should NOT call toolCall directly (would duplicate prompt composition + schema definition between T4 and T6).",
+      "fix": "Restructure T6 step 6 around `let skeleton = try await graphRAG.buildSkeleton(...)`. The fallback path (single-prose-section) and parse-failure handling stay in T6 (they are session-level concerns) but the schema + prompt composition + toolCall invocation belong to T4 alone."
+    },
+    {
+      "severity": "major",
+      "category": "carry-forward",
+      "task": 6,
+      "issue": "T6 step 21 says 'XML isolation + escapeXMLEnvelopeBreakout — при построении промптов inline (если GraphRAG не предоставит helper)' — leaves open that T6 may build prompts inline. But T4 explicitly DOES provide both helpers (buildSkeleton, buildSectionPrompt). The 'inline fallback' option is contradictory to T4's contract and should be removed.",
+      "fix": "Edit tasks/6.md step 21 to remove the 'inline fallback' option. Make it unconditional: 'Prompt composition + XML escaping live in GraphRAG.buildSkeleton / buildSectionPrompt (T4). T6 must NOT build prompts inline — that would duplicate isolation/escape logic and risk drift.'"
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 7,
+      "issue": "T7 step 6 says '$skeleton emission... The dropFirst is NOT used here' but the same step's earlier paragraph says 'Add subscription to session.$skeleton (dropFirst, receive on main)'. Internal contradiction.",
+      "fix": "Clarify in tasks/7.md step 6: use `.compactMap { $0 }.receive(on: DispatchQueue.main).sink { ... }` (not dropFirst) since T6 starts skeleton as nil and the first non-nil emission is the load signal. Reconcile both sub-bullets."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 8,
+      "issue": "T8 step 4 calls `cache.archiveStagingDirectory()` with `try await` (async throws), but T3 step 8 declares `archiveStagingDirectory() throws -> URL` (sync throws).",
+      "evidence": [
+        "tasks/3.md step 8: 'Implement archiveStagingDirectory() throws -> URL'",
+        "tasks/8.md step 4: 'let stagingURL = try await session.cache.archiveStagingDirectory()'"
+      ],
+      "fix": "Pick one. If staging-dir construction can be I/O heavy (HTML rebuild for many nodes), make it async in T3 and update tasks/3.md step 8 + AC. Otherwise drop `await` from tasks/8.md step 4."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 8,
+      "issue": "T8 description and step 4 describe HTML rewriting (deep-dive onclicks → window.location.href, lib refs → ../_assets/<lib>.js, breadcrumb hrefs → relative) as part of `cache.archiveStagingDirectory()`, but T3 step 8 explicitly says 'InsightCache itself does no HTML rewriting' and that rewriting is performed by 'WorkspaceManager.exportInsightArchive(sessionId:) BEFORE calling this method'.",
+      "evidence": [
+        "tasks/3.md step 8: 'The HTML rewriting required by Decision 5 ... is performed by T8's WorkspaceManager.exportInsightArchive(sessionId:) BEFORE calling this method — InsightCache itself does no HTML rewriting.'",
+        "tasks/8.md step 4: 'let stagingURL = try await session.cache.archiveStagingDirectory() (T3 supplies this; it deterministically rebuilds HTML for every node using the Decision 10 escape utility, copies libs into _assets/, rewrites deep-dive button onclicks to window.location.href = \"<uuid>.html\" and lib refs to ../_assets/<lib>.js, rewrites breadcrumb hrefs to relative paths).'"
+      ],
+      "fix": "Pick one ownership. Recommendation: HTML rewriting is export-specific concern, not cache concern. Keep T3's stance (cache returns rootDirectory; no rewriting). Edit tasks/8.md step 4 to: 'Before calling cache.archiveStagingDirectory(), WorkspaceManager.exportInsightArchive runs HTML rewriting on each node HTML in the cache (deep-dive onclicks, lib refs, breadcrumb hrefs) using a local helper. Then archiveStagingDirectory() returns the staging URL for /usr/bin/zip.' Adjust AC accordingly."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 5,
+      "issue": "T5 acceptance criterion line 67 lists exactly 5 Swift→JS setters (loadInsightSkeleton, updateInsightSection, setInsightError, setInsightStatus, releaseInsightBlobs) and 5 JS→Swift types — matches T7 ✓. But T5 step 9 mentions an 'insightRequestRetry' as 'TODO/uncertain' which would expand the allowlist to 6. Allowlist count must be locked at 5 across T5/T7 to match the security audit acceptance criteria in T10.",
+      "evidence": [
+        "tasks/5.md step 9: 'if retryable, render a Retry button that posts insightRequestRetry (or expose retry as separate message — current spec lists only 5 types, so error retry is initiated by user via re-clicking the originating action; the Retry button posts insightRequestUp semantically — verify with T6/T7 designer; leave a TODO comment if uncertain)'"
+      ],
+      "fix": "Edit tasks/5.md step 9: 'Retry on retryable errors is triggered by the user re-clicking the originating action (e.g. re-clicking 🤿 deep-dive, or re-clicking root breadcrumb). The setInsightError chrome surfaces the message + a Retry button that posts insightRequestUp (re-navigate up forces session.retryCurrent() per T6 retry semantics). The 5-type allowlist is locked: insightIframeReady, insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp. No 6th type.' Also coordinate with T6 to ensure retry is reachable from insightRequestUp + user-action path; if not, escalate to user."
+    }
+  ],
+  "summary": "12 v2 tasks reviewed for cross-task integration. Wave ordering and dependency graph are correct (no cycles). Critical issues remaining despite r1 fixes: (1) T6 still redeclares all v2 model types (InsightSkeleton, InsightSection, SectionType, DeepDiveTopic, SectionState, AnyCodable) inline in InsightSession.swift instead of consuming them from T4's MarkView/Models/InsightModels.swift — will cause duplicate-symbol compile errors; (2) T6 calls graphRAG.buildPhase1Prompts/buildPhase2SectionPrompts but T4 exports buildSkeleton/buildSectionPrompt — names do not match; (3) T6 declares cancel() as sync but T8's closeTab requires `await session.cancel()` — signature mismatch; (4) T8 didRequestInsightUp calls navigateTo with parentId.uuidString (String) but T6 expects UUID; (5) T7 and T8 both claim ownership of the 5 EditorView.Coordinator delegate stub bodies — wave-conflict on EditorView.swift between W4 and W5; (6) T8 references skeleton.sections.keys but sections is Array; (7) T8 forwarder/Coordinator method names include sessionId param but T7 protocol drops it. Several minor inconsistencies around archiveStagingDirectory sync/async, HTML rewriting ownership (T3 vs T8), and the iframe Retry path. T6 must be re-edited primarily; T8 needs synchronization with T6 cancel() async + UUID type + T7 protocol shape; T7/T8 need to pick one owner for EditorView.swift Coordinator stub bodies.",
+  "stats": {
+    "tasks_checked": 12,
+    "shared_resource_issues": 3,
+    "api_naming_mismatches": 5,
+    "wave_conflicts": 1,
+    "additional_findings": 6,
+    "total_critical": 6,
+    "total_major": 4,
+    "total_minor": 5
+  }
+}

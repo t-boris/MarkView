@@ -1,0 +1,91 @@
+{
+  "validator": "task-validator",
+  "batch": [6, 7, 8, 9, 10],
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 8,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section content is wrapped entirely in an HTML comment block (`<!-- ... -->`), which hides it from rendered Markdown. The intended TDD list (5 tests deferred per Decision 9) is present but commented out. Per template, non-code tasks should have the section deleted; for code tasks the section should contain visible content (even if tests are deferred). This middle-ground rendering is non-standard and may confuse the implementing agent.",
+      "fix": "Either (a) remove the surrounding `<!-- -->` wrapper and keep the deferred-tests note as visible markdown content with the 5 intended tests in standard format, OR (b) delete the TDD Anchor section entirely and move the deferred-tests context into Description/Details with a pointer to tasks/todo.md. Option (a) preserves intent and matches sibling tasks T6 and T7 which keep the section visible with intended tests."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 7,
+      "section": "Verification Steps",
+      "issue": "Step 6 of `What to do` contains contradictory guidance about `dropFirst` on `$skeleton` subscription: at the start it says 'Add subscription to session.$skeleton (dropFirst, receive on main)', then immediately states 'The dropFirst is NOT used here — we DO want the current skeleton replayed on subscribe'. Acceptance Criteria does not pin this down. The implementing agent will need to make a judgment call that should have been resolved at decomposition time.",
+      "fix": "Pick one and remove the other. Recommended: remove `dropFirst` from the subscription declaration and rely on `compactMap { $0 }` to filter the initial nil emission. Update both `What to do` step 6 and Acceptance Criteria to make this explicit."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 7,
+      "section": "What to do",
+      "issue": "Step 5 says the v1 `didRequestInsightRetry` delegate method is dropped because retry will go through `setInsightError` UI. However, the v1 InsightSession also exposes a `retryCurrent()` API that T6 preserves (Task 6 retains `retryCurrent()` per its step 15). Without a delegate path from the chrome's retry button, the wiring from JS button click to `session.retryCurrent()` is undefined. T8 also has no plumbing for retry beyond the v1 forwarder which is preserved.",
+      "fix": "Either (a) add `insightRequestRetry` to the v2 message-type allowlist (becomes 6 types, requires updating tech-spec Decision 2.5 + Acceptance Criteria postMessage allowlist), OR (b) explicitly document in T7 What to do that the chrome retry button is parent-JS-only and triggers via existing setInsightError UI affordance, then update T8 to wire `WorkspaceManager.didRequestInsightRetry` accordingly. This decision must be pinned before implementation to avoid mid-task confusion."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 8,
+      "section": "Acceptance Criteria",
+      "issue": "Acceptance Criteria mentions `setInsightStatus` and 5 forwarders, but Task 7 (its sole upstream dependency for bridge protocol) leaves the `setInsightStatus(message:phase:into:)` signature unresolved (T7 step 6 + T7 Edge cases describe two options for `phase` parameter). T8 then forwards to `manager.didRequestInsightDeepDive(sessionId:sectionId:topicIndex:)` etc. — but if T7 chose option (a) (drop `phase`), some downstream contract changes propagate. T8 doesn't acknowledge this contract-shape uncertainty.",
+      "fix": "Add an Edge case to T8 stating: 'If T7 simplified setInsightStatus signature to (message:into:), update WorkspaceManager forwarders accordingly'. Alternatively, pin the decision in tech-spec before T7/T8 execute."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 6,
+      "section": "Acceptance Criteria",
+      "issue": "Acceptance Criteria mentions `cachedNodeHTML` published property: `'navigateTo(nodeId:) — async, читает из cache.readNode, публикует HTML через cachedNodeHTML (или эквивалент)'`. But the @Published properties list earlier in the same task does NOT include `cachedNodeHTML`. Either it's a missing property in the @Published list, or the navigateTo flow uses a different mechanism (skeleton + sectionStates rebuild) that should be made explicit.",
+      "fix": "Add `cachedNodeHTML: String?` to the @Published properties list in `What to do` step 3, OR clarify in `What to do` step 12 that navigateTo populates skeleton/sectionStates from the in-memory `nodes[nodeId]` and the cache HTML is consumed only by the bridge layer (not via @Published). Update Acceptance Criteria to match."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 6,
+      "section": "What to do",
+      "issue": "Step 17 says `validateScopeHint` is preserved verbatim from v1, but step 6 says `validateScopeHint` is also called inside phase1Skeleton parsing for skeleton sections. The v1 InsightSession's validateScopeHint signature returned `[URL]` taking `[String]`. This is consistent, but the call site inside phase1 needs the result attached back to the skeleton — the spec says 'просто очистить scopeHint to empty array, залогировать' but the type of `section.scopeHint` is `[String]?` (path strings) while validateScopeHint returns `[URL]`. The conversion (URLs back to relative path strings, or storing URLs in skeleton) is unspecified.",
+      "fix": "Clarify the data shape: either (a) skeleton stores `scopeHint: [URL]?` after validation (requires custom Codable on URL), or (b) skeleton retains `[String]?` and validateScopeHint produces a parallel `[URL]?` for runtime use without mutating skeleton. Document in step 6 of What to do which approach is chosen."
+    },
+    {
+      "severity": "minor",
+      "category": "decomposition",
+      "task": 8,
+      "section": "What to do",
+      "issue": "Task 8 explicitly bundles three discrete pieces of work: (1) adapt 5 forwarders, (2) rewrite closeTab insight branch with 4-step ordered cleanup, (3) replace saveInsightNode with exportInsightArchive (incl. new InsightArchiveExporter.swift file). Plus subordinate (4) rewrite tasks/todo.md. This modifies 4 files: WorkspaceManager.swift, EditorView.swift, new InsightArchiveExporter.swift, tasks/todo.md. The Description justifies the bundling ('share same file (WorkspaceManager.swift) and must land atomically'), but the new InsightArchiveExporter.swift is a fully separate file that could plausibly be its own task with closeTab integration as the consumer task. The tasks/todo.md rewrite is also conceptually independent (documentation-only change).",
+      "fix": "Consider splitting into: T8a (WorkspaceManager forwarders + closeTab 4-step cleanup), T8b (InsightArchiveExporter.swift + exportInsightArchive method), T8c (tasks/todo.md rewrite — could be lifted into T11 since T11 already audits this file). However, the spec's atomicity argument is defensible (T7 protocol changes break compilation until T8 forwarders adapt), so this is a 'reviewer judgment' minor — not a blocking split candidate."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 9,
+      "section": "Verification Steps",
+      "issue": "Verification Steps section says 'verification is the report itself' but the section duplicates the Acceptance Criteria items (4 bullet points re-stating that the report exists, verdict stated, etc.). This is acceptable for an audit task but the Verification Steps section provides no executable agent-runnable check beyond restating ACs. The smoke and user subsections are absent (correct per template — both optional).",
+      "fix": "Optional: replace the duplicated AC items with a brief pointer ('See Acceptance Criteria — the audit report itself is the verification artifact'). Or leave as-is since duplication is harmless for an audit-only task."
+    },
+    {
+      "severity": "minor",
+      "category": "carry-forward",
+      "task": 8,
+      "section": "Acceptance Criteria",
+      "issue": "Tech-spec ZIP export AC includes 'Opening the exported ZIP\\'s index.html in Safari renders correctly; breadcrumb navigation between local files works'. T8 Verify-user manual flow covers this (steps 10-11), but the criterion is not explicitly listed in the Acceptance Criteria checklist beyond 'Manual user smoke (Verify-user) passes'. The manual smoke list is a generic catch-all and may obscure this specific AC.",
+      "fix": "Add an explicit checkbox to T8 Acceptance Criteria: 'Exported ZIP, when unzipped and opened in Safari, renders root + child nodes with working breadcrumb navigation and no broken lib references (verified in Verify-user step 11)'."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 6,
+      "section": "TDD Anchor",
+      "issue": "Several TDD anchor tests verify behavior via string presence (e.g., `test_writeFinalHTMLToCache_escapes_LLM_skeleton_strings` — 'output contains `&lt;` not raw `<`'). Per the validation rule, anchors that test string presence rather than behavior are considered insufficient. However, for HTML escape verification, asserting on escaped output IS the behavior under test. This is borderline; not a clear-cut violation but worth noting.",
+      "fix": "Optional: rephrase the assertion as behavior — 'parsing the output as HTML does not yield a `<script>` element; the title text appears verbatim as text content'. This tests semantic safety rather than string-level escape format."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 5,
+    "issues_found": 10
+  }
+}

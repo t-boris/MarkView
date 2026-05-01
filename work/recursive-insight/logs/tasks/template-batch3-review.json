@@ -1,0 +1,51 @@
+{
+  "validator": "task-validator",
+  "batch": [11, 12],
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 11,
+      "section": "Context Files",
+      "issue": "decisions.md is not listed in Context Files. The template marks it as a mandatory feature-context link. Even though the file does not yet exist on disk (created later in the workflow), the link should be present so the executing agent reads it as soon as it materializes. T12 (sister task in this batch) does include it.",
+      "fix": "Add `- [decisions.md](../decisions.md)` near the top of the Context Files list, alongside user-spec.md and tech-spec.md."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 11,
+      "section": "Description / What to do (step 5)",
+      "issue": "T11 references T12's '12 Instruments scenarios (5 happy-path + 7 adversarial per tech-spec line 737)'. The tech-spec T11 description (line 730) states '9 Instruments scenarios ... plus 4 adversarial' (totalling 13). The actual T12 task in this batch enumerates 12 (a)-(l). T11 is internally consistent with T12 but diverges from the tech-spec T11 description's count. Either tech-spec T11 wording is stale, or T11/T12 should reflect tech-spec numbers. Since tech-spec T12 (line 737) itself lists 12 scenarios (a)-(l), the tech-spec T11 description appears to be the stale source — flag for awareness but no functional bug.",
+      "fix": "No change needed in T11/T12. Optionally update tech-spec T11 description to say '12 scenarios (5 happy-path + 7 adversarial)' to match T12. If that change is out of scope here, leave a note in decisions.md."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 11,
+      "section": "Acceptance Criteria",
+      "issue": "AC item 'Report cites Code Audit findings and tags each as addressed / QA-compensated / needs-deferred-test' is testable in spirit but loosely worded — auditor could pass with one trivial citation. Same shape for the Security Audit AC item.",
+      "fix": "Either accept (low risk — the audit-quality AC items are bounded by the report-structure AC items in Details section #4 and #5 which require explicit tables) or tighten with 'every finding tagged' phrasing."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 12,
+      "section": "Acceptance Criteria",
+      "issue": "AC line for `state.db` says 'no rows in existing artifacts/ai_jobs tables added by v2 operations during the manual walkthrough'. Verifying 'no rows added during walkthrough' requires a before/after row-count snapshot, which is not specified in Verification Steps or Details. Without an explicit snapshot procedure, this AC is hard to test rigorously.",
+      "fix": "Add a Details note: 'Snapshot row counts in artifacts and ai_jobs BEFORE the walkthrough, again AFTER, and assert delta == 0.' Or relax the AC wording to a `.schema`-based 'no insight-prefix tables' check only."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 12,
+      "section": "Verification Steps / Smoke",
+      "issue": "Smoke `curl` command is duplicated verbatim from tech-spec T1 Verify-smoke. Acceptable, but consider linking to the source rather than duplicating to avoid future drift if T1 smoke is updated.",
+      "fix": "Optional: replace inline curl with a reference to T1's Verify-smoke and a one-line summary, or keep duplication and add a comment 'mirror of T1 Verify-smoke'."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 2,
+    "issues_found": 5
+  }
+}

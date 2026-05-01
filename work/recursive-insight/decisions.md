@@ -148,3 +148,18 @@ Per-task summaries (1-3 sentences) + commit refs + key decisions.
 - Open audit followups: 4 majors + 1 medium ALREADY RESOLVED in commit 38236f7; 6 nit/minor cleanup items deferred (incl. 305-line dead code mapReduceForFolder)
 - Recommendation: READY FOR USER VERIFICATION (YELLOW — one caveat: rerun Anthropic curl with API key)
 - Report: logs/qa/pre-deploy-qa-report.md
+
+## Polish: Variant A — meaningful progress
+- InsightSession.statusMessage updates at 6 lifecycle points: phase 1 start/done, phase 2 start, per-section completion, all-done, retry, nav-cache
+- Status bar (chrome, outside iframe) shows concrete stages: "Phase 1: analyzing 12 files...", "Phase 2: 3/5 sections complete (Architecture streaming...)", "✓ Complete"
+- Tiny CSS pulse on update if needed (textContent only, no innerHTML)
+- Build: SUCCEEDED
+- Commit: 4b1379d
+
+## Polish: progress moved into iframe panel
+- Added insight-progress-banner inside iframe srcdoc (sticky top, accent color, animated spinner)
+- Parent setInsightStatus forwards via postMessage to iframe.contentWindow (parent→iframe direction; 5-type allowlist applies only to JS→Swift)
+- Banner fades on phase=ready
+- Bottom status bar kept as defense-in-depth
+- Build: SUCCEEDED
+- Commit: 34815fa

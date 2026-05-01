@@ -11,6 +11,58 @@
             if (DOM.statusMode) DOM.statusMode.textContent = 'Insight';
         }
 
+        // Show a prominent in-tab "generating" placeholder BEFORE the iframe
+        // srcdoc is built (Phase 1 LLM call ~30-60s). Without this the user
+        // sees a blank pane during Phase 1 and assumes nothing is happening.
+        // Replaced with the iframe content once `loadInsightSkeleton` runs
+        // (the iframe element overwrites this overlay area).
+        function showInsightLoadingOverlay(message) {
+            if (!DOM.insightContainer) return;
+            switchToInsightView();
+            // Hide the iframe element while overlay is up.
+            if (state.insightIframe) state.insightIframe.style.display = 'none';
+            else if (DOM.insightIframe) DOM.insightIframe.style.display = 'none';
+            let overlay = document.getElementById('insight-loading-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'insight-loading-overlay';
+                overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;font-family:-apple-system,system-ui,sans-serif;background:var(--bg-primary,#1e1e1e);color:var(--text-primary,#d4d4d4);padding:40px;text-align:center;';
+                const spinner = document.createElement('div');
+                spinner.style.cssText = 'width:48px;height:48px;border:4px solid #3c3c3c;border-top-color:#569cd6;border-radius:50%;animation:insight-spin 1s linear infinite;';
+                overlay.appendChild(spinner);
+                const title = document.createElement('div');
+                title.id = 'insight-loading-title';
+                title.style.cssText = 'font-size:18px;font-weight:600;';
+                title.textContent = 'Generating insight…';
+                overlay.appendChild(title);
+                const sub = document.createElement('div');
+                sub.id = 'insight-loading-sub';
+                sub.style.cssText = 'font-size:13px;color:var(--text-secondary,#808080);max-width:480px;line-height:1.5;';
+                sub.textContent = message || 'Phase 1: analysing files (typically 30–60 s)…';
+                overlay.appendChild(sub);
+                if (!document.getElementById('insight-loading-style')) {
+                    const st = document.createElement('style');
+                    st.id = 'insight-loading-style';
+                    st.textContent = '@keyframes insight-spin { to { transform: rotate(360deg); } }';
+                    document.head.appendChild(st);
+                }
+                if (DOM.insightContainer && getComputedStyle(DOM.insightContainer).position === 'static') {
+                    DOM.insightContainer.style.position = 'relative';
+                }
+                DOM.insightContainer.appendChild(overlay);
+            } else {
+                const sub = document.getElementById('insight-loading-sub');
+                if (sub && message != null) sub.textContent = String(message);
+            }
+        }
+
+        function hideInsightLoadingOverlay() {
+            const overlay = document.getElementById('insight-loading-overlay');
+            if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            if (state.insightIframe) state.insightIframe.style.display = '';
+            else if (DOM.insightIframe) DOM.insightIframe.style.display = '';
+        }
+
         function leaveInsightView() {
             // Hide container only — Decision 11 places blob URL revocation under
             // Swift `releaseInsightBlobs` ownership at tab close.

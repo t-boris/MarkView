@@ -1,0 +1,83 @@
+{
+  "validator": "task-validator",
+  "batch": [1, 2, 3, 4, 5],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "structure",
+      "task": 5,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section is entirely absent. T5 is unambiguously a code task (replaces ~440 lines of JS in index.html: state, escape utilities, srcdoc builder, lazy lib materialization, 5 setters, message listener). Per template, TDD Anchor is required for code tasks; the analogous code tasks T1/T3/T4 in the same batch do include a TDD Anchor section with intended/deferred tests per Decision 9. Verification Steps → Automated also notes 'TDD anchors below describe what would be tested if the test target existed' — but no such anchors block exists.",
+      "fix": "Add a `## TDD Anchor` section between `## What to do` (line 60) and `## Acceptance Criteria` (line 61). Mirror the pattern used in T1/T3/T4: list intended deferred tests in `Tests/InsightV2WebTests::test_xxx` style entries, each with `path::test_name — what it verifies` format. Suggested coverage based on AC: postMessage allowlist (5 types accepted, others rejected), event.source/origin validation, deepDive payload bounds (sectionId membership + topicIndex bounds), breadcrumb UUID regex, escapeForHTMLAttribute/escapeForHTMLText behavior, CDN-strip regex (https/http/protocol-relative + link rel=prefetch/preconnect/dns-prefetch), blob URL revoke-on-navigation diff, releaseInsightBlobs full revoke, 10s iframe load timeout firing setInsightError, lazy lib selection from skeleton (Mermaid only when section.type === 'mermaidDiagram', etc.)."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 2,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section is absent. T2 sits on the boundary between code task and config/asset task — it vendors a JS file and writes a plain-text MANIFEST.txt; the only Swift/code change is an optional pbxproj edit that the task explicitly hopes to avoid. Because no executable logic is being authored, absence is defensible (template says delete TDD Anchor for non-code tasks like config). Flag for explicit reviewer judgment rather than hard rejection.",
+      "fix": "Either (a) leave absent and add a one-line note in Description or What to do step 9 explaining 'TDD Anchor section omitted: this task vendors static assets only; supply-chain integrity is verified via shasum smoke check', or (b) add a minimal TDD Anchor with deferred intents like `Tests/VendorManifestTests::test_manifest_sha256_matches_disk` — pick one for explicit posture."
+    },
+    {
+      "severity": "minor",
+      "category": "carry-forward",
+      "task": 4,
+      "section": "Details / Files",
+      "issue": "Tech-spec Implementation Tasks › Task 4 lists `Files to modify: MarkView/Models/GraphRAG.swift` (single file). Task file adds a NEW file `MarkView/Models/InsightModels.swift` not present in tech-spec's task entry (the InsightSkeleton et al. types are listed in tech-spec Data Models as belonging to InsightSession.swift). Task documents the deviation in step 7 and asks to record in decisions.md, which is good practice, but the deviation introduces a new file unanticipated by tech-spec.",
+      "fix": "Either (a) update tech-spec line 678 to add `MarkView/Models/InsightModels.swift (new)` to T4's Files to modify, or (b) keep models inline in GraphRAG.swift (or move them to T6's InsightSession.swift as originally planned in Data Models comment) so T4 stays a single-file edit. If keeping the new file, ensure tech-spec is reconciled before T4 starts so reviewers do not flag it as scope creep."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 4,
+      "section": "Acceptance Criteria",
+      "issue": "Last AC item is 'Все 3 ревью (code-reviewer, security-auditor, test-reviewer) дали approve в декларации round-1 (или пройдены ≤3 раунда правок)'. This is a process meta-criterion (review status), not a verifiable feature/behavior. ACs should be testable behaviors of the artifact, not orchestration outcomes — review acceptance is governed by feature-execution, not by the task itself.",
+      "fix": "Remove this AC item — review status is enforced by the do-task flow, not by the task's own acceptance criteria. Replace, if useful, with a behavior criterion (e.g. 'No new warnings introduced into GraphRAG.swift / InsightModels.swift compile output')."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 3,
+      "section": "Required Skills",
+      "issue": "Required Skills uses English 'Before starting, load:' header line, while T1, T2, T4, T5 use Russian 'Перед выполнением задачи загрузи:'. Stylistic inconsistency across the batch — agents reading the task set encounter mixed languages. Project's CLAUDE.md states 'Always use English in files or comments'; under that rule the Russian template line is itself non-conformant, but consistency within a batch matters either way.",
+      "fix": "Align all five tasks to a single language for the loader prompt — either Russian (matching the template default) or English (matching project CLAUDE.md). Recommend English to satisfy CLAUDE.md, updating T1/T2/T4/T5 to match T3."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 2,
+      "section": "Context Files",
+      "issue": "Context Files lacks an explicit note explaining absence of project.md / architecture.md (Project Knowledge files). Validator rules mark these as mandatory-critical when missing, but T1 and T4 both include explicit notes ('Project-knowledge folder is not maintained for MarkView' / 'проект MarkView не использует .claude/skills/project-knowledge/') which justifies absence. T2 has no such note.",
+      "fix": "Append a one-line note to Context Files (mirroring T1 line 75 / T4 line 100): 'MarkView project does not maintain a `.claude/skills/project-knowledge/` folder; project context lives in tech-spec and the codebase itself.'"
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 3,
+      "section": "Context Files",
+      "issue": "Same as T2 — no explicit note explaining absence of project.md / architecture.md. T1 and T4 include such a note; T3 does not.",
+      "fix": "Append a one-line note matching T1/T4 explaining that MarkView does not maintain a project-knowledge folder."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 5,
+      "section": "Context Files",
+      "issue": "Same as T2/T3 — no explicit note explaining absence of project.md / architecture.md. T5 substitutes README.md, EDITOR_IMPLEMENTATION.md, and CLAUDE.md for project context, which is reasonable but the lack of an explicit note (per T1/T4 convention) leaves validators flagging missing PK files.",
+      "fix": "Append a one-line note to Context Files explaining MarkView does not maintain a project-knowledge folder; the listed README/EDITOR_IMPLEMENTATION/CLAUDE files serve as project context."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 1,
+      "section": "Post-completion",
+      "issue": "Post-completion adds a 4th item beyond template's 3-item checklist: 'Передать в tasks/todo.md (обновляется в T8) интентные тесты из секции TDD Anchor выше'. The extra forward-handoff item is sensible but not in template; flag for awareness — may be intentional addition tied to Decision 9 (deferred tests).",
+      "fix": "Acceptable as-is if intentional. If aligning strictly to template, fold the tasks/todo.md handoff into the deviation/spec-update item (e.g. 'обновить tasks/todo.md с интент-тестами из TDD Anchor — соответствует Decision 9')."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 5,
+    "issues_found": 9
+  }
+}

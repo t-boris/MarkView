@@ -167,15 +167,21 @@
             const csp = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
             const title = escapeForHTMLText(skeleton && skeleton.title ? skeleton.title : 'Insight');
 
-            // Lib <script src="blob:..."> tags — order matters (KaTeX before auto-render).
+            // Lib <script src="blob:..."> tags — the blob URL approach. Note
+            // WebKit blocks cross-origin blob loads in null-origin sandboxed
+            // iframes, so libs may end up undefined inside the iframe; that
+            // disables mermaid/Chart rendering, but the iframe IIFE itself
+            // still runs and the section HTML still renders as text/tables.
+            // The previous inline-`<script>SRC</script>` attempt produced a
+            // ~1MB srcdoc that broke iframe parsing entirely (no IIFE run,
+            // no `insightIframeReady` fired, all chunks stuck in pending
+            // buffer — rendering nothing). Diagram rendering is a separate
+            // concern; tracked as TODO.
             const libOrder = ['prism', 'mermaid', 'chart', 'katex', 'katex-auto'];
             let libScripts = '';
             for (const libName of libOrder) {
                 const url = libBlobURLs.get(libName);
                 if (!url) continue;
-                // url is a blob: URL string we created — safe to interpolate as attribute.
-                // escapeForHTMLAttribute is defensive (blob URLs don't contain quotes,
-                // but we still escape on principle per Decision 10).
                 libScripts += '<script src="' + escapeForHTMLAttribute(url) + '"></script>\n';
             }
 
@@ -220,6 +226,12 @@
                     try { window.parent.postMessage({ type: type, payload: payload || {} }, '*'); }
                     catch (e) { /* no-op */ }
                 }
+                // Diagnostic: log IIFE entry, libs, errors. If only IIFE-START
+                // arrives in diag log but no IIFE-END, something between threw.
+                postParent('insightDebug', { where: 'iife', msg: 'IIFE-START readyState=' + document.readyState + ' libs={mermaid:' + (typeof mermaid) + ',Chart:' + (typeof Chart) + ',Prism:' + (typeof Prism) + '}' });
+                window.addEventListener('error', function(ev) {
+                    postParent('insightDebug', { where: 'iframe-window-error', msg: String(ev.message || ev.error || 'unknown') + ' @ ' + (ev.filename || '?') + ':' + (ev.lineno || 0) });
+                });
                 function escAttr(s) {
                     if (s == null) return '';
                     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -227,21 +239,53 @@
                 // Per-section pending lib-init flag (deferred until section streamed).
                 function initSectionLib(sectionId) {
                     var sec = document.querySelector('section[data-section-id="' + escAttr(sectionId) + '"]');
-                    if (!sec) return;
+                    if (!sec) {
+                        postParent('insightDebug', { where: 'initSectionLib', msg: 'no section element for sid=' + sectionId });
+                        return;
+                    }
                     var type = sec.getAttribute('data-section-type') || '';
+                    var bodyEl = sec.querySelector('.section-body');
+                    var bodyLen = bodyEl ? (bodyEl.innerHTML || '').length : -1;
+                    var preCount = sec.querySelectorAll('pre').length;
+                    var canvasCount = sec.querySelectorAll('canvas').length;
+                    var mermaidCount = sec.querySelectorAll('.mermaid, pre code.language-mermaid').length;
+                    postParent('insightDebug', { where: 'initSectionLib', msg: 'sid=' + sectionId + ' type=' + type + ' bodyLen=' + bodyLen + ' pre=' + preCount + ' canvas=' + canvasCount + ' mermaid=' + mermaidCount + ' libs={mermaid:' + (typeof mermaid) + ',Chart:' + (typeof Chart) + ',Prism:' + (typeof Prism) + '}' });
                     try {
                         if (type === 'mermaidDiagram' && typeof mermaid !== 'undefined') {
-                            // Convert <pre><code class="language-mermaid"> blocks to .mermaid divs.
-                            var blocks = sec.querySelectorAll('pre code.language-mermaid');
-                            for (var i = 0; i < blocks.length; i++) {
-                                var code = blocks[i];
-                                var pre = code.parentElement;
+                            // Accept several markup forms — LLM may emit any of:
+                            //   <pre><code class="language-mermaid">SRC</code></pre>
+                            //   <pre class="mermaid">SRC</pre>
+                            //   <pre>graph TD...</pre>  (no class — fallback heuristic)
+                            //   <div class="mermaid">SRC</div>
+                            // Convert all to canonical <div class="mermaid">.
+                            var nodesToConvert = sec.querySelectorAll(
+                                'pre code.language-mermaid, pre.mermaid'
+                            );
+                            for (var i = 0; i < nodesToConvert.length; i++) {
+                                var node = nodesToConvert[i];
+                                var pre = (node.tagName === 'CODE') ? node.parentElement : node;
                                 if (!pre) continue;
-                                var src = code.textContent || '';
+                                var src = (node.textContent || '').trim();
+                                if (!src) continue;
                                 var div = document.createElement('div');
                                 div.className = 'mermaid';
                                 div.textContent = src;
                                 pre.replaceWith(div);
+                            }
+                            // Heuristic fallback: any remaining <pre> whose first
+                            // non-blank line starts with a known mermaid keyword.
+                            var preList = sec.querySelectorAll('pre');
+                            for (var pi = 0; pi < preList.length; pi++) {
+                                var p = preList[pi];
+                                var ptxt = (p.textContent || '').trim();
+                                if (!ptxt) continue;
+                                var firstLine = ptxt.split(/\\r?\\n/)[0].trim().toLowerCase();
+                                if (/^(graph|flowchart|sequencediagram|classdiagram|statediagram|gantt|pie|gitgraph|journey|erdiagram|mindmap|timeline|quadrantchart)/.test(firstLine)) {
+                                    var d = document.createElement('div');
+                                    d.className = 'mermaid';
+                                    d.textContent = ptxt;
+                                    p.replaceWith(d);
+                                }
                             }
                             try {
                                 mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
@@ -265,6 +309,30 @@
                     } catch (e) { /* swallow lib init errors per section */ }
                 }
 
+                // Per-section buffer: HTML chunks streamed by Swift arrive
+                // mid-tag (e.g. <canvas data-chart='{partial JSON ...). Calling
+                // insertAdjacentHTML on each chunk re-parses fragmentary HTML
+                // and the browser treats orphan attributes/text as text nodes
+                // OUTSIDE the intended element — producing the "raw attribute
+                // text" symptom users saw. Solution: append chunks to a string
+                // buffer, flush via innerHTML once on section completion (the
+                // initSectionLib trigger). Browser parses the FULL HTML at
+                // once and elements like canvas end up correctly formed.
+                var sectionBuffers = Object.create(null);
+                var flushedSections = Object.create(null);
+                function flushSectionBuffer(sectionId) {
+                    var ph = document.getElementById('placeholder-' + sectionId);
+                    if (!ph) return;
+                    var html = sectionBuffers[sectionId] || '';
+                    if (!html) return;
+                    // innerHTML replaces all children — wipes skeleton loaders
+                    // AND any prior partial parse. Browser parses the full
+                    // string in one go.
+                    try { ph.innerHTML = html; }
+                    catch (e) { /* malformed — leave skeleton in place */ }
+                    flushedSections[sectionId] = true;
+                }
+
                 window.addEventListener('message', function(ev) {
                     var data = ev.data;
                     if (!data || typeof data !== 'object') return;
@@ -273,17 +341,13 @@
                     if (data.type === 'updateInsightSection') {
                         var sid = String(p.sectionId || '');
                         if (!sid) return;
-                        var ph = document.getElementById('placeholder-' + sid);
-                        if (!ph) return;
-                        // Clear skeleton loaders on first chunk.
-                        if (ph.firstElementChild && ph.firstElementChild.classList && ph.firstElementChild.classList.contains('skeleton-loader')) {
-                            while (ph.firstChild) ph.removeChild(ph.firstChild);
-                        }
-                        // Append the chunk. Iframe sandbox + CSP isolates this from parent.
-                        try { ph.insertAdjacentHTML('beforeend', String(p.htmlChunk || '')); }
-                        catch (e) { /* malformed HTML — drop chunk */ }
+                        // Buffer the chunk; do NOT touch the DOM yet.
+                        if (!sectionBuffers[sid]) sectionBuffers[sid] = '';
+                        sectionBuffers[sid] += String(p.htmlChunk || '');
                     } else if (data.type === 'initSectionLib') {
-                        initSectionLib(String(p.sectionId || ''));
+                        var ssid = String(p.sectionId || '');
+                        if (ssid) flushSectionBuffer(ssid);
+                        initSectionLib(ssid);
                     } else if (data.type === 'updateInsightProgress') {
                         // In-iframe progress banner — prominent feedback while
                         // generation is in flight. textContent ONLY (Decision 10).
@@ -321,6 +385,7 @@
                     }
                 }, false);
 
+                postParent('insightDebug', { where: 'iife', msg: 'IIFE-END about to signal ready, readyState=' + document.readyState });
                 // Signal readiness once DOM is parsed.
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', function() { postParent('insightIframeReady', {}); });

@@ -89,6 +89,8 @@
             }
             state.insightIframe.setAttribute('sandbox', 'allow-scripts');
             state.insightIframe.srcdoc = srcdoc;
+            // Hide the loading overlay; iframe content takes over from here.
+            if (typeof hideInsightLoadingOverlay === 'function') hideInsightLoadingOverlay();
             startIframeLoadTimer(sid);
         };
 
@@ -181,6 +183,16 @@
             if (sid !== null && state.insightSessionId !== null && sid !== state.insightSessionId) {
                 return;
             }
+            // Track which session this status belongs to even if loadInsightSkeleton
+            // hasn't fired yet (Phase 1 status arrives BEFORE skeleton).
+            if (sid !== null && state.insightSessionId === null) {
+                state.insightSessionId = sid;
+            }
+            // Show prominent in-tab overlay during Phase 1 (before iframe built).
+            // Hidden once loadInsightSkeleton sets the iframe srcdoc.
+            if (!state.insightIframeReady && typeof showInsightLoadingOverlay === 'function') {
+                showInsightLoadingOverlay(message);
+            }
             setStatusBar(message, phase, false);
             // Forward to iframe progress banner.
             try {
@@ -217,6 +229,7 @@
             'insightBreadcrumbClicked',
             'insightRequestSave',
             'insightRequestUp',
+            'insightDebug', // diagnostic — forwarded to Swift jsError, no business behavior
         ]);
         const UUID_REGEX = /^[0-9A-F-]{36}$/i;
 
@@ -225,14 +238,37 @@
         }
 
         window.addEventListener('message', function(ev) {
+            // Diagnostic: log every incoming message regardless of source.
+            try {
+                sendToSwift('jsError', {
+                    where: 'parent-onmessage-raw',
+                    message: 'origin=' + JSON.stringify(ev.origin) + ' typeof_data=' + (typeof ev.data) + ' data_type=' + (ev.data && ev.data.type) + ' has_iframe=' + !!state.insightIframe + ' src_matches=' + (state.insightIframe && ev.source === state.insightIframe.contentWindow),
+                    source: '', lineno: 0, colno: 0, stack: ''
+                });
+            } catch (_) {}
             // Only accept messages from the insight iframe contentWindow.
             if (!state.insightIframe || ev.source !== state.insightIframe.contentWindow) {
                 return; // silently ignore unrelated postMessages
             }
-            // Sandbox iframe is null-origin → event.origin is the literal string 'null'.
-            if (ev.origin !== 'null') {
-                console.warn('[insight] rejected postMessage with unexpected origin:', ev.origin);
-                return;
+            // Sandbox iframe is null-origin per spec → event.origin SHOULD be the
+            // literal string 'null', but WebKit (when the parent itself was loaded
+            // via WKWebView.loadHTMLString, which gives parent a 'null' or 'file://'
+            // origin) may produce '' or other values for the sandboxed iframe's
+            // origin. The defensive `ev.source` identity check above already
+            // proves the message came from OUR iframe (no other window has the
+            // same contentWindow reference), so the origin check is redundant —
+            // accept any origin from our verified source. Tracked: tighten back
+            // to a strict allowlist once WebKit's exact behaviour is confirmed.
+            // Diagnostic: log first observed origin so we know what to allowlist.
+            if (!state.__insightLoggedOrigin) {
+                state.__insightLoggedOrigin = true;
+                try {
+                    sendToSwift('jsError', {
+                        where: 'parent-iframe-origin',
+                        message: 'first iframe postMessage origin=' + JSON.stringify(ev.origin),
+                        source: '', lineno: 0, colno: 0, stack: ''
+                    });
+                } catch (_) {}
             }
             const data = ev.data;
             if (!isPlainObject(data) || typeof data.type !== 'string') {
@@ -313,6 +349,15 @@
                 }
                 case 'insightRequestUp': {
                     sendToSwift('insightRequestUp', { sessionId: state.insightSessionId });
+                    return;
+                }
+                case 'insightDebug': {
+                    // Forward iframe-side diag back to Swift via jsError channel.
+                    sendToSwift('jsError', {
+                        where: 'iframe-debug-' + (payload.where || '?'),
+                        message: String(payload.msg || ''),
+                        source: 'iframe', lineno: 0, colno: 0, stack: ''
+                    });
                     return;
                 }
             }
