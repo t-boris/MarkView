@@ -75,3 +75,16 @@ Per-task summaries (1-3 sentences) + commit refs + key decisions.
 - Deviation 1: extra `enum InsightSessionError` declared in file (per spec edge case 4 — internal cache-write error type, recommended approach)
 - Deviation 2: extra v1-compat published shims (`streamingBuffer`, `isStreaming` — both empty placeholders) so EditorView's existing v1 Combine subscriptions remain type-safe until T7 rewrites them. Documented inline.
 - Deviation 3: v1-compat throwing convenience init `InsightSession(folderURL:mdFiles:providerClient:graphRAG:)` so WorkspaceManager.startRecursiveInsight keeps building. T7/T8 will rewrite call site to use the 5-arg init with explicit InsightCache.
+
+## Task 7: WebViewBridge v2 + EditorView routing
+- v1 stubs replaced with 5 Swift→JS (loadInsightSkeleton, updateInsightSection, setInsightError, setInsightStatus, releaseInsightBlobs)
+- 5 JS→Swift handlers (insightIframeReady, insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp) all with frameInfo.isMainFrame guard (Decision 3, option (b) — explicit guard per case in userContentController)
+- EditorView Combine subs: $skeleton, $currentNodeSections (per-key delta + shrink-detection), $lastError, $statusMessage (all weak captures + main queue)
+- WebViewBridgeDelegate updated: 5 v1 methods removed, 5 v2 methods added (didReceiveInsightIframeReady, didRequestInsightDeepDive with sectionId, didRequestInsightBreadcrumb, bridgeRequestInsightSave, bridgeRequestInsightUp)
+- WorkspaceManager forwarders updated to v2 signatures (T8 will fully implement bodies; T7 wires the new method names so build stays green): didReceiveInsightIframeReady(sessionId:nodeId:), didRequestInsightDeepDive(sessionId:sectionId:topicIndex:) wired to session.expand, didRequestInsightSave/Up no-args resolved via active tab
+- Deviation: setInsightStatus retains `phase: String` parameter (spec offered drop option). EditorView derives a coarse phase tag (`phase-1` / `phase-2` / `ready` / `""`) from session.statusMessage via `Coordinator.derivePhaseTag(from:)`, matching parent JS's status-bar tinting expectation in index.html.
+- Deviation: sanitizeForLog duplicated into WebViewBridge.swift (private static) rather than extracted to a shared LogSanitizer utility — bridge-side payload validation needs CWE-117 defense and the cross-file coupling is explicit comment for T8 to extract. Same regex + truncation as WorkspaceManager.sanitizeForLog.
+- Deviation: didRequestInsightRetry forwarder dropped (no v2 equivalent — JS surfaces retryable=true via status-bar text, retry happens by re-invoking originating action).
+- Build: SUCCEEDED, 0 warnings in modified files
+- Static checks PASSED: 5 frameInfo.isMainFrame guards (one per v2 case in userContentController dispatch), 0 v1 method/case references, all v2 methods present, Bool serialised as `true`/`false` literal, `lastForwardedSectionLength` declared + reset + per-section update, all 4 routeInsight Combine sinks use `[weak self, weak session, weak webView]`
+- Commit: d4b0bf3
