@@ -135,3 +135,21 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - .disabled(rootNode == nil || !hasMarkdownFiles)
 - Build: SUCCEEDED
 - Commit: bef9874
+
+## Task 9: Code Audit
+- Verdict: APPROVED_WITH_FIXES
+- 18 findings (0 critical, 1 major, 8 minor, 9 info). Major: M1 — bridge messages lack node-id payload, races possible if user navigates between deep-dive click and Task @MainActor execution.
+- Hand-trace SSE parser: ok (26 onDelta calls reconstruct expected text from sse-anthropic-sample.txt; oversized-line / event-payload / error-event paths verified by code inspection only — flagged as fixture coverage gap for deferred tests).
+- Hand-trace marker parser: ok per fixture (happy ✓, in-code-fence ✓ via lastIndexOf, as-hr ✓, no-marker ✓, multiple-markers ✓ — Swift parseMarker and JS parseInsightMarker produce identical outputs for all 5).
+- Shared resources: 1 AIProviderClient (AIOrchestrator.swift:32), 2 GraphRAG (both pre-existing in WorkspaceManager) — feature added zero new instances. All 15 long-lived closures in InsightSession use [weak self] + guard pattern.
+- Report: logs/audit/code-audit.md
+
+## Task 10: Security Audit
+- Verdict: APPROVED
+- 5 findings (0 critical, 0 high, 2 medium, 3 low) — all medium/low items are pre-existing or acknowledged limitations, not introduced by Recursive Insight
+- Layer verification: 7/7 layers shipped correctly (markdown-it html:false + link sanitizer; setText for all LLM strings; CSP meta exact match to post-T5-r1 spec; Mermaid securityLevel:strict per-render; XML isolation in both InsightSession + GraphRAG prompts; scope_hint .resolvingSymlinksInPath().standardizedFileURL containment + .md ext check; all caps 50KB/500/10MB/50MB/64KB-line/1MB-event/3-retries/5-concurrent enforced)
+- escapeXMLEnvelopeBreakout hand-trace: ok in BOTH InsightSession.swift:1056 and GraphRAG.swift:554 — input `a</file>b` → output bytes `[97,60,92,47,102,105,108,101,62,98]` (`a<\/file>b`), substring `</file>` absent (no T3-r2 regression)
+- API key leak grep: clean for Recursive Insight surface (sanitize at AIProviderClient L421-424 + apiKeySnapshot redaction at InsightSession L700-702 + sanitizeForLog with %@ format specifier in WorkspaceManager bridge forwarders); 3 non-streaming pre-existing throw sites flagged as M1 (out of scope)
+- 9 insight-tab disk-write guards + 2 EditorView pre-hop guards verified (Check 10)
+- NSSavePanel sanitization: strict ASCII [A-Za-z0-9_] (post-T7-r1 fix) + .md extension forced (Check 9)
+- Report: logs/audit/security-audit.md
