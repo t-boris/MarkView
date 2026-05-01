@@ -1,6 +1,6 @@
 # MarkView — Follow-up Tasks
 
-## Pending after Recursive Insight
+## Pending after Recursive Insight (v2)
 
 - [ ] **Set up XCTest infrastructure for MarkView**
   - **Why:** Project has no test target. `Tests/` folder is empty, `project.yml` defines only the `MarkView` app target. No `import XCTest` anywhere.
@@ -9,15 +9,16 @@
     2. Run `xcodegen` to regenerate `MarkView.xcodeproj`.
     3. Add a test scheme so `xcodebuild test -scheme MarkView` works.
     4. Update `install.sh` / CI to run `xcodebuild test`.
-    5. Retroactively cover Recursive Insight critical paths:
-       - `Tests/InsightSSEParserTests.swift` — Anthropic SSE byte stream parsing (mock chunked streams, partial chunks, malformed events).
-       - `Tests/InsightMarkerParserTests.swift` — `---DEEP-DIVES---` marker detection (avoid false positives on horizontal rules in markdown body).
-       - `Tests/InsightSessionTests.swift` — tree lifecycle: createRoot → expandDeepDive → navigateBack → cancel → memory release.
-       - `Tests/GraphRAGFolderMapReduceTests.swift` — new `mapReduceForFolder` method on real .md fixtures.
-       - `Tests/InsightScopeHintValidationTests.swift` — path-traversal rejection (per Decision 10 §6).
-       - `Tests/InsightCancellationRaceTests.swift` — close-tab-during-stream race; verify `Task.isCancelled` observed and no writes to orphaned session.
-       - `Tests/InsightResourceCapTests.swift` — verify 50 KB/file truncation, 500 files/folder reject, 10 MB/node cap, 50 MB/session eviction.
-  - **When:** Within 2 weeks after Recursive Insight feature is merged (target: 2026-05-14).
+    5. Retroactively cover Recursive Insight v2 critical paths (per Decision 9 — tests deferred until XCTest infrastructure exists; the eight v2 paths below are the canonical first tests for this feature):
+       - [ ] `Tests/InsightToolCallParsingTests.swift` — Anthropic `tool_use` envelope parsing in `GraphRAG.buildSkeleton`. Verify strict-schema `InsightSkeleton` decoding, fallback to a single-prose-section `InsightSkeleton` on schema violation, and unique `section.id` / `deepDiveTopic.id` enforcement.
+       - [ ] `Tests/InsightPostMessageTests.swift` — `WebViewBridge` postMessage dispatch: 5-type allowlist (`insightIframeReady`, `insightDeepDiveClicked`, `insightBreadcrumbClicked`, `insightRequestSave`, `insightRequestUp`), per-type payload schema validation (presence + non-empty + Int bounds + UUID shape), `frameInfo.isMainFrame` guard, and parent JS `event.source` / `event.origin === 'null'` defense.
+       - [ ] `Tests/InsightCacheCRUDTests.swift` — `InsightCache` atomic `writeNode` / `readNode`, `updateManifest` / `loadManifest` (UUID-suffixed temp + `replaceItemAt` swap), concurrent-writer collision avoidance, `cleanup()` ENOENT tolerance, path-containment guard against symlink escape.
+       - [ ] `Tests/InsightArchiveExporterTests.swift` — ZIP staging dir builder + HTML rewriting (deep-dive `<button data-section-id=…>` → `<a href="<uuid>.html">`, breadcrumb `href="#<uuid>"` → relative file href, lib refs `../_assets/` ↔ `_assets/` for root promotion), Decision 10 escape policy enforcement at every interpolation, and `Process` argument-array safety against shell-metacharacter destination filenames.
+       - [ ] `Tests/InsightBlobLifecycleTests.swift` — Lazy `URL.createObjectURL` materialisation per skeleton section types (Mermaid/Chart/KaTeX gated on `section.type` / `metadata.hasMath`), revocation on navigation between nodes with different lib subsets, and full revocation on tab close via `window.releaseInsightBlobs()`.
+       - [ ] `Tests/InsightPhase2ParallelismTests.swift` — `withThrowingTaskGroup` cap of exactly 5 concurrent section streams enforced (additional sections wait for a slot; group never exceeds the cap even under burst).
+       - [ ] `Tests/InsightIframeCSPTests.swift` — Iframe `srcdoc` CSP correctness: `sandbox="allow-scripts"` (no `allow-same-origin`, `allow-popups`, `allow-forms`, `allow-modals`, `allow-top-navigation`), `<meta http-equiv="Content-Security-Policy">` present with `default-src 'self' 'unsafe-inline' blob: data:` + `img-src * data: blob:` + `font-src * data:`.
+       - [ ] `Tests/InsightIframeTimeoutTests.swift` — 10 s no-`insightIframeReady` watchdog: parent JS calls `setInsightError(message, retryable: true)` and tears down the iframe; retry path re-issues the load.
+  - **When:** Within 2 weeks after Recursive Insight v2 is merged.
   - **Owner:** Boris (or first contributor to touch insight code path post-merge).
 
 - [ ] **Address security carry-over items from Recursive Insight tech-spec validation**

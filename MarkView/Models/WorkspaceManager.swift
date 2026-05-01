@@ -370,6 +370,15 @@ class WorkspaceManager: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var recentFilesURL: URL
 
+    /// Closure wired by `EditorView.Coordinator` on insight tab routing. Called by
+    /// `closeTab` STEP 1 of the ordered insight cleanup (Decision 11 §4) — invokes
+    /// `bridge.releaseInsightBlobs(into: webView)` synchronously so any blob URLs
+    /// the iframe materialised for vendored libs are revoked BEFORE
+    /// `session.cancel()` allows new Combine emissions. `nil` if no insight tab has
+    /// been routed yet, or if the WebView has been deallocated; either case is safe
+    /// — WebView teardown on tab close GCs the blobs as a fallback.
+    var releaseInsightBlobsHook: (() -> Void)?
+
     var rootNode: FileNode? {
         get { fileTreeStore.rootNode }
         set { fileTreeStore.setRootNode(newValue) }
@@ -1101,19 +1110,50 @@ Each component needs a correct type and one-sentence description.
     func closeTab(at index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
 
-        // Recursive Insight tabs (Decision 11 §4): cancel the in-flight stream
-        // SYNCHRONOUSLY before removing the tab, so the URLSession.bytes Task
-        // observes Task.isCancelled before its strong reference (held by OpenTab)
-        // is dropped. Skip the dirty-save prompt — insight tabs are ephemeral
-        // and never carry isModified == true in the file-save sense.
+        // Recursive Insight tabs (Decision 11 §4): execute the EXACT 4-step
+        // ordered async close so race-prone state never ships into a different
+        // step. Order is enforced by acceptance criteria — do not reorder.
+        // Step 1: parent JS revokes any session blob URLs synchronously BEFORE
+        //         the session is cancelled, so no Combine subscription can
+        //         emit a chunk that would re-create a blob after revocation.
+        // Step 2: `await session.cancel()` awaits the activeTask's natural
+        //         exit (parallel Phase-2 section tasks observe Task.isCancelled
+        //         and unwind cooperatively, plus any in-flight ZIP exporter
+        //         Process is terminated via its onCancel hook).
+        // Step 3: `try? session.cache.cleanup()` removes the on-disk session
+        //         dir; ENOENT (already gone) is the success state.
+        // Step 4: `tabsStore.removeTab(at:)` drops the strong reference held
+        //         by OpenTab, releasing the session for ARC.
+        // Skip the dirty-save prompt — insight tabs are ephemeral and never
+        // carry isModified == true in the file-save sense.
         let tab = openTabs[index]
         if case .insight(let session) = tab.kind {
-            // v1 stub — replaced by Task 7/8 (will become the ordered 4-step close per
-            // Decision 11 §4: releaseInsightBlobs → await cancel → cache.cleanup → removeTab).
-            // For now we fire-and-forget cancellation: ARC keeps `session` alive until the
-            // Task observes Task.isCancelled and exits.
-            Task { await session.cancel() }
-            tabsStore.removeTab(at: index)
+            let releaseHook = self.releaseInsightBlobsHook
+            let sessionId = session.id
+            Task { @MainActor in
+                // Step 1 — parent JS releases blob URLs. The hook is wired by
+                // EditorView.Coordinator on insight routing. If absent (initial
+                // route lost the webView reference, etc.) the WebView teardown
+                // on tab removal still GCs the blobs — skipping this step is
+                // safe but suboptimal.
+                releaseHook?()
+                // Step 2 — await activeTask + parallel section tasks + any
+                // in-flight ZIP exporter Process (cooperative cancellation).
+                await session.cancel()
+                // Step 3 — best-effort cache cleanup; tolerates concurrent
+                // removal (T3's ENOENT swallow path).
+                try? session.cache.cleanup()
+                // Step 4 — drop the OpenTab → release session reference. The
+                // captured `index` may be stale if other tabs were closed in
+                // the meantime (the await above can take real time when Phase 2
+                // is mid-stream), so re-resolve by sessionId before removing.
+                if let liveIndex = self.openTabs.firstIndex(where: {
+                    if case .insight(let s) = $0.kind { return s.id == sessionId }
+                    return false
+                }) {
+                    self.tabsStore.removeTab(at: liveIndex)
+                }
+            }
             return
         }
 
@@ -1402,17 +1442,16 @@ Each component needs a correct type and one-sentence description.
             return
         }
 
-        // 5. Build the session. v1-compat init (throws) — T7/T8 will rewrite this call site
-        // to construct `InsightCache` explicitly and pass it via the 5-arg init. For now,
-        // the convenience init builds a temp-dir cache.
-        let session: InsightSession
+        // 5. Build the session via the v2 5-arg init: construct an explicit
+        // `InsightCache` rooted at `<folderURL>/.insight-cache/<sessionUUID>/` so
+        // the cache lives alongside the analysed folder (Decision 4) and survives
+        // for the duration of the insight tab. `closeTab`'s ordered cleanup
+        // (Decision 11 §4) removes the directory via `cache.cleanup()` after
+        // awaiting `session.cancel()`.
+        let sessionId = UUID()
+        let cache: InsightCache
         do {
-            session = try InsightSession(
-                folderURL: folderURL,
-                mdFiles: mdFiles,
-                providerClient: provider,
-                graphRAG: graphRAG
-            )
+            cache = try InsightCache(workspaceURL: folderURL, sessionId: sessionId)
         } catch {
             let alert = NSAlert()
             alert.messageText = "Cannot start Recursive Insight"
@@ -1420,6 +1459,14 @@ Each component needs a correct type and one-sentence description.
             alert.runModal()
             return
         }
+
+        let session = InsightSession(
+            folderURL: folderURL,
+            mdFiles: mdFiles,
+            providerClient: provider,
+            graphRAG: graphRAG,
+            cache: cache
+        )
 
         // 6. Build placeholder URL (never written to disk — exists only so
         //    `OpenTab.url`, `displayName`, and other file-only consumers keep
@@ -1467,9 +1514,9 @@ Each component needs a correct type and one-sentence description.
     }
 
     /// Bridge forwarder: iframe finished loading and posted `insightIframeReady`.
-    /// FIXME(T8): wire to session readiness tracking / cancel the parent-side
-    /// 10s iframe-load timeout if it's centralised here. T7 just adapts to the
-    /// v2 delegate signature so the build stays green.
+    /// Logged for diagnostics; no further action required because the per-session
+    /// 10 s load timeout is enforced by parent JS (`Resources/Editor/index.html`),
+    /// not by this Swift-side path.
     func didReceiveInsightIframeReady(sessionId: String, nodeId: String) {
         guard findInsightSession(sessionId: sessionId) != nil else {
             NSLog("[Insight] didReceiveInsightIframeReady: no session for id %@ (tab closed?)",
@@ -1481,20 +1528,45 @@ Each component needs a correct type and one-sentence description.
     }
 
     /// Bridge forwarder: user clicked a 🤿 deep-dive control inside an iframe section.
-    /// V2 signature: `(sessionId, sectionId, topicIndex)` — bounds validation against
-    /// the live skeleton happens inside `session.expand` (defense-in-depth).
-    /// FIXME(T8): replace this v7 stub body with the full v2 expand wiring.
+    /// V2 signature: `(sessionId, sectionId, topicIndex)`. Defense-in-depth bounds
+    /// validation lives here AND inside `session.expand` (Decision 3 — never trust
+    /// untrusted JS, even after WebViewBridge schema validation).
     func didRequestInsightDeepDive(sessionId: String, sectionId: String, topicIndex: Int) {
         guard let session = findInsightSession(sessionId: sessionId) else {
             NSLog("[Insight] didRequestInsightDeepDive: no session for id %@ (tab closed?)",
                   Self.sanitizeForLog(sessionId))
             return
         }
+        // Validate sectionId is in the current node's skeleton + topicIndex is
+        // within the section's deepDiveTopics bounds. Out-of-range rejected with
+        // a sanitized log entry; session.expand re-validates as a second layer.
+        guard let skeleton = session.currentNode()?.skeleton else {
+            NSLog("[Insight] didRequestInsightDeepDive: no skeleton on current node for session %@",
+                  Self.sanitizeForLog(sessionId))
+            return
+        }
+        guard let section = skeleton.sections.first(where: { $0.id == sectionId }) else {
+            NSLog("[Insight] didRequestInsightDeepDive: unknown sectionId %@ for session %@",
+                  Self.sanitizeForLog(sectionId), Self.sanitizeForLog(sessionId))
+            return
+        }
+        guard let topics = section.deepDiveTopics,
+              topicIndex >= 0,
+              topicIndex < topics.count else {
+            NSLog("[Insight] didRequestInsightDeepDive: topicIndex %d out of bounds for section %@ (topics: %d)",
+                  topicIndex,
+                  Self.sanitizeForLog(sectionId),
+                  section.deepDiveTopics?.count ?? 0)
+            return
+        }
         Task { await session.expand(sectionId: sectionId, topicIndex: topicIndex) }
     }
 
     /// Bridge forwarder: user clicked a breadcrumb. Pure UI navigation —
-    /// switches the current node to a cached one, no LLM call.
+    /// switches the current node to a cached one, no LLM call. Validates the
+    /// nodeId payload as both a UUID-shaped string AND a member of the live
+    /// session's manifest (defense-in-depth against forged postMessage from
+    /// a compromised JS context per Decision 3).
     func didRequestInsightBreadcrumb(sessionId: String, nodeId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
             NSLog("[Insight] didRequestInsightBreadcrumb: no session for id %@ (tab closed?)",
@@ -1506,32 +1578,41 @@ Each component needs a correct type and one-sentence description.
                   Self.sanitizeForLog(nodeId))
             return
         }
+        // Manifest membership check (Decision 3 §3 — defense-in-depth against a
+        // compromised iframe forging breadcrumb clicks for arbitrary UUIDs).
+        guard session.nodes[uuid] != nil else {
+            NSLog("[Insight] didRequestInsightBreadcrumb: nodeId %@ not in session manifest",
+                  Self.sanitizeForLog(nodeId))
+            return
+        }
         Task { await session.navigateTo(nodeId: uuid) }
     }
 
     /// Bridge forwarder: user clicked Save (no payload — only one active insight
-    /// session per WebView in v2, resolved via the active tab).
-    /// FIXME(T8): replace with `exportInsightArchive()` per Decision 7 (ZIP export).
+    /// session per WebView in v2, resolved via the active tab). Triggers the
+    /// archive export pipeline (NSSavePanel → cache staging → /usr/bin/zip).
     func didRequestInsightSave() {
         guard let session = activeInsightSession() else {
             NSLog("[Insight] didRequestInsightSave: no active insight session")
             return
         }
-        guard let node = session.currentNode() else {
-            NSLog("[Insight] didRequestInsightSave: session has no current node")
-            return
-        }
-        saveInsightNode(node, fromSession: session)
+        exportInsightArchive(sessionId: session.id.uuidString)
     }
 
     /// Bridge forwarder: user clicked the ↑ Up button (no payload — resolved via
-    /// the active tab).
+    /// the active tab). Derives parentId from the current node and navigates;
+    /// no-ops at root.
     func didRequestInsightUp() {
         guard let session = activeInsightSession() else {
             NSLog("[Insight] didRequestInsightUp: no active insight session")
             return
         }
-        Task { await session.up() }
+        guard let parentId = session.currentNode()?.parentId else {
+            NSLog("[Insight] didRequestInsightUp: already at root for session %@",
+                  Self.sanitizeForLog(session.id.uuidString))
+            return
+        }
+        Task { await session.navigateTo(nodeId: parentId) }
     }
 
     /// Resolve the active tab's `InsightSession` (if the active tab is `.insight`).
@@ -1545,95 +1626,320 @@ Each component needs a correct type and one-sentence description.
         return nil
     }
 
-    /// Save the current insight node's clean markdown body via NSSavePanel.
-    /// Filename sanitization (Decision 10 §7): replace any character that is not
-    /// `[A-Za-z0-9_]` with `_`, collapse runs of `_`, trim leading/trailing `_`,
-    /// fall back to `"insight"` if the result is empty. `.md` extension forced
-    /// regardless of what the user types in the panel.
-    /// The saved file contains `node.markdownBody` only — no `---DEEP-DIVES---`
-    /// marker, no deep-dives list, no breadcrumb chrome.
+    /// Export the entire insight session as a self-contained ZIP archive
+    /// (Decision 7). NSSavePanel default filename pattern:
+    /// `<folderName>_insight_<ISO8601-no-colons>.zip`. On user OK:
+    ///   1. Build a fresh staging dir under `NSTemporaryDirectory()` by
+    ///      copying the session's cache root (so in-app navigation is
+    ///      unaffected by export-time HTML rewriting).
+    ///   2. Promote the root node's `nodes/<rootUUID>.html` to
+    ///      `index.html` at the staging root, fixing its lib refs from
+    ///      `../_assets/` to `_assets/` (it lives one level shallower
+    ///      after promotion).
+    ///   3. Rewrite every HTML file's deep-dive `<button>` controls into
+    ///      `<a href="<targetUUID>.html">` links AND every breadcrumb
+    ///      `href="#<uuid>"` into a relative file href, so the unzipped
+    ///      archive navigates standalone in a browser without any JS
+    ///      bridge.
+    ///   4. Spawn `/usr/bin/zip` via `InsightArchiveExporter.bundle` —
+    ///      explicit argument array, no `/bin/sh -c`, atomic move
+    ///      `.zip.tmp` → final destination.
+    ///   5. Best-effort remove the staging dir in `defer`.
     ///
-    /// Sandbox note: the app currently runs with the macOS sandbox OFF (per
-    /// project entitlements), so `pickedURL` is freely writable. If the sandbox
-    /// is ever re-enabled, this writer should wrap the write in
-    /// `pickedURL.startAccessingSecurityScopedResource()` / `defer stop` and
-    /// `startRecursiveInsight` will additionally need to bracket the folder
-    /// scan with the same calls on `folderURL`.
-    ///
-    /// Known limitation (LLM feedback loop): if the user saves the summary
-    /// inside the same folder being analyzed, a subsequent Recursive Insight
-    /// run on that folder will pick up the saved summary as input. We surface
-    /// this in the success alert so users are not surprised.
-    func saveInsightNode(_ node: InsightNode, fromSession session: InsightSession) {
+    /// Sandbox note: the app currently runs with the macOS sandbox OFF
+    /// (per project entitlements). If re-enabled, wrap the destination
+    /// write in `pickedURL.startAccessingSecurityScopedResource()` / stop.
+    func exportInsightArchive(sessionId: String) {
+        guard let session = findInsightSession(sessionId: sessionId) else {
+            NSLog("[Insight] exportInsightArchive: no session for id %@",
+                  Self.sanitizeForLog(sessionId))
+            return
+        }
+
+        // Default filename: <folder>_insight_<timestamp>.zip. Timestamp uses
+        // ISO 8601 with `:` replaced by `-` (Finder display + case-insensitive
+        // filesystem safety).
+        let folderHint = Self.sanitizeInsightFilename(session.folderURL.lastPathComponent)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let defaultName = "\(folderHint)_insight_\(timestamp).zip"
+
         let panel = NSSavePanel()
-        // UTType.init(filenameExtension:) is failable; the literal "md" should
-        // always resolve on macOS, but the force-unwrap that used to be here
-        // would crash the app if Launch Services ever returned nil. The forced
-        // `.md` extension below is the real safety net — the panel filter is
-        // cosmetic.
-        if let mdType = UTType(filenameExtension: "md") {
-            panel.allowedContentTypes = [mdType]
+        if let zipType = UTType(filenameExtension: "zip") {
+            panel.allowedContentTypes = [zipType]
         }
         panel.canCreateDirectories = true
-
-        // Recover the analyzed folder URL from the owning tab's placeholder URL
-        // (`<folderURL>/.insight-<sessionId>`). InsightSession.folderURL itself
-        // is private and we deliberately don't widen its access from here.
-        // Falls back gracefully if the tab is mid-close.
-        let analyzedFolderURL: URL? = openTabs.first {
-            if case .insight(let s) = $0.kind { return s.id == session.id }
-            return false
-        }?.url.deletingLastPathComponent()
-
-        // Default filename: prefix with the analyzed-folder name so saves from
-        // multiple sessions don't collide on identical node titles.
-        let folderHint = analyzedFolderURL.map {
-            Self.sanitizeInsightFilename($0.lastPathComponent)
-        } ?? "insight"
-        let titleStem = Self.sanitizeInsightFilename(node.title)
-        let suggested = (folderHint == titleStem || folderHint == "insight")
-            ? titleStem
-            : "\(folderHint)_\(titleStem)"
-        panel.nameFieldStringValue = suggested
+        panel.nameFieldStringValue = defaultName
 
         guard panel.runModal() == .OK, let pickedURL = panel.url else { return }
 
-        // Force `.md` extension regardless of what the user typed.
-        let finalURL: URL
-        if pickedURL.pathExtension.lowercased() == "md" {
-            finalURL = pickedURL
+        // Force `.zip` extension regardless of user input — keeps the bundled
+        // archive recognisable to the OS even if the user typed a bare name.
+        let destinationURL: URL
+        if pickedURL.pathExtension.lowercased() == "zip" {
+            destinationURL = pickedURL
         } else {
-            finalURL = pickedURL.deletingPathExtension().appendingPathExtension("md")
+            destinationURL = pickedURL.deletingPathExtension().appendingPathExtension("zip")
         }
 
-        do {
-            // v1 stub — replaced by Task 7/8 (`exportInsightArchive` ZIP export).
-            // v1 wrote the node's `markdownBody` (a single composed markdown string from
-            // the marker parser); v2 nodes have no equivalent — content is per-section
-            // HTML buffers + skeleton, exported as a self-contained ZIP. Until T8 lands,
-            // write a placeholder note so the user sees something rather than crashing.
-            let placeholder = "# \(node.title)\n\n(Insight v2 ZIP export pending — Task 8)\n"
-            try placeholder.write(to: finalURL, atomically: true, encoding: .utf8)
+        // Snapshot the session's in-memory node tree NOW (on @MainActor) before
+        // the async export Task runs — avoids races with concurrent navigation
+        // mutating `session.nodes` while we walk children for the deep-dive
+        // mapping. The snapshot only stores (parentId, sectionId)+orderIndex.
+        let nodeChildMap = Self.buildExportNodeChildMap(session: session)
+        // Root node = the unique level-0 node (parentId == nil). Resolved here
+        // from the @MainActor snapshot of `session.nodes` so the export Task
+        // does not need to re-touch session state.
+        let rootNodeId = session.nodes.values.first { $0.parentId == nil }?.id
+        let cache = session.cache
 
-            // Warn if the destination is inside the analyzed folder — future
-            // Recursive Insight runs on the same folder will include this file.
-            if let analyzed = analyzedFolderURL {
-                let savedDir = finalURL.deletingLastPathComponent().standardizedFileURL.path
-                let analyzedDir = analyzed.standardizedFileURL.path
-                if savedDir == analyzedDir || savedDir.hasPrefix(analyzedDir + "/") {
-                    let alert = NSAlert()
-                    alert.messageText = "Saved inside the analyzed folder"
-                    alert.informativeText = "Future Recursive Insight runs of this folder will include the saved summary as input. Move the file outside the folder if you want to avoid feedback-loop pollution."
-                    alert.alertStyle = .informational
-                    alert.runModal()
+        Task { @MainActor in
+            do {
+                let stagingURL = try await cache.archiveStagingDirectory()
+                // Copy staging contents into a fresh temp dir so HTML rewriting
+                // does not mutate the live cache (in-app navigation may continue
+                // to read it after export). The copy lives until `defer` removes
+                // it on this Task's exit (success OR failure OR cancellation).
+                let exportRoot = try Self.makeExportStagingCopy(from: stagingURL)
+                defer { try? FileManager.default.removeItem(at: exportRoot) }
+
+                // Promote root node + rewrite all HTML for standalone browsing.
+                try Self.rewriteForStandaloneExport(
+                    exportRoot: exportRoot,
+                    rootNodeId: rootNodeId,
+                    nodeChildMap: nodeChildMap
+                )
+
+                let exporter = InsightArchiveExporter()
+                try await exporter.bundle(stagingURL: exportRoot, to: destinationURL)
+            } catch is CancellationError {
+                NSLog("[Insight] exportInsightArchive: cancelled")
+            } catch InsightArchiveExporterError.cancelled {
+                NSLog("[Insight] exportInsightArchive: cancelled mid-zip")
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "ZIP export failed"
+                alert.informativeText = Self.sanitizeForLog(error.localizedDescription)
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    /// Mapping snapshot used by the standalone-export HTML rewriter. Keyed by
+    /// parent node id; for each parent stores the (sectionId, topicIndex) →
+    /// child node id resolution. Built from the in-memory tree at export time
+    /// because (sectionId, topicIndex) is NOT stored on `InsightNode` directly
+    /// — child creation order in `parent.children` is the only mapping signal.
+    /// Per `expand(sectionId:topicIndex:)`, child.title == topic.label, so we
+    /// match on label as the canonical key.
+    private static func buildExportNodeChildMap(
+        session: InsightSession
+    ) -> [UUID: [String: [Int: UUID]]] {
+        var map: [UUID: [String: [Int: UUID]]] = [:]
+        for parent in session.nodes.values {
+            guard let skeleton = parent.skeleton else { continue }
+            // For each child of this parent, resolve which (sectionId, topicIndex)
+            // produced it. Match by `child.title == topic.label`.
+            let childNodes = parent.children.compactMap { session.nodes[$0] }
+            for section in skeleton.sections {
+                guard let topics = section.deepDiveTopics else { continue }
+                for (idx, topic) in topics.enumerated() {
+                    if let child = childNodes.first(where: { $0.title == topic.label }) {
+                        var sectionMap = map[parent.id] ?? [:]
+                        var topicMap = sectionMap[section.id] ?? [:]
+                        topicMap[idx] = child.id
+                        sectionMap[section.id] = topicMap
+                        map[parent.id] = sectionMap
+                    }
                 }
             }
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Could not save insight"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
         }
+        return map
+    }
+
+    /// Copy `cacheRoot` to a fresh temp directory under `NSTemporaryDirectory()`.
+    /// Returns the new export staging root. Caller is responsible for removing
+    /// the directory (typically via `defer`).
+    private static func makeExportStagingCopy(from cacheRoot: URL) throws -> URL {
+        let fm = FileManager.default
+        let tempBase = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("insight-export-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempBase, withIntermediateDirectories: true)
+        // Copy CONTENTS of cacheRoot into tempBase (not cacheRoot itself), so
+        // tempBase ends up containing `nodes/`, `_assets/`, `manifest.json`
+        // directly at its root (matching the archive layout).
+        let entries = try fm.contentsOfDirectory(
+            at: cacheRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        for src in entries {
+            let dst = tempBase.appendingPathComponent(src.lastPathComponent)
+            try fm.copyItem(at: src, to: dst)
+        }
+        return tempBase
+    }
+
+    /// Walk the staging dir and:
+    ///   1. Promote `nodes/<rootUUID>.html` to `index.html` at the export
+    ///      root, fixing its lib refs from `../_assets/` to `_assets/` (one
+    ///      level shallower) and breadcrumbs from `href="#<uuid>"` to
+    ///      `nodes/<uuid>.html`.
+    ///   2. For each non-root `nodes/<uuid>.html`, rewrite breadcrumbs to
+    ///      sibling `<uuid>.html` (or `../index.html` for root) AND replace
+    ///      every `<button class="deep-dive" data-section-id="…"
+    ///      data-topic-index="…">…</button>` with an `<a class="deep-dive"
+    ///      href="<childUUID>.html">…</a>` if a child exists for that
+    ///      (sectionId, topicIndex). Buttons without a matching child are
+    ///      left intact (inert in standalone browser, by design — user did
+    ///      not expand that topic in-session).
+    private static func rewriteForStandaloneExport(
+        exportRoot: URL,
+        rootNodeId: UUID?,
+        nodeChildMap: [UUID: [String: [Int: UUID]]]
+    ) throws {
+        let fm = FileManager.default
+        let nodesDir = exportRoot.appendingPathComponent("nodes", isDirectory: true)
+
+        // Promote root: copy `nodes/<rootUUID>.html` → `index.html`, with lib
+        // refs unshifted to top-level `_assets/`. Original file in `nodes/`
+        // stays put so breadcrumb-up navigation from non-root nodes can also
+        // target `../index.html` consistently.
+        if let rootId = rootNodeId {
+            let rootSrc = nodesDir.appendingPathComponent("\(rootId.uuidString).html")
+            let rootDst = exportRoot.appendingPathComponent("index.html")
+            if fm.fileExists(atPath: rootSrc.path) {
+                var html = (try? String(contentsOf: rootSrc, encoding: .utf8)) ?? ""
+                // Lib refs: `../_assets/<file>` → `_assets/<file>` (root is one
+                // level shallower than nodes/<uuid>.html in the export tree).
+                html = html.replacingOccurrences(of: "\"../_assets/", with: "\"_assets/")
+                // Deep-dive buttons → links targeting `nodes/<childUUID>.html`.
+                html = rewriteDeepDiveButtons(
+                    in: html,
+                    parentNodeId: rootId,
+                    nodeChildMap: nodeChildMap,
+                    childHrefPrefix: "nodes/"
+                )
+                // Root has no breadcrumbs (single-element breadcrumb is the
+                // root itself, rendered as `<span class="crumb-active">`); but
+                // a defensive sweep handles any future schema change.
+                html = rewriteBreadcrumbHrefs(
+                    in: html,
+                    isRoot: true,
+                    rootNodeId: rootId
+                )
+                try html.write(to: rootDst, atomically: true, encoding: .utf8)
+            }
+        }
+
+        // Rewrite every `nodes/<uuid>.html`. Root copy stays so the non-root
+        // breadcrumbs can target it via `../index.html` (preferred) — we use
+        // `index.html` rather than `nodes/<rootUUID>.html` for the root crumb
+        // because that's the canonical entry point for standalone viewers.
+        guard fm.fileExists(atPath: nodesDir.path) else { return }
+        let nodeFiles = try fm.contentsOfDirectory(
+            at: nodesDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        for nodeFile in nodeFiles where nodeFile.pathExtension.lowercased() == "html" {
+            let stem = nodeFile.deletingPathExtension().lastPathComponent
+            guard let nodeId = UUID(uuidString: stem) else { continue }
+            var html = (try? String(contentsOf: nodeFile, encoding: .utf8)) ?? ""
+            html = rewriteDeepDiveButtons(
+                in: html,
+                parentNodeId: nodeId,
+                nodeChildMap: nodeChildMap,
+                childHrefPrefix: "" // sibling under nodes/
+            )
+            html = rewriteBreadcrumbHrefs(
+                in: html,
+                isRoot: (nodeId == rootNodeId),
+                rootNodeId: rootNodeId
+            )
+            try html.write(to: nodeFile, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Replace every `<button class="deep-dive" data-section-id="X"
+    /// data-topic-index="Y" title="…">label</button>` with an anchor pointing
+    /// to the child node's HTML. Buttons without a matching child are left
+    /// untouched (no JS in standalone export ⇒ they become inert by design).
+    private static func rewriteDeepDiveButtons(
+        in html: String,
+        parentNodeId: UUID,
+        nodeChildMap: [UUID: [String: [Int: UUID]]],
+        childHrefPrefix: String
+    ) -> String {
+        guard let sectionMap = nodeChildMap[parentNodeId], !sectionMap.isEmpty else {
+            return html
+        }
+        // Pattern targets the deterministic shape from `buildHTMLTemplate`:
+        //   <button class="deep-dive" data-section-id="ID" data-topic-index="IDX" title="HINT">🤿 LABEL</button>
+        // Use a regex with capture groups so we can introspect (section, idx)
+        // and look up the child UUID; non-matches survive unchanged.
+        let pattern = #"<button class="deep-dive" data-section-id="([^"]*)" data-topic-index="([0-9]+)" title="([^"]*)">([^<]*)</button>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
+
+        let nsString = html as NSString
+        let fullRange = NSRange(location: 0, length: nsString.length)
+        let matches = regex.matches(in: html, range: fullRange)
+        // Process in reverse so substring ranges remain valid as we mutate.
+        var result = html
+        for match in matches.reversed() {
+            guard match.numberOfRanges == 5 else { continue }
+            let sectionId = nsString.substring(with: match.range(at: 1))
+            guard let topicIdx = Int(nsString.substring(with: match.range(at: 2))) else { continue }
+            let title = nsString.substring(with: match.range(at: 3))
+            let label = nsString.substring(with: match.range(at: 4))
+            guard let childId = sectionMap[sectionId]?[topicIdx] else { continue }
+            let href = "\(childHrefPrefix)\(childId.uuidString).html"
+            // Anchor variant — already-escaped fields stay escaped (we only
+            // splice the URL we control). class+title kept identical.
+            let replacement = "<a class=\"deep-dive\" href=\"\(href)\" title=\"\(title)\">\(label)</a>"
+            guard let r = Range(match.range, in: result) else { continue }
+            result.replaceSubrange(r, with: replacement)
+        }
+        return result
+    }
+
+    /// Rewrite every breadcrumb `<a class="crumb" href="#<uuid>">` to a
+    /// relative file href so standalone-browser navigation works.
+    /// - Root file (`index.html`) breadcrumbs target `nodes/<uuid>.html`
+    ///   (children below the root).
+    /// - Non-root files (`nodes/<uuid>.html`) target sibling
+    ///   `<uuid>.html`, EXCEPT the root crumb which targets `../index.html`.
+    private static func rewriteBreadcrumbHrefs(
+        in html: String,
+        isRoot: Bool,
+        rootNodeId: UUID?
+    ) -> String {
+        // Pattern targets: <a class="crumb" href="#UUID"> — the embedded `"#`
+        // sequence inside the regex requires `##"..."##` raw-string delimiter
+        // so the early `"#` does not terminate the literal.
+        let pattern = ##"<a class="crumb" href="#([0-9A-Fa-f-]+)">"##
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
+        let nsString = html as NSString
+        let fullRange = NSRange(location: 0, length: nsString.length)
+        let matches = regex.matches(in: html, range: fullRange)
+        var result = html
+        for match in matches.reversed() {
+            guard match.numberOfRanges == 2 else { continue }
+            let uuidStr = nsString.substring(with: match.range(at: 1))
+            guard let crumbUUID = UUID(uuidString: uuidStr) else { continue }
+            let href: String
+            if crumbUUID == rootNodeId {
+                href = isRoot ? "index.html" : "../index.html"
+            } else {
+                href = isRoot ? "nodes/\(crumbUUID.uuidString).html" : "\(crumbUUID.uuidString).html"
+            }
+            let replacement = "<a class=\"crumb\" href=\"\(href)\">"
+            guard let r = Range(match.range, in: result) else { continue }
+            result.replaceSubrange(r, with: replacement)
+        }
+        return result
     }
 
     /// Sanitize an insight node title into a safe default filename stem (no

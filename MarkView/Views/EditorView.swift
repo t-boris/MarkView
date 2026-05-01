@@ -300,6 +300,17 @@ struct EditorView: NSViewRepresentable {
             lastLoadedContent = ""
             currentDocumentBaseURL = nil
 
+            // Wire `WorkspaceManager.releaseInsightBlobsHook` so closeTab Step 1
+            // (Decision 11 §4) can synchronously revoke this session's blob URLs
+            // BEFORE `await session.cancel()` allows new Combine emissions. Hook
+            // captures THIS coordinator's webView + bridge weakly — if the
+            // WebView has been deallocated by tab teardown when the hook fires,
+            // it no-ops safely (closing the WebView itself GCs the blobs).
+            self.parent.workspaceManager.releaseInsightBlobsHook = { [weak self] in
+                guard let self = self, let webView = self.webView else { return }
+                self.bridge.releaseInsightBlobs(into: webView)
+            }
+
             // Skeleton paint. compactMap drops the initial `nil` (T6 init) so the
             // iframe srcdoc is built only when a real skeleton is available. Reset
             // `lastForwardedSectionLength` BEFORE forwarding so the next

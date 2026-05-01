@@ -72,6 +72,7 @@
 		E91111111111111111111111 /* ProviderRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92222222222222222222222 /* ProviderRouter.swift */; };
 		F33333333333333333333333 /* InsightCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44444444444444444444444 /* InsightCache.swift */; };
 		F55555555555555555555555 /* InsightModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F66666666666666666666666 /* InsightModels.swift */; };
+		F77777777777777777777777 /* InsightArchiveExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88888888888888888888888 /* InsightArchiveExporter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -127,6 +128,7 @@
 		E92222222222222222222222 /* ProviderRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRouter.swift; sourceTree = "<group>"; };
 		F44444444444444444444444 /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
 		F66666666666666666666666 /* InsightModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightModels.swift; sourceTree = "<group>"; };
+		F88888888888888888888888 /* InsightArchiveExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightArchiveExporter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -145,6 +147,7 @@
 				F12222222222222222222222 /* InsightSession.swift */,
 				F44444444444444444444444 /* InsightCache.swift */,
 				F66666666666666666666666 /* InsightModels.swift */,
+				F88888888888888888888888 /* InsightArchiveExporter.swift */,
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
 				BB2222222222222222222222 /* SemanticModels.swift */,
 				CC2222222222222222222222 /* SemanticDatabase.swift */,
@@ -409,6 +412,7 @@
 				E91111111111111111111111 /* ProviderRouter.swift in Sources */,
 				F33333333333333333333333 /* InsightCache.swift in Sources */,
 				F55555555555555555555555 /* InsightModels.swift in Sources */,
+				F77777777777777777777777 /* InsightArchiveExporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
