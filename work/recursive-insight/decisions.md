@@ -131,3 +131,10 @@ Per-task summaries (1-3 sentences) + commit refs + key decisions.
 - T10 SEC-001: sanitizeForLog added to InsightSession, applied to all 6 NSLog sites with LLM-derived strings
 - Build: SUCCEEDED
 - Commit: 38236f707ff012b752a239f3ec678b0b49343f9b
+
+## Task 11: Test Audit
+- Verdict: DEFERRAL JUSTIFIED
+- Per-check: 1✓ (todo.md owner + date) / 2✓ (8 v2 paths) / 3✓ (v1-only removed) / 4✓ (T9+T10 findings code-fixed in 38236f7) / 5✓ (T12 12 scenarios sufficient)
+- Critical paths uncovered: none
+- Report: logs/audit/test-audit.md
+- (Audit completed inline by orchestrator due to upstream rate limit; verification used direct file inspection)
