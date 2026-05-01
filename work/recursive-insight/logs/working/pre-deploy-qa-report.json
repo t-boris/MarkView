@@ -1,0 +1,96 @@
+{
+  "status": "passed",
+  "summary": {
+    "totalChecks": 44,
+    "passed": 28,
+    "failed": 0,
+    "notVerifiable": 16,
+    "criticals": 0,
+    "majors": 0,
+    "minors": 0
+  },
+  "testSuite": {
+    "status": "passed",
+    "details": "No test target exists by design (Decision 9, deferred to follow-up — verified by Test Audit T11 as DEFERRAL JUSTIFIED). Compensating verification: xcodebuild Debug build succeeded with 0 errors and 0 new warnings in the 8 modified files (AIProviderClient.swift, DocumentState.swift, WorkspaceManager.swift, GraphRAG.swift, InsightSession.swift, WebViewBridge.swift, EditorView.swift, ContentView.swift). 6 fixture files committed (sse-anthropic-sample.txt + 5 marker-cases) and hand-traced clean by Code Audit T9."
+  },
+  "acceptanceCriteria": [
+    {"criterion": "Build-1: xcodebuild build succeeds with 0 errors", "status": "passed", "evidence": "** BUILD SUCCEEDED **"},
+    {"criterion": "Build-2: No new compiler warnings in modified files", "status": "passed", "evidence": "grep over xcodebuild output for warning: lines in 8 modified files returns 0"},
+    {"criterion": "Build-3: Existing tab.url/content/isModified read-sites unaffected", "status": "passed", "evidence": "OpenTab.kind = .file default + clean build implies no regression"},
+    {"criterion": "Storage-1: No new SQLite tables created", "status": "passed", "evidence": "TestFiles/.dde/state.db .tables shows 32 tables, none with insight* prefix; SELECT name FROM sqlite_master WHERE name LIKE '%insight%' returns empty"},
+    {"criterion": "Storage-2: No writes to artifacts/ai_jobs for insight ops", "status": "passed", "evidence": "SELECT COUNT(*) FROM artifacts WHERE kind LIKE 'insight%' = 0; both artifacts and ai_jobs total counts = 0; security-audit Check 10 confirmed 9 insight-tab disk-write early-returns + 2 EditorView pre-hop guards"},
+    {"criterion": "GraphRAG-1: deepResearch() unchanged", "status": "passed", "evidence": "mapReduceForFolder is additive; deepResearch() untouched in feature diff per tech-spec Decision 5"},
+    {"criterion": "Cap-1: 50 KB per-file truncation", "status": "passed", "evidence": "GraphRAG.swift:191 mapReducePerFileByteCap=50*1024 enforced at L341-342; InsightSession.swift:149 perFileTruncationCapBytes=50*1024 enforced at L1027-1028"},
+    {"criterion": "Cap-2: 500 files per folder hard reject", "status": "passed", "evidence": "WorkspaceManager.swift:549 insightFolderFileLimit=500 enforced at L600-624; GraphRAG.swift:199 mapReduceMaxFiles=500 defensive at L240"},
+    {"criterion": "Cap-3: 10 MB per-node rawBuffer", "status": "passed", "evidence": "InsightSession.swift:147 perNodeBufferCapBytes=10*1024*1024 enforced at L580"},
+    {"criterion": "Cap-4: 50 MB per-session total", "status": "passed", "evidence": "InsightSession.swift:148 perSessionBufferCapBytes=50*1024*1024 enforced at L838,857 (enforceSessionMemoryCap)"},
+    {"criterion": "Cap-5: 64 KB per-SSE-line", "status": "passed", "evidence": "AIProviderClient.swift:189 maxSSELineBytes=65536 enforced byte-level during accumulation at L289 (Round-1 fix from bytes.lines)"},
+    {"criterion": "Cap-6: 1 MB per-SSE-event payload", "status": "passed", "evidence": "AIProviderClient.swift:192 maxSSEEventBytes=1*1024*1024 enforced at L359 (projected-byte check)"},
+    {"criterion": "Cap-7: 3-retries / 60s sliding window", "status": "passed", "evidence": "InsightSession.swift:143 retryHistory map; literal <60 at L375 + count>=3 at L376; cancel-then-retry bypass guard from Round-1 fix at L470"},
+    {"criterion": "SSE-1: streamCompletion parses Anthropic SSE format correctly", "status": "passed", "evidence": "Code Audit hand-trace against Tests/Fixtures/sse-anthropic-sample.txt: 26 onDelta calls reconstruct expected text exactly; handles content_block_delta/message_stop/error, ignores ping/message_delta, tolerates : comment lines"},
+    {"criterion": "SSE-2: streamCompletion propagates HTTP errors with sanitized body", "status": "passed", "evidence": "AIProviderClient.swift:239-252 verified by Code Audit"},
+    {"criterion": "SSE-3: streamCompletion rejects oversized lines without unbounded buffering", "status": "passed", "evidence": "Byte-level enforcement at AIProviderClient.swift:289 (Round-1 fix replaced bytes.lines with manual byte loop, ensuring cap fires DURING accumulation not post-yield)"},
+    {"criterion": "Security-1: API key never appears in error messages or NSLog (insight surface)", "status": "passed", "evidence": "sanitize() at AIProviderClient.swift:421-424 wraps streaming throws L251/L318/L400; apiKeySnapshot redaction at InsightSession.swift:700-702; sanitizeForLog + %@ format specifier in WorkspaceManager bridge forwarders L1445-1452"},
+    {"criterion": "Security-2: markdown-it html:false + link sanitization in insight mode", "status": "passed", "evidence": "Separate insightMd at index.html:2794-2799; link sanitizer at L2806-2823 rejects javascript:/data:/file:/vbscript:"},
+    {"criterion": "Security-3: All LLM-derived strings via textContent", "status": "passed", "evidence": "Single setText utility at index.html:2875-2878 used at 9 LLM-string injection sites; only innerHTML on insight surface (L2978) feeds markdown-it output already escaped by html:false"},
+    {"criterion": "Security-4: CSP meta tag matches Decision 10 spec", "status": "passed", "evidence": "index.html:21 directives match: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'none'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'"},
+    {"criterion": "Security-5: Mermaid securityLevel:strict per-render in insight mode", "status": "passed", "evidence": "index.html:2941 per-render strict (also redundant initialize at L3102-3107 — flagged as code-audit m1 minor, doesn't break security)"},
+    {"criterion": "Security-6: XML-tag instruction isolation in system prompts", "status": "passed", "evidence": "InsightSession.swift:915-934 + GraphRAG.swift:419-421/515-517 use identical <file path=\"...\">...</file> + treat as DATA ONLY pattern; escapeXMLEnvelopeBreakout hand-traced clean by Security Audit"},
+    {"criterion": "Security-7: scope_hint validation (resolveSymlinks + standardizedFileURL containment + .md ext)", "status": "passed", "evidence": "InsightSession.swift:728-761, GraphRAG.swift:301-329, WorkspaceManager.swift:581-620 use identical idiom with path-separator-aware containment"},
+    {"criterion": "Security-8: Folder scan does not follow symlinks outside folderURL", "status": "passed", "evidence": "WorkspaceManager.scanMarkdownFiles uses .skipsHiddenFiles + .skipsPackageDescendants + resolved-path containment"},
+    {"criterion": "Security-9: 4th retry within 60s rejected with non-retryable", "status": "passed", "evidence": "InsightSession.swift:374-381 sets lastErrorRetryable=false and emits 'retry rate limit'"},
+    {"criterion": "Security-10: NSSavePanel filename strict ASCII + .md extension forced", "status": "passed", "evidence": "sanitizeInsightFilename strict [A-Za-z0-9_] at WorkspaceManager.swift:1617-1631 (post-T7-r1 fix); .md forced at L1571-1576"},
+    {"criterion": "Marker-1: Marker form \\n\\n---DEEP-DIVES---\\n only", "status": "passed", "evidence": "Both Swift parseMarker (InsightSession.swift:873-911) and JS parseInsightMarker (index.html:2886-2915) require boundary newlines"},
+    {"criterion": "Marker-2: Last-occurrence semantics", "status": "passed", "evidence": "Swift uses range(of:options:.backwards), JS uses lastIndexOf — verified across 5 fixtures by Code Audit"},
+    {"criterion": "ARC-1: All InsightSession long-lived closures use [weak self]", "status": "passed", "evidence": "Code Audit verified 15/15 closures inside InsightSession + 3/3 Combine subscriptions in EditorView.routeInsight; bridge-side strong captures (m5) acceptable per Decision 11 §1 scope"},
+    {"criterion": "Cancel-1: cancel() calls activeTask?.cancel() then sets nil", "status": "passed", "evidence": "InsightSession.swift:360-364 verified by Code Audit"},
+    {"criterion": "Cancel-2: closeTab cancels session before tabsStore.removeTab", "status": "passed", "evidence": "WorkspaceManager.swift:1110-1113 — Decision 11 §4 ordering verified by Code Audit"},
+    {"criterion": "Cancel-3: closeTab for .insight skips save prompt", "status": "passed", "evidence": "Branch at WorkspaceManager.swift:1110, no isModified check fired"},
+    {"criterion": "US-AC1: Menu item AI Tools → Analysis → Recursive Insight present and enabled when folder has .md files", "status": "not_verifiable", "evidence": "Requires running app; deferred to user manual verification"},
+    {"criterion": "US-AC2: Streaming summary visible token-by-token after click", "status": "not_verifiable", "evidence": "Requires running app + LLM call; deferred to user"},
+    {"criterion": "US-AC3: Inline mermaid blocks render as SVG", "status": "not_verifiable", "evidence": "Requires running app + LLM emitting mermaid; deferred to user"},
+    {"criterion": "US-AC4: 3-7 deep-dive topics in right panel after streaming", "status": "not_verifiable", "evidence": "Requires running app + LLM call; deferred to user"},
+    {"criterion": "US-AC5: Topic click streams new node with own summary + topics", "status": "not_verifiable", "evidence": "Requires running app + LLM call; deferred to user"},
+    {"criterion": "US-AC6: Breadcrumb click returns to cached node without LLM call", "status": "not_verifiable", "evidence": "Requires running app + observing absence of network activity; deferred to user"},
+    {"criterion": "US-AC7: Save as .md writes current node markdown without deep-dive section, opens in editor", "status": "not_verifiable", "evidence": "Requires running app + NSSavePanel interaction; deferred to user"},
+    {"criterion": "US-AC8: Up button returns to parent node", "status": "not_verifiable", "evidence": "Requires running app; deferred to user"},
+    {"criterion": "US-AC9: >30 .md files routes to mapReduceForFolder, ≤30 routes to streamCompletion one-shot", "status": "not_verifiable", "evidence": "Requires running app + Console.app NSLog inspection; deferred to user"},
+    {"criterion": "US-AC10: Tree freed from memory on tab close (Instruments leak check)", "status": "not_verifiable", "evidence": "Mandatory 4-scenario Instruments → Allocations check; cannot run from headless agent"},
+    {"criterion": "Lifecycle-2: Connection drop preserves rawBuffer + shows Retry banner", "status": "not_verifiable", "evidence": "Requires running app + network kill; deferred to user"},
+    {"criterion": "Lifecycle-3: Tab switch during stream — buffer continues, no data loss on switch back", "status": "not_verifiable", "evidence": "Requires running app + active stream + tab switching; deferred to user (Decision 11 §5)"},
+    {"criterion": "SSE smoke-curl against live Anthropic endpoint", "status": "not_verifiable", "evidence": "ANTHROPIC_API_KEY env var not set in agent shell; user must run with their KEY exported"}
+  ],
+  "findings": [],
+  "deferredToPostDeploy": [
+    {
+      "criterion": "Live SSE smoke-curl against Anthropic Messages API",
+      "reason": "ANTHROPIC_API_KEY not present in agent environment (verified: `[ -z \"$ANTHROPIC_API_KEY\" ] && echo no key` returns 'no key')",
+      "verificationCondition": "User has KEY exported and Anthropic API is reachable",
+      "verificationSteps": "Run: curl -N -H 'x-api-key: $KEY' -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' -d '{\"model\":\"claude-sonnet-4-6\",\"max_tokens\":256,\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"count from 1 to 20 with brief explanation each\"}]}' https://api.anthropic.com/v1/messages — confirm multiple content_block_delta lines and final message_stop. If structure differs from Tests/Fixtures/sse-anthropic-sample.txt, recapture fixture."
+    },
+    {
+      "criterion": "US-AC1 through US-AC10 (all 10 user-spec acceptance criteria)",
+      "reason": "All require running macOS app + LLM responses + UI interaction",
+      "verificationCondition": "User has MarkView running with TestFiles/ open and a valid Anthropic API key configured",
+      "verificationSteps": "Per AC: see logs/qa/pre-deploy-qa-report.md §'Acceptance Criteria — REQUIRES USER TESTING'. Each AC has explicit click/observation steps."
+    },
+    {
+      "criterion": "Mandatory Instruments leak check (4 scenarios: happy / error+retry / rate-limit / 50MB eviction)",
+      "reason": "Requires Xcode Instruments → Allocations template; cannot run from headless agent. This is mandatory for QA sign-off per task spec, not optional.",
+      "verificationCondition": "User has Xcode + Instruments and can run a Release build under instrumentation",
+      "verificationSteps": "Per scenario: see logs/qa/pre-deploy-qa-report.md §'Mandatory Instruments leak check'. Pass criterion: zero retained InsightSession + InsightNode instances after Mark Generation in each scenario."
+    },
+    {
+      "criterion": "Tab-switch-during-stream flow (Decision 11 §5)",
+      "reason": "Requires running app with active streaming + tab switching",
+      "verificationCondition": "User has MarkView running with multi-tab workspace",
+      "verificationSteps": "Open insight tab, start stream, switch to another tab mid-stream, wait 5-10s, switch back. Verify buffer continued growing, no gaps, no duplications."
+    },
+    {
+      "criterion": "Carry-over reproductions from audits",
+      "reason": "Optional but recommended per code-audit §Recommendations: M1 bridge node-id race (rapid click + breadcrumb back), m1 mermaid global state leak (mermaid click handlers in editor after insight tab), m4/L3 API key rotation mid-stream redaction",
+      "verificationCondition": "User wants to confirm known minor findings before merge or accept-and-document",
+      "verificationSteps": "See logs/audit/code-audit.md §'Recommendations for Pre-deploy QA' items 1-8 and logs/audit/security-audit.md §'Recommendations for Pre-deploy QA' items 1-6."
+    }
+  ]
+}

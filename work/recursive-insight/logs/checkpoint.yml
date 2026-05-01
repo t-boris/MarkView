@@ -1,7 +1,8 @@
 feature: recursive-insight
 total_waves: 9
-last_completed_wave: 6
-next_wave: 7
+last_completed_wave: 9
+next_wave: null
+status: ready-for-user-verification
 mode: variant-B-sequential
 team_name: null
 tasks:
@@ -13,10 +14,25 @@ tasks:
   T6: { status: done, wave: 4, commits: [f33ea0a, 86c07f0] }
   T7: { status: done, wave: 5, commits: [73ce507, aaee220] }
   T8: { status: done, wave: 6, commits: [bef9874] }
-  T9: { status: planned, wave: 7 }
-  T10: { status: planned, wave: 7 }
-  T11: { status: planned, wave: 8 }
-  T12: { status: planned, wave: 9 }
-notes:
-  - "All implementation tasks (T1-T8) complete. Wave 7 = Audit Wave."
-  - "Build clean, app integrates Recursive Insight feature end-to-end."
+  T9: { status: done, wave: 7 }
+  T10: { status: done, wave: 7 }
+  T11: { status: done, wave: 8 }
+  T12: { status: done, wave: 9 }
+audit_outcomes:
+  T9_code_audit: APPROVED_WITH_FIXES
+  T10_security_audit: APPROVED
+  T11_test_audit: DEFERRAL_JUSTIFIED
+  T12_pre_deploy_qa: PASS_PROGRAMMATIC
+known_issues:
+  - id: T9-M1
+    severity: major
+    description: "Bridge insightDeepDiveClicked/SaveRequested lack node-id token; race-prone if user clicks deep-dive then breadcrumb in <1 frame. UX wrongness, no crash. Defer to follow-up."
+manual_verification_pending:
+  - SSE smoke curl (no API key in QA agent context)
+  - 10 user-spec acceptance criteria on TestFiles/
+  - 4 Instruments → Allocations scenarios (a/b/c/d)
+  - Tab-switch-during-stream
+follow_up_tasks:
+  - tasks/todo.md — XCTest infrastructure (target 2026-05-14, 7 named test modules)
+  - tasks/todo.md — Security carry-over (WKWebView prefs, audit logging, version pinning)
+  - T9 M1 — bridge node-id race fix

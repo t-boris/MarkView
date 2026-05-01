@@ -160,3 +160,14 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - Critical paths uncovered: none
 - Action items (none blocking): (a) optional 5-min edit to tasks/todo.md adding "manual Instruments rerun required for any PR touching insight code paths until test target lands"; (b) optional follow-up scope additions (XMLEscapeBreakout regression, BridgeProtocol nodeId regression once M1 fixed, RetryThrottle, AIProviderClientSSEDoSCaps); (c) decision lies with user/Boris on landing M1 fix pre-merge vs accept manual smoke (out of test-audit scope, raised by code-audit)
 - Report: logs/audit/test-audit.md
+
+## Task 12: Pre-deploy QA
+- Programmatic verdict: PASS
+- Build: SUCCEEDED (0 errors, 0 new warnings in 8 modified files)
+- Caps verified: 7/7 found via grep (50KB-file, 500-folder, 10MB-node, 50MB-session, 64KB-SSE-line, 1MB-SSE-event, 3-retries/60s) — all with explicit constants + documented enforcement sites
+- Storage spot-check: clean (TestFiles/.dde/state.db: 0 insight tables; artifacts.kind LIKE 'insight%' = 0; both artifacts and ai_jobs total counts = 0; Decision 3 honored)
+- Programmatic AC pass-rate: 28/28 (build, storage, caps, SSE, security, marker, ARC, cancellation)
+- Manual verification pending: 16 items (10 user-spec ACs + 4 Instruments scenarios + 1 tab-switch flow + 1 SSE smoke-curl). All documented in report with concrete procedures.
+- Carry-over from audits: 0 critical / 0 high in all three audits. M1 (bridge node-id race) — major UX correctness flagged for user decision (fix or accept-and-document). All 7 Decision 10 security layers ship correctly.
+- Report: logs/qa/pre-deploy-qa-report.md (markdown), logs/working/pre-deploy-qa-report.json (orchestrator JSON)
+- Recommendation: READY FOR USER VERIFICATION (READY TO MERGE conditional on the 4-scenario Instruments check showing zero retained instances + 10 user-spec ACs passing on TestFiles/)
