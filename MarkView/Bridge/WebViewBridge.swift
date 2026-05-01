@@ -346,6 +346,17 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     // JS literal `true`/`false` (NEVER `1`/`0`). Skeleton serialised via
     // `JSONEncoder` then injected verbatim (already valid JSON literal).
 
+    /// Diagnostic logger that bypasses macOS unified-log privacy redaction.
+    /// Writes to stderr (FileHandle.standardError) so the message is visible
+    /// in `log show` even when interpolated values would otherwise show as <private>.
+    private static func logInsightDiag(_ message: String) {
+        let line = "[InsightDiag] \(message)\n"
+        if let data = line.data(using: .utf8) {
+            FileHandle.standardError.write(data)
+        }
+        NSLog("%{public}@", line)  // also try os_log-style public marker
+    }
+
     /// Phase-1 paint: tell parent JS to (re)build the iframe srcdoc placeholder
     /// grid for `skeleton` and switch to insight view. Parent owns the iframe;
     /// the bridge speaks only to the parent (not to the iframe).
@@ -355,17 +366,22 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         guard let jsonData = try? encoder.encode(skeleton),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
             NSLog("[Insight] Error in loadInsightSkeleton: failed to JSON-encode skeleton")
+            Self.logInsightDiag("loadInsightSkeleton: failed to JSON-encode skeleton")
             return
         }
         guard let sidLit = encodeStringForJS(sessionId),
               let nidLit = encodeStringForJS(nodeId) else {
             NSLog("[Insight] Error in loadInsightSkeleton: failed to encode sessionId/nodeId")
+            Self.logInsightDiag("loadInsightSkeleton: failed to encode sessionId/nodeId")
             return
         }
         let js = "window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit))"
+        Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in loadInsightSkeleton: \(error)")
+                Self.logInsightDiag("eval failed for loadInsightSkeleton: error=\(error.localizedDescription); fullError=\(String(describing: error))")
+                Self.logInsightDiag("failed JS source for loadInsightSkeleton: \(js.prefix(300))")
             }
         }
     }
@@ -379,12 +395,16 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
               let secIdLit = encodeStringForJS(sectionId),
               let chunkLit = encodeStringForJS(htmlChunk) else {
             NSLog("[Insight] Error in updateInsightSection: failed to encode payload")
+            Self.logInsightDiag("updateInsightSection: failed to encode payload")
             return
         }
         let js = "window.updateInsightSection(\(sidLit), \(secIdLit), \(chunkLit))"
+        Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in updateInsightSection: \(error)")
+                Self.logInsightDiag("eval failed for updateInsightSection: error=\(error.localizedDescription); fullError=\(String(describing: error))")
+                Self.logInsightDiag("failed JS source for updateInsightSection: \(js.prefix(300))")
             }
         }
     }
@@ -398,13 +418,17 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         guard let sidLit = encodeStringForJS(sessionId),
               let msgLit = encodeStringForJS(message) else {
             NSLog("[Insight] Error in setInsightError: failed to encode payload")
+            Self.logInsightDiag("setInsightError: failed to encode payload")
             return
         }
         let retryableLit = retryable ? "true" : "false"
         let js = "window.setInsightError(\(sidLit), \(msgLit), \(retryableLit))"
+        Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in setInsightError: \(error)")
+                Self.logInsightDiag("eval failed for setInsightError: error=\(error.localizedDescription); fullError=\(String(describing: error))")
+                Self.logInsightDiag("failed JS source for setInsightError: \(js.prefix(300))")
             }
         }
     }
@@ -418,12 +442,16 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
               let msgLit = encodeStringForJS(message),
               let phaseLit = encodeStringForJS(phase) else {
             NSLog("[Insight] Error in setInsightStatus: failed to encode payload")
+            Self.logInsightDiag("setInsightStatus: failed to encode payload")
             return
         }
         let js = "window.setInsightStatus(\(sidLit), \(msgLit), \(phaseLit))"
+        Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in setInsightStatus: \(error)")
+                Self.logInsightDiag("eval failed for setInsightStatus: error=\(error.localizedDescription); fullError=\(String(describing: error))")
+                Self.logInsightDiag("failed JS source for setInsightStatus: \(js.prefix(300))")
             }
         }
     }
@@ -435,9 +463,12 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     /// Calls `window.releaseInsightBlobs()`.
     func releaseInsightBlobs(into webView: WKWebView) {
         let js = "window.releaseInsightBlobs()"
+        Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 NSLog("[Insight] Error in releaseInsightBlobs: \(error)")
+                Self.logInsightDiag("eval failed for releaseInsightBlobs: error=\(error.localizedDescription); fullError=\(String(describing: error))")
+                Self.logInsightDiag("failed JS source for releaseInsightBlobs: \(js.prefix(300))")
             }
         }
     }
