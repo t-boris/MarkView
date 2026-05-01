@@ -1,6 +1,6 @@
 ---
 created: 2026-04-30
-status: draft
+status: approved
 branch: feature/recursive-insight-v2
 size: L
 ---
