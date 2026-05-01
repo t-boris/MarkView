@@ -2,13 +2,6 @@ import Foundation
 import WebKit
 import SwiftUI
 
-/// Message types for JS → Swift communication
-/// Must match the strings used in sendToSwift() calls in index.html:
-///   - "contentChanged"   : { markdown, html }
-///   - "headingsUpdated"  : [{ id, level, text }]
-///   - "scrollPosition"   : { activeHeadingId }
-///   - "ready"            : {}
-
 /// Payload structure for bridge messages
 struct BridgeMessage: Codable {
     let type: String
@@ -111,9 +104,96 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             return
         }
 
+        // V2 insight messages — handled inline so each case can carry its own
+        // `frameInfo.isMainFrame` defense-in-depth guard (Decision 3).
+        // Per Decision 2 the iframe is sandboxed without `allow-same-origin`, so it
+        // should never be able to call `webkit.messageHandlers.bridge` directly —
+        // only the parent (main) frame relays iframe postMessage events to Swift.
+        // The guard rejects any future WebKit semantic surprise.
+        switch messageType {
+        case "insightIframeReady":
+            guard message.frameInfo.isMainFrame else { return }
+            handleInsightIframeReady(payload: payload)
+            return
+        case "insightDeepDiveClicked":
+            guard message.frameInfo.isMainFrame else { return }
+            handleInsightDeepDiveClicked(payload: payload)
+            return
+        case "insightBreadcrumbClicked":
+            guard message.frameInfo.isMainFrame else { return }
+            handleInsightBreadcrumbClicked(payload: payload)
+            return
+        case "insightRequestSave":
+            guard message.frameInfo.isMainFrame else { return }
+            delegate?.bridgeRequestInsightSave(self)
+            return
+        case "insightRequestUp":
+            guard message.frameInfo.isMainFrame else { return }
+            delegate?.bridgeRequestInsightUp(self)
+            return
+        default:
+            break
+        }
+
         // All other messages
         let data = payload as? [String: Any]
         handleMessage(type: messageType, data: data)
+    }
+
+    // MARK: - v2 insight payload validation
+
+    /// Strip `\r`, `\n`, NUL and truncate to 64 chars. Defends NSLog against log forgery
+    /// (CWE-117): a compromised JS context could otherwise inject fake `[Insight]` lines
+    /// via embedded control chars. Mirrors `WorkspaceManager.sanitizeForLog(_:)` —
+    /// duplicated here intentionally to keep `WebViewBridge.swift` self-contained
+    /// (T8 may extract a shared `LogSanitizer` utility).
+    private static func sanitizeForLog(_ s: String) -> String {
+        let stripped = s.replacingOccurrences(
+            of: "[\\r\\n\\0]",
+            with: "_",
+            options: .regularExpression
+        )
+        return String(stripped.prefix(64))
+    }
+
+    /// `insightIframeReady` payload: `{sessionId: String, nodeId: String}`.
+    /// Both fields validated as non-empty Strings before forwarding.
+    private func handleInsightIframeReady(payload: Any?) {
+        guard let dict = payload as? [String: Any],
+              let sessionId = dict["sessionId"] as? String, !sessionId.isEmpty,
+              let nodeId = dict["nodeId"] as? String, !nodeId.isEmpty else {
+            NSLog("[Insight] Malformed payload for %@", Self.sanitizeForLog("insightIframeReady"))
+            return
+        }
+        delegate?.bridge(self, didReceiveInsightIframeReady: sessionId, nodeId: nodeId)
+    }
+
+    /// `insightDeepDiveClicked` payload: `{sessionId: String, sectionId: String, topicIndex: Int}`.
+    /// Bounds validation against the live skeleton happens in WorkspaceManager (the
+    /// bridge holds no skeleton reference) — bridge enforces only payload schema.
+    private func handleInsightDeepDiveClicked(payload: Any?) {
+        guard let dict = payload as? [String: Any],
+              let sessionId = dict["sessionId"] as? String, !sessionId.isEmpty,
+              let sectionId = dict["sectionId"] as? String, !sectionId.isEmpty,
+              let topicIndex = dict["topicIndex"] as? Int, topicIndex >= 0 else {
+            NSLog("[Insight] Malformed payload for %@", Self.sanitizeForLog("insightDeepDiveClicked"))
+            return
+        }
+        delegate?.bridge(self, didRequestInsightDeepDive: sessionId, sectionId: sectionId, topicIndex: topicIndex)
+    }
+
+    /// `insightBreadcrumbClicked` payload: `{sessionId: String, nodeId: String}`.
+    /// Bridge does a quick UUID-shape check (defense-in-depth); manifest membership
+    /// is validated in WorkspaceManager.
+    private func handleInsightBreadcrumbClicked(payload: Any?) {
+        guard let dict = payload as? [String: Any],
+              let sessionId = dict["sessionId"] as? String, !sessionId.isEmpty,
+              let nodeId = dict["nodeId"] as? String, !nodeId.isEmpty,
+              UUID(uuidString: nodeId) != nil else {
+            NSLog("[Insight] Malformed payload for %@", Self.sanitizeForLog("insightBreadcrumbClicked"))
+            return
+        }
+        delegate?.bridge(self, didRequestInsightBreadcrumb: sessionId, nodeId: nodeId)
     }
 
     // MARK: - Message Handling
@@ -187,34 +267,11 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridge(self, didRequestGraph: type, prompt: "", content: "")
             }
 
-        // MARK: Insight messages (Recursive Insight feature, Task 6)
-
-        case "insightDeepDiveClicked":
-            if let sessionId = data?["sessionId"] as? String,
-               let topicIndex = data?["topicIndex"] as? Int {
-                delegate?.bridge(self, didRequestInsightDeepDive: sessionId, topicIndex: topicIndex)
-            }
-
-        case "insightSaveRequested":
-            if let sessionId = data?["sessionId"] as? String {
-                delegate?.bridge(self, didRequestInsightSave: sessionId)
-            }
-
-        case "insightBreadcrumbClicked":
-            if let sessionId = data?["sessionId"] as? String,
-               let nodeId = data?["nodeId"] as? String {
-                delegate?.bridge(self, didRequestInsightBreadcrumb: sessionId, nodeId: nodeId)
-            }
-
-        case "insightUpClicked":
-            if let sessionId = data?["sessionId"] as? String {
-                delegate?.bridge(self, didRequestInsightUp: sessionId)
-            }
-
-        case "insightRetryRequested":
-            if let sessionId = data?["sessionId"] as? String {
-                delegate?.bridge(self, didRequestInsightRetry: sessionId)
-            }
+        // V2 insight messages (insightIframeReady, insightDeepDiveClicked,
+        // insightBreadcrumbClicked, insightRequestSave, insightRequestUp) are
+        // handled inline in `userContentController(_:didReceive:)` so each case
+        // can carry its own `frameInfo.isMainFrame` guard (Decision 3) and never
+        // reach this fallthrough.
 
         default:
             NSLog("Unknown bridge message type: \(type)")
@@ -281,63 +338,108 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
-    // MARK: - v1 stubs — replaced by Task 7
+    // MARK: - v2 Insight commands (Recursive Insight, Task 7)
     //
-    // V1 insight bridge surface (loadInsightView / appendInsightDelta /
-    // setInsightDeepDives / showInsightLoading / setInsightError) targeted v1 JS funcs
-    // that no longer exist after Task 5 replaced the insight-mode JS with the v2 iframe
-    // model. Method signatures retained so existing callers (EditorView Coordinator,
-    // WorkspaceManager forwarders) keep compiling during the T6 → T7 transition; bodies
-    // are NSLog no-ops. T7 fully replaces this surface with v2 setters
-    // (loadInsightSkeleton, updateInsightSection, setInsightStatus, releaseInsightBlobs).
+    // The five Swift→JS setters that drive the parent JS that owns the sandboxed
+    // insight iframe (Decision 2). String fields go through `encodeStringForJS`
+    // (the array-wrap idiom — never bare interpolation). Bool serialised as
+    // JS literal `true`/`false` (NEVER `1`/`0`). Skeleton serialised via
+    // `JSONEncoder` then injected verbatim (already valid JSON literal).
 
-    /// v1 stub — replaced by Task 7. Original behavior: encoded `InsightViewSnapshot`
-    /// JSON and called `window.loadInsightView(<json>)`. v2 uses `loadInsightSkeleton`
-    /// + per-section `updateInsightSection` deltas instead.
-    func loadInsightView(snapshot: InsightViewSnapshot, into webView: WKWebView) {
-        NSLog("[Insight v1 stub] loadInsightView called — replaced by T7 (loadInsightSkeleton)")
-        _ = webView  // silence unused-parameter warning
+    /// Phase-1 paint: tell parent JS to (re)build the iframe srcdoc placeholder
+    /// grid for `skeleton` and switch to insight view. Parent owns the iframe;
+    /// the bridge speaks only to the parent (not to the iframe).
+    /// Calls `window.loadInsightSkeleton(<json>, '<sessionId>', '<nodeId>')`.
+    func loadInsightSkeleton(skeleton: InsightSkeleton, sessionId: String, nodeId: String, into webView: WKWebView) {
+        let encoder = JSONEncoder()
+        guard let jsonData = try? encoder.encode(skeleton),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            NSLog("[Insight] Error in loadInsightSkeleton: failed to JSON-encode skeleton")
+            return
+        }
+        guard let sidLit = encodeStringForJS(sessionId),
+              let nidLit = encodeStringForJS(nodeId) else {
+            NSLog("[Insight] Error in loadInsightSkeleton: failed to encode sessionId/nodeId")
+            return
+        }
+        let js = "window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in loadInsightSkeleton: \(error)")
+            }
+        }
     }
 
-    /// v1 stub — replaced by Task 7. Original behavior: appended a streaming delta to
-    /// the v1 single-buffer JS view. v2 streams per-section via `updateInsightSection`.
-    func appendInsightDelta(sessionId: String, text: String, into webView: WKWebView) {
-        NSLog("[Insight v1 stub] appendInsightDelta called — replaced by T7 (updateInsightSection)")
-        _ = sessionId
-        _ = text
-        _ = webView
+    /// Phase-2 streaming: forward a per-section HTML delta to parent JS, which
+    /// relays into the iframe via `iframe.contentWindow.postMessage` (the iframe
+    /// is sandboxed null-origin, so postMessage is the only inbound channel).
+    /// Calls `window.updateInsightSection('<sessionId>', '<sectionId>', '<htmlChunk>')`.
+    func updateInsightSection(sessionId: String, sectionId: String, htmlChunk: String, into webView: WKWebView) {
+        guard let sidLit = encodeStringForJS(sessionId),
+              let secIdLit = encodeStringForJS(sectionId),
+              let chunkLit = encodeStringForJS(htmlChunk) else {
+            NSLog("[Insight] Error in updateInsightSection: failed to encode payload")
+            return
+        }
+        let js = "window.updateInsightSection(\(sidLit), \(secIdLit), \(chunkLit))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in updateInsightSection: \(error)")
+            }
+        }
     }
 
-    /// v1 stub — replaced by Task 7. Original behavior: replaced the deep-dive topic
-    /// list in the right pane. v2 deep-dives are inline 🤿 buttons inside iframe sections.
-    /// Note: the v1 `topics` parameter type (`[DeepDiveTopic]`) was removed; replaced
-    /// with `[Any]` to keep the signature stable without re-introducing v1 types.
-    func setInsightDeepDives(sessionId: String, topics: [Any], into webView: WKWebView) {
-        NSLog("[Insight v1 stub] setInsightDeepDives called — replaced by T7 (inline 🤿 buttons)")
-        _ = sessionId
-        _ = topics
-        _ = webView
-    }
-
-    /// v1 stub — replaced by Task 7. Original behavior: showed a loading spinner with
-    /// optional message in the v1 right pane. v2 routes status through
-    /// `setInsightStatus`.
-    func showInsightLoading(sessionId: String, message: String, into webView: WKWebView) {
-        NSLog("[Insight v1 stub] showInsightLoading called — replaced by T7 (setInsightStatus)")
-        _ = sessionId
-        _ = message
-        _ = webView
-    }
-
-    /// v1 stub — replaced by Task 7. Original behavior: displayed an error banner with
-    /// optional Retry button in the v1 right pane. T7 will re-introduce a v2 version
-    /// of this method that targets the new error chrome inside the iframe srcdoc.
+    /// Render an error banner in parent chrome (status bar). `retryable` is a
+    /// JS boolean LITERAL `true`/`false` — NEVER `1`/`0` (would break JS
+    /// truthiness if the empty string `"0"` ever leaked, and the parent JS
+    /// branches on the literal). Regression guard from v1 round-2 fix.
+    /// Calls `window.setInsightError('<sessionId>', '<message>', <true|false>)`.
     func setInsightError(sessionId: String, message: String, retryable: Bool, into webView: WKWebView) {
-        NSLog("[Insight v1 stub] setInsightError called — replaced by T7 (v2 error chrome)")
-        _ = sessionId
-        _ = message
-        _ = retryable
-        _ = webView
+        guard let sidLit = encodeStringForJS(sessionId),
+              let msgLit = encodeStringForJS(message) else {
+            NSLog("[Insight] Error in setInsightError: failed to encode payload")
+            return
+        }
+        let retryableLit = retryable ? "true" : "false"
+        let js = "window.setInsightError(\(sidLit), \(msgLit), \(retryableLit))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in setInsightError: \(error)")
+            }
+        }
+    }
+
+    /// Update the bottom status bar in parent chrome
+    /// (e.g. "Phase 2: 3/7 sections..."). `phase` is a free-form tag the parent
+    /// uses for status-bar tinting (`phase-1`, `phase-2`, `ready`, etc.).
+    /// Calls `window.setInsightStatus('<sessionId>', '<message>', '<phase>')`.
+    func setInsightStatus(sessionId: String, message: String, phase: String, into webView: WKWebView) {
+        guard let sidLit = encodeStringForJS(sessionId),
+              let msgLit = encodeStringForJS(message),
+              let phaseLit = encodeStringForJS(phase) else {
+            NSLog("[Insight] Error in setInsightStatus: failed to encode payload")
+            return
+        }
+        let js = "window.setInsightStatus(\(sidLit), \(msgLit), \(phaseLit))"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in setInsightStatus: \(error)")
+            }
+        }
+    }
+
+    /// Revoke ALL blob URLs created for the closing insight session
+    /// (Decision 11 §2). Called by `WorkspaceManager.closeTab` insight branch
+    /// as STEP 1 of 4 (BEFORE `await session.cancel()`) so no in-flight
+    /// Combine sub fires after revocation.
+    /// Calls `window.releaseInsightBlobs()`.
+    func releaseInsightBlobs(into webView: WKWebView) {
+        let js = "window.releaseInsightBlobs()"
+        webView.evaluateJavaScript(js) { _, error in
+            if let error = error {
+                NSLog("[Insight] Error in releaseInsightBlobs: \(error)")
+            }
+        }
     }
 
     /// Set the document base URL for resolving relative image/link paths
@@ -437,10 +539,15 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String)
 
-    // MARK: Insight messages (Recursive Insight feature, Task 6)
-    func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, topicIndex: Int)
-    func bridge(_ bridge: WebViewBridge, didRequestInsightSave sessionId: String)
+    // MARK: Insight messages (Recursive Insight v2, Task 7)
+    //
+    // V2 protocol: 5 JS→Swift handlers, all with `frameInfo.isMainFrame` guard.
+    // Bridge does payload schema validation (presence + non-empty strings + Int
+    // bounds + UUID shape); higher-level validation (skeleton membership,
+    // manifest membership, retry rate limit) lives in WorkspaceManager (T8).
+    func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String)
+    func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int)
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String)
-    func bridge(_ bridge: WebViewBridge, didRequestInsightUp sessionId: String)
-    func bridge(_ bridge: WebViewBridge, didRequestInsightRetry sessionId: String)
+    func bridgeRequestInsightSave(_ bridge: WebViewBridge)
+    func bridgeRequestInsightUp(_ bridge: WebViewBridge)
 }

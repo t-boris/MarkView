@@ -1466,37 +1466,31 @@ Each component needs a correct type and one-sentence description.
         return String(stripped.prefix(64))
     }
 
-    /// Bridge forwarder: user clicked a deep-dive topic in the right pane.
-    /// Wrapped in `Task { @MainActor in ... }` at the EditorView Coordinator
-    /// matches the surrounding bridge-delegate idiom; WorkspaceManager is
-    /// @MainActor-isolated so the call hops to the right actor regardless.
-    func didRequestInsightDeepDive(sessionId: String, topicIndex: Int) {
+    /// Bridge forwarder: iframe finished loading and posted `insightIframeReady`.
+    /// FIXME(T8): wire to session readiness tracking / cancel the parent-side
+    /// 10s iframe-load timeout if it's centralised here. T7 just adapts to the
+    /// v2 delegate signature so the build stays green.
+    func didReceiveInsightIframeReady(sessionId: String, nodeId: String) {
+        guard findInsightSession(sessionId: sessionId) != nil else {
+            NSLog("[Insight] didReceiveInsightIframeReady: no session for id %@ (tab closed?)",
+                  Self.sanitizeForLog(sessionId))
+            return
+        }
+        NSLog("[Insight] iframe ready for session %@ node %@",
+              Self.sanitizeForLog(sessionId), Self.sanitizeForLog(nodeId))
+    }
+
+    /// Bridge forwarder: user clicked a 🤿 deep-dive control inside an iframe section.
+    /// V2 signature: `(sessionId, sectionId, topicIndex)` — bounds validation against
+    /// the live skeleton happens inside `session.expand` (defense-in-depth).
+    /// FIXME(T8): replace this v7 stub body with the full v2 expand wiring.
+    func didRequestInsightDeepDive(sessionId: String, sectionId: String, topicIndex: Int) {
         guard let session = findInsightSession(sessionId: sessionId) else {
             NSLog("[Insight] didRequestInsightDeepDive: no session for id %@ (tab closed?)",
                   Self.sanitizeForLog(sessionId))
             return
         }
-        // v1 stub — replaced by Task 7/8. v1 bridge sent only `topicIndex`; v2 needs
-        // `(sectionId, topicIndex)`. T7 rewrites the bridge handler to send sectionId
-        // (it lives in the v2 postMessage payload schema). Until then this forwarder
-        // is a no-op so the JS bridge doesn't crash the session.
-        NSLog("[Insight v1 stub] didRequestInsightDeepDive forwarder — replaced by T7 (sectionId-aware expand)")
-        _ = session
-        _ = topicIndex
-    }
-
-    /// Bridge forwarder: user clicked Save as .md.
-    func didRequestInsightSave(sessionId: String) {
-        guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightSave: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
-            return
-        }
-        guard let node = session.currentNode() else {
-            NSLog("[Insight] didRequestInsightSave: session has no current node")
-            return
-        }
-        saveInsightNode(node, fromSession: session)
+        Task { await session.expand(sectionId: sectionId, topicIndex: topicIndex) }
     }
 
     /// Bridge forwarder: user clicked a breadcrumb. Pure UI navigation —
@@ -1512,29 +1506,43 @@ Each component needs a correct type and one-sentence description.
                   Self.sanitizeForLog(nodeId))
             return
         }
-        // v1 sync call → v2 async — wrap in Task. T7 will keep async signatures end-to-end.
         Task { await session.navigateTo(nodeId: uuid) }
     }
 
-    /// Bridge forwarder: user clicked the ↑ Up button.
-    func didRequestInsightUp(sessionId: String) {
-        guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightUp: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
+    /// Bridge forwarder: user clicked Save (no payload — only one active insight
+    /// session per WebView in v2, resolved via the active tab).
+    /// FIXME(T8): replace with `exportInsightArchive()` per Decision 7 (ZIP export).
+    func didRequestInsightSave() {
+        guard let session = activeInsightSession() else {
+            NSLog("[Insight] didRequestInsightSave: no active insight session")
             return
         }
-        // v1 sync call → v2 async — wrap in Task. T7 will keep async signatures end-to-end.
+        guard let node = session.currentNode() else {
+            NSLog("[Insight] didRequestInsightSave: session has no current node")
+            return
+        }
+        saveInsightNode(node, fromSession: session)
+    }
+
+    /// Bridge forwarder: user clicked the ↑ Up button (no payload — resolved via
+    /// the active tab).
+    func didRequestInsightUp() {
+        guard let session = activeInsightSession() else {
+            NSLog("[Insight] didRequestInsightUp: no active insight session")
+            return
+        }
         Task { await session.up() }
     }
 
-    /// Bridge forwarder: user clicked Retry on the error banner.
-    func didRequestInsightRetry(sessionId: String) {
-        guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightRetry: no session for id %@ (tab closed?)",
-                  Self.sanitizeForLog(sessionId))
-            return
+    /// Resolve the active tab's `InsightSession` (if the active tab is `.insight`).
+    /// V2 payloads omit `sessionId` for actions that target the currently-viewed
+    /// session; this helper centralises the active-tab lookup.
+    private func activeInsightSession() -> InsightSession? {
+        guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return nil }
+        if case .insight(let session) = openTabs[activeTabIndex].kind {
+            return session
         }
-        Task { await session.retryCurrent() }
+        return nil
     }
 
     /// Save the current insight node's clean markdown body via NSSavePanel.

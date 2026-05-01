@@ -78,7 +78,7 @@ struct EditorView: NSViewRepresentable {
         private var pdfExportObserver: Any?
         private var scrollToHeadingObserver: Any?
 
-        // MARK: Insight subscription state (Recursive Insight feature, Task 6)
+        // MARK: Insight subscription state (Recursive Insight v2, Task 7)
 
         /// Combine subscriptions for the currently routed insight session. Cleared on
         /// every kind switch (and on switch to a different insight session) to avoid
@@ -88,12 +88,14 @@ struct EditorView: NSViewRepresentable {
         /// to. nil for `.file` tabs. Used to early-return on duplicate `loadContentIfNeeded`
         /// calls for the same insight session.
         var currentInsightSessionId: String?
-        /// Length (Swift `String.count`) of the streamingBuffer prefix already forwarded
-        /// to the JS side. The next `$streamingBuffer` emission forwards only the suffix
-        /// (`String(newBuffer.dropFirst(lastForwardedLength))`). Reset on every node
-        /// change BEFORE the new buffer's `$streamingBuffer` fires (see currentNodeId
-        /// subscription).
-        var lastForwardedLength: Int = 0
+        /// Per-section forwarded length (Swift `String.count`) — keyed by
+        /// `InsightSection.id`. The next `$currentNodeSections` emission forwards
+        /// only `String(buffer.dropFirst(lastForwardedSectionLength[id, default: 0]))`
+        /// for each section. Cleared on every `$skeleton` emission (skeleton replace
+        /// = new node = new section ids). Per-key shrink-detection: if the section's
+        /// buffer becomes shorter than the cursor (retry path replaced the buffer),
+        /// the cursor is reset to 0 and the whole new buffer is forwarded.
+        var lastForwardedSectionLength: [String: Int] = [:]
 
         init(_ parent: EditorView) {
             self.parent = parent
@@ -242,7 +244,7 @@ struct EditorView: NSViewRepresentable {
                 if currentInsightSessionId != nil {
                     insightCancellables.removeAll()
                     currentInsightSessionId = nil
-                    lastForwardedLength = 0
+                    lastForwardedSectionLength.removeAll()
                 }
             }
 
@@ -272,11 +274,13 @@ struct EditorView: NSViewRepresentable {
             bridge.loadContent(resolved, into: webView) {}
         }
 
-        // MARK: - Insight routing (Recursive Insight feature, Task 6)
+        // MARK: - Insight routing (Recursive Insight v2, Task 7)
 
-        /// Route an `.insight` tab to the bridge: load the snapshot once, set up Combine
-        /// subscriptions for live streaming + node navigation + errors. Idempotent:
-        /// re-rendering the same session is a no-op (subscriptions are kept).
+        /// Route an `.insight` tab to the bridge using the v2 protocol: subscribe to
+        /// `session.$skeleton`, `$currentNodeSections`, `$lastError`, `$statusMessage`
+        /// and forward to the corresponding `bridge.*` setters. Idempotent: re-rendering
+        /// the same session is a no-op (subscriptions are kept). All sinks capture
+        /// `[weak self, weak session, weak webView]` to preserve no-retain-cycle invariant.
         private func routeInsight(session: InsightSession, webView: WKWebView) {
             let sessionId = session.id.uuidString
 
@@ -286,74 +290,81 @@ struct EditorView: NSViewRepresentable {
             }
 
             // Different session (or first .insight after .file) — drop old subs, reset
-            // state, paint the snapshot, then re-subscribe.
+            // state. The `$skeleton` subscription's first non-nil emission will paint
+            // the iframe; if the skeleton is already present it replays on subscribe.
             insightCancellables.removeAll()
             currentInsightSessionId = sessionId
-            lastForwardedLength = session.streamingBuffer.count
+            lastForwardedSectionLength.removeAll()
             // Invalidate file-side dedupe so a subsequent switch back to a .file tab
             // is forced to re-render from scratch (the WebView's content is now insight).
             lastLoadedContent = ""
             currentDocumentBaseURL = nil
 
-            bridge.loadInsightView(snapshot: session.snapshot(), into: webView)
-
-            // Streaming delta forwarding. dropFirst() because @Published fires the
-            // current value on subscribe — we already painted it via loadInsightView,
-            // so skip the initial replay and only forward subsequent appends.
-            session.$streamingBuffer
-                .dropFirst()
+            // Skeleton paint. compactMap drops the initial `nil` (T6 init) so the
+            // iframe srcdoc is built only when a real skeleton is available. Reset
+            // `lastForwardedSectionLength` BEFORE forwarding so the next
+            // `$currentNodeSections` emission computes deltas from 0 against the new
+            // section ids (skeleton replace = new node = new section keys).
+            session.$skeleton
+                .compactMap { $0 }
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak session, weak webView] newBuffer in
+                .sink { [weak self, weak session, weak webView] skeleton in
                     guard let self = self,
                           let session = session,
                           let webView = webView else { return }
-                    // Reset-detection: if the buffer shrunk (retry / new node started a
-                    // fresh buffer that this subscription somehow saw before the
-                    // currentNodeId subscription) — forward the whole new buffer.
-                    if newBuffer.count < self.lastForwardedLength {
-                        self.lastForwardedLength = 0
-                    }
-                    let delta = String(newBuffer.dropFirst(self.lastForwardedLength))
-                    self.lastForwardedLength = newBuffer.count
-                    if delta.isEmpty { return }
-                    self.bridge.appendInsightDelta(
+                    self.lastForwardedSectionLength.removeAll()
+                    let nodeId = session.currentNode()?.id.uuidString ?? ""
+                    self.bridge.loadInsightSkeleton(
+                        skeleton: skeleton,
                         sessionId: session.id.uuidString,
-                        text: delta,
+                        nodeId: nodeId,
                         into: webView
                     )
                 }
                 .store(in: &insightCancellables)
 
-            // Node-change subscription. When the user navigates / expands / retries,
-            // streamingBuffer is reset on the session, then re-grown by the new stream.
-            // We MUST reset lastForwardedLength to the new buffer's current length BEFORE
-            // the $streamingBuffer subscriber fires; otherwise the next emission will
-            // compute a delta = wholeNewBuffer, which includes the `---DEEP-DIVES---`
-            // marker from a previous render and produces garbage in the JS view.
+            // Per-section streaming deltas. dropFirst() because @Published replays the
+            // current dict on subscribe — at session-route time it's either empty or
+            // already mid-stream; in either case the skeleton subscription drives the
+            // initial paint and we only want subsequent appends here.
             //
-            // .receive(on: DispatchQueue.main) ensures both subscribers run on main and
-            // gives us a single ordering point: the `lastForwardedLength` write happens
-            // synchronously inside this sink, before the async $streamingBuffer emission
-            // is delivered.
-            session.$currentNodeId
+            // Per-key delta: for each section, compute the suffix not yet forwarded.
+            // Shrink-detection (retry path may replace `buffer` with a shorter retry
+            // value): if `state.buffer.count < lastLen` reset cursor to 0 and forward
+            // the whole new buffer.
+            session.$currentNodeSections
                 .dropFirst()
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak session, weak webView] _ in
+                .sink { [weak self, weak session, weak webView] sections in
                     guard let self = self,
                           let session = session,
                           let webView = webView else { return }
-                    // 1. Snap lastForwardedLength to the current (post-reset) buffer length
-                    //    so the subsequent $streamingBuffer subscriber computes correct deltas.
-                    self.lastForwardedLength = session.streamingBuffer.count
-                    // 2. Full repaint of center+right+breadcrumbs from the new node's
-                    //    cached state.
-                    self.bridge.loadInsightView(snapshot: session.snapshot(), into: webView)
+                    if sections.isEmpty { return }
+                    let sid = session.id.uuidString
+                    for (sectionId, state) in sections {
+                        let bufferLen = state.buffer.count
+                        var lastLen = self.lastForwardedSectionLength[sectionId, default: 0]
+                        if bufferLen < lastLen {
+                            // Shrink: retry replaced the buffer with a shorter value.
+                            lastLen = 0
+                        }
+                        if bufferLen <= lastLen { continue }
+                        let delta = String(state.buffer.dropFirst(lastLen))
+                        if delta.isEmpty { continue }
+                        self.lastForwardedSectionLength[sectionId] = bufferLen
+                        self.bridge.updateInsightSection(
+                            sessionId: sid,
+                            sectionId: sectionId,
+                            htmlChunk: delta,
+                            into: webView
+                        )
+                    }
                 }
                 .store(in: &insightCancellables)
 
-            // Error forwarding. Use the session's lastErrorRetryable flag (Decision 11
-            // §3) — non-retryable errors (noAPIKey, parse failures, 4xx, retry rate
-            // limit) must NOT show the [Retry] button in JS.
+            // Error forwarding. Use the session's lastErrorRetryable flag
+            // (Decision 11 §3) — non-retryable errors (noAPIKey, parse failures, 4xx,
+            // retry rate limit) must NOT show a [Retry] affordance in JS.
             session.$lastError
                 .compactMap { $0 }
                 .receive(on: DispatchQueue.main)
@@ -369,6 +380,38 @@ struct EditorView: NSViewRepresentable {
                     )
                 }
                 .store(in: &insightCancellables)
+
+            // Status bar updates. dropFirst() because the initial empty string
+            // shouldn't update the status bar. T6 publishes plain strings (no
+            // separate phase enum); we derive a coarse phase tag from the content
+            // for parent-side tinting (`phase-1` / `phase-2` / `ready` / empty).
+            session.$statusMessage
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak session, weak webView] status in
+                    guard let self = self,
+                          let session = session,
+                          let webView = webView else { return }
+                    let phase = Self.derivePhaseTag(from: status)
+                    self.bridge.setInsightStatus(
+                        sessionId: session.id.uuidString,
+                        message: status,
+                        phase: phase,
+                        into: webView
+                    )
+                }
+                .store(in: &insightCancellables)
+        }
+
+        /// Coarse status-phase tag derived from `InsightSession.statusMessage`. The
+        /// parent JS uses this for status-bar tinting; loose match is fine because
+        /// T6 emits a small set of canonical messages (see InsightSession.swift).
+        private static func derivePhaseTag(from message: String) -> String {
+            let lower = message.lowercased()
+            if lower.contains("phase 1") { return "phase-1" }
+            if lower.contains("phase 2") { return "phase-2" }
+            if lower.hasPrefix("ready") { return "ready" }
+            return ""
         }
 
         /// Replace relative image paths in markdown with base64 data URIs.
@@ -606,21 +649,23 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    // MARK: - Insight delegate methods (Recursive Insight feature, Task 7)
+    // MARK: - Insight delegate methods (Recursive Insight v2, Task 7)
     //
-    // Forward UI events from the JS insight player to `WorkspaceManager`, which
-    // resolves the target `InsightSession` by `sessionId` and dispatches the
-    // appropriate session method (expand / navigateTo / up / retryCurrent / save).
+    // Forward UI events from the v2 insight iframe player to `WorkspaceManager`,
+    // which resolves the target `InsightSession` by `sessionId` and dispatches
+    // the appropriate session method (expand / navigateTo / up / save).
+    // T8 fully implements the WorkspaceManager forwarders; T7 wires the delegate
+    // stubs to the new v2 method names.
 
-    func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, topicIndex: Int) {
+    func bridge(_ bridge: WebViewBridge, didReceiveInsightIframeReady sessionId: String, nodeId: String) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightDeepDive(sessionId: sessionId, topicIndex: topicIndex)
+            self.parent.workspaceManager.didReceiveInsightIframeReady(sessionId: sessionId, nodeId: nodeId)
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didRequestInsightSave sessionId: String) {
+    func bridge(_ bridge: WebViewBridge, didRequestInsightDeepDive sessionId: String, sectionId: String, topicIndex: Int) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightSave(sessionId: sessionId)
+            self.parent.workspaceManager.didRequestInsightDeepDive(sessionId: sessionId, sectionId: sectionId, topicIndex: topicIndex)
         }
     }
 
@@ -630,15 +675,15 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didRequestInsightUp sessionId: String) {
+    func bridgeRequestInsightSave(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightUp(sessionId: sessionId)
+            self.parent.workspaceManager.didRequestInsightSave()
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didRequestInsightRetry sessionId: String) {
+    func bridgeRequestInsightUp(_ bridge: WebViewBridge) {
         Task { @MainActor in
-            self.parent.workspaceManager.didRequestInsightRetry(sessionId: sessionId)
+            self.parent.workspaceManager.didRequestInsightUp()
         }
     }
 }
