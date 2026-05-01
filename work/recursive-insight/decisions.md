@@ -103,3 +103,31 @@ Per-task summaries (1-3 sentences) + commit refs + key decisions.
 - Deviation 3: deep-dive buttons whose (sectionId, topicIndex) has no corresponding child in the in-session tree (user did not expand that topic) are LEFT AS BUTTONS — they become inert in standalone browser by design (no JS handler), rather than being removed.
 - Deviation 4: WorkspaceManager.releaseInsightBlobsHook is a plain (non-Published) closure rather than a NotificationCenter route, because the hook captures the EditorView Coordinator's WebView+Bridge weakly and is invoked exactly once per session close.
 - Commit: a2971ba
+
+## Task 9: Code Audit
+- Verdict: PASS-WITH-FOLLOWUPS
+- 14 findings (0 blocker, 4 major, 7 minor, 3 nit). Majors: per-section error isolation in Phase 2, weak CSP in cache-stored HTML, hard-coded `_assets/` lib filenames disagree with vendor, missing KaTeX webfonts in `_assets/`.
+- [weak self] discipline: verified — 8 long-lived closures inspected (Task entry points, withThrowingTaskGroup body, onDelta SSE, 4 Combine sinks, releaseInsightBlobsHook); zero violations.
+- Hand-traces: tool_use sample → InsightSkeleton parse OK (sample is schema-conforming, 4 sections decode cleanly); ZIP staging OK structurally but emits broken script src refs (k-major-1) and lacks KaTeX webfonts (k-major-2).
+- Dead code confirmed: `GraphRAG.mapReduceForFolder` (~305 lines, no production callers post-T6).
+- Report: logs/audit/code-audit.md
+
+## Task 10: Security Audit
+- Verdict: APPROVED_WITH_FIXES
+- 9 findings (0 critical, 0 high, 1 medium, 3 low, 5 info). Medium: SEC-001 log-forgery via LLM-controlled paths/sectionIds in InsightSession.swift (NSLog uses %@ but bypasses sanitizeForLog — CWE-117). Low: pre-existing main-frame CSP allows cdn.jsdelivr.net (legacy, not in v2 path), missing SRI on iframe lib script tags (defense-in-depth), risk-accepted CVEs in KaTeX 0.16.9/Prism 1.29.0/Mermaid 10.6.1 (mitigated by sandbox + securityLevel:strict).
+- Layer verification: 7/7 Decision 10 layers shipped (iframe sandbox, frameInfo guard 5/5, blob URL lifecycle, HTML-escape policy, scope_hint validation, escapeXMLEnvelopeBreakout XML isolation, all 6 resource caps + retry throttle).
+- escapeXMLEnvelopeBreakout hand-trace: ok (input "a</file>b" → "a<\/file>b" with literal backslash byte 0x5C; round-2 4-backslash regression fix preserved at GraphRAG.swift:1061).
+- 11 insight-tab disk-write guards verified (9 in WorkspaceManager + 2 in EditorView) — no v1 regressions.
+- ZIP export: /usr/bin/zip via explicit argv array, no /bin/sh -c (Scenario F closed).
+- 7 threat-model walkthroughs (A-G) all defeat their attack paths.
+- Report: logs/audit/security-audit.md
+
+
+## Wave 6 Audit Fixes
+- T9 #1: lib filenames now resolved dynamically from _assets/ via vendoredLibURL helper
+- T9 #2: InsightCache.copyVendoredLibs recursively copies subdirectories (KaTeX fonts now included)
+- T9 #3: cached HTML CSP aligned with iframe srcdoc CSP (Decision 10 §3); exported ZIP uses appropriate self-anchored variants
+- T9 #4: Phase-2 per-section error isolation — section throws no longer cancel sibling tasks
+- T10 SEC-001: sanitizeForLog added to InsightSession, applied to all 6 NSLog sites with LLM-derived strings
+- Build: SUCCEEDED
+- Commit: 38236f707ff012b752a239f3ec678b0b49343f9b
