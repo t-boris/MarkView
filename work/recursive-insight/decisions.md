@@ -153,3 +153,10 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - 9 insight-tab disk-write guards + 2 EditorView pre-hop guards verified (Check 10)
 - NSSavePanel sanitization: strict ASCII [A-Za-z0-9_] (post-T7-r1 fix) + .md extension forced (Check 9)
 - Report: logs/audit/security-audit.md
+
+## Task 11: Test Audit
+- Verdict: DEFERRAL JUSTIFIED
+- Per-check: 1✓ (deferral tracked in tasks/todo.md with owner "Boris (or first contributor)" + target 2026-05-14 + 7 named test modules) / 2✓ (scope covers all 6 critical paths from Risks: SSE parser, marker parser, InsightSession lifecycle, cancellation race, GraphRAG mapReduceForFolder, scope_hint validation, resource caps) / 3✓ (all 6 fixtures present and well-documented; sse-anthropic-sample.txt covers happy + ping + lifecycle, with oversized-line/event-error/HTTP-error documented as code-inspection-verified per audit hand-trace; 5/5 marker-cases hand-traced clean by code-audit) / 4✓ (0 critical, 0 high in both audits; major M1 is UX bridge race manually reproducible via T12 smoke; no tests need to be raised pre-merge) / 5✓ (T12 4-scenario Instruments check is mandatory not optional, covers all retain-cycle paths from Decision 11 §1, code-reviewer explicitly verified [weak self] in 15/15 long-lived closures inside InsightSession)
+- Critical paths uncovered: none
+- Action items (none blocking): (a) optional 5-min edit to tasks/todo.md adding "manual Instruments rerun required for any PR touching insight code paths until test target lands"; (b) optional follow-up scope additions (XMLEscapeBreakout regression, BridgeProtocol nodeId regression once M1 fixed, RetryThrottle, AIProviderClientSSEDoSCaps); (c) decision lies with user/Boris on landing M1 fix pre-merge vs accept manual smoke (out of test-audit scope, raised by code-audit)
+- Report: logs/audit/test-audit.md
