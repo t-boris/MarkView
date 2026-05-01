@@ -404,7 +404,7 @@ final class InsightSession: ObservableObject, Identifiable {
             return
         }
         guard let section = parentSkeleton.sections.first(where: { $0.id == sectionId }) else {
-            NSLog("[Insight] expand: unknown sectionId %@", sectionId.prefix(64).description)
+            NSLog("[Insight] expand: unknown sectionId %@", Self.sanitizeForLog(sectionId))
             lastError = "unknown section"
             lastErrorRetryable = false
             return
@@ -650,7 +650,7 @@ final class InsightSession: ObservableObject, Identifiable {
         var validatedSections: [InsightSection] = []
         for section in parsed.sections {
             if seenSectionIds.contains(section.id) {
-                NSLog("[Insight] phase1: duplicate section id '%@' — dropping", section.id)
+                NSLog("[Insight] phase1: duplicate section id '%@' — dropping", Self.sanitizeForLog(section.id))
                 continue
             }
             seenSectionIds.insert(section.id)
@@ -660,7 +660,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 let validURLs = validateScopeHint(hint)
                 if validURLs.count != hint.count {
                     NSLog("[Insight] phase1: section '%@' had %d invalid scope_hint paths (kept %d)",
-                          section.id, hint.count - validURLs.count, validURLs.count)
+                          Self.sanitizeForLog(section.id), hint.count - validURLs.count, validURLs.count)
                 }
                 // We don't mutate scopeHint here — T4's `buildSectionPrompt` re-validates
                 // against folderURL on each call, so leaving the (possibly noisy) original
@@ -672,7 +672,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 for topic in topics {
                     if seenTopicIds.contains(topic.id) {
                         NSLog("[Insight] phase1: section '%@' duplicate topic id '%@'",
-                              section.id, topic.id)
+                              Self.sanitizeForLog(section.id), Self.sanitizeForLog(topic.id))
                     }
                     seenTopicIds.insert(topic.id)
                 }
@@ -713,10 +713,12 @@ final class InsightSession: ObservableObject, Identifiable {
     /// (Decision 1). Each section issues its own `streamCompletion(...)`; deltas hop to
     /// `@MainActor` to mutate `sectionStates[id].buffer`.
     ///
-    /// Cancellation: any thrown error inside the group cancels all sibling tasks (Swift
-    /// runtime semantics for `withThrowingTaskGroup`). Each task observes
-    /// `Task.isCancelled` between SSE lines (`AIProviderClient.streamCompletion` checks
-    /// every line) and exits within ~1 s.
+    /// Per-section error isolation (Wave 6 audit T9 #4 fix / tech-spec Risks row): each
+    /// section task wraps its body in `do/catch` so a per-section throw (e.g. an
+    /// Anthropic 429 on one section) marks ONLY that section `.failed` and does NOT
+    /// cancel sibling tasks. Cooperative cancellation still works — both because
+    /// `Task.isCancelled` is observed inside `streamCompletion` between SSE lines AND
+    /// because outer-scope cancellation propagates to children of `withThrowingTaskGroup`.
     private func phase2StreamSections(
         for nodeId: UUID,
         skeleton: InsightSkeleton
@@ -755,15 +757,20 @@ final class InsightSession: ObservableObject, Identifiable {
             preparedPrompts.append((section: section, systemPrompt: prompts.systemPrompt, userMessage: prompts.userMessage))
         }
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        // Use a non-throwing task group: per-section errors are caught INSIDE each
+        // task body (Wave 6 audit T9 #4) so a single failing section cannot cancel
+        // siblings. The outer `try Task.checkCancellation()` at the gate is the only
+        // throw site that should propagate (user explicitly cancelled the session).
+        await withTaskGroup(of: Void.self) { group in
             var iter = preparedPrompts.makeIterator()
             var inFlight = 0
             let cap = Self.maxConcurrentSectionStreams
 
             // Gated scheduling: launch up to `cap`, then await one per new launch.
             while let prepared = iter.next() {
+                if Task.isCancelled { break }
                 if inFlight >= cap {
-                    try await group.next()
+                    _ = await group.next()
                     inFlight -= 1
                 }
                 let sectionId = prepared.section.id
@@ -771,41 +778,63 @@ final class InsightSession: ObservableObject, Identifiable {
                 let userMessage = prepared.userMessage
                 group.addTask { [weak self] in
                     guard let self else { return }
-                    try Task.checkCancellation()
-
-                    // Stream. onDelta hops back to MainActor for state mutation.
-                    try await self.providerClient.streamCompletion(
-                        systemPrompt: systemPrompt,
-                        userMessage: userMessage,
-                        model: "claude-sonnet-4-6",
-                        maxTokens: 4096,
-                        onDelta: { [weak self] chunk in
-                            Task { @MainActor [weak self] in
-                                guard let self else { return }
-                                self.appendSectionDelta(
-                                    sectionId: sectionId,
-                                    chunk: chunk,
-                                    forNodeId: nodeId
-                                )
+                    do {
+                        try Task.checkCancellation()
+                        // Stream. onDelta hops back to MainActor for state mutation.
+                        try await self.providerClient.streamCompletion(
+                            systemPrompt: systemPrompt,
+                            userMessage: userMessage,
+                            model: "claude-sonnet-4-6",
+                            maxTokens: 4096,
+                            onDelta: { [weak self] chunk in
+                                Task { @MainActor [weak self] in
+                                    guard let self else { return }
+                                    self.appendSectionDelta(
+                                        sectionId: sectionId,
+                                        chunk: chunk,
+                                        forNodeId: nodeId
+                                    )
+                                }
                             }
-                        }
-                    )
-                    // Stream finished cleanly (no throw, no cancel). Mark ready on main.
-                    await self.markSectionReady(sectionId: sectionId, forNodeId: nodeId)
+                        )
+                        // Stream finished cleanly. Mark ready on main.
+                        await self.markSectionReady(sectionId: sectionId, forNodeId: nodeId)
+                    } catch is CancellationError {
+                        // Outer cancellation — silent unwind, do NOT mark as failed.
+                        return
+                    } catch {
+                        // Per-section error (rate limit, network blip, parse). Mark
+                        // ONLY this section as failed; siblings keep streaming.
+                        // Sanitised log for audit-trail integrity (T10 SEC-001).
+                        NSLog("[Insight] phase2 section %@ failed: %@",
+                              Self.sanitizeForLog(sectionId),
+                              Self.sanitizeForLog(error.localizedDescription))
+                        await self.markSectionFailed(sectionId: sectionId, forNodeId: nodeId)
+                    }
                 }
                 inFlight += 1
             }
 
-            // Drain remaining tasks.
-            try await group.waitForAll()
+            // Drain remaining tasks. Non-throwing — `waitForAll()` here cannot
+            // propagate per-section errors because each task swallowed its own.
+            await group.waitForAll()
         }
+        try Task.checkCancellation()
 
-        // All sections completed.
+        // All section tasks unwound (each either marked .ready or .failed). Per Wave 6
+        // audit T9 #4 the node is .ready as long as AT LEAST one section streamed
+        // successfully — this matches the tech-spec Risks expectation that a single
+        // rate-limited section should not invalidate the whole node. Sections marked
+        // .failed surface in the per-section UI; the user can Retry the full node.
+        let readyCount = node.sectionStates.values.filter { $0.status == .ready }.count
+        let totalCount = node.sectionStates.count
         node.status = .ready
         node.generatedAt = Date()
         if currentNodeId == nodeId {
             self.allSectionsReady = true
-            self.statusMessage = "Ready"
+            self.statusMessage = readyCount == totalCount
+                ? "Ready"
+                : "Ready (\(readyCount)/\(totalCount) sections — some failed)"
         }
     }
 
@@ -878,6 +907,28 @@ final class InsightSession: ObservableObject, Identifiable {
         }
     }
 
+    /// Section-stream errored — flip the section's status to `.failed` (mirror of
+    /// `markSectionReady`). Used by the per-section error-isolation path in
+    /// `phase2StreamSections` (Wave 6 audit T9 #4 fix). Preserves any partial
+    /// buffer for diagnostics; siblings keep streaming unchanged.
+    private func markSectionFailed(sectionId: String, forNodeId: UUID) {
+        guard let node = nodes[forNodeId] else { return }
+        if var state = node.sectionStates[sectionId] {
+            state.status = .failed
+            node.sectionStates[sectionId] = state
+        }
+        if currentNodeId == forNodeId {
+            if var state = currentNodeSections[sectionId] {
+                state.status = .failed
+                currentNodeSections[sectionId] = state
+            }
+            let total = node.sectionStates.count
+            let ready = node.sectionStates.values.filter { $0.status == .ready }.count
+            let failed = node.sectionStates.values.filter { $0.status == .failed }.count
+            statusMessage = "Phase 2: \(ready)/\(total) ready, \(failed) failed..."
+        }
+    }
+
     // MARK: - Cache write (deterministic HTML rebuild — no iframe round-trip)
 
     /// Rebuild the canonical HTML for the node from `(skeleton + section buffers + chrome)`
@@ -906,7 +957,8 @@ final class InsightSession: ObservableObject, Identifiable {
             skeleton: skel,
             sectionStates: node.sectionStates,
             breadcrumbs: crumbs,
-            libRefMode: .exportRelative
+            libRefMode: .exportRelative,
+            cache: cache
         )
 
         // Per-node final HTML cap (tech-spec acceptance "Per-node final HTML cap 2 MB").
@@ -977,11 +1029,17 @@ final class InsightSession: ObservableObject, Identifiable {
     /// Deterministic HTML composition. Reproducible: identical (skeleton, sectionStates,
     /// breadcrumbs) input → byte-identical output. NO Date interpolation, NO new UUIDs —
     /// only known-good fields from the in-memory tree.
+    ///
+    /// `cache` is optional and only consulted in `.exportRelative` mode to resolve
+    /// vendored lib filenames dynamically from `_assets/` (Wave 6 audit T9 #1 fix).
+    /// In `.runtimeBlobs(...)` mode the caller supplies the blob URLs directly so no
+    /// disk lookup is required.
     static func buildHTMLTemplate(
         skeleton: InsightSkeleton,
         sectionStates: [String: SectionState],
         breadcrumbs: [(nodeId: String, title: String)],
-        libRefMode: LibRefMode
+        libRefMode: LibRefMode,
+        cache: InsightCache? = nil
     ) -> String {
         let escapedTitle = escapeForHTML(skeleton.title)
 
@@ -1046,28 +1104,46 @@ final class InsightSession: ObservableObject, Identifiable {
                 }
             }
         case .exportRelative:
-            // Export-friendly relative refs to `_assets/`. Same flat layout as InsightCache.
-            // Order is deterministic (sorted) so the output reproduces byte-identical.
-            let exportLibs = [
-                ("prism.min.css", "css"),
-                ("prism.min.js", "js"),
-                ("mermaid.min.js", "js"),
-                ("chart.umd.min.js", "js"),
-                ("katex.min.css", "css"),
-                ("katex.min.js", "js")
+            // Export-friendly relative refs to `_assets/`. Filenames are resolved
+            // dynamically from the cache's `_assets/` directory so version bumps in
+            // `Resources/Editor/vendor/` (e.g. `chart-4.4.9.min.js` →
+            // `chart-5.x.min.js`) do not desync with a hard-coded list (Wave 6
+            // audit T9 #1 fix). Each entry is a (prefix, extension) pair; the
+            // shortest-name match wins for determinism. Output order is sorted by
+            // resolved filename so the byte-for-byte reproducibility contract holds.
+            let prefixes: [(prefix: String, ext: String)] = [
+                ("prism", "css"),
+                ("prism", "js"),
+                ("mermaid", "js"),
+                ("chart", "js"),
+                ("katex", "css"),
+                ("katex", "js"),
+                ("auto-render", "js"),
+                ("markdown-it", "js")
             ]
-            for (file, kind) in exportLibs.sorted(by: { $0.0 < $1.0 }) {
-                if kind == "css" {
-                    libRefs += "<link rel=\"stylesheet\" href=\"../_assets/\(file)\">\n"
+            var resolved: [(filename: String, kind: String)] = []
+            for entry in prefixes {
+                if let url = cache?.vendoredLibURL(matching: entry.prefix, extension: entry.ext) {
+                    resolved.append((filename: url.lastPathComponent, kind: entry.ext))
+                }
+            }
+            for entry in resolved.sorted(by: { $0.filename < $1.filename }) {
+                if entry.kind == "css" {
+                    libRefs += "<link rel=\"stylesheet\" href=\"../_assets/\(entry.filename)\">\n"
                 } else {
-                    libRefs += "<script src=\"../_assets/\(file)\"></script>\n"
+                    libRefs += "<script src=\"../_assets/\(entry.filename)\"></script>\n"
                 }
             }
         }
 
-        // CSP for the iframe srcdoc (default-src 'self' + inline allowed because we
-        // serve scripts via blob: at runtime AND via relative paths at export time).
-        let csp = "default-src 'self' 'unsafe-inline' blob: data:; img-src * data: blob:; font-src * data:;"
+        // CSP for the cached HTML (Wave 6 audit T9 #3 fix). Aligned with the iframe
+        // srcdoc CSP (Decision 10 §3 / index.html:2827) but adapted for the cached /
+        // exported context: scripts and styles load from `'self'` (the cache root or
+        // the unzipped export) instead of `blob:`. Webfonts and images come from
+        // `'self'` + `data:` only — no wildcard CDNs. Matches the iframe's
+        // defense-in-depth posture (`default-src 'none'`, `connect-src 'none'`,
+        // `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`).
+        let csp = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
         return """
         <!DOCTYPE html>
@@ -1098,6 +1174,24 @@ final class InsightSession: ObservableObject, Identifiable {
          .replacingOccurrences(of: ">", with: "&gt;")
          .replacingOccurrences(of: "\"", with: "&quot;")
          .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
+    /// Strip `\r`, `\n`, and `\0` control bytes and truncate to 64 chars. Mirrors
+    /// `WorkspaceManager.sanitizeForLog` (line 1507) and `WebViewBridge.sanitizeForLog`.
+    /// Applied to every LLM-controlled string interpolated into `NSLog(...)` so a
+    /// poisoned scope_hint / section id / topic id cannot forge audit-log lines via
+    /// embedded newlines (Wave 6 audit T10 SEC-001 / CWE-117 fix).
+    ///
+    /// `nonisolated` because callers include the off-actor `group.addTask` closure in
+    /// `phase2StreamSections` — pure-fn over a value-type `String`, no actor state
+    /// touched, so safe to invoke from any isolation context.
+    nonisolated static func sanitizeForLog(_ s: String) -> String {
+        let stripped = s.replacingOccurrences(
+            of: "[\\r\\n\\0]",
+            with: "_",
+            options: .regularExpression
+        )
+        return String(stripped.prefix(64))
     }
 
     // MARK: - Error handling (pattern table preserved from v1 round-2 fix 62b8bff)
@@ -1237,11 +1331,11 @@ final class InsightSession: ObservableObject, Identifiable {
             let inside = (candidatePath == folderResolvedPath) ||
                          candidatePath.hasPrefix(folderPathPrefix)
             guard inside else {
-                NSLog("[Insight] scope_hint rejected: %@ — outside folder or symlink escape", trimmed)
+                NSLog("[Insight] scope_hint rejected: %@ — outside folder or symlink escape", Self.sanitizeForLog(trimmed))
                 continue
             }
             guard candidate.pathExtension.lowercased() == "md" else {
-                NSLog("[Insight] scope_hint rejected: %@ — non-md", trimmed)
+                NSLog("[Insight] scope_hint rejected: %@ — non-md", Self.sanitizeForLog(trimmed))
                 continue
             }
             result.append(candidate)

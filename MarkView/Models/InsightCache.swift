@@ -70,7 +70,11 @@ struct InsightCache {
     /// directory location; never mutate the contents from outside.
     let rootDirectory: URL
 
-    private let assetsDirectory: URL  // <root>/_assets/
+    /// `<root>/_assets/`. Internal-by-default; exposed via
+    /// `vendoredLibURL(matching:)` so InsightSession can resolve the
+    /// actual on-disk filenames (e.g. `chart-4.4.9.min.js`) at HTML-build
+    /// time without hard-coding a parallel filename list.
+    let assetsDirectory: URL  // <root>/_assets/
     private let nodesDirectory: URL   // <root>/nodes/
     private let manifestURL: URL      // <root>/manifest.json
 
@@ -245,6 +249,11 @@ struct InsightCache {
     /// the two segments into a single `forResource:` argument worked by
     /// accident on the current bundle layout but is not the documented
     /// contract.
+    ///
+    /// Subdirectories are copied recursively so resources like KaTeX
+    /// webfonts (under `vendor/css/fonts/`) reach `_assets/fonts/` and the
+    /// exported standalone HTML can resolve `url(fonts/KaTeX_*.woff2)`
+    /// references emitted by `katex.min.css`. Wave 6 audit T9 #2 fix.
     private static func copyVendoredLibs(from relativePath: String, into dest: URL) throws {
         let components = relativePath.split(separator: "/", omittingEmptySubsequences: true)
         guard let leaf = components.last else {
@@ -258,6 +267,17 @@ struct InsightCache {
         ) else {
             throw InsightCacheError.bundleResourceMissing(name: relativePath)
         }
+        try Self.copyDirectoryContents(from: sourceDir, into: dest)
+    }
+
+    /// Recursively copy every file beneath `sourceDir` into `dest`. Mirrors
+    /// the source layout — a file at `<sourceDir>/fonts/X.woff2` lands at
+    /// `<dest>/fonts/X.woff2`. Idempotent on per-file collisions
+    /// (`.fileWriteFileExists` swallowed). Each destination URL is
+    /// containment-checked against the original `dest` root before being
+    /// written so a malicious symlink under `vendor/` cannot escape
+    /// `_assets/`.
+    private static func copyDirectoryContents(from sourceDir: URL, into dest: URL) throws {
         let fm = FileManager.default
         let entries = try fm.contentsOfDirectory(
             at: sourceDir,
@@ -265,13 +285,18 @@ struct InsightCache {
             options: [.skipsHiddenFiles]
         )
         for src in entries {
-            // Skip nested directories (e.g. css/fonts/) — flat _assets/ layout
-            // is the documented choice; nested resources like webfonts are
-            // not required for the current export contract. If a future
-            // change needs them, copy recursively here.
             var isDir: ObjCBool = false
             _ = fm.fileExists(atPath: src.path, isDirectory: &isDir)
-            if isDir.boolValue { continue }
+
+            if isDir.boolValue {
+                // Recurse: ensure the mirrored subdirectory exists in
+                // `dest`, then copy its contents into it.
+                let subDest = dest.appendingPathComponent(src.lastPathComponent, isDirectory: true)
+                try Self.assertContained(subDest, in: dest)
+                try fm.createDirectory(at: subDest, withIntermediateDirectories: true)
+                try Self.copyDirectoryContents(from: src, into: subDest)
+                continue
+            }
 
             let dst = dest.appendingPathComponent(src.lastPathComponent, isDirectory: false)
             try Self.assertContained(dst, in: dest)
@@ -286,6 +311,43 @@ struct InsightCache {
                 throw error
             }
         }
+    }
+
+    // MARK: - Vendored lib lookup
+
+    /// Resolve a vendored lib filename in `_assets/` by case-insensitive
+    /// prefix match (e.g. `"chart"` → `"chart-4.4.9.min.js"`). Returns nil
+    /// if no file matches. Used by `InsightSession.buildHTMLTemplate` to
+    /// emit `<script src="../_assets/<actualFilename>">` without
+    /// hard-coding upstream filenames that drift with version bumps
+    /// (Wave 6 audit T9 #1 fix).
+    ///
+    /// `extension:` narrows the result set to `.js` or `.css` so a
+    /// caller asking for the Prism stylesheet (`prism-okaidia.min.css`)
+    /// is not handed `prism.min.js`. When two files share a prefix, the
+    /// shorter filename wins (deterministic ordering by length then
+    /// lexicographic) — keeps cache rebuilds reproducible.
+    func vendoredLibURL(matching prefix: String, extension ext: String) -> URL? {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: assetsDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        let lowerPrefix = prefix.lowercased()
+        let lowerExt = ext.lowercased()
+        let matches = entries.filter { url in
+            let name = url.lastPathComponent.lowercased()
+            return name.hasPrefix(lowerPrefix) && url.pathExtension.lowercased() == lowerExt
+        }
+        return matches.sorted { a, b in
+            if a.lastPathComponent.count != b.lastPathComponent.count {
+                return a.lastPathComponent.count < b.lastPathComponent.count
+            }
+            return a.lastPathComponent < b.lastPathComponent
+        }.first
     }
 
     /// In-place atomic swap of `source` over `destination`. Wraps
