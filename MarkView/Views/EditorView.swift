@@ -156,6 +156,39 @@ struct EditorView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             isEditorReady = true
+            // Probe: did the inline <script> in index.html actually execute and
+            // define our v2 functions? Result is independent of any bridge call.
+            let probeJS = """
+            (function() {
+                try {
+                    var scripts = Array.from(document.scripts).map(function(s, i) {
+                        return { i: i, src: s.src || '', tlen: s.textContent ? s.textContent.length : 0, type: s.type || '' };
+                    });
+                    var inlineScripts = scripts.filter(function(s) { return s.tlen > 0; });
+                    return JSON.stringify({
+                        bridgeAvailable: !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge),
+                        loadInsightSkeleton: typeof window.loadInsightSkeleton,
+                        setContent: typeof window.setContent,
+                        scriptCount: scripts.length,
+                        inlineScriptCount: inlineScripts.length,
+                        inlineScriptTotalLen: inlineScripts.reduce(function(a,s){return a+s.tlen;}, 0),
+                        firstInlineLen: inlineScripts[0] ? inlineScripts[0].tlen : 0,
+                        firstInlineHead: inlineScripts[0] ? document.scripts[inlineScripts[0].i].textContent.substr(0, 200) : '',
+                        readyState: document.readyState,
+                        href: location.href,
+                        bodyLen: document.body ? document.body.innerHTML.length : -1,
+                        htmlLen: document.documentElement ? document.documentElement.outerHTML.length : -1
+                    });
+                } catch (e) { return 'probe-threw: ' + String(e); }
+            })()
+            """
+            webView.evaluateJavaScript(probeJS) { result, error in
+                if let error = error {
+                    WebViewBridge.logInsightDiag("didFinish PROBE error=\(error.localizedDescription)")
+                } else {
+                    WebViewBridge.logInsightDiag("didFinish PROBE result=\(String(describing: result).prefix(600))")
+                }
+            }
             // Load any pending content
             if let content = pendingContent {
                 let docURL = pendingDocumentURL
@@ -284,8 +317,11 @@ struct EditorView: NSViewRepresentable {
         private func routeInsight(session: InsightSession, webView: WKWebView) {
             let sessionId = session.id.uuidString
 
+            WebViewBridge.logInsightDiag("routeInsight ENTRY sid=\(sessionId.prefix(8)) currentSid=\(self.currentInsightSessionId?.prefix(8) ?? "nil") skeletonAtEntry=\(session.skeleton == nil ? "nil" : "PRESENT(\(session.skeleton!.sections.count) sections)")")
+
             // Same session as before — already subscribed and streaming. No-op.
             if currentInsightSessionId == sessionId {
+                WebViewBridge.logInsightDiag("routeInsight EARLY-RETURN: same sessionId — subscriptions already wired")
                 return
             }
 
@@ -316,15 +352,21 @@ struct EditorView: NSViewRepresentable {
             // `lastForwardedSectionLength` BEFORE forwarding so the next
             // `$currentNodeSections` emission computes deltas from 0 against the new
             // section ids (skeleton replace = new node = new section keys).
+            WebViewBridge.logInsightDiag("routeInsight SUBSCRIBE \\$skeleton sid=\(sessionId.prefix(8))")
             session.$skeleton
                 .compactMap { $0 }
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak session, weak webView] skeleton in
+                    WebViewBridge.logInsightDiag("\\$skeleton SINK FIRED — self=\(self == nil ? "nil" : "ok") session=\(session == nil ? "nil" : "ok") webView=\(webView == nil ? "nil" : "ok") sections=\(skeleton.sections.count)")
                     guard let self = self,
                           let session = session,
-                          let webView = webView else { return }
+                          let webView = webView else {
+                        WebViewBridge.logInsightDiag("\\$skeleton SINK aborted by guard")
+                        return
+                    }
                     self.lastForwardedSectionLength.removeAll()
                     let nodeId = session.currentNode()?.id.uuidString ?? ""
+                    WebViewBridge.logInsightDiag("\\$skeleton SINK calling bridge.loadInsightSkeleton sid=\(session.id.uuidString.prefix(8)) nid=\(nodeId.prefix(8))")
                     self.bridge.loadInsightSkeleton(
                         skeleton: skeleton,
                         sessionId: session.id.uuidString,

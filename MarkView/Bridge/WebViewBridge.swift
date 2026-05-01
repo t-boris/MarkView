@@ -76,9 +76,15 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         // Safety wrapper — any crash in message handling must not kill the app
         guard let dict = message.body as? [String: Any],
-              let messageType = dict["type"] as? String else { return }
+              let messageType = dict["type"] as? String else {
+            Self.logInsightDiag("userContentController: malformed body=\(String(describing: message.body).prefix(120))")
+            return
+        }
 
         let payload = dict["payload"]
+        // Diag every incoming bridge message so we can prove JS→Swift is alive
+        // (filter common high-rate types in the log post-hoc).
+        Self.logInsightDiag("userContentController IN type=\(messageType) hasPayload=\(payload != nil)")
 
         // headingsUpdated sends payload as array directly
         if messageType == "headingsUpdated" {
@@ -402,7 +408,13 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             Self.logInsightDiag("loadInsightSkeleton: failed to encode sessionId/nodeId")
             return
         }
-        let js = "window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit))"
+        // `window.loadInsightSkeleton` is `async function` → returns a Promise.
+        // WKWebView's `evaluateJavaScript` cannot serialize a Promise back to
+        // Swift and reports "JavaScript execution returned a result of an
+        // unsupported type" (WKErrorDomain Code=5). The Promise body still
+        // executes; only the return value crosses the bridge. Wrapping with
+        // `void()` makes the eval return `undefined`, which IS supported.
+        let js = "void window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit))"
         Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {

@@ -123,6 +123,28 @@
             } catch (e) {
                 console.warn('[insight] failed to post updateInsightSection:', e);
             }
+            // Schedule per-section lib init after a quiet period (500 ms with no
+            // further chunks for this section). The iframe srcdoc's
+            // `initSectionLib` is idempotent: mermaid skips `data-processed`
+            // diagrams, Chart.js construction is gated by canvas attribute,
+            // KaTeX auto-render only walks new nodes. Running it once the
+            // section is fully streamed turns LLM-emitted code blocks into
+            // rendered diagrams/charts. Without this, diagrams stay as raw
+            // <pre> text.
+            if (!state.insightSectionInitTimers) state.insightSectionInitTimers = new Map();
+            const prevTimer = state.insightSectionInitTimers.get(secId);
+            if (prevTimer) clearTimeout(prevTimer);
+            const t = setTimeout(function() {
+                state.insightSectionInitTimers.delete(secId);
+                if (!state.insightIframe || !state.insightIframe.contentWindow) return;
+                try {
+                    state.insightIframe.contentWindow.postMessage({
+                        type: 'initSectionLib',
+                        payload: { sectionId: secId },
+                    }, '*');
+                } catch (e) { /* iframe gone — ignore */ }
+            }, 500);
+            state.insightSectionInitTimers.set(secId, t);
         };
 
         // window.setInsightError(sessionId, message, retryable)
