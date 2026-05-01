@@ -1,23 +1,42 @@
 feature: recursive-insight-v2
 total_waves: 8
-last_completed_wave: 1
-next_wave: 2
+last_completed_wave: 8
+next_wave: null
+status: ready-for-user-verification
 mode: variant-B-sequential
 team_name: null
 tasks:
   T1: { status: done, wave: 1, commits: [66829ad, c00ae48] }
   T2: { status: done, wave: 1, commits: [a2866be, c00ae48] }
   T3: { status: done, wave: 1, commits: [d0f28f0, c00ae48] }
-  T4: { status: planned, wave: 2 }
-  T5: { status: planned, wave: 2 }
-  T6: { status: planned, wave: 3 }
-  T7: { status: planned, wave: 4 }
-  T8: { status: planned, wave: 5 }
-  T9: { status: planned, wave: 6 }
-  T10: { status: planned, wave: 6 }
-  T11: { status: planned, wave: 7 }
-  T12: { status: planned, wave: 8 }
-notes:
-  - "Wave 1 closed: 9 reviews (3 approved, 1 needs_improvement TDD scope, 1 minor doc/CVE accuracy fix). 1 fix round resolved real bugs."
-  - "T4 MUST keep mapReduceForFolder body intact (additive) — v1 InsightSession (live until T6) still calls it"
-  - "T5 must add v2 insight-mode JS additively — v1 still wired through bridge until T7"
+  T4: { status: done, wave: 2, commits: [bc2728b] }
+  T5: { status: done, wave: 2, commits: [b3d688f] }
+  T6: { status: done, wave: 3, commits: [cd7d03a] }
+  T7: { status: done, wave: 4, commits: [d4b0bf3] }
+  T8: { status: done, wave: 5, commits: [a2971ba, ad240e7] }
+  T9: { status: done, wave: 6, commits: [38236f7] }  # PASS-WITH-FOLLOWUPS, fixes applied
+  T10: { status: done, wave: 6, commits: [38236f7] }  # APPROVED_WITH_FIXES, fixes applied
+  T11: { status: done, wave: 7 }  # DEFERRAL JUSTIFIED
+  T12: { status: done, wave: 8 }  # READY FOR USER VERIFICATION
+audit_outcomes:
+  T9_code_audit: PASS_WITH_FOLLOWUPS  # 4 majors all fixed
+  T10_security_audit: APPROVED_WITH_FIXES  # 1 medium fixed
+  T11_test_audit: DEFERRAL_JUSTIFIED
+  T12_pre_deploy_qa: READY_FOR_USER_VERIFICATION
+known_issues_deferred:
+  - id: T9-followup
+    severity: cleanup
+    description: "GraphRAG.mapReduceForFolder ~305 lines unused after T6; defer cleanup"
+  - id: T10-SEC-002-004
+    severity: low
+    description: "Pre-existing main-frame CSP allows cdn.jsdelivr.net; no SRI; vendored lib CVEs (KaTeX/Prism/Mermaid) — risk-accepted, sandbox-mitigated; bump in next major release"
+manual_verification_pending:
+  - "Anthropic tool_use endpoint smoke (no API key in QA agent context)"
+  - "12 Instruments → Allocations scenarios per task spec (a-l)"
+  - "14 user-spec acceptance criteria walkthrough"
+  - "ZIP archive opens in Safari with full breadcrumb navigation"
+  - "After-snapshot SQLite (no insight rows added by manual flow)"
+follow_up_tasks:
+  - "tasks/todo.md — XCTest infrastructure + 8 v2 test paths (target 2026-05-14)"
+  - "tasks/todo.md — Security carry-over (WKWebView prefs, audit logging, version pinning)"
+  - "T9 dead code: remove GraphRAG.mapReduceForFolder + 5 minor v1-compat shims"

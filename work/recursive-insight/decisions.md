@@ -138,3 +138,13 @@ Per-task summaries (1-3 sentences) + commit refs + key decisions.
 - Critical paths uncovered: none
 - Report: logs/audit/test-audit.md
 - (Audit completed inline by orchestrator due to upstream rate limit; verification used direct file inspection)
+
+## Task 12: Pre-deploy QA
+- Programmatic verdict: PASS (8/8 static checks; build green; SHAs verified; storage clean)
+- Build: BUILD SUCCEEDED, 0 errors
+- 5 static greps (sandbox / frameInfo / setters / message types / zip not /bin/sh): 8/8 PASS (8 categories)
+- Anthropic tool_use smoke: SKIPPED (no ANTHROPIC_API_KEY in QA env) — user must rerun before merge
+- Manual pending: 12 Instruments leak scenarios + 14 user-spec checkboxes + standalone-ZIP-in-Safari + after-snapshot SQLite check
+- Open audit followups: 4 majors + 1 medium ALREADY RESOLVED in commit 38236f7; 6 nit/minor cleanup items deferred (incl. 305-line dead code mapReduceForFolder)
+- Recommendation: READY FOR USER VERIFICATION (YELLOW — one caveat: rerun Anthropic curl with API key)
+- Report: logs/qa/pre-deploy-qa-report.md
