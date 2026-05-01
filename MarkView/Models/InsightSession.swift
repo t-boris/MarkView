@@ -366,7 +366,7 @@ final class InsightSession: ObservableObject, Identifiable {
         cachedNodeHTML = nil
         lastError = nil
         lastErrorRetryable = true
-        statusMessage = "Phase 1: building skeleton..."
+        statusMessage = "Phase 1: analyzing \(mdFiles.count) files..."
 
         let nodeId = root.id
         activeTask = Task { [weak self] in
@@ -448,7 +448,8 @@ final class InsightSession: ObservableObject, Identifiable {
         cachedNodeHTML = nil
         lastError = nil
         lastErrorRetryable = true
-        statusMessage = "Phase 1: building skeleton..."
+        let scopedCount = validated.isEmpty ? mdFiles.count : validated.count
+        statusMessage = "Phase 1: analyzing \(scopedCount) files..."
 
         // Memory cap check after node creation (Decision 10 §7).
         enforceSessionMemoryCap()
@@ -490,10 +491,11 @@ final class InsightSession: ObservableObject, Identifiable {
         allSectionsReady = (nodes[nodeId]?.status == .ready)
         lastError = nil
         lastErrorRetryable = true
-        statusMessage = (nodes[nodeId]?.status == .ready) ? "Ready (cached)" : ""
 
         // Cache read — best-effort. Miss is OK (fresh node mid-stream, or cache cleaned).
         cachedNodeHTML = (try? cache.readNode(nodeId: nodeId))
+        // Status message reflects whether we actually loaded HTML from disk cache.
+        statusMessage = (cachedNodeHTML != nil) ? "Loaded from cache" : ""
     }
 
     /// Equivalent to clicking the parent breadcrumb. No-op when already at root.
@@ -544,7 +546,7 @@ final class InsightSession: ObservableObject, Identifiable {
         cachedNodeHTML = nil
         lastError = nil
         lastErrorRetryable = true
-        statusMessage = "Phase 1: building skeleton..."
+        statusMessage = "Retrying current node (attempt \(retryHistory[nodeId]?.count ?? 1)/3)..."
 
         // Cancel any prior active task and re-run pipeline for SAME node id.
         activeTask?.cancel()
@@ -701,7 +703,8 @@ final class InsightSession: ObservableObject, Identifiable {
         node.sectionStates = initialStates
         if currentNodeId == nodeId {
             self.currentNodeSections = initialStates
-            self.statusMessage = "Phase 2: streaming sections (0/\(validatedSections.count))..."
+            // Phase 1 success — concrete completion message before phase 2 fires.
+            self.statusMessage = "Phase 1: built skeleton (\(validatedSections.count) sections) ✓"
         }
 
         return validatedSkeleton
@@ -755,6 +758,11 @@ final class InsightSession: ObservableObject, Identifiable {
                 folderURL: folderURL
             )
             preparedPrompts.append((section: section, systemPrompt: prompts.systemPrompt, userMessage: prompts.userMessage))
+        }
+
+        // Status update — phase 2 about to start streaming N sections.
+        if currentNodeId == nodeId {
+            self.statusMessage = "Phase 2: 0/\(skeleton.sections.count) sections complete..."
         }
 
         // Use a non-throwing task group: per-section errors are caught INSIDE each
@@ -833,7 +841,7 @@ final class InsightSession: ObservableObject, Identifiable {
         if currentNodeId == nodeId {
             self.allSectionsReady = true
             self.statusMessage = readyCount == totalCount
-                ? "Ready"
+                ? "✓ Complete (\(totalCount)/\(totalCount) sections, cached for instant back-nav)"
                 : "Ready (\(readyCount)/\(totalCount) sections — some failed)"
         }
     }
@@ -873,13 +881,12 @@ final class InsightSession: ObservableObject, Identifiable {
             return
         }
 
-        // Mirror to the published @MainActor map.
+        // Mirror to the published @MainActor map. Status-bar updates are driven by
+        // `markSectionReady` / `markSectionFailed` (per-section granularity) — NOT
+        // per-chunk, to avoid excessive Combine emission. The streaming-hint in
+        // `markSectionReady` reflects which section is currently in flight.
         if currentNodeId == forNodeId {
             currentNodeSections[sectionId] = state
-            // Status-bar progress.
-            let total = node.sectionStates.count
-            let ready = node.sectionStates.values.filter { $0.status == .ready }.count
-            statusMessage = "Phase 2: streaming sections (\(ready)/\(total))..."
         }
 
         // Per-session cap (Decision 10 §7).
@@ -887,7 +894,8 @@ final class InsightSession: ObservableObject, Identifiable {
     }
 
     /// Section-stream completed successfully — flip the section's status to `.ready`
-    /// and update the status bar.
+    /// and update the status bar with completed/total + an optional hint at any
+    /// section that is still streaming (for user-visible "what's happening now").
     private func markSectionReady(sectionId: String, forNodeId: UUID) {
         guard let node = nodes[forNodeId] else { return }
         if var state = node.sectionStates[sectionId] {
@@ -899,11 +907,18 @@ final class InsightSession: ObservableObject, Identifiable {
                 state.status = .ready
                 currentNodeSections[sectionId] = state
             }
-            let total = node.sectionStates.count
-            let ready = node.sectionStates.values.filter { $0.status == .ready }.count
-            statusMessage = ready == total
-                ? "Ready"
-                : "Phase 2: streaming sections (\(ready)/\(total))..."
+            let completed = currentNodeSections.values.filter { $0.status == .ready }.count
+            let total = currentNode()?.skeleton?.sections.count ?? node.sectionStates.count
+            // Find any currently-streaming section's title for context.
+            var streamingHint = ""
+            if let skel = currentNode()?.skeleton {
+                if let streamingSection = skel.sections.first(where: {
+                    currentNodeSections[$0.id]?.status == .streaming
+                }), let title = streamingSection.title {
+                    streamingHint = " (\(title) streaming...)"
+                }
+            }
+            statusMessage = "Phase 2: \(completed)/\(total) sections complete\(streamingHint)"
         }
     }
 
@@ -922,10 +937,10 @@ final class InsightSession: ObservableObject, Identifiable {
                 state.status = .failed
                 currentNodeSections[sectionId] = state
             }
-            let total = node.sectionStates.count
-            let ready = node.sectionStates.values.filter { $0.status == .ready }.count
-            let failed = node.sectionStates.values.filter { $0.status == .failed }.count
-            statusMessage = "Phase 2: \(ready)/\(total) ready, \(failed) failed..."
+            let completed = currentNodeSections.values.filter { $0.status == .ready }.count
+            let total = currentNode()?.skeleton?.sections.count ?? node.sectionStates.count
+            let failedCount = currentNodeSections.values.filter { $0.status == .failed }.count
+            statusMessage = "Phase 2: \(completed)/\(total) complete, \(failedCount) failed"
         }
     }
 

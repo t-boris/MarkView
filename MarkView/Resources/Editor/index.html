@@ -898,11 +898,12 @@
 
         .insight-status-bar {
             flex-shrink: 0;
-            padding: 4px 12px;
+            padding: 5px 12px;
             background: var(--bg-secondary);
             border-top: 1px solid var(--border-color);
             color: var(--text-secondary);
-            font-size: 11px;
+            font-size: 13px;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -914,6 +915,18 @@
             color: var(--accent-danger);
             background: rgba(244, 71, 71, 0.12);
             border-top-color: var(--accent-danger);
+        }
+        /* Brief opacity flicker when status text changes — applied via JS by
+           toggling .insight-status-pulse on the bar element after textContent
+           is updated. Keyframe is intentionally short (~220 ms) and subtle so
+           the user notices an update without it being distracting. */
+        @keyframes insight-status-pulse {
+            0%   { opacity: 0.45; }
+            60%  { opacity: 1.0; }
+            100% { opacity: 1.0; }
+        }
+        .insight-status-bar.insight-status-pulse {
+            animation: insight-status-pulse 220ms ease-out;
         }
     </style>
 </head>
@@ -3100,10 +3113,24 @@
         function setStatusBar(message, phase, isError) {
             const bar = DOM.insightStatusBar;
             if (!bar) return;
-            bar.textContent = message == null ? '' : String(message);
+            const next = message == null ? '' : String(message);
+            const changed = (bar.textContent !== next);
+            // textContent ONLY (Decision 10 escape policy) — never innerHTML on
+            // LLM-derived strings. Status messages are Swift-side literals here
+            // but the policy is uniform regardless of provenance.
+            bar.textContent = next;
             bar.classList.remove('phase-1', 'phase-2', 'ready', 'error');
             if (isError) bar.classList.add('error');
             else if (phase === 'phase-1' || phase === 'phase-2' || phase === 'ready') bar.classList.add(phase);
+            // Brief pulse so the user notices status changes during long generation.
+            if (changed && next !== '') {
+                bar.classList.remove('insight-status-pulse');
+                // Force reflow so re-adding the class restarts the animation.
+                // Reading offsetWidth is the canonical idiom; void cast to mute
+                // the unused-expression lint signal.
+                void bar.offsetWidth;
+                bar.classList.add('insight-status-pulse');
+            }
         }
 
         // ---------------------------------------------------------------------------
