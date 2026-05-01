@@ -1,7 +1,7 @@
 feature: recursive-insight
 total_waves: 9
-last_completed_wave: 5
-next_wave: 6
+last_completed_wave: 6
+next_wave: 7
 mode: variant-B-sequential
 team_name: null
 tasks:
@@ -12,14 +12,11 @@ tasks:
   T5: { status: done, wave: 1, commits: [33cba9d, 7db0ae9] }
   T6: { status: done, wave: 4, commits: [f33ea0a, 86c07f0] }
   T7: { status: done, wave: 5, commits: [73ce507, aaee220] }
-  T8: { status: planned, wave: 6 }
+  T8: { status: done, wave: 6, commits: [bef9874] }
   T9: { status: planned, wave: 7 }
   T10: { status: planned, wave: 7 }
   T11: { status: planned, wave: 8 }
   T12: { status: planned, wave: 9 }
 notes:
-  - "T3 critical XML breakout escape required 3 fix rounds (regex template under-escaping)"
-  - "T4 critical handleStreamError wrong-node bug + 4 major fixed in round 2"
-  - "T6 fix landed in InsightSession.swift (cross-task) — snapshot().markdown reflects rawBuffer during streaming"
-  - "T7 critical: insight tabs leaked to disk via Cmd+S/refresh paths — 9 guards added"
-  - "Swift 6 warning about xmlAttrSafeCharacters nonisolated — non-blocking, defer"
+  - "All implementation tasks (T1-T8) complete. Wave 7 = Audit Wave."
+  - "Build clean, app integrates Recursive Insight feature end-to-end."

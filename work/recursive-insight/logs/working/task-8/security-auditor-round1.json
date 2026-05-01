@@ -1,0 +1,11 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 0,
+    "critical": 0,
+    "major": 0,
+    "minor": 0
+  },
+  "findings": [],
+  "notes": "Task 8 adds a single SwiftUI Button inside the AI Tools > Analysis menu in MarkView/Views/ContentView.swift (lines 130-133 of the new file). The button invokes the vetted public method workspaceManager.startRecursiveInsight() and is gated by .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles). Security review across the full OWASP Top 10 (2021): A01 Broken Access Control - N/A, no auth surface; the disabled guard is a UX precondition, not a security boundary. A02 Cryptographic Failures - N/A. A03 Injection - no user input is processed in this diff; the button has no parameters. A04 Insecure Design - the design correctly bypasses runAITool(named:) per task spec (Decisions 1+4) to route to the proper tab kind, avoiding a misdispatch class of bug. A05 Security Misconfiguration - N/A. A06 Vulnerable Components - no dependency changes. A07 Authentication Failures - N/A. A08 Software/Data Integrity - no deserialization introduced. A09 Logging/Monitoring - N/A for a UI menu entry. A10 SSRF - no URL or network call introduced. Hardcoded secrets scan: none (only the literal string \"\\ud83e\\udded Recursive Insight\" is added). The .disabled predicate also provides defense-in-depth against launching an insight session on a closed/empty workspace, which prevents downstream code paths in startRecursiveInsight() from being invoked with degenerate inputs (rootNode == nil). Verdict: approved with no findings."
+}

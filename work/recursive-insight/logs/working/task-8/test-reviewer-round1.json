@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "summary": "Task 8 is a 4-line SwiftUI menu addition (one Button + one .disabled modifier). Tests are explicitly deferred per Decision 9 in the tech-spec, with manual UI verification covering all behavioral states. The TDD anchor scope is appropriate: SwiftUI menu buttons are not meaningfully unit-testable in XCTest without ViewInspector-grade UI introspection, and the 4 manual checks in the User verification section exhaustively cover the disabled/enabled state matrix (no folder, folder with .md, folder without .md, position after fulldocs). No automated tests are warranted for this surface area.",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/8.md — Verification Steps / User",
+      "issue": "Manual verification covers the three primary states (no folder, folder with .md, folder without .md) but does not explicitly include the edge case from the Details section: a folder where the only .md files live inside .dde/ or hidden subfolders. The task spec lists this as an edge case (relies on Task 2's hasMarkdownFiles skipping hidden + .dde) but the user-facing manual check sequence does not call it out.",
+      "recommendation": "Add a fifth manual check: 'Open a folder whose only .md files are inside a .dde/ subfolder (or any hidden directory). The Recursive Insight entry should be disabled.' This validates the transitive contract with Task 2's hasMarkdownFiles helper and protects against a regression where hidden-file filtering breaks."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/8.md — Verification Steps / User, step 2",
+      "issue": "Manual checks verify that the button becomes enabled and that it is positioned correctly, but do not verify that clicking the enabled button actually triggers startRecursiveInsight() (i.e. opens a Recursive Insight tab). Wiring to the wrong method (e.g. runAITool(named: \"insight\")) would still render an enabled button and would not be caught by the current checklist.",
+      "recommendation": "Add to step 2: 'Click the now-enabled Recursive Insight entry and confirm a new Recursive Insight tab opens (not an AI Console tab).' This covers AC line 'Button action calls workspaceManager.startRecursiveInsight() directly (not via runAITool(named:))' which is otherwise only verifiable by code inspection."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "litmusTest": {
+      "checked": 0,
+      "passed": 0,
+      "failed": 0
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 0,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "healthy"
+    }
+  }
+}

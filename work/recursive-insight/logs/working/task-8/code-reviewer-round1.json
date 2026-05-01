@@ -1,0 +1,23 @@
+{
+  "status": "approved",
+  "summary": "Minimal, correctly-scoped 4-line addition that wires a new '🧭 Recursive Insight' Button into Section(\"Analysis\") of the AI Tools menu in ContentView.swift. All acceptance criteria are met: placement is immediately after '📚 Generate Full Documentation', the action calls workspaceManager.startRecursiveInsight() directly (not via runAITool), and the disabled predicate (rootNode == nil || !hasMarkdownFiles) matches the spec. Cross-file consistency verified against WorkspaceManager.swift; build succeeds with no warnings introduced in ContentView.swift.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Views/ContentView.swift",
+      "line": 133,
+      "severity": "minor",
+      "category": "performance",
+      "suggestion": "SwiftUI re-evaluates `.disabled(...)` on every body render of ContentView. `workspaceManager.hasMarkdownFiles` performs a FileManager.enumerator walk of the workspace each time it's read (WorkspaceManager.swift:626-649). It short-circuits on the first match, but on folders with no .md files it walks the entire tree on every redraw. This is a property-design concern owned by Task 2 (the property's call site is correct here) — consider caching the boolean in WorkspaceManager and invalidating it on folder open / file-system events, rather than recomputing on every menu read. Out of scope for Task 8 itself; flagging as informational so it can be tracked against the Task 2 property if perf becomes noticeable.",
+      "benefit": "Avoids per-frame disk enumeration when the AI Tools menu is part of a re-rendered view hierarchy, especially on workspaces with many non-markdown files.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 1,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 1,
+    "testCoverageAssessment": "adequate"
+  }
+}

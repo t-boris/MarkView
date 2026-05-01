@@ -128,3 +128,10 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - Code review: unused `fromSession` param now used — analyzed-folder name (recovered from the owning tab's placeholder URL since InsightSession.folderURL is private and we did not widen its access from outside InsightSession.swift) prefixes the default filename and drives the in-folder warning
 - Build: SUCCEEDED, 0 warnings/errors in WorkspaceManager.swift or EditorView.swift
 - Commit: aaee2201e51928bec2bf7dc464310e70b0521fbc
+
+## Task 8: AI Tools menu integration
+- Added Button "🧭 Recursive Insight" to Section("Analysis") after "Generate Full Documentation"
+- Wired to workspaceManager.startRecursiveInsight()
+- .disabled(rootNode == nil || !hasMarkdownFiles)
+- Build: SUCCEEDED
+- Commit: bef9874
