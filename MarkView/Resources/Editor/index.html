@@ -2957,6 +2957,23 @@
                         catch (e) { /* malformed HTML — drop chunk */ }
                     } else if (data.type === 'initSectionLib') {
                         initSectionLib(String(p.sectionId || ''));
+                    } else if (data.type === 'updateInsightProgress') {
+                        // In-iframe progress banner — prominent feedback while
+                        // generation is in flight. textContent ONLY (Decision 10).
+                        var banner = document.getElementById('insight-progress-banner');
+                        if (!banner) return;
+                        var textEl = banner.querySelector('.insight-progress-text');
+                        if (textEl && p.message != null) {
+                            textEl.textContent = String(p.message);
+                        }
+                        if (p.phase === 'ready') {
+                            banner.classList.add('insight-progress-done');
+                            setTimeout(function() {
+                                if (banner && banner.parentNode) {
+                                    banner.parentNode.removeChild(banner);
+                                }
+                            }, 800);
+                        }
                     } else if (data.type === 'setIframeStatus') {
                         // No iframe-side status surface yet; ignore.
                     }
@@ -2989,8 +3006,44 @@
             // Inline CSS — skeleton-loader pulse, section + button styling.
             const inlineCSS = `
             html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; background: #fff; color: #1e1e1e; }
-            body { padding: 16px 24px; }
-            .insight-doc-title { font-size: 20px; font-weight: 700; margin: 0 0 16px; }
+            body { padding: 16px 24px; padding-top: 0; }
+            .insight-progress-banner {
+                position: sticky;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 100;
+                margin: 0 -24px 16px;
+                background: linear-gradient(90deg, rgba(74,158,255,0.18), rgba(74,158,255,0.06));
+                border-bottom: 1px solid rgba(74,158,255,0.35);
+                padding: 14px 18px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+                font-size: 14px;
+                color: #2563eb;
+                transition: opacity 0.6s ease-out;
+            }
+            .insight-progress-icon {
+                font-size: 18px;
+                display: inline-block;
+                animation: insight-spin 1.5s linear infinite;
+                transform-origin: 50% 50%;
+            }
+            .insight-progress-text { flex: 1; }
+            @keyframes insight-spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+            }
+            .insight-progress-banner.insight-progress-done {
+                opacity: 0;
+                pointer-events: none;
+            }
+            .insight-progress-banner.insight-progress-done .insight-progress-icon {
+                animation: none;
+            }
+            .insight-doc-title { font-size: 20px; font-weight: 700; margin: 16px 0 16px; }
             section { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
             section:last-of-type { border-bottom: none; }
             .section-title { font-size: 16px; font-weight: 600; margin: 0 0 8px; color: #2a2a2a; }
@@ -3037,6 +3090,10 @@
                 katexStyleBlock +
                 libScripts +
                 '</head><body>' +
+                '<div id="insight-progress-banner" class="insight-progress-banner">' +
+                    '<div class="insight-progress-icon">⚙</div>' +
+                    '<div class="insight-progress-text">Initializing…</div>' +
+                '</div>' +
                 '<h1 class="insight-doc-title">' + title + '</h1>' +
                 sectionsHTML +
                 '<div class="iframe-footer">' +
@@ -3321,13 +3378,29 @@
         };
 
         // window.setInsightStatus(sessionId, message, phase)
-        // Updates the status bar with phase tinting (phase-1/phase-2/ready).
+        // Updates the status bar with phase tinting (phase-1/phase-2/ready) AND
+        // forwards the same message to the in-iframe progress banner so the
+        // user sees prominent feedback inside the content area (the bottom
+        // status bar is easy to miss). Bottom bar kept as defense-in-depth.
+        // Note: parent→iframe postMessage direction is NOT covered by the
+        // 5-type JS→Swift bridge allowlist (Decision 2.5) — that allowlist
+        // applies to webkit.messageHandlers.bridge only.
         window.setInsightStatus = function(sessionId, message, phase) {
             const sid = sessionId != null ? String(sessionId) : null;
             if (sid !== null && state.insightSessionId !== null && sid !== state.insightSessionId) {
                 return;
             }
             setStatusBar(message, phase, false);
+            // Forward to iframe progress banner.
+            try {
+                const iframe = state.insightIframe || (DOM.insightContainer && DOM.insightContainer.querySelector('iframe'));
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage({
+                        type: 'updateInsightProgress',
+                        payload: { message: message == null ? '' : String(message), phase: phase || '' },
+                    }, '*');
+                }
+            } catch (e) { /* iframe not ready / cross-origin — banner will catch up on next update */ }
         };
 
         // window.releaseInsightBlobs()
