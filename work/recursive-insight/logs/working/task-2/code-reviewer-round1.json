@@ -1,0 +1,62 @@
+{
+  "status": "approved",
+  "summary": "Task 2 vendoring is production-ready. The new chart-4.4.9.min.js is byte-identical to the official Chart.js 4.4.9 UMD min build from jsdelivr (SHA-256 bce154080959c574be0bb6b1a924ff32f08ebc6ff460c159171f51c53802c844, 206944 bytes). All 50 MANIFEST.txt entries (26 JS + 4 CSS + 20 KaTeX webfonts) hash-match their on-disk counterparts. pbxproj correctly left untouched: the existing ditto-based Run Script (line 349) recursively copies the whole vendor/ directory, so chart-4.4.9.min.js will be included in the bundle automatically.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Resources/Editor/vendor/js/chart-4.4.9.min.js",
+      "line": 1,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "chart-4.4.9.min.js is the only vendored file that follows the version-in-filename convention (the requested vendoring discipline). All 25 pre-existing JS assets and all 4 CSS assets use unversioned names (mermaid.min.js, katex.min.js, prism.min.js, etc.), with version pinned only inside MANIFEST.txt. Consider a follow-up task to either (a) rename existing assets to match the new convention (e.g., mermaid-10.6.1.min.js), updating index.html script tags accordingly, or (b) explicitly document in MANIFEST.txt that the version-in-filename convention applies only to assets vendored from this commit forward. This is out of scope for Task 2 but worth tracking to avoid drift.",
+      "benefit": "Project-wide consistency makes accidental version mismatches visible at the filesystem level, not just in MANIFEST.txt. Reduces risk of silent upgrades during ad-hoc file replacement.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Resources/Editor/vendor/MANIFEST.txt",
+      "line": 9,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "MANIFEST.txt does not record the on-disk filename for each entry. For most entries the filename is trivially derivable from the lib_name column (e.g., 'mermaid' -> mermaid.min.js), but for two cases this mapping is non-obvious: 'prismjs-html' -> prism-html.min.js (vendored from upstream prism-markup.min.js, intentional rename because Prism aliases languages.html = languages.markup), and 'katex-auto-render' -> auto-render.min.js. Adding a 7th column 'local_path' (e.g., js/chart-4.4.9.min.js) would let a verification script idempotently re-hash by parsing the manifest, instead of requiring out-of-band knowledge of the rename. The header comment on line 7 already promises 'verified against shasum -a 256 <file> of on-disk file in this directory' — recording the file path would make that promise machine-checkable.",
+      "benefit": "Enables a CI hook (or pre-commit script) to validate manifest integrity automatically: parse manifest -> for each row, shasum the local_path -> diff vs sha256 column. Today this requires a human to know the file-rename mapping.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Resources/Editor/vendor/MANIFEST.txt",
+      "line": 11,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "Three entries (mermaid 10.6.1, katex 0.16.9, prismjs 1.29.0) carry 'Risk accepted' notes for known CVEs with patched upstream versions available (mermaid 11.x, katex 0.16.21, prismjs 1.30.0). The risk-acceptance rationale (sandboxed WKWebView, no untrusted DOM context, fenced-code-only Prism input) is reasonable and well-documented inline, but the manifest does not link these deferrals to a tracking artifact (issue ID, todo file, scheduled milestone). Consider appending an issue reference to each 'Upgrade ... scheduled separately' note (e.g., 'tracked: issue #NN' or 'tracked: tasks/lessons.md'). Otherwise the deferrals risk becoming permanent.",
+      "benefit": "Makes the upgrade obligation actionable and discoverable. Aligns with the lessons.md / tasks/todo.md workflow described in CLAUDE.md.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 3,
+    "testCoverageAssessment": "adequate"
+  },
+  "verificationEvidence": {
+    "chartjs_upstream_sha256_match": true,
+    "chartjs_upstream_url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js",
+    "chartjs_upstream_size_bytes": 206944,
+    "chartjs_local_size_bytes": 206944,
+    "chartjs_banner_verified": "Chart.js v4.4.9, MIT, (c) 2025 Chart.js Contributors",
+    "chartjs_format_verified": "UMD (commonjs/AMD/global Chart export)",
+    "manifest_entries_total": 50,
+    "manifest_entries_hash_verified": 50,
+    "manifest_entries_hash_mismatched": 0,
+    "vendor_files_on_disk": 50,
+    "vendor_js_files": 26,
+    "vendor_css_files": 4,
+    "vendor_font_files": 20,
+    "manifest_coverage_complete": true,
+    "pbxproj_modified_in_commit": false,
+    "pbxproj_run_script_handles_vendor_dir_recursively": true,
+    "pbxproj_run_script_location": "MarkView.xcodeproj/project.pbxproj:349 (ditto vendor/ -> ${TARGET_BUILD_DIR}/.../Editor/vendor)",
+    "prism_html_aliasing_confirmed": "prism-html.min.js is upstream prism-markup.min.js; Prism source sets Prism.languages.html = Prism.languages.markup",
+    "manifest_format_consistency": "all 50 rows use uniform 6-column pipe-delimited format (lib_name | version | sha256 | source_url | cve_check_date | cve_check_result)"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "status": "needs_improvement",
+  "summary": "Tests for T1 are deferred per Decision 9 (no XCTest target). The committed fixture parses cleanly through the new toolCall parser and the returned dict is structurally compatible with InsightSkeleton/InsightSection/DeepDiveTopic. The 7 TDD anchors in tasks/1.md are behavioral (not substring-only) and well-scoped for the happy path, HTTP error paths, sanitize discipline, and pre-flight noAPIKey. However, three real failure modes the deferred suite must add are missing: (a) leading text block before tool_use (the parser explicitly handles this — anchor needed to lock the behavior in), (b) tool_use block where input is not a dict (parser throws .parseError — currently untested), (c) JSONSerialization failure on malformed body (parser bubbles the throw — currently untested). Also missing: assertion that the request body actually contains tool_choice forced to the right name, which is the structural-output guarantee Decision 1 leans on.",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "anti_pattern",
+      "location": "Tests/Fixtures/insight-skeleton-sample.json (committed fixture, hand-trace)",
+      "issue": "Hand-trace through the toolCall parser succeeds end-to-end on this fixture: JSONSerialization decodes the envelope, content[] casts to [[String: Any]], the single block has type==tool_use and input cast to [String: Any] succeeds. Returned dict has title (String), suggestedTheme (String), sections (array of 4 InsightSection-shaped dicts) with mixed SectionType values (hero, mermaidDiagram, prose, comparisonTable — all valid raw values for the enum) and the prose section has a non-empty deepDiveTopics array (2 entries, each with id/label/hint/scopeHint). Envelope realism is high: id format msg_<base58>, type=message, role=assistant, model=claude-sonnet-4-6 (matches toolCall default), stop_reason=tool_use, stop_sequence=null, content[].id=toolu_<base58>, content[].name=insight_skeleton, usage block includes cache_creation_input_tokens / cache_read_input_tokens (real Anthropic shape). No issues with the fixture as a hand-trace anchor.",
+      "recommendation": "Keep the fixture. Optionally add a SECOND fixture file Tests/Fixtures/insight-skeleton-with-leading-text.json that places a {type: 'text', text: '...'} content block BEFORE the tool_use block — the parser explicitly comments that it scans all blocks for this case, but no fixture exercises that path. Without it, the deferred test suite has no canonical input for the 'multiple content blocks' edge case the implementation hint in tasks/1.md (Edge cases bullet 3) calls out."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "work/recursive-insight/tasks/1.md TDD Anchor section",
+      "issue": "TDD anchor list omits the 'leading text block before tool_use' path. AIProviderClient.swift line 727 explicitly loops with 'Scan ALL blocks for the first tool_use — Anthropic may emit a leading text block (e.g. brief reasoning) before the tool call, even with tool_choice forcing the tool.' Without a dedicated test, a future refactor could replace the loop with `contentBlocks.first` and silently break the contract. The current anchor #1 (happy path) only covers content[0] being tool_use.",
+      "recommendation": "Add anchor: `AIProviderClientTests::toolCall_textBlockBeforeToolUse_returnsInputFromLaterBlock` — given a 200 response whose content array is [{type: 'text', text: 'Reasoning...'}, {type: 'tool_use', input: {...}}], assert toolCall returns the input dict from the second block, not nil and not a throw."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "work/recursive-insight/tasks/1.md TDD Anchor section",
+      "issue": "TDD anchor list omits the 'tool_use block with non-dict input' path. AIProviderClient.swift line 729-731 explicitly throws .parseError(sanitize('tool_use block has no input dict')) when the input cast to [String: Any] fails (e.g. Anthropic returned input as an array or string due to schema mismatch — vanishingly rare but the implementation guards it). Without a test, a refactor that replaces the guard with `as!` would crash the app at runtime.",
+      "recommendation": "Add anchor: `AIProviderClientTests::toolCall_toolUseInputNotDict_throwsParseError` — given a 200 response whose tool_use block has input as a JSON array (e.g. `\"input\": []`), assert toolCall throws AIProviderError.parseError, error message contains 'tool_use block has no input dict', and the message does not contain the API key substring."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "work/recursive-insight/tasks/1.md TDD Anchor section",
+      "issue": "TDD anchor list does not assert anything about the REQUEST body shape sent to Anthropic. The structural-output guarantee Decision 1 relies on requires (a) tools[0].name == supplied name, (b) tool_choice == {type: 'tool', name: <same name>}, (c) tools[0].input_schema is the supplied schema dict, (d) headers include x-api-key and anthropic-version: 2023-06-01. A future edit could change tool_choice to `{type: 'auto'}` and the model would be free to emit text instead of tool_use, breaking Phase 1 entirely — and every existing 'response stub' test would still pass because they only stub the response.",
+      "recommendation": "Add anchor: `AIProviderClientTests::toolCall_requestBodyForcesNamedTool` — using a URLProtocol stub that captures the outgoing request, assert request.httpMethod == 'POST', request.url == 'https://api.anthropic.com/v1/messages', headers include 'x-api-key' and 'anthropic-version: 2023-06-01', and the JSON body satisfies: body['tools'][0]['name'] == suppliedName, body['tool_choice'] == ['type': 'tool', 'name': suppliedName], body['tools'][0]['input_schema'] equals the supplied schema dict, body['model'] respects the model parameter, body['max_tokens'] respects maxTokens."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "work/recursive-insight/tasks/1.md TDD Anchor section",
+      "issue": "TDD anchor toolCall_apiKeyNeverInErrors covers errorDescription but not the case where the HTTP body itself echoes the request (Anthropic's 401/400 responses sometimes include a snippet of the offending request, which contains the x-api-key header value if the request body is dumped). The sanitize call at line 717 is the only barrier; an integration test should construct a stub response whose body literally contains the apiKey value and assert it is scrubbed before being attached to AIProviderError.httpError.",
+      "recommendation": "Strengthen anchor toolCall_apiKeyNeverInErrors with explicit case: `toolCall_httpErrorBodyContainsApiKey_isSanitized` — stub a 401 response whose body string literally contains the test apiKey, assert the thrown AIProviderError.httpError associated body string does NOT contain the apiKey substring (case-sensitive, exact match)."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "work/recursive-insight/tasks/1.md TDD Anchor section",
+      "issue": "TDD anchors do not cover the 'JSONSerialization throws on malformed body' path. AIProviderClient.swift line 720 calls JSONSerialization.jsonObject inside a try, but the function rethrows the underlying NSError without sanitization (the error itself comes from Foundation, so it does not contain the apiKey — but the test should verify this). Anthropic returning a 200 with an HTML maintenance page (rare during incidents) would trigger this path.",
+      "recommendation": "Add anchor: `AIProviderClientTests::toolCall_malformedJsonBody_throws` — stub a 200 response with body 'not json at all', assert toolCall throws (any error is acceptable since this is Foundation-level), and assert the thrown error's localizedDescription does not contain the apiKey substring."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "work/recursive-insight/tasks/1.md TDD Anchor section",
+      "issue": "TDD anchor toolCall_schemaValidationFailure_throws is documented as 'parser-side concern; for T1 just verify dict is returned as-is and validation is the caller's responsibility'. This is correct per the design but the anchor name suggests something stronger than the assertion. Will confuse the T8 implementer.",
+      "recommendation": "Rename anchor to `AIProviderClientTests::toolCall_inputDictReturnedVerbatimRegardlessOfSchemaConformance` — given a tool_use block whose input is missing fields the supplied inputSchema marked as required, assert toolCall STILL returns the dict unchanged (no validation in the parser layer; T6 InsightSession decodes Codable and falls back per tech-spec line 568)."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 4,
+    "litmusTest": {
+      "checked": 7,
+      "passed": 7,
+      "failed": 0
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 7,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "healthy"
+    }
+  }
+}

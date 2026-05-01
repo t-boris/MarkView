@@ -1,0 +1,63 @@
+{
+  "status": "needs_improvement",
+  "summary": "Tests are deferred per Decision 9 (no XCTest target). Reviewing the 10 TDD anchors as a follow-up scope for T8: most anchors are behavioral and well-shaped (round-trips, idempotency, cleanup races, atomic crash injection). Three meaningful gaps remain: (1) sibling-prefix path-traversal vector — the exact bb828a9 fix mandated in this task — is not in any anchor; (2) concurrent-writer race on the shared `manifest.json.tmp` filename is unanchored and is a real bug surface given the struct advertises background-task safety; (3) several typed-error invariants the spec explicitly lists (`manifestDecode` wrapping, `bundleResourceMissing(name:)`) have no anchor. The `archiveStagingDirectory_layout` anchor also under-tests the contract — verifies presence of three names but not vendored-asset completeness or the post-T8-HTML-rewrite invariant. Recommend amending the deferred test list before T8 picks it up.",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/3.md TDD Anchor section — anchor #8 `test_path_traversal_rejected`",
+      "issue": "Anchor enumerates `..` traversal and symlinks but omits the sibling-prefix attack (`/x/foobar` vs `/x/foo`). The task spec spends a full paragraph mandating the bb828a9 fix and lists it as an acceptance criterion (`hasPrefix` with path-separator boundary). Without an anchor, a future refactor that drops the trailing-`/` boundary would pass the existing planned tests and silently re-open the vulnerability the bb828a9 commit closed.",
+      "recommendation": "Add anchor `test_assertContained_rejects_sibling_prefix_attack`: construct a candidate at `<rootDirectory.deletingLastPathComponent>/<rootLastPathComponent + 'bar'>/secret.html` and assert `assertContained` throws `pathEscape`. Pair with positive case where the legitimate root path itself passes (covers the `==` clause). This is the regression test for bb828a9 — anchor it explicitly so the boundary-`/` invariant is locked."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/3.md TDD Anchor section — no anchor covers concurrent `updateManifest` callers",
+      "issue": "The struct's threading contract advertises off-main background-task safety and Decision 4 puts manifest writes on the same hot path as parallel node writes. `updateManifest` constructs `tmpURL = rootDirectory/manifest.json.tmp` — a SINGLE shared filename across all callers (unlike `writeNode` whose tmp is UUID-suffixed). Two concurrent updaters can interleave: both `data.write(to: tmpURL)`, both `removeItem(manifestURL)`, both `moveItem(tmpURL → manifestURL)` — the second `moveItem` fails with ENOENT and the on-disk manifest is whichever encode happened to land last (or, if `data.write` interleaves at the syscall level, garbage). The doc comment claims atomicity but the design is not concurrency-safe. No anchor would catch this.",
+      "recommendation": "Either (a) add anchor `test_updateManifest_concurrent_callers_no_torn_state`: spawn two `Task` instances writing distinct manifests, await both, assert `loadManifest()` returns one of the two intact (not a merge, not a throw), OR (b) revise the implementation to use a per-call UUID-suffixed tmp name (`manifest.json.<uuid>.tmp`) and add an anchor that asserts no orphan tmp files remain after concurrent writes. Recommend (b) — it fixes the actual bug rather than just documenting it. Flag for the implementer regardless; the test gap is the symptom."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/3.md TDD Anchor section — no anchor for typed-error invariants",
+      "issue": "Spec mandates two typed errors with specific contracts: (a) `InsightCacheError.manifestDecode(underlying:)` wraps any `JSONDecoder` failure so callers do not see a raw `DecodingError` (line 58 of task spec); (b) `InsightCacheError.bundleResourceMissing(name:)` carries the missing subdirectory name as a precise diagnostic (edge-case section). Neither has an anchor. A future refactor that throws the underlying error directly, or omits the `name:` payload, would pass the existing 10 anchors silently.",
+      "recommendation": "Add two anchors. `test_loadManifest_wraps_decoding_error_as_manifestDecode`: write malformed JSON to `manifestURL`, call `loadManifest()`, assert thrown error matches `case .manifestDecode(let underlying)` AND `underlying is DecodingError`. `test_init_throws_bundleResourceMissing_for_absent_vendor_dir`: stub `Bundle.main` (or extract the bundle lookup behind a seam) so `forResource:` returns nil, call init, assert thrown error matches `case .bundleResourceMissing(let name)` AND `name == 'Editor/vendor/js'` (or `/css`). Both are 5-line tests that lock down the public error contract."
+    },
+    {
+      "severity": "minor",
+      "category": "empty_test",
+      "location": "tasks/3.md TDD Anchor section — anchor #7 `test_archiveStagingDirectory_layout`",
+      "issue": "Anchor only asserts that `_assets/`, `nodes/`, `manifest.json` exist at top level. This is a presence/structure assertion that passes for any directory that happens to contain those three names — it does not verify (a) `_assets/` contains the vendored libs that init copied, (b) the returned URL is contained inside `rootDirectory` (the defense-in-depth invariant the implementation makes a point of asserting), (c) `manifest.json` is parseable as `InsightManifest`. Borderline empty-test by litmus: if `archiveStagingDirectory` were replaced with `return rootDirectory` and init's asset copy were no-op'd, the structure assertion still passes as long as the dirs exist.",
+      "recommendation": "Strengthen the anchor with three assertions: (1) `FileManager.contentsOfDirectory(at: result/_assets)` is non-empty AND contains every basename present in the bundle's `vendor/js` and `vendor/css`; (2) `result.path.hasPrefix(cache.rootDirectory.path)` (containment); (3) `try cache.loadManifest()` succeeds (manifest is a valid encoded `InsightManifest`, not just any file named `manifest.json`). Each of these would fail under a real regression that the current anchor would not catch."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/3.md TDD Anchor section — anchor #4 `test_updateManifest_atomic`",
+      "issue": "Anchor says 'same crash-mid-write scenario for manifest' without specifying the observable invariant the test asserts. Anchor #1 names the invariant precisely ('only `.tmp` orphan exists, no truncated `.html` observable to a concurrent `readNode`'). Without the same precision, an implementer may write a test that only verifies the crash injector ran — leaving the actual atomicity guarantee untested.",
+      "recommendation": "Restate as: `test_updateManifest_atomic_no_partial_on_crash` — inject a failure between `data.write(to: tmpURL)` and `moveItem(tmpURL → manifestURL)` (e.g. swizzle `FileManager.moveItem` to throw on first call), assert that a concurrent `loadManifest()` either returns the previous manifest intact OR throws `manifestDecode` (never returns a half-written merge), AND assert only `manifest.json.tmp` orphan remains on disk. Mirror the precision of anchor #1."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/3.md TDD Anchor section — no anchor verifies every public method routes through `assertContained`",
+      "issue": "Acceptance criterion line 85 mandates that 'every method that constructs a file URL invokes the path-containment helper' and proposes `grep` as the verification mechanism. Grep verifies the call exists in source but cannot verify the helper actually rejects bad input — e.g. a regression where the helper is called but its result is `try?`'d and ignored would still pass grep. No behavioral anchor exercises the helper through the public API.",
+      "recommendation": "Add anchor `test_public_methods_reject_path_escape` parameterised across `writeNode`, `readNode`, `updateManifest`, `loadManifest`. Construct a cache with a `rootDirectory` that contains a symlink pointing outside the workspace root, then attempt each public operation against a node URL whose resolved path escapes — assert `pathEscape` is thrown by every method. Catches a future regression where someone catches and swallows the helper's error in one of the methods."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 3,
+    "litmusTest": {
+      "checked": 10,
+      "passed": 8,
+      "failed": 2
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 10,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "healthy"
+    }
+  }
+}

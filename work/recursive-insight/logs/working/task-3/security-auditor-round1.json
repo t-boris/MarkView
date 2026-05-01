@@ -1,0 +1,61 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 5,
+    "critical": 0,
+    "major": 0,
+    "minor": 5
+  },
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "A04: Insecure Design",
+      "title": "Pre-removal of destination weakens atomicity claim of writeNode/updateManifest",
+      "description": "Both writeNode (line 117) and updateManifest (line 152) execute `try? FileManager.default.removeItem(at: finalURL)` immediately before `moveItem(at: tmpURL, to: finalURL)`. The file header (lines 20-26) and the per-method docs explicitly claim POSIX rename atomicity: 'rename pattern. Both temp and final URL live as siblings inside the same parent directory so the rename stays on a single volume (POSIX rename is atomic on the same filesystem)'. POSIX `rename(2)` (which `FileManager.moveItem` maps to on Darwin) atomically REPLACES the destination — explicit pre-removal is unnecessary and actively introduces a window in which the destination does not exist. A concurrent reader (`readNode`) hitting this window observes a 'file not found' state for a node that should appear consistently as either the old or new contents. The documented threading contract permits background writes from T6's `withThrowingTaskGroup`, so concurrent read/write windows are reachable in practice.",
+      "location": "MarkView/Models/InsightCache.swift:117 and :152",
+      "impact": "Loss of read-during-write atomicity guarantee. Not directly exploitable, but undermines the defense-in-depth claim made in the file header and creates an unnecessary failure mode where a transient `.tmp` write error leaves the cache in a state worse than before (old version deleted, new version not in place).",
+      "recommendation": "Remove the explicit pre-removal — `moveItem` already atomically replaces the destination on Darwin. If `moveItem`'s 'fails if destination exists' behaviour is feared (it's a Cocoa-layer concern for some volumes, not a POSIX rename concern), use the lower-level `replaceItem(at:withItemAt:backupItemName:options:resultingItemURL:)` which is documented as performing an atomic-replace where supported. Example:\n```swift\ntry FileManager.default.replaceItem(\n    at: finalURL,\n    withItemAt: tmpURL,\n    backupItemName: nil,\n    options: [],\n    resultingItemURL: nil\n)\n```",
+      "cwe": "CWE-367 (TOCTOU)"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "InsightCacheError.pathEscape carries unsanitised absolute URL with no enforced redaction",
+      "description": "`InsightCacheError.pathEscape(url: URL)` (lines 38-39) carries the offending file URL. The doc comment correctly warns 'never surfaced to UI — it may contain absolute paths', but there is no enforcement — the enum has no custom `LocalizedError` conformance, no `description` override, no separate `safeDescription` / `redactedPath` helper. A future caller doing `print(error)`, `error.localizedDescription`, NSLog, or telemetry forwarding will leak `/Users/<username>/Documents/...` revealing the OS account name, workspace location, and possibly project names. The doc-comment-only contract relies on every future caller reading the comment.",
+      "location": "MarkView/Models/InsightCache.swift:33-44 (enum InsightCacheError)",
+      "impact": "Information disclosure of local filesystem layout / username if any logging or crash-reporting pipeline is added later (Sentry, Crashlytics, NSLog forwarded by macOS to Console.app). Not directly exploitable today (no telemetry exists), but cheap to harden now.",
+      "recommendation": "Either (a) store only the last path component and a hash of the parent path, or (b) add a `LocalizedError` conformance whose `errorDescription` redacts to `<session-cache>/.../<filename>`. Example:\n```swift\nextension InsightCacheError: LocalizedError {\n    var errorDescription: String? {\n        switch self {\n        case .pathEscape(let url):\n            return \"Path containment violation for <redacted>/\\(url.lastPathComponent)\"\n        ...\n        }\n    }\n}\n```\nKeep the raw URL accessible for in-process debugging via the associated value, but make the default string conversion safe.",
+      "cwe": "CWE-209 (Information Exposure Through Error Message)"
+    },
+    {
+      "severity": "minor",
+      "category": "A04: Insecure Design",
+      "title": "archiveStagingDirectory containment check is a tautology — provides no defense-in-depth",
+      "description": "Line 214 calls `try Self.assertContained(rootDirectory, in: rootDirectory)`. With identical input on both sides, the `==` branch in `assertContained` (line 281) always succeeds. The doc on lines 211-213 advertises this as 'Defense-in-depth: an external process will be spawned against the returned URL — re-validate containment'. In reality the check verifies nothing about the on-disk state — it does not confirm the directory still exists, that it is still a directory (not replaced with a symlink or regular file by a TOCTOU racer), or that no path component below it has been swapped for a symlink to elsewhere. T8 will spawn `/usr/bin/zip -r <dest> .` against this URL and follow whatever symlinks are now present.",
+      "location": "MarkView/Models/InsightCache.swift:210-216 (archiveStagingDirectory)",
+      "impact": "False sense of security. T8 sees a doc-comment claiming defense-in-depth re-validation but receives no real validation. If a malicious process (or buggy code path) replaces `<root>` with a symlink between cache init and zip-staging time, `zip -r` will follow it and archive whatever it points to, potentially exfiltrating files outside the workspace into the resulting export archive that the user then shares.",
+      "recommendation": "Replace the tautological self-check with a real inspection. Example:\n```swift\nfunc archiveStagingDirectory() async throws -> URL {\n    let fm = FileManager.default\n    var isDir: ObjCBool = false\n    guard fm.fileExists(atPath: rootDirectory.path, isDirectory: &isDir),\n          isDir.boolValue else {\n        throw InsightCacheError.pathEscape(url: rootDirectory)\n    }\n    // Confirm the resolved path still equals the constructed path —\n    // catches mid-flight symlink swaps of any path component.\n    let resolved = rootDirectory.resolvingSymlinksInPath().standardizedFileURL.path\n    let expected = rootDirectory.standardizedFileURL.path\n    guard resolved == expected else {\n        throw InsightCacheError.pathEscape(url: rootDirectory)\n    }\n    return rootDirectory\n}\n```\nAdditionally, T8 should pass `zip` the `--symlinks` flag with care, or use a Swift-native ZIP writer that does not follow symlinks.",
+      "cwe": "CWE-59 (Improper Link Resolution Before File Access)"
+    },
+    {
+      "severity": "minor",
+      "category": "A04: Insecure Design",
+      "title": "cleanup() recursive remove has no pre-flight containment scan",
+      "description": "`cleanup()` (lines 180-192) calls `FileManager.default.removeItem(at: rootDirectory)` without scanning the tree for symlinks first. Cocoa's `removeItem` on Darwin is implemented atop `removefile(3)` and does NOT follow symlinks (it removes the symlink inode, not its target) — so a planted symlink at `<root>/nodes/evil.html → /Users/victim/Documents/important.txt` would be deleted as a symlink, leaving the target intact. This is the safe default and the current implementation is therefore correct in practice. However, there is no defensive verification: if a future macOS / Foundation regression changed this behaviour, or if someone refactored to use `removeItem(atPath:)` with a path computed from a recursive enumerator, a symlink-follow regression could silently land. Given that the rest of the file uses `assertContained` aggressively as belt-and-suspenders, the asymmetry stands out.",
+      "location": "MarkView/Models/InsightCache.swift:180-192 (cleanup)",
+      "impact": "Today: none — current Foundation behaviour is correct. Future: a refactor or Foundation regression that begins following symlinks during recursive remove would allow files outside the cache root to be deleted (data destruction) if the workspace folder were writable by another low-privilege process that planted symlinks inside `.insight-cache/`.",
+      "recommendation": "Either (a) document the trust boundary explicitly in the cleanup() doc comment ('relies on removeItem not following symlinks — verified Darwin Foundation behaviour as of macOS 14'), or (b) add a pre-flight enumerator pass that calls `assertContained` on every entry before removal, throwing `pathEscape` on any escaped link. Option (b) costs one extra directory walk per cleanup but matches the file's existing defensive posture.",
+      "cwe": "CWE-59 (Improper Link Resolution Before File Access)"
+    },
+    {
+      "severity": "minor",
+      "category": "A04: Insecure Design",
+      "title": "Cross-volume rename atomicity edge case undocumented for network workspaces",
+      "description": "The file header (lines 20-26) correctly notes that POSIX `rename(2)` is atomic on the same filesystem and that the temp+final pair are siblings, guaranteeing same-volume rename. This holds for local volumes. However, MarkView accepts arbitrary user-chosen workspace folders via the security-scoped bookmarks pathway, and a workspace on a remote filesystem (SMB, AFP, network-mounted NFS, iCloud Drive's `~/Library/Mobile Documents`) does not necessarily honour POSIX rename atomicity guarantees — SMB in particular can fall back to copy+delete and iCloud's file-coordinator layer can interleave a sync operation between the temp write and the rename. This is not a security vulnerability per se, but the atomicity claim is stronger than the underlying filesystem may support, and a torn manifest write on a network volume could leave `manifest.json` partially written or absent.",
+      "location": "MarkView/Models/InsightCache.swift:20-26 (file header) and :115, :151 (write+rename pairs)",
+      "impact": "On non-POSIX-conformant volumes (SMB, iCloud Drive, some network mounts) a crash or process kill between the `Data.write(to:options:.atomic)` and the `moveItem` could leave the cache without a manifest while node files exist, or with a stale manifest pointing at non-existent nodes. The next session load would throw `manifestDecode` or surface inconsistent state. Not a confidentiality / integrity-of-other-data concern, only a durability concern for this cache.",
+      "recommendation": "Either (a) add a one-line caveat to the file header noting 'atomicity guarantee assumes a POSIX-conformant local filesystem; non-local volumes degrade to best-effort', or (b) on init, probe `URLResourceValues.volumeIsLocalKey` for the workspace URL and refuse / warn if the volume is non-local. Option (a) is cheap documentation; option (b) is more defensive but couples InsightCache to a workspace-policy decision that probably belongs higher up.",
+      "cwe": "CWE-367 (TOCTOU)"
+    }
+  ]
+}

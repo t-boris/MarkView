@@ -1,0 +1,53 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 2,
+    "critical": 0,
+    "major": 0,
+    "minor": 2
+  },
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "parseError errorDescription does not truncate, unlike httpError/streamingError",
+      "description": "AIProviderError.errorDescription truncates httpError body to .prefix(200) (L807) and streamingError msg to .prefix(200) (L812), but parseError(let msg) returns the full string verbatim (L808). All three current toolCall throw sites pass static literals through sanitize(...), so today there is no functional risk. However, defensive uniformity is the stated discipline of T1 — every error path strings should behave identically when surfaced to the user. If a future caller (e.g. T6 InsightSession) refactors a parseError throw to embed a slice of the raw response or any caller-supplied user content, the full string will reach errorDescription unbounded. This widens the attack surface for accidental leakage (e.g. PII, partial credentials, oversize log entries).",
+      "location": "MarkView/Models/AIProviderClient.swift:808",
+      "impact": "No present-day exploitation. Defense-in-depth gap that could surface if downstream callers interpolate dynamic content into parseError messages. Inconsistency with the L251 streamCompletion / L807 httpError truncation discipline that T1 was specifically asked to mirror.",
+      "recommendation": "Mirror the truncation pattern: change L808 to `case .parseError(let msg): return \"Parse error: \\(msg.prefix(200))\"`. Single-character delta, zero behavior change for current toolCall callers (their messages are already < 200 chars), eliminates the asymmetry across the three string-carrying error cases.",
+      "cwe": "CWE-209"
+    },
+    {
+      "severity": "minor",
+      "category": "A09",
+      "title": "URLSession transport errors propagate raw without sanitize() wrapping",
+      "description": "At L712 `try await session.data(for: request)` — if URLSession throws (timeout, DNS failure, TLS error, cancellation), the raw Swift Error propagates out of toolCall un-sanitized. The task spec explicitly accepts this (extractSingleChunk uses the same pattern, and URLSession errors do not include request bodies). However, NSURLErrorDomain errors can include the failing URL in `userInfo[NSErrorFailingURLStringKey]`, which is `https://api.anthropic.com/v1/messages` — this URL has no query string and never carries the apiKey, so the present risk is zero. The minor observation is that this is not a defense-in-depth posture: an OS framework upgrade or future use of a URL component containing the key (e.g. switching to query-string auth) would silently bypass sanitize.",
+      "location": "MarkView/Models/AIProviderClient.swift:712",
+      "impact": "No present-day leak. The Anthropic auth scheme uses x-api-key header (never URL), and URLSession errors do not echo HTTP request bodies. Inconsistent with the L317-318 streamCompletion catch block that wraps `String(describing: error)` in sanitize() before re-throwing as streamingError.",
+      "recommendation": "Consider wrapping the URLSession call in a do/catch that re-throws as `AIProviderError.streamingError(sanitize(String(describing: error)))` — same defensive shape as L316-318 in streamCompletion. This is a hardening suggestion only; the current code matches the documented pattern of extractSingleChunk and the task spec expressly allows raw propagation. Either approach is acceptable; flagging for completeness so the team makes a deliberate choice.",
+      "cwe": "CWE-209"
+    }
+  ],
+  "verification_notes": {
+    "focus_area_1_streamCompletion_L251_mirrored": "PASS. toolCall L713-718 mirrors streamCompletion L239-251: status cast, body decode with empty fallback, sanitize() wrap, httpError throw. toolCall is simpler (one-shot session.data instead of bounded byte drain) which is appropriate for non-streaming Messages response.",
+    "focus_area_2_parseError_sanitize_uniformity": "PASS. All three parseError throw sites (L722, L730, L735) wrap their message in sanitize(). Strings are static literals today (no apiKey substring possible), so the wrap is purely defensive uniformity — exactly what the task spec required.",
+    "focus_area_3_noAPIKey_preflight": "PASS. L684-686 noAPIKey guard is the first executable statement of the method, before JSONSerialization, URLRequest construction, or any session call. No URLSession invocation can occur with a nil/empty key.",
+    "focus_area_4_tools_schema_correctness": "PASS. tool dict has the three Anthropic-required keys (name, description, input_schema) at L687-691. tool_choice forces exact tool invocation via {type: tool, name: name} at L700. inputSchema is passed verbatim from caller — schema validity is the caller's responsibility per tech-spec Decision 1 / T6 acceptance criteria. Matches the request shape of the working generateMermaidDiagrams reference.",
+    "focus_area_5_no_injection_paths_in_input_dict_parsing": "PASS. Returned [String: Any] is the verbatim JSONSerialization output. The cast `block[\"input\"] as? [String: Any]` rejects non-objects. No string interpolation, no eval, no dynamic dispatch on dict values. T1 explicitly defers schema validation to caller (T6 InsightSession), where the dict is Codable-decoded into InsightSkeleton — that decoding step is the type-enforcement boundary.",
+    "fixture_review": "Tests/Fixtures/insight-skeleton-sample.json: parses as valid JSON, mirrors Anthropic Messages response envelope, contains no secrets, no API key strings, no PII. Realistic InsightSkeleton input with 4 sections (hero / mermaidDiagram / prose with deepDiveTopics / comparisonTable). Safe to commit.",
+    "owasp_coverage": {
+      "A01_access_control": "N/A — single-user macOS app, no authz boundaries in this method.",
+      "A02_crypto": "PASS — TLS via URLSession default, key stored via separate storage layer, key passed only via header.",
+      "A03_injection": "PASS — no SQL/command/LDAP/XSS vectors. JSONSerialization handles encoding; tool_use input dict is opaque to this method.",
+      "A04_insecure_design": "PASS — sanitize-at-throw-site discipline is structurally enforced; tool_choice prevents free-form text smuggling.",
+      "A05_misconfig": "PASS — no debug logging of body/headers in toolCall; URL hardcoded to TLS Anthropic endpoint.",
+      "A06_vuln_components": "N/A — no new dependencies; only Foundation.",
+      "A07_auth_failures": "PASS — noAPIKey pre-flight, header-based auth matches existing methods.",
+      "A08_data_integrity": "PASS — JSONSerialization (not Decodable on untrusted polymorphic types, not pickle/YAML); returned dict is not deserialized into executable code.",
+      "A09_logging_monitoring": "PASS with minor observation above — no NSLog/print of request body, response body, or apiKey within toolCall. No new audit-log gaps introduced.",
+      "A10_ssrf": "PASS — URL is hardcoded constant (baseURL = https://api.anthropic.com/v1/messages); no user-controllable URL component."
+    },
+    "hardcoded_secrets_scan": "PASS — diff contains no API keys, tokens, passwords, or credential strings. Fixture file contains realistic-looking but synthetic Anthropic message ID (msg_01H8Qz...) and tool ID (toolu_01ABc...) which are not credentials.",
+    "grep_apikey_in_throws": "All apiKey references in toolCall are: (a) the noAPIKey guard, (b) the x-api-key header set on the URLRequest. apiKey value is never interpolated into any throw, NSLog, or print statement. sanitize() is correctly invoked on every error-path string at the throw site (not at catch site)."
+  }
+}

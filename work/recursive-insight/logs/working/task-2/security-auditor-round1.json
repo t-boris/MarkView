@@ -1,0 +1,71 @@
+{
+  "status": "approved",
+  "summary": {
+    "totalFindings": 6,
+    "critical": 0,
+    "major": 2,
+    "minor": 4
+  },
+  "findings": [
+    {
+      "severity": "major",
+      "category": "A06: Vulnerable Components",
+      "title": "Mermaid 10.6.1 CVE attribution in MANIFEST is partially incorrect",
+      "description": "MANIFEST.txt line 11 attributes 3 CVEs to mermaid 10.6.1: GHSA-7rqq-prvp-x9jh (CVE-2025-54881), GHSA-8gwm-58g9-j8pw (CVE-2025-54880), and GHSA-m4gq-x24j-jpmf (DOMPurify pollution). Cross-checked against GitHub Security Advisories (verified 2026-04-30):\n  • CVE-2025-54881 affected ranges are `10.9.0-rc.1` through `10.9.3` and `11.0.0-alpha.1` through `11.9.x` — 10.6.1 is BELOW the affected range, NOT vulnerable.\n  • CVE-2025-54880 affected range is `11.1.0` through `11.9.x` — 10.6.1 is in a different major, NOT vulnerable.\n  • GHSA-m4gq-x24j-jpmf (bundled DOMPurify CVE-2024-45801) affected range is `<= 10.9.2`, patched in 10.9.3 — 10.6.1 IS vulnerable.\nSo the manifest over-states the CVE count for mermaid (1 real, not 3). This is not a security exposure per se, but it inflates the apparent risk record and could mislead future audits / Pre-deploy QA reviewers about which version-affecting advisories actually apply. Snyk also confirms 'No direct vulnerabilities have been found' for mermaid 10.6.1 outside the bundled-DOMPurify path.",
+      "location": "MarkView/Resources/Editor/vendor/MANIFEST.txt:11",
+      "impact": "Misleading audit record. Future reviewers may either (a) waste effort tracking irrelevant CVEs or (b) lose trust in the manifest's accuracy and start ignoring its findings. Real exposure is one DOMPurify-pollution CVE, not three XSS CVEs.",
+      "recommendation": "Correct the mermaid 10.6.1 row to list only GHSA-m4gq-x24j-jpmf (CVE-2024-45801, bundled DOMPurify, patched in mermaid 10.9.3+). Example replacement for the cve_check_result column:\n```\nknown-CVE: GHSA-m4gq-x24j-jpmf (bundled DOMPurify CVE-2024-45801 prototype-pollution -> XSS via dist/mermaid.min.js; patched in mermaid 10.9.3). CVE-2025-54880 / CVE-2025-54881 do NOT affect 10.6.1 (10.9.x and 11.x ranges only). Risk accepted: rendered inside sandboxed iframe (Decision 2, v2) with allow-scripts only — pollution exploit requires attacker-controlled DOM in main frame; not present in v2 insight mode. NOTE: until v2 ships, mermaid is loaded into the MAIN editor frame (index.html line 1190) where the sandbox mitigation does NOT apply — see separate finding. Upgrade to mermaid 11.x (or 10.9.3 minimum) scheduled separately.\n```",
+      "cwe": "CWE-1395"
+    },
+    {
+      "severity": "major",
+      "category": "A04: Insecure Design",
+      "title": "Sandbox mitigation rationale assumes v2 architecture that is not yet shipped",
+      "description": "MANIFEST.txt rationale for accepting katex 0.16.9, prism 1.29.0, and mermaid 10.6.1 CVEs reads: 'rendered inside sandboxed WKWebView with allow-scripts only; no untrusted DOM context.' This refers to the v2 Decision-2 iframe sandbox model (`<iframe sandbox=\"allow-scripts\">`, no `allow-same-origin`, postMessage allowlist) described in tech-spec.md lines 163-181. However, this iframe is part of v2 insight mode, which is not yet implemented in the current build. Today (commit a2866be) the WebView loads mermaid/katex/prism directly via `<script src=\"vendor/js/mermaid.min.js\">` etc. in the MAIN frame of `MarkView/Resources/Editor/index.html` (lines 1190, 1193, 1205-1214). In the main frame, there is no sandbox: a malicious .md or LLM-rendered content with raw mermaid input that triggers the bundled-DOMPurify pollution CVE, or a poisoned LaTeX expression triggering one of KaTeX 0.16.9's CVEs, would execute in the same origin as the editor's bridge. The risk-acceptance text in MANIFEST therefore documents a future control, not a current one. Note: KaTeX CVEs largely require `trust: true` and `\\htmlData` / `\\includegraphics`, which the project says it does not enable; Prism CVE-2024-53382 requires DOM-clobbering primitives in untrusted HTML which Markdown rendering generally restricts. So the residual risk is bounded — but the MANIFEST should not claim a control that does not yet exist.",
+      "location": "MarkView/Resources/Editor/vendor/MANIFEST.txt:11-12,14 + MarkView/Resources/Editor/index.html:1190-1226",
+      "impact": "MANIFEST records a risk-acceptance rationale predicated on a control (v2 iframe sandbox) that is not present in shipped builds. Until v2 lands, these libraries run in the main frame where exploitation of any of the listed CVEs would have full access to bridge handlers. Risk is bounded by Markdown sanitization upstream (markdown-it default does escape raw HTML) and by KaTeX `trust: false` default, but the documented mitigation is not the actually-active mitigation.",
+      "recommendation": "Reword the cve_check_result column for mermaid, katex, katex-auto-render, and prismjs entries to distinguish present vs. future controls. Example for mermaid line:\n```\n... Risk accepted CONDITIONAL on v2 architecture (Decision 2, tech-spec.md L163-181). PRE-V2 (current build, commit a2866be): mermaid loaded in MAIN frame via index.html L1190; main mitigation is markdown-it default raw-HTML escape + mermaid securityLevel:'strict' (index.html L19). POST-V2: rendered inside `<iframe sandbox=\"allow-scripts\">`, null-origin, no parent DOM access. Upgrade to mermaid 10.9.3+ scheduled separately to retire the bundled-DOMPurify CVE before v2 ships.\n```\nApply analogous wording to the KaTeX/Prism rows. Optional stronger remediation: bring forward the upgrade work — mermaid 10.9.3 and prismjs 1.30.0 are minor patch bumps with no breaking API changes; KaTeX 0.16.21 within the 0.16.x line is also low-risk. Doing the upgrades closes the audit hole entirely without depending on v2 sandbox arriving on schedule.",
+      "cwe": "CWE-1188"
+    },
+    {
+      "severity": "minor",
+      "category": "A06: Vulnerable Components",
+      "title": "KaTeX 0.16.9 — 5 CVEs verified, all patched in 0.16.10/0.16.21",
+      "description": "Cross-checked against GitHub Security Advisories and Snyk (2026-04-30):\n  • CVE-2024-28243 (GHSA-64fm-8hw2-v72w, Moderate, CVSS 6.5) — `\\edef` maxExpand bypass DoS. Affects >=0.12.0 <0.16.10. CONFIRMED affects 0.16.9.\n  • CVE-2024-28244 (GHSA-cvr6-37gx-v8wc, Moderate, CVSS 6.5) — Unicode sub/superscript maxExpand bypass DoS. Affects 0.15.4-0.16.9. CONFIRMED.\n  • CVE-2024-28245 (GHSA-f98w-7cxr-ff2h, Moderate, CVSS 6.3) — `\\includegraphics` filename injection (requires trust:true). CONFIRMED affects 0.16.9.\n  • CVE-2024-28246 (GHSA-3wc5-fcw2-2329, Moderate, CVSS 5.5) — protocol case bypass (`JAVASCRIPT:` vs `javascript:`, requires trust function). CONFIRMED.\n  • CVE-2025-23207 (GHSA-cg87-wmx4-v546, Moderate, CVSS 6.3) — `\\htmlData` attr-name injection (requires trust:true). CONFIRMED affects 0.16.9 — patched in 0.16.21 (NOT 0.16.10 — manifest already correctly notes this distinction).\nAll 5 CVE attributions are accurate. Real exploitability against MarkView is LOW because: (1) project does not enable `trust:true`, killing 3 of the 5; (2) DoS via macro expansion needs LLM/user to emit hostile LaTeX, which is bounded by skeleton schema; (3) KaTeX is one of the inputs explicitly considered in the v2 prompt-injection threat model.",
+      "location": "MarkView/Resources/Editor/vendor/MANIFEST.txt:12 + MarkView/Resources/Editor/vendor/js/katex.min.js",
+      "impact": "Two unpatched DoS CVEs (CVE-2024-28243, CVE-2024-28244) reachable today via main-frame KaTeX rendering with hostile math expressions. Worst case: editor tab spins / OOMs on a poisoned `.md` file. No data exfiltration. Three trust-required XSS CVEs are not exploitable in current configuration but are present.",
+      "recommendation": "Schedule an upgrade to KaTeX 0.16.21 (latest in the 0.16.x line) before v2 insight mode ships. The 0.16.x line has no breaking changes for user-facing rendering. Until then, current MANIFEST attribution is accurate; no immediate action required because main-frame exploitation requires hostile LaTeX in user .md files (restricted by markdown-it defaults) and the worst residual is DoS, not RCE.",
+      "cwe": "CWE-79"
+    },
+    {
+      "severity": "minor",
+      "category": "A06: Vulnerable Components",
+      "title": "PrismJS 1.29.0 CVE-2024-53382 verified, patched in 1.30.0",
+      "description": "Cross-checked: GHSA-x7hr-w5r2-h6wg / CVE-2024-53382 (Moderate, CVSS 4.9) — DOM Clobbering of `document.currentScript` allows attacker-injected HTML elements to shadow the script lookup, leading to XSS. Affects all versions <1.30.0. CONFIRMED affects 1.29.0. The advisory itself notes 'only exploitable if the application accepts untrusted input containing HTML but not direct JavaScript' (Snyk SNYK-JS-PRISMJS-9055448). MarkView's input source is fenced code blocks from Markdown, which markdown-it escapes by default, so the DOM-clobbering primitive is hard to deliver in practice. The MANIFEST attribution is accurate.",
+      "location": "MarkView/Resources/Editor/vendor/MANIFEST.txt:14 + MarkView/Resources/Editor/vendor/js/prism.min.js",
+      "impact": "Real exposure low. Markdown fenced-code escaping prevents the typical DOM-clobbering vector. Prism is loaded in the main editor frame today (index.html line 1205), so a hypothetical successful exploit would have main-frame access. No evidence of any reachable injection path.",
+      "recommendation": "Upgrade to PrismJS 1.30.0 in the same window as the KaTeX/Mermaid bumps. 1.29.0 -> 1.30.0 is a minor version bump in name only; the change is the DOM-clobbering fix plus minor language tweaks. Low-risk upgrade.",
+      "cwe": "CWE-79"
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Chart.js 4.4.9 SHA-256 verified — supply-chain integrity good",
+      "description": "Computed `shasum -a 256` on `MarkView/Resources/Editor/vendor/js/chart-4.4.9.min.js` returns `bce154080959c574be0bb6b1a924ff32f08ebc6ff460c159171f51c53802c844`, exactly matching the value in MANIFEST.txt line 10. Source URL `https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js` is the canonical jsDelivr UMD path. Snyk and GitHub Advisory DB both report zero direct vulnerabilities for chart.js 4.4.9. Latest chart.js as of audit date is 4.5.1; 4.4.9 is one minor behind but has no known CVEs. Banner comment is intact — file appears unmodified upstream.",
+      "location": "MarkView/Resources/Editor/vendor/js/chart-4.4.9.min.js + MarkView/Resources/Editor/vendor/MANIFEST.txt:10",
+      "impact": "None — supply-chain integrity confirmed.",
+      "recommendation": "No action required for this audit. Optionally bump to 4.5.1 in the next dependency-refresh sprint to stay on the supported line, but 4.4.9 is acceptable.",
+      "cwe": null
+    },
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "MANIFEST methodology note: GitHub Advisories search-by-version returns false negatives",
+      "description": "During verification I observed that `https://github.com/advisories?query=<package>+<version>` frequently returns 'No results matched your search' even when the package version IS within an affected range. Reliable cross-checks use either (a) per-GHSA-ID URL like `/advisories/GHSA-xxxx-yyyy-zzzz` with manual range comparison, or (b) Snyk's per-version page `security.snyk.io/package/npm/<pkg>/<ver>`. The MANIFEST header (lines 2-5) says 'GitHub Security Advisories consulted'; that source is fine but the search UI is unreliable for version filtering. The existing MANIFEST entries appear to have been built by enumerating advisories per-package (correct), but the header could mislead a future auditor into using the broken search UI and reaching wrong conclusions (as evidenced by the CVE-2025-54881 / CVE-2025-54880 misattribution to mermaid 10.6.1 — the actual affected ranges show this version is NOT in scope).",
+      "location": "MarkView/Resources/Editor/vendor/MANIFEST.txt:2-5",
+      "impact": "Process documentation gap. Future audits may repeat the misattribution if they use the search UI without per-GHSA verification.",
+      "recommendation": "Add to the MANIFEST header comment: 'CVE verification methodology: list ALL advisories for a package via `https://github.com/advisories?query=<package>` (no version), then for each open the GHSA detail page and check the affected version range against the pinned version. Cross-check with Snyk `security.snyk.io/package/npm/<pkg>/<ver>` to catch missed entries. Do NOT rely on the search-by-version UI alone — it returns false negatives.'",
+      "cwe": null
+    }
+  ]
+}

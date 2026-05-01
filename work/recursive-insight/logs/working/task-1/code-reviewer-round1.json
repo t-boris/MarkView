@@ -1,0 +1,52 @@
+{
+  "status": "approved",
+  "summary": "AIProviderClient.toolCall is a clean additive implementation that mirrors the streamCompletion sanitize discipline (not the unsanitized extractSingleChunk pattern), correctly forces a single tool invocation via tool_choice, scans all content blocks for the first tool_use, and routes every error string through sanitize before throwing. The fixture is valid JSON, structurally matches InsightSkeleton, and covers 4 distinct SectionType values with one section carrying a non-empty deepDiveTopics array. All Decision 1 / Decision 8 acceptance criteria for Task 1 are satisfied.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Models/AIProviderClient.swift",
+      "line": 722,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "The three parseError throw sites (L722, L730, L735) wrap static literals in sanitize(). Since these literals contain no apiKey substring, the call is a no-op today. This is acceptable as forward-defense (if a future edit interpolates dynamic content, sanitize is already in place), but consider a brief inline comment noting the intent so a future contributor does not delete the call as 'unnecessary'.",
+      "benefit": "Preserves sanitize-at-throw-site invariant against future regressions without changing runtime behavior.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/AIProviderClient.swift",
+      "line": 712,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "URLSession network/timeout errors from `session.data(for: request)` propagate raw (mirrors extractSingleChunk per task spec edge-cases section). This is intentional and consistent with the rest of the file, but a one-line comment near the await — explicitly stating 'URLSession errors propagate unwrapped; they do not include request body so apiKey cannot leak' — would document the security reasoning for future reviewers.",
+      "benefit": "Makes the 'why no try-catch around session.data' decision auditable without re-deriving it from the task spec.",
+      "optional": true
+    },
+    {
+      "file": "Tests/Fixtures/insight-skeleton-sample.json",
+      "line": 25,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "Sections without deep-dive topics use explicit `\"deepDiveTopics\": null`. The InsightSection Codable shape declares `deepDiveTopics` as optional, so omitting the key entirely also decodes correctly and is the more idiomatic JSON. Either form works; explicit null is fine if the intent is to make the schema shape obvious to a hand-tracing reviewer (which is the fixture's stated purpose), so this is purely stylistic.",
+      "benefit": "Slightly smaller fixture; matches typical Codable encoding output if the fixture is ever regenerated from a real Codable round-trip.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 3,
+    "testCoverageAssessment": "adequate"
+  },
+  "reviewNotes": {
+    "anthropicToolUseApiCorrectness": "PASS — body includes tools:[{name,description,input_schema}] and tool_choice:{type:'tool',name:<name>}, headers/URL/version match streamCompletion+extractSingleChunk, timeout 180s matches extractSingleChunk per task spec.",
+    "sanitizeDiscipline": "PASS — all four throw sites (L717 httpError, L722 parseError, L730 parseError, L735 parseError) route through sanitize() before throwing, mirroring streamCompletion L251 (NOT the unsanitized extractSingleChunk L152 pattern).",
+    "apiKeyNeverInErrors": "PASS — sanitize is invoked at every throw site that could carry the key. Static-literal sanitize calls are no-ops today but defensively correct. URLSession raw errors propagate but per task spec edge-cases section those carry no request body.",
+    "errorHandlingReuse": "PASS — only existing AIProviderError cases used (noAPIKey, httpError, parseError). No new toolCallError case added; the optional addition allowed by task spec was deemed unnecessary, which is the cleaner choice.",
+    "additiveOnlyChange": "PASS — diff confirms only new MARK section + method between generateMermaidDiagrams and generateArchitecture. Zero edits to existing methods, AIProviderError enum, sanitize, or any other symbol.",
+    "fixtureValidJson": "PASS — python3 json.load succeeds; top-level keys {id,type,role,model,stop_reason,stop_sequence,content,usage} match Anthropic Messages API envelope.",
+    "fixtureStructuralMatchInsightSkeleton": "PASS — content[0] is type=tool_use with input containing title (string), suggestedTheme ('dark', optional), sections (array of 4). Section types cover hero/mermaidDiagram/prose/comparisonTable (4 distinct SectionType enum values, exceeds the ≥3 requirement). Section 'design-decisions' carries a non-empty deepDiveTopics array of 2 entries each with {id,label,hint,scopeHint} matching DeepDiveTopic Codable shape. Every section provides the required non-optional metadata dict.",
+    "scanAllContentBlocks": "PASS — for-loop iterates contentBlocks and returns input from the FIRST tool_use, correctly handling Anthropic's case where a leading text block precedes the tool call.",
+    "preflightApiKeyCheck": "PASS — guard at L684 throws .noAPIKey before any URLRequest construction, mirroring all other public methods."
+  }
+}

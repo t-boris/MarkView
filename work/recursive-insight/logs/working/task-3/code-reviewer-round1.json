@@ -1,0 +1,71 @@
+{
+  "status": "approved_with_suggestions",
+  "summary": "InsightCache.swift is a clean, well-documented implementation that satisfies every acceptance criterion in tasks/3.md. The atomic temp+rename pattern, ENOENT-tolerant cleanup, ISO8601+sortedKeys manifest encoding, defense-in-depth path containment (correctly mirroring the bb828a9 sibling-prefix fix from WorkspaceManager), and value-type/MainActor-free threading discipline are all implemented to senior-engineer standards. Two tech-spec deviations (async-ifying archiveStagingDirectory, non-canonical Bundle.url call shape) and one minor code-quality nit are worth addressing or explicitly documenting.",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "MarkView/Models/InsightCache.swift",
+      "line": 210,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "archiveStagingDirectory() is declared 'async throws -> URL' but the tech-spec (line 417) and tasks/3.md item 8 both declare it as sync 'throws -> URL'. The inline comment justifies async as a forward-looking contract for T8, which is reasonable, but the tech-spec public-surface table will become stale. Per the post-completion checklist item 3, update tech-spec.md Data Models section to reflect 'async throws -> URL' (and document the rationale in decisions.md per item 2). Otherwise T8 will inherit a contract mismatch.",
+      "benefit": "Keeps the public-surface declaration in tech-spec.md consistent with the actual signature so T6/T8 implementers do not have to reverse-engineer the async boundary from source.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Models/InsightCache.swift",
+      "line": 226,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "Bundle.main.url(forResource: 'Editor/vendor/js', withExtension: nil) passes a slash-containing string as the resource NAME. The canonical Foundation idiom for resolving a directory inside the bundle is Bundle.main.url(forResource: nil, withExtension: nil, subdirectory: 'Editor/vendor/js') — which is what the rest of the project uses (see EditorView.swift lines 26 and 453: 'forResource: \"index\", withExtension: \"html\", subdirectory: \"Editor\"'). The current call may work because NSBundle is forgiving with embedded path separators, but it deviates from the established project convention and could fail subtly if the bundle layout changes (the 'Build Web Editor' shell-script phase ditto-copies vendor/ verbatim, which today produces the expected layout).",
+      "benefit": "Aligns with the project-wide bundle-resolution convention and uses the documented Foundation API contract; reduces the chance of a surprise nil return if Apple tightens NSBundle's name-lookup semantics in a future SDK.",
+      "optional": false
+    },
+    {
+      "file": "MarkView/Models/InsightCache.swift",
+      "line": 244,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "The directory-skip uses 'fileExists(atPath:isDirectory:)' to inspect each entry, but 'contentsOfDirectory(at:includingPropertiesForKeys:)' was already called without requesting .isDirectoryKey. Including [.isDirectoryKey] in includingPropertiesForKeys and then reading via 'try src.resourceValues(forKeys: [.isDirectoryKey]).isDirectory' is the URL-native idiom and avoids the second filesystem stat per entry. Tiny perf win plus cleaner code.",
+      "benefit": "Removes one stat() per file at session init; matches the URL-resource-values idiom used throughout modern Foundation code.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/InsightCache.swift",
+      "line": 117,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "writeNode and updateManifest both do 'try? removeItem(at: finalURL)' followed by 'try moveItem'. This opens a brief window where the destination file does not exist. The task hints (line 135) explicitly considered FileManager.replaceItem and chose the simpler temp+moveItem pattern as 'fine because writes are write-once-per-node'. That rationale is correct for nodes but the manifest is updated repeatedly (every node insertion). Consider FileManager.replaceItemAt(_:withItemAt:) for updateManifest specifically — it performs an atomic rename-over-existing on APFS/HFS+, eliminating the no-file-exists window for concurrent loadManifest readers. Optional; current behavior is acceptable because manifest reads happen on the main actor at navigation time, not during Phase-2 parallel writes.",
+      "benefit": "Removes a theoretical race where a concurrent loadManifest sees ENOENT between the remove and the move, even though no current caller hits this.",
+      "optional": true
+    },
+    {
+      "file": "MarkView/Models/InsightCache.swift",
+      "line": 214,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "assertContained(rootDirectory, in: rootDirectory) is a defense-in-depth no-op that always succeeds via the equality clause (resolvedCandidate == resolvedRootPath). The intent is to keep a 'every URL touched by this method is path-validated' invariant for grep auditing — that intent is valuable and called out in the doc comment, so this is approved as written. Minor follow-up: a one-line '// invariant: every public method calls assertContained at least once' comment near the struct top would make the audit grep self-explanatory for future reviewers.",
+      "benefit": "Makes the audit invariant discoverable via grep + a single header comment instead of needing to read each method.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 5,
+    "testCoverageAssessment": "insufficient"
+  },
+  "dimensionNotes": {
+    "architecture": "Clean value-type struct with no shared state; no architectural anti-patterns. Layer boundary respected — InsightCache has zero coupling to WorkspaceManager (path-validation pattern duplicated locally per task spec).",
+    "separationOfConcerns": "Single responsibility: per-session disk CRUD + manifest + staging. No HTML rewriting (correctly delegated to T8 per Decision 5). All methods < 30 lines, max nesting depth 3.",
+    "errorHandling": "Typed InsightCacheError covers all failure modes. ENOENT correctly tolerated in cleanup() via both NSCocoaErrorDomain/NSFileNoSuchFileError and NSPOSIXErrorDomain/ENOENT branches. JSONDecoder failures wrapped via manifestDecode. All catch blocks rethrow — zero swallowed errors. Best-effort cleanup of orphan .tmp files on write failure is correct.",
+    "typeSafety": "Strong typing throughout; no Any, no AnyObject, no force unwraps. Codable types use let where mutation is not needed; nodes is var to allow append. UUID and URL value types throughout.",
+    "testing": "Tests deferred per Decision 9 (XCTest target absent). Task TDD Anchor section enumerates 10 specific test cases for future scope. Acceptable for this task; flagged as 'insufficient' because production code with atomic-write + path-traversal semantics ideally has unit tests before merge.",
+    "security": "Path-containment helper correctly applies resolvingSymlinksInPath().standardizedFileURL.path BEFORE the prefix check (mirrors WorkspaceManager.swift lines 582-589), and uses path-separator boundary (rootPath + '/') so '/x/foobar/secret' cannot pass for '/x/foo' — the bb828a9 fix is preserved. assertContained is invoked on every URL touched by every public method (verified by grep). InsightCacheError.pathEscape carries the offending URL but the doc comment explicitly notes 'never surfaced to UI — it may contain absolute paths' which is correct PII discipline.",
+    "performance": "No N+1 patterns. Atomic write does one write + one rename per node. Manifest is rewritten in full on each update — acceptable given expected size (< 50 nodes per session per tech-spec). Bundle resource enumeration runs once per session init.",
+    "crossFileConsistency": "Tech-spec line 417 declares archiveStagingDirectory() as sync 'throws -> URL'; implementation made it 'async throws -> URL'. T8 has not been implemented yet and the inline comment claims this is the intended T8 contract — flagged as a minor suggestion to update tech-spec.md per post-completion item 3. Bundle.main.url call shape (line 226) deviates from project convention used in EditorView.swift — flagged as minor.",
+    "resourceManagement": "Struct holds only value types (URL × 4, no closures, no reference types). No retain cycles possible. cache.cleanup() removes the entire session dir; ARC of struct is automatic. FileManager.default is the singleton — no resource leak. No file handles held open."
+  },
+  "verdict": "approved_with_suggestions"
+}
