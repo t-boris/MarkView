@@ -281,97 +281,63 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
-    // MARK: Insight commands (Recursive Insight feature, Task 6)
+    // MARK: - v1 stubs — replaced by Task 7
+    //
+    // V1 insight bridge surface (loadInsightView / appendInsightDelta /
+    // setInsightDeepDives / showInsightLoading / setInsightError) targeted v1 JS funcs
+    // that no longer exist after Task 5 replaced the insight-mode JS with the v2 iframe
+    // model. Method signatures retained so existing callers (EditorView Coordinator,
+    // WorkspaceManager forwarders) keep compiling during the T6 → T7 transition; bodies
+    // are NSLog no-ops. T7 fully replaces this surface with v2 setters
+    // (loadInsightSkeleton, updateInsightSection, setInsightStatus, releaseInsightBlobs).
 
-    /// Load a full insight view snapshot (markdown + topics + breadcrumbs) into the
-    /// WebView. Encodes the entire `InsightViewSnapshot` as JSON and calls
-    /// `window.loadInsightView(<json>)`. Used both on initial render of an insight tab
-    /// and on full repaint after navigation (breadcrumb / up / expand / retry).
+    /// v1 stub — replaced by Task 7. Original behavior: encoded `InsightViewSnapshot`
+    /// JSON and called `window.loadInsightView(<json>)`. v2 uses `loadInsightSkeleton`
+    /// + per-section `updateInsightSection` deltas instead.
     func loadInsightView(snapshot: InsightViewSnapshot, into webView: WKWebView) {
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(snapshot),
-              let jsonString = String(data: data, encoding: .utf8) else {
-            NSLog("[Insight] Error encoding InsightViewSnapshot")
-            return
-        }
-        let js = "window.loadInsightView(\(jsonString))"
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("[Insight] Error in loadInsightView: \(error)")
-            }
-        }
+        NSLog("[Insight v1 stub] loadInsightView called — replaced by T7 (loadInsightSkeleton)")
+        _ = webView  // silence unused-parameter warning
     }
 
-    /// Append a streaming delta chunk to the live buffer for a given session.
-    /// JS side coalesces re-renders via a debounce timer (~150 ms).
+    /// v1 stub — replaced by Task 7. Original behavior: appended a streaming delta to
+    /// the v1 single-buffer JS view. v2 streams per-section via `updateInsightSection`.
     func appendInsightDelta(sessionId: String, text: String, into webView: WKWebView) {
-        guard let sessionLiteral = encodeStringForJS(sessionId),
-              let textLiteral = encodeStringForJS(text) else {
-            NSLog("[Insight] Error encoding appendInsightDelta payload")
-            return
-        }
-        let js = "window.appendInsightDelta(\(sessionLiteral), \(textLiteral))"
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("[Insight] Error in appendInsightDelta: \(error)")
-            }
-        }
+        NSLog("[Insight v1 stub] appendInsightDelta called — replaced by T7 (updateInsightSection)")
+        _ = sessionId
+        _ = text
+        _ = webView
     }
 
-    /// Replace the deep-dive topic list for a given session (after the marker is parsed
-    /// or after a full snapshot reload).
-    func setInsightDeepDives(sessionId: String, topics: [DeepDiveTopic], into webView: WKWebView) {
-        guard let sessionLiteral = encodeStringForJS(sessionId) else {
-            NSLog("[Insight] Error encoding setInsightDeepDives sessionId")
-            return
-        }
-        let encoder = JSONEncoder()
-        guard let data = try? encoder.encode(topics),
-              let topicsJSON = String(data: data, encoding: .utf8) else {
-            NSLog("[Insight] Error encoding setInsightDeepDives topics")
-            return
-        }
-        let js = "window.setInsightDeepDives(\(sessionLiteral), \(topicsJSON))"
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("[Insight] Error in setInsightDeepDives: \(error)")
-            }
-        }
+    /// v1 stub — replaced by Task 7. Original behavior: replaced the deep-dive topic
+    /// list in the right pane. v2 deep-dives are inline 🤿 buttons inside iframe sections.
+    /// Note: the v1 `topics` parameter type (`[DeepDiveTopic]`) was removed; replaced
+    /// with `[Any]` to keep the signature stable without re-introducing v1 types.
+    func setInsightDeepDives(sessionId: String, topics: [Any], into webView: WKWebView) {
+        NSLog("[Insight v1 stub] setInsightDeepDives called — replaced by T7 (inline 🤿 buttons)")
+        _ = sessionId
+        _ = topics
+        _ = webView
     }
 
-    /// Show a loading indicator with an optional message.
+    /// v1 stub — replaced by Task 7. Original behavior: showed a loading spinner with
+    /// optional message in the v1 right pane. v2 routes status through
+    /// `setInsightStatus`.
     func showInsightLoading(sessionId: String, message: String, into webView: WKWebView) {
-        guard let sessionLiteral = encodeStringForJS(sessionId),
-              let messageLiteral = encodeStringForJS(message) else {
-            NSLog("[Insight] Error encoding showInsightLoading payload")
-            return
-        }
-        let js = "window.showInsightLoading(\(sessionLiteral), \(messageLiteral))"
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("[Insight] Error in showInsightLoading: \(error)")
-            }
-        }
+        NSLog("[Insight v1 stub] showInsightLoading called — replaced by T7 (setInsightStatus)")
+        _ = sessionId
+        _ = message
+        _ = webView
     }
 
-    /// Display an error banner for the given session. The `retryable` flag controls
-    /// whether the JS UI shows a `[Retry]` button (Decision 11 §3 — non-retryable
-    /// errors like noAPIKey / parse failures must not show Retry).
+    /// v1 stub — replaced by Task 7. Original behavior: displayed an error banner with
+    /// optional Retry button in the v1 right pane. T7 will re-introduce a v2 version
+    /// of this method that targets the new error chrome inside the iframe srcdoc.
     func setInsightError(sessionId: String, message: String, retryable: Bool, into webView: WKWebView) {
-        guard let sessionLiteral = encodeStringForJS(sessionId),
-              let messageLiteral = encodeStringForJS(message) else {
-            NSLog("[Insight] Error encoding setInsightError payload")
-            return
-        }
-        // Bool MUST serialise as the JS literal `true` / `false` (not Python-style
-        // `True` / `False`, not `1` / `0`).
-        let retryableLiteral = retryable ? "true" : "false"
-        let js = "window.setInsightError(\(sessionLiteral), \(messageLiteral), \(retryableLiteral))"
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("[Insight] Error in setInsightError: \(error)")
-            }
-        }
+        NSLog("[Insight v1 stub] setInsightError called — replaced by T7 (v2 error chrome)")
+        _ = sessionId
+        _ = message
+        _ = retryable
+        _ = webView
     }
 
     /// Set the document base URL for resolving relative image/link paths

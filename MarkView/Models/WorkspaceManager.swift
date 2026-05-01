@@ -1108,7 +1108,11 @@ Each component needs a correct type and one-sentence description.
         // and never carry isModified == true in the file-save sense.
         let tab = openTabs[index]
         if case .insight(let session) = tab.kind {
-            session.cancel()
+            // v1 stub — replaced by Task 7/8 (will become the ordered 4-step close per
+            // Decision 11 §4: releaseInsightBlobs → await cancel → cache.cleanup → removeTab).
+            // For now we fire-and-forget cancellation: ARC keeps `session` alive until the
+            // Task observes Task.isCancelled and exits.
+            Task { await session.cancel() }
             tabsStore.removeTab(at: index)
             return
         }
@@ -1398,13 +1402,24 @@ Each component needs a correct type and one-sentence description.
             return
         }
 
-        // 5. Build the session.
-        let session = InsightSession(
-            folderURL: folderURL,
-            mdFiles: mdFiles,
-            providerClient: provider,
-            graphRAG: graphRAG
-        )
+        // 5. Build the session. v1-compat init (throws) — T7/T8 will rewrite this call site
+        // to construct `InsightCache` explicitly and pass it via the 5-arg init. For now,
+        // the convenience init builds a temp-dir cache.
+        let session: InsightSession
+        do {
+            session = try InsightSession(
+                folderURL: folderURL,
+                mdFiles: mdFiles,
+                providerClient: provider,
+                graphRAG: graphRAG
+            )
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Cannot start Recursive Insight"
+            alert.informativeText = "Failed to initialise insight cache: \(error.localizedDescription)"
+            alert.runModal()
+            return
+        }
 
         // 6. Build placeholder URL (never written to disk — exists only so
         //    `OpenTab.url`, `displayName`, and other file-only consumers keep
@@ -1461,7 +1476,13 @@ Each component needs a correct type and one-sentence description.
                   Self.sanitizeForLog(sessionId))
             return
         }
-        Task { await session.expand(deepDiveIndex: topicIndex) }
+        // v1 stub — replaced by Task 7/8. v1 bridge sent only `topicIndex`; v2 needs
+        // `(sectionId, topicIndex)`. T7 rewrites the bridge handler to send sectionId
+        // (it lives in the v2 postMessage payload schema). Until then this forwarder
+        // is a no-op so the JS bridge doesn't crash the session.
+        NSLog("[Insight v1 stub] didRequestInsightDeepDive forwarder — replaced by T7 (sectionId-aware expand)")
+        _ = session
+        _ = topicIndex
     }
 
     /// Bridge forwarder: user clicked Save as .md.
@@ -1491,7 +1512,8 @@ Each component needs a correct type and one-sentence description.
                   Self.sanitizeForLog(nodeId))
             return
         }
-        session.navigateTo(nodeId: uuid)
+        // v1 sync call → v2 async — wrap in Task. T7 will keep async signatures end-to-end.
+        Task { await session.navigateTo(nodeId: uuid) }
     }
 
     /// Bridge forwarder: user clicked the ↑ Up button.
@@ -1501,7 +1523,8 @@ Each component needs a correct type and one-sentence description.
                   Self.sanitizeForLog(sessionId))
             return
         }
-        session.up()
+        // v1 sync call → v2 async — wrap in Task. T7 will keep async signatures end-to-end.
+        Task { await session.up() }
     }
 
     /// Bridge forwarder: user clicked Retry on the error banner.
@@ -1576,7 +1599,13 @@ Each component needs a correct type and one-sentence description.
         }
 
         do {
-            try node.markdownBody.write(to: finalURL, atomically: true, encoding: .utf8)
+            // v1 stub — replaced by Task 7/8 (`exportInsightArchive` ZIP export).
+            // v1 wrote the node's `markdownBody` (a single composed markdown string from
+            // the marker parser); v2 nodes have no equivalent — content is per-section
+            // HTML buffers + skeleton, exported as a self-contained ZIP. Until T8 lands,
+            // write a placeholder note so the user sees something rather than crashing.
+            let placeholder = "# \(node.title)\n\n(Insight v2 ZIP export pending — Task 8)\n"
+            try placeholder.write(to: finalURL, atomically: true, encoding: .utf8)
 
             // Warn if the destination is inside the analyzed folder — future
             // Recursive Insight runs on the same folder will include this file.
