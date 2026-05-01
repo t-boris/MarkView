@@ -1,0 +1,77 @@
+{
+  "verdict": "approved",
+  "previous_findings_status": [
+    {
+      "id": "round1-critical-1",
+      "severity": "critical",
+      "title": "Insight tab is reachable by Cmd+S / save / refresh paths that operate on tab.url",
+      "status": "resolved",
+      "verification": "All 9 claimed guards present and correct in commit aaee220:\n  1. WorkspaceManager.saveActiveFile (L1161-1164): `if case .insight = openTabs[activeTabIndex].kind { return }` before `saveFile(at:)`.\n  2. WorkspaceManager.saveFile(at:) (L1636-1644): defense-in-depth — `if case .insight = tab.kind { return }` before `tab.content.write(to: tab.url, ...)`.\n  3. WorkspaceManager.reloadActiveTabFromDisk (L1780-1788): `if case .insight = openTabs[idx].kind { return nil }` before `String(contentsOf: url)`.\n  4. WorkspaceManager.openOrRefreshFile (L714-731): refresh-branch early-returns for insight (activates by index without reading from disk).\n  5. WorkspaceManager.updateActiveTabContent (L1746-1751): inside `tabsStore.updateActiveTab` closure, `if case .insight = tab.kind { return }` prevents bridge content writeback.\n  6. WorkspaceManager.reindexActiveFile single-file branch (L1683-1686): `if case .insight = tab.kind { return }` before `reindexFile(fileURL: tab.url, content: tab.content)`.\n  7. WorkspaceManager.handleBlocksDelta (L1927-1930): `if case .insight = openTabs[activeTabIndex].kind { return }` early; the SQLite `tab.url.lastPathComponent` upsert at L1952 and `incrementalCompiler?.compileDelta(..., forFile: tab.url)` at L1962 are unreachable for insight tabs.\n  8. EditorView.Coordinator.bridgeSaveRequested (L534-547): pre-hop kind-check inside `Task { @MainActor in ... }` returns before calling `saveActiveFile()`.\n  9. EditorView.Coordinator.bridgeRefreshRequested (L589-607): pre-hop kind-check before calling `reloadActiveTabFromDisk()` AND before evaluating the `if let content = ...` branch.\nNo other write paths to `tab.url` exist. Audited every grep hit:\n  - Line 1640 `tab.content.write(to: tab.url, ...)` — guarded at L1640.\n  - Line 1894 `data.write(to: recentFilesURL)` — recentFiles only populated from `openFile` which is never called for insight tabs (insight tabs are appended via `appendTab` in `startRecursiveInsight`).\n  - Line 1686 `reindexFile(fileURL: tab.url, ...)` — guarded.\n  - Line 1952/1962 SQLite/compiler use of tab.url in handleBlocksDelta — unreachable due to L1929 guard.\n  - Line 2241 activeDocumentContext reads tab.url.lastPathComponent for AI prompt fileName — read-only, no FS write, harmless to pass through for an insight tab (would just use `.insight-<uuid>` as a label).\n  - Line 1247-1249 translateDocument constructs a NEW `<sourceTab parent>/<sourceName>_<lang>.md` URL and creates a fresh `.file` OpenTab; never writes to the insight placeholder URL itself. Cosmetic-only filename oddity, no security impact.\n  - closeTab dirty-save branch (L1116-1130) is unreachable for insight because the L1110-1113 early return removes the tab synchronously before the `isModified` check.\nVerification: comprehensive — no missed paths."
+    },
+    {
+      "id": "round1-major-1",
+      "severity": "major",
+      "title": "Filename sanitization keeps Unicode-permissive predicate (isLetter/isNumber)",
+      "status": "resolved",
+      "verification": "WorkspaceManager.swift L1613-1631: `insightFilenameAllowed: Set<Character>` is constructed from the literal ASCII string `\"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_\"` — exactly the spec's `[A-Za-z0-9_]` class with underscore. The mapper (L1618-1620) replaces every non-allowed character with `_`. Cyrillic letters (e.g., `Привет`), CJK ideographs (e.g., `日本語`), Arabic-Indic digits (e.g., `٠١٢`), Roman numerals (e.g., `Ⅻ`), zero-width joiner (U+200D), RTL override (U+202E), and any other non-ASCII character now collapse to `_`. The `omittingEmptySubsequences: true` split (L1625) trims leading/trailing `_` correctly. Empty-result fallback to `\"insight\"` preserved (L1627-1629). Implementation matches the recommendation exactly."
+    },
+    {
+      "id": "round1-major-2",
+      "severity": "major",
+      "title": "UTType(filenameExtension: \"md\")! force-unwrap crashes app",
+      "status": "resolved",
+      "verification": "WorkspaceManager.swift L3 adds explicit `import UniformTypeIdentifiers` (no longer transitive via SwiftUI). L1543-1545: `if let mdType = UTType(filenameExtension: \"md\") { panel.allowedContentTypes = [mdType] }` — safe optional binding, no force-unwrap. The `.md` extension is force-applied at L1571-1576 regardless of what the user types: if `pickedURL.pathExtension.lowercased() == \"md\"` use as-is, otherwise `pickedURL.deletingPathExtension().appendingPathExtension(\"md\")`. The forced-extension is the real safety net — the panel filter is cosmetic. Implementation matches the recommendation."
+    },
+    {
+      "id": "round1-major-3",
+      "severity": "major",
+      "title": "NSLog of unsanitized sessionId / nodeId from JS bridge — log injection",
+      "status": "resolved",
+      "verification": "WorkspaceManager.swift L1445-1452: `sanitizeForLog` strips `\\r`, `\\n`, `\\0` via regex `[\\r\\n\\0]` -> `_` and truncates to 64 characters via `.prefix(64)`. The regex pattern in the Swift literal `\"[\\\\r\\\\n\\\\0]\"` correctly compiles to NSRegularExpression `[\\r\\n\\0]` matching CR, LF, NUL bytes. All 5 forwarders verified to use `NSLog(\"... %@ ...\", Self.sanitizeForLog(sessionId))` format-specifier pattern instead of string interpolation:\n  - didRequestInsightDeepDive L1460-1461\n  - didRequestInsightSave L1470-1471\n  - didRequestInsightBreadcrumb L1485-1486 (sessionId) AND L1490-1491 (invalid nodeId)\n  - didRequestInsightUp L1500-1501\n  - didRequestInsightRetry L1510-1511\nUsing `%@` defangs any `%` payload bytes (an attacker can no longer pass `%@%@%@%n` to crash NSLog or read stack memory). The sanitizer cap also bounds attacker-controlled log volume. Note: `[\\r\\n\\0]` does not strip other control chars (e.g. backspace U+0008, form feed U+000C, ANSI ESC U+001B for terminal sequence injection). The recommendation explicitly mentioned terminal control sequences in the impact analysis but the fix only addresses CR/LF/NUL. This is acceptable — the primary forgery vector (newline-prefixed fake log lines) is closed, and Console.app does not interpret ANSI escapes; only iTerm tail-followers would, which is an out-of-scope deployment configuration."
+    },
+    {
+      "id": "round1-minor-1",
+      "severity": "minor",
+      "title": "saveInsightNode does not honor sandbox security-scoped resource semantics",
+      "status": "documented",
+      "verification": "WorkspaceManager.swift L1525-1530: explicit doc-comment on saveInsightNode notes the sandbox-OFF dependency and lists the exact remediation (`startAccessingSecurityScopedResource()` / `defer stop`) required if the sandbox is ever re-enabled, plus the parallel requirement for `startRecursiveInsight` to bracket the folder scan. Acceptable documented decision per round-1 acceptance criterion."
+    },
+    {
+      "id": "round1-minor-2",
+      "severity": "minor",
+      "title": "Coordinator forwarders wrap synchronous calls in Task @MainActor",
+      "status": "documented",
+      "verification": "WorkspaceManager.swift L1454-1457: comment on didRequestInsightDeepDive acknowledges the `Task { @MainActor in ... }` wrapper at the EditorView Coordinator and explains it matches the surrounding bridge-delegate idiom (translate, save, etc.). The code keeps the existing pattern. Acceptable documented decision per round-1 acceptance criterion."
+    },
+    {
+      "id": "round1-minor-3",
+      "severity": "minor",
+      "title": "saveInsightNode does not check whether destination is inside indexed folder (LLM feedback loop)",
+      "status": "resolved",
+      "verification": "WorkspaceManager.swift L1583-1593: after a successful write, computes `savedDir` and `analyzedDir` via `standardizedFileURL.path` and shows a non-blocking `NSAlert` (`.informational` style) when `savedDir == analyzedDir || savedDir.hasPrefix(analyzedDir + \"/\")`. The hasPrefix check uses a `+ \"/\"` separator suffix to avoid false positives on `/foo/bar` vs `/foo/barbaz`. The analyzed folder URL is recovered from the owning insight tab's placeholder URL (`<folderURL>/.insight-<sessionId>`) at L1552-1555 by matching `session.id == session.id` in the openTabs scan and calling `.deletingLastPathComponent()`. The default filename (L1559-1566) prefixes the analyzed-folder name when it differs from the title stem, reducing collision risk across multiple sessions. The `fromSession` parameter (round-1 code-review minor) is now used as the source of truth for the analyzed folder lookup. Implementation exceeds the round-1 recommendation (which suggested either warn OR document)."
+    }
+  ],
+  "new_findings": [
+    {
+      "severity": "minor",
+      "category": "best-practice",
+      "title": "Translate-document path uses insight tab's placeholder URL parent as the new tab's filename context — produces oddly-named translated tabs if user invokes Translate while an insight tab is active",
+      "description": "translateDocument (WorkspaceManager.swift:1246-1252) reads `openTabs[activeTabIndex].url` as the source URL when the active tab is the insight player. It computes `sourceName = sourceTab?.url.deletingPathExtension().lastPathComponent` (which yields `.insight-<uuid>` for an insight tab) and constructs a NEW translated `.file` tab at `<folder>/.insight-<uuid>_<lang>.md`. The new tab's URL is then passed to `OpenTab(...)` as a regular file tab. While no write happens to the insight placeholder URL itself (the new tab is `.file` kind, not `.insight`), if the user later hits Cmd+S on the translated tab the file will be saved at `<folder>/.insight-<uuid>_<lang>.md` — a hidden file with a confusing name, in the analyzed folder.\n\nNot a security boundary violation: the file is created via the user's explicit Cmd+S action on a `.file`-kind tab; the user sees a normal save flow. The placeholder URL itself is never written. Just a UX foot-gun.",
+      "location": "MarkView/Models/WorkspaceManager.swift:1246-1252",
+      "impact": "Cosmetic: hidden translated file in the analyzed folder if the user invokes Translate while an insight tab is active and then saves. No filesystem write occurs without explicit user action.",
+      "recommendation": "Optional: gate the translate-from-active-tab path on insight kind (return early or use a generic `untitled_<lang>.md` name in the user's home directory). Not required for round-2 sign-off — flagged for future hardening.",
+      "cwe": "CWE-1188 (Initialization of a Resource with an Insecure Default)"
+    },
+    {
+      "severity": "minor",
+      "category": "A09: Security Logging and Monitoring",
+      "title": "sanitizeForLog does not strip terminal-control bytes (ESC, BS, FF) — Console.app immune, but iTerm tail-followers can still see escape sequences",
+      "description": "WorkspaceManager.swift:1445-1452 sanitizes `\\r`, `\\n`, `\\0` only. The round-1 finding explicitly called out terminal control sequences as part of the impact (`if logs are tail-followed in iTerm`); the fix closes the primary newline-forgery vector but leaves U+001B (ESC, the lead byte of every ANSI escape sequence), U+0008 (BS), U+000C (FF), and other C0 controls unhandled. An XSS-compromised JS context can still post a sessionId like `\\u001b[31mFAKE ERROR\\u001b[0m` and produce colorized fake log entries when the operator runs `tail -f` in iTerm.\n\nLow severity because: (a) Console.app does not interpret ANSI escapes and is the default macOS tooling, (b) the truncation cap at 64 characters bounds the attack payload, (c) the `%@` format specifier already defangs the `%` byte. Listed as a defense-in-depth gap, not a regression.",
+      "location": "MarkView/Models/WorkspaceManager.swift:1445-1452",
+      "impact": "Defense-in-depth gap. An attacker with XSS in the insight WebView could inject ANSI escape sequences visible only to operators using terminal tools that interpret them. Does not affect Console.app or os_log infrastructure.",
+      "recommendation": "Optional: broaden the regex to strip all C0 controls: `[\\x00-\\x1F\\x7F]` instead of `[\\r\\n\\0]`. Single-character change in the sanitizeForLog regex literal:\n```swift\nlet stripped = s.replacingOccurrences(\n    of: \"[\\\\x00-\\\\x1F\\\\x7F]\",\n    with: \"_\",\n    options: .regularExpression\n)\n```\nNot required for round-2 sign-off.",
+      "cwe": "CWE-117 (Improper Output Neutralization for Logs)"
+    }
+  ],
+  "summary": "All 7 round-1 findings verified resolved (4 fixed in code, 2 documented as accepted, 1 fixed beyond the recommendation). Critical leak fully closed across all 9 enumerated paths plus an exhaustive audit confirmed no other path operates on insight tab.url for FS writes. The .file-tab paths are unaffected by the kind-checks (no over-guarding regression). Two new minor findings introduced/uncovered during this audit (translate-document oddity and incomplete control-byte stripping in log sanitizer) are both defense-in-depth issues, not exploitable, and do not block sign-off. Verdict: APPROVED."
+}

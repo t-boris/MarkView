@@ -1,0 +1,84 @@
+{
+  "status": "needs_improvement",
+  "summary": "TDD anchor (10 tests) is reasonable for the happy paths and major branches but has gaps around error handling, save-write failures, the 500-file boundary, and the EditorView Coordinator's `Task { @MainActor in ... }` wrap. Also the spec-vs-implementation divergence in `sanitizeInsightFilename` (uses `Character.isLetter`/`isNumber` which accept Unicode letters/digits, contradicting Decision 10 §7's ASCII `[A-Za-z0-9_]` regex) is not exercised by the listed tests. Tests are correctly deferred per Decision 9 — this review is a forward-looking checklist for when `MarkViewTests` infrastructure lands.",
+  "findings": [
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — startRecursiveInsight error preconditions",
+      "issue": "Two of five startRecursiveInsight precondition branches are not in the test list: (a) `rootNode == nil` (no folder open) → NSAlert + early return; (b) `providerClient == nil` (engines not ready / no API key) → NSAlert + early return. Both are first-class user-visible error paths called out in the spec's Edge Cases section. Without tests, regressions in either guard (e.g., reordering, removing the `return`, or swapping the alert text) ship silently.",
+      "recommendation": "Add: `test_startRecursiveInsight_noFolderOpen_showsAlertAndDoesNotCreateTab` — set `rootNode = nil`, call `startRecursiveInsight()`, assert `openTabs.count` unchanged and an alert was presented (mock NSAlert via injectable `alertPresenter` protocol or `NSApplication.shared.modalWindow` observation). Add: `test_startRecursiveInsight_providerNotReady_showsAlertAndDoesNotCreateTab` — stub `incrementalCompiler` to nil (or its `orchestrator.providerClient` to nil), assert no tab appended and alert shown. Both tests should also assert `Task { await session.generateRoot() }` was NOT spawned (no session constructed at all)."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "MarkView/Models/WorkspaceManager.swift:1517 (sanitizeInsightFilename) vs Decision 10 §7",
+      "issue": "Implementation uses `ch.isLetter || ch.isNumber || ch == \"_\"` — Swift's `Character.isLetter`/`isNumber` accept Unicode letters and digits (Cyrillic, CJK, Arabic numerals, fullwidth, etc.). Decision 10 §7 specifies ASCII-only `[A-Za-z0-9_]`. A title like `\"Кириллица\"` produces `\"Кириллица\"` (passes through unchanged) but spec would yield `\"_________\"` → collapsed to empty → `\"insight\"`. The TDD anchor's only sanitization test uses `\"Auth & DB / Sessions\"` (pure ASCII), so this divergence is invisible. Either the implementation is wrong or the spec is wrong, but the test list cannot detect either way.",
+      "recommendation": "Add: `test_saveInsightNode_unicodeTitle_sanitizedPerDecision10` — input `\"Кириллица — 中文 — Тест\"`, assert default filename matches whatever the resolved spec says (either `\"insight\"` if ASCII-strict, or `\"Кириллица_中文_Тест\"` if Unicode-permissive). Add: `test_saveInsightNode_emojiOnlyTitle_fallsBackToInsight` — input `\"📊📈🔥\"`, assert default = `\"insight\"`. Add: `test_saveInsightNode_allSpecialCharsTitle_fallsBackToInsight` — input `\"!!! @@@ ###\"`, assert default = `\"insight\"`. Before writing tests, RESOLVE the spec/impl divergence with the user — this is a real bug, not just a missing test."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — saveInsightNode write-failure path",
+      "issue": "`saveInsightNode` catches write errors and shows an NSAlert (lines 1500-1505 of WorkspaceManager.swift). This is the only error-handling branch in the new save code and it is NOT in the test list. A regression where the catch silently swallows the error (or crashes instead of alerting) would not be caught. This is the kind of path that fails only on real users' disks (full disk, permission denied, read-only volume, name-conflict on case-insensitive FS).",
+      "recommendation": "Add: `test_saveInsightNode_writeFailure_showsAlertAndDoesNotCrash` — point NSSavePanel result at a read-only directory (or inject a `FileWriter` protocol that throws), invoke save, assert (a) no exception propagates, (b) alert was shown, (c) `messageText == \"Could not save insight\"`, (d) `informativeText` contains the error description. Refactor `saveInsightNode` to take an injectable writer closure `(Data, URL) throws -> Void` (default `node.markdownBody.write(...)`) so the test can inject a throwing stub without filesystem gymnastics."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "MarkView/Views/EditorView.swift:592-628 (Coordinator delegate forwarders)",
+      "issue": "Each of the 5 delegate forwarders wraps the WorkspaceManager call in `Task { @MainActor in self.parent.workspaceManager.<method>(...) }`. Two concerns are completely untested: (1) **Ordering** — if the bridge fires `didRequestInsightDeepDive` followed immediately by `didRequestInsightUp`, the two `Task { @MainActor in }` blocks may execute in submission order on the main actor, but this is not guaranteed across all Swift concurrency runtimes (it usually is, but \"usually\" is not a test). (2) **Why wrap at all?** WebView bridge callbacks are already delivered on the main thread (per WKWebView contract). The `Task { @MainActor in }` adds a hop without obvious benefit — but if it IS needed (e.g., delegate is called from a non-main background queue in some configurations), the test list does not verify this. None of the 10 listed tests touch the Coordinator at all; they all hit `WorkspaceManager` directly.",
+      "recommendation": "Add: `test_coordinator_forwarderPreservesOrder` — fire `didRequestInsightDeepDive` then `didRequestInsightUp` synchronously on the bridge, await one runloop cycle, assert `WorkspaceManager` saw the calls in the same order (use a recording mock). Add: `test_coordinator_forwarderRunsOnMainActor` — fire from a background queue (DispatchQueue.global), await, assert the `WorkspaceManager` method was invoked on the main thread. Also: PROACTIVELY ASK whether the `Task { @MainActor in }` wrap is necessary — if `WebViewBridgeDelegate` is documented as main-actor-isolated, the wrap is dead code and should be removed (simpler + no ordering question)."
+    },
+    {
+      "severity": "major",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — closeTab insight branch teardown completeness",
+      "issue": "`test_closeTab_insightKind_callsCancelBeforeRemove` verifies the call order, but doesn't verify the *consequences* called out in Decision 11 §4: (a) the in-flight `Task` running `URLSession.bytes` actually observes `Task.isCancelled` (not just that `cancel()` was called); (b) the session's strong reference is released after `removeTab` (no leak — important because `OpenTab` is the only owner per spec); (c) any Combine subscriptions in `EditorView` that were observing `session.$currentNode` (or similar) are torn down without leaving dangling sinks. Race conditions here surface as memory leaks or zombie SSE streams that keep firing onto a closed tab.",
+      "recommendation": "Add: `test_closeTab_insightKind_inflightStreamObservesCancellation` — start a fake session whose `generateRoot()` polls `Task.isCancelled` in a loop, close the tab, assert the loop exits within N ms. Add: `test_closeTab_insightKind_releasesSessionStrongReference` — hold a `weak var` to the session before close, close the tab, assert `weak == nil` after one runloop tick (no leak). Add: `test_closeTab_insightKind_combineSubscriptionsToreDown` — instrument `EditorView` (or its ViewModel) with a counter for active sinks on `session.$currentNode`; assert count drops to 0 after close. The third may need EditorView refactor to make the sink count observable; flag for follow-up."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — 500-file boundary and scanMarkdownFiles failure modes",
+      "issue": "`test_startRecursiveInsight_largeFolder_rejectsAt500Files` covers >500 (rejected) but the spec's Edge Cases explicitly calls out the boundary `== 500 → succeeds`. No test asserts the inclusive-vs-exclusive boundary. Also `scanMarkdownFiles` returns a `Result` and the implementation's `case .failure` path handles ANY scan error (not just `folderTooLarge`) — e.g., permission denied scanning the folder. That generic-error path is not exercised.",
+      "recommendation": "Add: `test_startRecursiveInsight_exactly500Files_succeeds` — synth folder with 500 .md files (or stub `scanMarkdownFiles` to return 500 URLs), assert tab appended. Add: `test_startRecursiveInsight_scanReturnsPermissionError_showsAlertAndDoesNotCreateTab` — stub `scanMarkdownFiles` to return `.failure(<custom error>)`, assert alert shown with `error.localizedDescription` and no tab created. These distinguish the `folderTooLarge` branch from generic scan failures."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — bridge delegate forwarders error/edge cases",
+      "issue": "`test_bridgeDelegate_routesBySessionId` covers the multi-tab routing happy path. `test_bridgeDelegate_unknownSessionId_doesNotCrash` covers one error path (unknown session). But: (a) `didRequestInsightBreadcrumb` has a SECOND error path — `UUID(uuidString: nodeId)` returning nil for malformed nodeId — this is its own NSLog warning + early return, untested. (b) `didRequestInsightSave` has a THIRD error path — `session.currentNode() == nil` — also NSLog + return, untested. (c) `didRequestInsightDeepDive`'s `topicIndex` is forwarded as-is to `session.expand(deepDiveIndex:)`; whether out-of-bounds is handled inside expand is a Task 4 concern, but a contract test at this boundary would document the assumption.",
+      "recommendation": "Add: `test_didRequestInsightBreadcrumb_invalidUUID_logsAndReturns` — pass `nodeId = \"not-a-uuid\"`, assert `session.navigateTo` NOT called, NSLog emitted (use OSLog capture or inject a logger). Add: `test_didRequestInsightSave_noCurrentNode_logsAndReturns` — stub `session.currentNode()` to return nil, assert NSSavePanel NOT shown. Add (optional, may belong in Task 4 tests): `test_didRequestInsightDeepDive_outOfBoundsTopicIndex_safelyHandled` — assert no crash, expected error UI, behavior matches Decision 11."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — multi-tab cancellation isolation",
+      "issue": "`test_bridgeDelegate_routesBySessionId` covers cross-tab routing for `expand`, but not for `closeTab` cancellation: closing insight tab 1 must cancel ONLY session 1's stream, leaving tab 2's stream running. With two streaming tabs this is a non-trivial scenario.",
+      "recommendation": "Add: `test_closeTab_insightKind_doesNotCancelOtherInsightSessions` — open 2 insight tabs both streaming, close tab 1, assert tab 1's session received `cancel()` and tab 2's session did NOT (use spy on `cancel()`). Verifies session ownership is properly per-tab."
+    },
+    {
+      "severity": "minor",
+      "category": "missing_coverage",
+      "location": "tasks/7.md TDD Anchor — saveInsightNode filename edge cases",
+      "issue": "Sanitization test uses one input. Three additional spec-relevant cases are missing: very long titles (>255 chars — most filesystems truncate), titles that sanitize to a leading dot (hidden file on macOS — sanitization replaces `.` with `_` so should be safe, but verify), and the `currentNode == nil` early-return path in `didRequestInsightSave`.",
+      "recommendation": "Add: `test_saveInsightNode_veryLongTitle_truncatedToFilesystemLimit` — input 500-char title, assert default filename ≤ 255 bytes UTF-8 (or whatever Decision 10 §7 prescribes; if not prescribed, FLAG to user before writing test). Add: `test_saveInsightNode_titleThatSanitizesToHiddenFile_safe` — input `\".secret\"`, assert default starts with `_secret` not `.secret` (current impl: `.` is non-letter/digit so becomes `_`, then leading `_` is trimmed → `\"secret\"` ✓ — but worth a regression test)."
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 4,
+    "litmusTest": {
+      "checked": 10,
+      "passed": 10,
+      "failed": 0
+    },
+    "coverageAssessment": "adequate",
+    "pyramidBalance": {
+      "unit": 10,
+      "integration": 0,
+      "e2e": 0,
+      "assessment": "unbalanced"
+    }
+  }
+}

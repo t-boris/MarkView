@@ -1,0 +1,72 @@
+{
+  "status": "approved_with_suggestions",
+  "summary": "T7 wires the Recursive Insight feature into WorkspaceManager cleanly: closeTab insight branch correctly cancels synchronously before tab removal (Decision 11 §4), the 5 delegate forwarders dispatch by sessionId via O(N) scan with race-tolerant guards, and the EditorView Coordinator stubs are replaced with consistent Task { @MainActor in } wrappers matching the surrounding pattern. Build succeeds with 0 errors and 0 warnings; cross-file signatures (InsightSession.cancel/expand/navigateTo/up/retryCurrent/currentNode, scanMarkdownFiles Result<[URL], ScanError>, tabsStore.appendTab(_:activate:)) all match. Two minor findings: the saveInsightNode signature carries an unused `fromSession` parameter (spec called for `session:` only, but implementation passes the node and never uses session), and the empty-currentNode branch in didRequestInsightSave is silent (no user-visible NSAlert when Save is clicked before the root summary has produced any content).",
+  "criticalIssues": [],
+  "suggestions": [
+    {
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/WorkspaceManager.swift",
+      "line": 1488,
+      "severity": "minor",
+      "category": "best-practices",
+      "suggestion": "saveInsightNode(_ node: InsightNode, fromSession session: InsightSession) takes a `session` parameter that is never read inside the function body. The spec (task-7.md step 4) specified `saveInsightNode(session: InsightSession)` and getting the node via session.currentNode() inside the helper. Either drop the unused parameter (making the signature `saveInsightNode(_ node: InsightNode)`) or use it for telemetry/logging context. Currently it is dead weight and slightly mismatches the spec.",
+      "benefit": "Removes a dead parameter; signature matches spec or the parameter earns its keep.",
+      "optional": true
+    },
+    {
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/WorkspaceManager.swift",
+      "line": 1418,
+      "severity": "minor",
+      "category": "readability",
+      "suggestion": "didRequestInsightSave silently NSLogs and returns when session.currentNode() is nil. From the user's perspective, clicking Save before the root summary has any content is a no-op with no feedback, which can read as a UI bug. Consider showing an NSAlert(\"Nothing to save yet — wait for the summary to begin streaming.\") instead of NSLog. Spec did say \"return silently\" so this is purely a UX improvement, not a defect.",
+      "benefit": "Better UX feedback for the rare-but-real \"clicked Save too early\" path.",
+      "optional": true
+    },
+    {
+      "file": "/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Models/WorkspaceManager.swift",
+      "line": 1490,
+      "severity": "minor",
+      "category": "maintainability",
+      "suggestion": "panel.allowedContentTypes = [.init(filenameExtension: \"md\")!] uses a force-unwrap on UTType.init(filenameExtension:). The literal \"md\" cannot fail to construct a UTType so the force-unwrap is safe and is consistent with ModuleExplorerView.swift:678 (existing project convention). No action required, but a `?? .data` fallback or hoisting to a static `private static let mdContentType = UTType(filenameExtension: \"md\") ?? .data` would remove the bang. Pure stylistic preference.",
+      "benefit": "Eliminates a defensible-but-cosmetic force-unwrap in two places.",
+      "optional": true
+    }
+  ],
+  "metrics": {
+    "filesReviewed": 2,
+    "criticalIssuesCount": 0,
+    "majorIssuesCount": 0,
+    "minorIssuesCount": 3,
+    "testCoverageAssessment": "insufficient"
+  },
+  "verification_notes": {
+    "build": "xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug build → BUILD SUCCEEDED, 0 errors, 0 new warnings in WorkspaceManager.swift or EditorView.swift",
+    "cross_file_signatures": [
+      "InsightSession.init(folderURL:mdFiles:providerClient:graphRAG:) → matches (InsightSession.swift L155-160)",
+      "InsightSession.id is `let id = UUID()` accessed via session.id.uuidString → matches (InsightSession.swift L106)",
+      "InsightSession.cancel() → @MainActor synchronous, matches (InsightSession.swift L360)",
+      "InsightSession.expand(deepDiveIndex: Int) async → matches (InsightSession.swift L257)",
+      "InsightSession.navigateTo(nodeId: UUID) → matches; UUID conversion via UUID(uuidString:) is correctly guarded (InsightSession.swift L340)",
+      "InsightSession.up() → matches (InsightSession.swift L352)",
+      "InsightSession.retryCurrent() async → matches (InsightSession.swift L369)",
+      "InsightSession.currentNode() → matches (InsightSession.swift L484)",
+      "scanMarkdownFiles(in:) returns Result<[URL], ScanError> → diff handles both cases via switch (WorkspaceManager.swift L580)",
+      "tabsStore.appendTab(_:activate:) signature matches (WorkspaceManager.swift L256)",
+      "OpenTab(url:content:originalContent:kind:) memberwise init satisfied (DocumentState.swift L51-65)",
+      "WebViewBridgeDelegate 5 insight method signatures match (WebViewBridge.swift L475-479)",
+      "EditorView.Coordinator.parent.workspaceManager exists (EditorView.swift L7) and Task { @MainActor in } wrapping is consistent with surrounding handlers (EditorView.swift L535-589)"
+    ],
+    "decision_compliance": {
+      "Decision_11_§4_cancel_before_remove": "VERIFIED — closeTab order is session.cancel() THEN tabsStore.removeTab(at:) (WorkspaceManager.swift L1103-1104)",
+      "Decision_5_500_file_cap": "VERIFIED — enforced upstream in scanMarkdownFiles (Task 2); diff surfaces the error via NSAlert with localizedDescription (WorkspaceManager.swift L1373)",
+      "no_activeInsightSession_published_state": "VERIFIED — findInsightSession does O(N≤20) scan over openTabs (WorkspaceManager.swift L1391-1398), no @Published var added",
+      "providerClient_singleton_reuse": "VERIFIED — uses incrementalCompiler?.orchestrator.providerClient, no fresh AIProviderClient(...) instantiation (WorkspaceManager.swift L1356)",
+      "graphRAG_singleton_passed": "VERIFIED — passes self.graphRAG to InsightSession init (WorkspaceManager.swift L1382)",
+      "non_blocking_generateRoot": "VERIFIED — Task { await session.generateRoot() } not awaited from startRecursiveInsight (WorkspaceManager.swift L1388)",
+      "filename_sanitization": "VERIFIED — Decision 10 §7 algorithm: alphanumeric + _ kept, others → _, collapsed via split/join, fallback \"insight\" (WorkspaceManager.swift L1518-1530)",
+      "force_md_extension": "VERIFIED — pickedURL.deletingPathExtension().appendingPathExtension(\"md\") when not already .md (WorkspaceManager.swift L1498-1502)",
+      "writes_markdownBody_only": "VERIFIED — node.markdownBody written, no marker/deep-dives/breadcrumbs (WorkspaceManager.swift L1505)",
+      "race_tolerant_unknown_sessionId": "VERIFIED — all 5 forwarders use guard let + NSLog + return pattern; no fatal/precondition (WorkspaceManager.swift L1402-1469)",
+      "no_regression_isModified_branch": "VERIFIED — file-tab dirty-save NSAlert preserved unchanged (WorkspaceManager.swift L1108+)"
+    }
+  }
+}

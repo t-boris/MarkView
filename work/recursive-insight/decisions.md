@@ -109,3 +109,22 @@ Per-task summaries (1-3 sentences) + links to JSON review reports. Created durin
 - Tab-switch back during streaming preserves visible buffer (Decision 11 §5)
 - Build: SUCCEEDED
 - Commit: 86c07f0
+
+## Task 7: WorkspaceManager insight wiring + EditorView Coordinator delegate bodies
+- startRecursiveInsight: scan → InsightSession → OpenTab(.insight) → Task { generateRoot }
+- closeTab: insight branch cancels session BEFORE removeTab (Decision 11 §4)
+- 5 forwarder methods (deepDive, save, breadcrumb, up, retry) + findInsightSession scan
+- saveInsightNode: NSSavePanel, sanitized filename, .md extension forced
+- EditorView.Coordinator: 5 NSLog stubs replaced with parent.workspaceManager forwarders
+- Build: SUCCEEDED
+- Commit: 73ce507d2163f3d9af703b800fc50298f9385647
+
+## Task 7 Fix Round 1
+- Critical: added insight-tab early-return guards in all save/refresh paths to enforce "never written to disk" invariant (saveActiveFile, saveFile, reloadActiveTabFromDisk, openOrRefreshFile refresh-branch, updateActiveTabContent, reindexActiveFile single-file branch, handleBlocksDelta, plus pre-hop guards in EditorView Coordinator bridgeSaveRequested / bridgeRefreshRequested)
+- Major: sanitizeInsightFilename now strict ASCII [A-Za-z0-9_] via Set<Character> (was Unicode-aware Character.isLetter/isNumber)
+- Major: UTType safe unwrap (no force-unwrap crash); also added explicit `import UniformTypeIdentifiers`
+- Major: sanitizeForLog strips \r\n\0 and truncates to 64 chars; all 5 bridge forwarders now log via %@ format specifier instead of string interpolation
+- Minor: documented sandbox-OFF dependency in saveInsightNode header (re-enable would require startAccessingSecurityScopedResource on folderURL/pickedURL); documented Task @MainActor pattern as deliberate match to surrounding bridge idiom; save-feedback-loop NSAlert warning when user saves inside the analyzed folder
+- Code review: unused `fromSession` param now used — analyzed-folder name (recovered from the owning tab's placeholder URL since InsightSession.folderURL is private and we did not widen its access from outside InsightSession.swift) prefixes the default filename and drives the in-folder warning
+- Build: SUCCEEDED, 0 warnings/errors in WorkspaceManager.swift or EditorView.swift
+- Commit: aaee2201e51928bec2bf7dc464310e70b0521fbc
