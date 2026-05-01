@@ -127,6 +127,10 @@ struct ContentView: View {
                         Button("📋 Full Codebase Audit") { workspaceManager.runAITool(named: "audit") }
                         Button("🗂 Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
                         Button("📚 Generate Full Documentation") { workspaceManager.runAITool(named: "fulldocs") }
+                        Button("🧭 Recursive Insight") {
+                            workspaceManager.startRecursiveInsight()
+                        }
+                        .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
                     }
                 } label: {
                     Image(systemName: "wand.and.stars")
