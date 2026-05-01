@@ -4,19 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!--
-      CSP applies document-wide (meta-tag granularity). Decision 10 §3 was authored
-      with insight-mode-only content in mind, but existing modes (preview, structured,
-      WYSIWYG-save graph canvas) need:
+      CSP applies document-wide (meta-tag granularity). Existing modes (preview,
+      structured, WYSIWYG-save graph canvas) need:
         - CDN scripts/styles from cdn.jsdelivr.net (D3, dagre, turndown, turndown-plugin-gfm)
         - Remote https <img> for user markdown image content
-      Widened script-src/style-src/img-src to allow these. Insight-mode security intent
-      is preserved via:
-        - markdown-it `html: false` on insightMd instance (no raw HTML from LLM output)
-        - `setText(el, str)` utility routes every LLM-derived string through textContent
-        - `connect-src 'none'` blocks any LLM-injected fetch/XHR/exfil-via-loading
-        - `object-src 'none'` blocks <object>/<embed> injection
-        - `base-uri 'none'` prevents <base> hijacking
-        - mermaid `securityLevel: 'strict'` per-render in insight mode
+      Widened script-src/style-src/img-src to allow these.
+
+      Insight mode v2 isolates ALL LLM-rendered content inside an iframe
+      (sandbox="allow-scripts", null-origin) with its own stricter CSP defined
+      inside the iframe srcdoc (`default-src 'none'; script-src 'unsafe-inline'
+      blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:;
+      object-src 'none'; base-uri 'none'; frame-ancestors 'none'`). The parent
+      page never executes LLM-derived script. See task 5 / tech-spec Decisions
+      2, 3, 5, 10, 11.
     -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'none'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
@@ -848,7 +848,9 @@
         html[data-theme="light"] .struct-line:hover { background: rgba(0,0,0,0.04); }
 
         /* ============================================================================
-           RECURSIVE INSIGHT MODE — split-pane layout
+           RECURSIVE INSIGHT MODE v2 — chrome (breadcrumbs + iframe + status bar)
+           Iframe srcdoc owns all LLM-rendered content; CSS here covers main-frame
+           chrome only. See task 5 / tech-spec Decisions 2, 3, 5, 10, 11.
            ============================================================================ */
         .insight-container {
             display: none;
@@ -857,6 +859,7 @@
             overflow: hidden;
             background: var(--bg-primary);
             color: var(--text-primary);
+            min-height: 0;
         }
         .insight-container.visible { display: flex; }
 
@@ -884,142 +887,33 @@
         .insight-breadcrumb-item.current:hover { background: transparent; }
         .insight-breadcrumb-sep { color: var(--text-tertiary); padding: 0 2px; user-select: none; }
 
-        .insight-body {
-            display: flex;
+        .insight-iframe {
             flex: 1;
-            overflow: hidden;
-            min-height: 0;
-        }
-        .insight-center {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 24px;
-            background: var(--bg-primary);
-            min-width: 0;
-        }
-        .insight-center .insight-loading {
-            color: var(--text-secondary);
-            font-style: italic;
-            font-size: 12px;
-            padding: 8px 0;
-        }
-        .insight-right {
-            width: 320px;
-            min-width: 240px;
-            max-width: 480px;
-            border-left: 1px solid var(--border-color);
-            background: var(--bg-secondary);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-        .insight-error-banner {
-            display: none;
-            background: rgba(244, 71, 71, 0.12);
-            border-bottom: 1px solid var(--accent-danger);
-            color: var(--accent-danger);
-            padding: 8px 12px;
-            font-size: 12px;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            flex-shrink: 0;
-        }
-        .insight-error-banner.visible { display: flex; }
-        .insight-error-message {
-            flex: 1;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-        .insight-error-retry {
-            background: var(--accent-danger);
-            color: #fff;
+            width: 100%;
             border: none;
-            border-radius: 3px;
-            padding: 3px 10px;
-            font-size: 11px;
-            cursor: pointer;
-        }
-        .insight-error-retry:hover { opacity: 0.85; }
-
-        .insight-deep-dives-header {
-            padding: 8px 12px 4px;
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
-            font-weight: 600;
-            flex-shrink: 0;
-        }
-        .insight-deep-dives-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 4px 8px 8px;
-        }
-        .insight-deep-dive-item {
-            padding: 8px 10px;
-            margin-bottom: 4px;
-            border-radius: 4px;
             background: var(--bg-primary);
-            border: 1px solid var(--border-color);
-            cursor: pointer;
-            transition: background 0.1s, border-color 0.1s;
-        }
-        .insight-deep-dive-item:hover {
-            background: var(--bg-tertiary);
-            border-color: var(--accent-primary);
-        }
-        .insight-deep-dive-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 2px;
-            word-break: break-word;
-        }
-        .insight-deep-dive-hint {
-            font-size: 11px;
-            color: var(--text-secondary);
-            line-height: 1.4;
-            word-break: break-word;
-        }
-        .insight-deep-dives-empty {
-            font-size: 11px;
-            color: var(--text-tertiary);
-            font-style: italic;
-            padding: 8px 4px;
+            min-height: 0;
+            display: block;
         }
 
-        .insight-button-row {
-            display: flex;
-            gap: 6px;
-            padding: 8px 12px;
+        .insight-status-bar {
+            flex-shrink: 0;
+            padding: 4px 12px;
             background: var(--bg-secondary);
             border-top: 1px solid var(--border-color);
-            flex-shrink: 0;
-        }
-        .insight-button-row button {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            padding: 5px 12px;
+            color: var(--text-secondary);
             font-size: 11px;
-            cursor: pointer;
-            font-family: var(--font-sans);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .insight-button-row button:hover {
-            background: var(--accent-primary);
-            color: #fff;
-            border-color: var(--accent-primary);
-        }
-        .insight-button-row .spacer { flex: 1; }
-        .insight-mermaid-error {
-            display: block;
+        .insight-status-bar.phase-1 { color: var(--text-secondary); }
+        .insight-status-bar.phase-2 { color: var(--accent-primary); }
+        .insight-status-bar.ready { color: var(--text-primary); }
+        .insight-status-bar.error {
             color: var(--accent-danger);
-            font-size: 11px;
-            font-style: italic;
-            margin-top: 4px;
+            background: rgba(244, 71, 71, 0.12);
+            border-top-color: var(--accent-danger);
         }
     </style>
 </head>
@@ -1110,25 +1004,14 @@
                 </div>
             </div>
 
-            <!-- Recursive Insight mode — split-pane LLM-driven UI -->
+            <!-- Recursive Insight mode v2 — sandboxed iframe + chrome (breadcrumbs/status) -->
+            <!-- Iframe is dynamically inserted by JS so its sandbox attribute and srcdoc
+                 are owned by the v2 loadInsightSkeleton flow. The static placeholder element
+                 below is REPLACED on first load. -->
             <div class="insight-container" id="insight-container">
                 <div class="insight-breadcrumbs" id="insight-breadcrumbs"></div>
-                <div class="insight-body">
-                    <div class="insight-center" id="insight-center"></div>
-                    <div class="insight-right">
-                        <div class="insight-error-banner" id="insight-error-banner">
-                            <span class="insight-error-message" id="insight-error-message"></span>
-                            <button class="insight-error-retry" id="insight-error-retry">Retry</button>
-                        </div>
-                        <div class="insight-deep-dives-header">Deep dives</div>
-                        <div class="insight-deep-dives-list" id="insight-deep-dives-list"></div>
-                    </div>
-                </div>
-                <div class="insight-button-row">
-                    <button id="insight-btn-up" title="Go up to parent">↑ Up</button>
-                    <div class="spacer"></div>
-                    <button id="insight-btn-save" title="Save current node as Markdown">💾 Save as .md</button>
-                </div>
+                <iframe class="insight-iframe" id="insight-iframe" sandbox="allow-scripts" title="Insight content"></iframe>
+                <div class="insight-status-bar" id="insight-status-bar"></div>
             </div>
         </div>
 
@@ -1239,14 +1122,18 @@
             isRendering: false,
             documentBaseURL: null, // file:// URL of the current document's directory
             fileType: 'markdown', // 'markdown' | 'json' | 'xml' | 'yaml'
-            // Recursive Insight mode state
-            insightSessionId: null,
-            insightBufferText: '',
-            insightDeepDives: [],      // [{label, hint, scopeHint}]
-            insightBreadcrumbs: [],    // [{nodeId, title}]
-            insightIsStreaming: false,
-            insightLastError: null,
-            insightRenderTimer: null,
+            // Recursive Insight v2 — iframe-based session state.
+            // See task 5 / tech-spec Decisions 2, 5, 11.
+            insightIframe: null,                  // <iframe> DOM node (recreated on each loadInsightSkeleton)
+            insightSessionId: null,               // string | null
+            insightCurrentNodeId: null,           // string | null
+            insightSkeleton: null,                // last skeleton object
+            insightSectionLibsNeeded: new Set(),  // Set<string> — lib names in use for current skeleton
+            insightBlobURLs: new Map(),           // Map<libName, blobURL>
+            insightLibBytes: new Map(),           // Map<libName, sourceText> — fetch cache
+            insightLoadTimer: null,               // setTimeout handle for 10s iframe-ready timeout
+            insightIframeReady: false,            // true once iframe posts insightIframeReady
+            insightPendingChunks: new Map(),      // Map<sectionId, [htmlChunk]> — buffered until iframe ready
         };
 
         const DOM = {
@@ -1261,16 +1148,11 @@
             statusChars: document.getElementById('status-chars'),
             btnToggleMode: document.getElementById('btn-toggle-mode'),
             tocStatus: document.getElementById('toc-status'),
-            // Insight mode containers
+            // Insight v2 chrome containers
             insightContainer: document.getElementById('insight-container'),
             insightBreadcrumbs: document.getElementById('insight-breadcrumbs'),
-            insightCenter: document.getElementById('insight-center'),
-            insightDeepDivesList: document.getElementById('insight-deep-dives-list'),
-            insightErrorBanner: document.getElementById('insight-error-banner'),
-            insightErrorMessage: document.getElementById('insight-error-message'),
-            insightErrorRetry: document.getElementById('insight-error-retry'),
-            insightBtnUp: document.getElementById('insight-btn-up'),
-            insightBtnSave: document.getElementById('insight-btn-save'),
+            insightIframe: document.getElementById('insight-iframe'),
+            insightStatusBar: document.getElementById('insight-status-bar'),
         };
 
         // ============================================================================
@@ -2780,256 +2662,409 @@
         // ============================================================================
 
         // ============================================================================
-        // RECURSIVE INSIGHT MODE (state.mode === 'insight')
-        // Decision 10 sanitization layer + Decision 6 debounced render +
-        // Decision 7 per-block mermaid try/catch.
+        // RECURSIVE INSIGHT MODE v2 (state.mode === 'insight')
+        //
+        // Architecture: ALL LLM-rendered content lives inside a single
+        // <iframe sandbox="allow-scripts"> (null-origin). The parent (this scope)
+        // owns: chrome (breadcrumbs + status bar), bridge plumbing, blob-URL
+        // lifecycle for vendored libs, and message validation.
+        //
+        // Trust boundary: parent ↔ iframe via postMessage. Strict 5-type allowlist
+        // (insightIframeReady, insightDeepDiveClicked, insightBreadcrumbClicked,
+        //  insightRequestSave, insightRequestUp). The 5 Swift→JS setters are:
+        //  loadInsightSkeleton, updateInsightSection, setInsightError,
+        //  setInsightStatus, releaseInsightBlobs.
+        //
+        // See task 5 / tech-spec Decisions 2, 3, 5, 10, 11.
         // ============================================================================
 
-        // --- Separate markdown-it instance for insight mode (html: false + link sanitizer) ---
-        // We do NOT touch the existing global `md` (html: true) used by editor/preview/structured
-        // — see acceptance criteria in tech-spec Decision 10 and tasks/5.md.
-        let insightMd = null;
-        try {
-            if (typeof window.markdownit === 'function') {
-                insightMd = window.markdownit({
-                    html: false,        // SECURITY: no raw HTML from LLM-streamed content
-                    breaks: true,
-                    linkify: true,
-                    typographer: true,
-                });
-                if (window.markdownitFootnote) insightMd.use(window.markdownitFootnote);
-                if (window.markdownitTaskLists) insightMd.use(window.markdownitTaskLists, { label: true });
+        // ---------------------------------------------------------------------------
+        // Escape utilities (Decision 10) — SOLE permitted path for any LLM-controlled
+        // string entering an HTML or attribute context anywhere in parent JS.
+        // For chrome that uses textContent we don't need them; they exist for cases
+        // where strings get interpolated into srcdoc string construction.
+        // ---------------------------------------------------------------------------
+        function escapeForHTMLText(s) {
+            if (s == null) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+        function escapeForHTMLAttribute(s) {
+            // Same five metachars per Decision 10 — attribute and text use the
+            // identical escape set; functions kept distinct for call-site clarity.
+            if (s == null) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
-                // Link target sanitizer: allow only http(s):// and relative paths.
-                // Reject javascript:, data:, file:, vbscript:, etc.
-                // If href is rejected, strip the <a> open token (link text remains as plain text).
-                const isSafeHref = function(href) {
-                    if (!href || typeof href !== 'string') return false;
-                    const trimmed = href.trim();
-                    if (trimmed.length === 0) return false;
-                    // Quick reject of well-known dangerous schemes (case-insensitive).
-                    const lower = trimmed.toLowerCase();
-                    if (lower.startsWith('javascript:')) return false;
-                    if (lower.startsWith('data:')) return false;
-                    if (lower.startsWith('file:')) return false;
-                    if (lower.startsWith('vbscript:')) return false;
-                    // Allow explicit http/https.
-                    if (lower.startsWith('http://') || lower.startsWith('https://')) return true;
-                    // Allow fragment / query-only links and relative paths
-                    // (no scheme — i.e. no "<scheme>:" prefix before any "/" or "#" or "?").
-                    // Reject anything that looks like an unknown scheme: <word>:...
-                    const schemeMatch = trimmed.match(/^([a-z][a-z0-9+.\-]*):/i);
-                    if (schemeMatch) return false;
-                    return true;
-                };
-                const defaultLinkOpen = insightMd.renderer.rules.link_open || function(tokens, idx, options, env, self) {
-                    return self.renderToken(tokens, idx, options);
-                };
-                insightMd.renderer.rules.link_open = function(tokens, idx, options, env, self) {
-                    const token = tokens[idx];
-                    const hrefIdx = token.attrIndex('href');
-                    const href = hrefIdx >= 0 ? token.attrs[hrefIdx][1] : '';
-                    if (!isSafeHref(href)) {
-                        // Mark token to be replaced with empty span open below; close handled in link_close.
-                        token.tag = 'span';
-                        if (hrefIdx >= 0) token.attrs.splice(hrefIdx, 1);
-                        token.attrSet('data-stripped-href', '1');
-                        return self.renderToken(tokens, idx, options);
+        // ---------------------------------------------------------------------------
+        // Lib mapping — skeleton drives which vendored libs to materialize as blobs.
+        // Prism is always loaded (universal code highlighting). Mermaid only if any
+        // section.type === 'mermaidDiagram'. Chart only if 'chartJsChart'. KaTeX only
+        // if skeleton.metadata.hasMath === true OR a section declares hasMath.
+        // ---------------------------------------------------------------------------
+        const INSIGHT_LIB_FILES = {
+            // libName: relative path under Resources/Editor/
+            mermaid: 'vendor/js/mermaid.min.js',
+            chart: 'vendor/js/chart-4.4.9.min.js',
+            katex: 'vendor/js/katex.min.js',
+            'katex-auto': 'vendor/js/auto-render.min.js',
+            prism: 'vendor/js/prism.min.js',
+        };
+        // KaTeX webfonts list (used only if KaTeX is required) — base64-inlined into
+        // CSS @font-face rules per Decision 5 caveats.
+        const KATEX_FONTS = [
+            'KaTeX_Main-Regular.woff2',
+            'KaTeX_Math-Italic.woff2',
+        ];
+
+        function computeRequiredLibs(skeleton) {
+            const libs = new Set(['prism']);
+            if (!skeleton || !Array.isArray(skeleton.sections)) return libs;
+            let needsMath = false;
+            for (const s of skeleton.sections) {
+                if (!s || typeof s.type !== 'string') continue;
+                if (s.type === 'mermaidDiagram') libs.add('mermaid');
+                if (s.type === 'chartJsChart') libs.add('chart');
+                if (s.metadata && (s.metadata.hasMath === true)) needsMath = true;
+            }
+            if (skeleton.metadata && skeleton.metadata.hasMath === true) needsMath = true;
+            if (needsMath) {
+                libs.add('katex');
+                libs.add('katex-auto');
+            }
+            return libs;
+        }
+
+        // ---------------------------------------------------------------------------
+        // Lazy lib materialization (Decision 5).
+        // ensureLibBlob fetches the lib source from app bundle (same-origin to
+        // parent), wraps it in a Blob, creates a blob: URL, and caches it. Iframe
+        // <script src="blob:..."> tags reference these URLs.
+        // ---------------------------------------------------------------------------
+        async function ensureLibBlob(libName) {
+            if (state.insightBlobURLs.has(libName)) {
+                return state.insightBlobURLs.get(libName);
+            }
+            const path = INSIGHT_LIB_FILES[libName];
+            if (!path) {
+                console.warn('[insight] unknown lib name:', libName);
+                return null;
+            }
+            let src = state.insightLibBytes.get(libName);
+            if (typeof src !== 'string') {
+                try {
+                    const resp = await fetch(path);
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    src = await resp.text();
+                    state.insightLibBytes.set(libName, src);
+                } catch (e) {
+                    console.warn('[insight] failed to fetch lib', libName, e);
+                    return null;
+                }
+            }
+            const blob = new Blob([src], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            state.insightBlobURLs.set(libName, url);
+            return url;
+        }
+
+        // KaTeX CSS + base64-inlined webfonts (Decision 5 caveat). Returns a string
+        // suitable for inlining into iframe srcdoc <style>. Heavy first call; then
+        // cached in state.insightLibBytes under key '__katex-css-inline'.
+        async function ensureKatexCSSInline() {
+            const cacheKey = '__katex-css-inline';
+            if (state.insightLibBytes.has(cacheKey)) {
+                return state.insightLibBytes.get(cacheKey);
+            }
+            try {
+                const cssResp = await fetch('vendor/css/katex.min.css');
+                if (!cssResp.ok) throw new Error('katex.min.css HTTP ' + cssResp.status);
+                let css = await cssResp.text();
+                for (const fontName of KATEX_FONTS) {
+                    try {
+                        const fr = await fetch('vendor/css/fonts/' + fontName);
+                        if (!fr.ok) continue;
+                        const buf = await fr.arrayBuffer();
+                        // Base64 encode the binary woff2.
+                        let binary = '';
+                        const bytes = new Uint8Array(buf);
+                        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                        const b64 = btoa(binary);
+                        // Replace any url(...fontName) / url(...fontName?...) reference with data: URL.
+                        // KaTeX CSS uses paths like "fonts/KaTeX_Main-Regular.woff2".
+                        const dataUrl = 'data:font/woff2;base64,' + b64;
+                        const escapedName = fontName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const re = new RegExp('url\\([^)]*' + escapedName + '[^)]*\\)', 'g');
+                        css = css.replace(re, 'url(' + dataUrl + ')');
+                    } catch (e) {
+                        // Skip missing webfont — KaTeX still renders with fallback.
                     }
-                    // Add rel/target for safe external links (defense in depth).
-                    if (/^https?:/i.test(href)) {
-                        token.attrSet('rel', 'noopener noreferrer');
-                        token.attrSet('target', '_blank');
-                    }
-                    return defaultLinkOpen(tokens, idx, options, env, self);
-                };
-                const defaultLinkClose = insightMd.renderer.rules.link_close || function(tokens, idx, options, env, self) {
-                    return self.renderToken(tokens, idx, options);
-                };
-                insightMd.renderer.rules.link_close = function(tokens, idx, options, env, self) {
-                    // Mirror the open-side rewrite: if we converted <a> to <span>, close as </span>.
-                    // Find matching open token by walking back over nesting.
-                    let depth = 1;
-                    for (let i = idx - 1; i >= 0; i--) {
-                        const t = tokens[i];
-                        if (t.type === 'link_close') depth++;
-                        else if (t.type === 'link_open') {
-                            depth--;
-                            if (depth === 0) {
-                                if (t.tag === 'span') {
-                                    tokens[idx].tag = 'span';
-                                }
-                                break;
+                }
+                state.insightLibBytes.set(cacheKey, css);
+                return css;
+            } catch (e) {
+                console.warn('[insight] failed to inline KaTeX CSS:', e);
+                return '';
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Iframe srcdoc builder. Constructs a full self-contained HTML document with
+        // CSP meta, optional lib script tags (via blob URLs), section placeholders,
+        // and an inline iframe-side message dispatch script.
+        // ---------------------------------------------------------------------------
+        async function buildInsightSrcdoc(skeleton, libBlobURLs, katexCSSInline) {
+            // CSP per task spec / Decision 10.
+            const csp = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+            const title = escapeForHTMLText(skeleton && skeleton.title ? skeleton.title : 'Insight');
+
+            // Lib <script src="blob:..."> tags — order matters (KaTeX before auto-render).
+            const libOrder = ['prism', 'mermaid', 'chart', 'katex', 'katex-auto'];
+            let libScripts = '';
+            for (const libName of libOrder) {
+                const url = libBlobURLs.get(libName);
+                if (!url) continue;
+                // url is a blob: URL string we created — safe to interpolate as attribute.
+                // escapeForHTMLAttribute is defensive (blob URLs don't contain quotes,
+                // but we still escape on principle per Decision 10).
+                libScripts += '<script src="' + escapeForHTMLAttribute(url) + '"></script>\n';
+            }
+
+            // KaTeX CSS (only if math required and we successfully inlined).
+            const katexStyleBlock = katexCSSInline ? '<style>' + katexCSSInline + '</style>' : '';
+
+            // Section placeholders + inline 🤿 deep-dive buttons.
+            let sectionsHTML = '';
+            const sections = (skeleton && Array.isArray(skeleton.sections)) ? skeleton.sections : [];
+            for (const s of sections) {
+                if (!s || typeof s.id !== 'string') continue;
+                const sid = escapeForHTMLAttribute(s.id);
+                const sTitle = escapeForHTMLText(s.title || '');
+                const sType = escapeForHTMLAttribute(s.type || '');
+                let buttonsHTML = '';
+                if (Array.isArray(s.deepDiveTopics)) {
+                    s.deepDiveTopics.forEach(function(topic, idx) {
+                        if (!topic) return;
+                        const label = escapeForHTMLText(topic.label || '');
+                        buttonsHTML += '<button class="dd-btn" data-section-id="' + sid + '" data-topic-index="' + idx + '">🤿 ' + label + '</button>';
+                    });
+                }
+                sectionsHTML +=
+                    '<section data-section-id="' + sid + '" data-section-type="' + sType + '">' +
+                    '<h2 class="section-title">' + sTitle + '</h2>' +
+                    '<div class="section-body" id="placeholder-' + sid + '">' +
+                    '<div class="skeleton-loader"></div>' +
+                    '<div class="skeleton-loader skeleton-loader-short"></div>' +
+                    '<div class="skeleton-loader"></div>' +
+                    '</div>' +
+                    (buttonsHTML ? '<div class="dd-buttons">' + buttonsHTML + '</div>' : '') +
+                    '</section>';
+            }
+
+            // Iframe-side script — string body (not LLM-derived). LLM strings
+            // interpolated INTO the script body MUST go through JSON.stringify.
+            // (Currently we don't inject any LLM strings into the script body.)
+            const iframeScript = `
+            (function() {
+                'use strict';
+                function postParent(type, payload) {
+                    try { window.parent.postMessage({ type: type, payload: payload || {} }, '*'); }
+                    catch (e) { /* no-op */ }
+                }
+                function escAttr(s) {
+                    if (s == null) return '';
+                    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+                }
+                // Per-section pending lib-init flag (deferred until section streamed).
+                function initSectionLib(sectionId) {
+                    var sec = document.querySelector('section[data-section-id="' + escAttr(sectionId) + '"]');
+                    if (!sec) return;
+                    var type = sec.getAttribute('data-section-type') || '';
+                    try {
+                        if (type === 'mermaidDiagram' && typeof mermaid !== 'undefined') {
+                            // Convert <pre><code class="language-mermaid"> blocks to .mermaid divs.
+                            var blocks = sec.querySelectorAll('pre code.language-mermaid');
+                            for (var i = 0; i < blocks.length; i++) {
+                                var code = blocks[i];
+                                var pre = code.parentElement;
+                                if (!pre) continue;
+                                var src = code.textContent || '';
+                                var div = document.createElement('div');
+                                div.className = 'mermaid';
+                                div.textContent = src;
+                                pre.replaceWith(div);
+                            }
+                            try {
+                                mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+                                mermaid.run({ nodes: sec.querySelectorAll('.mermaid'), suppressErrors: true });
+                            } catch (e) { /* per-block recover handled by mermaid */ }
+                        } else if (type === 'chartJsChart' && typeof Chart !== 'undefined') {
+                            var canvases = sec.querySelectorAll('canvas[data-chart-config]');
+                            for (var j = 0; j < canvases.length; j++) {
+                                try {
+                                    var cfg = JSON.parse(canvases[j].getAttribute('data-chart-config') || '{}');
+                                    new Chart(canvases[j], cfg);
+                                } catch (e) { /* skip invalid chart */ }
                             }
                         }
-                    }
-                    return defaultLinkClose(tokens, idx, options, env, self);
-                };
-            }
-        } catch (e) {
-            console.warn('insight markdown-it init failed:', e);
-        }
-
-        // --- setText utility: single source of truth for LLM-derived strings ---
-        // ALWAYS uses textContent — never innerHTML. Defensive against null/undefined.
-        function setText(el, str) {
-            if (!el) return;
-            el.textContent = String(str == null ? '' : str);
-        }
-
-        // --- Marker parser ---
-        // Form: \n\n---DEEP-DIVES---\n  (boundary newlines required)
-        // Take the LAST occurrence in the buffer (so a marker text that appears
-        // inside an earlier code fence does not steal the real terminal marker).
-        // Returns { body: string, topics: [{label, hint, scopeHint:[]}] }.
-        const INSIGHT_MARKER = '\n\n---DEEP-DIVES---\n';
-        function parseInsightMarker(buffer) {
-            if (typeof buffer !== 'string' || buffer.length === 0) {
-                return { body: '', topics: [] };
-            }
-            const idx = buffer.lastIndexOf(INSIGHT_MARKER);
-            if (idx < 0) {
-                return { body: buffer, topics: [] };
-            }
-            const body = buffer.slice(0, idx);
-            const tail = buffer.slice(idx + INSIGHT_MARKER.length);
-            const topics = [];
-            const lines = tail.split('\n');
-            for (let raw of lines) {
-                const line = raw.replace(/\r$/, '').trim();
-                if (line.length === 0) continue;
-                if (!line.startsWith('- ')) continue;
-                const stripped = line.slice(2);
-                // Tolerate missing :: segments — pad to 3.
-                const parts = stripped.split(' :: ');
-                while (parts.length < 3) parts.push('');
-                const label = (parts[0] || '').trim();
-                const hint = (parts[1] || '').trim();
-                const scopeRaw = (parts[2] || '').trim();
-                const scopeHint = scopeRaw.length === 0
-                    ? []
-                    : scopeRaw.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
-                topics.push({ label: label, hint: hint, scopeHint: scopeHint });
-            }
-            return { body: body, topics: topics };
-        }
-
-        // --- Per-block mermaid pipeline (Decision 7) ---
-        // Replace each <pre><code class="language-mermaid"> with .mermaid div, then
-        // call mermaid.run({ nodes: [singleNode] }) inside try/catch. On failure,
-        // restore the raw fenced code + a small error label.
-        async function processInsightMermaidBlocks(rootEl) {
-            if (!rootEl) return;
-            if (typeof mermaid === 'undefined') return;
-            const blocks = Array.from(rootEl.querySelectorAll('pre code.language-mermaid'));
-            for (let i = 0; i < blocks.length; i++) {
-                const code = blocks[i];
-                const pre = code.parentElement;
-                if (!pre) continue;
-                const source = code.textContent || '';
-                const div = document.createElement('div');
-                div.className = 'mermaid';
-                // textContent — never innerHTML — for LLM source.
-                div.textContent = source;
-                div.setAttribute('data-source', source);
-                pre.replaceWith(div);
-                try {
-                    await mermaid.run({
-                        nodes: [div],
-                        suppressErrors: false,
-                        // Decision 10: per-render strict security.
-                        securityLevel: 'strict',
-                    });
-                } catch (err) {
-                    // Restore raw fence + error label. textContent throughout — never innerHTML.
-                    const wrap = document.createElement('div');
-                    const restoredPre = document.createElement('pre');
-                    const restoredCode = document.createElement('code');
-                    restoredCode.className = 'language-mermaid';
-                    restoredCode.textContent = source;
-                    restoredPre.appendChild(restoredCode);
-                    wrap.appendChild(restoredPre);
-                    const label = document.createElement('span');
-                    label.className = 'insight-mermaid-error';
-                    setText(label, 'Diagram error: ' + (err && err.message ? err.message : 'invalid mermaid'));
-                    wrap.appendChild(label);
-                    div.replaceWith(wrap);
+                        if (typeof renderMathInElement === 'function') {
+                            try { renderMathInElement(sec, { throwOnError: false }); } catch (e) {}
+                        }
+                        if (typeof Prism !== 'undefined') {
+                            try { Prism.highlightAllUnder(sec); } catch (e) {}
+                        }
+                    } catch (e) { /* swallow lib init errors per section */ }
                 }
-            }
-        }
 
-        // --- Render ---
-        function renderInsight() {
-            state.insightRenderTimer = null;
-            const parsed = parseInsightMarker(state.insightBufferText || '');
-            // Center pane: render markdown via the SANITIZED insight-mode markdown-it.
-            // If insightMd failed to init, fall back to plain textContent (defense in depth).
-            if (DOM.insightCenter) {
-                if (insightMd) {
-                    let html = '';
-                    try {
-                        html = insightMd.render(parsed.body || '');
-                    } catch (e) {
-                        html = '';
+                window.addEventListener('message', function(ev) {
+                    var data = ev.data;
+                    if (!data || typeof data !== 'object') return;
+                    if (typeof data.type !== 'string') return;
+                    var p = data.payload || {};
+                    if (data.type === 'updateInsightSection') {
+                        var sid = String(p.sectionId || '');
+                        if (!sid) return;
+                        var ph = document.getElementById('placeholder-' + sid);
+                        if (!ph) return;
+                        // Clear skeleton loaders on first chunk.
+                        if (ph.firstElementChild && ph.firstElementChild.classList && ph.firstElementChild.classList.contains('skeleton-loader')) {
+                            while (ph.firstChild) ph.removeChild(ph.firstChild);
+                        }
+                        // Append the chunk. Iframe sandbox + CSP isolates this from parent.
+                        try { ph.insertAdjacentHTML('beforeend', String(p.htmlChunk || '')); }
+                        catch (e) { /* malformed HTML — drop chunk */ }
+                    } else if (data.type === 'initSectionLib') {
+                        initSectionLib(String(p.sectionId || ''));
+                    } else if (data.type === 'setIframeStatus') {
+                        // No iframe-side status surface yet; ignore.
                     }
-                    // The markdown renderer's HTML output is constructed by markdown-it itself
-                    // (no LLM-controlled raw HTML thanks to html:false). Direct labels/hints from
-                    // LLM that we render around the markdown still go through setText below.
-                    DOM.insightCenter.innerHTML = html;
-                    // Post-process mermaid blocks (per-block try/catch).
-                    processInsightMermaidBlocks(DOM.insightCenter);
-                    // Highlight code blocks via Prism (skip mermaid — already converted).
-                    if (typeof Prism !== 'undefined') {
-                        try {
-                            DOM.insightCenter.querySelectorAll('pre code').forEach(function(el) {
-                                if (el.classList && el.classList.contains('language-mermaid')) return;
-                                Prism.highlightElement(el);
-                            });
-                        } catch (e) {}
+                }, false);
+
+                // 🤿 deep-dive button click delegation.
+                document.addEventListener('click', function(ev) {
+                    var t = ev.target;
+                    if (!t || !t.classList) return;
+                    if (t.classList.contains('dd-btn')) {
+                        var sid = t.getAttribute('data-section-id') || '';
+                        var idx = parseInt(t.getAttribute('data-topic-index') || '0', 10);
+                        postParent('insightDeepDiveClicked', { sectionId: sid, topicIndex: idx });
+                    } else if (t.id === 'iframe-btn-save') {
+                        postParent('insightRequestSave', {});
+                    } else if (t.id === 'iframe-btn-up') {
+                        postParent('insightRequestUp', {});
                     }
+                }, false);
+
+                // Signal readiness once DOM is parsed.
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', function() { postParent('insightIframeReady', {}); });
                 } else {
-                    setText(DOM.insightCenter, parsed.body || '');
+                    postParent('insightIframeReady', {});
                 }
+            })();
+            `;
+
+            // Inline CSS — skeleton-loader pulse, section + button styling.
+            const inlineCSS = `
+            html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; background: #fff; color: #1e1e1e; }
+            body { padding: 16px 24px; }
+            .insight-doc-title { font-size: 20px; font-weight: 700; margin: 0 0 16px; }
+            section { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
+            section:last-of-type { border-bottom: none; }
+            .section-title { font-size: 16px; font-weight: 600; margin: 0 0 8px; color: #2a2a2a; }
+            .section-body { font-size: 14px; line-height: 1.6; }
+            .section-body img { max-width: 100%; height: auto; }
+            .skeleton-loader {
+                height: 12px; margin: 6px 0; border-radius: 4px;
+                background: linear-gradient(90deg, #e8e8e8 25%, #f4f4f4 50%, #e8e8e8 75%);
+                background-size: 200% 100%;
+                animation: skeleton-pulse 1.4s ease-in-out infinite;
             }
-            // Right pane: deep dives.
-            renderInsightDeepDivesFromArray(parsed.topics);
-            state.insightDeepDives = parsed.topics;
+            .skeleton-loader-short { width: 60%; }
+            @keyframes skeleton-pulse {
+                0% { background-position: 200% 0; }
+                100% { background-position: -200% 0; }
+            }
+            .dd-buttons { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+            .dd-btn {
+                background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px;
+                padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+            }
+            .dd-btn:hover { background: #e8e8e8; border-color: #909090; }
+            .iframe-footer {
+                position: sticky; bottom: 0; left: 0; right: 0;
+                background: #fafafa; border-top: 1px solid #e0e0e0;
+                padding: 8px 0; margin-top: 24px; display: flex; gap: 8px;
+            }
+            .iframe-footer .spacer { flex: 1; }
+            .iframe-footer button {
+                background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px;
+                padding: 5px 12px; font-size: 11px; cursor: pointer; font-family: inherit;
+            }
+            .iframe-footer button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+            pre { background: #f6f8fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+            code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+            `;
+
+            // Compose final document. Note: title/sectionsHTML already escaped.
+            return '<!DOCTYPE html><html><head>' +
+                '<meta http-equiv="Content-Security-Policy" content="' + escapeForHTMLAttribute(csp) + '">' +
+                '<meta charset="UTF-8">' +
+                '<title>' + title + '</title>' +
+                '<style>' + inlineCSS + '</style>' +
+                katexStyleBlock +
+                libScripts +
+                '</head><body>' +
+                '<h1 class="insight-doc-title">' + title + '</h1>' +
+                sectionsHTML +
+                '<div class="iframe-footer">' +
+                '<button id="iframe-btn-up" title="Up to parent">↑ Up</button>' +
+                '<div class="spacer"></div>' +
+                '<button id="iframe-btn-save" title="Save current node as Markdown">💾 Save as .md</button>' +
+                '</div>' +
+                '<script>' + iframeScript + '</script>' +
+                '</body></html>';
         }
 
-        function renderInsightDeepDivesFromArray(topics) {
-            const list = DOM.insightDeepDivesList;
-            if (!list) return;
-            // Clear children.
-            while (list.firstChild) list.removeChild(list.firstChild);
-            if (!Array.isArray(topics) || topics.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'insight-deep-dives-empty';
-                setText(empty, 'No deep dives yet.');
-                list.appendChild(empty);
-                return;
+        // ---------------------------------------------------------------------------
+        // Mode entry/exit. v2 keeps state.mode === 'insight' semantics. Mermaid
+        // theme is no longer initialized in main frame — Mermaid lives inside
+        // iframe and re-inits on each srcdoc reload.
+        // ---------------------------------------------------------------------------
+        function switchToInsightView() {
+            state.mode = 'insight';
+            if (DOM.editorPane) DOM.editorPane.style.display = 'none';
+            if (DOM.previewPane) DOM.previewPane.style.display = 'none';
+            if (DOM.insightContainer) {
+                DOM.insightContainer.classList.add('visible');
+                DOM.insightContainer.style.display = 'flex';
             }
-            topics.forEach(function(topic, index) {
-                const item = document.createElement('div');
-                item.className = 'insight-deep-dive-item';
-                item.setAttribute('data-topic-index', String(index));
-                const labelEl = document.createElement('div');
-                labelEl.className = 'insight-deep-dive-label';
-                setText(labelEl, topic && topic.label ? topic.label : '(unlabeled topic)');
-                const hintEl = document.createElement('div');
-                hintEl.className = 'insight-deep-dive-hint';
-                setText(hintEl, topic && topic.hint ? topic.hint : '');
-                item.appendChild(labelEl);
-                if (topic && topic.hint) item.appendChild(hintEl);
-                item.addEventListener('click', function() {
-                    sendToSwift('insightDeepDiveClicked', {
-                        sessionId: state.insightSessionId,
-                        topicIndex: index,
-                    });
-                });
-                list.appendChild(item);
-            });
+            const wt = document.getElementById('wysiwyg-toolbar');
+            if (wt) wt.style.display = 'none';
+            if (DOM.statusMode) DOM.statusMode.textContent = 'Insight';
         }
 
+        function leaveInsightView() {
+            // Hide container only — Decision 11 places blob URL revocation under
+            // Swift `releaseInsightBlobs` ownership at tab close.
+            if (DOM.insightContainer) {
+                DOM.insightContainer.classList.remove('visible');
+                DOM.insightContainer.style.display = 'none';
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Breadcrumbs (chrome — main frame). Uses textContent (no escape needed).
+        // ---------------------------------------------------------------------------
         function renderInsightBreadcrumbs(crumbs) {
             const bar = DOM.insightBreadcrumbs;
             if (!bar) return;
@@ -3039,12 +3074,13 @@
                 const isLast = idx === arr.length - 1;
                 const item = document.createElement('span');
                 item.className = 'insight-breadcrumb-item' + (isLast ? ' current' : '');
-                setText(item, crumb && crumb.title ? crumb.title : '(untitled)');
+                item.textContent = (crumb && crumb.title) ? String(crumb.title) : '(untitled)';
                 if (!isLast) {
+                    const nodeId = (crumb && crumb.nodeId) ? String(crumb.nodeId) : null;
                     item.addEventListener('click', function() {
                         sendToSwift('insightBreadcrumbClicked', {
                             sessionId: state.insightSessionId,
-                            nodeId: crumb && crumb.nodeId ? crumb.nodeId : null,
+                            nodeId: nodeId,
                         });
                     });
                 }
@@ -3058,171 +3094,341 @@
             });
         }
 
-        function setInsightErrorBanner(message, retryable) {
-            const banner = DOM.insightErrorBanner;
-            const msgEl = DOM.insightErrorMessage;
-            const retryBtn = DOM.insightErrorRetry;
-            if (!banner) return;
-            if (!message) {
-                banner.classList.remove('visible');
-                if (msgEl) setText(msgEl, '');
-                return;
-            }
-            setText(msgEl, message);
-            if (retryBtn) retryBtn.style.display = retryable ? 'inline-block' : 'none';
-            banner.classList.add('visible');
+        // ---------------------------------------------------------------------------
+        // Status bar (chrome — main frame).
+        // ---------------------------------------------------------------------------
+        function setStatusBar(message, phase, isError) {
+            const bar = DOM.insightStatusBar;
+            if (!bar) return;
+            bar.textContent = message == null ? '' : String(message);
+            bar.classList.remove('phase-1', 'phase-2', 'ready', 'error');
+            if (isError) bar.classList.add('error');
+            else if (phase === 'phase-1' || phase === 'phase-2' || phase === 'ready') bar.classList.add(phase);
         }
 
-        function scheduleInsightRender() {
-            if (state.insightRenderTimer) {
-                clearTimeout(state.insightRenderTimer);
-                state.insightRenderTimer = null;
-            }
-            state.insightRenderTimer = setTimeout(renderInsight, 150);
+        // ---------------------------------------------------------------------------
+        // Iframe load timeout (10s). If the iframe never posts insightIframeReady,
+        // surface a retryable error and tear down the iframe.
+        // ---------------------------------------------------------------------------
+        function handleIframeLoadTimeout(sessionId) {
+            // Guard against race: tab closed before timeout fired.
+            if (!state.insightIframe) return;
+            if (state.insightIframeReady) return;
+            if (state.insightSessionId !== sessionId) return;
+            console.warn('[insight] iframe failed to load within 10s for session', sessionId);
+            setStatusBar('iframe failed to load within 10s', null, true);
+            // Tear down by clearing srcdoc; Swift can call loadInsightSkeleton again to retry.
+            try { state.insightIframe.removeAttribute('srcdoc'); } catch (e) {}
         }
 
-        // --- Mode switching ---
-        function switchToInsightView() {
-            state.mode = 'insight';
-            // Hide other panes.
-            if (DOM.editorPane) DOM.editorPane.style.display = 'none';
-            if (DOM.previewPane) DOM.previewPane.style.display = 'none';
-            // Show insight container.
-            if (DOM.insightContainer) {
-                DOM.insightContainer.classList.add('visible');
-                DOM.insightContainer.style.display = 'flex';
+        function startIframeLoadTimer(sessionId) {
+            if (state.insightLoadTimer) {
+                clearTimeout(state.insightLoadTimer);
+                state.insightLoadTimer = null;
             }
-            // Hide WYSIWYG toolbar (insight has its own controls).
-            const wt = document.getElementById('wysiwyg-toolbar');
-            if (wt) wt.style.display = 'none';
-            if (DOM.statusMode) setText(DOM.statusMode, 'Insight');
-            // Re-render mermaid theme to match current theme.
-            try {
-                if (typeof mermaid !== 'undefined') {
-                    mermaid.initialize({
-                        startOnLoad: false,
-                        theme: state.theme === 'dark' ? 'dark' : 'default',
-                        securityLevel: 'strict',
-                    });
+            state.insightLoadTimer = setTimeout(function() {
+                handleIframeLoadTimeout(sessionId);
+            }, 10000);
+        }
+
+        function clearIframeLoadTimer() {
+            if (state.insightLoadTimer) {
+                clearTimeout(state.insightLoadTimer);
+                state.insightLoadTimer = null;
+            }
+        }
+
+        // ---------------------------------------------------------------------------
+        // CDN strip (Decision 10). Removes <script src="https://..."> /
+        // <script src="//..."> and <link rel="prefetch|preconnect|dns-prefetch">
+        // BEFORE forwarding chunks to iframe. Replaced with HTML comment for
+        // visibility. Iframe sandbox CSP `connect-src 'none'` is the second line
+        // of defense (per task spec edge cases).
+        // ---------------------------------------------------------------------------
+        function stripCDNTags(html) {
+            if (typeof html !== 'string') return '';
+            let out = html;
+            // Match <script ... src="https://..." ...> ... </script> (or self-closing variants).
+            out = out.replace(/<script\b[^>]*?\bsrc\s*=\s*(["'])(\s*(?:https?:|\/\/)[^"'>\s]*)\1[^>]*>\s*(?:<\/script>)?/gi, function(_, _q, url) {
+                return '<!-- script src stripped: ' + String(url).replace(/--/g, '- -') + ' -->';
+            });
+            // Match <link ... rel="prefetch|preconnect|dns-prefetch" ...>.
+            out = out.replace(/<link\b[^>]*?\brel\s*=\s*["'](?:prefetch|preconnect|dns-prefetch)["'][^>]*>/gi, function(match) {
+                // Extract href if present for the comment.
+                const hrefMatch = match.match(/\bhref\s*=\s*["']([^"']*)["']/i);
+                const href = hrefMatch ? hrefMatch[1] : '(no href)';
+                return '<!-- link prefetch/preconnect stripped: ' + String(href).replace(/--/g, '- -') + ' -->';
+            });
+            return out;
+        }
+
+        // ---------------------------------------------------------------------------
+        // Five Swift→JS setters (the ONLY parent-side surface for v2).
+        // ---------------------------------------------------------------------------
+
+        // window.loadInsightSkeleton(skeletonOrJSON, sessionId, nodeId)
+        // Builds iframe srcdoc, materializes only required libs lazily, switches
+        // mode, starts the 10s readiness timer.
+        window.loadInsightSkeleton = async function(skeletonOrJSON, sessionId, nodeId) {
+            let skeleton = skeletonOrJSON;
+            if (typeof skeleton === 'string') {
+                try { skeleton = JSON.parse(skeleton); }
+                catch (e) {
+                    console.warn('[insight] loadInsightSkeleton: invalid JSON');
+                    return;
                 }
-            } catch (e) {}
-        }
-
-        function leaveInsightView() {
-            // Helper used when we transition AWAY from insight mode.
-            if (DOM.insightContainer) {
-                DOM.insightContainer.classList.remove('visible');
-                DOM.insightContainer.style.display = 'none';
             }
-        }
-
-        // --- Window functions called from Swift ---
-
-        // Full repaint from a node snapshot. Resets buffer, breadcrumbs, deep-dives, error.
-        // Accepts either a JS object or a JSON string (defensive).
-        window.loadInsightView = function(snapshot) {
-            let snap = snapshot;
-            if (typeof snap === 'string') {
-                try { snap = JSON.parse(snap); } catch (e) { snap = null; }
+            if (!skeleton || typeof skeleton !== 'object' || !Array.isArray(skeleton.sections)) {
+                console.warn('[insight] loadInsightSkeleton: missing sections array');
+                return;
             }
-            if (!snap || typeof snap !== 'object') snap = {};
 
-            state.insightSessionId = snap.sessionId != null ? String(snap.sessionId) : null;
-            state.insightBufferText = typeof snap.markdown === 'string' ? snap.markdown : '';
-            state.insightDeepDives = Array.isArray(snap.deepDives) ? snap.deepDives : [];
-            state.insightBreadcrumbs = Array.isArray(snap.breadcrumbs) ? snap.breadcrumbs : [];
-            state.insightIsStreaming = !!snap.isStreaming;
-            state.insightLastError = null;
+            const sid = sessionId != null ? String(sessionId) : null;
+            const nid = nodeId != null ? String(nodeId) : null;
 
+            // Compute required libs and diff against existing.
+            const newLibs = computeRequiredLibs(skeleton);
+            // Revoke libs no longer needed.
+            for (const [libName, blobURL] of state.insightBlobURLs.entries()) {
+                if (!newLibs.has(libName)) {
+                    try { URL.revokeObjectURL(blobURL); } catch (e) {}
+                    state.insightBlobURLs.delete(libName);
+                }
+            }
+            // Materialize new ones.
+            const blobURLPromises = [];
+            for (const libName of newLibs) {
+                blobURLPromises.push(ensureLibBlob(libName));
+            }
+            await Promise.all(blobURLPromises);
+
+            // KaTeX inline CSS only if KaTeX in set.
+            let katexCSSInline = '';
+            if (newLibs.has('katex')) {
+                katexCSSInline = await ensureKatexCSSInline();
+            }
+
+            // Update state.
+            state.insightSessionId = sid;
+            state.insightCurrentNodeId = nid;
+            state.insightSkeleton = skeleton;
+            state.insightSectionLibsNeeded = newLibs;
+            state.insightIframeReady = false;
+            state.insightPendingChunks = new Map();
+
+            // Switch to insight view & render breadcrumbs.
             switchToInsightView();
-            renderInsightBreadcrumbs(state.insightBreadcrumbs);
-            setInsightErrorBanner(null, false);
+            const crumbs = Array.isArray(skeleton.breadcrumbs) ? skeleton.breadcrumbs : [{ nodeId: nid, title: skeleton.title || '' }];
+            renderInsightBreadcrumbs(crumbs);
+            setStatusBar('Loading…', 'phase-1', false);
 
-            // If snapshot provided explicit deep-dives, render them; otherwise the marker
-            // parser inside renderInsight() will pick them up from buffer.
-            if (state.insightDeepDives.length > 0) {
-                // Render center from buffer, then overwrite right pane from explicit topics.
-                renderInsight();
-                renderInsightDeepDivesFromArray(state.insightDeepDives);
-            } else {
-                renderInsight();
+            // Build srcdoc.
+            const srcdoc = await buildInsightSrcdoc(skeleton, state.insightBlobURLs, katexCSSInline);
+
+            // (Re)acquire iframe ref — DOM ref might have been replaced.
+            if (!state.insightIframe || !document.body.contains(state.insightIframe)) {
+                state.insightIframe = document.getElementById('insight-iframe');
+                DOM.insightIframe = state.insightIframe;
             }
-        };
-
-        // Append a streamed chunk and schedule a debounced re-render (~150ms).
-        window.appendInsightDelta = function(sessionId, deltaText) {
-            // Reject deltas for stale sessions.
-            if (sessionId != null && state.insightSessionId != null
-                && String(sessionId) !== String(state.insightSessionId)) {
+            if (!state.insightIframe) {
+                console.warn('[insight] iframe element missing');
                 return;
             }
-            if (typeof deltaText !== 'string') deltaText = String(deltaText == null ? '' : deltaText);
-            state.insightBufferText += deltaText;
-            state.insightIsStreaming = true;
-            scheduleInsightRender();
+            state.insightIframe.setAttribute('sandbox', 'allow-scripts');
+            state.insightIframe.srcdoc = srcdoc;
+            startIframeLoadTimer(sid);
         };
 
-        // Explicit topic list from Swift (in case Swift parsed marker server-side).
-        window.setInsightDeepDives = function(sessionId, topics) {
-            if (sessionId != null && state.insightSessionId != null
-                && String(sessionId) !== String(state.insightSessionId)) {
+        // window.updateInsightSection(sessionId, sectionId, htmlChunk)
+        // Strips CDN tags then forwards to iframe via postMessage. Buffers chunks
+        // arriving before insightIframeReady.
+        window.updateInsightSection = function(sessionId, sectionId, htmlChunk) {
+            const sid = sessionId != null ? String(sessionId) : null;
+            if (sid !== state.insightSessionId) {
+                console.warn('[insight] updateInsightSection: stale session', sid);
                 return;
             }
-            let arr = topics;
-            if (typeof arr === 'string') {
-                try { arr = JSON.parse(arr); } catch (e) { arr = []; }
+            const secId = String(sectionId || '');
+            if (!secId) return;
+            const skel = state.insightSkeleton;
+            if (!skel || !Array.isArray(skel.sections) || !skel.sections.find(function(s) { return s && s.id === secId; })) {
+                console.warn('[insight] updateInsightSection: unknown sectionId', secId);
+                return;
             }
-            if (!Array.isArray(arr)) arr = [];
-            state.insightDeepDives = arr;
-            renderInsightDeepDivesFromArray(arr);
+            const stripped = stripCDNTags(typeof htmlChunk === 'string' ? htmlChunk : '');
+            if (!state.insightIframeReady || !state.insightIframe) {
+                // Buffer until iframe ready.
+                if (!state.insightPendingChunks.has(secId)) state.insightPendingChunks.set(secId, []);
+                state.insightPendingChunks.get(secId).push(stripped);
+                return;
+            }
+            try {
+                state.insightIframe.contentWindow.postMessage({
+                    type: 'updateInsightSection',
+                    payload: { sessionId: sid, sectionId: secId, htmlChunk: stripped },
+                }, '*');
+            } catch (e) {
+                console.warn('[insight] failed to post updateInsightSection:', e);
+            }
         };
 
-        // Show a loading indicator before first delta arrives.
-        window.showInsightLoading = function(sessionId, message) {
-            if (sessionId != null) state.insightSessionId = String(sessionId);
-            if (DOM.insightCenter) {
-                while (DOM.insightCenter.firstChild) DOM.insightCenter.removeChild(DOM.insightCenter.firstChild);
-                const loader = document.createElement('div');
-                loader.className = 'insight-loading';
-                setText(loader, message || 'Loading…');
-                DOM.insightCenter.appendChild(loader);
-            }
-            // Ensure visible.
-            if (state.mode !== 'insight') switchToInsightView();
-        };
-
-        // Display an error banner; show Retry button only when retryable === true.
+        // window.setInsightError(sessionId, message, retryable)
+        // Renders error in status bar (chrome — parent frame). The 5-type
+        // postMessage allowlist does NOT include a retry message; user retries by
+        // re-invoking the original action (Up navigation, deep-dive click, etc.).
+        // TODO(T6/T7 owner): if a 6th `insightRequestRetry` type is desired,
+        // escalate to user before adding — would change the allowlist count.
         window.setInsightError = function(sessionId, message, retryable) {
-            if (sessionId != null && state.insightSessionId != null
-                && String(sessionId) !== String(state.insightSessionId)) {
-                return;
+            const sid = sessionId != null ? String(sessionId) : null;
+            if (sid !== null && state.insightSessionId !== null && sid !== state.insightSessionId) {
+                return; // drop stale
             }
-            state.insightLastError = message || null;
-            setInsightErrorBanner(message || '', !!retryable);
+            setStatusBar(message || 'Error', null, true);
+            // retryable is currently surfaced only via the status bar text;
+            // no in-DOM Retry button (would require adding a 6th postMessage type).
+            if (retryable) {
+                // Append a hint that user can retry via the originating action.
+                const bar = DOM.insightStatusBar;
+                if (bar && message) bar.textContent = String(message) + ' — retry by re-invoking action';
+            }
         };
 
-        // --- Button click wiring (one-time, on DOMContentLoaded) ---
-        function initInsightButtons() {
-            if (DOM.insightBtnSave) {
-                DOM.insightBtnSave.addEventListener('click', function() {
-                    sendToSwift('insightSaveRequested', { sessionId: state.insightSessionId });
-                });
+        // window.setInsightStatus(sessionId, message, phase)
+        // Updates the status bar with phase tinting (phase-1/phase-2/ready).
+        window.setInsightStatus = function(sessionId, message, phase) {
+            const sid = sessionId != null ? String(sessionId) : null;
+            if (sid !== null && state.insightSessionId !== null && sid !== state.insightSessionId) {
+                return;
             }
-            if (DOM.insightBtnUp) {
-                DOM.insightBtnUp.addEventListener('click', function() {
-                    sendToSwift('insightUpClicked', { sessionId: state.insightSessionId });
-                });
+            setStatusBar(message, phase, false);
+        };
+
+        // window.releaseInsightBlobs()
+        // Revokes all blob URLs and clears caches. Called by Swift bridge BEFORE
+        // session.cancel() per Decision 11.
+        window.releaseInsightBlobs = function() {
+            for (const url of state.insightBlobURLs.values()) {
+                try { URL.revokeObjectURL(url); } catch (e) {}
             }
-            if (DOM.insightErrorRetry) {
-                DOM.insightErrorRetry.addEventListener('click', function() {
-                    sendToSwift('insightRetryRequested', { sessionId: state.insightSessionId });
-                });
-            }
+            state.insightBlobURLs.clear();
+            state.insightLibBytes.clear();
+            state.insightSectionLibsNeeded = new Set();
+        };
+
+        // ---------------------------------------------------------------------------
+        // Parent-side message listener — SOLE inbound channel from iframe.
+        // Strict 5-type allowlist + per-type payload schema validation +
+        // event.source / event.origin validation.
+        // ---------------------------------------------------------------------------
+        const INSIGHT_ALLOWED_TYPES = new Set([
+            'insightIframeReady',
+            'insightDeepDiveClicked',
+            'insightBreadcrumbClicked',
+            'insightRequestSave',
+            'insightRequestUp',
+        ]);
+        const UUID_REGEX = /^[0-9A-F-]{36}$/i;
+
+        function isPlainObject(v) {
+            return v != null && typeof v === 'object' && !Array.isArray(v);
         }
-        initInsightButtons();
+
+        window.addEventListener('message', function(ev) {
+            // Only accept messages from the insight iframe contentWindow.
+            if (!state.insightIframe || ev.source !== state.insightIframe.contentWindow) {
+                return; // silently ignore unrelated postMessages
+            }
+            // Sandbox iframe is null-origin → event.origin is the literal string 'null'.
+            if (ev.origin !== 'null') {
+                console.warn('[insight] rejected postMessage with unexpected origin:', ev.origin);
+                return;
+            }
+            const data = ev.data;
+            if (!isPlainObject(data) || typeof data.type !== 'string') {
+                console.warn('[insight] rejected malformed postMessage');
+                return;
+            }
+            if (!INSIGHT_ALLOWED_TYPES.has(data.type)) {
+                console.warn('[insight] rejected disallowed type:', data.type);
+                return;
+            }
+            const payload = isPlainObject(data.payload) ? data.payload : {};
+
+            switch (data.type) {
+                case 'insightIframeReady': {
+                    state.insightIframeReady = true;
+                    clearIframeLoadTimer();
+                    // Flush any chunks that arrived before iframe was ready.
+                    if (state.insightPendingChunks.size > 0) {
+                        for (const [secId, chunks] of state.insightPendingChunks.entries()) {
+                            for (const chunk of chunks) {
+                                try {
+                                    state.insightIframe.contentWindow.postMessage({
+                                        type: 'updateInsightSection',
+                                        payload: { sessionId: state.insightSessionId, sectionId: secId, htmlChunk: chunk },
+                                    }, '*');
+                                } catch (e) { /* drop */ }
+                            }
+                        }
+                        state.insightPendingChunks.clear();
+                    }
+                    sendToSwift('insightIframeReady', {
+                        sessionId: state.insightSessionId,
+                        nodeId: state.insightCurrentNodeId,
+                    });
+                    return;
+                }
+                case 'insightDeepDiveClicked': {
+                    const sectionId = typeof payload.sectionId === 'string' ? payload.sectionId : null;
+                    const topicIndex = (typeof payload.topicIndex === 'number' && Number.isInteger(payload.topicIndex)) ? payload.topicIndex : null;
+                    if (!sectionId || topicIndex === null) {
+                        console.warn('[insight] insightDeepDiveClicked: invalid payload');
+                        return;
+                    }
+                    const skel = state.insightSkeleton;
+                    if (!skel || !Array.isArray(skel.sections)) return;
+                    const sec = skel.sections.find(function(s) { return s && s.id === sectionId; });
+                    if (!sec) {
+                        console.warn('[insight] insightDeepDiveClicked: unknown sectionId', sectionId);
+                        return;
+                    }
+                    const topics = Array.isArray(sec.deepDiveTopics) ? sec.deepDiveTopics : [];
+                    if (topicIndex < 0 || topicIndex >= topics.length) {
+                        console.warn('[insight] insightDeepDiveClicked: topicIndex out of bounds', topicIndex);
+                        return;
+                    }
+                    sendToSwift('insightDeepDiveClicked', {
+                        sessionId: state.insightSessionId,
+                        sectionId: sectionId,
+                        topicIndex: topicIndex,
+                    });
+                    return;
+                }
+                case 'insightBreadcrumbClicked': {
+                    const nodeId = typeof payload.nodeId === 'string' ? payload.nodeId : null;
+                    if (!nodeId || !UUID_REGEX.test(nodeId)) {
+                        console.warn('[insight] insightBreadcrumbClicked: nodeId not a UUID');
+                        return;
+                    }
+                    sendToSwift('insightBreadcrumbClicked', {
+                        sessionId: state.insightSessionId,
+                        nodeId: nodeId,
+                    });
+                    return;
+                }
+                case 'insightRequestSave': {
+                    sendToSwift('insightRequestSave', { sessionId: state.insightSessionId });
+                    return;
+                }
+                case 'insightRequestUp': {
+                    sendToSwift('insightRequestUp', { sessionId: state.insightSessionId });
+                    return;
+                }
+            }
+        }, false);
 
         // ============================================================================
-        // END RECURSIVE INSIGHT MODE
+        // END RECURSIVE INSIGHT MODE v2
         // ============================================================================
 
         window.setDocumentBase = function(baseURL) {
