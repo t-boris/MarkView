@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 /// Owns file-tree state, exclusion rules, and file-system watching for the active workspace.
 @MainActor
@@ -706,9 +707,16 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Open or refresh a file — if already open, reload content from disk
+    /// Open or refresh a file — if already open, reload content from disk.
+    /// Insight tabs are skipped on the refresh branch: their placeholder URL
+    /// is never written to disk, so reading it back would corrupt the in-memory
+    /// session. We still allow the tab to be activated by index match.
     func openOrRefreshFile(_ url: URL) {
         if let index = tabsStore.firstIndex(of: url) {
+            if case .insight = openTabs[index].kind {
+                tabsStore.activeTabIndex = index
+                return
+            }
             if let content = try? String(contentsOf: url, encoding: .utf8) {
                 tabsStore.updateTab(at: index) { tab in
                     tab.content = content
@@ -1145,9 +1153,14 @@ Each component needs a correct type and one-sentence description.
         fileTreeStore.reveal(url: url)
     }
 
-    /// Save the active tab's file
+    /// Save the active tab's file.
+    /// Insight tabs are ephemeral (Decision 10 §7 / Task 7): the placeholder URL
+    /// `.insight-<uuid>` must NEVER be written to disk. Cmd+S on an insight tab
+    /// is a no-op here — the insight player has its own Save flow that calls
+    /// `didRequestInsightSave` (NSSavePanel + sanitized filename + node body only).
     func saveActiveFile() {
         guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
+        if case .insight = openTabs[activeTabIndex].kind { return }
         saveFile(at: activeTabIndex)
     }
 
@@ -1424,10 +1437,28 @@ Each component needs a correct type and one-sentence description.
         return nil
     }
 
+    /// Strip newlines and NULs and truncate to 64 chars before logging an
+    /// untrusted string from the JS bridge. Defends against log forgery
+    /// (CWE-117): a compromised JS context could otherwise inject fake
+    /// `[Insight]` log entries via embedded `\r\n`. The truncation also caps
+    /// the cost of a malicious mega-payload.
+    private static func sanitizeForLog(_ s: String) -> String {
+        let stripped = s.replacingOccurrences(
+            of: "[\\r\\n\\0]",
+            with: "_",
+            options: .regularExpression
+        )
+        return String(stripped.prefix(64))
+    }
+
     /// Bridge forwarder: user clicked a deep-dive topic in the right pane.
+    /// Wrapped in `Task { @MainActor in ... }` at the EditorView Coordinator
+    /// matches the surrounding bridge-delegate idiom; WorkspaceManager is
+    /// @MainActor-isolated so the call hops to the right actor regardless.
     func didRequestInsightDeepDive(sessionId: String, topicIndex: Int) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightDeepDive: no session for id \(sessionId) (tab closed?)")
+            NSLog("[Insight] didRequestInsightDeepDive: no session for id %@ (tab closed?)",
+                  Self.sanitizeForLog(sessionId))
             return
         }
         Task { await session.expand(deepDiveIndex: topicIndex) }
@@ -1436,7 +1467,8 @@ Each component needs a correct type and one-sentence description.
     /// Bridge forwarder: user clicked Save as .md.
     func didRequestInsightSave(sessionId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightSave: no session for id \(sessionId) (tab closed?)")
+            NSLog("[Insight] didRequestInsightSave: no session for id %@ (tab closed?)",
+                  Self.sanitizeForLog(sessionId))
             return
         }
         guard let node = session.currentNode() else {
@@ -1450,11 +1482,13 @@ Each component needs a correct type and one-sentence description.
     /// switches the current node to a cached one, no LLM call.
     func didRequestInsightBreadcrumb(sessionId: String, nodeId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: no session for id \(sessionId) (tab closed?)")
+            NSLog("[Insight] didRequestInsightBreadcrumb: no session for id %@ (tab closed?)",
+                  Self.sanitizeForLog(sessionId))
             return
         }
         guard let uuid = UUID(uuidString: nodeId) else {
-            NSLog("[Insight] didRequestInsightBreadcrumb: invalid nodeId \(nodeId)")
+            NSLog("[Insight] didRequestInsightBreadcrumb: invalid nodeId %@",
+                  Self.sanitizeForLog(nodeId))
             return
         }
         session.navigateTo(nodeId: uuid)
@@ -1463,7 +1497,8 @@ Each component needs a correct type and one-sentence description.
     /// Bridge forwarder: user clicked the ↑ Up button.
     func didRequestInsightUp(sessionId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightUp: no session for id \(sessionId) (tab closed?)")
+            NSLog("[Insight] didRequestInsightUp: no session for id %@ (tab closed?)",
+                  Self.sanitizeForLog(sessionId))
             return
         }
         session.up()
@@ -1472,7 +1507,8 @@ Each component needs a correct type and one-sentence description.
     /// Bridge forwarder: user clicked Retry on the error banner.
     func didRequestInsightRetry(sessionId: String) {
         guard let session = findInsightSession(sessionId: sessionId) else {
-            NSLog("[Insight] didRequestInsightRetry: no session for id \(sessionId) (tab closed?)")
+            NSLog("[Insight] didRequestInsightRetry: no session for id %@ (tab closed?)",
+                  Self.sanitizeForLog(sessionId))
             return
         }
         Task { await session.retryCurrent() }
@@ -1485,11 +1521,49 @@ Each component needs a correct type and one-sentence description.
     /// regardless of what the user types in the panel.
     /// The saved file contains `node.markdownBody` only — no `---DEEP-DIVES---`
     /// marker, no deep-dives list, no breadcrumb chrome.
+    ///
+    /// Sandbox note: the app currently runs with the macOS sandbox OFF (per
+    /// project entitlements), so `pickedURL` is freely writable. If the sandbox
+    /// is ever re-enabled, this writer should wrap the write in
+    /// `pickedURL.startAccessingSecurityScopedResource()` / `defer stop` and
+    /// `startRecursiveInsight` will additionally need to bracket the folder
+    /// scan with the same calls on `folderURL`.
+    ///
+    /// Known limitation (LLM feedback loop): if the user saves the summary
+    /// inside the same folder being analyzed, a subsequent Recursive Insight
+    /// run on that folder will pick up the saved summary as input. We surface
+    /// this in the success alert so users are not surprised.
     func saveInsightNode(_ node: InsightNode, fromSession session: InsightSession) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "md")!]
+        // UTType.init(filenameExtension:) is failable; the literal "md" should
+        // always resolve on macOS, but the force-unwrap that used to be here
+        // would crash the app if Launch Services ever returned nil. The forced
+        // `.md` extension below is the real safety net — the panel filter is
+        // cosmetic.
+        if let mdType = UTType(filenameExtension: "md") {
+            panel.allowedContentTypes = [mdType]
+        }
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = Self.sanitizeInsightFilename(node.title)
+
+        // Recover the analyzed folder URL from the owning tab's placeholder URL
+        // (`<folderURL>/.insight-<sessionId>`). InsightSession.folderURL itself
+        // is private and we deliberately don't widen its access from here.
+        // Falls back gracefully if the tab is mid-close.
+        let analyzedFolderURL: URL? = openTabs.first {
+            if case .insight(let s) = $0.kind { return s.id == session.id }
+            return false
+        }?.url.deletingLastPathComponent()
+
+        // Default filename: prefix with the analyzed-folder name so saves from
+        // multiple sessions don't collide on identical node titles.
+        let folderHint = analyzedFolderURL.map {
+            Self.sanitizeInsightFilename($0.lastPathComponent)
+        } ?? "insight"
+        let titleStem = Self.sanitizeInsightFilename(node.title)
+        let suggested = (folderHint == titleStem || folderHint == "insight")
+            ? titleStem
+            : "\(folderHint)_\(titleStem)"
+        panel.nameFieldStringValue = suggested
 
         guard panel.runModal() == .OK, let pickedURL = panel.url else { return }
 
@@ -1503,6 +1577,20 @@ Each component needs a correct type and one-sentence description.
 
         do {
             try node.markdownBody.write(to: finalURL, atomically: true, encoding: .utf8)
+
+            // Warn if the destination is inside the analyzed folder — future
+            // Recursive Insight runs on the same folder will include this file.
+            if let analyzed = analyzedFolderURL {
+                let savedDir = finalURL.deletingLastPathComponent().standardizedFileURL.path
+                let analyzedDir = analyzed.standardizedFileURL.path
+                if savedDir == analyzedDir || savedDir.hasPrefix(analyzedDir + "/") {
+                    let alert = NSAlert()
+                    alert.messageText = "Saved inside the analyzed folder"
+                    alert.informativeText = "Future Recursive Insight runs of this folder will include the saved summary as input. Move the file outside the folder if you want to avoid feedback-loop pollution."
+                    alert.alertStyle = .informational
+                    alert.runModal()
+                }
+            }
         } catch {
             let alert = NSAlert()
             alert.messageText = "Could not save insight"
@@ -1512,14 +1600,27 @@ Each component needs a correct type and one-sentence description.
     }
 
     /// Sanitize an insight node title into a safe default filename stem (no
-    /// extension): keep alphanumerics + underscore, replace anything else with
-    /// `_`, collapse runs of `_`, trim leading/trailing `_`, fall back to
-    /// `"insight"` when empty (Decision 10 §7).
+    /// extension): keep STRICT ASCII `[A-Za-z0-9_]`, replace anything else
+    /// with `_`, collapse runs of `_`, trim leading/trailing `_`, fall back
+    /// to `"insight"` when empty (Decision 10 §7 / Task 7 spec).
+    ///
+    /// The previous implementation used `Character.isLetter`/`isNumber` which
+    /// are Unicode-aware (Cyrillic letters, Arabic-Indic digits, RTL-overrides
+    /// classified as letters all leak through). The spec calls for the strict
+    /// ASCII regex class; using `Set<Character>` membership matches it exactly
+    /// without bringing in NSRegularExpression. NSSavePanel still lets the user
+    /// override the suggested name — this is just the default.
+    private static let insightFilenameAllowed: Set<Character> = Set(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+    )
+
     private static func sanitizeInsightFilename(_ title: String) -> String {
         let mapped = String(title.map { ch -> Character in
-            (ch.isLetter || ch.isNumber || ch == "_") ? ch : "_"
+            insightFilenameAllowed.contains(ch) ? ch : "_"
         })
-        // Collapse runs of underscores.
+        // Collapse runs of underscores; `omittingEmptySubsequences: true` also
+        // trims leading/trailing `_` because they produce empty leading/trailing
+        // subsequences which are dropped before joining.
         let collapsed = mapped
             .split(separator: "_", omittingEmptySubsequences: true)
             .joined(separator: "_")
@@ -1529,11 +1630,14 @@ Each component needs a correct type and one-sentence description.
         return collapsed
     }
 
-    /// Save a file at the given index
+    /// Save a file at the given index.
+    /// Defense-in-depth: insight tabs are guarded here too — even if a future
+    /// caller forgets the kind-check, the placeholder URL never reaches `write(to:)`.
     private func saveFile(at index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
 
         let tab = openTabs[index]
+        if case .insight = tab.kind { return }
         do {
             try tab.content.write(to: tab.url, atomically: true, encoding: .utf8)
             tabsStore.updateTab(at: index) { mutableTab in
@@ -1576,6 +1680,9 @@ Each component needs a correct type and one-sentence description.
         // Single file mode
         guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
         let tab = openTabs[activeTabIndex]
+        // Insight tabs have a placeholder URL that does not exist on disk —
+        // re-indexing it would create a bogus `.insight-<uuid>` doc in SQLite.
+        if case .insight = tab.kind { return }
         reindexFile(fileURL: tab.url, content: tab.content)
     }
 
@@ -1631,9 +1738,14 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
-    /// Update the content of the active tab
+    /// Update the content of the active tab.
+    /// Insight tabs own their content via `InsightSession`; the JS bridge must
+    /// not write back into `tab.content` because (a) it would race with the SSE
+    /// stream, and (b) `isModified` would flip true and prime an unwanted Cmd+S
+    /// write to the placeholder URL.
     func updateActiveTabContent(_ content: String) {
         tabsStore.updateActiveTab { tab in
+            if case .insight = tab.kind { return }
             tab.content = content
             tab.isModified = (content != tab.originalContent)
         }
@@ -1661,9 +1773,14 @@ Each component needs a correct type and one-sentence description.
     }
 
     /// Reload the active tab from disk and return the fresh content for the editor.
+    /// Insight tabs are skipped: their URL is a placeholder that never exists on disk
+    /// (see `startRecursiveInsight`). Reading it back would either fail (today) or,
+    /// worse, clobber `tab.content` with stale data if a stray write ever produced
+    /// the file. Returning nil leaves the insight player's state untouched.
     func reloadActiveTabFromDisk() -> String? {
         let idx = activeTabIndex
         guard idx >= 0 && idx < openTabs.count else { return nil }
+        if case .insight = openTabs[idx].kind { return nil }
 
         let url = openTabs[idx].url
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
@@ -1803,10 +1920,14 @@ Each component needs a correct type and one-sentence description.
 
     // MARK: - DDE Block Handling
 
-    /// Handle block delta from JS extraction — wrapped in safety guard
+    /// Handle block delta from JS extraction — wrapped in safety guard.
+    /// The insight player does not run the DDE block extractor, so this path
+    /// should not fire for insight tabs in practice; the kind-check is defense
+    /// in depth so a stray delta cannot pollute SQLite with a `.insight-<uuid>` doc.
     func handleBlocksDelta(_ delta: BlocksDelta) {
         guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
         guard !delta.isEmpty else { return }
+        if case .insight = openTabs[activeTabIndex].kind { return }
 
         let tabIndex = activeTabIndex
         var tab = openTabs[tabIndex]

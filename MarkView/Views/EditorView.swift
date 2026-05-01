@@ -532,8 +532,17 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 
     func bridgeSaveRequested(_ bridge: WebViewBridge) {
+        // Insight tabs have their own Save flow (didRequestInsightSave) — the
+        // generic save bridge must not touch them. WorkspaceManager.saveActiveFile
+        // also guards the placeholder URL as defense-in-depth.
         Task { @MainActor in
-            self.parent.workspaceManager.saveActiveFile()
+            let wm = self.parent.workspaceManager
+            let idx = wm.activeTabIndex
+            if idx >= 0, idx < wm.openTabs.count,
+               case .insight = wm.openTabs[idx].kind {
+                return
+            }
+            wm.saveActiveFile()
         }
     }
 
@@ -578,8 +587,16 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     }
 
     func bridgeRefreshRequested(_ bridge: WebViewBridge) {
+        // Insight tabs are ephemeral — reloading from the placeholder URL would
+        // either fail (no file) or clobber session state if a stray write ever
+        // produced one. WorkspaceManager.reloadActiveTabFromDisk also no-ops.
         Task { @MainActor in
             let wm = self.parent.workspaceManager
+            let idx = wm.activeTabIndex
+            if idx >= 0, idx < wm.openTabs.count,
+               case .insight = wm.openTabs[idx].kind {
+                return
+            }
             if let content = wm.reloadActiveTabFromDisk() {
                 self.lastLoadedContent = content
                 if let webView = self.webView {
