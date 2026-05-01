@@ -1,0 +1,55 @@
+{
+  "validator": "task-validator",
+  "iteration": 2,
+  "batch": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "status": "changes_required",
+  "summary": {
+    "wave_consistency_overall": "PASS for T1-T10 and T12; FAIL for T11 (same wave as its T9/T10 dependencies)",
+    "wave_table": {
+      "T1":  {"depends_on": [], "wave": 1, "expected_wave": 1, "max_dep_wave": 0, "consistent": true},
+      "T2":  {"depends_on": [], "wave": 1, "expected_wave": 1, "max_dep_wave": 0, "consistent": true},
+      "T3":  {"depends_on": [1], "wave": 2, "expected_wave": 2, "max_dep_wave": 1, "consistent": true},
+      "T4":  {"depends_on": [1, 2, 3], "wave": 3, "expected_wave": 3, "max_dep_wave": 2, "consistent": true},
+      "T5":  {"depends_on": [], "wave": 1, "expected_wave": 1, "max_dep_wave": 0, "consistent": true},
+      "T6":  {"depends_on": [2, 4], "wave": 4, "expected_wave": 4, "max_dep_wave": 3, "consistent": true},
+      "T7":  {"depends_on": [2, 4, 6], "wave": 5, "expected_wave": 5, "max_dep_wave": 4, "consistent": true},
+      "T8":  {"depends_on": [7], "wave": 6, "expected_wave": 6, "max_dep_wave": 5, "consistent": true},
+      "T9":  {"depends_on": [1, 2, 3, 4, 5, 6, 7, 8], "wave": 7, "expected_wave": 7, "max_dep_wave": 6, "consistent": true},
+      "T10": {"depends_on": [1, 2, 3, 4, 5, 6, 7, 8], "wave": 7, "expected_wave": 7, "max_dep_wave": 6, "consistent": true},
+      "T11": {"depends_on": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "wave": 7, "expected_wave": 7, "max_dep_wave": 7, "consistent": false, "note": "wave (7) is NOT > max_dep_wave (7) — T9 and T10 are in same wave 7"},
+      "T12": {"depends_on": [9, 10, 11], "wave": 8, "expected_wave": 8, "max_dep_wave": 7, "consistent": true}
+    },
+    "t11_dep_check": "depends_on includes 9 and 10 — CONFIRMED",
+    "round1_followups": {
+      "task_5_tdd_anchor": "STILL MISSING — Task 5 has no `## TDD Anchor` section. Round-1 minor finding not addressed.",
+      "task_8_disabled_predicate": "PRESENT and CORRECT (line 94 of task 8: `.disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)`). No regression."
+    }
+  },
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "decomposition",
+      "task": 11,
+      "section": "frontmatter",
+      "issue": "Task 11 has `depends_on: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]` and `wave: 7`, but Task 9 and Task 10 are ALSO in `wave: 7`. Per validator rule: 'Task with depends_on: [X] must have wave > wave of task X. Violation → severity critical.' Tasks in the same wave run in parallel — therefore T11 cannot be in the same wave as T9/T10 which it requires to be complete. The user's stated expectation (T11=7) directly contradicts the wave-consistency invariant once T11 took on the new dependencies on T9 and T10. This is the same class of error caught in round-1 batch1 (Task 3 dep+wave) and batch2 (Task 8 dep+wave).",
+      "fix": "Promote Task 11 to `wave: 8`. Cascade: update Task 12 from `wave: 8` to `wave: 9` (since T12 depends on T11 — depends_on: [9, 10, 11] — currently T12.wave (8) > T11.wave (8) would no longer hold). Final wave layout: T9=7, T10=7, T11=8, T12=9. Alternative if user intends T11 to truly run in parallel with audits: drop the depends_on entries for 9 and 10 from T11 and rely on a documented run-order convention in the Implementation Wave section of tech-spec — but this contradicts the round-1 instruction to add [9, 10] to T11.depends_on. Promotion to wave 8 is the correct fix."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 5,
+      "section": "TDD Anchor",
+      "issue": "Round-1 finding: Task 5 has no `## TDD Anchor` section, while peer code-writing tasks (1, 2, 3, 4, 6, 7, 8) all include one (even if it documents the deferral per Decision 9). Section is still absent in iteration 2. Not addressed since round 1.",
+      "fix": "Add a `## TDD Anchor` section between `## What to do` and `## Acceptance Criteria` mirroring the deferral note + intended-tests pattern from tasks 1-4. Suggested entries: marker parser (5 fixture cases — last-occurrence, in-fence, as-hr, no-marker, multiple-markers, all already committed by this task), debounce coalescing (~150ms), link sanitizer (rejects javascript:/data:/file:), per-block mermaid try/catch, setText utility XSS resistance."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 12,
+    "issues_found": 2,
+    "critical_count": 1,
+    "major_count": 0,
+    "minor_count": 1,
+    "regressions_from_round1": 0,
+    "round1_unresolved": 1
+  }
+}

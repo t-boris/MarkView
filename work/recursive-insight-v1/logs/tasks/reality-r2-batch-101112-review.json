@@ -1,0 +1,62 @@
+{
+  "validator": "reality-checker",
+  "iteration": 2,
+  "batch": [10, 11, 12],
+  "status": "approved",
+  "round1_fixes_verified": {
+    "fix1_t10_html_true_note": {
+      "status": "confirmed",
+      "location": "tasks/10.md:39",
+      "evidence": "Explicit note states: 'существующий глобальный markdown-it экземпляр в index.html имеет html: true (около L1053). Task 5 должен был создать второй экземпляр специально для insight-mode с html: false, ИЛИ переключать опцию по state.mode. Аудитор проверяет: insight-mode рендер не использует глобальный html: true экземпляр напрямую.' Codebase confirms html: true at index.html:1053 exactly."
+    },
+    "fix2_t10_mkdir_logs_audit": {
+      "status": "confirmed",
+      "location": "tasks/10.md:94",
+      "evidence": "AC contains: '[ ] Директория logs/audit/ создана (mkdir -p work/recursive-insight/logs/audit/ если отсутствует).'"
+    },
+    "fix2_t11_mkdir_logs_audit": {
+      "status": "confirmed",
+      "location": "tasks/11.md:89",
+      "evidence": "AC contains: '[ ] Директория logs/audit/ создана (mkdir -p work/recursive-insight/logs/audit/ если отсутствует).'"
+    },
+    "fix3_t11_depends_on_includes_10": {
+      "status": "confirmed",
+      "location": "tasks/11.md:3",
+      "evidence": "Frontmatter: depends_on: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]. Includes Task 10 (Security Audit) whose report T11 reads."
+    },
+    "fix4_t12_state_db_correction": {
+      "status": "confirmed_with_minor_residual",
+      "location": "tasks/12.md:205-206",
+      "evidence": "Line 205 correctly states: 'реальное имя файла — state.db (НЕ semantic.sqlite). Расположение: либо <workspace-folder>/.dde/state.db (если открыта папка), либо ~/Library/Application Support/MarkView/<workspace-name>/state.db. Команда: sqlite3 <path>/state.db \".tables\"' and includes concrete spot-check query: SELECT COUNT(*) FROM artifacts WHERE kind LIKE 'insight%';. Line 206 retains 'path.sqlite' as a generic shell-example placeholder — this is a minor cosmetic inconsistency (correct filename guidance is clearly given on line 205)."
+    }
+  },
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 12,
+      "issue": "Line 206 still contains 'sqlite3 path.sqlite ...' as a generic example immediately after line 205 which correctly identifies the real filename as state.db. A reader following line 206 literally would use the wrong filename. The fix on line 205 is complete and correct, but line 206 was not updated to use <path>/state.db consistently.",
+      "fix": "Change line 206 from 'sqlite3 path.sqlite ...' to 'sqlite3 <path>/state.db ...' for consistency with the corrected line 205."
+    }
+  ],
+  "false_positives_from_round1_not_reflagged": [
+    {
+      "topic": "Audit/QA targeting unbuilt code",
+      "reason": "BY DESIGN — wave-gated execution. Tasks 10, 11, 12 are wave 7/8 and execute only after Tasks 1-8 (wave 1-6) are done. The dependency chain (depends_on: [1..8] for T10, [1..10] for T11, [9,10,11] for T12) enforces this ordering. Not flagged."
+    },
+    {
+      "topic": "Tests/Fixtures missing at review time",
+      "reason": "BY DESIGN — Task 1 creates Tests/Fixtures/sse-anthropic-sample.txt; Task 5 creates Tests/Fixtures/marker-cases/*.md. These are pre-execution artifacts, not missing from design. Not flagged."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 18,
+    "issues_found": 1,
+    "round1_fixes_verified": 5,
+    "round1_fixes_confirmed": 5,
+    "critical_findings": 0,
+    "major_findings": 0,
+    "minor_findings": 1
+  }
+}

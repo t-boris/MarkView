@@ -1,0 +1,125 @@
+{
+  "validator": "reality-checker",
+  "batch": [10, 11, 12],
+  "iteration": 1,
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 10,
+      "issue": "Task 10 audits 9 security checks against source files that do not yet exist. InsightSession.swift, GraphRAG.mapReduceForFolder, WebViewBridge insight methods, insight-mode JS in index.html, TabKind in DocumentState.swift, and startRecursiveInsight in WorkspaceManager.swift are all absent — Tasks 1-8 have not been executed. The entire audit mandate is premature: the security auditor will find no code to audit.",
+      "fix": "Task 10 depends_on [1,2,3,4,5,6,7,8] which must all be status:done before Task 10 is scheduled. Enforce wave gating: do not start Audit Wave until Wave 1-3 tasks are complete."
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 10,
+      "issue": "Task 10 Check 2 instructs the auditor to verify 'markdown-it initialized with html: false' in insight-mode. However, index.html L1052-1057 already initializes markdown-it with `html: true` (not false). If Tasks 1-8 don't change this, Check 2 will produce a false PASS or the auditor will be confused by a pre-existing FAIL. The current codebase contradicts the security requirement before any feature code exists.",
+      "fix": "The tech-spec Decision 10 §1 requires html:false for insight mode. Task 5 must change the initialization or add a separate insight-mode md instance. Task 10 audit wording should note the current baseline is html:true and verify Task 5 introduced the override — not that it exists globally."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 11,
+      "issue": "Task 11 Check 3 requires reading Tests/Fixtures/sse-anthropic-sample.txt and Tests/Fixtures/marker-cases/*.md (5 files). None of these files exist — Tests/Fixtures/ directory does not exist at all. Task 1 and Task 5 (which were supposed to commit these fixtures) have not been executed. The auditor cannot perform Check 3 and the result will be 5 MISSING findings, making Task 11 unable to reach DEFERRAL JUSTIFIED verdict.",
+      "fix": "Same as above — Audit Wave must not start until Wave 1-3 tasks (which commit fixtures) are complete. Task 11 depends_on [1..8] is correct but wave gating must be enforced in practice."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_file",
+      "task": 11,
+      "issue": "Task 11 Check 4 requires reading logs/audit/code-audit.md (from Task 9) and logs/audit/security-audit.md (from Task 10). The logs/audit/ directory does not exist. Tasks 9 and 10 are in the same Audit Wave as Task 11 but Check 4 requires them to be done first. Task 11's depends_on lists [1..8] but not [9, 10], so no dependency on the sibling audit tasks is declared, creating a missing cross-task dependency.",
+      "fix": "Add depends_on: [9, 10] to Task 11 header (or at minimum document in Details that Check 4 is N/A until Tasks 9 and 10 complete). Since all three run in Wave 4, the practical resolution is serial ordering: 9 → 10 → 11 within the wave, or accept Check 4 as N/A."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "Task 10 Check 1 asks to verify 'markdown-it initialized with html: false + link sanitization' in insight-mode. The actual index.html uses html:true globally (L1053). The insight-mode branch does not exist yet. The auditor's instruction to 'find the specific initialization, cite options, check link-validator' will produce a FAIL on the pre-existing code state, not the feature code. This creates an audit that assesses the wrong baseline.",
+      "fix": "Clarify in Task 10 Details or in Check 1 wording that the auditor checks the insight-mode-specific initialization added by Task 5, not the global markdown-it init at L1052. Auditor should distinguish between the global config and any insight-mode override."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 10,
+      "issue": "Task 10 Check 3 specifies exact CSP directive 'connect-src 'none'' as required. The tech-spec Decision 10 §3 also specifies this. However, index.html currently has no CSP meta tag at all — confirmed by grep returning zero results for 'Content-Security-Policy'. The auditor will find a FAIL here regardless, which is correct behavior, but the task wording implies the auditor is 'verifying' a shipped layer, not catching a missing one. This is a framing issue that could cause confusion about whether this is a pre-existing gap or a feature regression.",
+      "fix": "Minor wording: clarify in Check 3 that the CSP meta tag is to be added by Task 5 and that its absence in the current file is expected (Task 5 not yet done)."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "Task 11 Check 1 asks to verify 'tasks/todo.md' contains owner + target date for XCTest follow-up. The file does exist and has the entry. The owner field reads 'Boris (or first contributor to touch insight code path post-merge)' and target date is 'Within 2 weeks after Recursive Insight feature is merged (target: 2026-05-14)'. Per the task's own edge-case guidance, this compound owner form is acceptable. However the task wording says 'Owner explicitly stated, not empty, not TBD' — the auditor may give PASS or WEAK PASS here depending on interpretation. This is a potential false FAIL if auditor applies strict reading. Not blocking but worth noting.",
+      "fix": "No change needed to task. The auditor's edge-case note explicitly handles this: 'Boris (or first contributor to touch insight code path post-merge) — допустимая формулировка'. Auditor should mark PASS."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "Task 12 hints state: 'Для проверки таблиц SemanticDatabase: путь к SQLite-файлу обычно ~/Library/Application Support/MarkView/<workspace-id>/semantic.sqlite'. The actual SemanticDatabase.init (L30) uses dbName 'state.db' not 'semantic.sqlite'. The default db name is state.db, stored at either <workspace>/.dde/state.db or ~/Library/Application Support/MarkView/<workspaceLastComponent>/state.db. The hint's filename 'semantic.sqlite' is incorrect and will cause the sqlite3 spot-check command to find no file.",
+      "fix": "Replace 'semantic.sqlite' with 'state.db' in the Task 12 implementation hints. Correct path is either <workspace>/.dde/state.db or ~/Library/Application Support/MarkView/<workspace-name>/state.db."
+    },
+    {
+      "severity": "major",
+      "category": "missing_file",
+      "task": 12,
+      "issue": "Task 12 requires reading logs/audit/code-audit.md, logs/audit/security-audit.md, and logs/audit/test-audit.md as inputs. The logs/audit/ directory does not exist. Task 12 depends_on [9, 10, 11] is correctly declared, but since none of those tasks have been executed, this is an expected gap given the current project state. The concern is whether the audit directory structure will exist when needed — no task explicitly creates it.",
+      "fix": "Each audit task (9, 10, 11) should create its output directory as part of its work. Verify Tasks 9-11 each include 'mkdir -p logs/audit/' in their setup step. If not, add it to each audit task's 'What to do' §1."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "Task 12 xcodebuild command 'xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug build' is verified correct: MarkView.xcodeproj exists at the repo root and MarkView.xcscheme confirms the scheme name is 'MarkView'. TestFiles/ directory also exists at the expected path with .md files. These are correct.",
+      "fix": "No fix needed — xcodebuild command and TestFiles/ path are both valid."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "Task 12 step 4 (Storage spot-check) references 'artifacts' and 'ai_jobs' tables. These table names should be verified against SemanticDatabase.swift before the QA agent runs the spot-check. If the actual table names differ, the sqlite3 commands will silently return 0 (not an error) giving a false PASS.",
+      "fix": "Add a preliminary step in the spot-check: run 'sqlite3 <path> .tables' first and confirm 'artifacts' and 'ai_jobs' appear in the output before running COUNT queries. This is already implied by the hints but could be made explicit."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 11,
+      "issue": "Task 11 Verification Steps include 'grep -n MarkViewTests|unit-test project.yml'. The project.yml file does exist at the repo root and returns no match for MarkViewTests, which correctly confirms no test target is defined. This check is valid and will work as written.",
+      "fix": "No fix needed — this verification step is accurate."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 10,
+      "issue": "Task 10 implementation hints contain a full report template with code blocks showing exact section headers, verdict strings, and example findings. While this is labeled 'предлагаемый шаблон, не обязательный', the level of prescriptiveness approaches a full implementation spec for the report format. This is borderline per the hints policy.",
+      "fix": "Acceptable as-is — the template is genuinely optional and the audit content (per-check verdicts with code citations) requires structured output. Not a blocking concern."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 31,
+    "issues_found": 12
+  },
+  "codebase_state_summary": {
+    "InsightSession.swift": "MISSING — Tasks 1-8 not yet executed",
+    "Tests/Fixtures/": "MISSING — fixture directory does not exist",
+    "index.html_insight_mode": "MISSING — no insight-mode branch in index.html",
+    "index.html_markdown_it_html": "html:true (contradicts security requirement of html:false)",
+    "index.html_csp": "MISSING — no Content-Security-Policy meta tag",
+    "index.html_securityLevel": "MISSING — no securityLevel:strict in current code",
+    "AIProviderClient_streamCompletion": "MISSING — method not yet added",
+    "AIProviderClient_streamingError": "MISSING — case not yet added to AIProviderError",
+    "DocumentState_TabKind": "MISSING — enum not yet added",
+    "WorkspaceManager_startRecursiveInsight": "MISSING",
+    "GraphRAG_mapReduceForFolder": "MISSING",
+    "WebViewBridge_insight_methods": "MISSING",
+    "ContentView_insight_menu": "MISSING",
+    "MarkView_xcodeproj": "EXISTS at /Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView.xcodeproj",
+    "scheme_name": "MarkView — CORRECT",
+    "TestFiles_folder": "EXISTS with .md files",
+    "tasks_todo_md": "EXISTS — XCTest follow-up entry present with owner and target date",
+    "SemanticDatabase_db_name": "state.db (NOT semantic.sqlite as stated in Task 12 hints)",
+    "logs_audit_dir": "MISSING — no audit directory exists yet"
+  }
+}

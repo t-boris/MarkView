@@ -1,0 +1,131 @@
+{
+  "validator": "task-validator",
+  "batch": [1, 2, 3, 4, 5],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "decomposition",
+      "task": 3,
+      "section": "frontmatter",
+      "issue": "Task 3 has `depends_on: [1]` but `wave: 1` — same wave as its dependency. Per validator rules: 'Task with depends_on: [X] must have wave > wave of task X'. Task 1 is in wave 1, so Task 3 cannot also be in wave 1 if it depends on Task 1's `streamCompletion` and `AIProviderError.streamingError`.",
+      "fix": "Move Task 3 to `wave: 2` (since it depends on Task 1's streamCompletion). Alternatively, remove the dependency on Task 1 if the reduce step can be deferred — but the task body explicitly relies on `providerClient.streamCompletion` from Task 1, so wave change is the correct fix. Note this also affects Task 4's dependency on Task 3 — Task 4 is currently `wave: 2, depends_on: [1, 2, 3]`, which would then need to become `wave: 3` if Task 3 moves to wave 2."
+    },
+    {
+      "severity": "critical",
+      "category": "consistency",
+      "task": 5,
+      "section": "frontmatter / dependencies",
+      "issue": "Task 5 has `depends_on: []` and `wave: 2`, but tech-spec Implementation Tasks places it in 'Wave 2 (depends on Wave 1)'. The task description also says 'This task is pure HTML/JS and can run in parallel with Task 4' — meaning it does not depend on any specific Task 1/2/3 deliverable. However, placing it in wave 2 with no dependencies is inconsistent with the wave gating model: a task with no dependencies should normally be in wave 1, OR have explicit dependencies justifying its wave-2 placement. If Task 5 truly is independent, it should be wave 1; if it's intentionally gated to wave 2 for sequencing, the rationale must be explicit.",
+      "fix": "Either (a) move Task 5 to `wave: 1` (consistent with `depends_on: []`), OR (b) keep `wave: 2` and add `depends_on: [1]` or another wave-1 dependency to justify the wave gate. Given that Task 5 is HTML/JS only and does not consume any Swift symbols from Wave 1, option (a) is cleanest."
+    },
+    {
+      "severity": "major",
+      "category": "carry-forward",
+      "task": 4,
+      "section": "depends_on",
+      "issue": "Task 4 lists `depends_on: [1, 2, 3]` and is in `wave: 2`. If Task 3 moves to `wave: 2` per the critical finding above, this depends_on chain becomes inconsistent (Task 4 in wave 2 depends on Task 3 in wave 2). The dependency graph itself is correct — Task 4 truly needs all three — but the wave assignment must be re-evaluated together with the Task 3 wave correction.",
+      "fix": "After fixing Task 3's wave (moving it to wave 2), promote Task 4 to `wave: 3`. Update tech-spec Implementation Tasks section if waves are renumbered."
+    },
+    {
+      "severity": "major",
+      "category": "content",
+      "task": 1,
+      "section": "Context Files",
+      "issue": "Context Files section is missing `decisions.md` reference. The validator rules mark it as a critical/mandatory file. While `decisions.md` may not yet exist physically (it's created during execution), Task 5 references it but Tasks 1-4 do not — inconsistent.",
+      "fix": "Add `[decisions.md](../decisions.md)` to Context Files section in tasks 1, 2, 3, 4 for consistency. Alternatively, if the convention is to reference it only when it exists, ensure all five tasks follow the same convention."
+    },
+    {
+      "severity": "major",
+      "category": "content",
+      "task": 2,
+      "section": "Context Files",
+      "issue": "Context Files section is missing `decisions.md` reference. Same as Task 1.",
+      "fix": "Add `[decisions.md](../decisions.md)` to Context Files."
+    },
+    {
+      "severity": "major",
+      "category": "content",
+      "task": 3,
+      "section": "Context Files",
+      "issue": "Context Files section is missing `decisions.md` reference. Same as Task 1.",
+      "fix": "Add `[decisions.md](../decisions.md)` to Context Files."
+    },
+    {
+      "severity": "major",
+      "category": "content",
+      "task": 4,
+      "section": "Context Files",
+      "issue": "Context Files section is missing `decisions.md` reference. Same as Task 1.",
+      "fix": "Add `[decisions.md](../decisions.md)` to Context Files. Note: Task 4 explicitly states 'Project knowledge: ~/.claude/skills/project-knowledge/ does not exist for this project' which justifies omitting project.md/architecture.md, but does not justify omitting decisions.md."
+    },
+    {
+      "severity": "major",
+      "category": "decomposition",
+      "task": 2,
+      "section": "Description / What to do",
+      "issue": "Task 2 introduces a placeholder `InsightSession` stub class (item 1 in 'What to do') that exists only to make Wave 1 compile, and Task 4 then removes/replaces it. This is a workaround for cross-wave compilation that creates rework: Task 2 writes a stub, Task 4 removes it. This pattern is a code smell — it would be cleaner to either (a) defer the `TabKind.insight(InsightSession)` enum case to Wave 2 (when the real class exists), OR (b) reorder the dependency so `InsightSession` is created in Wave 1 (i.e. swap which task introduces the type). The current approach forces Task 4 to do a destructive edit on Task 2's output, which is fragile and harder to review.",
+      "fix": "Consider one of these alternatives: (1) Split TabKind into two parts — add `enum TabKind { case file }` in Task 2 (no insight case), then Task 4 extends it with `case insight(InsightSession)` after the real class exists. (2) Defer the entire TabKind addition to Task 4 alongside InsightSession creation. Either approach removes the need for a placeholder + destructive removal. If neither is acceptable for reasons not visible in the task, document the trade-off explicitly."
+    },
+    {
+      "severity": "major",
+      "category": "decomposition",
+      "task": 5,
+      "section": "Description / What to do",
+      "issue": "Task 5 bundles many distinct concerns into one task: (1) DOM template + state extension, (2) markdown-it reconfiguration with link sanitization, (3) CSP meta tag, (4) setText utility, (5) marker parser, (6) debounced re-render, (7) per-block Mermaid pipeline with try/catch + securityLevel:strict, (8) five button handlers, (9) five window setter functions, (10) mode switching integration, (11) commit five fixture files. The task modifies one large file (index.html) but spans many distinct features. Acceptance Criteria has 14 items. This is borderline split candidate. The 'logical cohesion' here is 'insight-mode in WebView', but the security layer (Decision 10 items 1-4: html:false, link sanitizer, CSP, mermaid strict, per-block try/catch) could be cleanly split from the UI layer (DOM template, debounced render, button handlers, window setters, marker parser, fixtures).",
+      "fix": "Consider splitting into Task 5a (Insight-mode UI: DOM, state, mode switching, button handlers, window setters, debounced render, marker parser, fixtures) and Task 5b (Insight-mode security layer: html:false markdown-it config, link sanitizer, CSP meta, mermaid strict, per-block try/catch, setText utility). If kept as one task, document the cohesion explicitly in Description."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 3,
+      "section": "Verification Steps",
+      "issue": "Verification Steps section uses HTML comments (`<!-- ... -->`) inline with the section content to explain absence of Smoke and User subsections. This works but is unusual — the template normally just omits subsections silently. Comments are visible if rendered as raw markdown.",
+      "fix": "Either remove the HTML comments (just omit the empty subsections silently per template), or convert to a normal prose note like 'No Smoke or User verification — tech-spec specifies neither for Task 3.'"
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 4,
+      "section": "Verification Steps",
+      "issue": "Verification Steps lacks an explicit `### Smoke` and `### User` subsection — only `### Automated` is present, followed by a parenthetical prose note. Template recommends omitting subsections only if they're empty; the prose note explaining absence is fine but inconsistent with Task 3's HTML-comment style.",
+      "fix": "Standardize across tasks: either include empty `### Smoke` / `### User` subsections with a brief note when applicable, or omit them silently. Pick one convention for the batch."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 1,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section explicitly states 'Тесты для этой задачи отложены' (tests deferred) per Decision 9, but then lists 7 intended future tests anyway. This is consistent with the deferred-test pattern — but the section header 'TDD Anchor' implies tests-before-code, which is not the case here. Consider renaming or adding a clearer leading note.",
+      "fix": "Add a one-line leading note like 'Note: Tests deferred per Decision 9 — no MarkViewTests target. Tests below are the documented intent for the follow-up coverage task.' This is partially present but could be clearer."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 5,
+      "section": "TDD Anchor",
+      "issue": "Task 5 has NO TDD Anchor section at all. For a code-writing task with substantial logic (marker parser, debounced render, link sanitizer, button handlers), the absence of a TDD Anchor — even a deferred one mirroring Tasks 1-4 — is inconsistent with the pattern established by other tasks in the batch.",
+      "fix": "Add a TDD Anchor section to Task 5 mirroring the deferred-test pattern from Tasks 1-4. List intended future tests for: marker parser (last-occurrence, in-fence, as-hr, no-marker, multiple-markers — fixtures already committed in this task), debounce coalescing, link sanitizer (javascript:/data:/file: rejection), per-block mermaid try/catch, setText XSS resistance."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 2,
+      "section": "Context Files",
+      "issue": "InsightSession.swift is listed as a 'modify' file but does not exist yet — Task 2 creates it as a stub. The link `MarkView/Models/InsightSession.swift` will be a dead link until Task 2 runs. Minor nitpick — the current pattern in the file already notes 'новый файл, stub'.",
+      "fix": "Optionally annotate the link as `(new file)` consistent with how Task 5 annotates fixture files like '[happy.md (fixture, new)](...)'. Not critical."
+    },
+    {
+      "severity": "minor",
+      "category": "decomposition",
+      "task": 0,
+      "section": "cross-task",
+      "issue": "Tech-spec mentions TabBarView as one of three sites that branches on `tab.kind` (Decision 4: 'Only three sites need to switch on `kind`: EditorView.loadContentIfNeeded, WorkspaceManager.closeTab, TabBarView display name'). Tasks 1-5 cover EditorView and WorkspaceManager (Task 6 and Task 7 in tech-spec), but no task in this batch (or visible in tech-spec Implementation Tasks) explicitly addresses the TabBarView display-name branch. This may be intentionally folded into another task or genuinely missing.",
+      "fix": "Verify TabBarView branch is addressed somewhere — either add it to Task 6 (WebViewBridge insight messages and EditorView routing) which is conceptually closest, or to Task 7 (WorkspaceManager wiring), or explicitly note it in tech-spec as out-of-scope/handled-elsewhere. Not in batch 1's tasks but worth flagging for the next batch."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 5,
+    "issues_found": 15
+  }
+}

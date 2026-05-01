@@ -1,0 +1,134 @@
+{
+  "validator": "task-validator",
+  "batch": [6, 7, 8, 9, 10],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "decomposition",
+      "task": 8,
+      "section": "frontmatter",
+      "issue": "Task 8 has depends_on: [7] but wave: 3, while Task 7 is also wave: 3. Tasks with depends_on: [X] must have wave > wave of X. Task 8 cannot run in the same wave as its dependency Task 7 — Task 7 produces WorkspaceManager.startRecursiveInsight() which Task 8 calls, so they cannot execute in parallel.",
+      "fix": "Change Task 8 frontmatter to wave: 4, then renumber Audit Wave (Tasks 9, 10) to wave: 5. Alternatively, move Task 8 into a Final Wave after audits if menu integration should be done last."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 6,
+      "section": "Context Files",
+      "issue": "Context Files does not include decisions.md (template lists it as mandatory). Note: decisions.md does not yet exist in the feature folder — it is created during task execution.",
+      "fix": "Add `- [decisions.md](../decisions.md)` to Context Files for consistency with template. File will be created during task execution per Post-completion checklist."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 8,
+      "section": "Context Files",
+      "issue": "Context Files does not include decisions.md.",
+      "fix": "Add `- [decisions.md](../decisions.md)` for template compliance."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 8,
+      "section": "Context Files",
+      "issue": "ContentView.swift listed as plain text path, not as a markdown link. Template requires `[name](path)` format.",
+      "fix": "Change `MarkView/Views/ContentView.swift — file to modify (existing AI Tools menu at L114-134)` to `[ContentView.swift](/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/MarkView/Views/ContentView.swift) — file to modify (existing AI Tools menu at L114-134)`."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 9,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section is properly absent (correct for non-code audit task per template comment). No issue — recording as info: deletion handled correctly.",
+      "fix": "No fix needed; this finding is for confirmation that audit tasks 9 and 10 correctly omit TDD Anchor as instructed by the template comment."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 10,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section properly absent (correct for non-code audit task). Confirmation only.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 9,
+      "section": "Acceptance Criteria",
+      "issue": "AC item references 9 files but Context Files lists 9 code files (8 .swift + index.html). The wording '9 files from Context Files' is slightly ambiguous — there are also fixture files listed. Clarify scope.",
+      "fix": "Change 'Все 9 файлов из Context Files' to 'Все 9 code-файлов (8 .swift + index.html) из Context Files' to disambiguate from fixture files."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 7,
+      "section": "Verification Steps",
+      "issue": "Verification Steps section has only Automated subsection and is missing Smoke and User subsections. Acceptable since the task notes tests are deferred and there is no UI behavior to verify, but no smoke check is documented even though the task creates an end-to-end integration. A smoke check (e.g., manual menu trigger to verify tab opens) would strengthen verification.",
+      "fix": "Consider adding a Smoke subsection with: 'Manually trigger startRecursiveInsight via lldb or temporary code path on a small test folder; verify a new OpenTab with kind: .insight is appended without crashing.' Optional improvement."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 8,
+      "section": "TDD Anchor",
+      "issue": "TDD Anchor section is present but contains only a deferral note (no test entries). For a UI button task with no code logic to test (just wiring), this is acceptable — but per template, non-code tasks should delete the TDD Anchor section entirely. This task is borderline (it adds Swift code) so keeping the deferral note is acceptable.",
+      "fix": "Optional: either delete TDD Anchor section (treating it as primarily a UI wiring task) or add at least one anchor like 'tests/ContentViewMenuTests.swift::test_recursiveInsight_button_disabled_when_no_folder' to be filled when test infrastructure exists."
+    },
+    {
+      "severity": "minor",
+      "category": "carry-forward",
+      "task": 6,
+      "section": "Acceptance Criteria",
+      "issue": "Tech-spec Task 6 mentions 'array-wrap encoding idiom (single-element JSON array, drop wrapping brackets)' — task carries this forward as 'array-wrap идиому (JSONSerialization массива → String(data:) → dropFirst().dropLast())'. Carry-forward is complete and correct.",
+      "fix": "No fix needed — confirmation of correct carry-forward."
+    },
+    {
+      "severity": "minor",
+      "category": "carry-forward",
+      "task": 7,
+      "section": "Acceptance Criteria",
+      "issue": "Tech-spec Task 7 specifies 'session.cancel() synchronously before tabsStore.removeTab (per Decision 11 §4)' — task carries this forward correctly with explicit 'BEFORE' wording in AC.",
+      "fix": "No fix needed — confirmation of correct carry-forward."
+    },
+    {
+      "severity": "minor",
+      "category": "carry-forward",
+      "task": 8,
+      "section": "Acceptance Criteria",
+      "issue": "Tech-spec Task 8 specifies 'Disabled when rootNode == nil or !workspaceManager.hasMarkdownFiles' — task carries this forward correctly. All tech-spec AC items present.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 9,
+      "section": "frontmatter",
+      "issue": "frontmatter skills: [code-reviewing] matches Required Skills section (/skill:code-reviewing). reviewers: [] matches catalog (code-reviewing has no reviewers). Internal consistency confirmed.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 10,
+      "section": "frontmatter",
+      "issue": "frontmatter skills: [security-auditor] matches Required Skills section. reviewers: [] matches catalog. Internal consistency confirmed.",
+      "fix": "No fix needed."
+    },
+    {
+      "severity": "minor",
+      "category": "resource-sharing",
+      "task": 7,
+      "section": "Acceptance Criteria",
+      "issue": "Tech-spec Shared Resources table lists AIProviderClient (owner: AIOrchestrator, accessed via incrementalCompiler.orchestrator.providerClient) and GraphRAG (owner: WorkspaceManager). Task 7 AC explicitly requires 'reuses incrementalCompiler.orchestrator.providerClient (no fresh AIProviderClient(apiKey:) instantiation)' and 'passes self.graphRAG into the new InsightSession'. Shared resource compliance correctly enforced.",
+      "fix": "No fix needed — confirmation of compliance."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 5,
+    "issues_found": 15,
+    "critical_count": 1,
+    "major_count": 0,
+    "minor_count": 14
+  }
+}

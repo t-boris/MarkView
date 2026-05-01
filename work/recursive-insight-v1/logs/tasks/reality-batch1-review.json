@@ -1,0 +1,61 @@
+{
+  "validator": "reality-checker",
+  "batch": [1, 2, 3],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 3,
+      "issue": "Task 3 is declared as `wave: 1` (parallel with Tasks 1 and 2) but also declares `depends_on: [1]`. Task 3 uses `providerClient.streamCompletion(...)` which is the new method added by Task 1. If Wave 1 tasks execute in parallel, Task 3 will compile against a version of AIProviderClient that does not yet have `streamCompletion`, causing a build failure.",
+      "fix": "Move Task 3 to Wave 2 (change `wave: 1` → `wave: 2` in task 3 frontmatter) to match its declared dependency. Tech-spec already labels Wave 1 as 'independent foundations' but Task 3 is not independent."
+    },
+    {
+      "severity": "major",
+      "category": "missing_function",
+      "task": 3,
+      "issue": "Task 3 instructs: 'Если `!providerClient.hasAPIKey`' — the property `hasAPIKey` exists on AIProviderClient (L60). However, task 3 also says GraphRAG uses 'providerClient.apiKeyValue' for the map step via the existing private `callLLM`. The `apiKeyValue` property does NOT exist in AIProviderClient.swift — it is defined in an extension in ActionEngine.swift (ActionEngine.swift L260-264). Task 3's context section (line 95) says 'Here also defined: apiKey, hasAPIKey, AIProviderError' in AIProviderClient.swift, implying `apiKeyValue` lives there — this is inaccurate and could mislead the implementing agent.",
+      "fix": "Update task 3 context to note that `apiKeyValue` is defined in ActionEngine.swift as an extension on AIProviderClient, not in AIProviderClient.swift itself. The existing `callLLM` in GraphRAG already uses it correctly (GraphRAG.swift L190), so no code change is needed — only documentation of the correct file location."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 3,
+      "issue": "The implementation hints for task 3 contain pseudocode and near-complete algorithm steps for file-to-community matching, XML-wrapping, chunking logic, and the reduce prompt construction. For example, the matching hint includes a `filter` expression with closure body, the XML hint specifies exact escaping behavior for `\"` characters, and the reduce step specifies the exact string format for joining summaries. This crosses the line from 'hint' to 'prescribed implementation', which is flagged per category `hints`.",
+      "fix": "Trim hints to references to patterns and approaches. Replace prescriptive code snippets with pointers: e.g. 'match files to communities via module.path containment check — see detectCommunities pattern', 'wrap bodies in XML tags similar to how deepResearch builds context strings'."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 2,
+      "issue": "Task 2 implementation hints include a complete code block for the symlink containment check and a complete code block for `hasMarkdownFiles` early-exit loop. These are full implementations, not hints.",
+      "fix": "Replace with brief pointer: 'symlink containment: resolve both folderURL and file URL via resolvingSymlinksInPath() before standardizedFileURL — see Decision 10 §6 for order rationale'. Remove the verbatim code blocks."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 1,
+      "issue": "Task 1 references 'L62-67 (init/apiKey)' for the init pattern to mirror. Actual init block spans L62-64 (3 lines). Lines L65-67 are `updateAPIKey(_ key:)`, a separate unrelated method. The range is imprecise but will not cause implementation failure since the intent (reuse apiKey private var) is clear from context.",
+      "fix": "Narrow reference to 'L62-64 (init/apiKey)' or 'L62 init, L5 apiKey field'."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 1,
+      "issue": "Task 1 references 'L121-141 extractSingleChunk' as the pattern to mirror for request construction. The `extractSingleChunk` method actually starts at L117, not L121. L121 is the start of the `body` dict inside the method. The headers block (L136-141) is correctly cited. The line number for the function start is off by 4.",
+      "fix": "Update reference to 'L117-176 extractSingleChunk' for the full function, or keep 'L136-141 (headers)' which is accurately cited."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 2,
+      "issue": "Task 2 identifies three enumerator sites in WorkspaceManager at L553, L930, L1564 and describes them as 'the duplicated pattern'. There is actually a fourth enumerator site at L2203 (used for resolving fallback document IDs by filename). The task states this helper is meant to 'extract the duplicated enumerator pattern' — but it is intentionally scoped to the three md-file-scanning sites. The fourth site (L2203) is a different pattern (filename lookup, not .md filtering) and should not be included. The task description does not mention it, which is correct, but the count of 'three places' is slightly incomplete as documentation.",
+      "fix": "Minor: add a comment in task 2 noting that L2203 enumerator is a distinct pattern (filename lookup) and is NOT a target for extraction by this helper."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 31,
+    "issues_found": 7
+  }
+}

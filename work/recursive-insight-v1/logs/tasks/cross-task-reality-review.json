@@ -1,0 +1,138 @@
+{
+  "validator": "reality-checker",
+  "batch": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 1,
+      "issue": "AIProviderClient.streamCompletion does not exist yet (this is a planned task), but T3 declares `depends_on: [1]` (wave 2) while T4 declares `depends_on: [1, 2, 3]` (wave 3). HOWEVER T3 is itself wave 2 which is correct. The critical issue is the wave assignment mismatch: T3 header says `wave: 2` but T3 depends on T1 (wave 1) which is correct. Cross-checking T4 `depends_on: [1, 2, 3]` but T4 is wave 3 and T3 is wave 2 — this is consistent. No actual wave violation here. Flagging separately below.",
+      "fix": "No action needed — wave ordering is correct. This finding is superseded by the ones below."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 4,
+      "issue": "T4 implementation hint says 'store the api-key value once at session init via `providerClient.apiKeyValue` (the existing accessor in ActionEngine.swift extension)'. The `apiKeyValue` accessor IS defined in ActionEngine.swift (L260-264) as an extension on AIProviderClient. However, it reads from UserDefaults directly: `UserDefaults.standard.string(forKey: \"com.markview.dde.apikey\")` — it does NOT expose the in-memory `private var apiKey` stored in AIProviderClient. This means if the user has the key in keychain (loaded via `Self.loadKeyFromKeychain()` in `AIProviderClient.init`) but NOT in UserDefaults, `apiKeyValue` returns nil even when `hasAPIKey` is true. T4's use of `apiKeyValue` for api-key redaction snapshot in `handleStreamError` is therefore unreliable — it may return nil and the redaction will silently fail, allowing the api key to leak into `lastError`.",
+      "fix": "Add a proper accessor to AIProviderClient that returns the in-memory `self.apiKey` value (marked internal or fileprivate), rather than re-reading from UserDefaults. Or in T4's init, use `providerClient.hasAPIKey ? providerClient.apiKeyValue : nil` combined with a fallback that loads from keychain. The cleanest fix is to expose `var apiKeyForRedaction: String? { apiKey }` (fileprivate) on AIProviderClient in T1 when adding streamCompletion, consistent with the private apiKey field."
+    },
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 6,
+      "issue": "T6 says 'Modify `loadContentIfNeeded(_ markdown:documentURL:)` (L194-227): add parameter `tab: OpenTab`'. The CURRENT signature of `loadContentIfNeeded` in EditorView.swift is `func loadContentIfNeeded(_ markdown: String, documentURL: URL? = nil)`. There are TWO call sites that pass this signature: (1) `updateNSView` at L46 which calls `coordinator.loadContentIfNeeded(tab.content, documentURL: tab.url)` and (2) `webView(_:didFinish:)` at L139 which calls `loadContentIfNeeded(content, documentURL: docURL)`. T6 correctly identifies both call sites and says to update them. But T6's solution of adding `tab: OpenTab` as a parameter breaks both call sites unless both are updated atomically. T6 Description step 6 says 'add parameter `tab: OpenTab` (or pass `tab.kind` separately)' but the `webView(_:didFinish:)` call site only has the cached `pendingContent`/`pendingDocumentURL` — it does NOT have a cached `pendingTab`. T6 acknowledges this: 'sохранять `pendingTab: OpenTab?` or `pendingKind: TabKind?`'. The task description is correct, but the `pendingContent` / `pendingDocumentURL` mechanism in Coordinator must be extended to cache `pendingKind/tab` too, which is a non-trivial change that must be done atomically. This is a feasibility risk if the implementer misses the second call site.",
+      "fix": "In T6 implementation, store `private var pendingTab: OpenTab?` alongside `pendingContent`/`pendingDocumentURL`. In `webView(_:didFinish:)` call site use `pendingTab` if available. Alternatively, keep the old `loadContentIfNeeded(_ markdown:documentURL:)` intact and add a NEW overload `loadContentIfNeeded(tab:)` so both call sites are clearly separated. Document this explicitly in T6 What to do step 6."
+    },
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 7,
+      "issue": "T7 says bridge delegate methods are implemented on 'whichever object conforms to WebViewBridgeDelegate (existing conformance lives on EditorView.Coordinator per code-research §6)'. T6 already adds stub implementations to EditorView.Coordinator with NSLog placeholders. T7 then says if T6 left TODO stubs, T7 fills in the bodies that forward to WorkspaceManager. However T7 `files_to_modify` only lists `WorkspaceManager.swift`, NOT `EditorView.swift`. If T7 needs to fill in the Coordinator forwarding bodies (e.g. `workspaceManager.handleInsightDeepDive(...)`), it MUST also modify `EditorView.swift`. The task frontmatter omits `EditorView.swift` from files_to_modify, creating a dependency on T6 having fully wired the forwarding — which T6 explicitly leaves as TODO. This is a cross-task gap: neither task is fully responsible for the Coordinator→WorkspaceManager wiring path.",
+      "fix": "T7 should explicitly list `MarkView/Views/EditorView.swift` in files_to_modify. Or T6 should be updated to fully wire the forwarding bodies to WorkspaceManager (not leave TODO stubs), since T6 already depends on T4 which means WorkspaceManager insight methods can be called by name with TODO-style method stubs on WorkspaceManager itself."
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 3,
+      "issue": "T3 says `callLLM(prompt:maxTokens:)` 'takes one argument — collect system+user into one prompt string'. This is correct per the actual code (GraphRAG.swift L189: `func callLLM(prompt: String, maxTokens: Int = 2048)`). However T3 implementation hint says to fuse system-prompt + user-message into a single string: 'Для XML-isolation в map-стадии собирать строку: `\"\\(systemInstruction)\\n\\n\\(userMessage)\"` — system-prompt и user-message слиты. Это работает для Anthropic non-streaming API (модель воспринимает весь текст как user message).' This is FACTUALLY INCORRECT. The real Anthropic API has a separate `system` field — sending system instructions inside the `messages[user]` field works but violates the intended prompt structure and degrades model behavior. The real `callLLM` does NOT support a `system` parameter (it hardcodes a single user message). The hint treating this as equivalent and 'working' is misleading. The tech-spec Decision 10 §5 mandates XML-tag instruction isolation IN THE SYSTEM PROMPT specifically — if fused into user message, the isolation degrades. T3 leaves a TODO comment path but marks this as acceptable for MVP.",
+      "fix": "Add a note in T3 that the `callLLM` function does not have a separate system prompt parameter. For proper instruction isolation, either: (a) extend `callLLM` to accept an optional `systemPrompt: String` parameter (with API body field `\"system\": systemPrompt`), or (b) document that the XML-tag isolation instruction is prepended to the user message only. The tech-spec should be updated to reflect which approach is chosen. This is a security-relevant deviation if the security audit expects system-prompt isolation."
+    },
+    {
+      "severity": "critical",
+      "category": "missing_function",
+      "task": 5,
+      "issue": "T5 has `depends_on: []` (wave 1) but its Description step 5 says 'create a second `markdown-it` instance (or reconfigure the renderer used in the insight branch) with `html: false`'. The existing global `md` instance in index.html is initialized at L1052 with `html: true`. T5 must create a SECOND instance named something like `mdInsight`. This is a self-contained JS change with no Swift dependencies — the wave 1 placement is correct. However the tech-spec Architecture section says 'Existing `markdown-it` and Mermaid pipelines are reused with one adjustment: per-block `try/catch`'. Decision 10 says 'All other modes in `index.html` get the same config (defense in depth)'. This contradicts: if all modes get `html: false`, the existing global `md` must be reconfigured. But T5 Acceptance Criteria only says insight mode uses `html: false` — existing modes are NOT changed. The inconsistency between tech-spec §Architecture ('all other modes') and T5 AC (insight only) is unresolved. The security audit (T10) will check this explicitly. Flag for resolution.",
+      "fix": "Clarify in T5 (and tech-spec if needed): does the `html: false` change apply to ALL modes (breaking change for any user using raw HTML in markdown) or insight mode only? If insight-only, tech-spec Architecture section should be updated to remove 'All other modes in `index.html` get the same config'. If all modes, T5 must update the existing global `md` instance initialization."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 3,
+      "issue": "T3 `depends_on: [1]` which is correct (needs streamCompletion). However T3 uses `providerClient.hasAPIKey` (checked in T3 What to do step 3) — this property exists on AIProviderClient (L60: `var hasAPIKey: Bool`). But T3 also calls `providerClient.streamCompletion(...)` which is added by T1. The `depends_on: [1]` is correct. However T3 also calls `db.allModules()` for community-to-file mapping. T3 implementation hint says 'use `mdFiles.filter { fileURL in moduleNames.contains(...) }` — simple heuristic'. This heuristic is unreliable: GraphRAG module names are folder/component names (e.g. 'Auth', 'Database') not file paths. The filter `fileURL.path.contains($0)` will produce false positives (a file at `UserAuthentication.md` matches module name 'Auth'). This is not a blocking issue but a correctness concern: incorrect community assignment degrades summarization quality.",
+      "fix": "Document the heuristic limitation in T3 and add a note that the matching should prefer path-prefix matching over substring matching. Consider using `URL`-based path component comparison instead of `.contains`."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 6,
+      "issue": "T6 step 7 describes delta forwarding via `delta = newBuffer.suffix(after: lastForwardedLength)`. Swift `String` does not have a `suffix(after:)` method that takes an integer index directly — `String.suffix(_:)` takes a count from the END of the string, not from an offset. The correct idiom is `String(newBuffer.dropFirst(lastForwardedLength))` or `newBuffer[newBuffer.index(newBuffer.startIndex, offsetBy: lastForwardedLength)...]`. Using `suffix(after:)` literally will not compile.",
+      "fix": "Replace the delta calculation with `let delta = String(newBuffer.dropFirst(lastForwardedLength))` in T6 implementation description. Update the implementation hint accordingly."
+    },
+    {
+      "severity": "major",
+      "category": "cross-task-integration",
+      "task": 6,
+      "issue": "T6 step 7 says to also subscribe to `session.$currentNodeId` to detect node navigation and issue `bridge.loadInsightView(snapshot:into:)` + reset `lastForwardedLength`. This subscription logic is sound. However there is a race: `session.expand(deepDiveIndex:)` first cancels `activeTask`, then sets `currentNodeId` to the new child node. During cancellation the `streamingBuffer` publisher may still fire one more time (the `Task` observes cancellation between lines, which means the onDelta after the last chunk before cancellation runs, then buffer is updated). The Coordinator will forward this final delta to JS for the OLD node. Then `currentNodeId` changes, Coordinator issues `loadInsightView` for the new node and resets `lastForwardedLength`. This sequence is correct but the stray delta could briefly show wrong content in JS. T6 edge cases section mentions 'Reset буфера на same session' but does not explicitly address the expand → cancel → final-delta → nodeId-change sequence.",
+      "fix": "Minor: document this race in T6 edge cases. The correct mitigation is already present (loadInsightView full repaint on nodeId change resets JS state). No code change needed but should be noted."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 7,
+      "issue": "T7 step 1 says `startRecursiveInsight()` calls `scanMarkdownFiles(in: folderURL)` and 'if `mdFiles.count > 500`, present NSAlert...'. But `scanMarkdownFiles` returns `Result<[URL], ScanError>` — the `.failure(.folderTooLarge(...))` case already represents > 500 files. T7 adds a REDUNDANT `count > 500` check after the successful result. The helper from T2 already enforces the cap and returns failure. T7 should `.switch` on the Result and present the error from `.folderTooLarge`, not re-check the count. Checking count after getting a success result would never trigger (success always means <= 500 files). The pseudo-code in T7 is misleading about when the alert fires.",
+      "fix": "T7 startRecursiveInsight should: `switch scanMarkdownFiles(in: folderURL) { case .failure(let err): NSAlert(...err.localizedDescription...); return; case .success(let files): ... }`. Remove the separate `if mdFiles.count > 500` check — it is redundant and will never trigger after a `.success` result."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 4,
+      "issue": "T4 step 6 `navigateTo(nodeId:)` says 'Cancel `activeTask` (a stream may still be running for a different node)'. This is correct behavior. But T4 also says 'set `isStreaming` based on node status'. After cancellation, the navigated-to node may have status `.ready` (already completed) or `.failed`. The `isStreaming = (node.status == .streaming)` assignment is correct. However the `streamingBuffer` is refreshed from `nodes[nodeId]?.rawBuffer ?? \"\"`. On navigation BACK to a node that completed streaming, `rawBuffer` has the FULL content including the `---DEEP-DIVES---` marker. The bridge layer (T6) will call `loadInsightView(snapshot:into:)` on `currentNodeId` change, which uses `session.snapshot()` that reads `markdownBody` (parsed, without marker). So the bridge uses the parsed snapshot, not the raw buffer. But T6 step 7 subscribes to `session.$streamingBuffer` for delta forwarding — on navigation back, `streamingBuffer` will be reset to `rawBuffer` (full content). The Coordinator will compute `delta = full_rawBuffer.dropFirst(lastForwardedLength_of_0)` = entire rawBuffer, and call `appendInsightDelta` with the full raw content including marker. This delta would be sent to JS as if it were a new streaming chunk, corrupting the already-rendered node.",
+      "fix": "On `navigateTo` (and on `expand`/`retryCurrent` node changes), the Coordinator must issue a full `loadInsightView(snapshot:)` call (triggered by `currentNodeId` change per T6 step 7) BEFORE the `streamingBuffer` subscriber fires with the reset buffer. Since `currentNodeId` and `streamingBuffer` are both `@Published`, the Combine pipeline must handle ordering. The safest fix: in `navigateTo`, set `streamingBuffer` ONLY from the node's pending content if still streaming, not from rawBuffer for completed nodes. Or: in the Coordinator, when `currentNodeId` changes, reset `lastForwardedBufferLength` to the CURRENT `streamingBuffer.count` (not 0) so the delta of the repopulated buffer is zero. T6 edge case section mentions the `lastForwardedLength` reset but sets it to `session.streamingBuffer.count` after the `loadInsightView` call — this is the correct approach and must be done ATOMICALLY in the `currentNodeId` sink before the `streamingBuffer` sink fires."
+    },
+    {
+      "severity": "major",
+      "category": "feasibility",
+      "task": 2,
+      "issue": "T2 says 'T4 will replace this file's contents entirely' regarding the InsightSession stub in InsightSession.swift. T4 step 1 says 'atomic file swap: in a single edit pass, both create new InsightSession.swift AND remove placeholder InsightSession from DocumentState.swift'. But T2 creates the stub in a SEPARATE file (`InsightSession.swift`), not in `DocumentState.swift`. T4 step 1 says to remove from DocumentState.swift. These two descriptions are inconsistent: T2 prefers stub in a separate file, but T4 step 1 references removing it from DocumentState.swift. The 'Details' section in T2 correctly says stub goes in a separate `InsightSession.swift` file. T4 step 1 then replaces that file's contents entirely. This is actually consistent if read carefully, but the T4 description says 'remove placeholder InsightSession class from MarkView/Models/DocumentState.swift' which is incorrect — the placeholder is in `InsightSession.swift`, not DocumentState.swift.",
+      "fix": "Update T4 step 1 to say: 'Replace the contents of `MarkView/Models/InsightSession.swift` with the full implementation' (no reference to DocumentState.swift for stub removal). The `enum TabKind` and `var kind` in DocumentState.swift are NOT touched in T4 — only the stub class in InsightSession.swift is replaced."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 3,
+      "issue": "T3 implementation hint for community clustering (step 4 + hints section) contains a specific code-level algorithm: `mdFiles.filter { fileURL in moduleNames.contains(where: { fileURL.path.contains($0) }) }`. This is a prescriptive code snippet, not a pattern hint. The hint section also contains multi-step pseudo-algorithm for chunking with exact size comparisons and loop structure. Per validation checklist §G, implementation hints that contain pseudocode, step-by-step algorithms, or code blocks with full logic should be severity `major`.",
+      "fix": "Replace concrete code blocks in hints with approach descriptions: e.g. 'Match files to communities using path-prefix comparison against module paths from db.allModules()'. Reserve code examples for non-obvious Swift idioms, not business logic."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 4,
+      "issue": "T4 implementation hints contain full algorithm code for retry sliding window (`retryTimestamps[nodeId] = (retryTimestamps[nodeId] ?? []).filter { $0.timeIntervalSinceNow > -60 }`), session memory cap calculation (`nodes.values.reduce(0) { $0 + $1.rawBuffer.utf8.count }`), and api-key redaction (`providerClient.apiKeyValue`). These are step-by-step algorithm implementations, not hints. Several hints are more implementation-complete than the description sections themselves.",
+      "fix": "Trim hints to architectural/pattern guidance. E.g. 'Use a sliding window array of Date values keyed by node ID to implement the retry throttle' rather than the full implementation."
+    },
+    {
+      "severity": "minor",
+      "category": "cross-task-integration",
+      "task": 9,
+      "issue": "T9 (Code Audit) says 'Task 9 depends on Tasks 1-8 logically' but its frontmatter `depends_on: [1, 2, 3, 4, 5, 6, 7, 8]` is correct. However T9 also says 'hand-trace SSE parser against `Tests/Fixtures/sse-anthropic-sample.txt`'. The fixture content is produced at RUNTIME by the smoke curl in T1's Verification Steps — the implementer of T1 captures the live SSE response as the fixture. If T1 is implemented without running the smoke curl (e.g., in an environment without a KEY), the fixture file will not exist. T9 should note this dependency: fixture must be non-empty for hand-trace to proceed.",
+      "fix": "Add to T9 check-list: verify `Tests/Fixtures/sse-anthropic-sample.txt` is non-empty before attempting hand-trace. If empty, flag as blocking (T1 smoke was not completed)."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 12,
+      "issue": "T12 wave is listed as `wave: 9` in the frontmatter but the tech-spec describes it as 'Final Wave'. All other tasks go up to wave 8 (T11). Wave 9 is consistent with being after wave 8, but the tech-spec groups T12 under 'Final Wave' separate from the 'Audit Wave' (waves 7-8). This is a cosmetic inconsistency — no functional issue.",
+      "fix": "No action required, or rename wave 9 to 'final' in the frontmatter comment for clarity."
+    },
+    {
+      "severity": "minor",
+      "category": "tdd",
+      "task": 11,
+      "issue": "T11 check 1 reads `tasks/todo.md` from the project root (`/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/tasks/todo.md`). This file EXISTS and is well-formed with owner='Boris (or first contributor to touch insight code path post-merge)' and target date '2026-05-14' (within 2 weeks of feature merge). The test scope listed is comprehensive. However the `todo.md` references `project.yml` for XCTest setup. The project should have a `project.yml` for xcodegen — T11 verification step greps `project.yml` for `MarkViewTests`. Verifying project.yml exists is important for T11 to give accurate verdict.",
+      "fix": "No change needed. The todo.md is well-formed. T11 should verify that `project.yml` exists and confirm the XCTest setup instructions in todo.md are correct for the project's build system."
+    },
+    {
+      "severity": "minor",
+      "category": "cross-task-integration",
+      "task": 5,
+      "issue": "T5 says 'treat all incoming `loadInsightView` / `setInsightDeepDives` arguments as already-parsed JS objects (Swift parses on its side and emits a JS literal call)'. But for `loadInsightView`, T6 uses `JSONEncoder` to produce a JSON string, then calls `window.loadInsightView(<jsonString>)`. JS receives this as a STRING argument, not a parsed object. T5 says 'defensively `JSON.parse` if a string is received' — this is correct, but the primary path must be `JSON.parse()`, not treating it as already-parsed. The hint contradicts the reality of how evaluateJavaScript works.",
+      "fix": "Clarify in T5 that `loadInsightView(snapshotJSON)` receives a JSON STRING (the Swift side encodes to JSON and passes as a string literal in the JS call). The JS implementation must call `JSON.parse(snapshotJSON)` unconditionally, not optionally."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 12,
+    "claims_verified": 67,
+    "issues_found": 16
+  }
+}

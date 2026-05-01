@@ -1,0 +1,58 @@
+{
+  "validator": "reality-checker",
+  "batch": [4, 5, 6],
+  "iteration": 2,
+  "status": "changes_required",
+  "findings": [
+    {
+      "severity": "critical",
+      "category": "feasibility",
+      "task": 4,
+      "issue": "Step 1 still uses an 'or' construction: 'Verify the project still compiles after removal but before adding the new file (or edit both in the same change set).' This makes atomic change optional. If a developer removes the placeholder in one step and the real class has not been added yet, the project will not compile. The word 'or' allows the non-atomic path.",
+      "fix": "Remove the 'or edit both in the same change set' alternative entirely. Mandate the atomic approach as the only option: 'Always remove the placeholder and create InsightSession.swift as a single atomic change. Do not remove the placeholder as a separate compilation step.'"
+    },
+    {
+      "severity": "critical",
+      "category": "hallucination",
+      "task": 4,
+      "issue": "Step 10 (handleStreamError) only says 'Distinguish Task.isCancelled (silent) from real errors.' It does not mention AIProviderError.streamingError, which is introduced by Task 1 as the specific case thrown by streamCompletion for SSE error events and oversized lines. A developer implementing step 10 without cross-reading Task 1 will not know to explicitly pattern-match streamingError vs httpError vs parseError and may accidentally treat streamingError as retryable when it should not always be.",
+      "fix": "Add to step 10: 'Pattern-match AIProviderError cases explicitly: .streamingError — set lastError, retryable=true (API-side error, worth retrying); .httpError — set lastError, retryable depends on status (429/5xx retryable, 4xx not); Task.isCancelled / CancellationError — silent, no lastError. Use a typed switch rather than relying solely on localizedDescription.'"
+    },
+    {
+      "severity": "critical",
+      "category": "cross-task-integration",
+      "task": 5,
+      "issue": "Task 5 defines the JS window function as 'window.setInsightView(snapshotJSON)' (step 10, acceptance criteria). Task 6 calls 'window.loadInsightView(<json>)' (step 1, description, smoke test). These are different names. The Swift bridge method in Task 6 is named loadInsightView and it calls window.loadInsightView — but the JS function Task 5 will implement is window.setInsightView. At runtime the JS call from Swift will throw ReferenceError because window.loadInsightView is undefined.",
+      "fix": "Align the JS function name in both tasks. Choose one name and apply it consistently. Options: (a) rename Task 5's window.setInsightView to window.loadInsightView everywhere in tasks/5.md; OR (b) rename Task 6's bridge method call target from window.loadInsightView to window.setInsightView everywhere in tasks/6.md. The tech-spec (line 570) names the Swift method loadInsightView(snapshot:into:) but does not specify the JS function name — so either direction is valid, but both tasks must agree."
+    },
+    {
+      "severity": "major",
+      "category": "hints",
+      "task": 5,
+      "issue": "Step 8 says 'call mermaid.render (or mermaid.run({ nodes: [singleNode] })) on each block.' mermaid.render is the old v9 API that takes (id, definition) and returns SVG via a callback/promise — it has a completely different calling convention. mermaid.run is the correct v10+ API and matches what the existing codebase uses at L1247 of index.html. Listing mermaid.render first is misleading and will cause a developer to use the wrong API.",
+      "fix": "Remove 'mermaid.render (or ...)' from step 8. Replace with: 'call mermaid.run({ nodes: [singleNode] }) on each block individually' — matching the existing codebase pattern at L1247 of index.html and the implementation hint at line 150 of this task."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 4,
+      "issue": "The init signature is init(folderURL:mdFiles:providerClient:graphRAG:) with graphRAG as non-optional. However, graphRAG.mapReduceForFolder is only needed when mdFiles.count > 30. There is no guidance on what to do if graphRAG is nil but mdFiles.count > 30. Since graphRAG is non-optional in the init, this is not a critical issue, but the edge-case section and step 4 should clarify that the caller (Task 7 WorkspaceManager) is responsible for always providing a non-nil graphRAG instance when creating InsightSession.",
+      "fix": "Add to the edge cases section: 'graphRAG is always non-optional — WorkspaceManager (Task 7) must provide a valid GraphRAG instance at InsightSession creation time. InsightSession does not need to guard against nil graphRAG.'"
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 31,
+    "issues_found": 5
+  },
+  "round1_resolution_summary": {
+    "T4_apiKeyValue_location": "FIXED — task now correctly states 'the existing accessor in ActionEngine.swift extension'; the extension is indeed defined at ActionEngine.swift L259-264, not on AIProviderClient directly.",
+    "T4_handleStreamError_streamingError": "NOT FIXED — step 10 still does not name AIProviderError.streamingError explicitly. Only 'Task.isCancelled' is called out. Raised as new critical finding.",
+    "T4_atomic_placeholder_removal": "NOT FIXED — step 1 still uses 'or edit both in the same change set' making atomic approach optional. Raised as critical finding.",
+    "T4_graphRAG_nil_guard": "ACCEPTABLE — graphRAG is non-optional in the init signature so a nil guard is not needed at InsightSession level. Raised as minor clarification.",
+    "T5_mermaid_render_vs_run": "NOT FIXED — step 8 still lists 'mermaid.render (or mermaid.run(...))'. The ambiguity remains. Raised as major finding.",
+    "T6_second_call_site_loadContentIfNeeded": "FIXED — step 6 now explicitly calls out the second call site at webView(_:didFinish:) (L138-140) and requires saving pendingTab/pendingKind.",
+    "T6_navigateTo_full_repaint": "FIXED — step 7 now explicitly subscribes to session.$currentNodeId and triggers bridge.loadInsightView (full repaint) on node change.",
+    "NEW_T5_T6_window_function_name_mismatch": "NEW critical finding — Task 5 defines window.setInsightView but Task 6 calls window.loadInsightView. Not caught in Round 1."
+  }
+}

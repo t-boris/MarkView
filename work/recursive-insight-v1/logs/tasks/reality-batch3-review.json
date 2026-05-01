@@ -1,0 +1,202 @@
+{
+  "validator": "reality-checker",
+  "batch": [7, 8, 9],
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 7,
+      "issue": "Task 7 implementation hint says 'check saveFile(at:) in WorkspaceManager for current NSSavePanel convention', but saveFile(at:) at L1218 writes directly via String.write(to:) with no NSSavePanel at all. There is no NSSavePanel precedent to mirror in WorkspaceManager.",
+      "fix": "Remove or correct the hint. Implementor should look at AppKit NSSavePanel documentation or other macOS apps in the project for the panel-open pattern. No existing mirror exists in WorkspaceManager."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 7,
+      "issue": "Task 7 step 3 says 'existing conformance lives on EditorView.Coordinator per code-research §6' but provides 'verify after Task 6 lands' caveat. The actual conformance is already at EditorView.swift L319 (extension EditorView.Coordinator: WebViewBridgeDelegate) in the current codebase. This is not a problem but the uncertainty language could confuse the implementor.",
+      "fix": "Minor clarification only — the extension point at L319 is confirmed in the current codebase. No code change needed."
+    },
+    {
+      "severity": "minor",
+      "category": "hints",
+      "task": 8,
+      "issue": "Task 8 implementation hint disabled-predicate omits the extra check present in code-research.md §11: 'workspaceManager.rootNode?.url.hasDirectoryPath != true'. The task's simpler predicate (rootNode == nil || !hasMarkdownFiles) is functionally sufficient but the code-research §11 includes it to guard against a single-file workspace where rootNode is non-nil but not a directory.",
+      "fix": "Consider adding the hasDirectoryPath guard to the disabled predicate to fully match the code-research §11 spec, or explicitly document in the task that single-file workspaces are handled via hasMarkdownFiles returning false."
+    },
+    {
+      "severity": "minor",
+      "category": "feasibility",
+      "task": 9,
+      "issue": "Task 9 expects to hand-trace SSE parser against Tests/Fixtures/sse-anthropic-sample.txt and marker parser against Tests/Fixtures/marker-cases/*.md. These fixture files are committed in Task 1 and Task 5 respectively — but Task 9 has depends_on: [1,2,3,4,5,6,7,8]. If any of Tasks 1 or 5 are not yet complete when Task 9 runs, the fixtures will be absent and hand-trace will be impossible. The dependency declaration is correct (both 1 and 5 are listed), but the task body does not mention a fallback if fixture files are unexpectedly absent.",
+      "fix": "Add an explicit check at the start of Task 9: verify both fixture paths exist before starting hand-trace; abort with finding if absent. No structural change needed since dependencies already cover this."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 3,
+    "claims_verified": 31,
+    "issues_found": 4
+  },
+  "detail": {
+    "task_7": {
+      "line_refs_verified": [
+        {
+          "claim": "translateDocument L1105-1191",
+          "actual": "func translateDocument(markdown:targetLang:) starts at L1105, ends at L1191",
+          "status": "PASS"
+        },
+        {
+          "claim": "closeTab L984-1005",
+          "actual": "func closeTab(at index: Int) at L985, body ends at L1005 (tabsStore.removeTab call), matches exactly",
+          "status": "PASS"
+        },
+        {
+          "claim": "tabsStore L234-303",
+          "actual": "WorkspaceTabsStore class starts at L234 (class declaration), normalizeActiveTabIndex ends at L302, closing brace at L303",
+          "status": "PASS"
+        },
+        {
+          "claim": "incrementalCompiler.orchestrator.providerClient at L504",
+          "actual": "L504: let provider = incrementalCompiler!.orchestrator.providerClient — exact match",
+          "status": "PASS"
+        },
+        {
+          "claim": "incrementalCompiler.orchestrator.providerClient at L684",
+          "actual": "L684: let provider = incrementalCompiler!.orchestrator.providerClient — exact match",
+          "status": "PASS"
+        },
+        {
+          "claim": "IncrementalCompiler has orchestrator: AIOrchestrator",
+          "actual": "IncrementalCompiler.swift L13: let orchestrator: AIOrchestrator",
+          "status": "PASS"
+        },
+        {
+          "claim": "AIOrchestrator has providerClient: AIProviderClient",
+          "actual": "AIOrchestrator.swift L20: let providerClient: AIProviderClient",
+          "status": "PASS"
+        },
+        {
+          "claim": "tabsStore is private field on WorkspaceManager",
+          "actual": "L368: private let tabsStore = WorkspaceTabsStore()",
+          "status": "PASS"
+        },
+        {
+          "claim": "tabsStore.appendTab() method exists",
+          "actual": "WorkspaceTabsStore.appendTab(_ tab: OpenTab, activate: Bool) at L256",
+          "status": "PASS"
+        },
+        {
+          "claim": "WorkspaceManager.openTabs proxies tabsStore.openTabs",
+          "actual": "L377-380: computed property get/set on tabsStore.openTabs",
+          "status": "PASS"
+        },
+        {
+          "claim": "rootNode?.url is the correct access pattern",
+          "actual": "L372-375: rootNode is computed property proxying fileTreeStore.rootNode which is FileNode? — url is on FileNode",
+          "status": "PASS"
+        },
+        {
+          "claim": "EditorView.Coordinator conforms to WebViewBridgeDelegate",
+          "actual": "EditorView.swift L319: extension EditorView.Coordinator: WebViewBridgeDelegate",
+          "status": "PASS"
+        },
+        {
+          "claim": "self.parent.workspaceManager accessible in Coordinator",
+          "actual": "EditorView.swift L6: @EnvironmentObject var workspaceManager and Coordinator accesses via self.parent.workspaceManager",
+          "status": "PASS"
+        },
+        {
+          "claim": "self.graphRAG is Published var GraphRAG? on WorkspaceManager",
+          "actual": "L352: @Published var graphRAG: GraphRAG?",
+          "status": "PASS"
+        },
+        {
+          "claim": "OpenTab does NOT have kind field yet (Task 2 adds it)",
+          "actual": "DocumentState.swift OpenTab struct has no kind field — only url, content, originalContent, isModified, headings, etc.",
+          "status": "PASS — correctly identified as pre-Task-2 state"
+        },
+        {
+          "claim": "InsightSession.swift does not exist yet (new file from Task 4)",
+          "actual": "File not found at MarkView/Models/InsightSession.swift",
+          "status": "PASS — correctly identified as new file"
+        }
+      ]
+    },
+    "task_8": {
+      "line_refs_verified": [
+        {
+          "claim": "AI Tools menu at L114-134",
+          "actual": "Menu starts at L115 (inside comment at L114), label block ends at L134 — claim accurate",
+          "status": "PASS"
+        },
+        {
+          "claim": "Section('Analysis') at L124-130",
+          "actual": "L124: Section('Analysis') { ... L130: } — exact match",
+          "status": "PASS"
+        },
+        {
+          "claim": "5 buttons in Analysis: Constructive Critic, Deep Research, Full Codebase Audit, Code Structure Map, Generate Full Documentation",
+          "actual": "L125-129 contain exactly these 5 buttons with matching labels and runAITool(named:) actions",
+          "status": "PASS"
+        },
+        {
+          "claim": "Insert after Button('Generate Full Documentation') at L129",
+          "actual": "L129: Button('Generate Full Documentation') { workspaceManager.runAITool(named: 'fulldocs') } — exact match",
+          "status": "PASS"
+        }
+      ]
+    },
+    "task_9": {
+      "source_files_verified": [
+        {
+          "file": "MarkView/Models/AIProviderClient.swift",
+          "status": "EXISTS — pre-existing file, Task 1 adds streamCompletion"
+        },
+        {
+          "file": "MarkView/Models/DocumentState.swift",
+          "status": "EXISTS — pre-existing file, Task 2 adds TabKind"
+        },
+        {
+          "file": "MarkView/Models/WorkspaceManager.swift",
+          "status": "EXISTS — pre-existing file, Tasks 2+7 modify"
+        },
+        {
+          "file": "MarkView/Models/GraphRAG.swift",
+          "status": "EXISTS — pre-existing file, Task 3 adds mapReduceForFolder"
+        },
+        {
+          "file": "MarkView/Models/InsightSession.swift",
+          "status": "NOT EXISTS — new file from Task 4, correctly dependency-gated via depends_on: [4]"
+        },
+        {
+          "file": "MarkView/Bridge/WebViewBridge.swift",
+          "status": "EXISTS — pre-existing file, Task 6 extends it"
+        },
+        {
+          "file": "MarkView/Views/EditorView.swift",
+          "status": "EXISTS — pre-existing file, Task 6 modifies"
+        },
+        {
+          "file": "MarkView/Views/ContentView.swift",
+          "status": "EXISTS — pre-existing file, Task 8 adds button"
+        },
+        {
+          "file": "MarkView/Resources/Editor/index.html",
+          "status": "EXISTS — pre-existing file, Task 5 adds insight mode"
+        },
+        {
+          "file": "Tests/Fixtures/sse-anthropic-sample.txt",
+          "status": "NOT EXISTS — new file from Task 1, correctly dependency-gated via depends_on: [1]"
+        },
+        {
+          "file": "Tests/Fixtures/marker-cases/",
+          "status": "NOT EXISTS — new files from Task 5, correctly dependency-gated via depends_on: [5]"
+        }
+      ],
+      "deepResearch_L108_164": "PASS — deepResearch(question:) confirmed at L108-164 in GraphRAG.swift",
+      "AIOrchestrator_executeJob_L140_226": "PASS — func executeJob(_ job: AIJob) confirmed at L140 in AIOrchestrator.swift",
+      "mermaid_init_L1097_1103": "PASS — mermaid.initialize at L1099 in index.html (within cited range)",
+      "mermaid_run_L1241_1254": "PASS — mermaid.run({nodes: nodes}) at L1247 in index.html (within cited range)"
+    }
+  }
+}

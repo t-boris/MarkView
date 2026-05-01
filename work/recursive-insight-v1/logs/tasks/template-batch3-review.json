@@ -1,0 +1,51 @@
+{
+  "validator": "task-validator",
+  "batch": [11, 12],
+  "status": "approved",
+  "findings": [
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 11,
+      "section": "Context Files",
+      "issue": "decisions.md not listed in Context Files. Template lists it as mandatory feature-specific context file. Task does include user-spec.md, tech-spec.md, code-research.md but omits decisions.md. Acceptable if decisions.md does not yet exist at task generation time, but listing it (as the template does) lets the executing agent pick it up once Tasks 1-10 have written entries.",
+      "fix": "Add `- [decisions.md](../decisions.md) — отчёты по предыдущим таскам, особенно Task 9/10 sign-offs` to the Feature-specific subsection of Context Files."
+    },
+    {
+      "severity": "minor",
+      "category": "structure",
+      "task": 11,
+      "section": "Context Files",
+      "issue": "Mandatory project context files (project.md, architecture.md) are not listed. Task explicitly notes 'project-knowledge directory не существует для MarkView' which justifies the absence — but the template treats these as always-present. The justification is correct for this project, so this is informational only.",
+      "fix": "No change required if PK directory truly does not exist for MarkView. The explicit note in the task is the right way to handle this gap. Consider adding a short rationale line in the same shape in Task 12 for consistency (already done in Task 12)."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 12,
+      "section": "Verification Steps",
+      "issue": "Verification Steps section is missing the `### Automated` subsection. For a QA task, automated test execution is N/A (no test target — Decision 9), but the template suggests the subsection exists for code tasks. Since Task 12 has no automated test suite to run, the absence is defensible — only the build command is automated and it lives in Smoke. This is a minor stylistic note rather than a blocker.",
+      "fix": "Optionally add `### Automated\\n\\nNot applicable — project has no test target (Decision 9, deferred to follow-up). Build command lives in Smoke below.` so the section structure is explicit and parallels the rest of the template."
+    },
+    {
+      "severity": "minor",
+      "category": "content",
+      "task": 11,
+      "section": "Acceptance Criteria",
+      "issue": "AC #2 references 'процитирован соответствующий раздел tasks/todo.md' but the file `/Users/boris/Documents/Claude/Projects/MarkDV/MarkView/tasks/todo.md` may not yet exist at the time the audit runs (Decision 9 says deferral is tracked there, but no prior task in the wave creates or updates it). If the file is absent, Check #1 will FAIL through no fault of the implementer. Either an earlier task should create/update tasks/todo.md, or the edge cases section needs to acknowledge 'tasks/todo.md absent → blocker for pre-merge, not for audit completion'.",
+      "fix": "Confirm that tasks/todo.md tracking the XCTest follow-up is created somewhere in the workflow (perhaps as part of Task 1's commit, or as a manual user step before audit). If not, add an explicit edge case noting how the auditor should handle the absent file (already partially covered in Edge cases section — strengthen by making it the FIRST edge case)."
+    },
+    {
+      "severity": "minor",
+      "category": "consistency",
+      "task": 12,
+      "section": "Verification Steps / What to do",
+      "issue": "Step 4 of 'What to do' (Storage spot-check) describes inspecting SemanticDatabase via sqlite3, but no exact path to the SQLite file is given in either What to do or Verification Steps. Implementation hints does mention '~/Library/Application Support/MarkView/<workspace-id>/semantic.sqlite' but flags it as 'точный путь — посмотреть в SemanticDatabase.init'. Concrete path discovery is left to the executor. This is acceptable since it's documented in hints, but could be elevated to a required pre-step in 'What to do'.",
+      "fix": "Optionally promote the SQLite path discovery to an explicit sub-step in What to do §4 (e.g., 'Locate SQLite file path by reading SemanticDatabase.init or running app with debug print of the resolved path.'). Currently sufficient via Implementation hints."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 2,
+    "issues_found": 5
+  }
+}

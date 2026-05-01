@@ -1,0 +1,136 @@
+{
+  "verdict": "changes_required",
+  "summary": "Cross-task integration check across all 12 Recursive Insight tasks. Shared singletons (AIProviderClient, GraphRAG) cleanly flow via DI from existing owners (incrementalCompiler.orchestrator, WorkspaceManager) — no duplicate instantiation. TabKind enum, InsightSession placeholder swap, JS function names (loadInsightView/appendInsightDelta/setInsightDeepDives/showInsightLoading/setInsightError), and JS->Swift message types (insightDeepDiveClicked/insightSaveRequested/insightBreadcrumbClicked/insightUpClicked/insightRetryRequested) all match exactly across T5 and T6. Dependency graph is acyclic and topologically valid. Two blocking inconsistencies identified: (1) T4 instructs placeholder removal from DocumentState.swift while T2 places the placeholder in a new InsightSession.swift file (T2 AC explicitly requires the new file); (2) T6 hardcodes setInsightError retryable:true, ignoring T4's per-error-class retryability logic and the lastErrorRetryable property T4 plans to expose.",
+  "shared_resource_issues": [
+    {
+      "severity": "critical",
+      "resource": "InsightSession (placeholder->real swap)",
+      "owner_task": 4,
+      "issue": "T4 step 1, AC line 145, and Files section line 196 all instruct removal of placeholder InsightSession class from MarkView/Models/DocumentState.swift. However, T2 step 1 creates the placeholder in a NEW file MarkView/Models/InsightSession.swift, and T2 AC line 103 explicitly requires 'MarkView/Models/InsightSession.swift создан как stub'. The actual atomic swap is: replace the contents of MarkView/Models/InsightSession.swift (existing stub from T2) with the full implementation — DocumentState.swift only contains the TabKind enum and OpenTab.kind field, no placeholder class to remove.",
+      "fix": "Update T4 step 1, AC line 145, and Details/Files line 196 to reference MarkView/Models/InsightSession.swift instead of DocumentState.swift. The atomic swap is a single-file replace of InsightSession.swift contents, not a two-file edit. Note T2 line 36 mentions DocumentState.swift as a non-preferred fallback location, but T2 AC fixes it to the new file — T4 should align with the AC."
+    },
+    {
+      "severity": "info",
+      "resource": "AIProviderClient instance",
+      "owner_task": "pre-existing (singleton on AIOrchestrator)",
+      "issue": "Verified no duplicate creation: T3 uses providerClient member of GraphRAG; T4 receives via init(providerClient:); T7 sources from incrementalCompiler.orchestrator.providerClient and passes to InsightSession init. No new AIProviderClient(apiKey:) constructor calls in feature-scope code.",
+      "fix": "No action required — DI flow is clean."
+    },
+    {
+      "severity": "info",
+      "resource": "GraphRAG instance",
+      "owner_task": "pre-existing (singleton on WorkspaceManager)",
+      "issue": "Verified no duplicate creation: T3 extends existing GraphRAG class with mapReduceForFolder; T4 receives graphRAG via init; T7 explicitly passes self.graphRAG into InsightSession constructor. No new GraphRAG(...) instantiation.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "resource": "TabKind enum",
+      "owner_task": 2,
+      "issue": "T2 creates in DocumentState.swift; T6 branches on tab.kind in loadContentIfNeeded; T7 pattern-matches if case .insight(let session) = tab.kind in both closeTab and bridge-delegate sessionId lookup. All consumers properly depend on T2 (T6 depends_on:[2,4]; T7 depends_on:[2,4,6]).",
+      "fix": "No action required."
+    }
+  ],
+  "wave_conflicts": [
+    {
+      "severity": "info",
+      "wave": 1,
+      "tasks": [1, 2, 5],
+      "issue": "T1 (AIProviderClient.swift), T2 (DocumentState.swift + WorkspaceManager.swift + NEW InsightSession.swift), T5 (index.html). No file overlap among parallel tasks.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "wave": "1->5 (T2 + T7 both modify WorkspaceManager.swift, sequential)",
+      "tasks": [2, 7],
+      "issue": "T2 adds scanMarkdownFiles helper, hasMarkdownFiles property, ScanError enum (placement near excludeFolder L545-580). T7 adds startRecursiveInsight(), modifies closeTab(at:) L984-1005, adds saveInsightNode helper. Different code regions, sequential waves — no merge conflict risk.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "wave": 3,
+      "tasks": [4],
+      "issue": "T4 atomic swap is single-file (InsightSession.swift contents replaced) per the corrected interpretation (see shared_resource_issues #1). If T4's instructions are taken literally and the implementer also touches DocumentState.swift looking for a placeholder that does not exist there, no harm done (no-op edit) but it indicates the spec wording bug.",
+      "fix": "Resolve via shared_resource_issues #1 fix above."
+    }
+  ],
+  "naming_mismatches": [
+    {
+      "severity": "critical",
+      "category": "error-routing-integration",
+      "between_tasks": [4, 6],
+      "issue": "T6 step 7 line 73 hardcodes `bridge.setInsightError(sessionId:, message:, retryable: true, into: webView)` regardless of error class. T4 step 10 explicitly distinguishes retryable vs non-retryable per AIProviderError case (parseError->false, noAPIKey->false, httpError 4xx other->false, vs streamingError->true, httpError 429/5xx->true). T4 implementation hint at line 222 says retryability is 'stored alongside, e.g. lastErrorRetryable: Bool' which T6 would need to subscribe to. T6's hardcoded `retryable: true` will incorrectly show the Retry button in the JS error banner for non-retryable errors (e.g., bad API key, malformed LLM response), enabling user-initiated retries that will deterministically fail.",
+      "fix": "Either: (a) T4 must explicitly publish `@Published var lastErrorRetryable: Bool` in its data model and AC, and T6 must subscribe to it (e.g., via combineLatest with lastError) and pass through to setInsightError; or (b) wrap lastError as a struct `InsightError { message: String; retryable: Bool }` with a single @Published property, and T6 subscribes to that. Update T4 AC + Data Models section, update T6 step 7 + AC line referencing this subscription. JS side (T5 step 10 line 51) already accepts `retryable` parameter and behaves correctly — the gap is purely Swift-side propagation."
+    },
+    {
+      "severity": "info",
+      "category": "JS function names",
+      "between_tasks": [5, 6],
+      "issue": "T5 defines window.loadInsightView, window.appendInsightDelta, window.setInsightDeepDives, window.showInsightLoading, window.setInsightError. T6 emits exactly these names from Swift via evaluateJavaScript. Verified post setInsightView->loadInsightView rename (recently fixed): both T5 and T6 consistently use loadInsightView. All 5 names match exactly.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "category": "JS->Swift message types",
+      "between_tasks": [5, 6],
+      "issue": "T5 step 9 posts insightDeepDiveClicked, insightSaveRequested, insightBreadcrumbClicked, insightUpClicked, insightRetryRequested. T6 step 2 dispatches exactly these 5 case names in handleMessage(type:data:). T6 step 3 extends WebViewBridgeDelegate with corresponding methods (didRequestInsightDeepDive, didRequestInsightSave, didRequestInsightBreadcrumb, didRequestInsightUp, didRequestInsightRetry). T7 step 3 forwards these to InsightSession methods (expand, saveInsightNode, navigateTo, up, retryCurrent). End-to-end naming chain is consistent.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "category": "InsightSession API surface",
+      "between_tasks": [4, 6, 7],
+      "issue": "T4 declares: snapshot() -> InsightViewSnapshot, cancel(), expand(deepDiveIndex:), navigateTo(nodeId:), up(), retryCurrent(), generateRoot(), currentNode(), breadcrumbs(), id (UUID via Identifiable). T6 calls: session.snapshot(), session.id.uuidString, session.$streamingBuffer, session.$lastError, session.$currentNodeId. T7 calls: session.cancel(), session.generateRoot(), session.expand(deepDiveIndex:), session.navigateTo(nodeId:), session.up(), session.retryCurrent(), session.currentNode(). All method signatures align.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "category": "TabKind / OpenTab",
+      "between_tasks": [2, 6, 7],
+      "issue": "T2 creates `enum TabKind { case file; case insight(InsightSession) }` and adds `var kind: TabKind = .file` to OpenTab. T6 step 7 branches on tab.kind. T7 step 1 constructs OpenTab(url:content:originalContent:kind:.insight(session)). T7 step 2 pattern-matches `if case .insight(let session) = openTabs[index].kind`. All call sites consistent.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "category": "WorkspaceManager helpers (T2->T7,T8)",
+      "between_tasks": [2, 7, 8],
+      "issue": "T2 adds scanMarkdownFiles(in:) -> Result<[URL], ScanError> and hasMarkdownFiles: Bool. T7 step 1 calls scanMarkdownFiles. T8 disabled clause uses `!workspaceManager.hasMarkdownFiles`. Both consumers correctly transitively depend on T2 (T7 depends_on:[2,4,6]; T8 depends_on:[7] which transitively pulls T2).",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "category": "Topological order",
+      "between_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      "issue": "Computed wave assignments: T1(1), T2(1), T3(2), T4(3), T5(1), T6(4), T7(5), T8(6), T9(7), T10(7), T11(8), T12(9). All depends_on references point to lower-wave tasks. No cycles. Order matches the expected linearization T1,T2,T5 -> T3 -> T4 -> T6 -> T7 -> T8 -> T9,T10 -> T11 -> T12.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "minor",
+      "category": "self-inconsistency in T7",
+      "between_tasks": [7],
+      "issue": "Not strictly cross-task, but worth flagging for completeness: T7 step 1 line 40 says 'Optionally store the session reference as @Published var activeInsightSession: InsightSession?'. T7 implementation hint line 167 says 'Do NOT add @Published var activeInsightSession if it is not strictly needed — the openTabs scan is O(N) where N <= ~20 in practice'. The two passages give opposite guidance. Reader should default to the hint (do NOT add) since openTabs scan is the simpler design.",
+      "fix": "Pick one: remove the 'Optionally store' clause from step 1, OR remove the 'Do NOT add' from implementation hints. Recommend removing the Optionally-store clause and keeping the openTabs-scan as the single approach."
+    },
+    {
+      "severity": "info",
+      "category": "fixture paths",
+      "between_tasks": [1, 5, 9, 10, 11, 12],
+      "issue": "Tests/Fixtures/sse-anthropic-sample.txt (T1 creates) referenced consistently by T9, T10, T11, T12. Tests/Fixtures/marker-cases/{happy,in-code-fence,as-hr,no-marker,multiple-markers}.md (T5 creates 5 files) referenced consistently by T9 (hand-trace), T11 (audit). All paths match exactly.",
+      "fix": "No action required."
+    },
+    {
+      "severity": "info",
+      "category": "audit report paths",
+      "between_tasks": [9, 10, 11, 12],
+      "issue": "T9 writes logs/audit/code-audit.md; T10 writes logs/audit/security-audit.md; T11 writes logs/audit/test-audit.md; T12 writes logs/qa/pre-deploy-qa-report.md. T11 reads code-audit.md and security-audit.md. T12 reads all three audit reports. Paths consistent across the audit/QA pipeline.",
+      "fix": "No action required."
+    }
+  ],
+  "stats": {
+    "tasks_checked": 12,
+    "critical_findings": 2,
+    "major_findings": 0,
+    "minor_findings": 1,
+    "info_findings": 10
+  }
+}
