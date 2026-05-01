@@ -1,0 +1,83 @@
+{
+  "id": "msg_01H8Qz7v9ZxYabCdEfGhIjKl",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-6",
+  "stop_reason": "tool_use",
+  "stop_sequence": null,
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "toolu_01ABcDeFgHiJkLmNoPqRsTuV",
+      "name": "insight_skeleton",
+      "input": {
+        "title": "Project Architecture Overview",
+        "suggestedTheme": "dark",
+        "sections": [
+          {
+            "id": "hero-overview",
+            "type": "hero",
+            "title": "MarkView at a Glance",
+            "scopeHint": ["README.md", "docs/overview.md"],
+            "metadata": {
+              "tagline": "A native macOS markdown reader with AI-assisted insight generation"
+            },
+            "deepDiveTopics": null
+          },
+          {
+            "id": "architecture-diagram",
+            "type": "mermaidDiagram",
+            "title": "Component Topology",
+            "scopeHint": ["docs/architecture.md", "MarkView/Views/EditorView.swift"],
+            "metadata": {
+              "chartType": "graph TD",
+              "estimatedNodes": 12
+            },
+            "deepDiveTopics": null
+          },
+          {
+            "id": "design-decisions",
+            "type": "prose",
+            "title": "Key Design Decisions",
+            "scopeHint": ["docs/decisions/", "tech-spec.md"],
+            "metadata": {
+              "tone": "analytical",
+              "estimatedWords": 350
+            },
+            "deepDiveTopics": [
+              {
+                "id": "dd-iframe-sandbox",
+                "label": "Why iframe sandbox over inline rendering",
+                "hint": "Walk through the threat model: prompt injection from poisoned .md content, sandbox null-origin properties, and the WebKit security model that motivates the choice.",
+                "scopeHint": ["docs/decisions/iframe-sandbox.md", "tech-spec.md"]
+              },
+              {
+                "id": "dd-tool-use-vs-streaming",
+                "label": "Why two-phase generation (tool_use + stream)",
+                "hint": "Compare the structured-output guarantees of Anthropic tool_use with the parallel-streaming UX of per-section streamCompletion calls; explain the cost trade-off the user explicitly accepted.",
+                "scopeHint": ["tech-spec.md", "MarkView/Models/AIProviderClient.swift"]
+              }
+            ]
+          },
+          {
+            "id": "feature-comparison",
+            "type": "comparisonTable",
+            "title": "v1 vs v2 Feature Matrix",
+            "scopeHint": ["docs/v1-vs-v2.md"],
+            "metadata": {
+              "columns": ["Feature", "v1", "v2"],
+              "rowCount": 8
+            },
+            "deepDiveTopics": null
+          }
+        ]
+      }
+    }
+  ],
+  "usage": {
+    "input_tokens": 1842,
+    "output_tokens": 624,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0
+  }
+}

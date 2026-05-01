@@ -659,6 +659,82 @@ class AIProviderClient {
         return results
     }
 
+    // MARK: - Tool Call (Generic SGR)
+
+    /// Generic Anthropic Messages tool_use call. Forces the model to invoke exactly one tool with
+    /// the supplied JSON Schema and returns the parsed `input` dict verbatim. Used by Phase 1 of
+    /// the v2 Recursive Insight pipeline (per tech-spec Decision 1) to obtain a strict-schema
+    /// `InsightSkeleton` before per-section streaming. Schema validation of the returned dict is
+    /// the caller's responsibility — this method only guarantees an Anthropic-side `tool_use`
+    /// block was produced and its `input` dict has been extracted.
+    ///
+    /// Sanitize discipline (per Decision 8 + L251 streamCompletion pattern): every error string
+    /// that could carry the API key (HTTP error body, parse-error message) is routed through
+    /// `sanitize(_:)` BEFORE being attached to the thrown `AIProviderError`. The method never
+    /// logs or prints the request body or the API key.
+    func toolCall(
+        name: String,
+        description: String,
+        inputSchema: [String: Any],
+        systemPrompt: String,
+        userMessage: String,
+        model: String = "claude-sonnet-4-6",
+        maxTokens: Int = 8192
+    ) async throws -> [String: Any] {
+        guard let apiKey = apiKey, !apiKey.isEmpty else {
+            throw AIProviderError.noAPIKey
+        }
+
+        let tool: [String: Any] = [
+            "name": name,
+            "description": description,
+            "input_schema": inputSchema
+        ]
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": maxTokens,
+            "system": systemPrompt,
+            "messages": [["role": "user", "content": userMessage]],
+            "tools": [tool],
+            "tool_choice": ["type": "tool", "name": name]
+        ]
+
+        let data = try JSONSerialization.data(withJSONObject: body)
+        var request = URLRequest(url: URL(string: baseURL)!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.httpBody = data
+        request.timeoutInterval = 180
+
+        let (responseData, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let bodyString = String(data: responseData, encoding: .utf8) ?? ""
+            // Sanitize at throw site — body may echo our request, which contains x-api-key value.
+            throw AIProviderError.httpError(status, sanitize(bodyString))
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let contentBlocks = json["content"] as? [[String: Any]] else {
+            throw AIProviderError.parseError(sanitize("No content array in tool_use response"))
+        }
+
+        // Scan ALL blocks for the first tool_use — Anthropic may emit a leading text block
+        // (e.g. brief reasoning) before the tool call, even with tool_choice forcing the tool.
+        for block in contentBlocks {
+            guard (block["type"] as? String) == "tool_use" else { continue }
+            guard let input = block["input"] as? [String: Any] else {
+                throw AIProviderError.parseError(sanitize("tool_use block has no input dict"))
+            }
+            return input
+        }
+
+        throw AIProviderError.parseError(sanitize("No tool_use block in response (model may have refused or hit safety filter)"))
+    }
+
     // MARK: - Architecture Graph Generation (legacy — kept for backward compat)
 
     func generateArchitecture(mode: String, entitiesSummary: String, claimsSummary: String) async throws -> String {
