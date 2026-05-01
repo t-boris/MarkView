@@ -131,6 +131,22 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             guard message.frameInfo.isMainFrame else { return }
             delegate?.bridgeRequestInsightUp(self)
             return
+        case "jsError":
+            // Diagnostic-only: route any JS-side window.onerror /
+            // unhandledrejection to the diag log file so we can see what's
+            // actually failing in the WebKit process.
+            if let dict = payload as? [String: Any] {
+                let where_ = (dict["where"] as? String) ?? "?"
+                let msg = (dict["message"] as? String) ?? "?"
+                let src = (dict["source"] as? String) ?? "?"
+                let line = (dict["lineno"] as? Int) ?? -1
+                let col = (dict["colno"] as? Int) ?? -1
+                let stack = (dict["stack"] as? String) ?? ""
+                Self.logInsightDiag("JS \(where_): \(msg) at \(src):\(line):\(col)\n  stack: \(stack.prefix(800))")
+            } else {
+                Self.logInsightDiag("JS error (malformed payload): \(String(describing: payload).prefix(400))")
+            }
+            return
         default:
             break
         }
@@ -347,14 +363,25 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     // `JSONEncoder` then injected verbatim (already valid JSON literal).
 
     /// Diagnostic logger that bypasses macOS unified-log privacy redaction.
-    /// Writes to stderr (FileHandle.standardError) so the message is visible
-    /// in `log show` even when interpolated values would otherwise show as <private>.
-    private static func logInsightDiag(_ message: String) {
-        let line = "[InsightDiag] \(message)\n"
+    /// Appends to /tmp/markview-insight-diag.log directly — guarantees visibility
+    /// regardless of NSLog/os_log filtering, redaction, or process attribution.
+    static func logInsightDiag(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] [InsightDiag] \(message)\n"
         if let data = line.data(using: .utf8) {
+            let path = "/tmp/markview-insight-diag.log"
+            if FileManager.default.fileExists(atPath: path) {
+                if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
+                    defer { try? handle.close() }
+                    _ = try? handle.seekToEnd()
+                    try? handle.write(contentsOf: data)
+                }
+            } else {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
             FileHandle.standardError.write(data)
         }
-        NSLog("%{public}@", line)  // also try os_log-style public marker
+        NSLog("%{public}@", line)
     }
 
     /// Phase-1 paint: tell parent JS to (re)build the iframe srcdoc placeholder
