@@ -31,15 +31,68 @@ class SemanticDatabase {
         self.dbPath = dbURL.path
 
         var dbPointer: OpaquePointer?
-        let result = sqlite3_open(dbPath, &dbPointer)
-        guard result == SQLITE_OK, let pointer = dbPointer else {
+        guard sqlite3_open(dbPath, &dbPointer) == SQLITE_OK, let pointer = dbPointer else {
             let msg = String(cString: sqlite3_errmsg(dbPointer))
             throw SemanticDBError.openFailed(msg)
         }
         self.db = pointer
 
+        // If the database predates the current docId scheme, discard the WHOLE file
+        // and recreate it empty — O(1) and leaves no bloat, vs cascade-deleting every
+        // row on the main thread. The out-of-process indexer then rebuilds it.
+        // (A fresh/empty DB has no `documents` table, so it's left untouched here.)
+        if userVersion() < Self.docIdSchemeVersion, tableExists("documents") {
+            sqlite3_close(self.db)
+            self.db = nil
+            let fm = FileManager.default
+            for suffix in ["", "-wal", "-shm"] { try? fm.removeItem(atPath: dbPath + suffix) }
+            var fresh: OpaquePointer?
+            guard sqlite3_open(dbPath, &fresh) == SQLITE_OK, let reopened = fresh else {
+                throw SemanticDBError.openFailed(String(cString: sqlite3_errmsg(fresh)))
+            }
+            self.db = reopened
+            NSLog("[SemanticDB] Old docId scheme detected — recreated fresh database")
+        }
+
         try setPragmas()
         try createTables()
+        try execute("PRAGMA user_version = \(Self.docIdSchemeVersion)")
+    }
+
+    // MARK: - Document ID scheme
+
+    /// Canonical document id: path relative to the workspace `root` (POSIX, forward
+    /// slashes, no leading separator). Falls back to the file name for the root
+    /// itself or paths outside the root — so single-file workspaces (root == parent
+    /// dir) yield just the file name. Used everywhere a docId is derived from a URL
+    /// so the key never collides across same-named files in different folders.
+    nonisolated static func documentId(for fileURL: URL, root: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        if filePath.hasPrefix(prefix) {
+            return String(filePath.dropFirst(prefix.count))
+        }
+        return fileURL.lastPathComponent
+    }
+
+    /// Bumped when the docId scheme changes; gates a one-time structural rebuild.
+    private static let docIdSchemeVersion: Int32 = 1
+
+    private func userVersion() -> Int32 {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK,
+              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_int(stmt, 0)
+    }
+
+    private func tableExists(_ name: String) -> Bool {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", -1, &stmt, nil) == SQLITE_OK else { return false }
+        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_TRANSIENT)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     deinit {
@@ -54,6 +107,10 @@ class SemanticDatabase {
         try execute("PRAGMA foreign_keys = ON")
         try execute("PRAGMA journal_mode = WAL")
         try execute("PRAGMA synchronous = NORMAL")
+        // Retry (instead of failing with SQLITE_BUSY) when the out-of-process
+        // structural indexer and the app touch the DB concurrently. WAL allows
+        // one writer + many readers across processes; this bounds writer waits.
+        try execute("PRAGMA busy_timeout = 5000")
         try execute("PRAGMA temp_store = MEMORY")
         try execute("PRAGMA cache_size = -20000")
     }
@@ -555,15 +612,34 @@ class SemanticDatabase {
     // MARK: - Document CRUD
 
     func upsertDocument(id: String, projectId: String, filePath: String, fileName: String,
-                        fileExt: String, contentHash: String) throws {
+                        fileExt: String, contentHash: String, fileMtime: Int? = nil) throws {
         let now = Int(Date().timeIntervalSince1970)
+        // Bind NULL when mtime unknown (mirrors the existing line-number int/null pattern).
+        let mtimeParam: SQLValue = fileMtime.map { .int($0) } ?? .textOrNull(nil)
         try execute("""
-            INSERT INTO documents (document_id, project_id, file_path, file_name, file_ext, content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(document_id) DO UPDATE SET content_hash = ?, updated_at = ?
+            INSERT INTO documents (document_id, project_id, file_path, file_name, file_ext, content_hash, file_mtime, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(document_id) DO UPDATE SET content_hash = ?, file_mtime = ?, updated_at = ?
         """, params: [.text(id), .text(projectId), .text(filePath), .text(fileName),
-                     .text(fileExt), .text(contentHash), .int(now), .int(now),
-                     .text(contentHash), .int(now)])
+                     .text(fileExt), .text(contentHash), mtimeParam, .int(now), .int(now),
+                     .text(contentHash), mtimeParam, .int(now)])
+    }
+
+    /// Batch-fetch `document_id → (content_hash, file_mtime)` for every document in one query.
+    /// Replaces the per-file `getDocumentHash()` round-trips the structural indexer used to make.
+    func allDocumentMeta() -> [String: (hash: String, mtime: Int?)] {
+        var results: [String: (hash: String, mtime: Int?)] = [:]
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = "SELECT document_id, content_hash, file_mtime FROM documents"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let docId = String(cString: sqlite3_column_text(stmt, 0))
+            let hash = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let mtime: Int? = sqlite3_column_type(stmt, 2) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 2))
+            results[docId] = (hash, mtime)
+        }
+        return results
     }
 
     // MARK: - Block CRUD

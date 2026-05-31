@@ -425,20 +425,13 @@ struct ModuleExplorerView: View {
     }
 
     private func openSearchResult(_ result: SemanticDatabase.SearchResult) {
-        guard let root = workspaceManager.rootNode else { return }
-        let fm = FileManager.default
-        if let en = fm.enumerator(at: root.url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            while let url = en.nextObject() as? URL {
-                if url.lastPathComponent == result.documentId {
-                    workspaceManager.openFile(url)
-                    // Extract search term from snippet for scroll
-                    let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        NotificationCenter.default.post(name: .scrollToText, object: String(searchTerm))
-                    }
-                    break
-                }
-            }
+        guard let root = workspaceManager.rootNode,
+              let url = findFile(result.documentId, in: root.url) else { return }
+        workspaceManager.openFile(url)
+        // Extract search term from snippet for scroll
+        let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NotificationCenter.default.post(name: .scrollToText, object: String(searchTerm))
         }
     }
 
@@ -712,6 +705,11 @@ struct ModuleExplorerView: View {
     }
 
     private func findFile(_ name: String, in dir: URL) -> URL? {
+        // docIds are now workspace-relative paths → resolve directly first
+        // (also handles a bare filename, which is a 1-component relative path).
+        let direct = dir.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: direct.path) { return direct }
+        // Fallback by-name search: headings/entity names, or legacy filename docIds.
         let fm = FileManager.default
         guard let en = fm.enumerator(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
         while let url = en.nextObject() as? URL { if url.lastPathComponent == name { return url } }

@@ -164,7 +164,10 @@
         // ---------------------------------------------------------------------------
         async function buildInsightSrcdoc(skeleton, libBlobURLs, katexCSSInline) {
             // CSP per task spec / Decision 10.
-            const csp = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+            // 'self' allows the iframe to load <script src="vendor/js/..."> from
+            // its file:// origin (with sandbox allow-same-origin set on the
+            // iframe element by the parent).
+            const csp = "default-src 'none'; script-src 'self' 'unsafe-inline' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
             const title = escapeForHTMLText(skeleton && skeleton.title ? skeleton.title : 'Insight');
 
             // Lib <script src="blob:..."> tags — the blob URL approach. Note
@@ -177,12 +180,26 @@
             // no `insightIframeReady` fired, all chunks stuck in pending
             // buffer — rendering nothing). Diagram rendering is a separate
             // concern; tracked as TODO.
+            // Iframe runs with sandbox="allow-scripts allow-same-origin", so
+            // it inherits parent's file:// origin and can load relative
+            // <script src="vendor/js/..."> directly. Direct paths avoid
+            // WebKit's null-origin block on cross-origin blob: URLs (which
+            // is why mermaid/Chart/Prism stayed undefined with blob: URLs).
+            const LIB_PATHS = {
+                prism:        'vendor/js/prism.min.js',
+                mermaid:      'vendor/js/mermaid.min.js',
+                chart:        'vendor/js/chart-4.4.9.min.js',
+                katex:        'vendor/js/katex.min.js',
+                'katex-auto': 'vendor/js/auto-render.min.js',
+            };
             const libOrder = ['prism', 'mermaid', 'chart', 'katex', 'katex-auto'];
+            const libsNeeded = computeRequiredLibs(skeleton);
             let libScripts = '';
             for (const libName of libOrder) {
-                const url = libBlobURLs.get(libName);
-                if (!url) continue;
-                libScripts += '<script src="' + escapeForHTMLAttribute(url) + '"></script>\n';
+                if (!libsNeeded.has(libName)) continue;
+                const path = LIB_PATHS[libName];
+                if (!path) continue;
+                libScripts += '<script src="' + escapeForHTMLAttribute(path) + '"></script>\n';
             }
 
             // KaTeX CSS (only if math required and we successfully inlined).
@@ -267,6 +284,13 @@
                                 if (!pre) continue;
                                 var src = (node.textContent || '').trim();
                                 if (!src) continue;
+                                // LLM sometimes emits literal "\\n" instead of newlines
+                                // and "<br/>" inside node labels; normalise both.
+                                var BS = String.fromCharCode(92);
+                                var LF = String.fromCharCode(10);
+                                src = src.split(BS + 'n').join(LF);
+                                src = src.split(BS + BS).join(BS);
+                                src = src.replace(/<br\\s*\\/>/gi, '<br>');
                                 var div = document.createElement('div');
                                 div.className = 'mermaid';
                                 div.textContent = src;
@@ -288,16 +312,28 @@
                                 }
                             }
                             try {
-                                mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+                                mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true } });
                                 mermaid.run({ nodes: sec.querySelectorAll('.mermaid'), suppressErrors: true });
                             } catch (e) { /* per-block recover handled by mermaid */ }
                         } else if (type === 'chartJsChart' && typeof Chart !== 'undefined') {
-                            var canvases = sec.querySelectorAll('canvas[data-chart-config]');
+                            // Phase 2 prompt uses data-chart; older code looked for
+                            // data-chart-config. Accept both. LLM sometimes embeds
+                            // JS function strings inside the JSON (callback fields)
+                            // — strip those before JSON.parse so the rest renders.
+                            var canvases = sec.querySelectorAll('canvas[data-chart], canvas[data-chart-config]');
                             for (var j = 0; j < canvases.length; j++) {
+                                var cv = canvases[j];
+                                if (cv.dataset && cv.dataset.chartRendered === '1') continue;
+                                var cfgStr = cv.getAttribute('data-chart') || cv.getAttribute('data-chart-config') || '';
+                                if (!cfgStr) continue;
+                                var cleaned = cfgStr.replace(/"function"\\s*:\\s*"function[\\s\\S]*?"\\s*\\}/g, '"_stripped":true}');
                                 try {
-                                    var cfg = JSON.parse(canvases[j].getAttribute('data-chart-config') || '{}');
-                                    new Chart(canvases[j], cfg);
-                                } catch (e) { /* skip invalid chart */ }
+                                    var cfg = JSON.parse(cleaned);
+                                    new Chart(cv, cfg);
+                                    cv.dataset.chartRendered = '1';
+                                } catch (e) {
+                                    postParent('insightDebug', { where: 'chart-render', msg: 'sid=' + sectionId + ' parse/init failed: ' + String(e).substr(0, 200) });
+                                }
                             }
                         }
                         if (typeof renderMathInElement === 'function') {
@@ -382,8 +418,195 @@
                         postParent('insightRequestSave', {});
                     } else if (t.id === 'iframe-btn-up') {
                         postParent('insightRequestUp', {});
+                    } else if (t.id === 'iframe-btn-custom-dd') {
+                        var inp = document.getElementById('iframe-input-topic');
+                        var topic = (inp && inp.value || '').trim();
+                        if (!topic) return;
+                        var langSel = document.getElementById('iframe-lang');
+                        var lang = langSel ? langSel.value : 'auto';
+                        postParent('insightRequestCustomDeepDive', { topic: topic, lang: lang });
+                        if (inp) inp.value = '';
+                    } else if (t.id === 'iframe-btn-explore-all') {
+                        var sel = document.getElementById('iframe-explore-depth');
+                        var depth = sel ? parseInt(sel.value || '1', 10) : 1;
+                        if (!(depth >= 1 && depth <= 3)) depth = 1;
+                        var langSel2 = document.getElementById('iframe-lang');
+                        var lang2 = langSel2 ? langSel2.value : 'auto';
+                        postParent('insightRequestExploreAll', { depth: depth, lang: lang2 });
+                    } else if (t.hasAttribute && t.hasAttribute('data-retry-section')) {
+                        var rsid = t.getAttribute('data-retry-section') || '';
+                        if (rsid) postParent('insightRequestRetrySection', { sectionId: rsid });
                     }
                 }, false);
+
+                // Lightbox click-to-zoom for diagrams/charts/images. Builds
+                // a fullscreen modal on first click, clones target into it,
+                // provides +/-/reset/close + keyboard. Wrapped in try so any
+                // closest()/clone failure can't kill iframeReady signal.
+                try {
+                    var lb = null, lbContent = null, lbZoom = 1, lbPanX = 0, lbPanY = 0;
+                    var lbDragging = false, lbDragStartX = 0, lbDragStartY = 0, lbDragInitX = 0, lbDragInitY = 0;
+                    function lbApplyTransform() {
+                        if (lbContent) lbContent.style.transform = 'translate(' + lbPanX + 'px,' + lbPanY + 'px) scale(' + lbZoom + ')';
+                    }
+                    function lbSetZoom(z) {
+                        lbZoom = Math.max(0.25, Math.min(8, z));
+                        lbApplyTransform();
+                        var pct = lb && lb.querySelector('.lb-pct');
+                        if (pct) pct.textContent = Math.round(lbZoom * 100) + '%';
+                    }
+                    function lbResetPan() { lbPanX = 0; lbPanY = 0; lbApplyTransform(); }
+                    function lbClose() { if (lb) lb.classList.remove('on'); if (lbContent) lbContent.innerHTML = ''; lbPanX = 0; lbPanY = 0; lbZoom = 1; }
+                    function lbEnsure() {
+                        if (lb) return;
+                        lb = document.createElement('div'); lb.id = 'lb';
+                        lb.innerHTML = '<div class="lb-stage"><div class="lb-content"></div></div>' +
+                            '<div class="lb-bar">' +
+                            '<button class="lb-out" title="Zoom out (-)">−</button>' +
+                            '<span class="lb-pct">100%</span>' +
+                            '<button class="lb-in" title="Zoom in (+)">+</button>' +
+                            '<button class="lb-reset" title="Reset (1)">1:1</button>' +
+                            '<button class="lb-close" title="Close (Esc)">✕</button>' +
+                            '</div>';
+                        document.body.appendChild(lb);
+                        lbContent = lb.querySelector('.lb-content');
+                        lb.querySelector('.lb-in').addEventListener('click', function(e) { e.stopPropagation(); lbSetZoom(lbZoom * 1.25); });
+                        lb.querySelector('.lb-out').addEventListener('click', function(e) { e.stopPropagation(); lbSetZoom(lbZoom / 1.25); });
+                        lb.querySelector('.lb-reset').addEventListener('click', function(e) { e.stopPropagation(); lbResetPan(); lbSetZoom(1); });
+                        lb.querySelector('.lb-close').addEventListener('click', function(e) { e.stopPropagation(); lbClose(); });
+                        lb.addEventListener('click', function(ev) {
+                            if (ev.target === lb || (ev.target.classList && ev.target.classList.contains('lb-stage'))) lbClose();
+                        });
+                        document.addEventListener('keydown', function(ev) {
+                            if (!lb.classList.contains('on')) return;
+                            if (ev.key === 'Escape') lbClose();
+                            else if (ev.key === '+' || ev.key === '=') lbSetZoom(lbZoom * 1.25);
+                            else if (ev.key === '-' || ev.key === '_') lbSetZoom(lbZoom / 1.25);
+                            else if (ev.key === '0' || ev.key === '1') { lbResetPan(); lbSetZoom(1); }
+                        });
+                        lb.addEventListener('wheel', function(ev) {
+                            if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); lbSetZoom(lbZoom * (ev.deltaY < 0 ? 1.1 : 0.9)); }
+                        }, { passive: false });
+                        // Drag-to-pan: mousedown anywhere on the content (or
+                        // empty stage). Disable smooth-transition while dragging.
+                        lbContent.addEventListener('mousedown', function(ev) {
+                            if (ev.target.closest('.lb-bar')) return;
+                            lbDragging = true;
+                            lbDragStartX = ev.clientX; lbDragStartY = ev.clientY;
+                            lbDragInitX = lbPanX; lbDragInitY = lbPanY;
+                            lbContent.style.transition = 'none';
+                            lbContent.style.cursor = 'grabbing';
+                            ev.preventDefault();
+                        });
+                        document.addEventListener('mousemove', function(ev) {
+                            if (!lbDragging) return;
+                            lbPanX = lbDragInitX + (ev.clientX - lbDragStartX);
+                            lbPanY = lbDragInitY + (ev.clientY - lbDragStartY);
+                            lbApplyTransform();
+                        });
+                        document.addEventListener('mouseup', function() {
+                            if (!lbDragging) return;
+                            lbDragging = false;
+                            if (lbContent) { lbContent.style.transition = ''; lbContent.style.cursor = ''; }
+                        });
+                    }
+                    function lbOpen(el) {
+                        lbEnsure();
+                        lbContent.innerHTML = '';
+                        var clone = null;
+                        if (el.classList && el.classList.contains('mermaid')) {
+                            var inner = el.querySelector('svg');
+                            if (inner) el = inner;
+                        }
+                        if (el.tagName && el.tagName.toUpperCase() === 'CANVAS') {
+                            try {
+                                var img = document.createElement('img');
+                                img.src = el.toDataURL('image/png');
+                                img.style.width = el.width + 'px';
+                                img.style.height = el.height + 'px';
+                                clone = img;
+                            } catch (_) { clone = el.cloneNode(true); }
+                        } else if (el.tagName && el.tagName.toLowerCase() === 'svg') {
+                            try {
+                                var serializer = new XMLSerializer();
+                                var svgStr = serializer.serializeToString(el);
+                                var box = el.viewBox && el.viewBox.baseVal;
+                                var w = (box && box.width) ? box.width : (el.getBoundingClientRect().width || 800);
+                                var h = (box && box.height) ? box.height : (el.getBoundingClientRect().height || 600);
+                                var holder = document.createElement('div');
+                                holder.style.cssText = 'width:' + (w * 2) + 'px; height:' + (h * 2) + 'px;';
+                                holder.innerHTML = svgStr;
+                                var ns = holder.querySelector('svg');
+                                if (ns) { ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none'; }
+                                clone = holder;
+                            } catch (_) { clone = el.cloneNode(true); }
+                        } else {
+                            clone = el.cloneNode(true);
+                        }
+                        if (!clone) clone = el.cloneNode(true);
+                        lbContent.appendChild(clone);
+                        lbSetZoom(1);
+                        lb.classList.add('on');
+                    }
+                    document.addEventListener('click', function(ev) {
+                        var t = ev.target;
+                        if (!t || typeof t.closest !== 'function') return;
+                        var pick = t.closest('.mermaid, .section-body canvas, .section-body img');
+                        if (!pick) return;
+                        if (t.closest('.dd-btn, .iframe-footer, .lb-bar, #lb')) return;
+                        ev.preventDefault(); ev.stopPropagation();
+                        try { lbOpen(pick); } catch (e) { postParent('insightDebug', { where: 'lb-open', msg: String(e).substr(0, 200) }); }
+                    }, false);
+                } catch (e) { /* lightbox not critical */ }
+
+                // Selection-driven custom deep-dive. Highlight any text in
+                // the page → popup appears next to selection → click =
+                // sends the selected text as a custom deep-dive topic
+                // (same path as the footer 🤿 Explore input).
+                try {
+                    var selPopup = document.createElement('div');
+                    selPopup.id = 'sel-popup';
+                    selPopup.innerHTML = '<span>🤿</span><span>Deep dive on this</span>';
+                    document.body.appendChild(selPopup);
+                    var selText = '';
+                    function hideSelPopup() { selPopup.classList.remove('on'); selText = ''; }
+                    document.addEventListener('mouseup', function(ev) {
+                        if (ev.target && ev.target.id === 'sel-popup') return;
+                        if (ev.target && ev.target.closest && ev.target.closest('#sel-popup')) return;
+                        // Defer one tick so getSelection reflects the final state.
+                        setTimeout(function() {
+                            var sel = window.getSelection();
+                            var raw = sel ? String(sel.toString() || '').trim() : '';
+                            // Skip very short / oversized selections.
+                            if (raw.length < 3 || raw.length > 600) { hideSelPopup(); return; }
+                            // Position popup just above the selection rect.
+                            try {
+                                var range = sel.getRangeAt(0);
+                                var rect = range.getBoundingClientRect();
+                                if (!rect || (rect.width === 0 && rect.height === 0)) { hideSelPopup(); return; }
+                                var top = (rect.top + window.scrollY) - 36;
+                                var left = (rect.left + window.scrollX) + Math.min(rect.width, 200) - 60;
+                                if (top < 8) top = (rect.bottom + window.scrollY) + 8;
+                                if (left < 8) left = 8;
+                                selPopup.style.top = top + 'px';
+                                selPopup.style.left = left + 'px';
+                                selText = raw;
+                                selPopup.classList.add('on');
+                            } catch (e) { hideSelPopup(); }
+                        }, 0);
+                    });
+                    selPopup.addEventListener('click', function(ev) {
+                        ev.stopPropagation();
+                        if (!selText) return;
+                        postParent('insightRequestCustomDeepDive', { topic: selText });
+                        hideSelPopup();
+                        try { window.getSelection().removeAllRanges(); } catch (_) {}
+                    });
+                    document.addEventListener('mousedown', function(ev) {
+                        if (ev.target && ev.target.closest && ev.target.closest('#sel-popup')) return;
+                        hideSelPopup();
+                    });
+                } catch (e) { /* selection popup not critical */ }
 
                 postParent('insightDebug', { where: 'iife', msg: 'IIFE-END about to signal ready, readyState=' + document.readyState });
                 // Signal readiness once DOM is parsed.
@@ -441,6 +664,71 @@
             .section-title { font-size: 16px; font-weight: 600; margin: 0 0 8px; color: #2a2a2a; }
             .section-body { font-size: 14px; line-height: 1.6; }
             .section-body img { max-width: 100%; height: auto; }
+            /* Hero: compact. */
+            section[data-section-type="hero"] { margin-bottom: 18px; padding-bottom: 14px; }
+            section[data-section-type="hero"] .section-title { display: none; }
+            section[data-section-type="hero"] .section-body h1 { font-size: 22px; line-height: 1.2; margin: 0 0 6px; color: #1e1e1e; font-weight: 700; }
+            section[data-section-type="hero"] .section-body h1 + p { font-size: 14px; line-height: 1.5; margin: 0 0 4px; color: #4a4a4a; }
+            section[data-section-type="hero"] .section-body p { margin: 4px 0; }
+            section[data-section-type="hero"] .section-body { font-size: 13px; }
+            /* Mermaid: cap diagram height; the lightbox shows it full-size. */
+            .mermaid { max-height: 520px; overflow: hidden; cursor: zoom-in; }
+            .mermaid svg { max-width: 100%; height: auto; max-height: 520px; display: block; margin: 0 auto; }
+            /* Chart: cap height + overflow hidden. */
+            section[data-section-type="chartJsChart"] .section-body {
+                position: relative; height: 360px; max-height: 50vh; overflow: hidden; cursor: zoom-in;
+            }
+            section[data-section-type="chartJsChart"] canvas {
+                max-height: 360px !important; max-width: 100% !important; display: block;
+            }
+            /* Tables: zebra rows + hover. */
+            .section-body table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; }
+            .section-body th, .section-body td { padding: 6px 10px; border: 1px solid #e0e0e0; text-align: left; vertical-align: top; }
+            .section-body th { background: #f5f7fb; font-weight: 600; color: #1e1e1e; }
+            .section-body tbody tr:nth-child(odd) td { background: #fafafa; }
+            .section-body tbody tr:hover td { background: #f0f4ff; }
+            /* Cards grid + Callouts + Timeline. */
+            .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+            .cards-grid .card { background: #f8f9fb; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 12px; }
+            .cards-grid .card h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+            .cards-grid .card p { margin: 4px 0; font-size: 12px; line-height: 1.45; }
+            .callout { padding: 10px 14px; border-left: 4px solid #6b7280; background: #f5f7fb; margin: 8px 0; border-radius: 4px; }
+            .callout.callout-info { border-color: #3b82f6; background: #eff6ff; }
+            .callout.callout-warn { border-color: #f59e0b; background: #fffbeb; }
+            .callout.callout-danger { border-color: #ef4444; background: #fef2f2; }
+            .callout.callout-tip { border-color: #10b981; background: #ecfdf5; }
+            .timeline { list-style: none; padding: 0; margin: 8px 0; border-left: 2px solid #d4d4d4; }
+            .timeline li { position: relative; padding: 4px 0 8px 16px; }
+            .timeline li::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; background: #569cd6; border-radius: 50%; }
+            .timeline time { display: inline-block; font-weight: 600; color: #1e1e1e; margin-right: 6px; }
+            /* Lightbox modal for click-to-zoom on diagrams/charts/images. */
+            #lb {
+                position: fixed; inset: 0; z-index: 10000;
+                background: rgba(0,0,0,0.88);
+                display: none; align-items: center; justify-content: center;
+                padding: 32px; box-sizing: border-box;
+            }
+            #lb.on { display: flex; }
+            #lb .lb-stage { position: relative; width: 100%; height: 100%; overflow: auto; display: flex; align-items: center; justify-content: center; }
+            #lb .lb-content { transform-origin: center center; transition: transform 0.18s ease; background: #fff; padding: 16px; border-radius: 6px; cursor: grab; user-select: none; }
+            #lb .lb-content svg, #lb .lb-content img, #lb .lb-content canvas { display: block; max-width: none; max-height: none; }
+            #lb .lb-bar { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; background: #fff; padding: 6px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+            #lb .lb-bar button { background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px; padding: 6px 12px; font-size: 14px; cursor: pointer; font-family: inherit; min-width: 36px; }
+            #lb .lb-bar button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+            #lb .lb-bar .lb-pct { display: inline-flex; align-items: center; padding: 0 6px; font-size: 13px; color: #666; min-width: 50px; justify-content: center; }
+            /* Selection popup — appears on text selection inside the iframe.
+               Click → custom deep-dive on the selected text. */
+            #sel-popup {
+                position: absolute; z-index: 9999;
+                display: none;
+                background: #1e1e1e; color: #fff;
+                border-radius: 6px; padding: 6px 10px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                font-size: 12px; cursor: pointer;
+                user-select: none; white-space: nowrap;
+            }
+            #sel-popup.on { display: inline-flex; align-items: center; gap: 6px; }
+            #sel-popup:hover { background: #2563eb; }
             .skeleton-loader {
                 height: 12px; margin: 6px 0; border-radius: 4px;
                 background: linear-gradient(90deg, #e8e8e8 25%, #f4f4f4 50%, #e8e8e8 75%);
@@ -464,6 +752,13 @@
                 padding: 8px 0; margin-top: 24px; display: flex; gap: 8px;
             }
             .iframe-footer .spacer { flex: 1; }
+            .iframe-footer input#iframe-input-topic {
+                flex: 2; min-width: 220px; max-width: 520px;
+                padding: 6px 10px; font-size: 12px; font-family: inherit;
+                border: 1px solid #d0d0d0; border-radius: 4px; background: #fff; color: #1e1e1e;
+            }
+            .iframe-footer input#iframe-input-topic:focus { outline: none; border-color: #2563eb; }
+            .iframe-footer select#iframe-explore-depth { padding: 5px 6px; font-size: 11px; border: 1px solid #d0d0d0; border-radius: 4px; background: #fff; color: #1e1e1e; cursor: pointer; }
             .iframe-footer button {
                 background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px;
                 padding: 5px 12px; font-size: 11px; cursor: pointer; font-family: inherit;
@@ -490,8 +785,13 @@
                 sectionsHTML +
                 '<div class="iframe-footer">' +
                 '<button id="iframe-btn-up" title="Up to parent">↑ Up</button>' +
+                '<select id="iframe-lang" title="Language for generated insight content (auto = match source files)"><option value="auto" selected>lang: auto</option><option value="en">English</option><option value="ru">Русский</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="zh">中文</option><option value="ja">日本語</option></select>' +
+                '<select id="iframe-explore-depth" title="Recursion depth for Explore-all"><option value="1" selected>depth 1</option><option value="2">depth 2</option><option value="3">depth 3</option></select>' +
+                '<button id="iframe-btn-explore-all" title="Generate deep-dive pages for EVERY 🤿 topic on this page. Depth>1 means recursively expand each child\'s topics too — cost grows fast.">🤿×N Explore all</button>' +
+                '<input id="iframe-input-topic" placeholder="Custom deep-dive topic (e.g. \'Compare auth approaches across the project\')…" />' +
+                '<button id="iframe-btn-custom-dd" title="Generate a deep-dive page on this custom topic using all source files">🤿 Explore</button>' +
                 '<div class="spacer"></div>' +
-                '<button id="iframe-btn-save" title="Save current node as Markdown">💾 Save as .md</button>' +
+                '<button id="iframe-btn-save" title="Export the whole insight tree as a self-contained ZIP website">📦 Export ZIP</button>' +
                 '</div>' +
                 '<script>' + iframeScript + '</script>' +
                 '</body></html>';

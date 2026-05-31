@@ -29,6 +29,7 @@
 //   internal-temp guarantee for the temp file write itself.
 
 import Foundation
+import CryptoKit
 
 /// Typed errors emitted by `InsightCache`. All file-system or decoding
 /// failures inside the cache surface as one of these cases so callers can
@@ -80,13 +81,20 @@ struct InsightCache {
 
     // MARK: - Init
 
-    /// Creates the session directory layout and copies vendored libs into
-    /// `_assets/`. Idempotent: re-running against an existing session dir
-    /// is safe — already-present files are skipped without error.
+    /// Creates the per-workspace cache directory layout and copies vendored
+    /// libs into `_assets/`. The cache lives at
+    /// `<workspace>/.markview-insight/` (NOT keyed by sessionId so that
+    /// closing and re-opening the insight tab on the same folder REUSES the
+    /// cached HTML — re-running an LLM analysis is expensive and the user
+    /// shouldn't pay for it again unless they explicitly request a refresh).
+    /// Idempotent: re-running against an existing dir is safe — already-
+    /// present files are skipped without error. The `sessionId` parameter
+    /// is retained for source compatibility but no longer participates in
+    /// the path.
     init(workspaceURL: URL, sessionId: UUID) throws {
+        _ = sessionId
         let root = workspaceURL
-            .appendingPathComponent(".insight-cache", isDirectory: true)
-            .appendingPathComponent(sessionId.uuidString, isDirectory: true)
+            .appendingPathComponent(".markview-insight", isDirectory: true)
         self.rootDirectory = root
         self.assetsDirectory = root.appendingPathComponent("_assets", isDirectory: true)
         self.nodesDirectory = root.appendingPathComponent("nodes", isDirectory: true)
@@ -166,6 +174,77 @@ struct InsightCache {
             try? FileManager.default.removeItem(at: tmpURL)
             throw error
         }
+    }
+
+    // MARK: - Cross-session snapshot (skeleton + per-section content)
+    //
+    // `snapshot.json` holds the minimum data needed to restore an InsightSession's
+    // root node from disk WITHOUT re-running any LLM call:
+    //   - skeleton (the Phase 1 tool_use output, JSON-encoded)
+    //   - per-section final buffer (the concatenated Phase 2 streamed HTML)
+    //   - the deterministic root nodeId
+    //
+    // Written after Phase 2 completes. Read by `InsightSession.tryRestoreFromSnapshot`
+    // before kicking off generation.
+
+    /// File URL of the snapshot.
+    var snapshotURL: URL { rootDirectory.appendingPathComponent("snapshot.json", isDirectory: false) }
+
+    /// Snapshot file presence — quick existence check without decoding.
+    func hasSnapshot() -> Bool {
+        FileManager.default.fileExists(atPath: snapshotURL.path)
+    }
+
+    /// Atomic write of the JSON-encoded `data` into snapshot.json.
+    func writeSnapshotData(_ data: Data) throws {
+        try Self.assertContained(snapshotURL, in: rootDirectory)
+        let tmpURL = rootDirectory.appendingPathComponent("snapshot.\(UUID().uuidString).tmp", isDirectory: false)
+        do {
+            try data.write(to: tmpURL, options: .atomic)
+            try Self.atomicReplace(source: tmpURL, destination: snapshotURL)
+        } catch {
+            try? FileManager.default.removeItem(at: tmpURL)
+            throw error
+        }
+    }
+
+    /// Read raw snapshot bytes; caller decodes (avoids coupling InsightCache to Insight types).
+    /// Returns nil if file is absent or unreadable.
+    func readSnapshotData() -> Data? {
+        guard FileManager.default.fileExists(atPath: snapshotURL.path) else { return nil }
+        return try? Data(contentsOf: snapshotURL)
+    }
+
+    /// Removes the snapshot file (used by Regenerate). Cache directory + assets remain.
+    func deleteSnapshot() {
+        try? FileManager.default.removeItem(at: snapshotURL)
+    }
+
+    /// Best-effort delete of one node's cached HTML file. Used by
+    /// `InsightSession.regenerateNode` to drop stale HTML for descendants
+    /// that no longer belong to the new tree. Tolerates missing files.
+    func deleteNode(nodeId: UUID) {
+        let url = nodesDirectory.appendingPathComponent("\(nodeId.uuidString).html", isDirectory: false)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Deterministic UUID derived from a folder URL. SHA-256 → first 16 bytes
+    /// → set RFC-4122 version (4) and variant bits → UUID. Same folder path
+    /// always yields the same UUID, so cache files written under that UUID
+    /// are findable across app restarts and tab close/reopen.
+    static func deterministicRootUUID(forFolderPath path: String) -> UUID {
+        let digest = SHA256.hash(data: Data(path.utf8))
+        var bytes = Array(digest.prefix(16))
+        // Version 4 marker.
+        bytes[6] = (bytes[6] & 0x0f) | 0x40
+        // RFC-4122 variant marker.
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     /// Loads the manifest. `JSONDecoder` failures are wrapped in

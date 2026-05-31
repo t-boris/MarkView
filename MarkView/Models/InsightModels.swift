@@ -78,6 +78,45 @@ struct InsightDeepDiveTopic: Codable, Identifiable {
 
 // MARK: - Per-section runtime state
 
+/// Coarse content-type classification produced by Phase 0 (classifier LLM call).
+/// Phase 1 (skeleton) and Phase 2 (section content) prompts branch on this so that a
+/// philosophy essay isn't framed as a software dossier and a recipe isn't framed as
+/// a business analysis. `general` is the safe fallback when classification is unclear.
+enum InsightContentType: String, Codable, CaseIterable {
+    case software         // architecture docs, code reviews, ADRs, project specs
+    case educational      // course notes, lectures, textbook material, study guides
+    case philosophy       // arguments, thought experiments, ethical analysis, theology
+    case business         // strategy, operations, marketing, financial analysis
+    case history          // chronological events, biographical, civilisational analysis
+    case scientific       // research papers, experimental data, methodology, hypotheses
+    case fiction          // novels, short stories, scripts, plot/character analysis
+    case journal          // diary entries, personal reflection, daily logs, emails
+    case news             // current events, journalism, press releases, briefs
+    case legal            // contracts, regulations, case law, compliance
+    case recipe           // cooking, mixology, formulations, step-by-step procedures
+    case psychology       // therapy notes, behavior analysis, case studies, well-being
+    case general          // any mixed / unclear / catch-all source corpus
+
+    /// Human-friendly label used in UI badges and snapshot display.
+    var displayLabel: String {
+        switch self {
+        case .software:    return "Software / Technical"
+        case .educational: return "Educational / Course"
+        case .philosophy:  return "Philosophy"
+        case .business:    return "Business / Strategy"
+        case .history:     return "History"
+        case .scientific:  return "Scientific / Research"
+        case .fiction:     return "Fiction / Narrative"
+        case .journal:     return "Journal / Personal"
+        case .news:        return "News / Current Events"
+        case .legal:       return "Legal"
+        case .recipe:      return "Recipe / Procedure"
+        case .psychology:  return "Psychology"
+        case .general:     return "General"
+        }
+    }
+}
+
 /// Mutable streaming state for one section within the active insight node. Kept separate
 /// from `InsightSection` (immutable Codable model) so per-node UI state can mutate without
 /// touching the skeleton. `InsightSession` owns one map of these keyed by `section.id`.

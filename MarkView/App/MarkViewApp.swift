@@ -121,7 +121,55 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// MARK: - Process Entry Point
+//
+// The structural indexer runs out-of-process (re-exec of this same binary with
+// `--dde-index <folder>`) so heavy directory scanning never competes with the UI.
+// This entry point intercepts that flag BEFORE any SwiftUI / NSApplication setup;
+// for a normal launch it falls through to SwiftUI's synthesized `MarkViewApp.main()`.
 @main
+enum DDEAppEntry {
+    static func main() {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--dde-index"), i + 1 < args.count {
+            DDEIndexerRunner.run(folderPath: args[i + 1])  // never returns
+        }
+        MarkViewApp.main()
+    }
+}
+
+/// Headless structural-index runner for the `--dde-index` child process.
+/// Opens the workspace database, runs `StructuralIndexer.indexAll()`, and exits.
+/// `dispatchMain()` services the main queue so the indexer's `MainActor.run`
+/// DB-write hops execute (blocking the main thread with a semaphore would deadlock).
+enum DDEIndexerRunner {
+    private static func err(_ msg: String) {
+        FileHandle.standardError.write(Data("[mvindexer] \(msg)\n".utf8))
+    }
+
+    static func run(folderPath: String) -> Never {
+        let url = URL(fileURLWithPath: folderPath)
+        err("start \(folderPath)")
+        // SemanticDatabase is @MainActor-isolated; run the whole job on the main
+        // actor. dispatchMain() below services the main queue so this executes.
+        Task { @MainActor in
+            do {
+                let db = try SemanticDatabase(workspacePath: url)
+                try db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
+                let indexer = StructuralIndexer(db: db, rootURL: url)
+                indexer.progress = { msg in err(msg) }
+                await indexer.indexAll()
+                err("done")
+                exit(0)
+            } catch {
+                err("error: \(error)")
+                exit(1)
+            }
+        }
+        dispatchMain()  // never returns; main queue keeps servicing MainActor hops
+    }
+}
+
 struct MarkViewApp: App {
     @NSApplicationDelegateAdaptor(MarkViewAppDelegate.self) private var appDelegate
     @StateObject private var themeManager = ThemeManager()

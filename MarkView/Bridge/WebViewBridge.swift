@@ -137,6 +137,30 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             guard message.frameInfo.isMainFrame else { return }
             delegate?.bridgeRequestInsightUp(self)
             return
+        case "insightRequestRegenerate":
+            guard message.frameInfo.isMainFrame else { return }
+            delegate?.bridgeRequestInsightRegenerate(self)
+            return
+        case "insightRequestCustomDeepDive":
+            guard message.frameInfo.isMainFrame else { return }
+            if let dict = payload as? [String: Any], let topic = dict["topic"] as? String, !topic.isEmpty {
+                delegate?.bridgeRequestInsightCustomDeepDive(self, topic: topic)
+            }
+            return
+        case "insightRequestExploreAll":
+            guard message.frameInfo.isMainFrame else { return }
+            var depth = 1
+            if let dict = payload as? [String: Any], let d = dict["depth"] as? Int, d >= 1, d <= 3 {
+                depth = d
+            }
+            delegate?.bridgeRequestInsightExploreAll(self, depth: depth)
+            return
+        case "insightRequestRetrySection":
+            guard message.frameInfo.isMainFrame else { return }
+            if let dict = payload as? [String: Any], let secId = dict["sectionId"] as? String, !secId.isEmpty {
+                delegate?.bridgeRequestInsightRetrySection(self, sectionId: secId)
+            }
+            return
         case "jsError":
             // Diagnostic-only: route any JS-side window.onerror /
             // unhandledrejection to the diag log file so we can see what's
@@ -394,7 +418,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     /// grid for `skeleton` and switch to insight view. Parent owns the iframe;
     /// the bridge speaks only to the parent (not to the iframe).
     /// Calls `window.loadInsightSkeleton(<json>, '<sessionId>', '<nodeId>')`.
-    func loadInsightSkeleton(skeleton: InsightSkeleton, sessionId: String, nodeId: String, into webView: WKWebView) {
+    func loadInsightSkeleton(skeleton: InsightSkeleton, sessionId: String, nodeId: String, breadcrumbs: [(String, String)] = [], into webView: WKWebView) {
         let encoder = JSONEncoder()
         guard let jsonData = try? encoder.encode(skeleton),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
@@ -408,13 +432,22 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             Self.logInsightDiag("loadInsightSkeleton: failed to encode sessionId/nodeId")
             return
         }
+        // Encode breadcrumbs as JSON array [{nodeId, title}, ...]. Empty array
+        // means "use the skeleton title as a single root crumb" — that's the
+        // JS fallback. Pass breadcrumbs separately so the Codable InsightSkeleton
+        // schema (used for cache snapshots + tool_use validation) stays
+        // unchanged.
+        let breadcrumbObjs = breadcrumbs.map { ["nodeId": $0.0, "title": $0.1] }
+        let breadcrumbJSON: String
+        if let cdata = try? JSONSerialization.data(withJSONObject: breadcrumbObjs, options: []),
+           let cstr = String(data: cdata, encoding: .utf8) {
+            breadcrumbJSON = cstr
+        } else {
+            breadcrumbJSON = "[]"
+        }
         // `window.loadInsightSkeleton` is `async function` → returns a Promise.
-        // WKWebView's `evaluateJavaScript` cannot serialize a Promise back to
-        // Swift and reports "JavaScript execution returned a result of an
-        // unsupported type" (WKErrorDomain Code=5). The Promise body still
-        // executes; only the return value crosses the bridge. Wrapping with
-        // `void()` makes the eval return `undefined`, which IS supported.
-        let js = "void window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit))"
+        // void() wrapper avoids "unsupported type" error from evaluateJavaScript.
+        let js = "void window.loadInsightSkeleton(\(jsonString), \(sidLit), \(nidLit), \(breadcrumbJSON))"
         Self.logInsightDiag("eval: \(js.prefix(300))")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -620,4 +653,8 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didRequestInsightBreadcrumb sessionId: String, nodeId: String)
     func bridgeRequestInsightSave(_ bridge: WebViewBridge)
     func bridgeRequestInsightUp(_ bridge: WebViewBridge)
+    func bridgeRequestInsightRegenerate(_ bridge: WebViewBridge)
+    func bridgeRequestInsightCustomDeepDive(_ bridge: WebViewBridge, topic: String)
+    func bridgeRequestInsightExploreAll(_ bridge: WebViewBridge, depth: Int)
+    func bridgeRequestInsightRetrySection(_ bridge: WebViewBridge, sectionId: String)
 }

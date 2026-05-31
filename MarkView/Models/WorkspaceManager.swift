@@ -353,6 +353,11 @@ class WorkspaceManager: ObservableObject {
     @Published var graphRAG: GraphRAG?
     @Published var providerRouter: ProviderRouter?
     @Published var indexingProgress: String?
+    /// Progress of the out-of-process structural index, shown ONLY in the footer.
+    /// Separate from `indexingProgress` (which drives the file-tree spinner, the
+    /// auto-refresh gate and the module panel) so background indexing never blocks
+    /// the tree, the module explorer, or opening another folder.
+    @Published var structuralIndexProgress: String?
     @Published var analysisStage: String?
     @Published var analysisDetail: String?
     @Published var totalFilesInWorkspace: Int = 0
@@ -669,7 +674,7 @@ class WorkspaceManager: ObservableObject {
         if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
             while let url = enumerator.nextObject() as? URL {
                 guard url.pathExtension.lowercased() == "md" else { continue }
-                let docId = url.lastPathComponent
+                let docId = self.docId(for: url)
                 db.clearSymbols(forDocument: docId, kind: "heading")
                 db.clearSymbols(forDocument: docId, kind: "link")
                 db.clearSymbols(forDocument: docId, kind: "code_block")
@@ -737,6 +742,15 @@ class WorkspaceManager: ObservableObject {
         } else {
             openFile(url)
         }
+    }
+
+    /// Canonical document id for `url` in the current workspace — path relative to
+    /// the workspace root (folder root, or the parent dir for a single-file
+    /// workspace). Must be used by EVERY docId producer so same-named files in
+    /// different folders never collide. See `SemanticDatabase.documentId(for:root:)`.
+    func docId(for url: URL) -> String {
+        let root = rootNode?.url ?? url.deletingLastPathComponent()
+        return SemanticDatabase.documentId(for: url, root: root)
     }
 
     /// Open a file in a new tab or switch to existing tab
@@ -1066,7 +1080,7 @@ Each component needs a correct type and one-sentence description.
         var globalSeen = Set<String>()
 
         for (i, file) in files.enumerated() {
-            let docId = file.url.lastPathComponent
+            let docId = self.docId(for: file.url)
             indexingProgress = "Ollama: \(i+1)/\(files.count) — \(docId)"
 
             // Skip if already extracted
@@ -1140,9 +1154,12 @@ Each component needs a correct type and one-sentence description.
                 // Step 2 — await activeTask + parallel section tasks + any
                 // in-flight ZIP exporter Process (cooperative cancellation).
                 await session.cancel()
-                // Step 3 — best-effort cache cleanup; tolerates concurrent
-                // removal (T3's ENOENT swallow path).
-                try? session.cache.cleanup()
+                // Step 3 — DO NOT cleanup cache. The cache lives at
+                // `<workspace>/.markview-insight/` and persists across tab
+                // close so that re-opening the insight on the same folder
+                // reuses the cached HTML instead of re-running the LLM.
+                // (Previous behaviour deleted the cache here, which forced
+                // a full Phase 1 + Phase 2 regeneration on every reopen.)
                 // Step 4 — drop the OpenTab → release session reference. The
                 // captured `index` may be stale if other tabs were closed in
                 // the meantime (the await above can take real time when Phase 2
@@ -1615,6 +1632,49 @@ Each component needs a correct type and one-sentence description.
         Task { await session.navigateTo(nodeId: parentId) }
     }
 
+    /// User clicked the ⟳ Regenerate button — wipe the persistent snapshot
+    /// for this folder and re-run Phase 1+2 from scratch. Used when the LLM
+    /// output is unsatisfying or the source `.md` files have changed.
+    func didRequestInsightRegenerate() {
+        guard let session = activeInsightSession() else {
+            NSLog("[Insight] didRequestInsightRegenerate: no active insight session")
+            return
+        }
+        Task { await session.regenerateRoot() }
+    }
+
+    /// User typed a custom deep-dive topic into the iframe footer input and
+    /// clicked Explore. Creates a child node under the current node with the
+    /// topic as the focus, re-runs Phase 1+2 (no skeleton-driven match — uses
+    /// all source files since user wants a broader exploration).
+    func didRequestInsightCustomDeepDive(topic: String) {
+        guard let session = activeInsightSession() else {
+            NSLog("[Insight] didRequestInsightCustomDeepDive: no active insight session")
+            return
+        }
+        Task { await session.expandCustom(topic: topic) }
+    }
+
+    /// User clicked "🤿×N Explore all topics" — sequentially generate every
+    /// deepDiveTopic on the current node's skeleton.
+    func didRequestInsightExploreAll(depth: Int) {
+        guard let session = activeInsightSession() else {
+            NSLog("[Insight] didRequestInsightExploreAll: no active insight session")
+            return
+        }
+        Task { await session.expandAllTopicsOnCurrentNode(depth: depth) }
+    }
+
+    /// User clicked "↻ Retry this section" inside a failed-section placeholder.
+    /// Re-runs Phase 2 stream for ONE section on the current node.
+    func didRequestInsightRetrySection(sectionId: String) {
+        guard let session = activeInsightSession() else {
+            NSLog("[Insight] didRequestInsightRetrySection: no active insight session")
+            return
+        }
+        Task { await session.retrySection(sectionId: sectionId) }
+    }
+
     /// Resolve the active tab's `InsightSession` (if the active tab is `.insight`).
     /// V2 payloads omit `sessionId` for actions that target the currently-viewed
     /// session; this helper centralises the active-tab lookup.
@@ -1693,6 +1753,30 @@ Each component needs a correct type and one-sentence description.
         // does not need to re-touch session state.
         let rootNodeId = session.nodes.values.first { $0.parentId == nil }?.id
         let cache = session.cache
+
+        // ALWAYS rewrite every node's HTML from the current in-memory state
+        // using the latest buildHTMLTemplate code. Otherwise the export
+        // would use whatever HTML happened to be in cache from older
+        // generations — missing recent CSS additions, bootstrap, etc. This
+        // also picks up retried-section content that wasn't in the cache yet.
+        for (id, node) in session.nodes {
+            guard let skel = node.skeleton else { continue }
+            // Build breadcrumbs for this node.
+            var crumbs: [(nodeId: String, title: String)] = []
+            var cursor: InsightNode? = node
+            while let n = cursor {
+                crumbs.insert((n.id.uuidString, n.title), at: 0)
+                cursor = n.parentId.flatMap { session.nodes[$0] }
+            }
+            let html = InsightSession.buildHTMLTemplate(
+                skeleton: skel,
+                sectionStates: node.sectionStates,
+                breadcrumbs: crumbs,
+                libRefMode: .exportRelative,
+                cache: cache
+            )
+            try? cache.writeNode(nodeId: id, html: html)
+        }
 
         Task { @MainActor in
             do {
@@ -2031,7 +2115,7 @@ Each component needs a correct type and one-sentence description.
 
     private func reindexFile(fileURL: URL, content: String) {
         guard let db = semanticDatabase else { return }
-        let docId = fileURL.lastPathComponent
+        let docId = self.docId(for: fileURL)
 
         // Compute new hash
         var h: UInt32 = 0x811c9dc5
@@ -2042,11 +2126,11 @@ Each component needs a correct type and one-sentence description.
 
         // Update hash
         try? db.upsertDocument(id: docId, projectId: fileURL.deletingPathExtension().lastPathComponent,
-                               filePath: fileURL.path, fileName: docId, fileExt: "md",
+                               filePath: fileURL.path, fileName: fileURL.lastPathComponent, fileExt: "md",
                                contentHash: newHash)
 
         // Re-index FTS
-        db.indexDocumentFTS(documentId: docId, title: docId.replacingOccurrences(of: ".md", with: ""), content: content)
+        db.indexDocumentFTS(documentId: docId, title: fileURL.deletingPathExtension().lastPathComponent, content: content)
 
         // Re-parse headings
         let modId = "mod_single_file"
@@ -2292,7 +2376,7 @@ Each component needs a correct type and one-sentence description.
 
         // Persist to SQLite
         if let db = semanticDatabase {
-            let docId = tab.url.lastPathComponent
+            let docId = self.docId(for: tab.url)
             for block in delta.added + delta.changed {
                 try? db.upsertBlock(block, documentId: docId)
             }
@@ -2309,23 +2393,71 @@ Each component needs a correct type and one-sentence description.
 
     /// V1: Deterministic structural indexing — instant, no LLM
     /// Then V1.5: Haiku-based content module extraction (cheap, fast)
+    /// Live structural-index child processes — retained PROCESS-WIDE (static) until
+    /// they exit so their `terminationHandler` always fires, independent of which
+    /// `WorkspaceManager` instance (windows create several) spawned them. A `Process`
+    /// with no strong reference is released when the spawning scope returns and its
+    /// handler then never runs.
+    private static var runningIndexers: [Process] = []
+
+    /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
+    /// `--dde-index <folder>`) so the directory scan never competes with the UI.
+    /// The child writes modules/documents/symbols/FTS straight to the shared SQLite
+    /// DB (WAL + busy_timeout); on exit the app reloads cached results from disk.
     private func runStructuralIndex(at url: URL) {
-        guard let db = semanticDatabase else { return }
-        let provider = incrementalCompiler?.orchestrator.providerClient
-        let indexer = StructuralIndexer(db: db, rootURL: url, providerClient: provider)
-        indexer.progress = { msg in
-            NSLog("[DDE] Index: %@", msg)
+        guard let exePath = Bundle.main.executablePath else {
+            Self.debugLog("runStructuralIndex: no executablePath")
+            return
         }
 
-        // Run indexing silently in background — no UI progress indicator
-        Task {
-            await indexer.indexAll()
-            NSLog("[DDE] Structural index complete")
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: exePath)
+        proc.arguments = ["--dde-index", url.path]
+        proc.standardOutput = FileHandle.nullDevice
 
-            if false && provider?.hasAPIKey == true {
-                await indexer.extractContentModules()
-                NSLog("[DDE] Content module extraction complete")
+        // Stream the child's stderr live so its progress shows in the footer.
+        // Draining the pipe also prevents the child blocking on a full buffer.
+        let pipe = Pipe()
+        proc.standardError = pipe
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
+            let data = fh.availableData
+            guard !data.isEmpty else { fh.readabilityHandler = nil; return }
+            guard let chunk = String(data: data, encoding: .utf8) else { return }
+            for raw in chunk.split(separator: "\n") {
+                let line = String(raw)
+                guard let r = line.range(of: "[mvindexer] ") else { continue }
+                let msg = String(line[r.upperBound...])
+                // The child emits bare "N/M" progress ticks; show them as a count.
+                guard msg.range(of: #"^\d+/\d+$"#, options: .regularExpression) != nil else { continue }
+                Task { @MainActor in self?.structuralIndexProgress = "Indexing \(msg) files" }
             }
+        }
+
+        proc.terminationHandler = { [weak self] p in
+            // terminationHandler runs off the main actor → log via a direct file
+            // write (debugLog is @MainActor) so we can confirm the handler fired
+            // even before hopping back to the main actor for the UI refresh.
+            let line = "\(ISO8601DateFormatter().string(from: Date())) structural index process exited code=\(p.terminationStatus)\n"
+            if let h = FileHandle(forWritingAtPath: NSHomeDirectory() + "/markview_debug.log") {
+                h.seekToEndOfFile(); h.write(Data(line.utf8)); h.closeFile()
+            }
+            Task { @MainActor in
+                WorkspaceManager.runningIndexers.removeAll { $0 === p }
+                guard let self = self else { return }
+                self.structuralIndexProgress = nil  // hide footer progress
+                self.loadCachedResults()
+                self.refreshSemanticViews()
+            }
+        }
+
+        do {
+            structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
+            try proc.run()
+            Self.runningIndexers.append(proc)  // retain until terminationHandler fires
+            Self.debugLog("structural index process launched pid=\(proc.processIdentifier)")
+        } catch {
+            structuralIndexProgress = nil
+            Self.debugLog("structural index process FAILED to launch: \(error)")
         }
     }
 
@@ -2360,7 +2492,8 @@ Each component needs a correct type and one-sentence description.
 
             for fileURL in mdFiles {
                 guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-                let docId = fileURL.lastPathComponent
+                // Detached context (off MainActor) → use the static helper directly.
+                let docId = SemanticDatabase.documentId(for: fileURL, root: folderURL)
                 var hash: UInt32 = 0x811c9dc5
                 for byte in content.utf8 { hash ^= UInt32(byte); hash = hash &* 0x01000193 }
                 let contentHash = String(hash, radix: 16)

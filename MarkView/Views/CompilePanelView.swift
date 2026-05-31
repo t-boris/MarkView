@@ -205,7 +205,7 @@ struct CompilePanelView: View {
         let engine = CompileEngine(database: compiler.database, orchestrator: compiler.orchestrator)
         self.compileEngine = engine
         Task {
-            await engine.compile(profileId: selectedProfileId, blocks: tab.blocks, documentId: tab.url.lastPathComponent)
+            await engine.compile(profileId: selectedProfileId, blocks: tab.blocks, documentId: workspaceManager.docId(for: tab.url))
         }
     }
 

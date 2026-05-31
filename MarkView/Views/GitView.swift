@@ -138,7 +138,7 @@ struct GitView: View {
             // Filename (clickable for diff)
             Button(action: {
                 selectedFile = file.file
-                diffText = git.diff(file: file.file)
+                Task { diffText = await git.diff(file: file.file) }
             }) {
                 Text(file.file).font(.system(size: 10)).foregroundColor(VSDark.text).lineLimit(1)
             }.buttonStyle(.plain)

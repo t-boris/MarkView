@@ -366,11 +366,13 @@ struct EditorView: NSViewRepresentable {
                     }
                     self.lastForwardedSectionLength.removeAll()
                     let nodeId = session.currentNode()?.id.uuidString ?? ""
-                    WebViewBridge.logInsightDiag("\\$skeleton SINK calling bridge.loadInsightSkeleton sid=\(session.id.uuidString.prefix(8)) nid=\(nodeId.prefix(8))")
+                    let crumbs = session.breadcrumbs().map { ($0.id.uuidString, $0.title) }
+                    WebViewBridge.logInsightDiag("\\$skeleton SINK calling bridge.loadInsightSkeleton sid=\(session.id.uuidString.prefix(8)) nid=\(nodeId.prefix(8)) crumbs=\(crumbs.count)")
                     self.bridge.loadInsightSkeleton(
                         skeleton: skeleton,
                         sessionId: session.id.uuidString,
                         nodeId: nodeId,
+                        breadcrumbs: crumbs,
                         into: webView
                     )
                 }
@@ -385,8 +387,12 @@ struct EditorView: NSViewRepresentable {
             // Shrink-detection (retry path may replace `buffer` with a shorter retry
             // value): if `state.buffer.count < lastLen` reset cursor to 0 and forward
             // the whole new buffer.
+            // No dropFirst() — at subscribe time the @Published value may
+            // already contain restored sectionStates (snapshot path) whose
+            // buffers must be flushed to the iframe immediately. The empty
+            // initial dict is filtered inside the sink (loop over empty
+            // dict is a no-op anyway).
             session.$currentNodeSections
-                .dropFirst()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak session, weak webView] sections in
                     guard let self = self,
@@ -395,6 +401,30 @@ struct EditorView: NSViewRepresentable {
                     if sections.isEmpty { return }
                     let sid = session.id.uuidString
                     for (sectionId, state) in sections {
+                        // FAILED sections with empty buffer → replace skeleton-
+                        // loaders with an error placeholder + retry button.
+                        // We use the existing updateInsightSection chunk path
+                        // so the iframe's flush mechanism picks it up.
+                        if state.status == .failed && state.buffer.isEmpty {
+                            // Only send once per failed section.
+                            if self.lastForwardedSectionLength[sectionId, default: 0] >= 1 { continue }
+                            let escapedId = sectionId.replacingOccurrences(of: "\"", with: "&quot;")
+                            let placeholder = """
+                            <div style="padding:14px 16px;border-left:4px solid #ef4444;background:#fef2f2;border-radius:4px;font-size:13px;">
+                                <strong>⚠️ Section failed to generate</strong>
+                                <p style="margin:6px 0 8px;color:#7f1d1d;">The LLM call for this section failed (likely transient network/TLS error).</p>
+                                <button data-retry-section="\(escapedId)" style="background:#ef4444;color:#fff;border:none;border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;">↻ Retry this section</button>
+                            </div>
+                            """
+                            self.lastForwardedSectionLength[sectionId] = 1
+                            self.bridge.updateInsightSection(
+                                sessionId: sid,
+                                sectionId: sectionId,
+                                htmlChunk: placeholder,
+                                into: webView
+                            )
+                            continue
+                        }
                         let bufferLen = state.buffer.count
                         var lastLen = self.lastForwardedSectionLength[sectionId, default: 0]
                         if bufferLen < lastLen {
@@ -468,6 +498,11 @@ struct EditorView: NSViewRepresentable {
             if lower.contains("phase 1") { return "phase-1" }
             if lower.contains("phase 2") { return "phase-2" }
             if lower.hasPrefix("ready") { return "ready" }
+            // Final/restored states — also drop the iframe "Initializing..."
+            // banner.
+            if lower.contains("complete") || lower.contains("restored from cache") || lower.contains("loaded from cache") {
+                return "ready"
+            }
             return ""
         }
 
@@ -741,6 +776,30 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridgeRequestInsightUp(_ bridge: WebViewBridge) {
         Task { @MainActor in
             self.parent.workspaceManager.didRequestInsightUp()
+        }
+    }
+
+    func bridgeRequestInsightRegenerate(_ bridge: WebViewBridge) {
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightRegenerate()
+        }
+    }
+
+    func bridgeRequestInsightCustomDeepDive(_ bridge: WebViewBridge, topic: String) {
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightCustomDeepDive(topic: topic)
+        }
+    }
+
+    func bridgeRequestInsightExploreAll(_ bridge: WebViewBridge, depth: Int) {
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightExploreAll(depth: depth)
+        }
+    }
+
+    func bridgeRequestInsightRetrySection(_ bridge: WebViewBridge, sectionId: String) {
+        Task { @MainActor in
+            self.parent.workspaceManager.didRequestInsightRetrySection(sectionId: sectionId)
         }
     }
 }

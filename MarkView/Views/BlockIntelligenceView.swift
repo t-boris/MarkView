@@ -91,7 +91,8 @@ struct BlockIntelligenceView: View {
 
     private func submitJob(_ type: AIJobType) {
         guard let compiler = workspaceManager.incrementalCompiler else { return }
-        let docId = workspaceManager.openTabs[safe: workspaceManager.activeTabIndex]?.url.lastPathComponent ?? ""
+        let activeURL = workspaceManager.openTabs[safe: workspaceManager.activeTabIndex]?.url
+        let docId = activeURL.map { workspaceManager.docId(for: $0) } ?? ""
         compiler.orchestrator.submitExtraction(
             block: block,
             documentId: docId,

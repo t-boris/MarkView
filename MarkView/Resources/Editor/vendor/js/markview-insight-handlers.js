@@ -1,13 +1,27 @@
         function stripCDNTags(html) {
             if (typeof html !== 'string') return '';
             let out = html;
-            // Match <script ... src="https://..." ...> ... </script> (or self-closing variants).
-            out = out.replace(/<script\b[^>]*?\bsrc\s*=\s*(["'])(\s*(?:https?:|\/\/)[^"'>\s]*)\1[^>]*>\s*(?:<\/script>)?/gi, function(_, _q, url) {
-                return '<!-- script src stripped: ' + String(url).replace(/--/g, '- -') + ' -->';
-            });
-            // Match <link ... rel="prefetch|preconnect|dns-prefetch" ...>.
+            // Strip markdown code-fence wrapper if LLM emitted one despite
+            // being told not to: opening ```html / ```HTML / ``` at the very
+            // start of a section, and closing ``` at the very end.
+            out = out.replace(/^\s*```(?:html|HTML)?\s*\n?/, '');
+            out = out.replace(/\n?```\s*$/, '');
+            // Also handle mid-stream chunks where the fence sits on its own.
+            out = out.replace(/^\s*```(?:html|HTML)?\s*$/gm, '');
+            // Strip ALL <script>...</script> blocks (LLM should never emit
+            // executable script — the iframe loads vendored libs itself).
+            // Required because allow-same-origin removes the null-origin XSS
+            // mitigation; we replace it with a content-side strip.
+            out = out.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '<!-- script stripped -->');
+            // Strip self-closing or src-only script tags too.
+            out = out.replace(/<script\b[^>]*\/?>/gi, '<!-- script tag stripped -->');
+            // Strip on*= event-handler attributes (onclick, onload, onerror, …).
+            // Match unquoted, single-quoted, double-quoted forms.
+            out = out.replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' ');
+            // Strip javascript: URLs in href/src.
+            out = out.replace(/\b(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1="#"');
+            // Strip <link rel=prefetch|preconnect|dns-prefetch (network leak).
             out = out.replace(/<link\b[^>]*?\brel\s*=\s*["'](?:prefetch|preconnect|dns-prefetch)["'][^>]*>/gi, function(match) {
-                // Extract href if present for the comment.
                 const hrefMatch = match.match(/\bhref\s*=\s*["']([^"']*)["']/i);
                 const href = hrefMatch ? hrefMatch[1] : '(no href)';
                 return '<!-- link prefetch/preconnect stripped: ' + String(href).replace(/--/g, '- -') + ' -->';
@@ -22,7 +36,7 @@
         // window.loadInsightSkeleton(skeletonOrJSON, sessionId, nodeId)
         // Builds iframe srcdoc, materializes only required libs lazily, switches
         // mode, starts the 10s readiness timer.
-        window.loadInsightSkeleton = async function(skeletonOrJSON, sessionId, nodeId) {
+        window.loadInsightSkeleton = async function(skeletonOrJSON, sessionId, nodeId, breadcrumbsArg) {
             let skeleton = skeletonOrJSON;
             if (typeof skeleton === 'string') {
                 try { skeleton = JSON.parse(skeleton); }
@@ -38,6 +52,24 @@
 
             const sid = sessionId != null ? String(sessionId) : null;
             const nid = nodeId != null ? String(nodeId) : null;
+            // breadcrumbsArg is the explicit chain from Swift: [{nodeId, title}, ...].
+            // Stash on skeleton so renderInsightBreadcrumbs (called below) picks it up.
+            if (Array.isArray(breadcrumbsArg) && breadcrumbsArg.length > 0) {
+                skeleton.breadcrumbs = breadcrumbsArg;
+            }
+
+            // SYNCHRONOUS state pre-init — must happen BEFORE any await so
+            // that updateInsightSection chunks landing during loadInsightSkeleton's
+            // async work (lib fetch, srcdoc build) see the correct sessionId
+            // and a fresh pendingChunks Map to land in.
+            try {
+                sendToSwift('jsError', { where: 'parent-loadInsightSkeleton-syncInit', message: 'sid=' + sid + ' previous_sid=' + state.insightSessionId + ' previous_pending_size=' + (state.insightPendingChunks ? state.insightPendingChunks.size : 'NULL'), source: '', lineno: 0, colno: 0, stack: '' });
+            } catch (_) {}
+            state.insightSessionId = sid;
+            state.insightCurrentNodeId = nid;
+            state.insightSkeleton = skeleton;
+            state.insightIframeReady = false;
+            state.insightPendingChunks = new Map();
 
             // Compute required libs and diff against existing.
             const newLibs = computeRequiredLibs(skeleton);
@@ -61,13 +93,13 @@
                 katexCSSInline = await ensureKatexCSSInline();
             }
 
-            // Update state.
-            state.insightSessionId = sid;
-            state.insightCurrentNodeId = nid;
-            state.insightSkeleton = skeleton;
+            // Note: state.insightSessionId / Skeleton / IframeReady /
+            // PendingChunks were already initialised SYNCHRONOUSLY at the top
+            // of this function (before any await). Resetting them here would
+            // wipe the pendingChunks Map containing chunks streamed in during
+            // the await — exactly the "restored cache shows skeleton-loaders
+            // forever" bug. We update only the lib-dependent field.
             state.insightSectionLibsNeeded = newLibs;
-            state.insightIframeReady = false;
-            state.insightPendingChunks = new Map();
 
             // Switch to insight view & render breadcrumbs.
             switchToInsightView();
@@ -87,8 +119,25 @@
                 console.warn('[insight] iframe element missing');
                 return;
             }
-            state.insightIframe.setAttribute('sandbox', 'allow-scripts');
+            // sandbox: allow-scripts AND allow-same-origin. The latter is
+            // required so vendored libs (mermaid, Chart.js, KaTeX, Prism)
+            // load via blob:/data: URLs created in the parent — without
+            // allow-same-origin the iframe is null-origin and WebKit blocks
+            // those cross-origin script fetches, leaving libs undefined and
+            // diagrams un-rendered. allow-same-origin re-enables that path
+            // but trades away the "iframe runs in unique origin" XSS
+            // mitigation. We compensate by stripping ALL <script>…</script>
+            // and on*= attributes from LLM output via stripCDNTags before
+            // the chunk reaches the iframe.
+            state.insightIframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
             state.insightIframe.srcdoc = srcdoc;
+            try {
+                sendToSwift('jsError', {
+                    where: 'parent-loadInsightSkeleton-srcdocSet',
+                    message: 'srcdocLen=' + srcdoc.length + ' iframeInDOM=' + document.body.contains(state.insightIframe) + ' iframeDisplay=' + (state.insightIframe.style.display || 'default') + ' containerVisible=' + (DOM.insightContainer && DOM.insightContainer.classList.contains('visible')),
+                    source: '', lineno: 0, colno: 0, stack: ''
+                });
+            } catch (_) {}
             // Hide the loading overlay; iframe content takes over from here.
             if (typeof hideInsightLoadingOverlay === 'function') hideInsightLoadingOverlay();
             startIframeLoadTimer(sid);
@@ -100,7 +149,13 @@
         window.updateInsightSection = function(sessionId, sectionId, htmlChunk) {
             const sid = sessionId != null ? String(sessionId) : null;
             if (sid !== state.insightSessionId) {
-                console.warn('[insight] updateInsightSection: stale session', sid);
+                try {
+                    sendToSwift('jsError', {
+                        where: 'parent-updateInsightSection-stale',
+                        message: 'incoming sid=' + sid + ' state.sid=' + state.insightSessionId + ' secId=' + sectionId,
+                        source: '', lineno: 0, colno: 0, stack: ''
+                    });
+                } catch (_) {}
                 return;
             }
             const secId = String(sectionId || '');
@@ -115,8 +170,14 @@
                 // Buffer until iframe ready.
                 if (!state.insightPendingChunks.has(secId)) state.insightPendingChunks.set(secId, []);
                 state.insightPendingChunks.get(secId).push(stripped);
+                try {
+                    sendToSwift('jsError', { where: 'parent-updateInsightSection-buffered', message: 'secId=' + secId + ' size_after=' + state.insightPendingChunks.size + ' iframeReady=' + state.insightIframeReady, source: '', lineno: 0, colno: 0, stack: '' });
+                } catch (_) {}
                 return;
             }
+            try {
+                sendToSwift('jsError', { where: 'parent-updateInsightSection-direct', message: 'secId=' + secId + ' iframeReady=' + state.insightIframeReady, source: '', lineno: 0, colno: 0, stack: '' });
+            } catch (_) {}
             try {
                 state.insightIframe.contentWindow.postMessage({
                     type: 'updateInsightSection',
@@ -133,6 +194,11 @@
             // section is fully streamed turns LLM-emitted code blocks into
             // rendered diagrams/charts. Without this, diagrams stay as raw
             // <pre> text.
+            // Debounce per-section initSectionLib. Short timeout so navigation
+            // (Up / breadcrumb / re-opened deep-dive) feels instant — chunks
+            // for a cached node arrive in a tight burst, and 100 ms is long
+            // enough that mid-stream chunks during real Phase 2 still coalesce
+            // into a single flush per section.
             if (!state.insightSectionInitTimers) state.insightSectionInitTimers = new Map();
             const prevTimer = state.insightSectionInitTimers.get(secId);
             if (prevTimer) clearTimeout(prevTimer);
@@ -145,7 +211,7 @@
                         payload: { sectionId: secId },
                     }, '*');
                 } catch (e) { /* iframe gone — ignore */ }
-            }, 500);
+            }, 100);
             state.insightSectionInitTimers.set(secId, t);
         };
 
@@ -188,11 +254,25 @@
             if (sid !== null && state.insightSessionId === null) {
                 state.insightSessionId = sid;
             }
-            // Show prominent in-tab overlay during Phase 1 (before iframe built).
-            // Hidden once loadInsightSkeleton sets the iframe srcdoc.
-            if (!state.insightIframeReady && typeof showInsightLoadingOverlay === 'function') {
+            // Show prominent in-tab overlay ONLY during the actual Phase 1 LLM
+            // call, when no skeleton/iframe content exists yet to display.
+            // Match strictly "analyzing N files" (the start-of-Phase-1 message)
+            // — NOT "Phase 1: built skeleton" (which arrives just before
+            // loadInsightSkeleton paints the iframe and would re-cover it),
+            // NOT Phase 2 progress, and NOT the final "Ready" / "Complete"
+            // states. hideInsightLoadingOverlay() in loadInsightSkeleton then
+            // tears the overlay down once srcdoc is set.
+            // Show overlay during ANY active "Phase 1" generation — initial,
+            // deep-dive expansion, and regenerate. Matches "analyzing N files"
+            // (initial / regen-root) AND "analyzing files" (regen-node).
+            const isPhase1Active = typeof message === 'string' && /\bphase 1\b.*\banalyz/i.test(message);
+            if (isPhase1Active && typeof showInsightLoadingOverlay === 'function') {
                 showInsightLoadingOverlay(message);
             }
+            // Remember last status so insightIframeReady handler can re-send
+            // it to iframe (statuses sent before iframe load are otherwise
+            // lost → iframe banner stuck on "Initializing…").
+            state.insightLastStatus = { message: message, phase: phase };
             setStatusBar(message, phase, false);
             // Forward to iframe progress banner.
             try {
@@ -229,6 +309,10 @@
             'insightBreadcrumbClicked',
             'insightRequestSave',
             'insightRequestUp',
+            'insightRequestRegenerate',
+            'insightRequestCustomDeepDive',
+            'insightRequestExploreAll',
+            'insightRequestRetrySection',
             'insightDebug', // diagnostic — forwarded to Swift jsError, no business behavior
         ]);
         const UUID_REGEX = /^[0-9A-F-]{36}$/i;
@@ -285,8 +369,32 @@
                 case 'insightIframeReady': {
                     state.insightIframeReady = true;
                     clearIframeLoadTimer();
-                    // Flush any chunks that arrived before iframe was ready.
+                    // Re-send the last status to iframe so the "Initializing…"
+                    // banner reflects the current state (e.g. on cache restore
+                    // the status fires BEFORE iframe loads → iframe misses it
+                    // → banner stays at "Initializing…" forever).
+                    try {
+                        if (state.insightLastStatus && state.insightIframe && state.insightIframe.contentWindow) {
+                            state.insightIframe.contentWindow.postMessage({
+                                type: 'updateInsightProgress',
+                                payload: { message: state.insightLastStatus.message || '', phase: state.insightLastStatus.phase || '' },
+                            }, '*');
+                        }
+                    } catch (_) {}
+                    try {
+                        sendToSwift('jsError', {
+                            where: 'parent-iframeReady-flush', message: 'pendingChunks.size=' + (state.insightPendingChunks ? state.insightPendingChunks.size : 'NULL'),
+                            source: '', lineno: 0, colno: 0, stack: ''
+                        });
+                    } catch (_) {}
+                    // Flush any chunks that arrived before iframe was ready,
+                    // then trigger initSectionLib for EACH section so the
+                    // iframe actually flushes its buffer to the DOM and
+                    // initialises mermaid/Chart/Prism. Without this, restored
+                    // (cached) sessions accumulate chunks but the section
+                    // bodies stay as skeleton-loaders forever.
                     if (state.insightPendingChunks.size > 0) {
+                        const flushedSectionIds = new Set();
                         for (const [secId, chunks] of state.insightPendingChunks.entries()) {
                             for (const chunk of chunks) {
                                 try {
@@ -296,8 +404,18 @@
                                     }, '*');
                                 } catch (e) { /* drop */ }
                             }
+                            flushedSectionIds.add(secId);
                         }
                         state.insightPendingChunks.clear();
+                        // Trigger lib init for every flushed section.
+                        for (const secId of flushedSectionIds) {
+                            try {
+                                state.insightIframe.contentWindow.postMessage({
+                                    type: 'initSectionLib',
+                                    payload: { sectionId: secId },
+                                }, '*');
+                            } catch (e) { /* drop */ }
+                        }
                     }
                     sendToSwift('insightIframeReady', {
                         sessionId: state.insightSessionId,
@@ -349,6 +467,28 @@
                 }
                 case 'insightRequestUp': {
                     sendToSwift('insightRequestUp', { sessionId: state.insightSessionId });
+                    return;
+                }
+                case 'insightRequestRegenerate': {
+                    sendToSwift('insightRequestRegenerate', { sessionId: state.insightSessionId });
+                    return;
+                }
+                case 'insightRequestCustomDeepDive': {
+                    var topic = (payload && typeof payload.topic === 'string') ? payload.topic.trim() : '';
+                    if (!topic) return;
+                    sendToSwift('insightRequestCustomDeepDive', { sessionId: state.insightSessionId, topic: topic });
+                    return;
+                }
+                case 'insightRequestExploreAll': {
+                    var d = (payload && typeof payload.depth === 'number') ? payload.depth : 1;
+                    if (!(d >= 1 && d <= 3)) d = 1;
+                    sendToSwift('insightRequestExploreAll', { sessionId: state.insightSessionId, depth: d });
+                    return;
+                }
+                case 'insightRequestRetrySection': {
+                    var secId = (payload && typeof payload.sectionId === 'string') ? payload.sectionId : '';
+                    if (!secId) return;
+                    sendToSwift('insightRequestRetrySection', { sessionId: state.insightSessionId, sectionId: secId });
                     return;
                 }
                 case 'insightDebug': {

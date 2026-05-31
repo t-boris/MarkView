@@ -80,6 +80,38 @@
             if (!bar) return;
             while (bar.firstChild) bar.removeChild(bar.firstChild);
             const arr = Array.isArray(crumbs) ? crumbs : [];
+
+            // Up button — disabled at root, clickable otherwise. Always visible
+            // so the user has an obvious back affordance regardless of whether
+            // they noticed the breadcrumb chain.
+            const upBtn = document.createElement('button');
+            upBtn.className = 'insight-up-btn';
+            upBtn.title = arr.length > 1 ? 'Back to parent' : 'Already at root';
+            upBtn.textContent = '↑ Up';
+            upBtn.disabled = arr.length <= 1;
+            if (arr.length > 1) {
+                upBtn.addEventListener('click', function() {
+                    sendToSwift('insightRequestUp', { sessionId: state.insightSessionId });
+                });
+            }
+            bar.appendChild(upBtn);
+
+            // Regenerate button — wipes persistent snapshot for this folder
+            // and re-runs Phase 1 + Phase 2. Confirmation prompt because
+            // re-running costs real LLM tokens (~60-90 s and a few cents).
+            const regenBtn = document.createElement('button');
+            regenBtn.className = 'insight-up-btn';
+            regenBtn.title = 'Discard cached insight and regenerate from scratch (uses LLM tokens)';
+            regenBtn.textContent = '⟳ Regenerate';
+            regenBtn.addEventListener('click', function() {
+                // No window.confirm() — WKWebView silently returns false
+                // for JS confirm dialogs unless a WKUIDelegate is wired.
+                // The button label + tooltip already warn about LLM cost;
+                // user clicked intentionally.
+                sendToSwift('insightRequestRegenerate', { sessionId: state.insightSessionId });
+            });
+            bar.appendChild(regenBtn);
+
             arr.forEach(function(crumb, idx) {
                 const isLast = idx === arr.length - 1;
                 const item = document.createElement('span');

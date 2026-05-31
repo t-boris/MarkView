@@ -75,10 +75,10 @@ class GitClient: ObservableObject {
         guard isGitRepo else { return }
 
         // Branch
-        branch = (run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Status — porcelain format: "XY filename" where X=index, Y=worktree
-        let statusOutput = run("git", "status", "--porcelain", in: dir) ?? ""
+        let statusOutput = await run("git", "status", "--porcelain", in: dir) ?? ""
         changedFiles = statusOutput.components(separatedBy: "\n").compactMap { line in
             guard line.count >= 3 else { return nil }
             let indexStatus = line[line.startIndex]       // X: staged status
@@ -96,7 +96,7 @@ class GitClient: ObservableObject {
         }
 
         // Log (last 20)
-        let logOutput = run("git", "log", "--oneline", "--format=%h|%s|%an|%ar", "-20", in: dir) ?? ""
+        let logOutput = await run("git", "log", "--oneline", "--format=%h|%s|%an|%ar", "-20", in: dir) ?? ""
         commitLog = logOutput.components(separatedBy: "\n").compactMap { line in
             let parts = line.components(separatedBy: "|")
             guard parts.count >= 4 else { return nil }
@@ -108,27 +108,24 @@ class GitClient: ObservableObject {
 
     func stageFile(_ file: String) {
         guard let dir = workingDirectory else { return }
-        _ = run("git", "add", file, in: dir)
-        Task { await refresh() }
+        Task { _ = await run("git", "add", file, in: dir); await refresh() }
     }
 
     func unstageFile(_ file: String) {
         guard let dir = workingDirectory else { return }
-        _ = run("git", "reset", "HEAD", file, in: dir)
-        Task { await refresh() }
+        Task { _ = await run("git", "reset", "HEAD", file, in: dir); await refresh() }
     }
 
     func stageAll() {
         guard let dir = workingDirectory else { return }
-        _ = run("git", "add", "-A", in: dir)
-        Task { await refresh() }
+        Task { _ = await run("git", "add", "-A", in: dir); await refresh() }
     }
 
     func commit(message: String) async -> Bool {
         guard let dir = workingDirectory, !message.isEmpty else { return false }
         isOperating = true
         lastError = nil
-        let result = run("git", "commit", "-m", message, in: dir)
+        let result = await run("git", "commit", "-m", message, in: dir)
         isOperating = false
         if let result = result, result.contains("nothing to commit") {
             lastError = "Nothing to commit"
@@ -142,7 +139,7 @@ class GitClient: ObservableObject {
         guard let dir = workingDirectory else { return false }
         isOperating = true
         lastError = nil
-        let result = runWithError("git", "push", in: dir)
+        let result = await runWithError("git", "push", in: dir)
         isOperating = false
         if let err = result.error, !err.isEmpty {
             if err.contains("rejected") || err.contains("error") {
@@ -158,7 +155,7 @@ class GitClient: ObservableObject {
         guard let dir = workingDirectory else { return false }
         isOperating = true
         lastError = nil
-        let result = runWithError("git", "pull", in: dir)
+        let result = await runWithError("git", "pull", in: dir)
         isOperating = false
         if let err = result.error, err.contains("error") {
             lastError = String(err.prefix(200))
@@ -168,58 +165,70 @@ class GitClient: ObservableObject {
         return true
     }
 
-    func diff(file: String) -> String {
+    func diff(file: String) async -> String {
         guard let dir = workingDirectory else { return "" }
-        return run("git", "diff", file, in: dir) ?? run("git", "diff", "--cached", file, in: dir) ?? ""
+        if let d = await run("git", "diff", file, in: dir), !d.isEmpty { return d }
+        return await run("git", "diff", "--cached", file, in: dir) ?? ""
     }
 
     func discardChanges(_ file: String) {
         guard let dir = workingDirectory else { return }
-        _ = run("git", "checkout", "--", file, in: dir)
-        Task { await refresh() }
+        Task { _ = await run("git", "checkout", "--", file, in: dir); await refresh() }
     }
 
     // MARK: - Init repo
 
     func initRepo() async {
         guard let dir = workingDirectory else { return }
-        _ = run("git", "init", in: dir)
+        _ = await run("git", "init", in: dir)
         await refresh()
     }
 
     // MARK: - Helpers
 
-    private func run(_ args: String..., in dir: URL) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = args
-        process.currentDirectoryURL = dir
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)
-        } catch { return nil }
+    // Runs git OFF the main thread. Reads the pipe to EOF BEFORE waitUntilExit so a
+    // large output (e.g. `git status` on a big repo) can't fill the 64KB pipe buffer
+    // and deadlock the process — which previously froze the whole app on the main thread.
+    nonisolated private func run(_ args: String..., in dir: URL) async -> String? {
+        let argv = args
+        return await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = argv
+            process.currentDirectoryURL = dir
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice  // ignored — avoids a 2nd pipe deadlock
+            do {
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()  // drains until git exits
+                process.waitUntilExit()
+                return String(data: data, encoding: .utf8)
+            } catch { return nil }
+        }.value
     }
 
-    private func runWithError(_ args: String..., in dir: URL) -> (output: String?, error: String?) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = args
-        process.currentDirectoryURL = dir
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-            let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-            return (out, err)
-        } catch { return (nil, error.localizedDescription) }
+    nonisolated private func runWithError(_ args: String..., in dir: URL) async -> (output: String?, error: String?) {
+        let argv = args
+        return await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = argv
+            process.currentDirectoryURL = dir
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            process.standardOutput = outPipe
+            process.standardError = errPipe
+            do {
+                try process.run()
+                // Drain stderr concurrently so neither pipe buffer can fill and deadlock.
+                let errHandle = errPipe.fileHandleForReading
+                let errFuture = Task.detached { errHandle.readDataToEndOfFile() }
+                let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+                let err = String(data: await errFuture.value, encoding: .utf8)
+                process.waitUntilExit()
+                return (out, err)
+            } catch { return (nil, error.localizedDescription) }
+        }.value
     }
 }

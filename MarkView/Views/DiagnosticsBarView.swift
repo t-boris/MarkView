@@ -20,6 +20,21 @@ struct DiagnosticsBarView: View {
                 .padding(.horizontal, 10)
             }
 
+            // Indexing progress (out-of-process structural index)
+            if let progress = workspaceManager.structuralIndexProgress {
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .scaleEffect(0.7)
+                    Text(progress)
+                        .font(.system(size: 10))
+                        .foregroundColor(VSDark.textDim)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .padding(.horizontal, 10)
+            }
+
             Spacer()
 
             // Center: just show token stats (no duplicate progress)

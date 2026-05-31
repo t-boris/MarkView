@@ -21,11 +21,53 @@ class PDFExporter {
         fileName: String = "document.pdf",
         bridge: WebViewBridge
     ) {
-        // Get the rendered HTML directly — no need to change the main view's layout
-        // since we render PDF in a separate off-screen WebView
-        webView.evaluateJavaScript("document.querySelector('.editor-rendered').innerHTML") { result, error in
-            guard let renderedHTML = result as? String, !renderedHTML.isEmpty else {
-                showError("No rendered content available.")
+        // Probe in priority order:
+        //   1. Insight iframe (if user is currently viewing an insight tab) —
+        //      grab the live iframe content (chrome stripped to just the
+        //      sections, no footer/breadcrumbs).
+        //   2. Markdown preview pane (`.editor-rendered`) for .file tabs.
+        //   3. Source-mode textarea raw markdown (then mark for re-render).
+        // Picks the FIRST non-empty match — guarantees the active tab's content
+        // is exported regardless of mode/tab kind.
+        let probeJS = """
+        (function() {
+            try {
+                var mode = (window.state && window.state.mode) ? String(window.state.mode) : '';
+                // Insight: read iframe body if iframe is loaded.
+                var ifr = document.getElementById('insight-iframe');
+                if (mode === 'insight' && ifr && ifr.contentDocument && ifr.contentDocument.body) {
+                    var clone = ifr.contentDocument.body.cloneNode(true);
+                    var footer = clone.querySelector('.iframe-footer'); if (footer) footer.remove();
+                    var banner = clone.querySelector('.insight-progress-banner'); if (banner) banner.remove();
+                    return JSON.stringify({ source: 'iframe', html: clone.innerHTML });
+                }
+                // Markdown preview.
+                var pv = document.querySelector('.editor-rendered');
+                if (pv && pv.innerHTML && pv.innerHTML.trim().length > 0) {
+                    return JSON.stringify({ source: 'preview', html: pv.innerHTML });
+                }
+                // Source mode — return raw markdown so the offscreen pipeline can
+                // render it (caller decides how to handle).
+                if (window.DOM && window.DOM.editor && window.DOM.editor.value) {
+                    return JSON.stringify({ source: 'source-raw', html: '<pre>' + String(window.DOM.editor.value).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>' });
+                }
+                return JSON.stringify({ source: 'empty', html: '' });
+            } catch (e) {
+                return JSON.stringify({ source: 'probe-error', html: '', err: String(e) });
+            }
+        })()
+        """
+        webView.evaluateJavaScript(probeJS) { result, _ in
+            var renderedHTML = ""
+            var sourceLabel = "(unknown)"
+            if let s = result as? String, let data = s.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                renderedHTML = (parsed["html"] as? String) ?? ""
+                sourceLabel = (parsed["source"] as? String) ?? "?"
+            }
+            NSLog("[PDFExport] using source=%@ length=%d", sourceLabel, renderedHTML.count)
+            guard !renderedHTML.isEmpty else {
+                showError("No rendered content for the active tab. If you just switched tabs, wait a moment for the preview to render and try again.")
                 return
             }
 

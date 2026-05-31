@@ -241,6 +241,11 @@ final class InsightSession: ObservableObject, Identifiable {
     /// (e.g. "Phase 1: building skeleton...", "Phase 2: 3/7 sections").
     @Published private(set) var statusMessage: String = ""
 
+    /// Detected content type for this session (Phase 0 classifier output).
+    /// Drives per-type skeleton + section prompt branches. Persisted in
+    /// snapshot so cache restore preserves the choice without reclassifying.
+    @Published private(set) var contentType: InsightContentType = .general
+
     /// Cached HTML for the current node, populated by `navigateTo` after a cache read
     /// hit. The bridge subscribes to forward as iframe srcdoc on the next frame.
     /// nil = no cached HTML (still streaming, or read miss).
@@ -349,8 +354,14 @@ final class InsightSession: ObservableObject, Identifiable {
             return
         }
 
-        // Build root node and register it.
+        // Build root node with a DETERMINISTIC UUID derived from the folder
+        // path so that closing and re-opening the insight on the same folder
+        // produces the same root nodeId — and the persistent cache hit works
+        // (otherwise every reopen would pick a fresh random UUID and the
+        // cached snapshot/HTML would never be findable).
+        let deterministicRootId = InsightCache.deterministicRootUUID(forFolderPath: folderURL.path)
         let root = InsightNode(
+            id: deterministicRootId,
             parentId: nil,
             level: 0,
             title: folderURL.lastPathComponent,
@@ -366,9 +377,206 @@ final class InsightSession: ObservableObject, Identifiable {
         cachedNodeHTML = nil
         lastError = nil
         lastErrorRetryable = true
-        statusMessage = "Phase 1: analyzing \(mdFiles.count) files..."
 
         let nodeId = root.id
+
+        // Try snapshot restore BEFORE kicking off the LLM pipeline. If a
+        // snapshot exists for this folder (deterministic root UUID), repopulate
+        // skeleton + sectionStates from disk and short-circuit Phase 1+2.
+        if tryRestoreRootFromSnapshot(rootId: nodeId) {
+            statusMessage = "✓ Restored from cache (use Regenerate to refresh)"
+            return
+        }
+
+        statusMessage = "Phase 0: classifying content type…"
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Phase 0: classify content type (~1-2s LLM call). Persists
+                // for the session — Phase 1 + Phase 2 prompts branch on it.
+                if let rag = self.graphRAG {
+                    let detected = await rag.classifyContent(folderURL: self.folderURL, mdFiles: self.mdFiles)
+                    self.contentType = detected
+                    self.statusMessage = "Phase 1: analyzing \(self.mdFiles.count) files (type: \(detected.displayLabel))…"
+                } else {
+                    self.statusMessage = "Phase 1: analyzing \(self.mdFiles.count) files…"
+                }
+                try Task.checkCancellation()
+                let skel = try await self.phase1Skeleton(for: nodeId)
+                try Task.checkCancellation()
+                try await self.phase2StreamSections(for: nodeId, skeleton: skel)
+                try Task.checkCancellation()
+                try self.writeFinalHTMLToCache(nodeId: nodeId)
+                self.writeSnapshotForRoot(nodeId: nodeId)
+            } catch {
+                self.handleStreamError(error, forNodeId: nodeId)
+            }
+            // Single-owner cleanup — clear the slot regardless of success/failure.
+            self.activeTask = nil
+        }
+    }
+
+    /// Retry one failed Phase-2 section on the current node. Resets just
+    /// that section's buffer + status, re-runs streamCompletion for it,
+    /// updates snapshot on success.
+    func retrySection(sectionId: String) async {
+        guard let curId = currentNodeId, let node = nodes[curId], let skel = node.skeleton else { return }
+        guard let section = skel.sections.first(where: { $0.id == sectionId }) else { return }
+        guard let rag = graphRAG else { return }
+        // Reset this section so the EditorView sink resends content (and
+        // the placeholder gets cleared).
+        var s = node.sectionStates[sectionId] ?? SectionState()
+        s.buffer = ""
+        s.status = .streaming
+        node.sectionStates[sectionId] = s
+        if currentNodeId == curId {
+            currentNodeSections = node.sectionStates
+            statusMessage = "Retrying section: \(section.title ?? section.id)…"
+        }
+        // Build the prompt for this single section.
+        let scopedFiles: [URL]
+        switch node.scope {
+        case .folderRoot: scopedFiles = mdFiles
+        case .topic(_, _, let files): scopedFiles = files.isEmpty ? mdFiles : files
+        }
+        let prompts = rag.buildSectionPrompt(section: section, allFiles: scopedFiles, folderURL: folderURL, contentType: contentType)
+        let nodeIdLocal = curId
+        do {
+            try await providerClient.streamCompletion(
+                systemPrompt: prompts.systemPrompt,
+                userMessage: prompts.userMessage,
+                model: "claude-sonnet-4-6",
+                maxTokens: 4096,
+                onDelta: { [weak self] chunk in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        self.appendSectionDelta(sectionId: sectionId, chunk: chunk, forNodeId: nodeIdLocal)
+                    }
+                }
+            )
+            await markSectionReady(sectionId: sectionId, forNodeId: nodeIdLocal)
+            // Refresh snapshot with new content for this section.
+            try? writeFinalHTMLToCache(nodeId: nodeIdLocal)
+            writeSnapshotForRoot(nodeId: nodeIdLocal)
+            if currentNodeId == nodeIdLocal {
+                statusMessage = "Section '\(section.title ?? section.id)' retried ✓"
+            }
+        } catch {
+            NSLog("[Insight] retrySection failed: %@", Self.sanitizeForLog(error.localizedDescription))
+            await markSectionFailed(sectionId: sectionId, forNodeId: nodeIdLocal)
+            if currentNodeId == nodeIdLocal {
+                lastError = "retry failed: \(error.localizedDescription)"
+                lastErrorRetryable = true
+            }
+        }
+    }
+
+    /// User clicked "🤿×N Explore all". Recursively iterates EVERY deepDiveTopic
+    /// on the current node's skeleton, depth `depth` (1 = just one level — the
+    /// current page's topics; 2 = current + each child's topics; 3 = three
+    /// levels). Sequential — one expand at a time, awaiting completion before
+    /// the next. Reuses existing children for already-expanded topics.
+    func expandAllTopicsOnCurrentNode(depth: Int = 1) async {
+        guard let start = currentNode() else {
+            lastError = "no current node to expand from"
+            lastErrorRetryable = false
+            return
+        }
+        let startId = start.id
+        let actualDepth = max(1, min(3, depth))
+        statusMessage = "Explore all (depth \(actualDepth)): starting…"
+        let total = await recursiveExpand(rootNodeId: startId, depth: actualDepth, doneCounter: 0, totalCounter: nil)
+        if currentNodeId != startId {
+            await navigateTo(nodeId: startId)
+        }
+        statusMessage = "Explore all: done (\(total) nodes generated/reused at depth \(actualDepth))"
+    }
+
+    /// Sequential recursive expansion. Returns total expand calls made.
+    /// `totalCounter` is the precomputed total topic count (if nil, computed
+    /// once at top level for status display).
+    private func recursiveExpand(rootNodeId: UUID, depth: Int, doneCounter: Int, totalCounter: Int?) async -> Int {
+        var done = doneCounter
+        guard depth >= 1, let node = nodes[rootNodeId], let skel = node.skeleton else { return done }
+        // Collect (sectionId, topicIndex, label) pairs.
+        var pairs: [(sectionId: String, topicIndex: Int, label: String)] = []
+        for section in skel.sections {
+            guard let topics = section.deepDiveTopics else { continue }
+            for (idx, topic) in topics.enumerated() {
+                pairs.append((section.id, idx, topic.label))
+            }
+        }
+        if pairs.isEmpty { return done }
+        // Compute total upfront only at top level (for accurate progress).
+        let total: Int
+        if let t = totalCounter { total = t } else { total = pairs.count } // approximate
+        for pair in pairs {
+            // Navigate to this expansion's PARENT before expanding (expand
+            // creates child of currentNode).
+            if currentNodeId != rootNodeId {
+                await navigateTo(nodeId: rootNodeId)
+            }
+            done += 1
+            statusMessage = "Explore all (\(done)/\(total ?? done)+ at depth \(depth)): \(pair.label)…"
+            await expand(sectionId: pair.sectionId, topicIndex: pair.topicIndex)
+            if let t = activeTask { _ = await t.value }
+            // After expand, currentNode is the new child. If depth>1, recurse.
+            if depth > 1, let childId = currentNodeId, childId != rootNodeId {
+                done = await recursiveExpand(rootNodeId: childId, depth: depth - 1, doneCounter: done, totalCounter: totalCounter)
+            }
+        }
+        return done
+    }
+
+    /// User-typed deep-dive on a custom topic (footer input). Creates a child
+    /// of the CURRENT node scoped to all source files, with the user's topic
+    /// as the label/hint. Same Phase 1+2 pipeline as `expand(...)`. Reuses
+    /// existing child if a previous custom dive used the same topic.
+    func expandCustom(topic: String) async {
+        guard let parent = currentNode() else {
+            lastError = "no current node to expand from"
+            lastErrorRetryable = false
+            return
+        }
+        let trimmed = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Reuse existing child for the same custom topic (label + hint match).
+        for childId in parent.children {
+            guard let existing = nodes[childId] else { continue }
+            if case .topic(let exLabel, let exHint, _) = existing.scope,
+               exLabel == trimmed, exHint == trimmed {
+                NSLog("[Insight] expandCustom: reusing existing child for topic '%@'", Self.sanitizeForLog(trimmed))
+                await navigateTo(nodeId: childId)
+                return
+            }
+        }
+
+        // Cancel any in-flight Task before mutating shared state.
+        activeTask?.cancel()
+        activeTask = nil
+
+        let child = InsightNode(
+            parentId: parent.id,
+            level: parent.level + 1,
+            title: trimmed,
+            scope: .topic(label: trimmed, hint: trimmed, files: [])  // empty files = use all
+        )
+        nodes[child.id] = child
+        parent.children.append(child.id)
+        currentNodeId = child.id
+        currentNodeSections = [:]
+        skeleton = nil
+        skeletonReady = false
+        allSectionsReady = false
+        cachedNodeHTML = nil
+        lastError = nil
+        lastErrorRetryable = true
+        statusMessage = "Phase 1: analyzing \(mdFiles.count) files for custom dive..."
+
+        enforceSessionMemoryCap()
+
+        let nodeId = child.id
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -377,11 +585,262 @@ final class InsightSession: ObservableObject, Identifiable {
                 try await self.phase2StreamSections(for: nodeId, skeleton: skel)
                 try Task.checkCancellation()
                 try self.writeFinalHTMLToCache(nodeId: nodeId)
+                self.writeSnapshotForRoot(nodeId: nodeId)
             } catch {
                 self.handleStreamError(error, forNodeId: nodeId)
             }
-            // Single-owner cleanup — clear the slot regardless of success/failure.
             self.activeTask = nil
+        }
+    }
+
+    /// Force regeneration: wipe snapshot, reset state, kick off fresh Phase 1+2.
+    /// Called from WorkspaceManager when user clicks the ⟳ Regenerate button.
+    /// Behaviour depends on what the user is currently looking at:
+    ///   - At ROOT: regenerate the entire tree (children would no longer match
+    ///     the new root skeleton's deep-dive topics anyway, so wipe everything
+    ///     and run Phase 1+2 fresh).
+    ///   - At a deep-dive CHILD: regenerate ONLY that child. The root and
+    ///     siblings stay intact — user explicitly clicked Regenerate while
+    ///     viewing the child, so they want THAT child redone, not the whole
+    ///     tree thrown away.
+    func regenerateRoot() async {
+        guard let curId = currentNodeId, let curNode = nodes[curId] else {
+            // No current node — full reset path.
+            await fullResetAndGenerate()
+            return
+        }
+        if curNode.parentId == nil {
+            // At root → wipe + regenerate everything.
+            await fullResetAndGenerate()
+            return
+        }
+        // At child → re-run only this node's Phase 1+2.
+        await regenerateNode(curId)
+    }
+
+    /// Full tree reset + fresh generateRoot. Wipes snapshot AND every cached
+    /// node HTML on disk so no stale entries linger.
+    private func fullResetAndGenerate() async {
+        await cancel()
+        cache.deleteSnapshot()
+        // Delete every node's cached HTML file before dropping in-memory map.
+        for id in nodes.keys { cache.deleteNode(nodeId: id) }
+        nodes.removeAll()
+        rootNodeId = nil
+        currentNodeId = nil
+        currentNodeSections = [:]
+        skeleton = nil
+        skeletonReady = false
+        allSectionsReady = false
+        cachedNodeHTML = nil
+        lastError = nil
+        lastErrorRetryable = true
+        await generateRoot()
+    }
+
+    /// Re-run Phase 1+2 for one node. Also drops ALL descendants of this node
+    /// from the in-memory tree — old children were derived from the previous
+    /// skeleton's deepDive topics, which may no longer match the new skeleton.
+    /// Snapshot is rewritten by writeSnapshotForRoot after Phase 2 completes
+    /// (it iterates `nodes` so dropped descendants naturally fall out of the
+    /// snapshot too). Root + siblings of this node stay intact.
+    private func regenerateNode(_ nodeId: UUID) async {
+        await cancel()
+        guard let node = nodes[nodeId] else { return }
+        // Recursively collect descendant ids (DFS).
+        var toRemove: [UUID] = []
+        var stack: [UUID] = node.children
+        while let id = stack.popLast() {
+            toRemove.append(id)
+            if let n = nodes[id] { stack.append(contentsOf: n.children) }
+        }
+        for id in toRemove {
+            nodes.removeValue(forKey: id)
+            // Best-effort delete of the on-disk cached HTML for this node.
+            cache.deleteNode(nodeId: id)
+        }
+        // Also delete THIS node's cached HTML — it'll be regenerated.
+        cache.deleteNode(nodeId: nodeId)
+        // Reset this node so generation re-fills it.
+        node.children = []
+        node.skeleton = nil
+        node.sectionStates = [:]
+        node.status = .pending
+        if currentNodeId == nodeId {
+            skeleton = nil
+            skeletonReady = false
+            allSectionsReady = false
+            currentNodeSections = [:]
+            cachedNodeHTML = nil
+            lastError = nil
+            lastErrorRetryable = true
+            statusMessage = "Phase 1: analyzing files for this node..."
+        }
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let skel = try await self.phase1Skeleton(for: nodeId)
+                try Task.checkCancellation()
+                try await self.phase2StreamSections(for: nodeId, skeleton: skel)
+                try Task.checkCancellation()
+                try self.writeFinalHTMLToCache(nodeId: nodeId)
+                self.writeSnapshotForRoot(nodeId: nodeId)
+            } catch {
+                self.handleStreamError(error, forNodeId: nodeId)
+            }
+            self.activeTask = nil
+        }
+    }
+
+    /// Per-node persisted snapshot (root or any deep-dive child).
+    private struct NodeSnapshotEntry: Codable {
+        let nodeId: UUID
+        let parentId: UUID?
+        let level: Int
+        let title: String
+        let scope: NodeScope
+        let skeleton: InsightSkeleton
+        let sectionBuffers: [String: String]
+        let childIds: [UUID]
+    }
+
+    /// Whole-tree snapshot — root + all generated deep-dives. Restored on
+    /// reopen so deep-dive buttons reuse cached children instead of re-running
+    /// Phase 1+2.
+    private struct RootSnapshot: Codable {
+        let rootId: UUID
+        let folderPath: String
+        let createdAt: Date
+        // Legacy fields kept for forward compatibility (older snapshots only had these).
+        let skeleton: InsightSkeleton?
+        let sectionBuffers: [String: String]?
+        // New: full tree.
+        let nodes: [NodeSnapshotEntry]?
+    }
+
+    /// Try to restore the root node + ALL cached deep-dive children from
+    /// `<cacheRoot>/snapshot.json`. Populates `nodes` map so subsequent
+    /// `expand(...)` calls find existing children (matched by topic
+    /// label+hint) and `navigateTo(...)` succeeds for any saved nodeId.
+    /// Returns true on success.
+    @MainActor
+    private func tryRestoreRootFromSnapshot(rootId: UUID) -> Bool {
+        guard let data = cache.readSnapshotData() else { return false }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let snap = try? decoder.decode(RootSnapshot.self, from: data) else {
+            NSLog("[Insight] snapshot decode failed — falling back to fresh generation")
+            return false
+        }
+        guard snap.rootId == rootId else {
+            NSLog("[Insight] snapshot rootId mismatch — folder path collision? regenerating")
+            return false
+        }
+
+        // Prefer the new full-tree snapshot. Fall back to legacy root-only
+        // snapshot for forward compatibility.
+        let entries: [NodeSnapshotEntry]
+        if let ns = snap.nodes, !ns.isEmpty {
+            entries = ns
+        } else if let skel = snap.skeleton, let bufs = snap.sectionBuffers {
+            // Synthesise a single root entry from the legacy fields.
+            entries = [NodeSnapshotEntry(
+                nodeId: rootId,
+                parentId: nil,
+                level: 0,
+                title: folderURL.lastPathComponent,
+                scope: .folderRoot,
+                skeleton: skel,
+                sectionBuffers: bufs,
+                childIds: []
+            )]
+        } else {
+            return false
+        }
+
+        // Rebuild every InsightNode from the snapshot. The pre-existing root
+        // node (created in generateRoot before this call) is overwritten.
+        for entry in entries {
+            let node = InsightNode(
+                id: entry.nodeId,
+                parentId: entry.parentId,
+                level: entry.level,
+                title: entry.title,
+                scope: entry.scope
+            )
+            node.skeleton = entry.skeleton
+            var states: [String: SectionState] = [:]
+            for section in entry.skeleton.sections {
+                var s = SectionState()
+                s.buffer = entry.sectionBuffers[section.id] ?? ""
+                s.status = s.buffer.isEmpty ? .pending : .ready
+                states[section.id] = s
+            }
+            node.sectionStates = states
+            node.status = .ready
+            node.children = entry.childIds
+            nodes[entry.nodeId] = node
+        }
+
+        // Make root the current view.
+        guard let rootNode = nodes[rootId], let rootSkel = rootNode.skeleton else { return false }
+        currentNodeId = rootId
+        skeleton = rootSkel
+        skeletonReady = true
+        currentNodeSections = rootNode.sectionStates
+        allSectionsReady = true
+        cachedNodeHTML = (try? cache.readNode(nodeId: rootId))
+        NSLog("[Insight] snapshot restored: %d nodes total", entries.count)
+        return true
+    }
+
+    /// Write the WHOLE node tree (root + all generated deep-dive children)
+    /// to `cache.snapshot.json` after any node finishes Phase 2. Snapshot
+    /// is rewritten in full each time — small (~100 KB per node) so the
+    /// rewrite cost is negligible, and the alternative (incremental patch)
+    /// is more complex than warranted. Failures swallowed (snapshot is a
+    /// UX nicety, not a correctness invariant).
+    private nonisolated func writeSnapshotForRoot(nodeId: UUID) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let rootId = self.rootNodeId else { return }
+            var entries: [NodeSnapshotEntry] = []
+            for (id, node) in self.nodes {
+                guard let skel = node.skeleton else { continue }
+                var bufs: [String: String] = [:]
+                for (sid, st) in node.sectionStates { bufs[sid] = st.buffer }
+                // Skip nodes that have a skeleton but NO content at all —
+                // they're useless until generation completes.
+                let totalContent = bufs.values.reduce(0) { $0 + $1.count }
+                if totalContent == 0 { continue }
+                entries.append(NodeSnapshotEntry(
+                    nodeId: id,
+                    parentId: node.parentId,
+                    level: node.level,
+                    title: node.title,
+                    scope: node.scope,
+                    skeleton: skel,
+                    sectionBuffers: bufs,
+                    childIds: node.children
+                ))
+            }
+            let snap = RootSnapshot(
+                rootId: rootId,
+                folderPath: self.folderURL.path,
+                createdAt: Date(),
+                skeleton: nil,
+                sectionBuffers: nil,
+                nodes: entries
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            do {
+                let data = try encoder.encode(snap)
+                try self.cache.writeSnapshotData(data)
+                NSLog("[Insight] snapshot saved (%d nodes, %d bytes)", entries.count, data.count)
+            } catch {
+                NSLog("[Insight] snapshot save failed: %@", String(describing: error))
+            }
         }
     }
 
@@ -419,6 +878,24 @@ final class InsightSession: ObservableObject, Identifiable {
             return
         }
         let topic = topics[topicIndex]
+
+        // Reuse existing child for the same deep-dive topic if one was
+        // already generated under THIS parent (matched by topic title +
+        // hint, since the topic id is internal to the skeleton). Saves the
+        // ~60 s Phase 1 LLM call when the user re-opens a previously
+        // explored deep-dive — the existing child node still carries its
+        // skeleton and per-section buffers in memory; navigateTo restores
+        // them directly.
+        for childId in parent.children {
+            guard let existing = nodes[childId] else { continue }
+            if case .topic(let exLabel, let exHint, _) = existing.scope,
+               exLabel == topic.label, exHint == topic.hint {
+                NSLog("[Insight] expand: reusing existing child for topic '%@' (no regen)",
+                      Self.sanitizeForLog(topic.label))
+                await navigateTo(nodeId: childId)
+                return
+            }
+        }
 
         // Validate scope_hint paths now (Decision 10 §6). Cap at 30 files (Decision 5).
         var validated = validateScopeHint(topic.scopeHint)
@@ -463,6 +940,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 try await self.phase2StreamSections(for: nodeId, skeleton: skel)
                 try Task.checkCancellation()
                 try self.writeFinalHTMLToCache(nodeId: nodeId)
+                self.writeSnapshotForRoot(nodeId: nodeId)
             } catch {
                 self.handleStreamError(error, forNodeId: nodeId)
             }
@@ -560,6 +1038,7 @@ final class InsightSession: ObservableObject, Identifiable {
                 try await self.phase2StreamSections(for: nodeId, skeleton: skel)
                 try Task.checkCancellation()
                 try self.writeFinalHTMLToCache(nodeId: nodeId)
+                self.writeSnapshotForRoot(nodeId: nodeId)
                 // On natural completion, clear retry window (Decision 11 §3).
                 self.clearRetryHistory(for: nodeId)
             } catch {
@@ -628,20 +1107,30 @@ final class InsightSession: ObservableObject, Identifiable {
         }
 
         // For deep-dive topic nodes, narrow mdFiles to the topic's validated scope.
-        let scopedFiles: [URL]
+        // If the validated scope ends up with zero readable files (LLM emitted
+        // hallucinated paths that all fail file-exists check), fall back to
+        // the full session mdFiles instead of failing the deep-dive.
+        var scopedFiles: [URL]
+        let scopeKind: String
         switch node.scope {
         case .folderRoot:
             scopedFiles = mdFiles
-        case .topic(_, _, let files):
-            scopedFiles = files.isEmpty ? mdFiles : files
+            scopeKind = "folderRoot"
+        case .topic(let label, _, let files):
+            // Only keep paths that actually exist on disk RIGHT NOW.
+            let existing = files.filter { FileManager.default.fileExists(atPath: $0.path) }
+            scopedFiles = existing.isEmpty ? mdFiles : existing
+            scopeKind = "topic('\(label.prefix(40))') hint=\(files.count) existing=\(existing.count) effective=\(scopedFiles.count)"
         }
+        WebViewBridge.logInsightDiag("phase1Skeleton START node=\(nodeId.uuidString.prefix(8)) scope=\(scopeKind) mdFiles=\(mdFiles.count) scopedFiles=\(scopedFiles.count) firstFile=\(scopedFiles.first?.path.prefix(80) ?? "(none)")")
 
         try Task.checkCancellation()
         let parsed = try await rag.buildSkeleton(
             folderURL: folderURL,
             mdFiles: scopedFiles,
             scopeLabel: node.scope.label,
-            scopeHint: node.scope.hint
+            scopeHint: node.scope.hint,
+            contentType: contentType
         )
         try Task.checkCancellation()
 
@@ -755,7 +1244,8 @@ final class InsightSession: ObservableObject, Identifiable {
             let prompts = rag.buildSectionPrompt(
                 section: section,
                 allFiles: scopedFiles,
-                folderURL: folderURL
+                folderURL: folderURL,
+                contentType: contentType
             )
             preparedPrompts.append((section: section, systemPrompt: prompts.systemPrompt, userMessage: prompts.userMessage))
         }
@@ -1160,6 +1650,185 @@ final class InsightSession: ObservableObject, Identifiable {
         // `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`).
         let csp = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
+        // Mirror the iframe srcdoc's section/hero/table/callout/timeline/
+        // cards-grid/mermaid/chart styling so the exported standalone site
+        // looks the same as the in-app view. Plus minimal mermaid/chart
+        // bootstrap scripts (libs are loaded via libRefs above).
+        let inlineCSS = """
+        html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; background: #fff; color: #1e1e1e; }
+        body { padding: 16px 24px; }
+        header.insight-breadcrumbs { padding: 8px 0 12px; border-bottom: 1px solid #e0e0e0; margin-bottom: 16px; font-size: 13px; }
+        .crumb { color: #2563eb; text-decoration: none; padding: 2px 6px; border-radius: 3px; }
+        .crumb:hover { background: #f0f4ff; }
+        .crumb-active { color: #1e1e1e; font-weight: 600; }
+        .crumb-sep { color: #999; padding: 0 2px; }
+        section.insight-section { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #e0e0e0; }
+        section.insight-section:last-of-type { border-bottom: none; }
+        section.insight-section h2 { font-size: 16px; font-weight: 600; margin: 0 0 8px; color: #2a2a2a; }
+        .section-body { font-size: 14px; line-height: 1.6; }
+        .section-body img { max-width: 100%; height: auto; }
+        section[data-section-type="hero"] h2 { display: none; }
+        section[data-section-type="hero"] .section-body h1 { font-size: 22px; line-height: 1.2; margin: 0 0 6px; color: #1e1e1e; font-weight: 700; }
+        section[data-section-type="hero"] .section-body h1 + p { font-size: 14px; line-height: 1.5; margin: 0 0 4px; color: #4a4a4a; }
+        section[data-section-type="hero"] .section-body p { margin: 4px 0; }
+        section[data-section-type="hero"] .section-body { font-size: 13px; }
+        .mermaid { max-height: 520px; overflow: hidden; cursor: zoom-in; }
+        .mermaid svg { max-width: 100%; height: auto; max-height: 520px; display: block; margin: 0 auto; }
+        section[data-section-type="chartJsChart"] .section-body { position: relative; height: 360px; max-height: 50vh; overflow: hidden; }
+        section[data-section-type="chartJsChart"] canvas { max-height: 360px !important; max-width: 100% !important; display: block; }
+        .section-body table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 13px; }
+        .section-body th, .section-body td { padding: 6px 10px; border: 1px solid #e0e0e0; text-align: left; vertical-align: top; }
+        .section-body th { background: #f5f7fb; font-weight: 600; color: #1e1e1e; }
+        .section-body tbody tr:nth-child(odd) td { background: #fafafa; }
+        .cards-grid { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; align-items: stretch; }
+        .cards-grid .card, .cards-grid > article { background: #f8f9fb; border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; }
+        .cards-grid .card h3, .cards-grid > article h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: #1e1e1e; }
+        .cards-grid .card p, .cards-grid > article p { margin: 4px 0; font-size: 12px; line-height: 1.45; }
+        .cards-grid .card .meta, .cards-grid > article .meta { font-size: 11px; color: #6b7280; }
+        .callout { padding: 10px 14px; border-left: 4px solid #6b7280; background: #f5f7fb; margin: 8px 0; border-radius: 4px; }
+        .callout.callout-info { border-color: #3b82f6; background: #eff6ff; }
+        .callout.callout-warn { border-color: #f59e0b; background: #fffbeb; }
+        .callout.callout-danger { border-color: #ef4444; background: #fef2f2; }
+        .callout.callout-tip { border-color: #10b981; background: #ecfdf5; }
+        .timeline { list-style: none; padding: 0; margin: 8px 0; border-left: 2px solid #d4d4d4; }
+        .timeline li { position: relative; padding: 4px 0 8px 16px; }
+        .timeline li::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; background: #569cd6; border-radius: 50%; }
+        .timeline time { display: inline-block; font-weight: 600; color: #1e1e1e; margin-right: 6px; }
+        .deep-dives { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .deep-dive { background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; text-decoration: none; }
+        .deep-dive:hover { background: #e8e8e8; border-color: #909090; }
+        pre { background: #f6f8fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+        code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .inferred { color: #b45309; font-style: italic; border-bottom: 1px dashed #b45309; }
+        .mermaid, .section-body canvas, .section-body img { cursor: zoom-in; }
+        #lb { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.88); display: none; align-items: center; justify-content: center; padding: 32px; box-sizing: border-box; }
+        #lb.on { display: flex; }
+        #lb .lb-stage { position: relative; width: 100%; height: 100%; overflow: auto; display: flex; align-items: center; justify-content: center; }
+        #lb .lb-content { transform-origin: center center; transition: transform 0.18s ease; background: #fff; padding: 16px; border-radius: 6px; cursor: grab; user-select: none; }
+        #lb .lb-content svg, #lb .lb-content img, #lb .lb-content canvas { display: block; max-width: none; max-height: none; }
+        #lb .lb-bar { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; background: #fff; padding: 6px 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        #lb .lb-bar button { background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px; padding: 6px 12px; font-size: 14px; cursor: pointer; font-family: inherit; min-width: 36px; }
+        #lb .lb-bar button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
+        #lb .lb-bar .lb-pct { display: inline-flex; align-items: center; padding: 0 6px; font-size: 13px; color: #666; min-width: 50px; justify-content: center; }
+        """
+
+        // Bootstrap script — initialises mermaid + chart, wires lightbox click-to-zoom.
+        let bootstrap = """
+        <script>
+        (function() {
+            try {
+                if (typeof mermaid !== 'undefined') {
+                    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true } });
+                    var mNodes = document.querySelectorAll('.mermaid, pre code.language-mermaid, pre.mermaid');
+                    for (var i = 0; i < mNodes.length; i++) {
+                        var n = mNodes[i];
+                        if (n.tagName !== 'DIV') {
+                            var pre = (n.tagName === 'CODE') ? n.parentElement : n;
+                            if (!pre) continue;
+                            var src = (n.textContent || '').trim().replace(/<br\\s*\\/>/gi, '<br>');
+                            var d = document.createElement('div');
+                            d.className = 'mermaid';
+                            d.textContent = src;
+                            pre.replaceWith(d);
+                        }
+                    }
+                    try { mermaid.run({ nodes: document.querySelectorAll('.mermaid'), suppressErrors: true }); } catch (e) {}
+                }
+                if (typeof Chart !== 'undefined') {
+                    var canvases = document.querySelectorAll('canvas[data-chart], canvas[data-chart-config]');
+                    for (var j = 0; j < canvases.length; j++) {
+                        var cv = canvases[j];
+                        var s = cv.getAttribute('data-chart') || cv.getAttribute('data-chart-config') || '';
+                        if (!s) continue;
+                        var clean = s.replace(/"function"\\s*:\\s*"function[\\s\\S]*?"\\s*\\}/g, '"_stripped":true}');
+                        try { var cfg = JSON.parse(clean); new Chart(cv, cfg); } catch (e) {}
+                    }
+                }
+                // Lightbox.
+                var lb = null, lbContent = null, lbZoom = 1, lbPanX = 0, lbPanY = 0;
+                var dragging = false, dsx = 0, dsy = 0, dix = 0, diy = 0;
+                function applyTransform() { if (lbContent) lbContent.style.transform = 'translate(' + lbPanX + 'px,' + lbPanY + 'px) scale(' + lbZoom + ')'; }
+                function setZoom(z) { lbZoom = Math.max(0.25, Math.min(8, z)); applyTransform(); var p = lb && lb.querySelector('.lb-pct'); if (p) p.textContent = Math.round(lbZoom * 100) + '%'; }
+                function close() { if (lb) lb.classList.remove('on'); if (lbContent) lbContent.innerHTML = ''; lbPanX = lbPanY = 0; lbZoom = 1; }
+                function ensure() {
+                    if (lb) return;
+                    lb = document.createElement('div'); lb.id = 'lb';
+                    lb.innerHTML = '<div class="lb-stage"><div class="lb-content"></div></div>' +
+                        '<div class="lb-bar">' +
+                        '<button class="lb-out">−</button><span class="lb-pct">100%</span>' +
+                        '<button class="lb-in">+</button><button class="lb-reset">1:1</button>' +
+                        '<button class="lb-close">✕</button></div>';
+                    document.body.appendChild(lb);
+                    lbContent = lb.querySelector('.lb-content');
+                    lb.querySelector('.lb-in').onclick = function(e) { e.stopPropagation(); setZoom(lbZoom * 1.25); };
+                    lb.querySelector('.lb-out').onclick = function(e) { e.stopPropagation(); setZoom(lbZoom / 1.25); };
+                    lb.querySelector('.lb-reset').onclick = function(e) { e.stopPropagation(); lbPanX = lbPanY = 0; setZoom(1); };
+                    lb.querySelector('.lb-close').onclick = function(e) { e.stopPropagation(); close(); };
+                    lb.addEventListener('click', function(ev) { if (ev.target === lb || (ev.target.classList && ev.target.classList.contains('lb-stage'))) close(); });
+                    document.addEventListener('keydown', function(ev) {
+                        if (!lb.classList.contains('on')) return;
+                        if (ev.key === 'Escape') close();
+                        else if (ev.key === '+' || ev.key === '=') setZoom(lbZoom * 1.25);
+                        else if (ev.key === '-' || ev.key === '_') setZoom(lbZoom / 1.25);
+                        else if (ev.key === '0' || ev.key === '1') { lbPanX = lbPanY = 0; setZoom(1); }
+                    });
+                    lb.addEventListener('wheel', function(ev) {
+                        if (ev.ctrlKey || ev.metaKey) { ev.preventDefault(); setZoom(lbZoom * (ev.deltaY < 0 ? 1.1 : 0.9)); }
+                    }, { passive: false });
+                    lbContent.addEventListener('mousedown', function(ev) {
+                        if (ev.target.closest('.lb-bar')) return;
+                        dragging = true; dsx = ev.clientX; dsy = ev.clientY; dix = lbPanX; diy = lbPanY;
+                        lbContent.style.transition = 'none'; lbContent.style.cursor = 'grabbing';
+                        ev.preventDefault();
+                    });
+                    document.addEventListener('mousemove', function(ev) {
+                        if (!dragging) return;
+                        lbPanX = dix + (ev.clientX - dsx); lbPanY = diy + (ev.clientY - dsy);
+                        applyTransform();
+                    });
+                    document.addEventListener('mouseup', function() { if (!dragging) return; dragging = false; if (lbContent) { lbContent.style.transition = ''; lbContent.style.cursor = ''; } });
+                }
+                function open(el) {
+                    ensure();
+                    lbContent.innerHTML = '';
+                    if (el.classList && el.classList.contains('mermaid')) { var inner = el.querySelector('svg'); if (inner) el = inner; }
+                    var clone;
+                    if (el.tagName && el.tagName.toUpperCase() === 'CANVAS') {
+                        try { var img = document.createElement('img'); img.src = el.toDataURL('image/png'); img.style.width = el.width + 'px'; img.style.height = el.height + 'px'; clone = img; }
+                        catch (_) { clone = el.cloneNode(true); }
+                    } else if (el.tagName && el.tagName.toLowerCase() === 'svg') {
+                        try {
+                            var ser = new XMLSerializer();
+                            var svgStr = ser.serializeToString(el);
+                            var box = el.viewBox && el.viewBox.baseVal;
+                            var w = (box && box.width) ? box.width : (el.getBoundingClientRect().width || 800);
+                            var h = (box && box.height) ? box.height : (el.getBoundingClientRect().height || 600);
+                            var holder = document.createElement('div');
+                            holder.style.cssText = 'width:' + (w * 2) + 'px; height:' + (h * 2) + 'px;';
+                            holder.innerHTML = svgStr;
+                            var ns = holder.querySelector('svg');
+                            if (ns) { ns.setAttribute('width', '100%'); ns.setAttribute('height', '100%'); ns.style.maxWidth = 'none'; ns.style.maxHeight = 'none'; }
+                            clone = holder;
+                        } catch (_) { clone = el.cloneNode(true); }
+                    } else { clone = el.cloneNode(true); }
+                    lbContent.appendChild(clone);
+                    lbPanX = lbPanY = 0; setZoom(1);
+                    lb.classList.add('on');
+                }
+                document.addEventListener('click', function(ev) {
+                    var t = ev.target;
+                    if (!t || typeof t.closest !== 'function') return;
+                    var pick = t.closest('.mermaid, .section-body canvas, .section-body img');
+                    if (!pick) return;
+                    if (t.closest('.deep-dive, .crumb, .lb-bar, #lb')) return;
+                    ev.preventDefault(); ev.stopPropagation();
+                    try { open(pick); } catch (_) {}
+                }, false);
+            } catch (e) {}
+        })();
+        </script>
+        """
+
         return """
         <!DOCTYPE html>
         <html>
@@ -1167,6 +1836,7 @@ final class InsightSession: ObservableObject, Identifiable {
         <meta charset="utf-8">
         <meta http-equiv="Content-Security-Policy" content="\(csp)">
         <title>\(escapedTitle)</title>
+        <style>\(inlineCSS)</style>
         \(libRefs)
         </head>
         <body>
@@ -1175,6 +1845,7 @@ final class InsightSession: ObservableObject, Identifiable {
         \(sectionsHTML)
         </main>
         <footer class="insight-chrome insight-status"></footer>
+        \(bootstrap)
         </body>
         </html>
         """
@@ -1351,6 +2022,16 @@ final class InsightSession: ObservableObject, Identifiable {
             }
             guard candidate.pathExtension.lowercased() == "md" else {
                 NSLog("[Insight] scope_hint rejected: %@ — non-md", Self.sanitizeForLog(trimmed))
+                continue
+            }
+            // Existence check — `URL(fileURLWithPath:)` does not verify the
+            // file is actually on disk. LLM-emitted scope_hint paths often
+            // hallucinate file names (e.g. "Module 1.md" when the real file
+            // is "Module 1 - Innovation Life Cycles.md"). Without this guard
+            // the read in buildSkeleton would silently throw → wrappedFiles
+            // ends up empty → "No readable files in folder" fallback.
+            guard FileManager.default.fileExists(atPath: candidatePath) else {
+                NSLog("[Insight] scope_hint rejected: %@ — file does not exist", Self.sanitizeForLog(trimmed))
                 continue
             }
             result.append(candidate)

@@ -18,7 +18,7 @@
       page never executes LLM-derived script. See task 5 / tech-spec Decisions
       2, 3, 5, 10, 11.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'none'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
     <!-- KaTeX CSS -->
@@ -866,26 +866,42 @@
         .insight-breadcrumbs {
             display: flex;
             align-items: center;
-            gap: 4px;
-            padding: 6px 12px;
+            gap: 6px;
+            padding: 10px 14px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-color);
-            font-size: 12px;
+            font-size: 14px;
             flex-shrink: 0;
             overflow-x: auto;
             white-space: nowrap;
+            min-height: 38px;
         }
+        .insight-up-btn {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+            display: inline-flex; align-items: center; gap: 4px;
+            margin-right: 6px;
+        }
+        .insight-up-btn:hover { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+        .insight-up-btn:disabled { opacity: 0.4; cursor: not-allowed; background: var(--bg-tertiary); color: var(--text-tertiary); }
         .insight-breadcrumb-item {
             color: var(--accent-primary);
             cursor: pointer;
-            padding: 2px 6px;
+            padding: 4px 8px;
             border-radius: 3px;
             user-select: none;
+            font-weight: 500;
         }
         .insight-breadcrumb-item:hover { background: var(--bg-tertiary); }
-        .insight-breadcrumb-item.current { color: var(--text-primary); cursor: default; font-weight: 600; }
+        .insight-breadcrumb-item.current { color: var(--text-primary); cursor: default; font-weight: 700; }
         .insight-breadcrumb-item.current:hover { background: transparent; }
-        .insight-breadcrumb-sep { color: var(--text-tertiary); padding: 0 2px; user-select: none; }
+        .insight-breadcrumb-sep { color: var(--text-tertiary); padding: 0 4px; user-select: none; font-size: 16px; }
 
         .insight-iframe {
             flex: 1;
