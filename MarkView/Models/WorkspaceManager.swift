@@ -1254,8 +1254,9 @@ Each component needs a correct type and one-sentence description.
         saveFile(at: activeTabIndex)
     }
 
-    /// Translate document to target language, chunk by chunk, open result in new tab
-    /// Handle selection actions: translate or explain selected text via Anthropic API
+    /// Handle selection actions: translate or explain selected text via Anthropic API.
+    /// Result is shown in a popup — see `translateDocument` for the whole-document
+    /// path, which produces a translated copy in a new tab instead.
     func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
         guard let provider = incrementalCompiler?.orchestrator.providerClient,
               let apiKey = provider.apiKeyValue else {
@@ -1325,11 +1326,73 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
-    func translateDocument(markdown: String, targetLang: String) async {
-        guard let provider = incrementalCompiler?.orchestrator.providerClient,
-              let apiKey = provider.apiKeyValue else {
-            NSLog("[DDE] No API key for translation")
-            return
+    // MARK: - Document Translation
+
+    /// Which backend performs the translation. Chosen once per document so the
+    /// whole file is translated by a single engine (mixing engines mid-document
+    /// produces visibly inconsistent terminology).
+    private enum TranslationEngine {
+        case anthropic(apiKey: String)
+        case ollama(model: String)
+
+        var label: String {
+            switch self {
+            case .anthropic: return "Claude"
+            case .ollama(let model): return "Ollama \(model)"
+            }
+        }
+    }
+
+    /// One atomic unit of the source document.
+    ///
+    /// `text` never spans a partial table, list or fenced code block, and
+    /// `separator` holds the exact newline run that followed it in the source —
+    /// so `prefix + chunks.map { $0.text + $0.separator }.joined()` reproduces
+    /// the original document byte-for-byte. That is what lets the translated
+    /// copy keep the source's block structure.
+    private struct MarkdownChunk {
+        var text: String
+        var separator: String
+        var isTranslatable: Bool
+    }
+
+    /// Structural fingerprint of a markdown fragment. A faithful translation
+    /// changes the words but not any of these counts, so a mismatch means the
+    /// model dropped, merged or invented structure.
+    private struct MarkdownSkeleton: Equatable {
+        var headingLevels: [Int] = []
+        var tableRows: Int = 0
+        var listItems: Int = 0
+        var fences: Int = 0
+        var quoteLines: Int = 0
+    }
+
+    /// Translate the whole document to `targetLang` and open the result in a new
+    /// tab. The source file is never modified; the new tab is left unsaved so the
+    /// user decides where (and whether) it lands on disk.
+    ///
+    /// Returns a message to show the user when translation could not start, or
+    /// nil on success. The caller surfaces it in the editor popup — the sidebar
+    /// progress line alone is easy to miss when the file tree is collapsed.
+    @discardableResult
+    func translateDocument(markdown: String, targetLang: String) async -> String? {
+        guard !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Nothing to translate — the document is empty."
+        }
+
+        // Engine choice, mirroring `reindexActiveFile`: local model first (free,
+        // private), Anthropic when Ollama is not running, and a visible message
+        // rather than a silent return when neither is available.
+        let engine: TranslationEngine
+        if ollamaClient.isConnected {
+            engine = .ollama(model: ollamaClient.selectedModel)
+        } else if let key = incrementalCompiler?.orchestrator.providerClient.apiKeyValue, !key.isEmpty {
+            engine = .anthropic(apiKey: key)
+        } else {
+            NSLog("[DDE] Translation aborted: no engine available")
+            return (providerRouter?.statusMessage(for: .translate)
+                ?? "Configure an Anthropic API key in DDE Settings")
+                + "\n\nAlternatively, start Ollama locally to translate without an API key."
         }
 
         // Create new tab immediately with placeholder
@@ -1338,33 +1401,128 @@ Each component needs a correct type and one-sentence description.
         let newURL = sourceTab?.url.deletingLastPathComponent()
             .appendingPathComponent("\(sourceName)_\(targetLang.lowercased()).md") ?? URL(fileURLWithPath: "/tmp/translated.md")
 
-        let translatedTab = OpenTab(url: newURL, content: "# Translating to \(targetLang)...\n\nPlease wait...", originalContent: "")
+        // Split at structural boundaries — never inside a table, list or code block.
+        let (prefix, chunks) = splitForTranslation(markdown, maxChars: 4000)
+        let translatableCount = chunks.filter { $0.isTranslatable }.count
+        var parts: [String] = []
+        var failedChunks: [Int] = []
+        var done = 0
+
+        /// Live progress banner, written into the tab itself. `indexingProgress`
+        /// only renders in the file-tree sidebar, which may be collapsed — this
+        /// is visible in the document the user is actually watching.
+        func banner(_ completed: Int) -> String {
+            let pct = translatableCount > 0 ? completed * 100 / translatableCount : 100
+            let filled = translatableCount > 0 ? completed * 20 / translatableCount : 20
+            let bar = String(repeating: "█", count: filled) + String(repeating: "░", count: 20 - filled)
+            return "> 🌐 **Translating to \(targetLang)** — `\(bar)` \(pct)% "
+                + "(\(completed)/\(translatableCount) sections, \(engine.label))\n\n"
+        }
+
+        let translatedTab = OpenTab(url: newURL, content: banner(0), originalContent: "")
+        let tabId = translatedTab.id
         tabsStore.appendTab(translatedTab)
 
-        // Split markdown into chunks at heading boundaries for better translation
-        let chunks = splitForTranslation(markdown, maxChars: 4000)
-        var translatedParts: [String] = []
-        let tabIndex = openTabs.count - 1
+        /// Re-resolve the tab by id on every write: the awaits below take real
+        /// time and the user may open or close tabs meanwhile, which would make
+        /// a captured index point at somebody else's document.
+        func writeToTab(_ content: String) {
+            guard let index = openTabs.firstIndex(where: { $0.id == tabId }) else { return }
+            tabsStore.updateTab(at: index) { tab in
+                tab.content = content
+                tab.isModified = true
+            }
+        }
 
         for (i, chunk) in chunks.enumerated() {
-            indexingProgress = "Translating chunk \(i + 1)/\(chunks.count)..."
+            guard chunk.isTranslatable else {
+                // Front matter and fenced code go through verbatim — never sent
+                // to the model, so code can't come back "helpfully" rewritten.
+                parts.append(chunk.text + chunk.separator)
+                writeToTab(banner(done) + prefix + parts.joined())
+                continue
+            }
 
+            done += 1
+            indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
+
+            let expected = skeleton(of: chunk.text)
+            var translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine, strict: false)
+
+            // Structural check, then one stricter retry. This is what keeps
+            // tables intact when a small local model reflows them.
+            if let candidate = translated, skeleton(of: candidate) != expected {
+                NSLog("[DDE] Translation chunk \(i + 1): structure mismatch, retrying strictly")
+                translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine, strict: true)
+            }
+
+            if let candidate = translated, skeleton(of: candidate) == expected {
+                parts.append(candidate + chunk.separator)
+            } else {
+                // Keep the source text rather than emit corrupted markdown.
+                failedChunks.append(done)   // numbered as the banner counts them
+                parts.append(chunk.text + chunk.separator)
+            }
+
+            writeToTab(banner(done) + prefix + parts.joined())
+        }
+
+        var result = prefix + parts.joined()
+        if !failedChunks.isEmpty {
+            // Silent fallbacks previously made a partly-translated document look
+            // finished. Say so, in the document itself.
+            let list = failedChunks.map(String.init).joined(separator: ", ")
+            result = "> ⚠️ Translation incomplete — section(s) \(list) kept in the original language "
+                + "(the model's output did not preserve their structure).\n\n" + result
+            NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
+        }
+        writeToTab(result)
+        indexingProgress = nil
+        NSLog("[DDE] Translation complete: \(chunks.count) chunks, engine \(engine.label)")
+        return nil
+    }
+
+    /// Translate a single chunk. Returns nil when the call fails; the caller
+    /// decides whether to retry or fall back to the source text.
+    private func translateChunk(
+        _ text: String,
+        targetLang: String,
+        engine: TranslationEngine,
+        strict: Bool
+    ) async -> String? {
+        var systemPrompt = """
+            You are a professional translator. Translate the following markdown text to \(targetLang).
+            Rules:
+            - Translate ONLY the text content. Keep ALL markdown formatting intact (headings, lists, code blocks, links, tables).
+            - Do NOT translate code inside code blocks (```...```). Keep code exactly as-is.
+            - Do NOT translate URLs, file paths, or technical identifiers.
+            - Keep proper nouns, product names, and acronyms as-is.
+            - Preserve the exact markdown structure — same number of headings, lists, paragraphs.
+            - For tables: keep the same number of rows and columns, and keep the |---| separator row unchanged.
+            - Do NOT wrap your answer in a code fence.
+            - Return ONLY the translated markdown, no explanations.
+            """
+        if strict {
+            systemPrompt += """
+
+                IMPORTANT: your previous attempt changed the structure. Copy the layout line by line —
+                same line count, same table rows, same list markers, same heading levels — and replace
+                only the natural-language words.
+                """
+        }
+
+        switch engine {
+        case .ollama:
+            guard let raw = await ollamaClient.generate(prompt: text, system: systemPrompt) else { return nil }
+            return normalizeTranslation(raw)
+
+        case .anthropic(let apiKey):
             let body: [String: Any] = [
-                "model": "claude-sonnet-4-6",
+                "model": ProviderRouter.ActionType.translate.recommendedModel,
                 "max_tokens": 8192,
-                "system": """
-                    You are a professional translator. Translate the following markdown text to \(targetLang).
-                    Rules:
-                    - Translate ONLY the text content. Keep ALL markdown formatting intact (headings, lists, code blocks, links, tables).
-                    - Do NOT translate code inside code blocks (```...```). Keep code exactly as-is.
-                    - Do NOT translate URLs, file paths, or technical identifiers.
-                    - Keep proper nouns, product names, and acronyms as-is.
-                    - Preserve the exact markdown structure — same number of headings, lists, paragraphs.
-                    - Return ONLY the translated markdown, no explanations.
-                    """,
-                "messages": [["role": "user", "content": chunk]]
+                "system": systemPrompt,
+                "messages": [["role": "user", "content": text]]
             ]
-
             do {
                 let data = try JSONSerialization.data(withJSONObject: body)
                 var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
@@ -1375,66 +1533,236 @@ Each component needs a correct type and one-sentence description.
                 request.httpBody = data
                 request.timeoutInterval = 120
 
-                let (responseData, _) = try await URLSession.shared.data(for: request)
-                guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                      let content = json["content"] as? [[String: Any]],
-                      let text = content.first?["text"] as? String else {
-                    translatedParts.append(chunk) // Keep original on failure
-                    continue
+                let (responseData, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    // Never log the body: it echoes our request, which carries the key.
+                    NSLog("[DDE] Translation HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                    return nil
                 }
+                guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+                      let content = json["content"] as? [[String: Any]] else { return nil }
 
-                // Track cost (Sonnet: $3/1M in, $15/1M out)
                 if let usage = json["usage"] as? [String: Any] {
                     let inp = usage["input_tokens"] as? Int ?? 0
                     let out = usage["output_tokens"] as? Int ?? 0
                     semanticDatabase?.addUsage(inputTokens: inp, outputTokens: out, costCents: Double(inp) * 0.0003 + Double(out) * 0.0015)
                 }
 
-                translatedParts.append(text)
-
-                // Update tab content progressively
-                tabsStore.updateTab(at: tabIndex) { tab in
-                    tab.content = translatedParts.joined(separator: "\n\n")
-                    tab.isModified = true
-                }
+                // Join every text block — a leading non-text block would make
+                // `content.first` miss the translation entirely.
+                let joined = content.compactMap { block -> String? in
+                    guard block["type"] as? String == "text" else { return nil }
+                    return block["text"] as? String
+                }.joined()
+                return joined.isEmpty ? nil : normalizeTranslation(joined)
             } catch {
-                NSLog("[DDE] Translation chunk \(i + 1) error: \(error)")
-                translatedParts.append(chunk)
+                NSLog("[DDE] Translation chunk error: \(error)")
+                return nil
             }
         }
-
-        // Final update
-        tabsStore.updateTab(at: tabIndex) { tab in
-            tab.content = translatedParts.joined(separator: "\n\n")
-            tab.isModified = true
-        }
-        tabsStore.activeTabIndex = tabIndex
-        indexingProgress = nil
-        NSLog("[DDE] Translation complete: \(chunks.count) chunks")
     }
 
-    /// Split markdown at heading boundaries for translation
-    private func splitForTranslation(_ markdown: String, maxChars: Int) -> [String] {
-        let lines = markdown.components(separatedBy: "\n")
-        var chunks: [String] = []
-        var current = ""
+    /// Strip the code fence models like to wrap whole-document answers in, and
+    /// the surrounding blank lines the chunk separator already accounts for.
+    private func normalizeTranslation(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = text.components(separatedBy: "\n")
+        if lines.count >= 2,
+           let first = lines.first?.trimmingCharacters(in: .whitespaces),
+           let last = lines.last?.trimmingCharacters(in: .whitespaces),
+           first.hasPrefix("```"), last == "```",
+           // Only unwrap when the fence wraps the WHOLE answer.
+           !lines.dropFirst().dropLast().contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }) {
+            text = lines.dropFirst().dropLast().joined(separator: "\n")
+        }
+        return text.trimmingCharacters(in: .newlines)
+    }
 
-        for line in lines {
-            let isHeading = line.range(of: #"^#{1,3}\s+"#, options: .regularExpression) != nil
-            if isHeading && current.count > maxChars / 2 {
-                chunks.append(current)
-                current = ""
+    // MARK: - Structure-aware splitting
+
+    /// Split markdown into translation chunks without ever cutting through a
+    /// table, list, block quote or fenced code block.
+    ///
+    /// Returns the document's leading whitespace separately so the chunks can be
+    /// rejoined losslessly: `prefix + chunks.map { $0.text + $0.separator }.joined()`.
+    private func splitForTranslation(_ markdown: String, maxChars: Int) -> (prefix: String, chunks: [MarkdownChunk]) {
+        let (prefix, blocks) = tokenizeMarkdown(markdown)
+        var chunks: [MarkdownChunk] = []
+        var current: [MarkdownChunk] = []
+
+        func flush() {
+            guard !current.isEmpty else { return }
+            var text = ""
+            for (i, block) in current.enumerated() {
+                text += block.text
+                if i < current.count - 1 { text += block.separator }
             }
-            if !current.isEmpty { current += "\n" }
-            current += line
+            chunks.append(MarkdownChunk(text: text, separator: current[current.count - 1].separator, isTranslatable: true))
+            current = []
+        }
 
-            if current.count > maxChars {
-                chunks.append(current)
-                current = ""
+        for block in blocks {
+            guard block.isTranslatable else {
+                flush()
+                chunks.append(block)
+                continue
+            }
+            let currentLength = current.reduce(0) { $0 + $1.text.count + $1.separator.count }
+            if !current.isEmpty && currentLength + block.text.count > maxChars {
+                flush()
+            }
+            current.append(block)
+        }
+        flush()
+        return (prefix, chunks)
+    }
+
+    /// Break markdown into atomic blocks. Fenced code and YAML front matter are
+    /// marked non-translatable so they are copied through untouched.
+    private func tokenizeMarkdown(_ markdown: String) -> (prefix: String, blocks: [MarkdownChunk]) {
+        let lines = markdown.components(separatedBy: "\n")
+        // Each piece carries its own line terminator, so `pieces.joined()` is
+        // exactly the input — including whatever the file ends with.
+        let pieces: [String] = lines.enumerated().map { i, line in
+            i < lines.count - 1 ? line + "\n" : line
+        }
+        let n = lines.count
+
+        // .whitespacesAndNewlines, not .whitespaces: CRLF files leave a trailing
+        // \r on every line, which would otherwise defeat delimiter matching.
+        func trimmed(_ i: Int) -> String { lines[i].trimmingCharacters(in: .whitespacesAndNewlines) }
+        func isBlank(_ i: Int) -> Bool { trimmed(i).isEmpty }
+        func isHeading(_ i: Int) -> Bool { trimmed(i).range(of: #"^#{1,6}\s"#, options: .regularExpression) != nil }
+        func isListItem(_ i: Int) -> Bool { lines[i].range(of: #"^\s{0,3}([-*+]|\d+[.)])\s"#, options: .regularExpression) != nil }
+        func isQuote(_ i: Int) -> Bool { trimmed(i).hasPrefix(">") }
+        func isIndented(_ i: Int) -> Bool { lines[i].hasPrefix("  ") || lines[i].hasPrefix("\t") }
+        func fenceMarker(_ i: Int) -> (char: Character, count: Int)? {
+            let t = trimmed(i)
+            guard let first = t.first, first == "`" || first == "~" else { return nil }
+            let count = t.prefix(while: { $0 == first }).count
+            return count >= 3 ? (first, count) : nil
+        }
+        func isTableDelimiter(_ i: Int) -> Bool {
+            let t = trimmed(i)
+            guard t.contains("-"), t.contains("|") else { return false }
+            return t.allSatisfy { $0 == "|" || $0 == "-" || $0 == ":" || $0 == " " }
+        }
+        func isTableStart(_ i: Int) -> Bool {
+            lines[i].contains("|") && i + 1 < n && isTableDelimiter(i + 1)
+        }
+        func startsNewBlock(_ i: Int) -> Bool {
+            fenceMarker(i) != nil || isHeading(i) || isListItem(i) || isQuote(i) || isTableStart(i)
+        }
+
+        var ranges: [(start: Int, end: Int, translatable: Bool)] = []
+        var i = 0
+
+        // YAML front matter — metadata, not prose: copied through as-is.
+        if n > 1, trimmed(0) == "---" {
+            var j = 1
+            while j < n, trimmed(j) != "---" { j += 1 }
+            if j < n {
+                ranges.append((0, j + 1, false))
+                i = j + 1
             }
         }
-        if !current.isEmpty { chunks.append(current) }
-        return chunks
+
+        while i < n {
+            if isBlank(i) { i += 1; continue }
+            let start = i
+
+            if let fence = fenceMarker(i) {
+                i += 1
+                while i < n {
+                    if let close = fenceMarker(i), close.char == fence.char, close.count >= fence.count { break }
+                    i += 1
+                }
+                if i < n { i += 1 } // consume the closing fence
+                ranges.append((start, i, false))
+            } else if isTableStart(i) {
+                i += 2 // header + delimiter
+                while i < n, !isBlank(i), lines[i].contains("|") { i += 1 }
+                ranges.append((start, i, true))
+            } else if isListItem(i) || isQuote(i) {
+                i += 1
+                while i < n {
+                    if isBlank(i) {
+                        // A blank line only ends the run if what follows is not
+                        // a continuation of the same list/quote.
+                        var j = i
+                        while j < n, isBlank(j) { j += 1 }
+                        if j < n, isListItem(j) || isQuote(j) || isIndented(j) { i = j } else { break }
+                    } else if isListItem(i) || isQuote(i) || isIndented(i) || !startsNewBlock(i) {
+                        i += 1
+                    } else {
+                        break
+                    }
+                }
+                ranges.append((start, i, true))
+            } else if isHeading(i) {
+                i += 1
+                ranges.append((start, i, true))
+            } else {
+                i += 1
+                while i < n, !isBlank(i), !startsNewBlock(i) { i += 1 }
+                ranges.append((start, i, true))
+            }
+        }
+
+        guard let firstRange = ranges.first else {
+            return (markdown, [])
+        }
+
+        let prefix = pieces[0..<firstRange.start].joined()
+        var blocks: [MarkdownChunk] = []
+        for (idx, range) in ranges.enumerated() {
+            var text = pieces[range.start..<range.end].joined()
+            var separator = ""
+            // Move the block's own line terminator into the separator, so the
+            // model never sees (and cannot drop) a trailing newline. "\r\n" is a
+            // single Character in Swift and does NOT match hasSuffix("\n"), so
+            // CRLF has to be tested first or it slips through into `text`.
+            if text.hasSuffix("\r\n") {
+                text.removeLast()
+                separator = "\r\n"
+            } else if text.hasSuffix("\n") {
+                text.removeLast()
+                separator = "\n"
+            }
+            let nextStart = idx + 1 < ranges.count ? ranges[idx + 1].start : n
+            separator += pieces[range.end..<nextStart].joined()
+            blocks.append(MarkdownChunk(text: text, separator: separator, isTranslatable: range.translatable))
+        }
+        return (prefix, blocks)
+    }
+
+    /// Count the structure of a markdown fragment. Used to detect a translation
+    /// that reflowed a table or dropped a list.
+    private func skeleton(of text: String) -> MarkdownSkeleton {
+        var result = MarkdownSkeleton()
+        var insideFence = false
+        for rawLine in text.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.hasPrefix("```") || line.hasPrefix("~~~") {
+                result.fences += 1
+                insideFence.toggle()
+                continue
+            }
+            if insideFence { continue }
+            if line.isEmpty { continue }
+            if let match = line.range(of: #"^#{1,6}(?=\s)"#, options: .regularExpression) {
+                result.headingLevels.append(line.distance(from: line.startIndex, to: match.upperBound))
+            } else if line.hasPrefix(">") {
+                result.quoteLines += 1
+            } else if line.contains("|") {
+                // Counts GFM rows with or without leading pipes. A prose line
+                // containing "|" is counted on both sides, so it stays symmetric.
+                result.tableRows += 1
+            } else if rawLine.range(of: #"^\s{0,3}([-*+]|\d+[.)])\s"#, options: .regularExpression) != nil {
+                result.listItems += 1
+            }
+        }
+        return result
     }
 
     // MARK: - Recursive Insight (Task 7)

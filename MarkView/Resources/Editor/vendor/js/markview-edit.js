@@ -237,8 +237,14 @@
         document.addEventListener('selectionchange', function() {
             const sel = window.getSelection();
             const bar = document.getElementById('format-bar');
-            if (!sel.rangeCount || sel.isCollapsed || !rendered.contains(sel.anchorNode)) {
+            // Formatting only applies to markdown WYSIWYG — never to the
+            // structured (JSON/XML/YAML) tree or the canvas viewer.
+            if (state.fileType !== 'markdown' || !sel.rangeCount || sel.isCollapsed || !rendered.contains(sel.anchorNode)) {
                 bar.classList.remove('visible');
+                // Drop the captured text too. Leaving it behind made RU/EN/?
+                // re-run on the PREVIOUS selection instead of reporting
+                // "nothing selected", which hid the whole-document path.
+                formatBarSelectedText = '';
                 return;
             }
             const range = sel.getRangeAt(0);
@@ -250,6 +256,18 @@
             formatBarSelectedText = sel.toString().trim();
         });
 
+        // Source mode keeps its selection inside the <textarea>, which
+        // window.getSelection() does not cover — the selectionchange handler
+        // above can never see it. Mirror it into the same variable so the
+        // RU/EN/? buttons work identically in both modes.
+        function currentSourceSelection() {
+            if (state.mode !== 'source' || !DOM.editor) return '';
+            const start = DOM.editor.selectionStart;
+            const end = DOM.editor.selectionEnd;
+            if (typeof start !== 'number' || start === end) return '';
+            return DOM.editor.value.substring(start, end).trim();
+        }
+
         function saveFile() {
             // Only convert WYSIWYG→markdown if user actually edited in WYSIWYG
             if (wysiwygDirty) {
@@ -259,9 +277,15 @@
             sendToSwift('saveRequested', {});
         }
 
-        function translateToEnglish() {
-            // Use original markdown from textarea, not Turndown-converted
-            sendToSwift('translateRequested', { markdown: DOM.editor.value, targetLang: 'English' });
+        // Whole-document translation. Sends the raw markdown from the textarea
+        // (never the Turndown-converted WYSIWYG DOM) so the source structure
+        // reaches Swift byte-for-byte. Swift opens the translation in a new tab.
+        function translateWholeDocument(targetLang) {
+            if (wysiwygDirty) {
+                // Unsynced WYSIWYG edits would otherwise be translated away.
+                syncWysiwygToMarkdown();
+            }
+            sendToSwift('translateRequested', { markdown: DOM.editor.value, targetLang: targetLang });
         }
 
         function refreshFile() {

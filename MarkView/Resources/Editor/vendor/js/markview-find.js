@@ -1,6 +1,10 @@
         // SELECTION ACTIONS (Translate / Explain)
         // ============================================================================
 
+        // Target language per translate action. Also used as the "is this a
+        // translate action?" test in the no-selection branch below.
+        const TRANSLATE_TARGETS = { translate_ru: 'Russian', translate_en: 'English' };
+
         function selectionAction(action) {
             // Use the selection captured when format-bar appeared
             let selectedText = formatBarSelectedText;
@@ -11,22 +15,59 @@
                     selectedText = sel.toString().trim();
                 }
             }
-
-            // DEBUG: show in title bar what selection we captured
-            document.title = 'SEL[' + selectedText.length + ']: ' + (selectedText ? selectedText.substring(0,60) : 'EMPTY');
-
-            if (!selectedText) return; // nothing selected — do nothing
-
-            // Hide format bar
-            document.getElementById('format-bar').classList.remove('visible');
+            // Source mode keeps its selection in the <textarea>, invisible to
+            // window.getSelection().
+            if (!selectedText) {
+                selectedText = currentSourceSelection();
+            }
 
             let title = 'Result';
             if (action === 'translate_ru') title = 'Перевод на русский';
             else if (action === 'translate_en') title = 'Translation to English';
             else if (action === 'explain') title = 'Explanation';
 
+            if (!selectedText) {
+                // Nothing selected. For a translate action, offer the whole
+                // document instead of silently doing nothing.
+                if (TRANSLATE_TARGETS[action]) proposeWholeDocumentTranslation(action, title);
+                return;
+            }
+
+            // Hide format bar
+            document.getElementById('format-bar').classList.remove('visible');
+
             showActionPopup(title, '<span class="action-popup-loading">Processing...</span>');
             sendToSwift('selectionAction', { action: action, text: selectedText });
+        }
+
+        // Confirmation step for whole-document translation. Built from the
+        // existing action-popup DOM rather than window.confirm(), which
+        // silently returns false in this WKWebView (no WKUIDelegate is wired).
+        function proposeWholeDocumentTranslation(action, title) {
+            const targetLang = TRANSLATE_TARGETS[action];
+            if (!targetLang) return;
+            if (state.fileType !== 'markdown') return;
+
+            const markdown = DOM.editor ? DOM.editor.value : '';
+            if (!markdown.trim()) return; // empty document — nothing to translate
+
+            document.getElementById('format-bar').classList.remove('visible');
+
+            const approxKb = Math.max(1, Math.round(markdown.length / 1024));
+            showActionPopup(title,
+                '<p>Nothing is selected.</p>' +
+                '<p>Translate the <b>entire document</b> (~' + approxKb + ' KB) to ' + targetLang + '?' +
+                ' The translation opens in a new tab as an unsaved copy — this file is not modified.</p>' +
+                '<div class="action-popup-actions">' +
+                '<button type="button" id="translate-doc-confirm">Translate whole document</button>' +
+                '<button type="button" id="translate-doc-cancel">Cancel</button>' +
+                '</div>');
+
+            document.getElementById('translate-doc-confirm').addEventListener('click', function() {
+                closeActionPopup();
+                translateWholeDocument(targetLang);
+            });
+            document.getElementById('translate-doc-cancel').addEventListener('click', closeActionPopup);
         }
 
         function showActionPopup(title, htmlContent) {

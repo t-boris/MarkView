@@ -31,6 +31,7 @@ class ProviderRouter: ObservableObject {
         case generateTests   // Medium complexity
         case adr             // Medium complexity
         case deepResearch    // Complex, multiple calls
+        case translate       // Whole-document translation — quality matters, cost scales with size
         case embedding       // Specialized
 
         var recommendedModel: String {
@@ -39,6 +40,7 @@ class ProviderRouter: ObservableObject {
             case .diagram, .implement: return "claude-opus-4-6"
             case .research, .adr, .generateTests: return "claude-sonnet-4-6"
             case .deepResearch: return "claude-sonnet-4-6" // Multiple calls, keep cost down
+            case .translate: return "claude-sonnet-4-6"
             case .embedding: return "text-embedding-3-small"
             }
         }
@@ -57,6 +59,7 @@ class ProviderRouter: ObservableObject {
             case .research, .adr, .generateTests: return "~$0.03"
             case .implement: return "~$0.15"
             case .deepResearch: return "~$0.20"
+            case .translate: return "~$0.05"   // per document, scales with length
             case .embedding: return "~$0.001"
             }
         }

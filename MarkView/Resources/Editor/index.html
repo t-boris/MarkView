@@ -889,6 +889,18 @@
         .action-popup-content pre { background: var(--code-bg); padding: 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
         .action-popup-content pre code { background: none; padding: 0; }
         .action-popup-loading { color: var(--text-secondary); font-style: italic; }
+        /* Confirmation buttons (whole-document translation prompt) */
+        .action-popup-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
+        .action-popup-actions button {
+            padding: 5px 12px; border: 1px solid var(--border-color); border-radius: 4px;
+            background: var(--bg-tertiary); color: var(--text-primary);
+            font-size: 12px; cursor: pointer;
+        }
+        .action-popup-actions button:hover { background: var(--bg-secondary); }
+        .action-popup-actions button#translate-doc-confirm {
+            background: var(--accent-primary); border-color: var(--accent-primary); color: #fff;
+        }
+        .action-popup-actions button#translate-doc-confirm:hover { filter: brightness(1.1); }
         .action-popup-backdrop {
             display: none;
             position: fixed;

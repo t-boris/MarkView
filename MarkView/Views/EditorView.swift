@@ -683,8 +683,22 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String) {
         Task { @MainActor in
-            await self.parent.workspaceManager.translateDocument(markdown: markdown, targetLang: targetLang)
+            let error = await self.parent.workspaceManager.translateDocument(markdown: markdown, targetLang: targetLang)
+            // Only failures need reporting — success is visible as a new tab
+            // filling in progressively.
+            if let error, let webView = self.webView {
+                webView.evaluateJavaScript(
+                    "window.showSelectionResult(\(Self.jsString("Translation")), \(Self.jsString(error)))"
+                ) { _, _ in }
+            }
         }
+    }
+
+    /// JSON-encode a Swift string into a JS string literal (quotes included).
+    private static func jsString(_ value: String) -> String {
+        (try? JSONSerialization.data(withJSONObject: [value]))
+            .flatMap { String(data: $0, encoding: .utf8) }
+            .map { String($0.dropFirst().dropLast()) } ?? "\"\""
     }
 
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
