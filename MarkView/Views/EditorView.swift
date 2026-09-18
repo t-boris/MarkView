@@ -223,10 +223,10 @@ struct EditorView: NSViewRepresentable {
                 return
             }
 
-            // Local .md file links → open in a new tab
+            // Local .md/.canvas file links → open in a new tab
             if scheme == "file" {
                 let ext = url.pathExtension.lowercased()
-                if ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd" {
+                if ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd" || ext == "canvas" {
                     decisionHandler(.cancel)
                     Task { @MainActor in
                         self.parent.workspaceManager.openFile(url)
@@ -623,7 +623,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
             if scheme == "file" {
                 let ext = url.pathExtension.lowercased()
-                if ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd" {
+                if ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd" || ext == "canvas" {
                     self.parent.workspaceManager.openFile(url)
                 } else {
                     NSWorkspace.shared.open(url)
@@ -718,6 +718,12 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String) {
         Task { @MainActor in
             self.parent.workspaceManager.runAITool(named: tool, contentOverride: content)
+        }
+    }
+
+    func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String) {
+        Task { @MainActor in
+            self.parent.workspaceManager.openCanvasFileReference(path)
         }
     }
 

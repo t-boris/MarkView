@@ -38,6 +38,13 @@
         }
 
         function renderStructuredContent() {
+            // JSON Canvas gets its own interactive renderer (markview-canvas.js);
+            // json/xml/yaml fall through to the fold-tree below.
+            if (state.fileType === 'canvas') {
+                if (typeof window.renderCanvasView === 'function') window.renderCanvasView();
+                return;
+            }
+            if (typeof window.leaveCanvasView === 'function') window.leaveCanvasView();
             let html = '';
             try {
                 if (state.fileType === 'json') {

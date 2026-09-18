@@ -783,6 +783,35 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// Open a file referenced by a JSON Canvas file-node. Canvas paths are
+    /// vault-root-relative (Obsidian convention); resolve against the workspace
+    /// root first, then fall back to the canvas file's own directory. Files the
+    /// app can't render are handed to the system default app.
+    func openCanvasFileReference(_ path: String) {
+        // Reject absolute/escaping paths — canvas files are untrusted input.
+        guard !path.hasPrefix("/"), !path.contains("..") else { return }
+
+        var candidates: [URL] = []
+        if let root = rootNode?.url {
+            candidates.append(root.appendingPathComponent(path))
+        }
+        if activeTabIndex >= 0, activeTabIndex < openTabs.count {
+            let canvasDir = openTabs[activeTabIndex].url.deletingLastPathComponent()
+            candidates.append(canvasDir.appendingPathComponent(path))
+        }
+
+        guard let target = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            NSLog("Canvas file reference not found: \(path)")
+            return
+        }
+
+        if FileType.supportedExtensions.contains(target.pathExtension.lowercased()) {
+            openFile(target)
+        } else {
+            NSWorkspace.shared.open(target)
+        }
+    }
+
     /// Check if a file belongs to the currently open workspace
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
         guard semanticDatabase != nil else { return false }

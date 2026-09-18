@@ -7,13 +7,15 @@ enum FileType: String {
     case json
     case xml
     case yaml
+    case canvas
 
     /// All file extensions the app can open
     static let supportedExtensions: Set<String> = [
         "md", "markdown", "mdown", "mkd",
         "json",
         "xml", "plist", "xsd", "xsl", "xslt", "svg",
-        "yml", "yaml"
+        "yml", "yaml",
+        "canvas"
     ]
 
     /// Determine file type from URL extension
@@ -22,6 +24,7 @@ enum FileType: String {
         case "json": return .json
         case "xml", "plist", "xsd", "xsl", "xslt", "svg": return .xml
         case "yml", "yaml": return .yaml
+        case "canvas": return .canvas
         default: return .markdown
         }
     }

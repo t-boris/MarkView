@@ -28,6 +28,7 @@
     <link rel="stylesheet" href="vendor/css/prism-okaidia.min.css">
     <link rel="stylesheet" href="vendor/css/prism-line-numbers.css">
     <link rel="stylesheet" href="vendor/css/prism-diff-highlight.css">
+    <link rel="stylesheet" href="vendor/css/markview-canvas.css">
 
     <style>
         :root {
@@ -1149,6 +1150,9 @@
     <script src="vendor/js/markview-insight-helpers.js"></script>
     <script src="vendor/js/markview-insight-handlers.js"></script>
     <script src="vendor/js/markview-globals.js"></script>
+    <!-- markview-canvas.js wraps window.setContent / window.scrollToHeading — must
+         load AFTER markview-bridge.js and markview-globals.js define them. -->
+    <script src="vendor/js/markview-canvas.js"></script>
     <script src="vendor/js/markview-d3-mermaid.js"></script>
     <script src="vendor/js/markview-init.js"></script>
 </body>

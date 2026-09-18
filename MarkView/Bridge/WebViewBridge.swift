@@ -273,6 +273,14 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridge(self, didClickLink: href)
             }
 
+        // JS sends: { path: "relative/path/from/canvas.canvas" } — a JSON Canvas
+        // file-node click. Path resolution (workspace root, then canvas dir)
+        // happens in WorkspaceManager.
+        case "canvasOpenFile":
+            if let path = data?["path"] as? String, !path.isEmpty {
+                delegate?.bridge(self, didRequestCanvasOpenFile: path)
+            }
+
         // blocksChanged handled in userContentController directly (deferred)
 
         case "textChanged":
@@ -641,6 +649,7 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridgeRefreshRequested(_ bridge: WebViewBridge)
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String)
+    func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String)
 
     // MARK: Insight messages (Recursive Insight v2, Task 7)
     //

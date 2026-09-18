@@ -1,0 +1,243 @@
+/* ============================================================================
+   JSON Canvas viewer (.canvas) — see markview-canvas.js
+   Theme-aware via :root vars from index.html + html[data-theme="light"] overrides.
+   ============================================================================ */
+
+:root {
+    --cv-edge-color: #7a7a7a;
+    --cv-node-bg: rgba(37, 37, 38, 0.92);
+    --cv-node-border: #4a4a4a;
+    --cv-group-label: #b8b8b8;
+    --cv-grid-dot: rgba(255, 255, 255, 0.055);
+}
+html[data-theme="light"] {
+    --cv-edge-color: #8a8a8a;
+    --cv-node-bg: rgba(255, 255, 255, 0.95);
+    --cv-node-border: #c8c8c8;
+    --cv-group-label: #555;
+    --cv-grid-dot: rgba(0, 0, 0, 0.07);
+}
+
+/* Kill the document padding/scroll while a canvas is shown */
+body.canvas-mode .editor-rendered {
+    padding: 0;
+    overflow: hidden;
+    cursor: default;
+}
+
+.canvas-viewport {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--bg-primary);
+    background-image: radial-gradient(var(--cv-grid-dot) 1px, transparent 1px);
+    background-size: 24px 24px;
+    user-select: none;
+    cursor: grab;
+}
+.canvas-viewport.panning { cursor: grabbing; }
+
+.canvas-world {
+    position: absolute;
+    top: 0; left: 0;
+    width: 0; height: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
+/* --- Toolbar --- */
+.canvas-toolbar {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 11px;
+    z-index: 20;
+    opacity: 0.95;
+}
+.canvas-toolbar button {
+    padding: 3px 8px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 11px;
+    cursor: pointer;
+}
+.canvas-toolbar button:hover { background: var(--bg-tertiary); }
+.canvas-toolbar .canvas-zoom-label {
+    min-width: 40px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+.canvas-toolbar .canvas-stats { margin-left: 10px; color: var(--text-tertiary); }
+.canvas-toolbar .spacer { flex: 1; }
+
+/* --- Nodes --- */
+.canvas-node {
+    position: absolute;
+    box-sizing: border-box;
+    background: var(--cv-node-bg);
+    border: 2px solid var(--cv-node-border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+}
+.canvas-node.selected {
+    box-shadow: 0 0 0 3px var(--selection-color, #569cd6);
+    z-index: 5;
+}
+/* colored nodes get a subtle tint of their own color */
+.canvas-node[style*="--cv-node-color"] {
+    background:
+        linear-gradient(color-mix(in srgb, var(--cv-node-color) 10%, transparent),
+                        color-mix(in srgb, var(--cv-node-color) 10%, transparent)),
+        var(--cv-node-bg);
+}
+
+.canvas-node-content {
+    width: 100%;
+    height: 100%;
+    padding: 10px 12px;
+    box-sizing: border-box;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 1.45;
+    user-select: text;
+}
+.canvas-node.selected .canvas-node-content { overflow-y: auto; }
+.canvas-node-content.markdown-body > :first-child { margin-top: 0; }
+.canvas-node-content.markdown-body h1 { font-size: 1.3em; }
+.canvas-node-content.markdown-body h2 { font-size: 1.15em; }
+.canvas-node-content.markdown-body pre { font-size: 11px; }
+
+/* group nodes: translucent region behind other nodes */
+.canvas-node-group {
+    background: color-mix(in srgb, var(--cv-node-border) 12%, transparent);
+    border-style: dashed;
+    border-radius: 12px;
+    overflow: visible;
+    cursor: default;
+}
+.canvas-node-group[style*="--cv-node-color"] {
+    background: color-mix(in srgb, var(--cv-node-color) 8%, transparent);
+}
+.canvas-group-label {
+    position: absolute;
+    top: -22px; left: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--cv-group-label);
+    white-space: nowrap;
+}
+
+/* file / link nodes */
+.canvas-file, .canvas-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 4px;
+    color: var(--text-primary);
+}
+.canvas-file-icon { font-size: 22px; }
+.canvas-file-name { font-weight: 600; font-size: 12px; word-break: break-all; }
+.canvas-file-path, .canvas-link-url {
+    font-size: 10px;
+    color: var(--text-secondary);
+    word-break: break-all;
+    max-height: 3.6em;
+    overflow: hidden;
+}
+.canvas-file-hint { font-size: 9px; color: var(--text-tertiary); }
+
+/* --- Edges (SVG) --- */
+.canvas-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.canvas-edge { pointer-events: auto; cursor: pointer; }
+.canvas-edge-hit { stroke: transparent; stroke-width: 14; fill: none; }
+.canvas-edge-line { stroke: var(--cv-edge-color); stroke-width: 2.5; fill: none; }
+.canvas-edge:hover .canvas-edge-line { stroke-width: 4; }
+.canvas-edge.selected .canvas-edge-line { stroke-width: 4.5; }
+.canvas-edge-arrow { stroke: none; }
+.canvas-edge-label {
+    font-size: 12px;
+    fill: var(--text-primary);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    paint-order: stroke;
+    stroke: var(--bg-primary);
+    stroke-width: 4px;
+    stroke-linejoin: round;
+}
+
+/* --- Properties panel --- */
+.canvas-props {
+    position: absolute;
+    top: 48px; right: 8px;
+    width: 260px;
+    max-height: calc(100% - 60px);
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-primary);
+    z-index: 21;
+    user-select: text;
+}
+.canvas-props-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: capitalize;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+.canvas-props-close {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0 2px;
+}
+.canvas-props-close:hover { color: var(--text-primary); }
+.canvas-prop { display: flex; gap: 8px; padding: 2px 0; }
+.canvas-prop-key { min-width: 56px; color: var(--text-secondary); flex-shrink: 0; }
+.canvas-prop-value { word-break: break-all; }
+.canvas-swatch {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    margin-right: 5px;
+    vertical-align: -1px;
+    border: 1px solid var(--border-color);
+}
+.canvas-prop-block {
+    margin-top: 6px;
+    border-top: 1px solid var(--border-color);
+    padding-top: 6px;
+}
+.canvas-prop-block pre {
+    margin: 0;
+    max-height: 220px;
+    overflow: auto;
+    font-size: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    padding: 6px;
+}

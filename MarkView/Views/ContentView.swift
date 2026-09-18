@@ -273,7 +273,11 @@ struct ContentView: View {
 
     private func openFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.markdownText, .plainText]
+        var types: [UTType] = [.markdownText, .plainText]
+        if let canvasType = UTType(filenameExtension: "canvas") {
+            types.append(canvasType)
+        }
+        panel.allowedContentTypes = types
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
@@ -313,7 +317,7 @@ struct ContentView: View {
                     let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                     if isDir {
                         workspaceManager.openFolder(url)
-                    } else if url.pathExtension.lowercased() == "md" {
+                    } else if FileType.supportedExtensions.contains(url.pathExtension.lowercased()) {
                         workspaceManager.openFile(url)
                     }
                 }

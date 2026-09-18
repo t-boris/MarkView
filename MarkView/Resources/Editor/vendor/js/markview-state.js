@@ -9,7 +9,7 @@
             activeHeadingId: null,
             isRendering: false,
             documentBaseURL: null, // file:// URL of the current document's directory
-            fileType: 'markdown', // 'markdown' | 'json' | 'xml' | 'yaml'
+            fileType: 'markdown', // 'markdown' | 'json' | 'xml' | 'yaml' | 'canvas'
             // Recursive Insight v2 — iframe-based session state.
             // See task 5 / tech-spec Decisions 2, 5, 11.
             insightIframe: null,                  // <iframe> DOM node (recreated on each loadInsightSkeleton)

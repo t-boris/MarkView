@@ -1,0 +1,16 @@
+{
+	"nodes":[
+		{"id":"group-arch","type":"group","x":-40,"y":-60,"width":760,"height":420,"label":"Architecture","color":"5"},
+		{"id":"n-title","type":"text","x":0,"y":0,"width":320,"height":140,"text":"# MarkView Canvas Demo\n\nThis is a **text node** with markdown:\n\n- pan: drag background / ⇧+wheel\n- zoom: mouse wheel / pinch / buttons","color":"4"},
+		{"id":"n-code","type":"text","x":400,"y":0,"width":280,"height":170,"text":"## Code node\n\n```swift\nlet type = FileType.from(url: url)\n```","color":"6"},
+		{"id":"n-file","type":"file","x":0,"y":220,"width":220,"height":110,"file":"demo.md","color":"2"},
+		{"id":"n-link","type":"link","x":400,"y":230,"width":280,"height":90,"url":"https://jsoncanvas.org/","color":"1"},
+		{"id":"n-plain","type":"text","x":180,"y":460,"width":300,"height":90,"text":"Plain uncolored node **outside** the group.\nHex-colored edge points here."}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n-title","fromSide":"right","toNode":"n-code","toSide":"left","label":"renders"},
+		{"id":"e2","fromNode":"n-title","fromSide":"bottom","toNode":"n-file","toSide":"top","color":"2","label":"opens"},
+		{"id":"e3","fromNode":"n-code","fromSide":"bottom","toNode":"n-link","toSide":"top","fromEnd":"arrow","toEnd":"arrow","color":"1"},
+		{"id":"e4","fromNode":"n-file","toNode":"n-plain","color":"#8e44ad","label":"hex color"}
+	]
+}
