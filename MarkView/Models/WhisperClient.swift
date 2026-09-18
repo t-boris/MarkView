@@ -13,6 +13,17 @@ class WhisperClient: ObservableObject {
     private var recordingURL: URL
 
     private static let apiKeyStorage = "com.markview.dde.openai.apikey"
+    static let modelStorage = "settings.whisper.model"
+
+    /// Transcription models OpenAI accepts on /v1/audio/transcriptions.
+    static let availableModels = ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"]
+    static let defaultModel = "whisper-1"
+
+    /// Model used for transcription, configurable in DDE Settings.
+    static var selectedModel: String {
+        let stored = UserDefaults.standard.string(forKey: modelStorage) ?? ""
+        return availableModels.contains(stored) ? stored : defaultModel
+    }
 
     var hasAPIKey: Bool {
         guard let key = UserDefaults.standard.string(forKey: Self.apiKeyStorage) else { return false }
@@ -23,9 +34,17 @@ class WhisperClient: ObservableObject {
         UserDefaults.standard.string(forKey: Self.apiKeyStorage)
     }
 
+    /// Microphone authorization, for the Settings diagnostics panel.
+    static var microphoneStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+
     init() {
+        // `beginRecording` overwrites this with the .wav path it actually records
+        // to — which is what the multipart body declares. Start from the same
+        // extension so the two can never disagree.
         let tempDir = FileManager.default.temporaryDirectory
-        recordingURL = tempDir.appendingPathComponent("markview_whisper.m4a")
+        recordingURL = tempDir.appendingPathComponent("markview_whisper.wav")
     }
 
     // MARK: - Recording
@@ -127,7 +146,7 @@ class WhisperClient: ObservableObject {
         // Model field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-1\r\n".data(using: .utf8)!)
+        body.append("\(Self.selectedModel)\r\n".data(using: .utf8)!)
 
         // Prompt hint — helps Whisper understand the context
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
@@ -154,8 +173,10 @@ class WhisperClient: ObservableObject {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                // Read the status outside the guard binding — it is not in scope here.
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 let errBody = String(data: data, encoding: .utf8) ?? ""
-                error = "Whisper API error: \(errBody.prefix(200))"
+                error = "Whisper API error (HTTP \(status), model \(Self.selectedModel)): \(errBody.prefix(300))"
                 return nil
             }
 
@@ -172,5 +193,48 @@ class WhisperClient: ObservableObject {
             self.error = "Network error: \(error.localizedDescription)"
             return nil
         }
+    }
+
+    // MARK: - Self test
+
+    /// Record for `seconds`, transcribe, and report exactly what happened.
+    /// Used by the DDE Settings diagnostics panel so a Whisper failure shows its
+    /// real cause (permission, key, model, HTTP status) instead of nothing at all.
+    func runSelfTest(seconds: Double = 3.0) async -> String {
+        guard hasAPIKey else {
+            return "❌ OpenAI API key is not set. Add it in DDE Settings above."
+        }
+        switch Self.microphoneStatus {
+        case .authorized, .notDetermined:
+            break
+        case .denied, .restricted:
+            return "❌ Microphone access denied. System Settings → Privacy & Security → Microphone."
+        @unknown default:
+            return "❌ Microphone status unknown."
+        }
+
+        error = nil
+        transcribedText = nil
+        startRecording()
+
+        // startRecording may go through an async permission prompt; wait for the
+        // recorder to actually come up before starting the clock.
+        let startDeadline = Date().addingTimeInterval(5)
+        while !isRecording, error == nil, Date() < startDeadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        if let error { return "❌ Could not start recording: \(error)" }
+        guard isRecording else { return "❌ Recording did not start (timed out waiting for the microphone)." }
+
+        try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+
+        let text = await stopRecording()
+        if let error { return "❌ \(error)" }
+        guard let text else { return "❌ No transcript returned and no error reported." }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "⚠️ Request succeeded but the transcript is empty — model \(Self.selectedModel) heard nothing. Check the input device level."
+        }
+        return "✅ \(Self.selectedModel): \"\(trimmed)\""
     }
 }

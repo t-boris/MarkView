@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import AVFoundation
 
 /// Settings panel for DDE — API key, model, privacy mode
 struct DDESettingsView: View {
@@ -12,6 +14,18 @@ struct DDESettingsView: View {
     @State private var openaiStatus: KeyStatus = .unknown
     @State private var ollamaConnected = false
     @State private var ollamaModelCount = 0
+
+    // AI CLI tools (Claude Code / Codex)
+    @State private var cliPaths: [CLITool: String] = [:]
+    @State private var cliProbes: [CLITool: CLIToolLocator.ProbeResult] = [:]
+    @State private var cliProbing: Set<CLITool> = []
+    @State private var extraPath: String = ""
+
+    // Whisper diagnostics
+    @AppStorage(WhisperClient.modelStorage) private var whisperModel: String = WhisperClient.defaultModel
+    @StateObject private var whisperClient = WhisperClient()
+    @State private var whisperTesting = false
+    @State private var whisperTestResult: String?
 
     enum KeyStatus { case unknown, checking, valid, invalid(String) }
 
@@ -107,6 +121,78 @@ struct DDESettingsView: View {
                         Spacer()
                         Text("Used for: embeddings search, Whisper voice input")
                             .font(.system(size: 9)).foregroundColor(.secondary)
+                    }
+                }.padding(8)
+            }
+
+            // AI CLI Tools — paths, auth, and PATH, all overridable so a broken
+            // integration can always be repaired from the UI.
+            GroupBox("AI CLI Tools (Claude Code / Codex)") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(CLITool.allCases, id: \.self) { tool in
+                        cliToolRow(tool)
+                        if tool != CLITool.allCases.last { Divider() }
+                    }
+
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Extra PATH entries")
+                            .font(.caption.bold())
+                        TextField("/opt/homebrew/bin:/some/other/bin", text: $extraPath)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 10, design: .monospaced))
+                            .onSubmit { UserDefaults.standard.set(extraPath, forKey: "settings.cli.extraPATH") }
+                        Text("Added to PATH for spawned CLIs. Node version dirs are included automatically.")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                    }
+                }.padding(8)
+            }
+
+            // Whisper diagnostics — the config that has to line up for voice input.
+            GroupBox("Whisper (voice input)") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Microphone:").font(.caption)
+                        micStatusView
+                        Spacer()
+                        if WhisperClient.microphoneStatus != .authorized {
+                            Button("Open System Settings") {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }.font(.caption)
+                        }
+                    }
+                    HStack {
+                        Text("OpenAI key:").font(.caption)
+                        if !(EmbeddingClient.loadKey() ?? "").isEmpty {
+                            Label("Set", systemImage: "checkmark.circle.fill")
+                                .font(.caption).foregroundColor(.green)
+                        } else {
+                            Label("Not set", systemImage: "xmark.circle.fill")
+                                .font(.caption).foregroundColor(.red)
+                        }
+                        Spacer()
+                    }
+                    Picker("Model:", selection: $whisperModel) {
+                        ForEach(WhisperClient.availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }.pickerStyle(.menu)
+
+                    HStack {
+                        Button(whisperTesting ? "Recording..." : "Record 3s and transcribe") {
+                            runWhisperTest()
+                        }
+                        .disabled(whisperTesting)
+                        if whisperTesting { ProgressView().scaleEffect(0.5) }
+                        Spacer()
+                    }
+                    if let result = whisperTestResult {
+                        Text(result)
+                            .font(.system(size: 10, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }.padding(8)
             }
@@ -216,12 +302,15 @@ struct DDESettingsView: View {
         .onAppear {
             apiKey = AIProviderClient.loadKeyFromKeychain() ?? ""
             openaiKey = EmbeddingClient.loadKey() ?? ""
-            WorkspaceManager.debugLog("[DDE Settings] loaded anthropic key: \(apiKey.prefix(20))... (\(apiKey.count) chars)")
-            WorkspaceManager.debugLog("[DDE Settings] loaded openai key: \(openaiKey.prefix(20))... (\(openaiKey.count) chars)")
+            // Log presence and length only — never any part of the key itself.
+            WorkspaceManager.debugLog("[DDE Settings] anthropic key: \(apiKey.isEmpty ? "absent" : "present (\(apiKey.count) chars)")")
+            WorkspaceManager.debugLog("[DDE Settings] openai key: \(openaiKey.isEmpty ? "absent" : "present (\(openaiKey.count) chars)")")
             ollamaConnected = workspaceManager.ollamaClient.isConnected
             ollamaModelCount = workspaceManager.ollamaClient.availableModels.count
             if !apiKey.isEmpty { verifyAnthropicKey(apiKey) }
             if !openaiKey.isEmpty { verifyOpenAIKey(openaiKey) }
+            loadCLISettings()
+            for tool in CLITool.allCases { probeCLI(tool) }
             Task {
                 await workspaceManager.ollamaClient.checkConnection()
                 ollamaConnected = workspaceManager.ollamaClient.isConnected
@@ -235,6 +324,137 @@ struct DDESettingsView: View {
         case "localOnly": return "No data sent to AI. Only structural parsing + cached results."
         case "redactBeforeSend": return "Sensitive content replaced with placeholders before sending."
         default: return "Content sent to Claude API as-is. Use for trusted environments."
+        }
+    }
+
+    // MARK: - AI CLI Tools
+
+    /// One configurable CLI: path override, auto-detect, probe, and Terminal login.
+    @ViewBuilder
+    private func cliToolRow(_ tool: CLITool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(tool.displayName).font(.caption.bold())
+
+            HStack(spacing: 6) {
+                TextField(
+                    CLIToolLocator.resolve(tool) ?? "not found — enter the full path",
+                    text: Binding(
+                        get: { cliPaths[tool] ?? "" },
+                        set: { cliPaths[tool] = $0 }
+                    )
+                )
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 10, design: .monospaced))
+                .onSubmit { applyCLIPath(tool) }
+
+                Button("Save") { applyCLIPath(tool) }
+                    .font(.caption)
+                Button("Auto-detect") {
+                    cliPaths[tool] = ""
+                    CLIToolLocator.setOverride(nil, for: tool)
+                    probeCLI(tool)
+                }.font(.caption)
+            }
+
+            HStack(spacing: 8) {
+                if cliProbing.contains(tool) {
+                    ProgressView().scaleEffect(0.5)
+                    Text("Checking...").font(.caption).foregroundColor(.orange)
+                } else if let probe = cliProbes[tool] {
+                    cliProbeStatusView(probe)
+                } else {
+                    Label("Not checked", systemImage: "questionmark.circle")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+                Spacer()
+                Button("Check") { probeCLI(tool) }
+                    .font(.caption).disabled(cliProbing.contains(tool))
+                Button("Login in Terminal") {
+                    if let error = CLIToolLocator.openLoginInTerminal(tool) {
+                        cliProbes[tool] = CLIToolLocator.ProbeResult(error: error)
+                    }
+                }.font(.caption)
+            }
+
+            if let path = cliProbes[tool]?.path {
+                Text(path)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cliProbeStatusView(_ probe: CLIToolLocator.ProbeResult) -> some View {
+        if let error = probe.error {
+            Label(error, systemImage: "xmark.circle.fill")
+                .font(.caption).foregroundColor(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            HStack(spacing: 6) {
+                Label(probe.version ?? "found", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundColor(.green)
+                switch probe.loggedIn {
+                case .some(true):
+                    Text("· signed in").font(.caption).foregroundColor(.green)
+                case .some(false):
+                    Text("· NOT signed in").font(.caption).foregroundColor(.orange)
+                case nil:
+                    Text("· sign-in state unknown").font(.caption).foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private func applyCLIPath(_ tool: CLITool) {
+        CLIToolLocator.setOverride(cliPaths[tool], for: tool)
+        probeCLI(tool)
+    }
+
+    private func probeCLI(_ tool: CLITool) {
+        cliProbing.insert(tool)
+        Task {
+            let result = await CLIToolLocator.probe(tool)
+            cliProbes[tool] = result
+            cliProbing.remove(tool)
+        }
+    }
+
+    private func loadCLISettings() {
+        for tool in CLITool.allCases {
+            cliPaths[tool] = CLIToolLocator.override(for: tool) ?? ""
+        }
+        extraPath = UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? ""
+    }
+
+    // MARK: - Whisper diagnostics
+
+    @ViewBuilder
+    private var micStatusView: some View {
+        switch WhisperClient.microphoneStatus {
+        case .authorized:
+            Label("Allowed", systemImage: "checkmark.circle.fill")
+                .font(.caption).foregroundColor(.green)
+        case .denied, .restricted:
+            Label("Denied", systemImage: "xmark.circle.fill")
+                .font(.caption).foregroundColor(.red)
+        case .notDetermined:
+            Label("Not requested yet", systemImage: "questionmark.circle")
+                .font(.caption).foregroundColor(.orange)
+        @unknown default:
+            Label("Unknown", systemImage: "questionmark.circle")
+                .font(.caption).foregroundColor(.secondary)
+        }
+    }
+
+    private func runWhisperTest() {
+        whisperTesting = true
+        whisperTestResult = nil
+        Task {
+            let result = await whisperClient.runSelfTest()
+            whisperTestResult = result
+            whisperTesting = false
         }
     }
 

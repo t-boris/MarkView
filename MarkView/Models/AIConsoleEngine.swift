@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// AI Console Engine — runs Claude Code CLI as subprocess
 @MainActor
@@ -20,8 +21,10 @@ class AIConsoleEngine: ObservableObject {
     private var claudeSessionId: String?
     var onFilesChanged: (([String]) -> Void)?
 
-    static let claudePath = "/Users/boris/.local/bin/claude"
-    static let codexPath = "/opt/homebrew/bin/codex"
+    // Binary locations are resolved at call time by `CLIToolLocator` — a user
+    // override from Settings, then a candidate scan, then a login-shell lookup.
+    // They used to be hardcoded here, which silently broke Codex when it was
+    // installed via npm/nvm rather than Homebrew.
 
     /// Full codebase audit prompt — generates comprehensive architecture documentation
     static let codebaseAuditPrompt = """
@@ -244,17 +247,37 @@ Begin scanning the current directory now and generate all documentation.
 
             let process = Process()
             let currentBackend = self.backend
+            let tool: CLITool = currentBackend == .claude ? .claude : .codex
+
+            guard let toolPath = CLIToolLocator.resolve(tool) else {
+                // Say exactly what is wrong and where to fix it — a missing binary
+                // used to surface only as an opaque NSError from process.run().
+                let hint: String
+                if let override = CLIToolLocator.override(for: tool) {
+                    hint = "The path configured in DDE Settings does not exist or is not executable:\n\(override)"
+                } else {
+                    hint = "Searched: \(CLIToolLocator.searchDirectories().joined(separator: ", "))"
+                }
+                let message = "\(tool.displayName) (`\(tool.binaryName)`) was not found.\n\n\(hint)\n\n"
+                    + "Open DDE Settings → AI CLI Tools to set the path or run Auto-detect."
+                debugLog("Tool not found: \(tool.binaryName). \(hint)")
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.currentStatus = nil
+                    self.messages[msgIndex].content = message
+                }
+                return
+            }
+
+            process.executableURL = URL(fileURLWithPath: toolPath)
             switch currentBackend {
             case .claude:
-                // Resolve symlinks — sandbox needs the real binary path
-                process.executableURL = URL(fileURLWithPath: Self.claudePath)
                 var args = ["-p", text, "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"]
                 if let sessionId = self.claudeSessionId {
                     args.append(contentsOf: ["--resume", sessionId])
                 }
                 process.arguments = args
             case .codex:
-                process.executableURL = URL(fileURLWithPath: Self.codexPath)
                 if self.hasSessionStarted {
                     process.arguments = ["exec", "resume", "--last", "--full-auto", "--skip-git-repo-check", text]
                 } else {
@@ -266,7 +289,7 @@ Begin scanning the current directory now and generate all documentation.
             debugLog("CWD: \(root.path)")
 
             var env = ProcessInfo.processInfo.environment
-            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\(NSHomeDirectory())/.local/bin"
+            env["PATH"] = CLIToolLocator.subprocessPath(toolPath: toolPath)
             process.environment = env
 
             let stdout = Pipe()
@@ -659,5 +682,317 @@ Begin scanning the current directory now and generate all documentation.
         messages.removeAll()
         hasSessionStarted = false
         claudeSessionId = nil
+    }
+}
+
+// MARK: - CLI Tool Discovery
+
+/// Locates the Claude Code and Codex command-line binaries.
+///
+/// These used to be hardcoded absolute paths, which broke silently whenever a tool
+/// was installed somewhere else — an npm/nvm install of Codex lands in
+/// `~/.nvm/versions/node/<version>/bin`, and that path changes on every Node
+/// upgrade. Resolution is now: user override from Settings, then a candidate scan
+/// (including every installed Node version), then a login-shell lookup.
+enum CLITool: String, CaseIterable {
+    case claude
+    case codex
+
+    var displayName: String {
+        switch self {
+        case .claude: return "Claude Code"
+        case .codex: return "Codex"
+        }
+    }
+
+    /// Executable name as installed on disk.
+    var binaryName: String { rawValue }
+
+    /// UserDefaults key holding the user's explicit path override ("" = auto-detect).
+    var overrideKey: String { "settings.cli.\(rawValue)Path" }
+
+    /// Arguments that print the version without touching the network.
+    var versionArgs: [String] { ["--version"] }
+
+    /// Arguments that report login state without consuming tokens.
+    var authStatusArgs: [String] {
+        switch self {
+        case .claude: return ["auth", "status"]
+        case .codex: return ["login", "status"]
+        }
+    }
+
+    /// Command the user runs in Terminal to authenticate.
+    var loginCommand: String {
+        switch self {
+        case .claude: return "auth login"
+        case .codex: return "login"
+        }
+    }
+}
+
+enum CLIToolLocator {
+
+    /// Extra `PATH` entries the user configured in Settings (colon- or newline-separated).
+    static var extraPathEntries: [String] {
+        (UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? "")
+            .components(separatedBy: CharacterSet(charactersIn: ":\n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// The user's explicit override, or nil when set to auto-detect.
+    static func override(for tool: CLITool) -> String? {
+        let value = (UserDefaults.standard.string(forKey: tool.overrideKey) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        return value.isEmpty ? nil : value
+    }
+
+    static func setOverride(_ path: String?, for tool: CLITool) {
+        let value = (path ?? "").trimmingCharacters(in: .whitespaces)
+        UserDefaults.standard.set(value, forKey: tool.overrideKey)
+    }
+
+    /// Every `bin` directory belonging to an installed Node version, newest first.
+    /// This is the directory an `npm install -g codex` actually writes to, and the
+    /// one the previous hardcoded `/opt/homebrew/bin` path could never find.
+    static func nodeBinDirectories() -> [String] {
+        let fm = FileManager.default
+        let versionsRoot = NSHomeDirectory() + "/.nvm/versions/node"
+        guard let versions = try? fm.contentsOfDirectory(atPath: versionsRoot) else { return [] }
+        return versions
+            .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+            .map { "\(versionsRoot)/\($0)/bin" }
+    }
+
+    /// Directories searched when no override is set, in priority order.
+    static func searchDirectories() -> [String] {
+        let home = NSHomeDirectory()
+        return extraPathEntries
+            + ["\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin",
+               "\(home)/.claude/local", "\(home)/bin", "/usr/bin"]
+            + nodeBinDirectories()
+    }
+
+    /// Resolve a tool to an executable path, or nil if it cannot be found.
+    /// Pure filesystem work — safe to call from the main actor.
+    static func resolve(_ tool: CLITool) -> String? {
+        if let override = override(for: tool) {
+            // An override that no longer exists is reported as "not found" so the
+            // user sees the problem instead of a cryptic launch failure.
+            return isExecutable(override) ? override : nil
+        }
+        for directory in searchDirectories() {
+            let candidate = "\(directory)/\(tool.binaryName)"
+            if isExecutable(candidate) { return candidate }
+        }
+        return nil
+    }
+
+    /// Last-resort lookup through a login shell, which picks up PATH entries set by
+    /// nvm/rbenv/etc. in the user's dotfiles. Off-main and time-bounded.
+    static func resolveViaLoginShell(_ tool: CLITool) async -> String? {
+        let result = await run("/bin/zsh", ["-lc", "command -v \(tool.binaryName)"], timeout: 10)
+        let path = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty, isExecutable(path) else { return nil }
+        return path
+    }
+
+    /// Resolve, falling back to the login shell when the candidate scan comes up empty.
+    static func resolveThorough(_ tool: CLITool) async -> String? {
+        if let path = resolve(tool) { return path }
+        if override(for: tool) != nil { return nil }  // explicit override, don't second-guess it
+        return await resolveViaLoginShell(tool)
+    }
+
+    static func isExecutable(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else { return false }
+        return fm.isExecutableFile(atPath: path)
+    }
+
+    /// `PATH` handed to spawned CLIs. Includes the tool's own directory and every
+    /// Node bin dir, so a node-based CLI can find its own runtime.
+    static func subprocessPath(toolPath: String?) -> String {
+        let home = NSHomeDirectory()
+        var entries: [String] = []
+        if let toolPath { entries.append((toolPath as NSString).deletingLastPathComponent) }
+        entries += extraPathEntries
+        entries += ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+                    "/usr/sbin", "/sbin", "\(home)/.local/bin"]
+        entries += nodeBinDirectories()
+        // Preserve order, drop duplicates.
+        var seen = Set<String>()
+        return entries.filter { seen.insert($0).inserted }.joined(separator: ":")
+    }
+
+    // MARK: - Probing
+
+    struct ProbeResult {
+        var path: String?
+        var version: String?
+        var loggedIn: Bool?
+        var error: String?
+    }
+
+    /// Check that a tool is present, runnable, and authenticated.
+    /// Uses each CLI's own status command — no tokens are spent.
+    static func probe(_ tool: CLITool) async -> ProbeResult {
+        guard let path = await resolveThorough(tool) else {
+            let searched = searchDirectories().prefix(4).joined(separator: ", ")
+            if let override = override(for: tool) {
+                return ProbeResult(error: "Path set in Settings does not exist or is not executable: \(override)")
+            }
+            return ProbeResult(error: "\(tool.binaryName) not found. Searched \(searched), … — set the path manually in Settings.")
+        }
+
+        let versionRun = await run(path, tool.versionArgs, timeout: 20)
+        guard versionRun.exitCode == 0 else {
+            let detail = (versionRun.stderr.isEmpty ? versionRun.stdout : versionRun.stderr)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return ProbeResult(path: path, error: "Could not run \(path): \(detail.prefix(200))")
+        }
+        let version = versionRun.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let authRun = await run(path, tool.authStatusArgs, timeout: 30)
+        let authOutput = authRun.stdout + authRun.stderr
+        let loggedIn: Bool?
+        switch tool {
+        case .claude:
+            // `claude auth status` emits JSON with a "loggedIn" boolean.
+            if let data = authRun.stdout.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let flag = json["loggedIn"] as? Bool {
+                loggedIn = flag
+            } else {
+                loggedIn = authOutput.localizedCaseInsensitiveContains("logged in") ? true : nil
+            }
+        case .codex:
+            // `codex login status` prints e.g. "Logged in using ChatGPT".
+            if authOutput.localizedCaseInsensitiveContains("not logged in") {
+                loggedIn = false
+            } else if authOutput.localizedCaseInsensitiveContains("logged in") {
+                loggedIn = true
+            } else {
+                loggedIn = nil
+            }
+        }
+        return ProbeResult(path: path, version: version, loggedIn: loggedIn)
+    }
+
+    // MARK: - Process helper
+
+    struct RunResult {
+        var exitCode: Int32
+        var stdout: String
+        var stderr: String
+    }
+
+    /// Run a command off the main thread, draining both pipes concurrently with the
+    /// wait so a full pipe can never deadlock the app (CLAUDE.md process rule), and
+    /// terminating it if it outlives `timeout`.
+    static func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) async -> RunResult {
+        let path = subprocessPath(toolPath: executable)
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: executable)
+                process.arguments = arguments
+                var env = ProcessInfo.processInfo.environment
+                env["PATH"] = path
+                process.environment = env
+
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                process.standardOutput = outPipe
+                process.standardError = errPipe
+
+                do {
+                    try process.run()
+                } catch {
+                    continuation.resume(returning: RunResult(exitCode: -1, stdout: "", stderr: error.localizedDescription))
+                    return
+                }
+
+                // Read both pipes on their own queues so neither can fill and block.
+                var outData = Data()
+                var errData = Data()
+                let lock = NSLock()
+                let group = DispatchGroup()
+                for (pipe, isStdout) in [(outPipe, true), (errPipe, false)] {
+                    group.enter()
+                    DispatchQueue.global(qos: .utility).async {
+                        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                        lock.lock()
+                        if isStdout { outData = data } else { errData = data }
+                        lock.unlock()
+                        group.leave()
+                    }
+                }
+
+                // Poll instead of blocking forever, so a hung CLI is terminated
+                // rather than pinning this worker. We are already off the main
+                // thread and both pipes are draining on their own queues.
+                let deadline = Date().addingTimeInterval(timeout)
+                var timedOut = false
+                while process.isRunning {
+                    if Date() > deadline {
+                        process.terminate()
+                        timedOut = true
+                        break
+                    }
+                    usleep(50_000)
+                }
+                process.waitUntilExit()
+                _ = group.wait(timeout: .now() + 5)
+
+                lock.lock()
+                let out = String(data: outData, encoding: .utf8) ?? ""
+                let err = String(data: errData, encoding: .utf8) ?? ""
+                lock.unlock()
+
+                continuation.resume(returning: RunResult(
+                    exitCode: timedOut ? -2 : process.terminationStatus,
+                    stdout: out,
+                    stderr: timedOut ? "Timed out after \(Int(timeout))s. \(err)" : err
+                ))
+            }
+        }
+    }
+
+    // MARK: - Terminal login
+
+    /// Write an executable `.command` file and open it, which macOS runs in
+    /// Terminal.app. Deliberately avoids NSAppleScript: driving Terminal through
+    /// Apple Events would require an automation permission prompt and an
+    /// NSAppleEventsUsageDescription entry.
+    @discardableResult
+    static func openLoginInTerminal(_ tool: CLITool) -> String? {
+        guard let toolPath = resolve(tool) else {
+            return "\(tool.binaryName) not found — set its path in Settings first."
+        }
+        let fm = FileManager.default
+        let directory = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/MarkView", isDirectory: true)
+        let script = directory.appendingPathComponent("login-\(tool.rawValue).command")
+        let body = """
+            #!/bin/zsh
+            export PATH="\(subprocessPath(toolPath: toolPath))"
+            echo "Signing in to \(tool.displayName)…"
+            "\(toolPath)" \(tool.loginCommand)
+            echo
+            echo "Done. You can close this window."
+
+            """
+        do {
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            try body.write(to: script, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        } catch {
+            return "Could not prepare the login script: \(error.localizedDescription)"
+        }
+        NSWorkspace.shared.open(script)
+        return nil
     }
 }
