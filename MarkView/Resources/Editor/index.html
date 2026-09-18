@@ -532,11 +532,108 @@
             justify-content: center;
             align-items: center;
             margin: 1.5em 0;
+            position: relative;
         }
 
         .mermaid svg {
             max-width: 100%;
             height: auto;
+        }
+
+        /* Expand button — appears on hover, opens the fullscreen viewer */
+        .mermaid-expand-btn {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            font-size: 14px;
+            line-height: 1;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+
+        .mermaid:hover .mermaid-expand-btn {
+            opacity: 1;
+        }
+
+        .mermaid-expand-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--accent-primary);
+        }
+
+        /* Fullscreen diagram viewer overlay */
+        .diagram-viewer {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            background: var(--bg-primary);
+        }
+
+        .diagram-viewer.visible {
+            display: flex;
+        }
+
+        .diagram-viewer-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            flex: 0 0 auto;
+        }
+
+        .diagram-viewer-toolbar button {
+            min-width: 28px;
+            height: 24px;
+            padding: 0 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .diagram-viewer-toolbar button:hover {
+            color: var(--text-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .diagram-viewer-zoom-label {
+            min-width: 44px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            user-select: none;
+        }
+
+        .diagram-viewer-viewport {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        .diagram-viewer-viewport.panning {
+            cursor: grabbing;
+        }
+
+        .diagram-viewer-world {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
         }
 
         /* KaTeX */
@@ -1153,6 +1250,7 @@
     <!-- markview-canvas.js wraps window.setContent / window.scrollToHeading — must
          load AFTER markview-bridge.js and markview-globals.js define them. -->
     <script src="vendor/js/markview-canvas.js"></script>
+    <script src="vendor/js/markview-diagram-viewer.js"></script>
     <script src="vendor/js/markview-d3-mermaid.js"></script>
     <script src="vendor/js/markview-init.js"></script>
 </body>

@@ -139,11 +139,22 @@
                         try {
                             const nodes = DOM.rendered.querySelectorAll('.mermaid');
                             if (nodes.length > 0) {
-                                mermaid.run({ nodes: nodes });
+                                const done = mermaid.run({ nodes: nodes });
+                                // Expand buttons go in after the SVGs exist —
+                                // mermaid.run replaces each div's content. One
+                                // broken diagram rejects the promise while the
+                                // rest still render, so decorate on both paths.
+                                const decorate = () => { try { decorateMermaidDiagrams(); } catch(e3) {} };
+                                if (done && typeof done.then === 'function') {
+                                    done.then(decorate, decorate);
+                                } else {
+                                    setTimeout(decorate, 300);
+                                }
                             }
                         } catch(e) {
                             // Fallback for older mermaid API
                             try { mermaid.contentLoaded(); } catch(e2) {}
+                            setTimeout(() => { try { decorateMermaidDiagrams(); } catch(e3) {} }, 300);
                         }
                     }, 0);
                 }
