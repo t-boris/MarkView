@@ -51,3 +51,49 @@ WebView (mermaid 2.9MB) → миграция БД. Каждый раз трат�
 (static)** коллекции до вызова terminationHandler, не в instance-state короткоживущего объекта.
 Логировать на входе в handler через nonisolated-путь (handler выполняется вне `@MainActor`),
 чтобы отличать «handler не вызвался» от «self уже nil».
+
+## 2026-09-03 — Хардкод абсолютных путей к внешним CLI
+
+**Контекст:** Пользователь сообщил, что Codex перестал работать. Причина: в
+`AIConsoleEngine` путь был константой `"/opt/homebrew/bin/codex"`, а реальный бинарник
+стоял через npm/nvm — `~/.nvm/versions/node/v22.22.3/bin/codex`. При этом `PATH` для
+подпроцессов тоже был литералом без nvm-путей. Ошибка выглядела как «ничего не
+происходит»: `process.run()` кидал непрозрачный NSError, и в UI не было ни причины,
+ни способа исправить.
+
+**Правила:**
+- Никогда не хардкодить абсолютный путь к стороннему бинарнику. Порядок разрешения:
+  явный override из настроек → скан кандидатов (включая **все** `~/.nvm/versions/node/*/bin`)
+  → `command -v` через login-shell. Путь к node-CLI меняется при каждом обновлении Node.
+- Любая интеграция с внешним инструментом должна быть **перенастраиваемой из UI**.
+  Если пользователь не может починить её сам — это дефект дизайна, а не «конфиг».
+- Ошибка «не найдено» обязана называть: что искали, где искали и куда идти чинить.
+  Молчаливый отказ хуже, чем краш.
+- У CLI обычно есть дешёвая неинтерактивная проверка авторизации — использовать её,
+  а не тратить токены пробным запросом: `claude auth status` (JSON, поле `loggedIn`),
+  `codex login status`.
+- Логин в CLI требует TTY/браузер. Открывать Terminal через исполняемый `.command`-файл
+  и `NSWorkspace.open`, а не через `NSAppleScript` — иначе нужны Apple Events
+  и `NSAppleEventsUsageDescription`.
+
+**Сопутствующее:** там же нашёлся лог первых 20 символов API-ключа в
+`~/markview_debug.log` (`DDESettingsView.onAppear`). Логировать только факт наличия
+и длину — никогда никакую часть ключа.
+
+## 2026-09-17 — Fire-and-forget notifications lose requests during startup
+
+**Context:** Finder "Open With" never opened anything. `application(_:open:)` posted a
+NotificationCenter message; the receiving `ContentView` filtered by `hostWindow`,
+which `WindowAccessor` sets on the *next* run-loop turn. On delivery every window
+rejected it and the request vanished. The fallback only covered "no visible window",
+but SwiftUI shows the window before delivering the open event.
+
+**Rules:**
+- An external request (open URL, deep link) must be stored in a durable queue and
+  drained by the receiver; the notification is only a "check the queue" signal.
+- Drain at every moment the receiver may become eligible (signal, window attached,
+  window becomes key), not just once.
+- Don't branch on "is a window visible" at open time — SwiftUI's ordering of
+  window creation vs. `application(_:open:)` is not something to rely on.
+- Verify with `open -n -a <DerivedData app> <path>` and the debug log; one grep for
+  "was it ever handled" (count = 0) proved the bug in seconds.
