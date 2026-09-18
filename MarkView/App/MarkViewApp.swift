@@ -113,11 +113,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             log("  URL: \(url.path)")
         }
-        // Save URL for the new window's onAppear to pick up
-        if let url = urls.first {
-            MarkViewApp.pendingOpenURL = url
-            log("  saved as pendingOpenURL")
-        }
+        MarkViewApp.enqueueOpen(urls)
     }
 }
 
@@ -200,22 +196,16 @@ struct MarkViewApp: App {
                         }
                     }
                     // Handle files/folders opened via Finder Services
-                    appDelegate.onOpenURLs = { [self] urls in
+                    appDelegate.onOpenURLs = { urls in
                         appDelegate.log("onOpenURLs callback fired with \(urls.count) URLs")
-                        for url in urls {
-                            let id = UUID()
-                            appDelegate.log("  posting openInActiveWindow for: \(url.path) id=\(id)")
-                            NotificationCenter.default.post(name: .openInActiveWindow, object: ["url": url, "id": id] as [String: Any])
-                        }
+                        Self.enqueueOpen(urls)
                     }
 
                     appDelegate.log("ContentView onAppear: handler set, starting timer")
                     // Poll for Finder Quick Action requests
                     Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                         Self.checkFinderOpenRequest { urls in
-                            for url in urls {
-                                NotificationCenter.default.post(name: .openInActiveWindow, object: ["url": url, "id": UUID()] as [String: Any])
-                            }
+                            Self.enqueueOpen(urls)
                         }
                     }
                 }
@@ -354,8 +344,19 @@ struct MarkViewApp: App {
 
     /// Pending folder URL for new window to pick up
     static var pendingFolderURL: URL?
-    /// URL from .onOpenURL — saved for the new window that Finder "Open With" creates
-    static var pendingOpenURL: URL?
+    /// Files/folders requested from outside (Finder "Open With", Quick Action)
+    /// that no window has taken yet. Durable until drained, so a request that
+    /// arrives before any window is ready is never lost.
+    static var pendingOpenURLs: [URL] = []
+
+    /// Queue external open requests and signal windows to drain the queue.
+    /// The active window's ContentView takes them (see `drainPendingOpens`).
+    static func enqueueOpen(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        pendingOpenURLs.append(contentsOf: urls)
+        debugLogStatic("enqueueOpen: \(urls.map(\.path)) (queue=\(pendingOpenURLs.count))")
+        NotificationCenter.default.post(name: .openInActiveWindow, object: nil)
+    }
 
     private func newWindow() {
         // Use SwiftUI's built-in new window action (we kept .newItem intact)

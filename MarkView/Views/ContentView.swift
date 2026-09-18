@@ -16,6 +16,9 @@ struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var workspaceManager = WorkspaceManager()
     @State private var showFolderPicker = false
+    /// NSWindow hosting this view — lets open-URL notifications target only the
+    /// active window instead of racing across all ContentView instances.
+    @State private var hostWindow: NSWindow?
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -173,27 +176,57 @@ struct ContentView: View {
                 preselectedType: workspaceManager.pendingGraphCreatorType ?? "architecture"
             )
         }
+        .background(WindowAccessor(window: $hostWindow))
+        // Finder "Open With" / Quick Action: requests wait in
+        // MarkViewApp.pendingOpenURLs until the active window takes them.
+        // Drain on every moment this window may have become eligible — a new
+        // request, its NSWindow becoming known (cold launch: the request
+        // arrives before WindowAccessor resolves), or the window becoming key.
+        .onReceive(NotificationCenter.default.publisher(for: .openInActiveWindow)) { _ in
+            drainPendingOpens(trigger: "request")
+        }
+        .onChange(of: hostWindow) { _ in
+            drainPendingOpens(trigger: "windowAttached")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            guard let window = note.object as? NSWindow, window === hostWindow else { return }
+            drainPendingOpens(trigger: "didBecomeKey")
+        }
         .onAppear {
-            // Check pending URLs from various sources (Open Folder menu, Finder Open With)
-            let url = MarkViewApp.pendingFolderURL ?? MarkViewApp.pendingOpenURL
-            if let url = url {
+            // Pending folder from the explicit Open Folder → new window flow
+            if let url = MarkViewApp.pendingFolderURL {
                 MarkViewApp.pendingFolderURL = nil
-                MarkViewApp.pendingOpenURL = nil
                 WorkspaceManager.debugLog("onAppear: opening \(url.path)")
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if isDir { workspaceManager.openFolder(url) } else { workspaceManager.openFile(url) }
-                return
-            }
-            // Delayed check: application:open: may fire AFTER onAppear
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak workspaceManager] in
-                guard let wm = workspaceManager, wm.rootNode == nil,
-                      let url = MarkViewApp.pendingOpenURL else { return }
-                MarkViewApp.pendingOpenURL = nil
-                WorkspaceManager.debugLog("onAppear delayed: opening \(url.path)")
-                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if isDir { wm.openFolder(url) } else { wm.openFile(url) }
+                workspaceManager.openFolder(url)
             }
         }
+    }
+
+    /// True when this view's window should receive "open in active window"
+    /// requests: the key window, or the frontmost visible window while the app
+    /// is still activating and no window is key yet.
+    private var isActiveWindow: Bool {
+        guard let hostWindow else { return false }
+        if let key = NSApp.keyWindow { return hostWindow === key }
+        let frontmost = NSApp.orderedWindows.first { $0.isVisible && !$0.className.contains("Panel") }
+        return hostWindow === frontmost
+    }
+
+    /// Open all queued external requests in this window if it is the active one.
+    /// The queue is emptied before opening, so exactly one window takes them.
+    private func drainPendingOpens(trigger: String) {
+        guard !MarkViewApp.pendingOpenURLs.isEmpty, isActiveWindow else { return }
+        let urls = MarkViewApp.pendingOpenURLs
+        MarkViewApp.pendingOpenURLs.removeAll()
+        for url in urls {
+            WorkspaceManager.debugLog("openInActiveWindow (\(trigger)): opening \(url.path)")
+            openURL(url)
+        }
+    }
+
+    private func openURL(_ url: URL) {
+        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        if isDir { workspaceManager.openFolder(url) } else { workspaceManager.openFile(url) }
     }
 
     private var themeToken: Int { workspaceManager.themeVersion }
@@ -324,6 +357,22 @@ struct ContentView: View {
             }
         }
         return true
+    }
+}
+
+/// Captures the NSWindow hosting a SwiftUI view, so open-URL notifications can
+/// be filtered to the active window instead of racing across all instances.
+private struct WindowAccessor: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { self.window = view.window }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { self.window = nsView.window }
     }
 }
 
