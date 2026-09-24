@@ -159,21 +159,8 @@
                     }, 0);
                 }
 
-                // Render KaTeX
-                if (typeof renderMathInElement === 'function') {
-                    setTimeout(() => {
-                        try {
-                            renderMathInElement(DOM.rendered, {
-                                delimiters: [
-                                    { left: '$$', right: '$$', display: true },
-                                    { left: '$', right: '$', display: false },
-                                    { left: '\\(', right: '\\)', display: false },
-                                    { left: '\\[', right: '\\]', display: true }
-                                ]
-                            });
-                        } catch(e) {}
-                    }, 100);
-                }
+                // Formulas are rendered by markdown-it itself (markview-mdext.js), before
+                // emphasis can break TeX like `\Delta_\mu`; no post-pass over the HTML.
 
                 // Extract headings
                 extractHeadings();

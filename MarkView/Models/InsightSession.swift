@@ -13,7 +13,7 @@ import Combine
 // right-pane deep-dive list are all deleted. v2 splits generation into:
 //   Phase 1: `graphRAG.buildSkeleton(...)` returns a strict-schema `InsightSkeleton`
 //            via Anthropic tool_use (single non-streaming call, T4 owns the call).
-//   Phase 2: N parallel `providerClient.streamCompletion(...)` calls — one per section
+//   Phase 2: N parallel `CLICompletion.run(...)` calls — one per section
 //            in the skeleton — capped at 5 concurrent via `withThrowingTaskGroup`. Per
 //            section `SectionState.buffer` accumulates the streamed HTML fragment.
 //
@@ -172,9 +172,8 @@ final class InsightNode: Identifiable, Codable {
 ///     semantics. Section-level tasks live only inside `withThrowingTaskGroup`.
 ///   - `cancel()` and `navigateTo(...)` are async — T8 closeTab awaits cancel before
 ///     `cache.cleanup()` to avoid races.
-///   - API key never leaks into `lastError`: snapshot at init, redact in handleStreamError.
 ///   - All long-lived state mutations happen on `@MainActor`; off-main only the
-///     SSE-byte-pump inside `streamCompletion` runs (it hops back via `Task { @MainActor }`).
+///     CLI output reader inside `CLICompletion.run` runs (deltas hop back via `Task { @MainActor }`).
 @MainActor
 final class InsightSession: ObservableObject, Identifiable {
     let id = UUID()
@@ -183,18 +182,11 @@ final class InsightSession: ObservableObject, Identifiable {
 
     let folderURL: URL
     let mdFiles: [URL]
-    private let providerClient: AIProviderClient
     private let graphRAG: GraphRAG?
 
     /// Public-internal so `WorkspaceManager.closeTab` can call `session.cache.cleanup()`
     /// directly per the tech-spec ordered-close (Decision 11 §4) — kept non-private.
     let cache: InsightCache
-
-    /// Snapshot of the api key at init-time, captured via `providerClient.apiKeySnapshot`
-    /// (Decision 10 §6 — used only for redaction inside `handleStreamError`). Same
-    /// limitation as v1: not refreshed on `AIProviderClient.updateAPIKey(_:)`. Mitigated
-    /// by `streamCompletion`'s own `sanitize(_:)` defense-in-depth.
-    private let apiKeySnapshot: String?
 
     // MARK: Published state — bridge layer (T7) subscribes via Combine
 
@@ -284,7 +276,6 @@ final class InsightSession: ObservableObject, Identifiable {
     private static let perSessionBufferCapBytes = 50 * 1024 * 1024  // 50 MB (sum across nodes)
     private static let perFinalHTMLCapBytes = 2 * 1024 * 1024       // 2 MB (final cached HTML)
     private static let maxConcurrentSectionStreams = 5              // Decision 1
-    private static let maxFilesPerDeepDive = 30                     // Decision 5
     private static let perFileTruncationCapBytes = 50 * 1024        // 50 KB (matches GraphRAG)
 
     // MARK: - Init
@@ -292,16 +283,13 @@ final class InsightSession: ObservableObject, Identifiable {
     init(
         folderURL: URL,
         mdFiles: [URL],
-        providerClient: AIProviderClient,
         graphRAG: GraphRAG?,
         cache: InsightCache
     ) {
         self.folderURL = folderURL
         self.mdFiles = mdFiles
-        self.providerClient = providerClient
         self.graphRAG = graphRAG
         self.cache = cache
-        self.apiKeySnapshot = providerClient.apiKeySnapshot
     }
 
     /// v1-compat init — replaced by Task 7/8 once `WorkspaceManager.startRecursiveInsight`
@@ -315,7 +303,6 @@ final class InsightSession: ObservableObject, Identifiable {
     convenience init(
         folderURL: URL,
         mdFiles: [URL],
-        providerClient: AIProviderClient,
         graphRAG: GraphRAG?
     ) throws {
         // Cache lives under the system temp dir during the v1→v2 transition so we don't
@@ -328,7 +315,6 @@ final class InsightSession: ObservableObject, Identifiable {
         self.init(
             folderURL: folderURL,
             mdFiles: mdFiles,
-            providerClient: providerClient,
             graphRAG: graphRAG,
             cache: cache
         )
@@ -442,11 +428,9 @@ final class InsightSession: ObservableObject, Identifiable {
         let prompts = rag.buildSectionPrompt(section: section, allFiles: scopedFiles, folderURL: folderURL, contentType: contentType)
         let nodeIdLocal = curId
         do {
-            try await providerClient.streamCompletion(
-                systemPrompt: prompts.systemPrompt,
-                userMessage: prompts.userMessage,
-                model: "claude-sonnet-4-6",
-                maxTokens: 4096,
+            let result = try await CLICompletion.run(
+                CLICompletion.Request(prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
+                                      readableFolder: prompts.needsFolderAccess ? folderURL : nil),
                 onDelta: { [weak self] chunk in
                     Task { @MainActor [weak self] in
                         guard let self else { return }
@@ -454,6 +438,7 @@ final class InsightSession: ObservableObject, Identifiable {
                     }
                 }
             )
+            result.record(in: rag.db)
             await markSectionReady(sectionId: sectionId, forNodeId: nodeIdLocal)
             // Refresh snapshot with new content for this section.
             try? writeFinalHTMLToCache(nodeId: nodeIdLocal)
@@ -897,12 +882,9 @@ final class InsightSession: ObservableObject, Identifiable {
             }
         }
 
-        // Validate scope_hint paths now (Decision 10 §6). Cap at 30 files (Decision 5).
-        var validated = validateScopeHint(topic.scopeHint)
-        if validated.count > Self.maxFilesPerDeepDive {
-            validated = Array(validated.prefix(Self.maxFilesPerDeepDive))
-            NSLog("[Insight] expand: scope_hint capped at %d files", Self.maxFilesPerDeepDive)
-        }
+        // Validate scope_hint paths now (Decision 10 §6). Any number of files: large scopes
+        // go to the CLI as a catalog with read-only folder access.
+        let validated = validateScopeHint(topic.scopeHint)
 
         // Defense-in-depth: cancel any prior active task before creating new node so a
         // double-click or race never leaves two pipelines mutating shared state.
@@ -1098,12 +1080,12 @@ final class InsightSession: ObservableObject, Identifiable {
     ///   - publishes the parsed skeleton + initialises per-section state.
     private func phase1Skeleton(for nodeId: UUID) async throws -> InsightSkeleton {
         guard let node = nodes[nodeId] else {
-            throw AIProviderError.streamingError("phase1Skeleton: node \(nodeId) evicted")
+            throw InsightSessionError.pipeline("phase1Skeleton: node \(nodeId) evicted")
         }
         node.status = .generatingSkeleton
 
         guard let rag = graphRAG else {
-            throw AIProviderError.streamingError("GraphRAG required for insight generation")
+            throw InsightSessionError.pipeline("GraphRAG required for insight generation")
         }
 
         // For deep-dive topic nodes, narrow mdFiles to the topic's validated scope.
@@ -1216,12 +1198,12 @@ final class InsightSession: ObservableObject, Identifiable {
         skeleton: InsightSkeleton
     ) async throws {
         guard let node = nodes[nodeId] else {
-            throw AIProviderError.streamingError("phase2: node \(nodeId) evicted")
+            throw InsightSessionError.pipeline("phase2: node \(nodeId) evicted")
         }
         node.status = .streamingContent
 
         guard let rag = graphRAG else {
-            throw AIProviderError.streamingError("GraphRAG required for section streaming")
+            throw InsightSessionError.pipeline("GraphRAG required for section streaming")
         }
 
         // Snapshot file list + folder URL at scope-resolution time so the off-actor
@@ -1238,7 +1220,7 @@ final class InsightSession: ObservableObject, Identifiable {
         // buildSectionPrompt is pure + side-effect-free; we materialise the (system,
         // user) pair once here and capture the resulting Sendable strings into the
         // off-actor section tasks. Avoids hopping back to MainActor inside each task.
-        var preparedPrompts: [(section: InsightSection, systemPrompt: String, userMessage: String)] = []
+        var preparedPrompts: [(section: InsightSection, systemPrompt: String, userMessage: String, folder: URL?)] = []
         preparedPrompts.reserveCapacity(skeleton.sections.count)
         for section in skeleton.sections {
             let prompts = rag.buildSectionPrompt(
@@ -1247,7 +1229,8 @@ final class InsightSession: ObservableObject, Identifiable {
                 folderURL: folderURL,
                 contentType: contentType
             )
-            preparedPrompts.append((section: section, systemPrompt: prompts.systemPrompt, userMessage: prompts.userMessage))
+            preparedPrompts.append((section: section, systemPrompt: prompts.systemPrompt, userMessage: prompts.userMessage,
+                                    folder: prompts.needsFolderAccess ? folderURL : nil))
         }
 
         // Status update — phase 2 about to start streaming N sections.
@@ -1274,16 +1257,14 @@ final class InsightSession: ObservableObject, Identifiable {
                 let sectionId = prepared.section.id
                 let systemPrompt = prepared.systemPrompt
                 let userMessage = prepared.userMessage
+                let readableFolder = prepared.folder
                 group.addTask { [weak self] in
                     guard let self else { return }
                     do {
                         try Task.checkCancellation()
                         // Stream. onDelta hops back to MainActor for state mutation.
-                        try await self.providerClient.streamCompletion(
-                            systemPrompt: systemPrompt,
-                            userMessage: userMessage,
-                            model: "claude-sonnet-4-6",
-                            maxTokens: 4096,
+                        let result = try await CLICompletion.run(
+                            CLICompletion.Request(prompt: userMessage, systemPrompt: systemPrompt, readableFolder: readableFolder),
                             onDelta: { [weak self] chunk in
                                 Task { @MainActor [weak self] in
                                     guard let self else { return }
@@ -1295,6 +1276,7 @@ final class InsightSession: ObservableObject, Identifiable {
                                 }
                             }
                         )
+                        await MainActor.run { result.record(in: self.graphRAG?.db) }
                         // Stream finished cleanly. Mark ready on main.
                         await self.markSectionReady(sectionId: sectionId, forNodeId: nodeId)
                     } catch is CancellationError {
@@ -1882,8 +1864,8 @@ final class InsightSession: ObservableObject, Identifiable {
 
     // MARK: - Error handling (pattern table preserved from v1 round-2 fix 62b8bff)
 
-    /// Pattern-match `error` against `AIProviderError` cases (Decision 11 §3 + v1 fix
-    /// 62b8bff). Sanitises the api key out of the message before storing.
+    /// Pattern-match `error` against CLI and pipeline failures (Decision 11 §3 + v1 fix
+    /// 62b8bff).
     /// Preserves section buffers — user sees partial content + Retry button.
     private func handleStreamError(_ error: Error, forNodeId: UUID) {
         // Cancellation is silent (normal lifecycle — user closed tab, retried, etc.).
@@ -1897,27 +1879,12 @@ final class InsightSession: ObservableObject, Identifiable {
         var message: String
         var retryable: Bool
 
-        if let providerError = error as? AIProviderError {
-            switch providerError {
-            case .noAPIKey:
-                message = "No API key configured"
+        if let cliError = error as? CLICompletion.Failure {
+            message = cliError.localizedDescription
+            switch cliError {
+            case .toolNotFound:
                 retryable = false
-            case .invalidResponse:
-                message = "Invalid API response — retry available"
-                retryable = true
-            case .httpError(let code, _):
-                if code == 429 || (500..<600).contains(code) {
-                    message = "API error \(code): retry available"
-                    retryable = true
-                } else {
-                    message = "API error \(code)"
-                    retryable = false
-                }
-            case .parseError(let msg):
-                message = "Parse failure: \(msg)"
-                retryable = false
-            case .streamingError(let msg):
-                message = "Streaming failed: \(msg)"
+            case .failed, .timedOut, .invalidOutput:
                 retryable = true
             }
         } else if let cacheErr = error as? InsightSessionError {
@@ -1925,15 +1892,13 @@ final class InsightSession: ObservableObject, Identifiable {
             case .cacheWriteFailed(let reason):
                 message = "Cache write failed: \(reason)"
                 retryable = false
+            case .pipeline(let reason):
+                message = reason
+                retryable = true
             }
         } else {
             message = error.localizedDescription
             retryable = true
-        }
-
-        // API key redaction (Decision 10 §6).
-        if let key = apiKeySnapshot, !key.isEmpty, message.contains(key) {
-            message = message.replacingOccurrences(of: key, with: "<redacted>")
         }
 
         // Mark the actual erroring node failed (preserve from v1 finding #1). If the node
@@ -2044,7 +2009,16 @@ final class InsightSession: ObservableObject, Identifiable {
 
 /// Errors specific to InsightSession's pipeline (cache write failures, missing
 /// dependencies, etc.). Routed through the same `handleStreamError` pattern table as
-/// AIProviderError cases.
-enum InsightSessionError: Error {
+/// CLI failures.
+enum InsightSessionError: LocalizedError {
     case cacheWriteFailed(String)
+    /// Pipeline precondition failed (folder too large, node evicted, …).
+    case pipeline(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .cacheWriteFailed(let reason): return "Cache write failed: \(reason)"
+        case .pipeline(let reason): return reason
+        }
+    }
 }

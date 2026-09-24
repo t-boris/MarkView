@@ -375,34 +375,6 @@ enum DiagnosticSeverity: String, Codable {
     case hint
 }
 
-// MARK: - Compile Profile (§13)
-
-struct CompileProfile: Identifiable, Codable {
-    let id: String
-    var name: String
-    var description: String
-    var audience: String
-    var requiredClaimTypes: [String]
-    var requiredEntityTypes: [String]
-    var sectionOrder: [String]
-    var strictness: String              // strict, moderate, lenient
-    var language: String
-}
-
-// MARK: - Compile Artifact (§17.10)
-
-struct CompileArtifact: Identifiable, Codable {
-    let id: String
-    var compileJobId: String
-    var artifactKind: String            // section, full_document, summary
-    var sectionKey: String?
-    var content: String
-    var contentHash: String
-    var sourceBlockIds: [String]
-    var sourceClaimIds: [String]
-    let createdAt: Date
-}
-
 // MARK: - Template & Completeness (§16)
 
 struct DocumentTemplate: Identifiable, Codable {

@@ -973,6 +973,166 @@
         }
         .insight-container.visible { display: flex; }
 
+        /* Code viewer (markview-code.js) — CodeMirror fills the editor area. */
+        .code-container {
+            display: none;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .code-container.visible { display: flex; flex-direction: column; }
+        .code-container.visible { flex-direction: row; }
+        .code-main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+        .code-container .cm-editor { flex: 1; min-height: 0; }
+        .code-explain-btn { position: absolute; top: 8px; right: 14px; z-index: 5; font-size: 11px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; opacity: .85; }
+        .code-explain-btn:hover { opacity: 1; }
+        #preview-pane { position: relative; }
+        .code-document-btn { position: absolute; top: 8px; right: 110px; z-index: 5; font-size: 11px; padding: 3px 9px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; opacity: .85; }
+        .code-document-btn[hidden], .code-explain-btn[hidden] { display: none; }
+        .code-notes { width: 320px; flex: none; border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; background: var(--bg-secondary); position: relative; }
+        .code-notes-resizer { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 6; }
+        .code-notes-resizer:hover, .mv-resizing .code-notes-resizer { background: var(--accent-color, #569cd6); opacity: .5; }
+        .code-notes-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border-color); font-size: 11px; }
+        .code-notes-head select { font-size: 11px; max-width: 140px; }
+        .code-notes-head button { border: 0; background: none; color: var(--text-secondary); cursor: pointer; font-size: 12px; }
+        .code-notes-status { flex: 1; color: var(--text-secondary); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .code-notes-status.error { color: #d9534f; white-space: normal; }
+        .code-notes-status.working { color: var(--accent-color, #569cd6); font-weight: 500; }
+        .code-notes-status.working::before { content: "⟳"; display: inline-block; margin-right: 4px; animation: mv-spin 1.2s linear infinite; }
+        @keyframes mv-spin { to { transform: rotate(360deg); } }
+        .code-notes-summary { padding: 6px 10px; font-size: 11.5px; line-height: 1.45; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); }
+        .code-notes-summary:empty { display: none; }
+        .code-notes-viewport { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+        .code-notes-track { position: absolute; left: 0; right: 0; top: 0; }
+        .code-note-span { position: absolute; left: 0; width: 3px; border-radius: 2px; opacity: .8; }
+        .code-note { position: absolute; left: 10px; right: 8px; background: var(--bg-primary); border: 1px solid var(--border-color); border-left: 3px solid var(--border-color); border-radius: 5px; padding: 6px 8px; font-size: 11.5px; line-height: 1.4; cursor: pointer; }
+        .code-note:hover { border-color: var(--accent-color, #569cd6); }
+        .code-note-title { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+        .code-note-meta { font: 10px "SF Mono", Menlo, monospace; color: var(--text-secondary); font-weight: 400; white-space: nowrap; }
+        .code-note-body { margin-top: 3px; color: var(--text-primary); }
+        .code-notes-legend { display: flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 10px; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; }
+        .code-notes[hidden], .code-notes-legend[hidden] { display: none; }
+        .code-notes-legend b { font-weight: 600; color: var(--text-primary); margin-right: 3px; }
+        .code-notes-legend i { width: 22px; height: 7px; border-radius: 2px; display: inline-block; }
+        .code-new-filter { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border-color); }
+        .code-new-filter[hidden] { display: none; }
+        .code-new-filter input { flex: 1; font-size: 11px; }
+        .code-new-filter button { font-size: 11px; }
+        .code-note.compact .code-note-body { display: none; }
+        .code-note.compact { padding: 2px 8px; }
+        .code-note.mini { padding: 0 6px; height: 12px; line-height: 12px; font-size: 9px; border-width: 0 0 0 3px; background: color-mix(in srgb, var(--note-color) 16%, var(--bg-primary)); overflow: hidden; }
+        .code-note.mini .code-note-body, .code-note.mini .code-note-meta { display: none; }
+        .code-note.mini .code-note-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+        .code-zoom { position: absolute; right: 14px; bottom: 10px; z-index: 5; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-secondary); font-size: 11px; opacity: .9; }
+        .code-zoom button { border: 0; background: none; color: var(--text-primary); cursor: pointer; padding: 2px 7px; font-size: 11px; border-radius: 5px; }
+        .code-zoom button:hover { background: var(--bg-tertiary); }
+        .code-zoom-level { min-width: 38px; text-align: center; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .code-container .cm-editor.cm-focused { outline: none; }
+        .md-viewer { flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-primary); }
+        /* CodeMirror's theme sets display:flex !important on .cm-editor, so hiding needs !important too. */
+        .md-viewer[hidden], .code-container .cm-editor[hidden] { display: none !important; }
+        .md-viewer-body { max-width: 860px; margin: 0 auto; padding: 24px 32px 40vh; font-size: var(--base-font-size, 15px); }
+        .md-viewer-body .md-flash { background: color-mix(in srgb, var(--accent-color, #569cd6) 18%, transparent); transition: background .3s; border-radius: 3px; }
+        .code-main.with-heat .md-viewer { margin-right: 10px; }
+        .code-bands { position: absolute; left: 0; right: 10px; overflow: hidden; pointer-events: none; z-index: 2; }
+        .code-bands[hidden], .code-heat[hidden] { display: none; }
+        .code-bands-track { position: absolute; left: 0; right: 0; top: 0; }
+        .code-band { position: absolute; left: 0; right: 0; border-left: 3px solid transparent; }
+        .code-band.dim { background: color-mix(in srgb, var(--mv-code-bg, var(--bg-primary)) 55%, transparent); }
+        .code-heat { position: absolute; right: 0; width: 10px; background: var(--bg-secondary); border-left: 1px solid var(--border-color); cursor: pointer; z-index: 3; }
+        .code-heat-seg { position: absolute; left: 1px; right: 1px; border-radius: 1px; }
+        .code-heat-view { position: absolute; left: 0; right: 0; border: 1px solid var(--text-secondary); border-radius: 2px; opacity: .55; pointer-events: none; }
+        .code-main.with-heat .cm-editor { margin-right: 10px; }
+
+        /* Architecture tab (markview-architecture.js) */
+        .arch-container { display: none; flex: 1; min-height: 0; min-width: 0; overflow: hidden; flex-direction: column; background: var(--bg-primary); color: var(--text-primary); }
+        .arch-container.visible { display: flex; }
+        .arch-toolbar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border-color); font-size: 11px; flex-wrap: wrap; }
+        .arch-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+        .arch-seg button { border: 0; background: transparent; color: var(--text-secondary); padding: 3px 10px; font-size: 11px; cursor: pointer; }
+        .arch-seg button.on { background: var(--bg-tertiary, rgba(127,127,127,.18)); color: var(--text-primary); font-weight: 600; }
+        .arch-toolbar select, .arch-toolbar .arch-btn { font-size: 11px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); }
+        .arch-toolbar .arch-btn { cursor: pointer; }
+        .arch-toolbar .arch-btn:disabled, .arch-toolbar select:disabled { opacity: .45; cursor: default; }
+        .arch-toolbar .arch-spacer { flex: 1; }
+        .arch-check { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+        .arch-rank { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 11px; }
+        .arch-rank button { text-align: left; border: 0; background: none; color: var(--accent-color, #569cd6); cursor: pointer; padding: 1px 0; font: 11px "SF Mono", Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .arch-rank span { color: var(--text-secondary); text-align: right; }
+        .arch-details select { width: 100%; font-size: 11px; margin-top: 2px; }
+        #arch-status { font-size: 11px; color: var(--text-secondary); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #arch-status.arch-working::before { content: "⟳ "; }
+        #arch-status.arch-error { color: #d9534f; white-space: normal; }
+        .arch-crumbs { display: flex; align-items: center; gap: 4px; padding: 5px 12px; font-size: 11px; border-bottom: 1px solid var(--border-color); min-height: 26px; }
+        .arch-crumb { border: 0; background: none; color: var(--accent-color, #569cd6); cursor: pointer; font-size: 11px; padding: 0; }
+        .arch-crumb:last-child { color: var(--text-primary); font-weight: 600; }
+        .arch-sep { color: var(--text-secondary); }
+        .arch-main { flex: 1; min-height: 0; display: flex; }
+        .arch-graph-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
+        .arch-graph { flex: 1; min-width: 0; position: relative; }
+        .arch-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; pointer-events: none; }
+        .arch-empty[hidden], .arch-progress[hidden] { display: none; }
+        .arch-progress { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary); font-size: 11.5px; }
+        .arch-progress-steps { display: flex; gap: 3px; flex: none; }
+        .arch-progress-steps span { width: 34px; height: 6px; border-radius: 3px; background: var(--border-color); overflow: hidden; position: relative; }
+        .arch-progress-steps span.done { background: var(--accent-color, #569cd6); }
+        .arch-progress-steps span.counted { width: 90px; }
+        .arch-progress-steps span.counted b { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-color, #569cd6); border-radius: 3px; transition: width .25s; }
+        .arch-progress-steps span.now::after { content: ""; position: absolute; inset: 0; width: 40%; background: var(--accent-color, #569cd6); border-radius: 3px; animation: arch-slide 1.3s ease-in-out infinite; }
+        @keyframes arch-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+        .arch-progress-text { flex: 1; min-width: 0; display: flex; gap: 10px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+        .arch-progress-title { font-weight: 600; color: var(--text-primary); }
+        .arch-progress-stats { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .arch-progress-current { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; font-family: "SF Mono", Menlo, monospace; font-size: 10.5px; }
+        .temp-filter { display: inline-flex; align-items: center; gap: 2px; }
+        .arch-diff { font: 10.5px "SF Mono", Menlo, monospace; border: 1px solid var(--border-color); border-radius: 5px; overflow-x: auto; margin: 6px 0; max-height: 55vh; overflow-y: auto; }
+        .arch-diff div { white-space: pre; padding: 0 6px; cursor: pointer; line-height: 1.5; }
+        .arch-diff .add { background: rgba(46, 160, 67, .2); }
+        .arch-diff .del { background: rgba(248, 81, 73, .2); }
+        .arch-diff .hunk { color: var(--text-secondary); background: var(--bg-secondary); cursor: default; }
+        .arch-diff b { display: inline-block; width: 34px; color: var(--text-secondary); font-weight: 400; user-select: none; }
+        .arch-ask { display: flex; gap: 4px; margin: 8px 0; }
+        .arch-ask textarea { flex: 1; font-size: 11.5px; resize: vertical; min-height: 34px; padding: 4px 6px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); }
+        .arch-chat { margin: 6px 0 10px; }
+        .arch-chat .q { font-weight: 600; margin-top: 8px; }
+        .arch-chat .a { white-space: pre-wrap; margin-top: 2px; }
+        .arch-seg[hidden], .temp-filter[hidden], .arch-check[hidden], #arch-overlay[hidden], .arch-btn[hidden] { display: none; }
+        .temp-filter input { font-size: 11px; width: 190px; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); }
+        .temp-filter button { border: 0; background: none; color: var(--text-secondary); cursor: pointer; font-size: 11px; }
+        .temp-filter button[hidden] { display: none; }
+        .code-notes .temp-filter { display: flex; padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
+        .code-notes .temp-filter input { flex: 1; width: auto; }
+        .mv-resizer { flex: none; width: 7px; margin: 0 -3px; position: relative; z-index: 5; cursor: col-resize; }
+        .mv-resizer:hover, .mv-resizing .mv-resizer { background: var(--accent-color, #569cd6); opacity: .5; }
+        .mv-resizing { cursor: col-resize; user-select: none; }
+        .mv-resizer[hidden], .arch-details[hidden] { display: none; }
+        #arch-details-toggle.on { background: var(--bg-tertiary); color: var(--text-primary); }
+        .arch-details { width: 280px; flex: none; border-left: 1px solid var(--border-color); padding: 10px 12px; overflow-y: auto; font-size: 12px; line-height: 1.45; }
+        .arch-details h4 { margin: 0 0 6px; font-size: 14px; }
+        .arch-details h5 { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); }
+        .arch-details p { margin: 4px 0 6px; }
+        .arch-details .arch-muted { color: var(--text-secondary); font-size: 11px; }
+        .arch-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+        .arch-badges span { font: 10px "SF Mono", Menlo, monospace; padding: 2px 6px; border-radius: 4px; background: var(--bg-secondary); color: var(--text-secondary); }
+        .arch-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 11.5px; }
+        .arch-row span:first-child { color: var(--text-secondary); }
+        .arch-link { display: flex; gap: 6px; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; color: var(--accent-color, #569cd6); cursor: pointer; font-size: 11.5px; padding: 2px 0; }
+        .arch-link i { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+        .arch-path { font-family: "SF Mono", Menlo, monospace; font-size: 11px; word-break: break-all; }
+        .arch-action { margin-top: 6px; font-weight: 600; }
+        .arch-change { margin: 6px 0; padding-top: 4px; border-top: 1px solid var(--border-color); }
+        .arch-finding { font-size: 11px; color: var(--text-primary); }
+        .arch-finding.arch-bug { color: #d9534f; }
+        .arch-finding.arch-warning { color: #c9892a; }
+        .arch-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 4px 12px; font-size: 10.5px; color: var(--text-secondary); border-top: 1px solid var(--border-color); min-height: 22px; }
+        .arch-legend span { display: inline-flex; gap: 5px; align-items: center; }
+        .arch-legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+        .arch-legend .arch-hint { margin-left: auto; }
+        .arch-legend .arch-scale { gap: 4px; }
+        .arch-scale b { font-weight: 600; color: var(--text-primary); margin-right: 4px; }
+        .arch-scale em { font-style: normal; font-variant-numeric: tabular-nums; }
+        .arch-legend i.arch-scale-seg { width: 30px; height: 8px; border-radius: 2px; }
+
         .insight-breadcrumbs {
             display: flex;
             align-items: center;
@@ -1152,6 +1312,73 @@
                 <iframe class="insight-iframe" id="insight-iframe" sandbox="allow-scripts" title="Insight content"></iframe>
                 <div class="insight-status-bar" id="insight-status-bar"></div>
             </div>
+
+            <!-- Read-only code viewer (markview-code.js + codemirror.bundle.js) -->
+            <div class="code-container" id="code-container"></div>
+
+            <!-- Architecture tab (markview-architecture.js + cytoscape/elk) -->
+            <div class="arch-container" id="arch-container">
+                <div class="arch-toolbar">
+                    <div class="arch-seg" role="tablist">
+                        <button data-arch-view="logical" class="on" title="Logical components (AI)">Logical</button>
+                        <button data-arch-view="modules" title="Folders and files as they are on disk">Structure</button>
+                        <button data-arch-view="deployment">Deployment</button>
+                        <button data-arch-view="docs">Docs</button>
+                    </div>
+                    <select id="arch-overlay" title="Colour the modules by">
+                        <option value="none">No overlay</option>
+                        <option value="coverage">Documentation</option>
+                        <option value="tests">Tests</option>
+                        <option value="bugs">Bug history</option>
+                        <option value="freshness">Freshness</option>
+                        <option value="complexity">Complexity</option>
+                        <option value="size">Size</option>
+                        <option value="pr">Pull request</option>
+                    </select>
+                    <form class="temp-filter" id="arch-temp-filter" title="A one-off AI filter: applied now, not saved">
+                        <input placeholder="⚡ Quick AI filter, e.g. payment flow"><button type="button" hidden title="Clear">✕</button>
+                    </form>
+                    <label class="arch-check" title="Hide everything the overlay does not flag"><input type="checkbox" id="arch-flagged"> Only flagged</label>
+                    <select id="arch-hide" title="Hide by kind">
+                        <option value="">Show all</option>
+                        <option value="tests">Hide tests</option>
+                        <option value="tests,config,build,generated">Hide tests, config, build</option>
+                        <option value="tests,config,build,generated,docs,scripts,examples">Code only</option>
+                    </select>
+                    <button class="arch-btn" id="arch-pr-open" title="PR X-Ray: what a pull request changes in the architecture">⎇ Pull request</button>
+                    <select id="arch-pr-source" hidden title="Change to show"></select>
+                    <form class="temp-filter" id="arch-pr-number" hidden title="Any pull request by number or GitHub link, also merged or closed ones">
+                        <input placeholder="PR # or link" style="width: 110px">
+                    </form>
+                    <button class="arch-btn" id="arch-analyze-pr" hidden title="AI: architectural impact of this change">Analyze PR</button>
+                    <button class="arch-btn" id="arch-review" hidden>Review with AI</button>
+                    <span class="arch-spacer"></span>
+                    <span id="arch-status"></span>
+                    <button class="arch-btn" id="arch-analyze" title="Describe modules and map deployment with the selected AI assistant">Analyze</button>
+                    <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)">Rescan</button>
+                    <button class="arch-btn" id="arch-fit" title="Fit to window">Fit</button>
+                    <button class="arch-btn" id="arch-details-toggle" title="Show or hide the details panel">Details</button>
+                </div>
+                <div class="arch-progress" id="arch-progress" hidden>
+                    <div class="arch-progress-steps"></div>
+                    <div class="arch-progress-text">
+                        <span class="arch-progress-title"></span>
+                        <span class="arch-progress-stats"></span>
+                        <span class="arch-progress-current"></span>
+                    </div>
+                    <button class="arch-btn" id="arch-stop" title="Stop the analysis; finished steps are kept">Stop</button>
+                </div>
+                <div class="arch-crumbs" id="arch-crumbs"></div>
+                <div class="arch-main">
+                    <div class="arch-graph-wrap">
+                        <div class="arch-graph" id="arch-graph"></div>
+                        <div class="arch-empty" id="arch-empty" hidden></div>
+                    </div>
+                    <div class="mv-resizer" id="arch-details-resizer"></div>
+                    <div class="arch-details" id="arch-details"></div>
+                </div>
+                <div class="arch-legend" id="arch-legend"></div>
+            </div>
         </div>
 
         <!-- Floating format toolbar — appears on text selection -->
@@ -1250,6 +1477,7 @@
     <!-- Inline editor scripts (split from monolithic block per ≤600-line file rule) -->
     <script src="vendor/js/markview-early.js"></script>
     <script src="vendor/js/markview-state.js"></script>
+    <script src="vendor/js/markview-mdext.js"></script>
     <script src="vendor/js/markview-render.js"></script>
     <script src="vendor/js/markview-edit.js"></script>
     <script src="vendor/js/markview-find.js"></script>
@@ -1262,6 +1490,11 @@
     <!-- markview-canvas.js wraps window.setContent / window.scrollToHeading — must
          load AFTER markview-bridge.js and markview-globals.js define them. -->
     <script src="vendor/js/markview-canvas.js"></script>
+    <!-- markview-code.js wraps setContent / setStructuredContent / setTheme — load
+         after everything that defines or wraps them. -->
+    <script src="vendor/js/markview-panels.js"></script>
+    <script src="vendor/js/markview-code.js"></script>
+    <script src="vendor/js/markview-architecture.js"></script>
     <script src="vendor/js/markview-diagram-viewer.js"></script>
     <script src="vendor/js/markview-d3-mermaid.js"></script>
     <script src="vendor/js/markview-init.js"></script>

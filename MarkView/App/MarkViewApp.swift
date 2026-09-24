@@ -174,7 +174,8 @@ struct MarkViewApp: App {
     @State private var ddeSettingsWindow: NSWindow?
 
     /// Build timestamp for debugging — visible in window title
-    static let buildID = "\(Int(Date().timeIntervalSince1970) % 100000)"
+    /// Marketing version from Info.plist, shown in the window title.
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
 
     init() {
     }
@@ -185,7 +186,7 @@ struct MarkViewApp: App {
             ContentView()
                 .environmentObject(themeManager)
                 .frame(minWidth: 900, minHeight: 600)
-                .navigationTitle("MarkView [\(Self.buildID)]")
+                .navigationTitle("MarkView \(Self.version)")
                 .onAppear {
                     appDelegate.log("ContentView onAppear START")
                     NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -228,6 +229,18 @@ struct MarkViewApp: App {
                     activeWorkspace?.closeFolder()
                 }
                 .disabled(activeWorkspaceHasFolder != true)
+
+                Divider()
+
+                Button("Recreate Metadata…") {
+                    activeWorkspace?.removeMetadata(recreate: true)
+                }
+                .disabled(activeWorkspaceHasFolder != true)
+
+                Button("Remove Metadata…") {
+                    activeWorkspace?.removeMetadata(recreate: false)
+                }
+                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(replacing: .saveItem) {
@@ -263,10 +276,16 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 
-                Button("Toggle Semantic Panel") {
+                Button("Toggle AI Panel") {
                     activeWorkspace?.showSemanticPanel.toggle()
                 }
                 .keyboardShortcut("3", modifiers: [.command])
+
+                Button("X-Ray") {
+                    activeWorkspace?.openArchitecture()
+                }
+                .keyboardShortcut("4", modifiers: [.command])
+                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(after: .appSettings) {
@@ -350,6 +369,8 @@ struct MarkViewApp: App {
 
     /// Pending folder URL for new window to pick up
     static var pendingFolderURL: URL?
+    /// The first window of a launch reopens the last folder (once per launch).
+    static var lastFolderRestored = false
     /// Files/folders requested from outside (Finder "Open With", Quick Action)
     /// that no window has taken yet. Durable until drained, so a request that
     /// arrives before any window is ready is never lost.
@@ -418,6 +439,8 @@ extension Notification.Name {
     static let performPDFExport = Notification.Name("PerformPDFExport")
     static let scrollToHeading = Notification.Name("ScrollToHeading")
     static let scrollToText = Notification.Name("ScrollToText")
+    /// userInfo: "url" (URL), "line" (Int), optional "endLine" (Int).
+    static let revealCodeLine = Notification.Name("RevealCodeLine")
 }
 
 // MARK: - Markdown Document Type

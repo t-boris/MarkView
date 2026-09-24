@@ -30,6 +30,8 @@
             document.documentElement.style.setProperty('--base-font-size', size + 'px');
             const rendered = document.getElementById('editor-rendered');
             if (rendered) rendered.style.fontSize = size + 'px';
+            // The code viewer follows the same text size (its zoom stays relative to it).
+            if (typeof window.setCodeBaseSize === 'function') window.setCodeBaseSize(size);
         }
 
         // ============================================================================
@@ -58,6 +60,22 @@
                 replacement: function(content, node) {
                     const source = node.getAttribute('data-source') || node.textContent;
                     return '\n```mermaid\n' + source.trim() + '\n```\n';
+                }
+            });
+            // Wikilinks and formulas go back to their source text.
+            turndownService.addRule('wikilink', {
+                filter: function(node) { return node.nodeName === 'A' && node.classList.contains('wikilink'); },
+                replacement: function(content, node) {
+                    return node.getAttribute('data-raw') || '[[' + node.getAttribute('data-wikilink') + ']]';
+                }
+            });
+            turndownService.addRule('math', {
+                filter: function(node) {
+                    return node.classList && (node.classList.contains('math-inline') || node.classList.contains('math-block'));
+                },
+                replacement: function(content, node) {
+                    const tex = node.getAttribute('data-tex') || '';
+                    return node.classList.contains('math-block') ? '\n\n$$\n' + tex + '\n$$\n\n' : '$' + tex + '$';
                 }
             });
             // Preserve SVG elements (rendered mermaid) — don't try to convert them

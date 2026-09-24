@@ -1,13 +1,41 @@
 import SwiftUI
 
+/// Document-side panel: table of contents, workspace search and Git.
+/// Alternates with the AI panel (`ModuleExplorerView`).
 struct TOCView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @AppStorage("layout.navigatorTab") private var selectedTab = Tab.contents
+
+    enum Tab: String, CaseIterable {
+        case contents = "Contents"
+        case search = "Search"
+        case git = "Git"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            VSDarkHeader(title: "Table of Contents")
+            HStack(spacing: 0) {
+                ForEach(Tab.allCases, id: \.self) { tab in
+                    VSDarkTabButton(title: tab.rawValue, isSelected: selectedTab == tab) {
+                        selectedTab = tab
+                    }
+                }
+            }
+            .padding(4).background(VSDark.bg)
             Divider().background(VSDark.border)
 
+            switch selectedTab {
+            case .contents: contentsList
+            case .search: WorkspaceSearchView().environmentObject(workspaceManager)
+            case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
+            }
+        }
+        .background(VSDark.bgSidebar)
+    }
+
+    @ViewBuilder
+    private var contentsList: some View {
+        Group {
             if let idx = workspaceManager.activeTabIndex as Int?,
                idx >= 0, idx < workspaceManager.openTabs.count {
                 let tab = workspaceManager.openTabs[idx]
@@ -51,7 +79,6 @@ struct TOCView: View {
                 emptyState("No File Open")
             }
         }
-        .background(VSDark.bgSidebar)
     }
 
     private func emptyState(_ text: String) -> some View {
@@ -64,6 +91,77 @@ struct TOCView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VSDark.bgSidebar)
+    }
+}
+
+/// Full-text search across the workspace index.
+struct WorkspaceSearchView: View {
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @State private var searchQuery = ""
+    @State private var searchResults: [SemanticDatabase.SearchResult] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Search input
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                TextField("Search all files...", text: $searchQuery, onCommit: { performSearch() })
+                    .textFieldStyle(.plain).font(.system(size: 12)).foregroundColor(VSDark.text)
+                if !searchQuery.isEmpty {
+                    Button(action: { searchQuery = ""; searchResults = [] }) {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                    }.buttonStyle(.plain)
+                }
+            }.padding(8).background(VSDark.bgInput)
+
+            // Results
+            if searchResults.isEmpty {
+                VStack { Spacer(); Text(searchQuery.isEmpty ? "Type to search" : "No results").foregroundColor(VSDark.textDim); Spacer() }
+                    .frame(maxWidth: .infinity).background(VSDark.bgSidebar)
+            } else {
+                List {
+                    ForEach(searchResults.indices, id: \.self) { i in
+                        let r = searchResults[i]
+                        Button(action: { openSearchResult(r) }) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.title).font(.system(size: 11, weight: .medium)).foregroundColor(VSDark.blue)
+                                Text(r.snippet.replacingOccurrences(of: ">>>", with: "").replacingOccurrences(of: "<<<", with: ""))
+                                    .font(.system(size: 9)).foregroundColor(VSDark.text).lineLimit(3)
+                            }
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .listStyle(.sidebar).scrollContentBackground(.hidden).background(VSDark.bgSidebar)
+            }
+        }
+    }
+
+    private func performSearch() {
+        guard let db = workspaceManager.semanticDatabase, !searchQuery.isEmpty else { return }
+        searchResults = db.search(query: searchQuery)
+    }
+
+    private func openSearchResult(_ result: SemanticDatabase.SearchResult) {
+        guard let root = workspaceManager.rootNode,
+              let url = findFile(result.documentId, in: root.url) else { return }
+        workspaceManager.openFile(url)
+        // Extract search term from snippet for scroll
+        let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NotificationCenter.default.post(name: .scrollToText, object: String(searchTerm))
+        }
+    }
+
+    private func findFile(_ name: String, in dir: URL) -> URL? {
+        // docIds are now workspace-relative paths → resolve directly first
+        // (also handles a bare filename, which is a 1-component relative path).
+        let direct = dir.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: direct.path) { return direct }
+        // Fallback by-name search: headings/entity names, or legacy filename docIds.
+        let fm = FileManager.default
+        guard let en = fm.enumerator(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return nil }
+        while let url = en.nextObject() as? URL { if url.lastPathComponent == name { return url } }
+        return nil
     }
 }
 

@@ -307,6 +307,8 @@
         document.addEventListener('keydown', function(e) {
             if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
                 e.preventDefault();
+                // The code viewer has its own search panel.
+                if (state.mode === 'code' && window.codeViewOpenSearch) { window.codeViewOpenSearch(); return; }
                 openFind();
             }
             if (e.key === 'Escape' && findState.visible) {

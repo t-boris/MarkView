@@ -29,47 +29,49 @@
 		AA1111111111111111111111 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA2222222222222222222222 /* Assets.xcassets */; };
 		BB1111111111111111111111 /* SemanticModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2222222222222222222222 /* SemanticModels.swift */; };
 		CC1111111111111111111111 /* SemanticDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC2222222222222222222222 /* SemanticDatabase.swift */; };
-		DD1111111111111111111111 /* SemanticPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2222222222222222222222 /* SemanticPanelView.swift */; };
-		EE1111111111111111111111 /* AIOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2222222222222222222222 /* AIOrchestrator.swift */; };
-		FF1111111111111111111111 /* AIProviderClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2222222222222222222222 /* AIProviderClient.swift */; };
-		AB1111111111111111111111 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2222222222222222222222 /* CacheManager.swift */; };
 		AC1111111111111111111111 /* IncrementalCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC2222222222222222222222 /* IncrementalCompiler.swift */; };
 		AD1111111111111111111111 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2222222222222222222222 /* DDESettingsView.swift */; };
-		AE1111111111111111111111 /* BlockIntelligenceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE2222222222222222222222 /* BlockIntelligenceView.swift */; };
-		AF1111111111111111111111 /* CompileEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1122222222222222222222 /* CompileEngine.swift */; };
-		BA1111111111111111111111 /* CompilePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2222222222222222222222 /* CompilePanelView.swift */; };
-		CA1111111111111111111111 /* SemanticReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA2222222222222222222222 /* SemanticReconciler.swift */; };
 		CB1111111111111111111111 /* DependencyGraphScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2222222222222222222222 /* DependencyGraphScheduler.swift */; };
-		CD1111111111111111111111 /* OverlayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2222222222222222222222 /* OverlayManager.swift */; };
 		DA1111111111111111111111 /* DiagnosticsBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2222222222222222222222 /* DiagnosticsBarView.swift */; };
-		DB1111111111111111111111 /* EntityGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB2222222222222222222222 /* EntityGraphView.swift */; };
 		DC1111111111111111111111 /* MatrixTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2222222222222222222222 /* MatrixTheme.swift */; };
-		DE1111111111111111111111 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE2222222222222222222222 /* MarkdownBlockParser.swift */; };
 		E01111111111111111111111 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02222222222222222222222 /* StructuralIndexer.swift */; };
-		E11111111111111111111111 /* ActionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12222222222222222222222 /* ActionEngine.swift */; };
 		E15707257841204075452783 /* AIConsoleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16766861391371355183012 /* AIConsoleView.swift */; };
 		E15363864145856837847001 /* GitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19706015117051627326464 /* GitView.swift */; };
-		E14349166438121349140742 /* CanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17789059051084649498791 /* CanvasView.swift */; };
 		E17413308635163577843479 /* GraphCreatorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16645386500824722723458 /* GraphCreatorSheet.swift */; };
 		E16645386500824722723458 /* GraphCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCreatorSheet.swift; sourceTree = "<group>"; };
-		E17789059051084649498791 /* CanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasView.swift; sourceTree = "<group>"; };
 		E19706015117051627326464 /* GitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitView.swift; sourceTree = "<group>"; };
 		E13834677324410788145575 /* AIConsoleEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16395529941982676028954 /* AIConsoleEngine.swift */; };
-		E10768441622308279380941 /* OllamaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17636753377375428151773 /* OllamaClient.swift */; };
+		0D1D29948BB284ED1EDFEFDA /* CLICompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37A885AECF408932486180D /* CLICompletion.swift */; };
+		20C0EE5BD083C8D1CAEC54A0 /* CodeExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */; };
+		A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */; };
+		A7D1F2C3B4E5968778695A08 /* FileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */; };
+		A7D1F2C3B4E5968778695A06 /* FilterSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A05 /* FilterSearch.swift */; };
+		A7D1F2C3B4E5968778695A04 /* XRayCluster.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A03 /* XRayCluster.swift */; };
+		AED02A5BE41170F459F5FE7C /* ImportanceRater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1606B5F80D852D12CB17B4BE /* ImportanceRater.swift */; };
+		1A495663F72F0DC103491E74 /* ArchitectureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE716C8DD916FFFF9DF3490E /* ArchitectureStore.swift */; };
+		FAA97BCF71FB69613E59B66D /* ArchitectureScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC20319189983C53486755DB /* ArchitectureScanner.swift */; };
+		88FE4C2C745049B2FB5E8220 /* ArchitectureModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28386C5074A6157C28A501E /* ArchitectureModel.swift */; };
+		6048E5A3B3B555A7893C6C3B /* DocumentActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 921A34A74571B93AEDC2B018 /* DocumentActions.swift */; };
 		E12543631103902005656115 /* GitClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16873462855109449748792 /* GitClient.swift */; };
 		E16873462855109449748792 /* GitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitClient.swift; sourceTree = "<group>"; };
-		E17636753377375428151773 /* OllamaClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaClient.swift; sourceTree = "<group>"; };
 		E11726806662746062743866 /* WhisperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12115144200861477320559 /* WhisperClient.swift */; };
 		E12115144200861477320559 /* WhisperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperClient.swift; sourceTree = "<group>"; };
 		E16395529941982676028954 /* AIConsoleEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConsoleEngine.swift; sourceTree = "<group>"; };
+		D37A885AECF408932486180D /* CLICompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletion.swift; sourceTree = "<group>"; };
+		CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeExplainer.swift; sourceTree = "<group>"; };
+		A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayDigest.swift; sourceTree = "<group>"; };
+		A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransfer.swift; sourceTree = "<group>"; };
+		A7D1F2C3B4E5968778695A05 /* FilterSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterSearch.swift; sourceTree = "<group>"; };
+		A7D1F2C3B4E5968778695A03 /* XRayCluster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayCluster.swift; sourceTree = "<group>"; };
+		1606B5F80D852D12CB17B4BE /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
+		BE716C8DD916FFFF9DF3490E /* ArchitectureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureStore.swift; sourceTree = "<group>"; };
+		DC20319189983C53486755DB /* ArchitectureScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureScanner.swift; sourceTree = "<group>"; };
+		C28386C5074A6157C28A501E /* ArchitectureModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureModel.swift; sourceTree = "<group>"; };
+		921A34A74571B93AEDC2B018 /* DocumentActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentActions.swift; sourceTree = "<group>"; };
 		E21111111111111111111111 /* ModuleExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E22222222222222222222222 /* ModuleExplorerView.swift */; };
+		8C3E5A41AA51FAB9DDDC6953 /* ActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3D5D3A538E2C146DE2485B /* ActionsView.swift */; };
 		E31111111111111111111111 /* EmbeddingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32222222222222222222222 /* EmbeddingClient.swift */; };
-		E41111111111111111111111 /* HybridSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = E42222222222222222222222 /* HybridSearch.swift */; };
-		E51111111111111111111111 /* ResearchEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E52222222222222222222222 /* ResearchEngine.swift */; };
-		E61111111111111111111111 /* ImplementEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E62222222222222222222222 /* ImplementEngine.swift */; };
-		E71111111111111111111111 /* TestGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72222222222222222222222 /* TestGenerator.swift */; };
 		E81111111111111111111111 /* GraphRAG.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82222222222222222222222 /* GraphRAG.swift */; };
-		E91111111111111111111111 /* ProviderRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E92222222222222222222222 /* ProviderRouter.swift */; };
 		F33333333333333333333333 /* InsightCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F44444444444444444444444 /* InsightCache.swift */; };
 		F55555555555555555555555 /* InsightModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F66666666666666666666666 /* InsightModels.swift */; };
 		F77777777777777777777777 /* InsightArchiveExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88888888888888888888888 /* InsightArchiveExporter.swift */; };
@@ -100,32 +102,16 @@
 		AA2222222222222222222222 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BB2222222222222222222222 /* SemanticModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticModels.swift; sourceTree = "<group>"; };
 		CC2222222222222222222222 /* SemanticDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticDatabase.swift; sourceTree = "<group>"; };
-		DD2222222222222222222222 /* SemanticPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticPanelView.swift; sourceTree = "<group>"; };
-		EE2222222222222222222222 /* AIOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIOrchestrator.swift; sourceTree = "<group>"; };
-		FF2222222222222222222222 /* AIProviderClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIProviderClient.swift; sourceTree = "<group>"; };
-		AB2222222222222222222222 /* CacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManager.swift; sourceTree = "<group>"; };
 		AC2222222222222222222222 /* IncrementalCompiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncrementalCompiler.swift; sourceTree = "<group>"; };
 		AD2222222222222222222222 /* DDESettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DDESettingsView.swift; sourceTree = "<group>"; };
-		AE2222222222222222222222 /* BlockIntelligenceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockIntelligenceView.swift; sourceTree = "<group>"; };
-		AF1122222222222222222222 /* CompileEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompileEngine.swift; sourceTree = "<group>"; };
-		BA2222222222222222222222 /* CompilePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompilePanelView.swift; sourceTree = "<group>"; };
-		CA2222222222222222222222 /* SemanticReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticReconciler.swift; sourceTree = "<group>"; };
 		CB2222222222222222222222 /* DependencyGraphScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyGraphScheduler.swift; sourceTree = "<group>"; };
-		CD2222222222222222222222 /* OverlayManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayManager.swift; sourceTree = "<group>"; };
 		DA2222222222222222222222 /* DiagnosticsBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsBarView.swift; sourceTree = "<group>"; };
-		DB2222222222222222222222 /* EntityGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntityGraphView.swift; sourceTree = "<group>"; };
 		DC2222222222222222222222 /* MatrixTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTheme.swift; sourceTree = "<group>"; };
-		DE2222222222222222222222 /* MarkdownBlockParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlockParser.swift; sourceTree = "<group>"; };
 		E02222222222222222222222 /* StructuralIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralIndexer.swift; sourceTree = "<group>"; };
-		E12222222222222222222222 /* ActionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionEngine.swift; sourceTree = "<group>"; };
 		E22222222222222222222222 /* ModuleExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleExplorerView.swift; sourceTree = "<group>"; };
+		4E3D5D3A538E2C146DE2485B /* ActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionsView.swift; sourceTree = "<group>"; };
 		E32222222222222222222222 /* EmbeddingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingClient.swift; sourceTree = "<group>"; };
-		E42222222222222222222222 /* HybridSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HybridSearch.swift; sourceTree = "<group>"; };
-		E52222222222222222222222 /* ResearchEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchEngine.swift; sourceTree = "<group>"; };
-		E62222222222222222222222 /* ImplementEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImplementEngine.swift; sourceTree = "<group>"; };
-		E72222222222222222222222 /* TestGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestGenerator.swift; sourceTree = "<group>"; };
 		E82222222222222222222222 /* GraphRAG.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRAG.swift; sourceTree = "<group>"; };
-		E92222222222222222222222 /* ProviderRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRouter.swift; sourceTree = "<group>"; };
 		F44444444444444444444444 /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
 		F66666666666666666666666 /* InsightModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightModels.swift; sourceTree = "<group>"; };
 		F88888888888888888888888 /* InsightArchiveExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightArchiveExporter.swift; sourceTree = "<group>"; };
@@ -151,28 +137,25 @@
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
 				BB2222222222222222222222 /* SemanticModels.swift */,
 				CC2222222222222222222222 /* SemanticDatabase.swift */,
-				EE2222222222222222222222 /* AIOrchestrator.swift */,
-				FF2222222222222222222222 /* AIProviderClient.swift */,
-				AB2222222222222222222222 /* CacheManager.swift */,
 				AC2222222222222222222222 /* IncrementalCompiler.swift */,
-				AF1122222222222222222222 /* CompileEngine.swift */,
-				CA2222222222222222222222 /* SemanticReconciler.swift */,
 				CB2222222222222222222222 /* DependencyGraphScheduler.swift */,
-				CD2222222222222222222222 /* OverlayManager.swift */,
-				DE2222222222222222222222 /* MarkdownBlockParser.swift */,
 				E02222222222222222222222 /* StructuralIndexer.swift */,
-				E12222222222222222222222 /* ActionEngine.swift */,
 				E16395529941982676028954 /* AIConsoleEngine.swift */,
-				E17636753377375428151773 /* OllamaClient.swift */,
+				D37A885AECF408932486180D /* CLICompletion.swift */,
+				CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */,
+				A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */,
+				A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */,
+				A7D1F2C3B4E5968778695A05 /* FilterSearch.swift */,
+				A7D1F2C3B4E5968778695A03 /* XRayCluster.swift */,
+				1606B5F80D852D12CB17B4BE /* ImportanceRater.swift */,
+				BE716C8DD916FFFF9DF3490E /* ArchitectureStore.swift */,
+				DC20319189983C53486755DB /* ArchitectureScanner.swift */,
+				C28386C5074A6157C28A501E /* ArchitectureModel.swift */,
+				921A34A74571B93AEDC2B018 /* DocumentActions.swift */,
 				E16873462855109449748792 /* GitClient.swift */,
 				E12115144200861477320559 /* WhisperClient.swift */,
 				E32222222222222222222222 /* EmbeddingClient.swift */,
-				E42222222222222222222222 /* HybridSearch.swift */,
-				E52222222222222222222222 /* ResearchEngine.swift */,
-				E62222222222222222222222 /* ImplementEngine.swift */,
-				E72222222222222222222222 /* TestGenerator.swift */,
 				E82222222222222222222222 /* GraphRAG.swift */,
-				E92222222222222222222222 /* ProviderRouter.swift */,
 				1AEEAF25CA6416E0EE5FD908 /* ThemeManager.swift */,
 				BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */,
 			);
@@ -185,19 +168,15 @@
 				BC5216E2466E79A0507BEAE8 /* ContentView.swift */,
 				E16766861391371355183012 /* AIConsoleView.swift */,
 				E19706015117051627326464 /* GitView.swift */,
-				E17789059051084649498791 /* CanvasView.swift */,
 				E16645386500824722723458 /* GraphCreatorSheet.swift */,
 				3A5536B20A2DD735F6BA815A /* EditorView.swift */,
 				26726FF62649B52BE2384159 /* FileTreeView.swift */,
 				4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */,
-				AE2222222222222222222222 /* BlockIntelligenceView.swift */,
-				BA2222222222222222222222 /* CompilePanelView.swift */,
 				DA2222222222222222222222 /* DiagnosticsBarView.swift */,
-				DB2222222222222222222222 /* EntityGraphView.swift */,
 				E22222222222222222222222 /* ModuleExplorerView.swift */,
+				4E3D5D3A538E2C146DE2485B /* ActionsView.swift */,
 				DC2222222222222222222222 /* MatrixTheme.swift */,
 				AD2222222222222222222222 /* DDESettingsView.swift */,
-				DD2222222222222222222222 /* SemanticPanelView.swift */,
 				AF17AE946068A72B32FC239E /* TOCView.swift */,
 			);
 			path = Views;
@@ -376,40 +355,33 @@
 				EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */,
 				BB1111111111111111111111 /* SemanticModels.swift in Sources */,
 				CC1111111111111111111111 /* SemanticDatabase.swift in Sources */,
-				DD1111111111111111111111 /* SemanticPanelView.swift in Sources */,
-				EE1111111111111111111111 /* AIOrchestrator.swift in Sources */,
-				FF1111111111111111111111 /* AIProviderClient.swift in Sources */,
-				AB1111111111111111111111 /* CacheManager.swift in Sources */,
 				AC1111111111111111111111 /* IncrementalCompiler.swift in Sources */,
 				AD1111111111111111111111 /* DDESettingsView.swift in Sources */,
-				AE1111111111111111111111 /* BlockIntelligenceView.swift in Sources */,
-				AF1111111111111111111111 /* CompileEngine.swift in Sources */,
-				BA1111111111111111111111 /* CompilePanelView.swift in Sources */,
-				CA1111111111111111111111 /* SemanticReconciler.swift in Sources */,
 				CB1111111111111111111111 /* DependencyGraphScheduler.swift in Sources */,
-				CD1111111111111111111111 /* OverlayManager.swift in Sources */,
 				DA1111111111111111111111 /* DiagnosticsBarView.swift in Sources */,
-				DB1111111111111111111111 /* EntityGraphView.swift in Sources */,
 				DC1111111111111111111111 /* MatrixTheme.swift in Sources */,
-				DE1111111111111111111111 /* MarkdownBlockParser.swift in Sources */,
 				E01111111111111111111111 /* StructuralIndexer.swift in Sources */,
-				E11111111111111111111111 /* ActionEngine.swift in Sources */,
 				E15707257841204075452783 /* AIConsoleView.swift in Sources */,
 				E15363864145856837847001 /* GitView.swift in Sources */,
-				E14349166438121349140742 /* CanvasView.swift in Sources */,
 				E17413308635163577843479 /* GraphCreatorSheet.swift in Sources */,
 				E13834677324410788145575 /* AIConsoleEngine.swift in Sources */,
-				E10768441622308279380941 /* OllamaClient.swift in Sources */,
+				0D1D29948BB284ED1EDFEFDA /* CLICompletion.swift in Sources */,
+				20C0EE5BD083C8D1CAEC54A0 /* CodeExplainer.swift in Sources */,
+				A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */,
+				A7D1F2C3B4E5968778695A08 /* FileTransfer.swift in Sources */,
+				A7D1F2C3B4E5968778695A06 /* FilterSearch.swift in Sources */,
+				A7D1F2C3B4E5968778695A04 /* XRayCluster.swift in Sources */,
+				AED02A5BE41170F459F5FE7C /* ImportanceRater.swift in Sources */,
+				1A495663F72F0DC103491E74 /* ArchitectureStore.swift in Sources */,
+				FAA97BCF71FB69613E59B66D /* ArchitectureScanner.swift in Sources */,
+				88FE4C2C745049B2FB5E8220 /* ArchitectureModel.swift in Sources */,
+				6048E5A3B3B555A7893C6C3B /* DocumentActions.swift in Sources */,
 				E12543631103902005656115 /* GitClient.swift in Sources */,
 				E11726806662746062743866 /* WhisperClient.swift in Sources */,
 				E21111111111111111111111 /* ModuleExplorerView.swift in Sources */,
+				8C3E5A41AA51FAB9DDDC6953 /* ActionsView.swift in Sources */,
 				E31111111111111111111111 /* EmbeddingClient.swift in Sources */,
-				E41111111111111111111111 /* HybridSearch.swift in Sources */,
-				E51111111111111111111111 /* ResearchEngine.swift in Sources */,
-				E61111111111111111111111 /* ImplementEngine.swift in Sources */,
-				E71111111111111111111111 /* TestGenerator.swift in Sources */,
 				E81111111111111111111111 /* GraphRAG.swift in Sources */,
-				E91111111111111111111111 /* ProviderRouter.swift in Sources */,
 				F33333333333333333333333 /* InsightCache.swift in Sources */,
 				F55555555555555555555555 /* InsightModels.swift in Sources */,
 				F77777777777777777777777 /* InsightArchiveExporter.swift in Sources */,
@@ -455,7 +427,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1.22.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -470,7 +442,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.22.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -534,7 +506,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 1.22.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -555,7 +527,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.22.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

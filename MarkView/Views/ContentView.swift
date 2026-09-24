@@ -25,6 +25,8 @@ extension FocusedValues {
 struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var workspaceManager = WorkspaceManager()
+    /// Language of everything the AI writes; shared by every AI feature.
+    @AppStorage(ActionOutputLanguage.storageKey) private var aiLanguage = ActionOutputLanguage.documentLanguage
     @State private var showFolderPicker = false
     /// NSWindow hosting this view — lets open-URL notifications target only the
     /// active window instead of racing across all ContentView instances.
@@ -65,7 +67,7 @@ struct ContentView: View {
             }
             .frame(minWidth: 400)
 
-            // MARK: - Right Panel: TOC or Semantic
+            // MARK: - Right Panel: Contents/Search/Git or AI
             // Single container with stable width — only content switches inside
             if workspaceManager.showTOC {
                 VStack(spacing: 0) {
@@ -82,6 +84,34 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                // X-Ray: the project's structure, logic, deployment and docs (the Architecture tab).
+                Button(action: { workspaceManager.openArchitecture() }) {
+                    Label("X-Ray", systemImage: "viewfinder")
+                        .labelStyle(.titleAndIcon)
+                }
+                .help("X-Ray — see the project's components, deployment and docs (⌘4)")
+                .disabled(workspaceManager.rootNode == nil)
+
+                // Language of all AI output (explanations, analysis, actions).
+                Menu {
+                    Picker("AI language", selection: $aiLanguage) {
+                        ForEach(ActionOutputLanguage.options, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label(aiLanguage == ActionOutputLanguage.documentLanguage ? "Auto" : ActionOutputLanguage.label(for: aiLanguage),
+                          systemImage: "globe")
+                        .labelStyle(.titleAndIcon)
+                }
+                .help("Language the AI writes in — for every AI feature")
+
+                // Which assistant (and model) does every AI job: X-Ray, Explain, Actions, Discussion.
+                AssistantToolbarMenu()
+
+                Divider()
+
                 // Toggle File Tree
                 Button(action: { workspaceManager.showFileTree.toggle() }) {
                     Image(systemName: "sidebar.leading")
@@ -94,11 +124,11 @@ struct ContentView: View {
                 }
                 .help("Toggle Theme")
 
-                // Toggle Semantic Panel (vs TOC)
+                // Toggle AI panel (Actions / Discussion) vs Contents / Search / Git
                 Button(action: { workspaceManager.showSemanticPanel.toggle() }) {
                     Image(systemName: workspaceManager.showSemanticPanel ? "brain.head.profile" : "brain")
                 }
-                .help("Toggle Semantic Panel")
+                .help("Toggle AI Panel")
 
                 // Toggle TOC
                 Button(action: { workspaceManager.showTOC.toggle() }) {
@@ -210,6 +240,24 @@ struct ContentView: View {
                 WorkspaceManager.debugLog("onAppear: opening \(url.path)")
                 workspaceManager.openFolder(url)
             }
+            restoreLastFolder()
+        }
+    }
+
+    /// Reopen the folder that was open when the app last quit. Waits briefly so a
+    /// Finder "Open With" request that launched the app wins over the restore.
+    private func restoreLastFolder() {
+        guard !MarkViewApp.lastFolderRestored else { return }
+        MarkViewApp.lastFolderRestored = true
+        guard let path = UserDefaults.standard.string(forKey: WorkspaceManager.lastFolderKey) else { return }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            // Something was opened meanwhile (Finder, Open Recent): leave it alone.
+            guard workspaceManager.rootNode == nil, workspaceManager.openTabs.isEmpty,
+                  MarkViewApp.pendingOpenURLs.isEmpty else { return }
+            WorkspaceManager.debugLog("restoreLastFolder: \(path)")
+            workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
         }
     }
 
@@ -300,14 +348,34 @@ struct ContentView: View {
                 .font(.system(size: 13))
                 .foregroundColor(VSDark.textDim)
 
-            HStack(spacing: 16) {
-                Button("Open File...") { openFile() }
+            if workspaceManager.rootNode != nil {
+                // A folder is open but no document yet.
+                HStack(spacing: 16) {
+                    Button(action: { workspaceManager.openArchitecture() }) {
+                        Label("Open X-Ray", systemImage: "viewfinder")
+                    }
                     .buttonStyle(.borderedProminent)
                     .tint(VSDark.blue)
-                Button("Open Folder...") { openFolder() }
-                    .buttonStyle(.bordered)
+                    .keyboardShortcut("4", modifiers: [.command])
+                    Button("Open File...") { openFile() }
+                        .buttonStyle(.bordered)
+                }
+                .padding(.top, 8)
+                Text(workspaceManager.isCodeProject
+                     ? "This folder is a code project. X-Ray groups it into logical components with AI."
+                     : "Pick a document in the file tree, or open X-Ray.")
+                    .font(.system(size: 11))
+                    .foregroundColor(VSDark.textDim)
+            } else {
+                HStack(spacing: 16) {
+                    Button("Open File...") { openFile() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(VSDark.blue)
+                    Button("Open Folder...") { openFolder() }
+                        .buttonStyle(.bordered)
+                }
+                .padding(.top, 8)
             }
-            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(VSDark.bg)
@@ -361,7 +429,7 @@ struct ContentView: View {
                     let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                     if isDir {
                         workspaceManager.openFolder(url)
-                    } else if FileType.supportedExtensions.contains(url.pathExtension.lowercased()) {
+                    } else if FileType.isSupported(url) {
                         workspaceManager.openFile(url)
                     }
                 }
@@ -391,4 +459,55 @@ private struct WindowAccessor: NSViewRepresentable {
     ContentView()
         .environmentObject(ThemeManager())
         .environmentObject(WorkspaceManager())
+}
+
+/// Toolbar menu choosing the assistant CLI and its model for all AI features.
+/// Edits the same settings as DDE Settings and the Discussion quick switch.
+struct AssistantToolbarMenu: View {
+    @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
+    @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .claude)) private var xrayClaudeModel = AIAssistantPreferences.defaultXRayModel(for: .claude)
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .codex)) private var xrayCodexModel = AIAssistantPreferences.defaultXRayModel(for: .codex)
+    /// Model lists per tool; Codex's is read from disk, so off the main thread.
+    @State private var options: [CLITool: [AIModelOption]] = [:]
+
+    private var tool: CLITool { CLITool(rawValue: backend) ?? .claude }
+    private var model: Binding<String> { tool == .claude ? $claudeModel : $codexModel }
+    private var xrayModel: Binding<String> { tool == .claude ? $xrayClaudeModel : $xrayCodexModel }
+
+    var body: some View {
+        Menu {
+            Picker("Assistant", selection: $backend) {
+                ForEach(CLITool.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
+            }
+            .pickerStyle(.inline)
+            Picker("Model", selection: model) {
+                ForEach(options[tool] ?? [AIModelOption(id: model.wrappedValue, name: model.wrappedValue.isEmpty ? "Default" : model.wrappedValue, detail: "")]) {
+                    Text($0.name).tag($0.id)
+                }
+            }
+            .pickerStyle(.inline)
+            // X-Ray answers are large; a fast model keeps a full analysis near a minute.
+            Picker("X-Ray model", selection: xrayModel) {
+                Text("Same as above").tag("")
+                ForEach((options[tool] ?? []).filter { !$0.id.isEmpty }) { Text($0.name).tag($0.id) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(AIAssistantPreferences.summary(tool: tool, model: model.wrappedValue), systemImage: "cpu")
+                .labelStyle(.titleAndIcon)
+        }
+        .help("Assistant and model for every AI feature (X-Ray, Explain, Actions, Discussion)")
+        .task(id: backend) {
+            let current = tool
+            guard options[current] == nil else { return }
+            let loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: current) }.value
+            // Keep a model saved earlier selectable, but say that the CLI does not list it
+            // (Codex rejects models its catalog dropped or the account cannot use).
+            let id = current == .claude ? claudeModel : codexModel
+            options[current] = loaded.contains { $0.id == id } ? loaded
+                : loaded + [AIModelOption(id: id, name: "\(id) — not in \(current.displayName)'s list", detail: "")]
+        }
+    }
 }

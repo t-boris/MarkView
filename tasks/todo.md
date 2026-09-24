@@ -1,5 +1,56 @@
 # MarkView — Follow-up Tasks
 
+## Done 9: X-Ray and PR X-Ray round (2026-09-24, 1.2.0 → 1.22.0)
+
+- [x] X-Ray structure from clustering (imports, note links, co-change; `XRayCluster`), AI only names
+      clusters; live growth; per-folder X-Ray tabs; deterministic kind tags for hiding.
+- [x] AI filters: keyword search first (`FilterSearch`), AI confirms top candidates; quick ⚡ filter.
+- [x] Names follow the files' language (measured locally); texts follow the AI-language setting.
+- [x] Markdown: formatted notes view, `[[wikilinks]]`, KaTeX in markdown-it; CRLF-safe line counts.
+- [x] PR X-Ray: any PR by number, architectural analysis, per-file diff, streamed Q&A.
+- [x] File tree: new file/folder here, drag and drop (move, ⌥ copy), last folder reopens.
+
+### Review
+- vivaa-platform X-Ray 27 s (was 84 s+), KnowledgeDB 30–41 s (was 119 s); filter colours in ~8 s.
+- Verified with real AI runs (vivaa, KnowledgeDB, broker-fabric PRs #81/#122) and in WebKit/Chrome.
+- Not covered by automated tests: drag and drop in the live window, gh-only PR flows on other hosts.
+
+## Done 8: X-Ray under a minute (2026-09-24)
+
+- [x] `XRayDigest`: local digest per folder (manifest, README line, declarations,
+      files, folder imports), unit selection, parts, draft grouping — no AI.
+- [x] Pipeline: draft saved at once → parts in parallel (no tools, low effort, X-Ray
+      model) with deployment alongside (configs inlined) → merge into subsystems.
+- [x] Answers cached in `.dde/cache/xray` by input hash; digest made deterministic.
+- [x] Scanner: per-file complexity in parallel, one regex pass (12.8 s → 4.2 s).
+
+### Review
+- vivaa-platform (2,339 files, 292 described folders), Claude Sonnet, effort low:
+  draft 3.4 s, first full run 41–62 s (was 87 s with the first version and many
+  minutes before), unchanged rerun 3.9 s.
+
+## Done 7: Explain + AI filters for markdown documents (2026-09-24)
+
+Request: documentation should get the same margin panel as code — per-section
+AI notes, lenses (Explanation, Importance, Freshness, custom filters), tinted
+sections, heat strip, zoom. Chosen: "like code", working in view and edit modes.
+
+### Plan
+- [x] Research the markdown editor: modes, scroll containers, source-line mapping,
+      heading rendering, pane layout (Explore agent).
+- [x] Sections from headings (deterministic, no AI split); AI writes one note per
+      section with importance; reuse `CodeExplainStore` (cache, ratings, freshness,
+      language, staleness) with a markdown prompt.
+- [x] Notes panel beside the document in view and edit modes; section boundaries
+      recomputed on edit; notes of changed sections marked stale.
+- [x] Tint sections in the document, heat strip, resizable panel, zoom-out
+      compaction reused from `markview-code.js` (shared module, not a copy).
+- [x] Bridge: route notes for markdown tabs (mirror `routeCodeNotes`).
+- [x] Verify in the browser test page (view + edit), real AI on a fixture, build,
+      bump minor, deploy.
+- [x] Before any commit: delete test files from `Resources/Editor` (notes-test.json,
+      code-test.swift.txt, arch-ai-test.json, arch-bf-test.json) — they ship in the app bundle.
+
 ## Active 6: Finder "Open With" / folder open does nothing
 
 Symptom: opening a file or folder from Finder launches/activates MarkView but
@@ -432,3 +483,193 @@ Goal: close the open workspace and return to the welcome screen to pick another 
 - Menu item was stuck disabled (Commands don't observe the focused WorkspaceManager);
   fixed with a value-typed `workspaceHasFolder` focused value.
 - User confirmed Close Folder works in the installed build.
+
+## Remove "modules" feature + Ollama from UI — 2026-09-24
+
+Decisions (user): Ollama hidden from UI only — translation keeps using it silently;
+remove feature + engines but keep the indexer's `mod_` folder rows (no DB migration);
+delete already-dead code.
+
+- [x] Semantic panel (`ModuleExplorerView`): drop Modules tab, per-module actions
+      (Describe/Summary/Diagram/Tests/ADR), module count, ↻ extract button, dead
+      Research tab; re-index remaining tabs (Search/Git/Diagrams/AI) and migrate the
+      stored tab index.
+- [x] Component extraction: `StructuralIndexer.extractContentModules` & co.,
+      `WorkspaceManager.extractSingleFileComponents/extractWithOllama/chunkContent`,
+      `reindexActiveFile`, extraction tail of `reindexFile`, disabled auto-extract,
+      `excludeFolder` component cleanup.
+- [x] Delete engines used only by modules or dead: ActionEngine, TestGenerator,
+      ImplementEngine, ResearchEngine, HybridSearch; dead views CanvasView,
+      SemanticPanelView; GraphRAG community functions. Update pbxproj.
+- [x] Prompts: `diagramSummaries`, `documentationGenerationPrompt`,
+      `AIConsoleEngine.generateSkillFile` stop reading `cmod_` components;
+      delete unreachable code after `diagramSummaries` return.
+- [x] Ollama: remove Settings box and `extractionSystemPrompt`/`extractJSON`; keep
+      `OllamaClient.checkConnection/generate` for translation.
+- [x] SemanticDatabase: remove helpers left without callers; README.
+- [ ] Build, deploy locally, manual check (Semantic panel tabs, translation, AI console).
+
+### Verification
+- Debug build succeeds, no new warnings. 7 files deleted (ActionEngine, TestGenerator,
+  ImplementEngine, ResearchEngine, HybridSearch, CanvasView, SemanticPanelView) and
+  their pbxproj entries; 11 DB helpers + 4 row types left without callers removed.
+- `apiKeyValue` (translation) lived in ActionEngine.swift — moved to AIProviderClient.swift.
+- Headless `--dde-index` on a TestFiles copy: 7 docs, 32 headings, 7 code blocks, one
+  per-folder row, no components; second run takes the "up to date" fast path.
+- Existing databases keep old `cmod_` rows; nothing reads them (the skill-file outline
+  filters them out).
+
+### Left for manual check
+- Right panel shows Search / Git / Diagrams / AI; a stored "Modules" selection opens Search.
+- DDE Settings: no Ollama box; OpenAI box reads "Whisper voice input".
+- Translation still works (Anthropic; Ollama if running).
+
+## Route AI features through Claude Code / Codex CLI; drop Anthropic HTTP + Ollama — 2026-09-24
+
+User decisions: port everything (incl. Recursive Insight), remove Ollama, fix key leak.
+The CLI + model come from `AIAssistantPreferences` (same choice as the AI console).
+
+Probed CLI behaviour (2026-09-24):
+- claude `-p --safe-mode --tools "" --no-session-persistence --output-format stream-json
+  --verbose --include-partial-messages [--model] [--system-prompt] [--json-schema]`,
+  prompt on stdin → `stream_event` text deltas; final `result` has `result`,
+  `structured_output`, `total_cost_usd`, `usage`, `is_error`.
+- codex `exec --sandbox read-only --skip-git-repo-check --ephemeral --json
+  [-m] [--output-schema file] -` → no token streaming; `item.completed`
+  agent_message holds the whole answer; `turn.completed` has token usage, no cost;
+  schema must be strict (additionalProperties false, all keys required).
+
+- [x] Key leak: 5 key prefixes in ~/markview_debug.log redacted in place.
+- [x] `CLICompletion` one-shot runner: stdin prompt, system prompt, JSON schema,
+      optional read-only folder access, deltas, usage → `usage_stats`, timeout, errors
+      that say what failed and where to fix it.
+- [x] Selection actions (RU/EN/?) → CLI.
+- [x] Whole-document translation → CLI; remove Ollama engine.
+- [x] Architecture diagrams → CLI with JSON schema.
+- [x] Recursive Insight: classify, skeleton (schema), sections (streaming, ≤5 parallel)
+      → CLI. Prompts unchanged (parity first).
+- [x] Remove: Anthropic key box + verify, `AIProviderClient` HTTP/SSE, `ProviderRouter`,
+      unreachable extraction pipeline (AIOrchestrator jobs, analyzeAllFiles,
+      BlockIntelligenceView), OllamaClient, dead privacy picker.
+- [ ] Build, deploy, manual check of each feature with Claude and with Codex.
+
+### Verification
+- Debug build succeeds; no new warnings in touched files.
+- `CLICompletion` exercised in a standalone harness against the real CLIs:
+  claude (haiku) text with 3 streamed deltas + cost; codex (gpt-5.5) text in one
+  delta, tokens, no cost; diagram schema returns structured diagrams on both;
+  cancelling the task terminates the process (CancellationError) on both.
+- Insight skeleton schema: claude → 11 sections; codex first rejected the open
+  `metadata` object (strict mode) → metadata now declares hasMath/chartType/axisLabel
+  and `strictSchema` closes any other open object → codex 9 sections.
+- Removed files: AIProviderClient, AIOrchestrator, ProviderRouter, OllamaClient,
+  CompileEngine, CompilePanelView, BlockIntelligenceView, CacheManager,
+  SemanticReconciler, OverlayManager, MarkdownBlockParser (+ pbxproj); added
+  CLICompletion, DiagramGenerator.
+- Settings: Anthropic box (and its auto key check that cost a request per open),
+  privacy picker (unwired), pipeline Status box removed.
+
+### Left for manual check (UI)
+- RU / EN / ? on a selection; whole-document translation; Diagrams → Rerun
+  (errors now show in the tab); Recursive Insight end to end — each with Claude and Codex.
+- Codex: Insight sections appear whole (no token streaming); ~14K tokens of Codex's own
+  prompt per call.
+- The old Anthropic key is still stored in UserDefaults (`com.markview.dde.apikey`);
+  nothing reads it now.
+
+## AI panel: Diagrams tab → Actions (per-document AI actions) — 2026-09-24
+
+User decisions: results open in a new unsaved tab; base actions + AI-suggested ones;
+when the document changed since analysis, show a note + Reanalyze (never auto-run).
+Keep the "Diagrams" section in the toolbar AI Tools menu.
+
+- [x] Model + store: `DocumentAnalysis` (content hash, type, summary, AI actions) cached
+      as JSON under `<workspace>/.dde/cache/actions/`, loaded on demand.
+- [x] Analyze via `CLICompletion` + JSON schema; Reanalyze; stale detection by hash.
+- [x] Base actions: Executive summary, Key decisions, Risks & open questions,
+      Action items, Glossary, FAQ. Plus a free-form "custom action" field.
+- [x] Run action → new unsaved tab next to the document, streamed while generating;
+      never overwrites an existing file name.
+- [x] `ActionsView` replaces `EntityGraphView`; AI panel tab "Diagrams" → "Actions".
+- [x] Remove the architecture-diagram machinery only the old tab used.
+- [ ] Build, deploy, manual check with Claude and Codex.
+- [x] Output language picker in the Actions header (Document language / English /
+      Русский / …), stored in `actions.outputLanguage`; applies to results.
+
+### Verification
+- Debug build succeeds. Removed EntityGraphView.swift (kept `MarkdownContentView`,
+  moved into AIConsoleView.swift — the console renders with it) and DiagramGenerator.swift.
+- Harness on TestFiles/demo.md: claude (sonnet) 24 s → 9 document-specific actions;
+  codex (gpt-5.5) 29 s → 8; cache reloads from disk, not stale.
+- Running "Executive summary" with Russian output (claude): 240 streamed deltas,
+  markdown starting with an H1, assumptions marked.
+
+### Left for manual check
+- Actions tab in the app: Analyze → buttons; Reanalyze; stale note after editing;
+  result tab opens and streams; custom action; language menu.
+
+## Code viewer + Visual Architecture — 2026-09-24
+
+User decisions: CodeMirror 6 (bundled, read-only viewer, later the source editor);
+Cytoscape.js + ELK (bundled); hybrid analysis (deterministic scan + read-only AI
+enrichment, stored in SQLite, incremental); PR overlay from branch-vs-base and GitHub
+PR via `gh`.
+
+- [x] A. Code viewer: vendor CodeMirror 6 bundle (tools/codemirror-bundle → vendor/js),
+      code file types in tree/tabs, read-only view with highlighting, line numbers,
+      folding, indent guides, go-to-line.
+- [x] B. Architecture model: scanner (git ls-files / walk, languages, LOC, dir tree,
+      imports for JS/TS/Python/Go/Rust/C/C++/Ruby, type-reference fallback for
+      Swift/Java/Kotlin/C#), `arch_*` tables, Architecture tab (Cytoscape + ELK):
+      drill-down into modules keeps external edges (edge aggregation to visible
+      ancestors), details panel, open file at line.
+- [x] C. AI enrichment (module names/summaries/roles), Deployment view (AI over config
+      files found by the scanner), Docs architecture view (doc links + doc→code refs).
+- [x] D. Overlays: doc coverage (none / fresh / stale via git commit times);
+      PR (branch vs base or `gh pr`), AI review per file → colour by risk.
+- [x] E. Code-folder behaviour, menu/toolbar entry, bump minor → 1.1.0, deploy.
+
+Added during the work (user requests): incremental updates (node signatures → AI
+re-describes only changed modules, deployment only when its config changed; rescan
+on every open), overlays Tests (lcov/Cobertura or import/name heuristic), Bug history
+(fix-commit counts), Freshness (last commit), Complexity (decision points), Size;
+Docs view zooms into document sections; section/mention links open the markdown
+at that place.
+
+### Verification
+- Debug + Release builds succeed; installed 1.1.0.
+- Code viewer (Chrome against the bundled editor page): Swift + JS highlighting, line
+  numbers, folding, indent guides, dark theme, goto lines 47–52 selected and centred.
+- Scanner harness: MarkView 0.85 s (78 files, 130 type-reference + JS import edges,
+  npm externals, coverage fresh/stale/none, deploy hints incl. GitHub workflow);
+  erpnext 3005 Python files in 2 s (2055 imports); LLM-Engineers-Handbook,
+  astroweb (TS) OK. Minified/bundled/over-512 KB files excluded.
+- Architecture tab (Chrome, real payload): top level, zoom into External and
+  MarkView/Models keeps outside edges, Documentation / Bug history overlays,
+  Health panel, Docs view → CLAUDE.md sections in order → openFile{find}.
+
+### Not verified here (needs the app UI)
+- Tab opening from ⌘4 / toolbar / auto-open for code folders, persistence in
+  state.db, Analyze (AI modules + deployment), Changes overlay with git/gh and the
+  AI review, markdown scroll-to-heading after openFile.
+
+## Architecture v2: logical view, honest metrics, on-demand descriptions — 2026-09-24
+
+User feedback on 1.1.0 (tested on broker-fabric / apps/bf-menubar):
+- [ ] Do not auto-open Architecture; explicit "Open Architecture" (welcome screen + file
+      tree header + ⌘4/toolbar). Opening it the first time runs the AI analysis.
+- [ ] Logical view (AI): system purpose, nested components with purpose, every folder/file
+      assigned to a component and tagged (entry, ui, api, domain, data, integration, infra,
+      config, build, tests, docs, generated, scripts). Structure view keeps the file system,
+      can hide tests/config/build/docs/generated and colour by component. Manual
+      reassignment of a folder/file to another component, stored as an override.
+- [ ] Descriptions on demand: selecting an undescribed node asks the AI (cached by signature).
+- [ ] Deployment always produced by the analysis; clear call to action when missing.
+- [ ] Metrics that match their colours: complexity = per-function cyclomatic (McCabe
+      thresholds 10/20), bug history = absolute fix counts, module colour = worst file;
+      freshness colour = last change; doc coverage counts folder mentions only for
+      specific folders (≤ 25 files).
+- [ ] Code viewer "Explain" (user request): AI splits the file into sections; a margin panel
+      beside the code (Word-style comments) aligned to each section, scroll-synced, cached.
+- [ ] Importance (user request): Architecture overlay by dependency centrality (fan-in,
+      transitive dependents, entry points); in Explain, each section gets an importance level.

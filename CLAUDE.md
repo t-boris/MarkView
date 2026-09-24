@@ -21,6 +21,8 @@ wired into the macOS app. Do not treat an `EditorWeb` build as an app change.
 - `Tests/Fixtures/` and `TestFiles/`: manual and fixture data; there is currently
   no XCTest target
 - `project.yml`: XcodeGen source of truth for project structure
+- `tools/web-vendor/`: builds the bundled CodeMirror, Cytoscape and ELK files in
+  `Resources/Editor/vendor/js` (`npm ci && ./build.sh`); never load them from a CDN
 - `tasks/todo.md`: active work log; `tasks/lessons.md`: durable debugging lessons
 
 ## Working Rules
@@ -44,6 +46,22 @@ wired into the macOS app. Do not treat an `EditorWeb` build as an app change.
 - Validate file paths, network responses, and bridge payloads at their boundaries.
 - Avoid direct edits to minified third-party assets unless intentionally updating
   the bundled dependency.
+
+## Versioning
+
+Every change to the app bumps the version before it is committed, using semantic
+versioning (the app started at 1.0.0):
+
+- `patch` — bug fixes and small corrections with no new behavior
+- `minor` — new features or noticeable improvements; backward compatible
+- `major` — removed or reworked user-facing features, or incompatible changes to
+  stored data (`.dde/` layout, settings keys)
+
+Run `./bump-version.sh patch|minor|major`. It updates `MARKETING_VERSION` and
+`CURRENT_PROJECT_VERSION` in `project.yml` and in both build configurations of
+`MarkView.xcodeproj`, keeping all of them equal. Changes to docs, `tasks/` or build
+scripts alone do not bump the version. Batch several changes committed together
+into one bump at the highest applicable level.
 
 ## Verification
 

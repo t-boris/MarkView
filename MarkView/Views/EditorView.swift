@@ -67,6 +67,9 @@ struct EditorView: NSViewRepresentable {
         private let editorResourceBaseURL: URL
         private var currentDocumentBaseURL: URL?
         private var lastLoadedContent: String = ""
+        /// File whose content is in the code viewer, and a line to reveal once it is.
+        private var currentCodeURL: URL?
+        private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
         private var lastTheme: Theme?
         private var isEditorReady = false
         private var pendingContent: String?
@@ -84,6 +87,12 @@ struct EditorView: NSViewRepresentable {
         /// every kind switch (and on switch to a different insight session) to avoid
         /// retain cycles and stale forwarding.
         var insightCancellables = Set<AnyCancellable>()
+        /// Re-renders the Architecture tab whenever `ArchitectureStore` changes.
+        private var architectureCancellable: AnyCancellable?
+        /// Which X-Ray the subscription above follows ("" = the project's).
+        private var architectureScope = ""
+        /// Pushes margin notes for the file in the code viewer.
+        private var codeNotesCancellable: AnyCancellable?
         /// id (uuidString) of the insight session the coordinator is currently subscribed
         /// to. nil for `.file` tabs. Used to early-return on duplicate `loadContentIfNeeded`
         /// calls for the same insight session.
@@ -122,13 +131,25 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
+            // Reveal a line in the code viewer (e.g. a `file.swift#L42` link).
+            NotificationCenter.default.addObserver(
+                forName: .revealCodeLine,
+                object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let self,
+                      let url = notification.userInfo?["url"] as? URL,
+                      let line = notification.userInfo?["line"] as? Int else { return }
+                self.pendingCodeReveal = (url.standardizedFileURL, line, notification.userInfo?["endLine"] as? Int)
+                self.applyPendingCodeReveal()
+            }
+
             // Listen for scroll-to-text requests (from Semantic Panel)
             NotificationCenter.default.addObserver(
                 forName: .scrollToText,
                 object: nil, queue: .main
             ) { [weak self] notification in
                 if let text = notification.object as? String {
-                    self?.scrollToText(text)
+                    self?.scrollToText(text, heading: notification.userInfo?["heading"] as? Bool ?? false)
                 }
             }
         }
@@ -225,11 +246,10 @@ struct EditorView: NSViewRepresentable {
 
             // Local .md/.canvas file links → open in a new tab
             if scheme == "file" {
-                let ext = url.pathExtension.lowercased()
-                if ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd" || ext == "canvas" {
+                if FileType.isSupported(url) {
                     decisionHandler(.cancel)
                     Task { @MainActor in
-                        self.parent.workspaceManager.openFile(url)
+                        self.parent.workspaceManager.openFile(url, lineFragment: url.fragment)
                     }
                     return
                 }
@@ -269,9 +289,16 @@ struct EditorView: NSViewRepresentable {
             let kind: TabKind = tab?.kind ?? .file
             switch kind {
             case .insight(let session):
+                currentCodeURL = nil
+                architectureCancellable = nil
+                webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView()")
                 routeInsight(session: session, webView: webView)
                 return
+            case .architecture(let scope):
+                routeArchitecture(scope: scope, webView: webView)
+                return
             case .file:
+                architectureCancellable = nil
                 // If we were previously routed to an insight session, drop those subs
                 // before falling back to the file pipeline (avoid leaking + stale forward).
                 if currentInsightSessionId != nil {
@@ -289,11 +316,27 @@ struct EditorView: NSViewRepresentable {
                 }
             }
 
-            guard markdown != lastLoadedContent else { return }
-            lastLoadedContent = markdown
+            // The mode is part of the key: switching a document to its notes view (or back)
+            // reloads even though the text is the same.
+            let fileType = documentURL.map { FileType.from(url: $0) } ?? .markdown
+            let asNotes = fileType == .markdown && tab?.notesView == true
+            let loadKey = asNotes ? "notes\u{1}" + markdown : markdown
+            guard loadKey != lastLoadedContent else { return }
+            lastLoadedContent = loadKey
 
             // Route by file type
-            let fileType = documentURL.map { FileType.from(url: $0) } ?? .markdown
+            currentCodeURL = nil
+            if fileType == .code || asNotes, let documentURL {
+                let language = asNotes ? "markdown" : FileType.codeLanguage(for: documentURL) ?? ""
+                // Formatted notes view: images resolved like the document view (same lines).
+                let text = asNotes ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL) : markdown
+                bridge.loadCodeContent(text, language: language,
+                                       fileName: documentURL.lastPathComponent, into: webView)
+                currentCodeURL = documentURL.standardizedFileURL
+                applyPendingCodeReveal()
+                routeCodeNotes(url: documentURL, webView: webView)
+                return
+            }
             if fileType != .markdown {
                 bridge.loadStructuredContent(markdown, fileType: fileType.rawValue, into: webView) {}
                 return
@@ -305,6 +348,53 @@ struct EditorView: NSViewRepresentable {
                 ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL!)
                 : markdown
             bridge.loadContent(resolved, into: webView) {}
+        }
+
+        /// Load cached notes for the code file and keep the margin panel in sync.
+        private func routeCodeNotes(url: URL, webView: WKWebView) {
+            let wm = parent.workspaceManager
+            wm.prepareCodeNotes(for: url)
+            codeNotesCancellable = wm.codeExplain.$revision
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak webView] _ in
+                    guard let self, let webView, let current = self.currentCodeURL else { return }
+                    self.bridge.setCodeNotes(self.parent.workspaceManager.codeNotesJSON(for: current), in: webView)
+                }
+        }
+
+        /// Show an X-Ray tab (the project's or a folder's) and keep it in sync with its store.
+        private func routeArchitecture(scope: String, webView: WKWebView) {
+            currentCodeURL = nil
+            lastLoadedContent = ""   // a file opened afterwards must reload into the editor
+            let store = parent.workspaceManager.xrayStore(for: scope)
+            if architectureCancellable == nil || architectureScope != scope {
+                architectureScope = scope
+                let content = store.$revision
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self, weak webView, weak store] _ in
+                        guard let self, let webView, let store else { return }
+                        self.bridge.showArchitecture(store.payloadJSON(mode: scope == TabKind.pullRequestScope ? "pr" : nil), in: webView)
+                    }
+                // Analysis progress changes with every file the assistant reads: send it
+                // on its own, at most a few times a second.
+                let progress = store.$progress
+                    .throttle(for: .milliseconds(250), scheduler: DispatchQueue.main, latest: true)
+                    .sink { [weak self, weak webView, weak store] _ in
+                        guard let self, let webView, let store else { return }
+                        self.bridge.setArchitectureProgress(store.progressJSON(), in: webView)
+                    }
+                architectureCancellable = AnyCancellable { content.cancel(); progress.cancel() }
+            } else {
+                bridge.showArchitecture(store.payloadJSON(mode: scope == TabKind.pullRequestScope ? "pr" : nil), in: webView)
+            }
+        }
+
+        /// Send a queued line reveal once its file is the one in the code viewer.
+        private func applyPendingCodeReveal() {
+            guard let reveal = pendingCodeReveal, let webView,
+                  reveal.url == currentCodeURL else { return }
+            pendingCodeReveal = nil
+            bridge.revealCodeLine(reveal.line, endLine: reveal.endLine, in: webView)
         }
 
         // MARK: - Insight routing (Recursive Insight v2, Task 7)
@@ -568,15 +658,14 @@ struct EditorView: NSViewRepresentable {
             bridge.scrollToHeading(headingId, in: webView)
         }
 
-        func scrollToText(_ text: String) {
-            guard let webView = webView, isEditorReady else { return }
-            // Escape for JS string
-            let escaped = text
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "'", with: "\\'")
-                .replacingOccurrences(of: "\n", with: " ")
-            let js = "window.scrollToText && window.scrollToText('\(escaped)')"
-            webView.evaluateJavaScript(js, completionHandler: nil)
+        /// Scroll to `text` in the document; `heading` matches heading text only (wikilinks),
+        /// so a table of contents that repeats the heading is skipped.
+        func scrollToText(_ text: String, heading: Bool = false) {
+            guard let webView = webView, isEditorReady,
+                  let data = try? JSONSerialization.data(withJSONObject: [text]),
+                  let args = String(data: data, encoding: .utf8) else { return }
+            let function = heading ? "scrollToHeadingText" : "scrollToText"
+            webView.evaluateJavaScript("window.\(function) && window.\(function).apply(null, \(args))", completionHandler: nil)
         }
 
         func exportPDF(fileName: String) {
@@ -616,20 +705,41 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
+    func bridge(_ bridge: WebViewBridge, didReceiveCodeAction action: String, payload: [String: Any]) {
+        Task { @MainActor in
+            if action == "notesView" {
+                self.parent.workspaceManager.setNotesView(payload["show"] as? Bool ?? false)
+                return
+            }
+            guard let url = self.currentCodeURL else { return }
+            self.parent.workspaceManager.handleCodeAction(action, payload: payload, url: url)
+        }
+    }
+
+    func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any]) {
+        Task { @MainActor in
+            self.parent.workspaceManager.handleArchitectureAction(action, payload: payload)
+        }
+    }
+
     func bridge(_ bridge: WebViewBridge, didClickLink href: String) {
         Task { @MainActor in
             guard let url = URL(string: href) else { return }
             let scheme = url.scheme?.lowercased() ?? ""
 
             if scheme == "file" {
-                let ext = url.pathExtension.lowercased()
-                if ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd" || ext == "canvas" {
-                    self.parent.workspaceManager.openFile(url)
+                if FileType.isSupported(url) {
+                    self.parent.workspaceManager.openFile(url, lineFragment: url.fragment)
                 } else {
                     NSWorkspace.shared.open(url)
                 }
             } else if scheme == "http" || scheme == "https" || scheme == "mailto" {
                 NSWorkspace.shared.open(url)
+            } else if scheme == "markview-wikilink" {
+                // [[Note#Heading]] — find the note in the open folder.
+                let body = String(href.dropFirst("markview-wikilink:".count))
+                let parts = body.split(separator: "#", maxSplits: 1).map { String($0).removingPercentEncoding ?? String($0) }
+                self.parent.workspaceManager.openWikiLink(note: parts.first ?? "", heading: parts.count > 1 ? parts[1] : nil)
             }
         }
     }
@@ -674,7 +784,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             let wm = self.parent.workspaceManager
             let idx = wm.activeTabIndex
             if idx >= 0, idx < wm.openTabs.count,
-               case .insight = wm.openTabs[idx].kind {
+               !wm.openTabs[idx].isFileBacked {
                 return
             }
             wm.saveActiveFile()
@@ -749,7 +859,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             let wm = self.parent.workspaceManager
             let idx = wm.activeTabIndex
             if idx >= 0, idx < wm.openTabs.count,
-               case .insight = wm.openTabs[idx].kind {
+               !wm.openTabs[idx].isFileBacked {
                 return
             }
             if let content = wm.reloadActiveTabFromDisk() {

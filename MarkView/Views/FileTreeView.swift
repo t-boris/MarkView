@@ -4,6 +4,10 @@ struct FileTreeView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var searchText = ""
     @State private var currentDirectory: URL?
+    /// Bumped after this view creates something, so the list (read from disk) redraws.
+    @State private var listVersion = 0
+    /// Folder a drag is currently over (highlighted as the drop target).
+    @State private var dropTarget: URL?
 
     private var _theme: Int { workspaceManager.themeVersion }
     private var git: GitClient { workspaceManager.gitClient }
@@ -15,6 +19,7 @@ struct FileTreeView: View {
 
     /// List files and folders in the current directory
     private var directoryContents: [(url: URL, isDir: Bool, modDate: Date?)] {
+        _ = listVersion
         guard let dir = browseURL else { return [] }
         let fm = FileManager.default
         let sort = workspaceManager.fileTreeSortOrder
@@ -30,8 +35,7 @@ struct FileTreeView: View {
             guard !name.hasPrefix(".") else { return nil }
             let vals = try? itemURL.resourceValues(forKeys: Set(keys))
             let isDir = vals?.isDirectory ?? false
-            let ext = itemURL.pathExtension.lowercased()
-            guard isDir || FileType.supportedExtensions.contains(ext) else { return nil }
+            guard isDir || FileType.isSupported(itemURL) else { return nil }
             return (itemURL, isDir, vals?.contentModificationDate)
         }
 
@@ -120,6 +124,17 @@ struct FileTreeView: View {
                 }
                 .padding(.vertical, 4)
                 .overlay(alignment: .trailing) {
+                    HStack(spacing: 0) {
+                    Button(action: { workspaceManager.openArchitecture() }) {
+                        Image(systemName: "viewfinder")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(VSDark.textDim)
+                            .padding(.horizontal, 6).padding(.vertical, 4)
+                            .background(VSDark.bgActive)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open X-Ray (⌘4)")
                     Button(action: { workspaceManager.closeFolder() }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .semibold))
@@ -130,6 +145,7 @@ struct FileTreeView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Close Folder")
+                    }
                 }
                 .background(VSDark.bgActive)
             }
@@ -147,6 +163,19 @@ struct FileTreeView: View {
                     Button(action: { searchText = "" }) {
                         Image(systemName: "xmark.circle.fill").foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain)
+                }
+                if let here = browseURL {
+                    // Create in the folder being browsed.
+                    Button { createNewFile(in: here) } label: {
+                        Image(systemName: "doc.badge.plus").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New file here")
+                    Button { createNewFolder(in: here) } label: {
+                        Image(systemName: "folder.badge.plus").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New folder here")
                 }
                 if browseURL != nil {
                     // Sort toggle button
@@ -195,7 +224,10 @@ struct FileTreeView: View {
                     .onTapGesture {
                         currentDirectory = current.deletingLastPathComponent()
                     }
-                    .background(VSDark.bgSidebar)
+                    .background(dropTarget == current.deletingLastPathComponent() ? VSDark.blue.opacity(0.25) : VSDark.bgSidebar)
+                    .onDrop(of: [.fileURL], isTargeted: dropBinding(current.deletingLastPathComponent())) { providers in
+                        drop(providers, into: current.deletingLastPathComponent())
+                    }
                     Divider().background(VSDark.border).opacity(0.5)
                 }
 
@@ -208,6 +240,19 @@ struct FileTreeView: View {
                                 fileRow(item.url)
                             }
                         }
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    guard let here = browseURL else { return false }
+                    return drop(providers, into: here)
+                }
+                // Right-click on empty space: create in the folder being browsed.
+                .contextMenu {
+                    if let here = browseURL {
+                        Button("New File...") { createNewFile(in: here) }
+                        Button("New Folder...") { createNewFolder(in: here) }
                     }
                 }
                 .background(VSDark.bgSidebar)
@@ -289,6 +334,9 @@ struct FileTreeView: View {
         .padding(.horizontal, 10).padding(.vertical, 5)
         .contentShape(Rectangle())
         .onTapGesture { currentDirectory = url }
+        .onDrag { dragItem(url) }
+        .background(dropTarget == url ? VSDark.blue.opacity(0.25) : Color.clear)
+        .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
         .opacity(workspaceManager.isExcluded(url) ? 0.4 : 1.0)
         .contextMenu {
             if workspaceManager.isExcluded(url) {
@@ -301,6 +349,8 @@ struct FileTreeView: View {
             } else {
                 Button("Exclude Folder") { workspaceManager.excludeFolder(url) }
             }
+            Divider()
+            Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
             Divider()
             Button("New File...") { createNewFile(in: url) }
             Button("New Folder...") { createNewFolder(in: url) }
@@ -332,7 +382,7 @@ struct FileTreeView: View {
         .padding(.horizontal, 10).padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture { workspaceManager.openFile(url) }
-        .onDrag { NSItemProvider(object: url.path as NSString) }
+        .onDrag { dragItem(url) }
         .contextMenu {
             if let gs = gitStatus {
                 if gs.isStaged {
@@ -343,6 +393,8 @@ struct FileTreeView: View {
                 Button("Discard Changes") { workspaceManager.gitClient.discardChanges(gs.file) }
                 Divider()
             }
+            Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+            Divider()
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
             Button("Open in Terminal") { openTerminal(at: url.deletingLastPathComponent()) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
@@ -358,6 +410,7 @@ struct FileTreeView: View {
         case .yaml: return ("list.bullet.indent", VSDark.purple)
         case .canvas: return ("rectangle.3.group", VSDark.yellow)
         case .markdown: return ("doc.text", VSDark.blue)
+        case .code: return ("curlybraces.square", VSDark.cyan)
         }
     }
 
@@ -397,11 +450,75 @@ struct FileTreeView: View {
         if alert.runModal() == .alertFirstButtonReturn {
             var name = input.stringValue.trimmingCharacters(in: .whitespaces)
             if name.isEmpty { name = "untitled.md" }
+            guard isValidName(name) else { return showError("“\(name)” is not a valid file name.") }
             let fileURL = folderURL.appendingPathComponent(name)
+            // Never replace an existing file.
+            guard !FileManager.default.fileExists(atPath: fileURL.path) else {
+                return showError("“\(name)” already exists in this folder.")
+            }
             let template = name.hasSuffix(".md") ? "# \(name.replacingOccurrences(of: ".md", with: ""))\n\n" : ""
-            try? template.write(to: fileURL, atomically: true, encoding: .utf8)
+            do {
+                try template.write(to: fileURL, atomically: true, encoding: .utf8)
+            } catch {
+                return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
+            }
+            listVersion += 1
+            workspaceManager.refreshFileTree()
             workspaceManager.openFile(fileURL)
         }
+    }
+
+    // MARK: - Drag and drop
+
+    /// A dragged tree item: the file URL (moving within the tree, other apps) plus its
+    /// path as text, as dragging it into the editor always provided.
+    private func dragItem(_ url: URL) -> NSItemProvider {
+        let item = NSItemProvider(object: url as NSURL)
+        item.registerObject(url.path as NSString, visibility: .all)
+        return item
+    }
+
+    private func dropBinding(_ url: URL) -> Binding<Bool> {
+        Binding(get: { dropTarget == url }, set: { dropTarget = $0 ? url : (dropTarget == url ? nil : dropTarget) })
+    }
+
+    /// Files dropped on a folder: moved when they come from this project (⌥ Option copies,
+    /// as in Finder), copied when they come from elsewhere (e.g. Finder).
+    private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
+        let copyRequested = NSEvent.modifierFlags.contains(.option)
+        let root = workspaceManager.rootNode?.url.standardizedFileURL.path ?? ""
+        var urls: [URL] = []
+        let group = DispatchGroup()
+        for provider in providers where provider.canLoadObject(ofClass: URL.self) {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                DispatchQueue.main.async {
+                    if let url, url.isFileURL { urls.append(url) }
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else { return }
+            let inside = urls.allSatisfy { !root.isEmpty && $0.standardizedFileURL.path.hasPrefix(root + "/") }
+            let errors = workspaceManager.transfer(urls, into: folder, copy: copyRequested || !inside)
+            listVersion += 1
+            dropTarget = nil
+            if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
+        }
+        return true
+    }
+
+    /// One path component: no slashes, not "." or "..".
+    private func isValidName(_ name: String) -> Bool {
+        !name.contains("/") && !name.contains(":") && name != "." && name != ".."
+    }
+
+    private func showError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = message
+        alert.runModal()
     }
 
     private func createNewFolder(in parentURL: URL) {
@@ -416,8 +533,18 @@ struct FileTreeView: View {
         if alert.runModal() == .alertFirstButtonReturn {
             let name = input.stringValue.trimmingCharacters(in: .whitespaces)
             guard !name.isEmpty else { return }
+            guard isValidName(name) else { return showError("“\(name)” is not a valid folder name.") }
             let folderURL = parentURL.appendingPathComponent(name)
-            try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            guard !FileManager.default.fileExists(atPath: folderURL.path) else {
+                return showError("“\(name)” already exists in this folder.")
+            }
+            do {
+                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: false)
+            } catch {
+                return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
+            }
+            listVersion += 1
+            workspaceManager.refreshFileTree()
         }
     }
 }

@@ -127,3 +127,42 @@ cosmetic.
 - Menu enabled/checked state must come from a value-typed focused value
   (`.focusedSceneValue(\.someBool, ...)`), not from properties of a focused object.
 - A stale menu state in either direction is the same bug — fix it, don't document it.
+
+## 2026-09-24 — Range deletes by marker: list what's inside first
+
+**Context:** Removing `analyzeAllFiles` I cut from its doc comment to the next known
+marker (`/// Load ALL entities…`). Eight live functions (diagram prompts,
+`refreshSemanticViews`, `navigateToText`) sat in between; the build broke and I had to
+restore them from HEAD.
+
+**Rule:** before deleting a span between two markers, print the `func`/`struct`
+declarations inside it and confirm every one is meant to go. Prefer brace-matched
+deletion of a single declaration over marker-to-marker cuts.
+The same holds for deleting a whole file: `EntityGraphView.swift` also held
+`MarkdownContentView`, which the AI console renders with. List every top-level
+declaration in a file and grep each one before `git rm`.
+
+## `defer` in a Task does not release a flag before chained work
+- `scan()` used `defer { busy = false }` and called `analyze()` at the end of the same Task. The defer had not run yet, so `analyze()` hit `guard !busy` and silently did nothing: the first automatic AI analysis never started.
+- Rule: when a job chains into another job guarded by the same flag, clear the flag explicitly right before the chained call. Don't rely on `defer`, and never let a later `defer` clear a flag the chained job has set.
+
+## New columns need a migration, not just CREATE TABLE
+- `arch_nodes` gained columns while databases created by an earlier build already had the table. `CREATE TABLE IF NOT EXISTS` skipped it, so INSERT/SELECT failed with "no column named component".
+- Rule: whenever a column is added to an existing table, also call `addMissingColumns` (ALTER TABLE ADD COLUMN) in `createTables`, and test on a copy of an old database.
+
+## Codex "error" events are not always fatal
+- `codex exec --json` reports warnings (e.g. "Model metadata … not found") as `{"type":"error"}` and API failures as raw JSON inside `message`. Only `turn.failed` ends a run.
+- Rule: record `error` events and use them only to explain an empty answer; unwrap the nested `error.message` before showing it. Test model choices with a real `codex exec` call, since the catalog can list models the account cannot use.
+
+## Verify editor UI in WebKit, and never let `display` override `hidden`
+- The notes panel could not be collapsed: `.code-notes { display: flex }` beats the UA `[hidden] { display: none }`, so ✕ did nothing. Chrome checks missed it because ✕ was never exercised, and the app runs WKWebView, not Chrome.
+- Rule: every element toggled with `hidden` whose CSS sets `display` needs an explicit `[hidden] { display: none }`. When a library styles the element with `!important` (CodeMirror's `.cm-editor` is `display: flex !important`), the `[hidden]` rule needs `!important` too — otherwise two viewers show at once. Check interactions (drag, close, reopen) in real WebKit: a small Swift program with an off-screen WKWebView that loads the editor from a local server and dispatches the events, not only in Chrome.
+
+## Confirm which panel the user means before fixing it
+- "The explanation panel doesn't resize" meant the X-Ray details panel (descriptions, Component list), but I fixed the code-notes panel. The user had to repeat it several times.
+- Rule: when a report names a UI element loosely ("the panel", "explanations"), match it to the screen the user is on (X-Ray, code, docs) and name the element back ("the X-Ray details panel on the right"). If two readings are plausible, fix both or ask.
+- Also: a flex item holding a canvas needs `min-width: 0` (or `overflow: hidden`), or it grows to the canvas width and pushes side panels off-screen.
+
+## Never use `git stash` to compare before/after
+- I ran `git stash push <file>; …; git stash pop` to time an old version. The file was untracked, so nothing was stashed — and `pop` would have applied someone else's older stash to a working tree with 70+ uncommitted files.
+- Rule: to compare versions, build the old code from a copy (`git show HEAD:path > /tmp/...`) or a separate worktree; never stash in the user's working tree.

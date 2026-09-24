@@ -572,70 +572,21 @@ Begin scanning the current directory now and generate all documentation.
         md += "- Total files: \(fileNames.count)\n"
         md += "- Files: \(fileNames.joined(separator: ", "))\n\n"
 
-        // Components from DB
-        let modules = db.allModules()
-        let contentModules = modules.filter { $0.id.hasPrefix("cmod_") }
-
-        if !contentModules.isEmpty {
-            // Group by type
-            var byType: [String: [(name: String, desc: String)]] = [:]
-            for mod in contentModules {
-                let symbols = db.symbolsForModule(mod.id)
-                let typeSymbol = symbols.first(where: { $0.kind == "component" })
-                let typeName: String
-                let desc: String
-                if let ctx = typeSymbol?.context, ctx.hasPrefix("["), let end = ctx.firstIndex(of: "]") {
-                    typeName = String(ctx[ctx.index(after: ctx.startIndex)..<end])
-                    desc = String(ctx[ctx.index(after: end)...]).trimmingCharacters(in: .whitespaces)
-                } else {
-                    typeName = "component"
-                    desc = ""
-                }
-                byType[typeName, default: []].append((name: mod.name, desc: desc))
-            }
-
-            md += "## Semantic Database Export\n\n"
-            md += "### Components (\(contentModules.count) total)\n"
-            for (type, comps) in byType.sorted(by: { $0.key < $1.key }) {
-                md += "\n#### [\(type)] (\(comps.count))\n"
-                for comp in comps {
-                    md += "- \(comp.name): \(comp.desc)\n"
-                }
-            }
-
-            // Relations
-            var relations: [String] = []
-            for mod in contentModules {
-                let rels = db.relationsForModule(mod.id)
-                for rel in rels {
-                    relations.append("- \(mod.name) → \(rel.targetId) (\(rel.type))")
-                }
-            }
-            if !relations.isEmpty {
-                md += "\n### Dependencies (\(relations.count) relations)\n"
-                for rel in relations.prefix(100) {
-                    md += "\(rel)\n"
-                }
-                if relations.count > 100 { md += "- ... and \(relations.count - 100) more\n" }
-            }
-        }
-
-        // Headings outline
-        let dirModules = modules.filter { !$0.id.hasPrefix("cmod_") }
-        if !dirModules.isEmpty {
-            md += "\n### Document Structure\n"
-            for mod in dirModules {
-                let headings = db.symbolsForModule(mod.id).filter { $0.kind == "heading" }
+        // Headings outline, grouped under the indexer's per-folder rows
+        let folders = db.allModules().filter { !$0.id.hasPrefix("cmod_") }
+        if !folders.isEmpty {
+            md += "## Document Structure\n"
+            for folder in folders {
+                let headings = db.symbolsForModule(folder.id).filter { $0.kind == "heading" }
                 if !headings.isEmpty {
-                    md += "- \(mod.name)/: \(headings.prefix(10).map { $0.name }.joined(separator: ", "))\n"
+                    md += "- \(folder.name)/: \(headings.prefix(10).map { $0.name }.joined(separator: ", "))\n"
                 }
             }
         }
 
         md += "\n## Instructions for Claude Code\n"
         md += "- This is a documentation workspace analyzed by MarkView DDE\n"
-        md += "- The above data comes from the SQLite semantic database\n"
-        md += "- When asked about architecture, use the Components and Dependencies sections\n"
+        md += "- The document structure above comes from the SQLite index\n"
         md += "- When creating .md files, use proper markdown formatting with headings\n"
         md += "- When editing existing files, preserve their structure\n"
         md += "- Follow user instructions precisely regarding language. If the user asks to write a document in a specific language, write it in that language regardless of which language the instruction was given in.\n"
@@ -645,7 +596,7 @@ Begin scanning the current directory now and generate all documentation.
         try? fm.createDirectory(at: claudeDir, withIntermediateDirectories: true)
         let claudeMdURL = claudeDir.appendingPathComponent("CLAUDE.md")
         try? md.write(to: claudeMdURL, atomically: true, encoding: .utf8)
-        NSLog("[AIConsole] Generated CLAUDE.md (\(md.count) chars, \(contentModules.count) components)")
+        NSLog("[AIConsole] Generated CLAUDE.md (\(md.count) chars)")
     }
 
     // MARK: - Claude CLI (streaming is handled in sendMessage)
@@ -782,6 +733,24 @@ enum AIAssistantPreferences {
         return value.isEmpty ? nil : value
     }
 
+    // MARK: X-Ray
+
+    /// X-Ray has its own model: its answers are large and structured, so a fast model
+    /// at low effort matters more there than raw capability.
+    static func xrayModelKey(for tool: CLITool) -> String { "settings.xray.\(tool.rawValue)Model" }
+    static func defaultXRayModel(for tool: CLITool) -> String {
+        switch tool {
+        case .claude: return "sonnet"
+        case .codex: return "gpt-5.6-luna"
+        }
+    }
+    /// The X-Ray model for `tool`; "" means the assistant's general model.
+    static func xrayModel(for tool: CLITool) -> String? {
+        let value = UserDefaults.standard.string(forKey: xrayModelKey(for: tool)) ?? defaultXRayModel(for: tool)
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? model(for: tool) : trimmed
+    }
+
     /// Short label for the active selection, e.g. "Claude Code · opus".
     static func summary(tool: CLITool, model: String) -> String {
         let trimmed = model.trimmingCharacters(in: .whitespaces)
@@ -805,7 +774,7 @@ enum AIAssistantPreferences {
         case .codex:
             let configured = codexConfiguredModel()
             let fallback = AIModelOption(
-                id: "", name: "Default",
+                id: "", name: configured.map { "Default (\($0))" } ?? "Default",
                 detail: configured.map { "\($0) (from ~/.codex/config.toml)" } ?? "Codex's configured model"
             )
             return [fallback] + codexCatalog()

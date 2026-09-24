@@ -276,6 +276,19 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         // JS sends: { path: "relative/path/from/canvas.canvas" } — a JSON Canvas
         // file-node click. Path resolution (workspace root, then canvas dir)
         // happens in WorkspaceManager.
+        // Architecture tab: { action: "openFile" | "rescan" | "analyze" | "showPR" |
+        //                     "reviewPR" | "refreshPRSources", …action fields }
+        // Code viewer margin notes: { action: "explain" | "rate", filter? }
+        case "code":
+            if let payload = data, let action = payload["action"] as? String {
+                delegate?.bridge(self, didReceiveCodeAction: action, payload: payload)
+            }
+
+        case "arch":
+            if let payload = data, let action = payload["action"] as? String {
+                delegate?.bridge(self, didReceiveArchitectureAction: action, payload: payload)
+            }
+
         case "canvasOpenFile":
             if let path = data?["path"] as? String, !path.isEmpty {
                 delegate?.bridge(self, didRequestCanvasOpenFile: path)
@@ -374,6 +387,37 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     }
 
     /// Load structured data (JSON/XML/YAML) content into the editor
+    /// Render the Architecture tab (markview-architecture.js). `json` is a JSON object literal.
+    func showArchitecture(_ json: String, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.showArchitecture && window.showArchitecture(\(json))") { _, error in
+            if let error { NSLog("Error rendering architecture: \(error)") }
+        }
+    }
+
+    /// Live AI-analysis progress for the Architecture tab. `json` is an object literal or "null".
+    func setArchitectureProgress(_ json: String, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.setArchitectureProgress && window.setArchitectureProgress(\(json))")
+    }
+
+    /// Show source code read-only in the code viewer (markview-code.js).
+    func loadCodeContent(_ content: String, language: String, fileName: String, into webView: WKWebView) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [content, language, fileName]),
+              let args = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.setCodeContent.apply(null, \(args))") { _, error in
+            if let error { NSLog("Error setting code content: \(error)") }
+        }
+    }
+
+    /// Margin notes for the file in the code viewer (markview-code.js). `json` is an object literal.
+    func setCodeNotes(_ json: String, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.setCodeNotes && window.setCodeNotes(\(json))")
+    }
+
+    /// Select and centre 1-based lines in the code viewer (queued while it loads).
+    func revealCodeLine(_ line: Int, endLine: Int?, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.codeGotoLine && window.codeGotoLine(\(line), \(endLine ?? line))")
+    }
+
     func loadStructuredContent(_ content: String, fileType: String, into webView: WKWebView, completion: @escaping () -> Void) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: [content], options: []),
               let jsonArrayString = String(data: jsonData, encoding: .utf8) else {
@@ -650,6 +694,8 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String)
+    func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any])
+    func bridge(_ bridge: WebViewBridge, didReceiveCodeAction action: String, payload: [String: Any])
 
     // MARK: Insight messages (Recursive Insight v2, Task 7)
     //

@@ -1,0 +1,18 @@
+{
+  "service-runbook.md": {
+    "Overview": ["normal", "high"],
+    "Changelog": ["low"],
+    "Data retention and deletion (legal requirement)": ["critical"],
+    "Restoring from backup after data loss": ["critical", "high"],
+    "Dashboards": ["low", "normal", "high"],
+    "Acknowledgements": ["low"]
+  },
+  "api-design.md": {
+    "Authentication and key rotation": ["critical"],
+    "Rate limits": ["high", "normal"],
+    "Idempotency": ["critical", "high"],
+    "History of the API": ["low"],
+    "Examples": ["low", "normal"],
+    "TODO": ["low"]
+  }
+}

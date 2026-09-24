@@ -11,7 +11,6 @@ MarkView is more than a markdown editor. It's a full **Documentation Development
 - **WYSIWYG Markdown Editor** — rich text editing with live preview, Mermaid diagrams, KaTeX math, Prism.js syntax highlighting
 - **AI-Powered Analysis** — Claude Code and OpenAI Codex integration for code analysis, documentation generation, and architecture visualization
 - **Interactive Architecture Diagrams** — D3.js force-directed graphs with drag & drop, built from Mermaid code blocks
-- **Semantic Module Extraction** — automatic component discovery using Haiku (cloud) or Ollama (local)
 - **Git Integration** — stage, commit, push/pull directly from the file tree
 - **Voice Input** — OpenAI Whisper transcription for hands-free documentation
 - **Multi-Window** — each window is an independent workspace
@@ -48,13 +47,16 @@ MarkView is more than a markdown editor. It's a full **Documentation Development
 - OpenAI Codex support (switchable backend)
 - Voice input via Whisper
 - Auto-opens files created by AI
-- CLAUDE.md skill file with semantic DB export
+- CLAUDE.md skill file with the workspace document structure
 
-### Modules & Search
-- Automatic module extraction (Ollama local or Haiku cloud)
-- FTS5 full-text search
-- 50+ component types: software, business, trading, generic
-- Refresh button for re-indexing
+### Code and architecture
+- Read-only code viewer for 40+ languages (CodeMirror 6): highlighting, line numbers, folding, indent guides; `file.ts#L40-L60` links jump to lines
+- Architecture tab (⌘4, opens by itself for code folders): Modules, Deployment and Docs views; double-click to zoom into a module (outside connections stay), files open in the code viewer, document sections open at the heading
+- Overlays: Documentation (none / fresh / outdated), Tests, Bug history, Freshness, Complexity, Size, Changes (branch, uncommitted work or GitHub PR) with an AI review
+- Deterministic scan stored in the workspace database; Analyze uses the selected AI CLI to describe modules and map deployment, and only re-describes what changed
+
+### Search
+- FTS5 full-text search across the workspace (Search tab in the right panel)
 
 ### Git (in File Tree)
 - Branch indicator + Pull/Push/Refresh
@@ -81,9 +83,8 @@ MarkView is more than a markdown editor. It's a full **Documentation Development
 
 - **macOS 13+** (Ventura or later)
 - **Xcode 15+** for building
-- **Claude Code CLI** (`~/.local/bin/claude`) — for AI features
-- **Ollama** (optional) — for free local module extraction
-- **OpenAI API key** (optional) — for Whisper voice input and embeddings
+- **Claude Code CLI** and/or **OpenAI Codex CLI**, signed in — every AI feature runs through the one selected in DDE Settings
+- **OpenAI API key** (optional) — for Whisper voice input
 
 ## Installation
 
@@ -107,19 +108,16 @@ The app includes a Quick Action workflow. Enable it in:
 
 ## Configuration
 
-### API Keys (Settings → DDE Settings)
+### AI assistant (Settings → DDE Settings → AI CLI Tools)
+All AI features — the AI console, selection actions (RU / EN / ?), whole-document
+translation, architecture diagrams and Recursive Insight — run through the Claude Code
+or Codex CLI you pick there (also switchable from the AI console header), with the model
+chosen for it. No provider API key is needed; the CLI's own sign-in is used.
+
+### API Keys
 | Provider | Key | Used For |
 |----------|-----|----------|
-| Anthropic | `sk-ant-...` | Research, Diagrams, Translation |
-| OpenAI | `sk-...` | Whisper voice input, Embeddings |
-
-### Ollama (Local LLM)
-```bash
-brew install ollama
-brew services start ollama
-ollama pull llama3.2:3b
-```
-MarkView auto-detects Ollama on `localhost:11434`.
+| OpenAI | `sk-...` | Whisper voice input |
 
 ### Claude Code CLI
 ```bash
@@ -140,25 +138,24 @@ MarkView/
 ├── Models/
 │   ├── AIConsoleEngine.swift       # Claude Code / Codex CLI integration
 │   ├── WhisperClient.swift         # Voice input via OpenAI Whisper
-│   ├── OllamaClient.swift          # Local LLM for module extraction
 │   ├── GitClient.swift             # Git operations
 │   ├── SemanticDatabase.swift      # SQLite FTS5 semantic index
-│   ├── StructuralIndexer.swift     # Markdown parsing, module detection
-│   ├── ActionEngine.swift          # LLM actions (describe, summarize, diagram)
+│   ├── StructuralIndexer.swift     # Markdown parsing, headings/links index
 │   ├── WorkspaceManager.swift      # Central state management
-│   ├── AIProviderClient.swift      # Anthropic API client
-│   ├── EmbeddingClient.swift       # OpenAI embeddings
-│   ├── HybridSearch.swift          # FTS5 + embeddings + graph search
+│   ├── CLICompletion.swift         # One-shot Claude Code / Codex runs for app features
+│   ├── DocumentActions.swift       # Action model, prompts, cached analyses (.dde/cache/actions)
+│   ├── EmbeddingClient.swift       # OpenAI key storage (Whisper)
 │   └── ...
 ├── Views/
 │   ├── ContentView.swift           # Main layout (HSplitView)
 │   ├── EditorView.swift            # WKWebView markdown editor
 │   ├── FileTreeView.swift          # File browser + Git status
-│   ├── ModuleExplorerView.swift    # Right panel tabs
+│   ├── ModuleExplorerView.swift    # AI panel: Actions, Discussion
+│   ├── ActionsView.swift           # Per-document AI actions (analyse → suggested buttons)
+│   ├── TOCView.swift               # Contents, Search, Git
 │   ├── AIConsoleView.swift         # AI chat tab
 │   ├── GitView.swift               # Git tab
 │   ├── GraphCreatorSheet.swift     # Diagram generation dialog
-│   ├── CanvasView.swift            # D3.js standalone canvas
 │   └── ...
 ├── Resources/Editor/
 │   └── index.html                  # WYSIWYG editor + D3 canvas + all JS
@@ -179,8 +176,7 @@ MarkView/
 | Syntax | Prism.js |
 | Math | KaTeX |
 | Database | SQLite (C API) + FTS5 |
-| AI (Cloud) | Claude API, OpenAI API |
-| AI (Local) | Ollama |
+| AI (Cloud) | OpenAI API (Whisper) |
 | AI (CLI) | Claude Code, OpenAI Codex |
 | Voice | OpenAI Whisper |
 | HTML→MD | Turndown.js |

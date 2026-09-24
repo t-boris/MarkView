@@ -336,22 +336,28 @@ class WorkspaceManager: ObservableObject {
     @Published var showTOC: Bool = true {
         didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC") }
     }
+    /// Selected tab of the AI panel (`ModuleExplorerView`), shared with `@AppStorage`.
+    static let aiPanelTabKey = "layout.moduleExplorerTab"
+    static let aiPanelActionsTab = 3
+    static let aiPanelDiscussionTab = 4
+
     @Published var showSemanticPanel: Bool = false {
         didSet { UserDefaults.standard.set(showSemanticPanel, forKey: "layout.showSemanticPanel") }
     }
     @Published var semanticDatabase: SemanticDatabase?
     @Published var incrementalCompiler: IncrementalCompiler?
-    @Published var actionEngine: ActionEngine?
-    @Published var researchEngine: ResearchEngine?
-    @Published var hybridSearch: HybridSearch?
     @Published var embeddingClient = EmbeddingClient()
-    @Published var ollamaClient = OllamaClient()
     @Published var gitClient = GitClient()
     @Published var aiConsoleEngine: AIConsoleEngine?
-    @Published var implementEngine: ImplementEngine?
-    @Published var testGenerator: TestGenerator?
+    /// Per-document AI actions (AI panel → Actions).
+    let documentActions = DocumentActionsStore()
+    /// Project architecture (Architecture tab).
+    let architecture = ArchitectureStore()
+    /// AI margin notes for code files (code viewer → Explain).
+    let codeExplain = CodeExplainStore()
+    /// The open folder looks like a software project (manifest or source files).
+    @Published var isCodeProject = false
     @Published var graphRAG: GraphRAG?
-    @Published var providerRouter: ProviderRouter?
     @Published var indexingProgress: String?
     /// Progress of the out-of-process structural index, shown ONLY in the footer.
     /// Separate from `indexingProgress` (which drives the file-tree spinner, the
@@ -362,13 +368,8 @@ class WorkspaceManager: ObservableObject {
     @Published var analysisDetail: String?
     @Published var totalFilesInWorkspace: Int = 0
     @Published var analyzedFiles: Int = 0
-    @Published var softwareArchMermaid: String?
-    @Published var dataFlowMermaid: String?
-    @Published var deploymentMermaid: String?
     @Published var semanticRefreshVersion: Int = 0
     @Published var themeVersion: Int = 0
-    @Published var activeDiagramGenerationModes: Set<String> = []
-    @Published var diagramPrompts: [String: String] = AIProviderClient.defaultDiagramPrompts
     @Published var pendingGraphCreatorType: String?
     private let fileTreeStore = WorkspaceFileTreeStore()
     private let tabsStore = WorkspaceTabsStore()
@@ -454,9 +455,15 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// Folder reopened on the next launch; cleared by Close Folder.
+    static let lastFolderKey = "workspace.lastFolder"
+
     func openFolder(_ url: URL) {
+        UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
+        architecture.reset()
+        folderXRays = [:]
         indexingProgress = "Loading folder structure..."
         Self.debugLog("openFolder START: \(url.path)")
 
@@ -483,6 +490,10 @@ class WorkspaceManager: ObservableObject {
 
             await initDDEWorkspaceAsync(at: url)
             Self.debugLog("openFolder COMPLETE")
+
+            // Code projects get a prominent "Open Architecture" on the welcome screen.
+            let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
+            if rootNode?.url == url { isCodeProject = isCode }
         }
     }
 
@@ -516,15 +527,7 @@ class WorkspaceManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             self.incrementalCompiler = IncrementalCompiler(workspacePath: url, database: db)
-            let provider = incrementalCompiler!.orchestrator.providerClient
-            self.actionEngine = ActionEngine(db: db, providerClient: provider)
-            let hs = HybridSearch(db: db, embeddingClient: embeddingClient, workspacePath: url)
-            self.hybridSearch = hs
-            self.researchEngine = ResearchEngine(db: db, hybridSearch: hs, providerClient: provider)
-            self.implementEngine = ImplementEngine(db: db, providerClient: provider)
-            self.testGenerator = TestGenerator(db: db, providerClient: provider)
-            self.graphRAG = GraphRAG(db: db, providerClient: provider)
-            self.providerRouter = ProviderRouter(anthropicClient: provider, embeddingClient: embeddingClient)
+            self.graphRAG = GraphRAG(db: db)
             let aiEngine = AIConsoleEngine(workspaceRoot: url, db: db)
             aiEngine.onFilesChanged = { [weak self] files in
                 self?.handleClaudeFileChanges(files)
@@ -535,13 +538,11 @@ class WorkspaceManager: ObservableObject {
             indexingProgress = "Connecting services..."
             try? await Task.sleep(nanoseconds: 100_000_000)
 
-            Task { await ollamaClient.checkConnection() }
             gitClient.setup(at: url)
             Self.debugLog("initDDE: git setup done")
 
             // Load cached diagrams and analysis results from database
             loadCachedResults()
-            ensureArchitectureDiagrams()
 
             // Structural indexing runs silently in background — no progress indicator
             indexingProgress = nil
@@ -556,25 +557,6 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - Markdown File Scanning (Recursive Insight)
 
-    /// Hard cap on the number of `.md` files that `scanMarkdownFiles(in:)` will
-    /// accept for a single Recursive Insight session. Folders exceeding this
-    /// cap are rejected with `ScanError.folderTooLarge` (per tech-spec
-    /// Decision 5 / Decision 10 §7).
-    private static let insightFolderFileLimit = 500
-
-    /// Errors raised by `scanMarkdownFiles(in:)`.
-    enum ScanError: Error, LocalizedError {
-        /// Folder contains more than `limit` markdown files.
-        case folderTooLarge(count: Int, limit: Int)
-
-        var errorDescription: String? {
-            switch self {
-            case .folderTooLarge(let count, let limit):
-                return "Folder too large for Recursive Insight: found \(count)+ markdown files (limit \(limit)). Try a subfolder instead."
-            }
-        }
-    }
-
     /// Enumerate `.md` files in `folderURL` for Recursive Insight.
     ///
     /// Filters applied (per tech-spec Decision 10 §7):
@@ -586,13 +568,12 @@ class WorkspaceManager: ObservableObject {
     ///   via `resolvingSymlinksInPath().standardizedFileURL` — order matters:
     ///   resolve symlinks BEFORE standardizing).
     ///
-    /// Resource cap: returns `.failure(.folderTooLarge)` once more than
-    /// `insightFolderFileLimit` matching files have been seen. Enumeration
-    /// stops immediately on overflow (DoS-resistant, no full scan).
+    /// There is no file-count limit: folders too large to inline are handed to
+    /// the AI CLI as a catalog plus read-only folder access (see GraphRAG).
     ///
     /// Per-file size truncation is the caller's responsibility — this helper
     /// only enumerates URLs.
-    func scanMarkdownFiles(in folderURL: URL) -> Result<[URL], ScanError> {
+    func scanMarkdownFiles(in folderURL: URL) -> [URL] {
         let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
         // Append the platform path separator so prefix checks cannot be bypassed
         // by sibling folders sharing a name prefix (e.g. `/x/foo` vs `/x/foobar`).
@@ -607,11 +588,10 @@ class WorkspaceManager: ObservableObject {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
-            return .success([])
+            return []
         }
 
         var results: [URL] = []
-        let limit = WorkspaceManager.insightFolderFileLimit
         while let url = enumerator.nextObject() as? URL {
             guard url.pathExtension.lowercased() == "md" else { continue }
             guard !url.path.contains(".dde") else { continue }
@@ -626,17 +606,13 @@ class WorkspaceManager: ObservableObject {
             }
 
             results.append(url)
-            if results.count > limit {
-                return .failure(.folderTooLarge(count: results.count, limit: limit))
-            }
         }
-        return .success(results)
+        return results
     }
 
     /// Cheap check for menu disabled-state: returns `true` as soon as one
     /// markdown file is found inside `rootNode`. Short-circuits on first match
-    /// to keep the menu responsive even on large workspaces. The 500-file cap
-    /// is intentionally NOT applied here — we exit on the first hit anyway.
+    /// to keep the menu responsive even on large workspaces.
     var hasMarkdownFiles: Bool {
         guard let folderURL = rootNode?.url else { return false }
         let resolvedFolderPath = folderURL.resolvingSymlinksInPath().standardizedFileURL.path
@@ -678,17 +654,10 @@ class WorkspaceManager: ObservableObject {
                 db.clearSymbols(forDocument: docId, kind: "heading")
                 db.clearSymbols(forDocument: docId, kind: "link")
                 db.clearSymbols(forDocument: docId, kind: "code_block")
-                db.clearExtractedComponents(forDocument: docId)
                 // Remove from FTS
                 db.indexDocumentFTS(documentId: docId, title: "", content: "")
             }
         }
-        // Remove directory modules for this path
-        let modules = db.allModules()
-        for mod in modules where mod.path.hasPrefix(folderURL.path) {
-            db.clearSymbols(forDocument: mod.name, kind: "heading")
-        }
-
         objectWillChange.send()
         NSLog("[DDE] Excluded folder: \(relativePath)")
     }
@@ -727,7 +696,7 @@ class WorkspaceManager: ObservableObject {
     /// session. We still allow the tab to be activated by index match.
     func openOrRefreshFile(_ url: URL) {
         if let index = tabsStore.firstIndex(of: url) {
-            if case .insight = openTabs[index].kind {
+            if !openTabs[index].isFileBacked {
                 tabsStore.activeTabIndex = index
                 return
             }
@@ -783,6 +752,422 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    // MARK: - Workspace metadata
+
+    /// Everything MarkView has written into the open folder: the index database and
+    /// caches (`.dde/`), Recursive Insight pages and a CLAUDE.md it generated.
+    func metadataItems() -> [URL] {
+        guard let root = rootNode?.url else { return [] }
+        let fm = FileManager.default
+        var items = [root.appendingPathComponent(".dde"), root.appendingPathComponent(".markview-insight")]
+            .filter { fm.fileExists(atPath: $0.path) }
+        let claude = root.appendingPathComponent(".claude/CLAUDE.md")
+        if let text = try? String(contentsOf: claude, encoding: .utf8),
+           text.hasPrefix("# Project Context — Auto-generated by MarkView DDE") {
+            items.append(claude)
+        }
+        return items
+    }
+
+    /// Delete this folder's metadata after confirmation. With `recreate`, rebuild the
+    /// index right away; otherwise nothing is written again until the folder is
+    /// reopened or Recreate is chosen.
+    func removeMetadata(recreate: Bool) {
+        guard let root = rootNode?.url else { return }
+        let items = metadataItems()
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = recreate
+            ? "Rebuild MarkView data for “\(root.lastPathComponent)”?"
+            : "Remove MarkView data from “\(root.lastPathComponent)”?"
+        let list = items.isEmpty ? "Nothing is stored yet." : items.map { "• " + $0.path.replacingOccurrences(of: root.path + "/", with: "") }.joined(separator: "\n")
+        alert.informativeText = """
+            \(list)
+
+            The search index, architecture, AI descriptions, filters, Actions analyses and Insight pages are deleted. \
+            Your documents and code are not touched.\(recreate ? " The folder is then indexed and scanned again." : "")
+            """
+        alert.addButton(withTitle: recreate ? "Rebuild" : "Remove")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // Stop everything that could still write into the folder.
+        aiConsoleEngine?.stop()
+        structuralIndexer?.terminate()
+        structuralIndexer = nil
+        for tab in openTabs {
+            if case .insight(let session) = tab.kind { Task { await session.cancel() } }
+        }
+        let keep = openTabs.enumerated().filter { $0.element.isFileBacked }.map(\.offset)
+        for index in openTabs.indices.reversed() where !keep.contains(index) { tabsStore.removeTab(at: index) }
+        releaseWorkspaceEngines()
+        architecture.reset()
+        folderXRays = [:]
+        documentActions.reset()
+        codeExplain.reset()
+        indexingProgress = nil
+        structuralIndexProgress = nil
+
+        var failures: [String] = []
+        for item in items {
+            do { try FileManager.default.removeItem(at: item) } catch { failures.append(item.lastPathComponent) }
+        }
+        let claudeDir = root.appendingPathComponent(".claude")
+        if (try? FileManager.default.contentsOfDirectory(atPath: claudeDir.path))?.isEmpty == true {
+            try? FileManager.default.removeItem(at: claudeDir)
+        }
+        if !failures.isEmpty {
+            let error = NSAlert()
+            error.messageText = "Some items could not be deleted"
+            error.informativeText = failures.joined(separator: ", ")
+            error.runModal()
+        }
+        Self.debugLog("removeMetadata: \(items.count) items removed from \(root.path), recreate=\(recreate)")
+        if recreate {
+            Task { await initDDEWorkspaceAsync(at: root) }
+        }
+    }
+
+    // MARK: - Code explanations
+
+    /// Workspace-relative path used as the cache key for a file's notes.
+    func workspaceRelativePath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        if let root = rootNode?.url.standardizedFileURL.path, path.hasPrefix(root + "/") {
+            return String(path.dropFirst(root.count + 1))
+        }
+        return path
+    }
+
+    private func explainDirectory(for url: URL) -> URL {
+        actionsStoreDirectory(for: url).deletingLastPathComponent().appendingPathComponent("explain", isDirectory: true)
+    }
+
+    /// AI filters available to the code viewer: Importance and the user's own.
+    private var aiFilters: [ImportanceRater.Filter] { ImportanceRater.allFilters }
+
+    /// Create or delete a user filter (from the Architecture tab or the code viewer).
+    func createFilter(name: String, criterion: String) {
+        ImportanceRater.addFilter(name: name, criterion: criterion)
+        allXRayStores.forEach { $0.filtersChanged() }
+        codeExplain.filtersChanged()
+    }
+
+    /// The one-off AI filter from a filter box (X-Ray or notes); empty clears it.
+    func setTemporaryFilter(_ criterion: String) {
+        if let previous = ImportanceRater.setTemporaryFilter(criterion) {
+            architecture.forgetRatings(filterId: previous.id, db: semanticDatabase)
+            folderXRays.values.forEach { $0.forgetRatings(filterId: previous.id, db: nil) }
+        }
+        allXRayStores.forEach { $0.filtersChanged() }
+        codeExplain.filtersChanged()
+    }
+
+    func deleteFilter(id: String) {
+        ImportanceRater.removeFilter(id: id)
+        architecture.forgetRatings(filterId: id, db: semanticDatabase)
+        codeExplain.filtersChanged()
+    }
+
+    /// Load cached notes for a code file that just opened.
+    func prepareCodeNotes(for url: URL) {
+        codeExplain.load(path: workspaceRelativePath(url), directory: explainDirectory(for: url))
+    }
+
+    /// The margin panel state for `url`, as a JSON object literal.
+    func codeNotesJSON(for url: URL) -> String {
+        let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
+        return codeExplain.payloadJSON(path: workspaceRelativePath(url), content: content, filters: aiFilters)
+    }
+
+    /// Show the active markdown document with Explain notes (like code), or back as a document.
+    func setNotesView(_ show: Bool) {
+        tabsStore.updateActiveTab { tab in
+            guard tab.isFileBacked else { return }
+            tab.notesView = show
+        }
+    }
+
+    /// Requests from the code viewer's margin panel.
+    func handleCodeAction(_ action: String, payload: [String: Any], url: URL) {
+        guard let tab = openTabs.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return }
+        let root = rootNode?.url ?? url.deletingLastPathComponent()
+        let path = workspaceRelativePath(url)
+        switch action {
+        case "explain":
+            codeExplain.explain(path: path, content: tab.content, root: root, directory: explainDirectory(for: url),
+                                db: semanticDatabase)
+        case "rate":
+            let id = payload["filter"] as? String ?? ImportanceRater.importance.id
+            guard let filter = aiFilters.first(where: { $0.id == id }) else { return }
+            codeExplain.rate(path: path, content: tab.content, filter: filter, root: root,
+                             directory: explainDirectory(for: url), db: semanticDatabase)
+        case "freshness":
+            codeExplain.freshness(path: path, root: root, directory: explainDirectory(for: url))
+        case "createFilter":
+            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
+        case "tempFilter":
+            setTemporaryFilter(payload["criterion"] as? String ?? "")
+        default:
+            break
+        }
+    }
+
+    // MARK: - Architecture
+
+    /// Folder X-Rays by folder path (relative to the project root). The project's own
+    /// X-Ray is `architecture` (scope "").
+    private var folderXRays: [String: ArchitectureStore] = [:]
+
+    /// The store behind an X-Ray tab.
+    func xrayStore(for scope: String) -> ArchitectureStore {
+        if scope.isEmpty || scope == TabKind.pullRequestScope { return architecture }
+        if let store = folderXRays[scope] { return store }
+        let store = ArchitectureStore()
+        if let root = rootNode?.url {
+            // Kept in the project's .dde, never inside the folder itself.
+            let key = String(DocumentActionsStore.contentHash(scope).prefix(24))
+            let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
+            store.persistenceFile = base.appendingPathComponent(key + ".json")
+            store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
+        }
+        folderXRays[scope] = store
+        return store
+    }
+
+    /// Every X-Ray store that exists (the project's and the folders').
+    private var allXRayStores: [ArchitectureStore] { [architecture] + folderXRays.values }
+
+    /// Root folder and database of an X-Ray scope (folder X-Rays keep no database).
+    private func xrayContext(_ scope: String) -> (root: URL, db: SemanticDatabase?)? {
+        guard let root = rootNode?.url else { return nil }
+        if scope.isEmpty || scope == TabKind.pullRequestScope { return (root, semanticDatabase) }
+        return (root.appendingPathComponent(scope), nil)
+    }
+
+    /// Open (or switch to) the project's X-Ray. The first time the folder is scanned;
+    /// later openings show the stored result.
+    func openArchitecture() {
+        openXRayTab(scope: "")
+    }
+
+    private func openXRayTab(scope: String) {
+        guard let root = rootNode?.url, let context = xrayContext(scope) else { return }
+        let isThisTab = { (tab: OpenTab) -> Bool in
+            if case .architecture(let s) = tab.kind { return s == scope }
+            return false
+        }
+        if let index = openTabs.firstIndex(where: isThisTab) {
+            tabsStore.activeTabIndex = index
+        } else {
+            let marker = scope.isEmpty ? ".markview-architecture"
+                : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
+                : ".markview-architecture-" + String(DocumentActionsStore.contentHash(scope).prefix(12))
+            var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
+            tab.kind = .architecture(scope: scope)
+            tabsStore.appendTab(tab)
+        }
+        xrayStore(for: scope).open(root: context.root, db: context.db)
+    }
+
+    // MARK: - Moving and copying files
+
+    /// Move (or copy) files and folders into `folder`, as the file tree's drag and drop
+    /// does (see `FileTransfer`). Tabs of moved files follow them. Returns the errors.
+    @discardableResult
+    func transfer(_ sources: [URL], into folder: URL, copy: Bool) -> [String] {
+        let result = FileTransfer.perform(sources, into: folder, copy: copy)
+        for (source, destination) in result.moved {
+            for index in openTabs.indices {
+                let path = openTabs[index].url.standardizedFileURL.path
+                guard path == source.path || path.hasPrefix(source.path + "/") else { continue }
+                let moved = URL(fileURLWithPath: destination.path + path.dropFirst(source.path.count))
+                tabsStore.updateTab(at: index) { $0.url = moved }
+            }
+        }
+        refreshFileTree()
+        return result.errors
+    }
+
+    /// The PR X-Ray tab: the project's X-Ray seen through one change — what it touches,
+    /// the links it adds or removes, and the AI's architectural reading of it.
+    func openPRXRay(source: String?) {
+        guard let root = rootNode?.url else { return }
+        openXRayTab(scope: TabKind.pullRequestScope)
+        architecture.refreshPRSources(root: root)
+        if let source, !source.isEmpty {
+            architecture.analyzeWhenLoaded = true
+            architecture.showPR(source, root: root)
+        }
+    }
+
+    /// X-Ray from the file tree. A folder gets its own X-Ray tab — its own structure,
+    /// found and named inside it as if it were the project. A file opens with Explain
+    /// (its sections, importance, freshness and filters).
+    func openXRay(for url: URL) {
+        guard let root = rootNode?.url.standardizedFileURL else { return }
+        let target = url.standardizedFileURL
+        let isFolder = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+        guard isFolder else {
+            explainFile(target)
+            return
+        }
+        openXRayTab(scope: target.path == root.path ? "" : workspaceRelativePath(target))
+    }
+
+    /// Open a file with its Explain notes, starting an explanation if there is none yet.
+    private func explainFile(_ url: URL) {
+        openFile(url)
+        if FileType.from(url: url) == .markdown { setNotesView(true) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.prepareCodeNotes(for: url)
+            if self.codeExplain.explanations[self.workspaceRelativePath(url)] == nil {
+                self.handleCodeAction("explain", payload: [:], url: url)
+            }
+        }
+    }
+
+    /// Requests from an X-Ray tab's web view, for the X-Ray of the active tab.
+    func handleArchitectureAction(_ action: String, payload: [String: Any]) {
+        var scope = ""
+        if case .architecture(let s) = activeTab?.kind { scope = s }
+        guard let (root, db) = xrayContext(scope) else { return }
+        let architecture = xrayStore(for: scope)
+        let semanticDatabase = db
+        switch action {
+        case "openFile":
+            guard let path = payload["path"] as? String, !path.isEmpty else { return }
+            let url = root.appendingPathComponent(path).standardizedFileURL
+            // Stay inside the open folder.
+            guard url.path.hasPrefix(root.standardizedFileURL.path + "/"),
+                  FileManager.default.fileExists(atPath: url.path) else { return }
+            if FileType.isSupported(url) {
+                openFile(url, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
+                // Markdown: scroll to a heading or to where the document mentions something.
+                if let text = payload["find"] as? String, !text.isEmpty, FileType.from(url: url) == .markdown {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        NotificationCenter.default.post(name: .scrollToText, object: String(text.prefix(80)))
+                    }
+                }
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        case "rescan":
+            architecture.scan(root: root, db: semanticDatabase)
+        case "analyze":
+            architecture.analyze(root: root, db: semanticDatabase)
+        case "cancelAnalysis":
+            architecture.cancelAnalysis()
+        case "tempFilter":
+            setTemporaryFilter(payload["criterion"] as? String ?? "")
+        case "openPRXRay":
+            openPRXRay(source: payload["source"] as? String)
+        case "openPRNumber":
+            // "123", "#123" or a GitHub link ".../pull/123".
+            let text = (payload["text"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            let number = text.range(of: #"(\d+)\s*$|pull/(\d+)"#, options: .regularExpression)
+                .map { String(text[$0]).filter(\.isNumber) } ?? ""
+            if !number.isEmpty { openPRXRay(source: "gh:" + number) }
+        case "analyzePR":
+            architecture.analyzePR(root: root, db: semanticDatabase)
+        case "prFileDiff":
+            architecture.showFileDiff(path: payload["path"] as? String ?? "")
+        case "askPR":
+            let path = payload["path"] as? String
+            architecture.askPR(question: payload["question"] as? String ?? "", path: path?.isEmpty == true ? nil : path,
+                               root: root, db: semanticDatabase)
+        case "filterSearch":
+            architecture.searchFilter(filterId: payload["filter"] as? String ?? "", root: root, db: semanticDatabase)
+        case "showPR":
+            architecture.showPR(payload["source"] as? String ?? "", root: root)
+        case "reviewPR":
+            architecture.reviewPR(root: root, db: semanticDatabase)
+        case "refreshPRSources":
+            architecture.refreshPRSources(root: root)
+        case "setComponent":
+            architecture.setComponent(path: payload["path"] as? String ?? "", component: payload["component"] as? String ?? "",
+                                      db: semanticDatabase)
+        case "rateImportance":
+            architecture.rateImportance(viewId: payload["view"] as? String ?? "modules",
+                                        parentId: payload["parent"] as? String ?? "",
+                                        filterId: payload["filter"] as? String ?? "importance",
+                                        root: root, db: semanticDatabase)
+        case "createFilter":
+            createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
+        case "deleteFilter":
+            deleteFilter(id: payload["id"] as? String ?? "")
+        case "describe":
+            architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
+                                  root: root, db: semanticDatabase)
+        default:
+            break
+        }
+    }
+
+    /// Open `url` and, for code, reveal `line`…`endLine` in the code viewer.
+    func openFile(_ url: URL, line: Int?, endLine: Int? = nil) {
+        openFile(url)
+        guard let line, line > 0 else { return }
+        NotificationCenter.default.post(name: .revealCodeLine, object: nil, userInfo:
+            ["url": url, "line": line, "endLine": endLine ?? line])
+    }
+
+    /// Open `url`, honouring a GitHub-style line fragment: `L42` or `L40-L60`.
+    func openFile(_ url: URL, lineFragment fragment: String?) {
+        let target = URL(fileURLWithPath: url.path)
+        guard let fragment,
+              let match = fragment.range(of: #"^L(\d+)(?:-L?(\d+))?$"#, options: .regularExpression) else {
+            openFile(target)
+            return
+        }
+        let numbers = fragment[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        openFile(target, line: numbers.first, endLine: numbers.count > 1 ? numbers[1] : nil)
+    }
+
+    /// Open the note a wikilink names (`[[Note]]`, `[[folder/Note#Heading]]`), the way
+    /// Obsidian resolves it: a path from the vault root, else a file with that name —
+    /// preferring the current note's folder, then the shortest path.
+    func openWikiLink(note: String, heading: String?) {
+        guard let root = rootNode?.url.standardizedFileURL, !note.isEmpty, !note.contains("..") else { return }
+        let hasExtension = !(note as NSString).pathExtension.isEmpty && FileType.isSupported(URL(fileURLWithPath: note))
+        let fileName = hasExtension ? note : note + ".md"
+        let currentFolder = activeTab?.url.deletingLastPathComponent().standardizedFileURL.path
+        Task {
+            let found: URL? = await Task.detached {
+                if fileName.contains("/") {
+                    let direct = root.appendingPathComponent(fileName)
+                    if FileManager.default.fileExists(atPath: direct.path) { return direct }
+                }
+                let wanted = (fileName as NSString).lastPathComponent.lowercased()
+                var matches: [URL] = []
+                let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil,
+                                                                options: [.skipsPackageDescendants])
+                while let url = enumerator?.nextObject() as? URL {
+                    let name = url.lastPathComponent
+                    if name == ".git" || name == ".dde" || name == "node_modules" { enumerator?.skipDescendants(); continue }
+                    if name.lowercased() == wanted { matches.append(url.standardizedFileURL) }
+                }
+                return matches.min { a, b in
+                    let aHere = a.deletingLastPathComponent().path == currentFolder
+                    let bHere = b.deletingLastPathComponent().path == currentFolder
+                    if aHere != bHere { return aHere }
+                    return a.pathComponents.count < b.pathComponents.count
+                }
+            }.value
+            guard let found else {
+                NSSound.beep()
+                return
+            }
+            openFile(found)
+            if let heading, !heading.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    NotificationCenter.default.post(name: .scrollToText, object: heading, userInfo: ["heading": true])
+                }
+            }
+        }
+    }
+
     /// Open a file referenced by a JSON Canvas file-node. Canvas paths are
     /// vault-root-relative (Obsidian convention); resolve against the workspace
     /// root first, then fall back to the canvas file's own directory. Files the
@@ -805,7 +1190,7 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        if FileType.supportedExtensions.contains(target.pathExtension.lowercased()) {
+        if FileType.isSupported(target) {
             openFile(target)
         } else {
             NSWorkspace.shared.open(target)
@@ -825,17 +1210,8 @@ class WorkspaceManager: ObservableObject {
     private func releaseWorkspaceEngines() {
         semanticDatabase = nil
         incrementalCompiler = nil
-        researchEngine = nil
-        actionEngine = nil
-        hybridSearch = nil
-        implementEngine = nil
-        testGenerator = nil
         graphRAG = nil
-        providerRouter = nil
         aiConsoleEngine = nil
-        softwareArchMermaid = nil
-        dataFlowMermaid = nil
-        deploymentMermaid = nil
     }
 
     /// Close the open folder and every tab, returning the window to the welcome
@@ -872,6 +1248,7 @@ class WorkspaceManager: ObservableObject {
         }
 
         Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
+        UserDefaults.standard.removeObject(forKey: Self.lastFolderKey)
 
         // Stop work that would otherwise keep writing into the old workspace.
         for tab in openTabs {
@@ -886,6 +1263,9 @@ class WorkspaceManager: ObservableObject {
         tabsStore.reset()
         fileTreeStore.reset()
         releaseWorkspaceEngines()
+        architecture.reset()
+        folderXRays = [:]
+        isCodeProject = false
         gitClient.reset()
         indexingProgress = nil
         structuralIndexProgress = nil
@@ -893,7 +1273,6 @@ class WorkspaceManager: ObservableObject {
         analysisDetail = nil
         totalFilesInWorkspace = 0
         analyzedFiles = 0
-        activeDiagramGenerationModes = []
         pendingGraphCreatorType = nil
         return true
     }
@@ -914,15 +1293,7 @@ class WorkspaceManager: ObservableObject {
             try db.ensureProject(id: projectId, name: fileName, rootPath: parentDir.path)
             self.semanticDatabase = db
             self.incrementalCompiler = IncrementalCompiler(workspacePath: parentDir, database: db)
-            let provider = incrementalCompiler!.orchestrator.providerClient
-            self.actionEngine = ActionEngine(db: db, providerClient: provider)
-            let hs = HybridSearch(db: db, embeddingClient: embeddingClient, workspacePath: parentDir)
-            self.hybridSearch = hs
-            self.researchEngine = ResearchEngine(db: db, hybridSearch: hs, providerClient: provider)
-            self.implementEngine = ImplementEngine(db: db, providerClient: provider)
-            self.testGenerator = TestGenerator(db: db, providerClient: provider)
-            self.graphRAG = GraphRAG(db: db, providerClient: provider)
-            self.providerRouter = ProviderRouter(anthropicClient: provider, embeddingClient: embeddingClient)
+            self.graphRAG = GraphRAG(db: db)
             let aiEngine = AIConsoleEngine(workspaceRoot: parentDir, db: db)
             aiEngine.onFilesChanged = { [weak self] files in
                 self?.handleClaudeFileChanges(files)
@@ -937,7 +1308,7 @@ class WorkspaceManager: ObservableObject {
             }
 
             // Index this single file: create root module, parse document, index FTS
-            indexSingleFile(fileURL: fileURL, db: db, provider: provider)
+            indexSingleFile(fileURL: fileURL, db: db)
 
             NSLog("[DDE] Single-file workspace initialized: \(fileName) → \(dbName)")
         } catch {
@@ -947,7 +1318,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Index a single markdown file — structural parse + FTS + Haiku extraction.
     /// Works fully in sandbox: no directory scan, content passed directly.
-    private func indexSingleFile(fileURL: URL, db: SemanticDatabase, provider: AIProviderClient?) {
+    private func indexSingleFile(fileURL: URL, db: SemanticDatabase) {
         guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
             NSLog("[DDE] indexSingleFile: cannot read \(fileURL.path)")
             return
@@ -984,228 +1355,6 @@ class WorkspaceManager: ObservableObject {
         }
 
         NSLog("[DDE] indexSingleFile: parsed \(docId), \(content.count) chars")
-
-        // Haiku component extraction — only on explicit user action (Refresh button), not on file open
-        // Skip auto-extraction: user triggers it manually via the ↻ button in modules panel
-        let autoExtract = false // Set to true to enable auto-extraction on file open
-        if autoExtract, let provider = provider, provider.hasAPIKey {
-            // Check content hash — skip if unchanged
-            let currentHash = String(h, radix: 16)
-            let previousHash = db.getDocumentHash(docId)
-            let alreadyExtracted = db.hasExtractedComponents(forDocument: docId)
-
-            if alreadyExtracted && previousHash == currentHash {
-                NSLog("[DDE] Skipping extraction — file unchanged, \(db.symbolsForModule("").count) components cached")
-                return
-            }
-
-            // File changed or never extracted — clear old and re-extract
-            if alreadyExtracted {
-                db.clearExtractedComponents(forDocument: docId)
-            }
-            let fullContent = content
-            Task {
-                indexingProgress = "Extracting components (Haiku)..."
-                await extractSingleFileComponents(content: fullContent, docId: docId, db: db, provider: provider)
-                indexingProgress = "Extraction complete"
-                // Force UI refresh — briefly change indexingProgress so SwiftUI re-reads modules from DB
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                indexingProgress = nil
-                objectWillChange.send()
-            }
-        }
-    }
-
-    /// Extract components from a single file using Haiku — chunks entire document, works in sandbox
-    private func extractSingleFileComponents(content: String, docId: String, db: SemanticDatabase, provider: AIProviderClient) async {
-        guard let apiKey = provider.apiKeyValue else { return }
-
-        // Split into chunks of ~12000 chars at paragraph boundaries
-        let chunks = chunkContent(content, maxChars: 12000)
-        NSLog("[DDE] Extracting from \(chunks.count) chunks (\(content.count) chars total)")
-
-        var globalSeen = Set<String>()
-        var totalComponents = 0
-
-        for (chunkIdx, chunk) in chunks.enumerated() {
-            indexingProgress = "Extracting components (Haiku) chunk \(chunkIdx + 1)/\(chunks.count)..."
-
-            let tool: [String: Any] = [
-                "name": "extract_components",
-                "description": "Extract all named software components from documentation",
-                "input_schema": [
-                    "type": "object",
-                    "properties": [
-                        "components": [
-                            "type": "array",
-                            "items": [
-                                "type": "object",
-                                "properties": [
-                                    "name": ["type": "string"],
-                                    "type": ["type": "string", "enum": ["service","database","api","queue","system","library","tool","framework","protocol","storage","cache","gateway","worker","scheduler","proxy","broker","sdk","platform","infrastructure","monitoring","testing","module","pipeline","classifier","resolver","analyzer","generator","processor"]],
-                                    "description": ["type": "string"],
-                                    "dependencies": ["type": "array", "items": ["type": "string"]]
-                                ],
-                                "required": ["name", "type", "description"]
-                            ]
-                        ]
-                    ],
-                    "required": ["components"]
-                ]
-            ]
-
-            let body: [String: Any] = [
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 8192,
-                "system": """
-Extract ALL named technical components, modules, and architectural elements from this documentation chunk.
-The document may be in any language (including Russian) — extract component names regardless of language.
-
-Look for ALL of these:
-- Python/code modules (*.py files, classes, functions mentioned as components)
-- Pipeline stages and processing steps
-- Services, APIs, databases, queues, caches
-- Libraries, frameworks, tools, SDKs
-- Classifiers, analyzers, resolvers, generators
-- Infrastructure: storage, monitoring, orchestrators
-- External systems and integrations
-
-Extract EVERY named component — do NOT skip anything. If a module like 'orchestrator.py' or a stage like 'Document Intake' is mentioned, extract it.
-Each component needs a correct type and one-sentence description.
-""",
-                "messages": [["role": "user", "content": "File: \(docId) (chunk \(chunkIdx + 1)/\(chunks.count))\n\n\(chunk)"]],
-                "tools": [tool],
-                "tool_choice": ["type": "tool", "name": "extract_components"]
-            ]
-
-            do {
-                let data = try JSONSerialization.data(withJSONObject: body)
-                var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-                request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-                request.httpBody = data
-                request.timeoutInterval = 60
-
-                let (responseData, response) = try await URLSession.shared.data(for: request)
-                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                    NSLog("[DDE] Haiku chunk \(chunkIdx + 1) error: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-                    continue
-                }
-
-                guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                      let contentBlocks = json["content"] as? [[String: Any]] else { continue }
-
-                if let usage = json["usage"] as? [String: Any] {
-                    let inp = usage["input_tokens"] as? Int ?? 0
-                    let out = usage["output_tokens"] as? Int ?? 0
-                    db.addUsage(inputTokens: inp, outputTokens: out, costCents: Double(inp) * 0.0001 + Double(out) * 0.0005)
-                }
-
-                for block in contentBlocks {
-                    if block["type"] as? String == "tool_use",
-                       let input = block["input"] as? [String: Any],
-                       let components = input["components"] as? [[String: Any]] {
-                        for m in components {
-                            guard let name = m["name"] as? String, let type = m["type"] as? String else { continue }
-                            let key = name.lowercased().trimmingCharacters(in: .whitespaces)
-                            guard !globalSeen.contains(key) else { continue }
-                            globalSeen.insert(key)
-
-                            let desc = m["description"] as? String ?? ""
-                            let deps = m["dependencies"] as? [String] ?? []
-                            let modId = "cmod_\(singleFileFnv1a("\(docId):\(name)"))"
-
-                            db.upsertModule(id: modId, name: name, path: "cmod/\(name)", parentId: "mod_single_file", level: 1, fileCount: 0)
-                            db.insertSymbol(id: "sym_cmod_\(singleFileFnv1a(modId))", moduleId: modId, documentId: docId,
-                                           name: name, kind: "component", lineStart: nil, lineEnd: nil,
-                                           context: "[\(type)] \(desc)")
-                            for dep in deps {
-                                let targetId = "cmod_\(singleFileFnv1a("\(docId):\(dep)"))"
-                                db.insertRelation(id: "rel_\(singleFileFnv1a("\(modId)→\(dep)"))", sourceId: modId, targetId: targetId,
-                                                  type: "depends_on", sourceDoc: docId, evidence: "\(name) → \(dep)")
-                            }
-                            totalComponents += 1
-                        }
-                        NSLog("[DDE] Chunk \(chunkIdx+1): \(components.count) components")
-                    }
-                }
-            } catch {
-                NSLog("[DDE] Chunk \(chunkIdx + 1) extraction error: \(error)")
-            }
-        }
-        NSLog("[DDE] Total: \(totalComponents) unique components from \(chunks.count) chunks")
-    }
-
-    /// Split content into chunks at paragraph boundaries
-    private func chunkContent(_ content: String, maxChars: Int) -> [String] {
-        guard content.count > maxChars else { return [content] }
-        var chunks: [String] = []
-        var current = ""
-        for paragraph in content.components(separatedBy: "\n\n") {
-            if current.count + paragraph.count + 2 > maxChars && !current.isEmpty {
-                chunks.append(current)
-                current = ""
-            }
-            if !current.isEmpty { current += "\n\n" }
-            current += paragraph
-        }
-        if !current.isEmpty { chunks.append(current) }
-        return chunks
-    }
-
-    // MARK: - Ollama Extraction
-
-    /// Extract components from all files using local Ollama model
-    private func extractWithOllama(db: SemanticDatabase, rootURL: URL) async {
-        let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return }
-
-        var files: [(url: URL, content: String)] = []
-        while let url = enumerator.nextObject() as? URL {
-            guard url.pathExtension.lowercased() == "md", !url.path.contains(".dde") else { continue }
-            if let content = try? String(contentsOf: url, encoding: .utf8), content.count > 50 {
-                files.append((url, content))
-            }
-        }
-
-        var totalComponents = 0
-        var globalSeen = Set<String>()
-
-        for (i, file) in files.enumerated() {
-            let docId = self.docId(for: file.url)
-            indexingProgress = "Ollama: \(i+1)/\(files.count) — \(docId)"
-
-            // Skip if already extracted
-            if db.hasExtractedComponents(forDocument: docId) { continue }
-
-            // Chunk and extract
-            let chunks = chunkContent(file.content, maxChars: 3000) // smaller chunks for local model
-            for chunk in chunks {
-                guard let components = await ollamaClient.extractJSON(
-                    prompt: "File: \(docId)\n\n\(chunk)",
-                    system: OllamaClient.extractionSystemPrompt
-                ) else { continue }
-
-                for comp in components {
-                    guard let name = comp["name"] as? String, let type = comp["type"] as? String else { continue }
-                    let key = name.lowercased().trimmingCharacters(in: .whitespaces)
-                    guard !globalSeen.contains(key) else { continue }
-                    globalSeen.insert(key)
-
-                    let desc = comp["description"] as? String ?? ""
-                    let modId = "cmod_\(singleFileFnv1a("\(docId):\(name)"))"
-
-                    db.upsertModule(id: modId, name: name, path: "cmod/\(name)", parentId: nil, level: 1, fileCount: 0)
-                    db.insertSymbol(id: "sym_cmod_\(singleFileFnv1a(modId))", moduleId: modId, documentId: docId,
-                                   name: name, kind: "component", lineStart: nil, lineEnd: nil,
-                                   context: "[\(type)] \(desc)")
-                    totalComponents += 1
-                }
-            }
-        }
-        NSLog("[DDE] Ollama extraction: \(totalComponents) components from \(files.count) files")
     }
 
     private func singleFileFnv1a(_ str: String) -> String {
@@ -1315,20 +1464,14 @@ Each component needs a correct type and one-sentence description.
     /// `didRequestInsightSave` (NSSavePanel + sanitized filename + node body only).
     func saveActiveFile() {
         guard activeTabIndex >= 0 && activeTabIndex < openTabs.count else { return }
-        if case .insight = openTabs[activeTabIndex].kind { return }
+        if !openTabs[activeTabIndex].isFileBacked { return }
         saveFile(at: activeTabIndex)
     }
 
-    /// Handle selection actions: translate or explain selected text via Anthropic API.
+    /// Handle selection actions: translate or explain selected text via the selected AI CLI.
     /// Result is shown in a popup — see `translateDocument` for the whole-document
     /// path, which produces a translated copy in a new tab instead.
     func handleSelectionAction(action: String, text: String, completion: @escaping (String, String) -> Void) async {
-        guard let provider = incrementalCompiler?.orchestrator.providerClient,
-              let apiKey = provider.apiKeyValue else {
-            completion("Error", "No API key configured. Set it in DDE Settings.")
-            return
-        }
-
         let (systemPrompt, title): (String, String) = {
             switch action {
             case "translate_ru":
@@ -1342,50 +1485,12 @@ Each component needs a correct type and one-sentence description.
             }
         }()
 
-        let body: [String: Any] = [
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 8192,
-            "system": systemPrompt,
-            "messages": [["role": "user", "content": text]]
-        ]
-
         do {
-            let data = try JSONSerialization.data(withJSONObject: body)
-            var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.httpBody = data
-            request.timeoutInterval = 60
-
-            let (responseData, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                completion(title, "API error: HTTP \(code)")
-                return
-            }
-
-            guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                  let contentBlocks = json["content"] as? [[String: Any]] else {
-                completion(title, "Failed to parse API response")
-                return
-            }
-
-            // Track usage
-            if let usage = json["usage"] as? [String: Any],
-               let db = semanticDatabase {
-                let inp = usage["input_tokens"] as? Int ?? 0
-                let out = usage["output_tokens"] as? Int ?? 0
-                db.addUsage(inputTokens: inp, outputTokens: out, costCents: Double(inp) * 0.0003 + Double(out) * 0.0015)
-            }
-
-            let result = contentBlocks.compactMap { block -> String? in
-                guard block["type"] as? String == "text" else { return nil }
-                return block["text"] as? String
-            }.joined()
-
-            completion(title, result.isEmpty ? "No response from AI" : result)
+            var request = CLICompletion.Request(prompt: text, systemPrompt: systemPrompt)
+            request.timeout = 120
+            let result = try await CLICompletion.run(request)
+            result.record(in: semanticDatabase)
+            completion(title, result.text)
         } catch {
             completion(title, "Error: \(error.localizedDescription)")
         }
@@ -1396,16 +1501,11 @@ Each component needs a correct type and one-sentence description.
     /// Which backend performs the translation. Chosen once per document so the
     /// whole file is translated by a single engine (mixing engines mid-document
     /// produces visibly inconsistent terminology).
-    private enum TranslationEngine {
-        case anthropic(apiKey: String)
-        case ollama(model: String)
+    private struct TranslationEngine {
+        let tool: CLITool
+        let model: String?
 
-        var label: String {
-            switch self {
-            case .anthropic: return "Claude"
-            case .ollama(let model): return "Ollama \(model)"
-            }
-        }
+        var label: String { AIAssistantPreferences.summary(tool: tool, model: model ?? "") }
     }
 
     /// One atomic unit of the source document.
@@ -1445,19 +1545,14 @@ Each component needs a correct type and one-sentence description.
             return "Nothing to translate — the document is empty."
         }
 
-        // Engine choice, mirroring `reindexActiveFile`: local model first (free,
-        // private), Anthropic when Ollama is not running, and a visible message
-        // rather than a silent return when neither is available.
-        let engine: TranslationEngine
-        if ollamaClient.isConnected {
-            engine = .ollama(model: ollamaClient.selectedModel)
-        } else if let key = incrementalCompiler?.orchestrator.providerClient.apiKeyValue, !key.isEmpty {
-            engine = .anthropic(apiKey: key)
-        } else {
-            NSLog("[DDE] Translation aborted: no engine available")
-            return (providerRouter?.statusMessage(for: .translate)
-                ?? "Configure an Anthropic API key in DDE Settings")
-                + "\n\nAlternatively, start Ollama locally to translate without an API key."
+        // The assistant chosen in DDE Settings / the AI console; fixed for the
+        // whole document. A missing CLI is reported up front rather than as a
+        // document full of untranslated sections.
+        let tool = AIAssistantPreferences.backend
+        let engine = TranslationEngine(tool: tool, model: AIAssistantPreferences.model(for: tool))
+        guard CLIToolLocator.resolve(tool) != nil else {
+            NSLog("[DDE] Translation aborted: \(tool.binaryName) not found")
+            return "\(tool.displayName) was not found. Set its path in DDE Settings → AI CLI Tools."
         }
 
         // Create new tab immediately with placeholder
@@ -1471,6 +1566,7 @@ Each component needs a correct type and one-sentence description.
         let translatableCount = chunks.filter { $0.isTranslatable }.count
         var parts: [String] = []
         var failedChunks: [Int] = []
+        var lastError: String?
         var done = 0
 
         /// Live progress banner, written into the tab itself. `indexingProgress`
@@ -1512,13 +1608,15 @@ Each component needs a correct type and one-sentence description.
             indexingProgress = "Translating \(done)/\(translatableCount) (\(engine.label))..."
 
             let expected = skeleton(of: chunk.text)
-            var translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine, strict: false)
+            var translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
+                                                  strict: false, error: &lastError)
 
             // Structural check, then one stricter retry. This is what keeps
             // tables intact when a small local model reflows them.
             if let candidate = translated, skeleton(of: candidate) != expected {
                 NSLog("[DDE] Translation chunk \(i + 1): structure mismatch, retrying strictly")
-                translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine, strict: true)
+                translated = await translateChunk(chunk.text, targetLang: targetLang, engine: engine,
+                                                  strict: true, error: &lastError)
             }
 
             if let candidate = translated, skeleton(of: candidate) == expected {
@@ -1537,8 +1635,10 @@ Each component needs a correct type and one-sentence description.
             // Silent fallbacks previously made a partly-translated document look
             // finished. Say so, in the document itself.
             let list = failedChunks.map(String.init).joined(separator: ", ")
+            let reason = lastError.map { "(\($0))" }
+                ?? "(the model's output did not preserve their structure)"
             result = "> ⚠️ Translation incomplete — section(s) \(list) kept in the original language "
-                + "(the model's output did not preserve their structure).\n\n" + result
+                + "\(reason).\n\n" + result
             NSLog("[DDE] Translation: \(failedChunks.count) chunk(s) left untranslated")
         }
         writeToTab(result)
@@ -1553,7 +1653,8 @@ Each component needs a correct type and one-sentence description.
         _ text: String,
         targetLang: String,
         engine: TranslationEngine,
-        strict: Bool
+        strict: Bool,
+        error lastError: inout String?
     ) async -> String? {
         var systemPrompt = """
             You are a professional translator. Translate the following markdown text to \(targetLang).
@@ -1576,55 +1677,114 @@ Each component needs a correct type and one-sentence description.
                 """
         }
 
-        switch engine {
-        case .ollama:
-            guard let raw = await ollamaClient.generate(prompt: text, system: systemPrompt) else { return nil }
-            return normalizeTranslation(raw)
+        var request = CLICompletion.Request(prompt: text, systemPrompt: systemPrompt)
+        request.tool = engine.tool
+        request.model = engine.model
+        request.timeout = 240
+        do {
+            let result = try await CLICompletion.run(request)
+            result.record(in: semanticDatabase)
+            return normalizeTranslation(result.text)
+        } catch {
+            lastError = error.localizedDescription
+            NSLog("[DDE] Translation chunk error: \(error.localizedDescription)")
+            return nil
+        }
+    }
 
-        case .anthropic(let apiKey):
-            let body: [String: Any] = [
-                "model": ProviderRouter.ActionType.translate.recommendedModel,
-                "max_tokens": 8192,
-                "system": systemPrompt,
-                "messages": [["role": "user", "content": text]]
-            ]
-            do {
-                let data = try JSONSerialization.data(withJSONObject: body)
-                var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-                request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-                request.httpBody = data
-                request.timeoutInterval = 120
+    // MARK: - Document Actions
 
-                let (responseData, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                    // Never log the body: it echoes our request, which carries the key.
-                    NSLog("[DDE] Translation HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
-                    return nil
-                }
-                guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-                      let content = json["content"] as? [[String: Any]] else { return nil }
+    /// The active tab when it is a file the Actions tab can work on (not Insight).
+    var actionsDocument: (url: URL, content: String)? {
+        guard let tab = activeTab else { return nil }
+        if !tab.isFileBacked { return nil }
+        return (tab.url, tab.content)
+    }
 
-                if let usage = json["usage"] as? [String: Any] {
-                    let inp = usage["input_tokens"] as? Int ?? 0
-                    let out = usage["output_tokens"] as? Int ?? 0
-                    semanticDatabase?.addUsage(inputTokens: inp, outputTokens: out, costCents: Double(inp) * 0.0003 + Double(out) * 0.0015)
-                }
+    /// `<workspace>/.dde/cache/actions` — the open folder when the document is in it,
+    /// otherwise the document's own folder (same place single-file mode keeps `.dde`).
+    func actionsStoreDirectory(for url: URL) -> URL {
+        let path = url.standardizedFileURL.path
+        let root: URL
+        if let folder = rootNode?.url, path.hasPrefix(folder.standardizedFileURL.path + "/") {
+            root = folder
+        } else {
+            root = url.deletingLastPathComponent()
+        }
+        return root.appendingPathComponent(".dde/cache/actions", isDirectory: true)
+    }
 
-                // Join every text block — a leading non-text block would make
-                // `content.first` miss the translation entirely.
-                let joined = content.compactMap { block -> String? in
-                    guard block["type"] as? String == "text" else { return nil }
-                    return block["text"] as? String
-                }.joined()
-                return joined.isEmpty ? nil : normalizeTranslation(joined)
-            } catch {
-                NSLog("[DDE] Translation chunk error: \(error)")
-                return nil
+    func analyzeActiveDocument() {
+        guard let document = actionsDocument else { return }
+        let directory = actionsStoreDirectory(for: document.url)
+        Task {
+            await documentActions.analyze(url: document.url, content: document.content,
+                                          storeDirectory: directory, db: semanticDatabase)
+        }
+    }
+
+    /// Run `action` on the active document. The result streams into a new unsaved
+    /// tab next to it; the source document is never modified.
+    func runDocumentAction(_ action: DocumentAction) {
+        guard let document = actionsDocument else { return }
+        let language = UserDefaults.standard.string(forKey: ActionOutputLanguage.storageKey)
+            ?? ActionOutputLanguage.documentLanguage
+        let tool = AIAssistantPreferences.backend
+        let assistant = AIAssistantPreferences.summary(tool: tool, model: AIAssistantPreferences.model(for: tool) ?? "")
+        let banner = "> ⏳ **\(action.title)** — generating from `\(document.url.lastPathComponent)` "
+            + "with \(assistant)…\n\n"
+
+        let tab = OpenTab(url: actionResultURL(for: document.url, action: action), content: banner, originalContent: "")
+        let tabId = tab.id
+        tabsStore.appendTab(tab)
+        documentActions.markRunning(action, for: document.url, true)
+
+        /// Re-resolve by id: the user may open or close tabs while this runs.
+        func write(_ content: String) {
+            guard let index = openTabs.firstIndex(where: { $0.id == tabId }) else { return }
+            tabsStore.updateTab(at: index) { tab in
+                tab.content = content
+                tab.isModified = true
             }
         }
+
+        var request = CLICompletion.Request(
+            prompt: "Task: \(action.instruction)\n\n"
+                + DocumentActionPrompts.document(name: document.url.lastPathComponent, content: document.content),
+            systemPrompt: DocumentActionPrompts.runSystem(language: language))
+        request.tool = tool
+        request.timeout = 600
+
+        Task {
+            defer { documentActions.markRunning(action, for: document.url, false) }
+            let streamed = StreamedText()
+            do {
+                let result = try await CLICompletion.run(request) { chunk in
+                    let snapshot = streamed.append(chunk)
+                    Task { @MainActor in write(banner + snapshot) }
+                }
+                result.record(in: semanticDatabase)
+                write(normalizeTranslation(result.text))
+            } catch is CancellationError {
+                return
+            } catch {
+                write(banner.replacingOccurrences(of: "⏳", with: "⚠️")
+                      + "**Failed:** \(error.localizedDescription)\n")
+            }
+        }
+    }
+
+    /// `<name>_<action>.md` beside the source, never an existing or already-open file.
+    private func actionResultURL(for source: URL, action: DocumentAction) -> URL {
+        let folder = source.deletingLastPathComponent()
+        let stem = "\(source.deletingPathExtension().lastPathComponent)_\(action.id)"
+        var candidate = folder.appendingPathComponent("\(stem).md")
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) || openTabs.contains(where: { $0.url == candidate }) {
+            candidate = folder.appendingPathComponent("\(stem)-\(counter).md")
+            counter += 1
+        }
+        return candidate
     }
 
     /// Strip the code fence models like to wrap whole-document answers in, and
@@ -1848,29 +2008,26 @@ Each component needs a correct type and one-sentence description.
             return
         }
 
-        // 2. AI provider must be ready (engines initialized = folder indexed).
-        guard let provider = incrementalCompiler?.orchestrator.providerClient else {
+        // 2. The selected assistant CLI must be installed, and the workspace engines
+        //    (GraphRAG) initialised.
+        let tool = AIAssistantPreferences.backend
+        guard CLIToolLocator.resolve(tool) != nil else {
             let alert = NSAlert()
-            alert.messageText = "AI engines not ready"
-            alert.informativeText = "Wait for workspace indexing to complete, or set an API key in DDE Settings."
+            alert.messageText = "\(tool.displayName) not found"
+            alert.informativeText = "Set its path in DDE Settings → AI CLI Tools, or choose the other assistant."
+            alert.runModal()
+            return
+        }
+        guard graphRAG != nil else {
+            let alert = NSAlert()
+            alert.messageText = "Workspace not ready"
+            alert.informativeText = "Wait for the folder to finish opening, then try again."
             alert.runModal()
             return
         }
 
-        // 3. Enumerate .md files (Task 2 helper enforces the 500-file hard cap
-        //    via ScanError.folderTooLarge — surface to user as NSAlert).
-        let scanResult = scanMarkdownFiles(in: folderURL)
-        let mdFiles: [URL]
-        switch scanResult {
-        case .success(let urls):
-            mdFiles = urls
-        case .failure(let error):
-            let alert = NSAlert()
-            alert.messageText = "Cannot start Recursive Insight"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-            return
-        }
+        // 3. Enumerate .md files (any number).
+        let mdFiles = scanMarkdownFiles(in: folderURL)
 
         // 4. Empty folder check.
         guard !mdFiles.isEmpty else {
@@ -1902,7 +2059,6 @@ Each component needs a correct type and one-sentence description.
         let session = InsightSession(
             folderURL: folderURL,
             mdFiles: mdFiles,
-            providerClient: provider,
             graphRAG: graphRAG,
             cache: cache
         )
@@ -2486,7 +2642,7 @@ Each component needs a correct type and one-sentence description.
         guard index >= 0 && index < openTabs.count else { return }
 
         let tab = openTabs[index]
-        if case .insight = tab.kind { return }
+        if !tab.isFileBacked { return }
         do {
             try tab.content.write(to: tab.url, atomically: true, encoding: .utf8)
             tabsStore.updateTab(at: index) { mutableTab in
@@ -2498,95 +2654,6 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
-    /// Re-index active file: update FTS, headings, re-extract components
-    /// Refresh: re-index current file + extraction. Prefers Ollama (free), falls back to Haiku.
-    func reindexActiveFile() {
-        // If a folder is open, re-run full structural index + extraction
-        if let root = rootNode?.url, let db = semanticDatabase {
-            indexingProgress = "Re-indexing workspace..."
-            runStructuralIndex(at: root)
-
-            Task {
-                if ollamaClient.isConnected {
-                    // Use Ollama (free, local)
-                    indexingProgress = "Extracting modules (Ollama \(ollamaClient.selectedModel))..."
-                    await extractWithOllama(db: db, rootURL: root)
-                } else if let provider = incrementalCompiler?.orchestrator.providerClient, provider.hasAPIKey {
-                    // Fallback to Haiku (cloud, paid)
-                    indexingProgress = "Extracting modules (Haiku)..."
-                    let indexer = StructuralIndexer(db: db, rootURL: root, providerClient: provider)
-                    await indexer.extractContentModules()
-                } else {
-                    indexingProgress = "No AI available — structural index only"
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                }
-                indexingProgress = nil
-                objectWillChange.send()
-            }
-            return
-        }
-
-        // Single file mode
-        guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
-        let tab = openTabs[activeTabIndex]
-        // Insight tabs have a placeholder URL that does not exist on disk —
-        // re-indexing it would create a bogus `.insight-<uuid>` doc in SQLite.
-        if case .insight = tab.kind { return }
-        reindexFile(fileURL: tab.url, content: tab.content)
-    }
-
-    private func reindexFile(fileURL: URL, content: String) {
-        guard let db = semanticDatabase else { return }
-        let docId = self.docId(for: fileURL)
-
-        // Compute new hash
-        var h: UInt32 = 0x811c9dc5
-        for byte in content.utf8 { h ^= UInt32(byte); h = h &* 0x01000193 }
-        let newHash = String(h, radix: 16)
-
-        NSLog("[DDE] Re-indexing: \(docId)")
-
-        // Update hash
-        try? db.upsertDocument(id: docId, projectId: fileURL.deletingPathExtension().lastPathComponent,
-                               filePath: fileURL.path, fileName: fileURL.lastPathComponent, fileExt: "md",
-                               contentHash: newHash)
-
-        // Re-index FTS
-        db.indexDocumentFTS(documentId: docId, title: fileURL.deletingPathExtension().lastPathComponent, content: content)
-
-        // Re-parse headings
-        let modId = "mod_single_file"
-        db.clearSymbols(forDocument: docId, kind: "heading")
-
-        let lines = content.components(separatedBy: "\n")
-        for (i, line) in lines.enumerated() {
-            let lineNum = i + 1
-            if line.range(of: #"^#{1,6}\s+.+"#, options: .regularExpression) != nil {
-                let level = line.prefix(while: { $0 == "#" }).count
-                let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
-                let symId = "sym_h_\(singleFileFnv1a("\(docId):\(lineNum):\(text)"))"
-                db.insertSymbol(id: symId, moduleId: modId, documentId: docId,
-                               name: text, kind: "heading", lineStart: lineNum, lineEnd: lineNum, context: nil)
-            }
-        }
-
-        // Re-extract components in background
-        let provider = incrementalCompiler?.orchestrator.providerClient
-        if let provider = provider, provider.hasAPIKey {
-            db.clearExtractedComponents(forDocument: docId)
-            Task {
-                indexingProgress = "Re-extracting components..."
-                await extractSingleFileComponents(content: content, docId: docId, db: db, provider: provider)
-                indexingProgress = "Re-indexing complete"
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                indexingProgress = nil
-                objectWillChange.send()
-            }
-        } else {
-            objectWillChange.send()
-        }
-    }
-
     /// Update the content of the active tab.
     /// Insight tabs own their content via `InsightSession`; the JS bridge must
     /// not write back into `tab.content` because (a) it would race with the SSE
@@ -2594,7 +2661,7 @@ Each component needs a correct type and one-sentence description.
     /// write to the placeholder URL.
     func updateActiveTabContent(_ content: String) {
         tabsStore.updateActiveTab { tab in
-            if case .insight = tab.kind { return }
+            if !tab.isFileBacked { return }
             tab.content = content
             tab.isModified = (content != tab.originalContent)
         }
@@ -2629,7 +2696,7 @@ Each component needs a correct type and one-sentence description.
     func reloadActiveTabFromDisk() -> String? {
         let idx = activeTabIndex
         guard idx >= 0 && idx < openTabs.count else { return nil }
-        if case .insight = openTabs[idx].kind { return nil }
+        if !openTabs[idx].isFileBacked { return nil }
 
         let url = openTabs[idx].url
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
@@ -2776,7 +2843,7 @@ Each component needs a correct type and one-sentence description.
     func handleBlocksDelta(_ delta: BlocksDelta) {
         guard activeTabIndex >= 0, activeTabIndex < openTabs.count else { return }
         guard !delta.isEmpty else { return }
-        if case .insight = openTabs[activeTabIndex].kind { return }
+        if !openTabs[activeTabIndex].isFileBacked { return }
 
         let tabIndex = activeTabIndex
         var tab = openTabs[tabIndex]
@@ -2889,173 +2956,8 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
-    /// Smart analysis — only processes NEW or CHANGED files. Skips unchanged files entirely.
-    private func analyzeAllFiles(in folderURL: URL) {
-        // Load cached results IMMEDIATELY so panel has data
-        loadCachedResults()
-        ensureArchitectureDiagrams()
-
-        // Run analysis in background — does NOT block UI
-        Task.detached { [weak self] in
-            guard let self else { return }
-
-            let fm = FileManager.default
-            guard let enumerator = fm.enumerator(at: folderURL,
-                includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return }
-
-            var mdFiles: [URL] = []
-            while let url = enumerator.nextObject() as? URL {
-                if url.pathExtension.lowercased() == "md" { mdFiles.append(url) }
-            }
-            let totalMarkdownFiles = mdFiles.count
-
-            await MainActor.run {
-                self.totalFilesInWorkspace = totalMarkdownFiles
-                self.analysisStage = "Checking \(totalMarkdownFiles) files..."
-            }
-
-            // Check which files changed
-            var changedFiles: [(docId: String, url: URL, content: String)] = []
-            var skippedCount = 0
-
-            for fileURL in mdFiles {
-                guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-                // Detached context (off MainActor) → use the static helper directly.
-                let docId = SemanticDatabase.documentId(for: fileURL, root: folderURL)
-                var hash: UInt32 = 0x811c9dc5
-                for byte in content.utf8 { hash ^= UInt32(byte); hash = hash &* 0x01000193 }
-                let contentHash = String(hash, radix: 16)
-
-                let skip = await MainActor.run { () -> Bool in
-                    guard let db = self.semanticDatabase else { return false }
-                    if db.getDocumentHash(docId) == contentHash,
-                       !db.documentNeedsReanalysis(docId) {
-                        return true
-                    }
-                    try? db.upsertDocument(id: docId, projectId: folderURL.lastPathComponent,
-                        filePath: fileURL.path, fileName: fileURL.deletingPathExtension().lastPathComponent,
-                        fileExt: fileURL.pathExtension, contentHash: contentHash)
-                    return false
-                }
-
-                if skip { skippedCount += 1; continue }
-                changedFiles.append((docId, fileURL, content))
-            }
-            let changedCount = changedFiles.count
-            let skippedTotal = skippedCount
-
-            await MainActor.run {
-                self.analysisDetail = "\(changedCount) changed, \(skippedTotal) cached"
-            }
-            NSLog("[DDE] \(changedCount) changed, \(skippedTotal) cached")
-
-            if changedFiles.isEmpty {
-                await MainActor.run {
-                    self.analysisStage = nil
-                    self.analysisDetail = nil
-                    self.refreshSemanticViews()
-                }
-                return
-            }
-
-            // Extract changed files
-            let changedFilesTotal = changedFiles.count
-            for (index, (docId, _, content)) in changedFiles.enumerated() {
-                await MainActor.run {
-                    self.analyzedFiles = index + 1
-                    self.analysisStage = "Extracting \(index + 1)/\(changedFilesTotal): \(docId)"
-                }
-
-                let blocks = MarkdownBlockParser.extractBlocks(from: content, documentId: docId)
-
-                await MainActor.run {
-                    if let db = self.semanticDatabase {
-                        for block in blocks { try? db.upsertBlock(block, documentId: docId) }
-                    }
-                    if content.count > 20 {
-                        // Insert file-level block into DB so FK constraints work for claims
-                        let fileBlock = SemanticBlock(
-                            id: "file_\(docId)", documentId: docId, type: .document, level: nil,
-                            content: content, plainText: content, contentHash: "",
-                            headingPath: [], parentBlockId: nil,
-                            lineStart: 1, lineEnd: blocks.last?.lineEnd ?? 1,
-                            position: 0, language: nil, anchor: nil)
-                        // Store the file block in DB so claims can reference it (FK constraint)
-                        if let db = self.semanticDatabase {
-                            try? db.upsertBlock(fileBlock, documentId: docId)
-                        }
-                        self.incrementalCompiler?.orchestrator.submitExtraction(
-                            block: fileBlock, documentId: docId, file: docId)
-                    }
-                }
-            }
-
-            // Wait for AI (with timeout, non-blocking for UI since we're detached)
-            await self.waitForAICompletion()
-
-            await MainActor.run {
-                self.loadCachedResults()
-                self.incrementalCompiler?.runContradictionDetection()
-                self.analysisStage = nil
-                self.analysisDetail = nil
-                self.ensureArchitectureDiagrams()
-                self.refreshSemanticViews()
-                let ent = self.incrementalCompiler?.orchestrator.extractedEntities.count ?? 0
-                let clm = self.incrementalCompiler?.orchestrator.extractedClaims.count ?? 0
-                NSLog("[DDE] Done: \(ent) entities, \(clm) claims")
-            }
-        }
-    }
-
-    /// Load cached diagrams from DB, or generate in background if missing
-    func ensureArchitectureDiagrams() {
-        // Try loading from DB first
-        if let db = semanticDatabase {
-            if let cached = db.getDocumentHash("__diagram_software") {
-                softwareArchMermaid = cached
-            }
-            if let cached = db.getDocumentHash("__diagram_dataflow") {
-                dataFlowMermaid = cached
-            }
-            if let cached = db.getDocumentHash("__diagram_deployment") {
-                deploymentMermaid = cached
-            }
-        }
-
-        // Don't auto-generate — diagrams are only generated on explicit user action (Rerun button)
-        // This prevents wasting API credits on every folder open
-    }
-
     func refreshSemanticViews() {
         semanticRefreshVersion &+= 1
-    }
-
-    /// Get the full prompt = base + user instructions
-    func diagramPrompt(for mode: String) -> String {
-        let base = AIProviderClient.defaultDiagramPrompt(for: mode)
-        let userInstr = diagramPrompts[mode] ?? ""
-        if userInstr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return base
-        }
-        return base + "\n\nAdditional instructions from user:\n" + userInstr
-    }
-
-    /// Get only the user's additional instructions (for the editor)
-    func diagramUserInstructions(for mode: String) -> String {
-        diagramPrompts[mode] ?? ""
-    }
-
-    /// Store user's additional instructions
-    func updateDiagramPrompt(_ instructions: String, for mode: String) {
-        diagramPrompts[mode] = instructions
-    }
-
-    func resetDiagramPrompt(for mode: String) {
-        diagramPrompts[mode] = ""
-    }
-
-    func regenerateArchitectureDiagram(mode: String) {
-        Task { await generateArchitectureDiagram(mode: mode, force: true) }
     }
 
     func navigateToText(filePath: String?, fallbackDocumentId: String? = nil, searchText: String) {
@@ -3072,35 +2974,11 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
-    /// Generate architecture diagrams using AI → Mermaid code (runs in background, doesn't block UI)
-    private func generateArchitectureDiagrams(forceModes: Set<String>) async {
-        for mode in ["software", "dataflow", "deployment"] {
-            let shouldForce = forceModes.contains(mode)
-            let hasCachedDiagram = !(currentDiagram(for: mode)?.isEmpty ?? true)
-            if shouldForce || !hasCachedDiagram {
-                await generateArchitectureDiagram(mode: mode, force: shouldForce)
-            }
-        }
-    }
-
-    /// Load ALL entities and claims from SQLite into orchestrator's @Published arrays
-    /// Lazy load — only loads counts, not full data. Panel reads from DB on demand.
+    /// Refresh views that read the semantic database on demand.
     private func loadCachedResults() {
         // Don't load thousands of records into @Published arrays.
-        // The SemanticPanelView reads directly from DB when it needs to display.
         NSLog("[DDE] DB ready for lazy loading")
         refreshSemanticViews()
-    }
-
-    /// Wait until AI orchestrator finishes all pending jobs
-    private func waitForAICompletion() async {
-        guard let orch = incrementalCompiler?.orchestrator else { return }
-        var waited = 0
-        // Poll every 2 seconds, but stop if paused/disabled/timeout (max 5 min)
-        while orch.isProcessing && !orch.isDisabled && !orch.isPaused && waited < 150 {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            waited += 1
-        }
     }
 
     /// Cursor moved to a different block
@@ -3110,35 +2988,10 @@ Each component needs a correct type and one-sentence description.
         }
     }
 
-    private func generateArchitectureDiagram(mode: String, force: Bool) async {
-        guard let compiler = incrementalCompiler, compiler.orchestrator.hasAPIKey else { return }
-        guard force || (currentDiagram(for: mode)?.isEmpty ?? true) else { return }
-        guard !activeDiagramGenerationModes.contains(mode) else { return }
-        guard let summaries = diagramSummaries() else { return }
-
-        activeDiagramGenerationModes.insert(mode)
-        defer { activeDiagramGenerationModes.remove(mode) }
-
-        do {
-            let results = try await compiler.orchestrator.providerClient.generateMermaidDiagrams(
-                mode: mode,
-                entitiesSummary: summaries.entities,
-                claimsSummary: summaries.claims,
-                customPrompt: diagramPrompt(for: mode)
-            )
-            // Combine multiple diagrams with separator markers
-            let combined = results.map { "%%DIAGRAM_TITLE:\($0.title)\n\($0.mermaid)" }.joined(separator: "\n%%DIAGRAM_SEPARATOR\n")
-            setDiagram(combined, for: mode)
-            cacheDiagram(combined, for: mode)
-            NSLog("[DDE] Generated \(results.count) \(mode) diagrams")
-        } catch {
-            NSLog("[DDE] Failed \(mode.capitalized) diagram: \(error)")
-        }
-    }
-
     private func showAIConsole() {
         showTOC = true
         showSemanticPanel = true
+        UserDefaults.standard.set(Self.aiPanelDiscussionTab, forKey: Self.aiPanelTabKey)
     }
 
     private func activeDocumentContext(contentLimit: Int = 15000, contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
@@ -3365,7 +3218,7 @@ Each component needs a correct type and one-sentence description.
     }
 
     private func documentationGenerationPrompt(outputDir: URL) -> String {
-        var prompt = """
+        let prompt = """
         Create a comprehensive documentation structure in the folder: \(outputDir.path)
 
         Generate the following structure based on the project files in this workspace:
@@ -3394,124 +3247,7 @@ Each component needs a correct type and one-sentence description.
         - Write in English unless instructed otherwise
         """
 
-        if let db = semanticDatabase {
-            let modules = db.allModules()
-            let contentModules = modules.filter { $0.id.hasPrefix("cmod_") }
-            if !contentModules.isEmpty {
-                prompt += "\n\nExisting components found in workspace (\(contentModules.count)):\n"
-                for mod in contentModules.prefix(50) {
-                    let symbols = db.symbolsForModule(mod.id)
-                    let desc = symbols.first(where: { $0.kind == "component" })?.context ?? ""
-                    prompt += "- \(mod.name): \(desc)\n"
-                }
-            }
-
-            var relations: [String] = []
-            for mod in contentModules.prefix(30) {
-                for rel in db.relationsForModule(mod.id) {
-                    relations.append("\(mod.name) → \(rel.targetId) (\(rel.type))")
-                }
-            }
-            if !relations.isEmpty {
-                prompt += "\nDependencies:\n"
-                for rel in relations.prefix(30) {
-                    prompt += "- \(rel)\n"
-                }
-            }
-        }
-
         return prompt
-    }
-
-    private func diagramSummaries() -> (entities: String, claims: String)? {
-        guard let db = semanticDatabase else { return nil }
-
-        // Use V1 modules + symbols as primary data source
-        let modules = db.allModules()
-        let entities = db.uniqueEntities()
-        let claims = db.allClaims()
-
-        // Build entity summary from modules (Haiku-extracted) + old entities
-        var lines: [String] = []
-        for mod in modules where mod.id.hasPrefix("cmod_") {
-            let symbols = db.symbolsForModule(mod.id)
-            let desc = symbols.first(where: { $0.kind == "component" })?.context ?? ""
-            lines.append("- \(mod.name) [\(desc)]")
-        }
-        for ent in entities {
-            lines.append("- \(ent.name) [\(ent.type)]")
-        }
-
-        if lines.isEmpty {
-            // Fallback: use headings from symbols
-            let allSymbols = modules.flatMap { db.symbolsForModule($0.id) }
-            let headings = allSymbols.filter { $0.kind == "heading" }
-            for h in headings.prefix(50) {
-                lines.append("- \(h.name)")
-            }
-        }
-
-        guard !lines.isEmpty else { return nil }
-
-        let entitySummary = lines.joined(separator: "\n")
-        let claimSummary = claims.prefix(80).map { "- [\($0.safeType)] \($0.safeRawText.prefix(100))" }.joined(separator: "\n")
-
-        return (entitySummary, claimSummary.isEmpty ? "No claims extracted" : claimSummary)
-
-        if let compiler = incrementalCompiler {
-            let entities = compiler.orchestrator.extractedEntities
-            let claims = compiler.orchestrator.extractedClaims
-            guard !entities.isEmpty else { return nil }
-            let entitySummary = entities
-                .map { "- \($0.name) [\($0.type)]" }
-                .joined(separator: "\n")
-            let claimSummary = claims
-                .prefix(80)
-                .map { "- [\($0.safeType)] \($0.safeRawText.prefix(100))" }
-                .joined(separator: "\n")
-            return (entitySummary, claimSummary)
-        }
-
-        return nil
-    }
-
-    private func currentDiagram(for mode: String) -> String? {
-        switch mode {
-        case "software":
-            return softwareArchMermaid
-        case "dataflow":
-            return dataFlowMermaid
-        case "deployment":
-            return deploymentMermaid
-        default:
-            return nil
-        }
-    }
-
-    private func setDiagram(_ mermaid: String?, for mode: String) {
-        switch mode {
-        case "software":
-            softwareArchMermaid = mermaid
-        case "dataflow":
-            dataFlowMermaid = mermaid
-        case "deployment":
-            deploymentMermaid = mermaid
-        default:
-            break
-        }
-    }
-
-    private func cacheDiagram(_ mermaid: String, for mode: String) {
-        guard let db = semanticDatabase, let projectId = rootNode?.url.lastPathComponent else { return }
-        let documentId = "__diagram_\(mode)"
-        try? db.upsertDocument(
-            id: documentId,
-            projectId: projectId,
-            filePath: ".dde/\(documentId).mmd",
-            fileName: documentId,
-            fileExt: "mmd",
-            contentHash: mermaid
-        )
     }
 
     private func resolveWorkspaceFileURL(filePath: String?, fallbackDocumentId: String?) -> URL? {

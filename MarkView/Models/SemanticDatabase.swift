@@ -589,6 +589,70 @@ class SemanticDatabase {
             )
         """)
 
+        // Architecture views (ArchitectureStore)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS arch_nodes (
+                view TEXT NOT NULL,
+                id TEXT NOT NULL,
+                parent_id TEXT,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                path TEXT,
+                language TEXT,
+                loc INTEGER NOT NULL DEFAULT 0,
+                files INTEGER NOT NULL DEFAULT 0,
+                summary TEXT,
+                role TEXT,
+                tech TEXT,
+                signature TEXT,
+                summary_signature TEXT,
+                component TEXT,
+                tags_json TEXT,
+                PRIMARY KEY (view, id)
+            )
+        """)
+        // Databases created before these columns existed keep their table; add them.
+        try addMissingColumns("arch_nodes", [
+            ("signature", "TEXT"), ("summary_signature", "TEXT"), ("component", "TEXT"), ("tags_json", "TEXT"),
+        ])
+        try execute("""
+            CREATE TABLE IF NOT EXISTS arch_edges (
+                view TEXT NOT NULL,
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                weight INTEGER NOT NULL DEFAULT 1,
+                label TEXT,
+                PRIMARY KEY (view, source, target, kind)
+            )
+        """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS arch_coverage (
+                node_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                docs_json TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS arch_metrics (
+                node_id TEXT PRIMARY KEY,
+                json TEXT NOT NULL
+            )
+        """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS arch_reviews (
+                diff_hash TEXT PRIMARY KEY,
+                json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+        """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS arch_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
         // Schema version tracking
         try execute("""
             CREATE TABLE IF NOT EXISTS applied_migrations (
@@ -596,6 +660,195 @@ class SemanticDatabase {
                 applied_at INTEGER NOT NULL
             )
         """)
+    }
+
+    private func columnNames(_ table: String) -> Set<String> {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK else { return [] }
+        var names: Set<String> = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqlite3_column_text(stmt, 1) { names.insert(String(cString: name)) }
+        }
+        return names
+    }
+
+    /// Add nullable columns that an older version of `table` lacks, keeping its rows.
+    private func addMissingColumns(_ table: String, _ columns: [(name: String, type: String)]) throws {
+        let existing = columnNames(table)
+        for column in columns where !existing.contains(column.name) {
+            try execute("ALTER TABLE \(table) ADD COLUMN \(column.name) \(column.type)")
+        }
+    }
+
+    // MARK: - Architecture
+
+    /// Replace the stored architecture with `snapshot` in one transaction.
+    func saveArchitecture(_ snapshot: ArchitectureSnapshot) throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for table in ["arch_nodes", "arch_edges", "arch_coverage", "arch_metrics", "arch_meta"] {
+                try execute("DELETE FROM \(table)")
+            }
+            for view in snapshot.views { try insertArchView(view) }
+            for (nodeId, entry) in snapshot.coverage {
+                let docs = String(decoding: try JSONEncoder().encode(entry.docs), as: UTF8.self)
+                try execute("INSERT INTO arch_coverage (node_id, status, docs_json) VALUES (?, ?, ?)",
+                            params: [.text(nodeId), .text(entry.status), .text(docs)])
+            }
+            let encoder = JSONEncoder()
+            for (nodeId, metrics) in snapshot.metrics {
+                try execute("INSERT INTO arch_metrics (node_id, json) VALUES (?, ?)",
+                            params: [.text(nodeId), .text(String(decoding: try encoder.encode(metrics), as: UTF8.self))])
+            }
+            func json<T: Encodable>(_ value: T) throws -> String { String(decoding: try encoder.encode(value), as: UTF8.self) }
+            let meta: [String: String?] = [
+                "systemName": snapshot.systemName,
+                "systemPurpose": snapshot.systemPurpose,
+                "components": try json(snapshot.components),
+                "assignments": try json(snapshot.assignments),
+                "overrides": try json(snapshot.overrides),
+                "logicalSignature": snapshot.logicalSignature,
+                "language": snapshot.language,
+                "logicalDraft": snapshot.logicalDraft ? "1" : nil,
+                // One-off filters are never stored.
+                "ratings": try json(snapshot.ratings.filter { !ImportanceRater.isTemporary($0.key) }),
+                "coverageReport": snapshot.coverageReport,
+                "deploymentSignature": snapshot.deploymentSignature,
+                "scannedAt": String(snapshot.scannedAt.timeIntervalSince1970),
+                "enrichedAt": snapshot.enrichedAt.map { String($0.timeIntervalSince1970) },
+                "gitHead": snapshot.gitHead,
+                "deploymentHints": String(decoding: try JSONEncoder().encode(snapshot.deploymentHints), as: UTF8.self),
+            ]
+            for (key, value) in meta {
+                guard let value else { continue }
+                try execute("INSERT INTO arch_meta (key, value) VALUES (?, ?)", params: [.text(key), .text(value)])
+            }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    private func insertArchView(_ view: ArchView) throws {
+        for node in view.nodes {
+            try execute("""
+                INSERT OR REPLACE INTO arch_nodes (view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, params: [.text(view.id), .text(node.id), .textOrNull(node.parent), .text(node.kind), .text(node.name),
+                          .textOrNull(node.path), .textOrNull(node.language), .int(node.loc), .int(node.files),
+                          .textOrNull(node.summary), .textOrNull(node.role), .textOrNull(node.tech),
+                          .textOrNull(node.signature), .textOrNull(node.summarySignature), .textOrNull(node.component),
+                          .textOrNull(node.tags.flatMap { try? String(decoding: JSONEncoder().encode($0), as: UTF8.self) })])
+        }
+        for edge in view.edges {
+            try execute("""
+                INSERT OR REPLACE INTO arch_edges (view, source, target, kind, weight, label) VALUES (?, ?, ?, ?, ?, ?)
+            """, params: [.text(view.id), .text(edge.source), .text(edge.target), .text(edge.kind),
+                          .int(edge.weight), .textOrNull(edge.label)])
+        }
+    }
+
+    /// Cached AI review of a diff, keyed by the diff's SHA-256.
+    func loadArchitectureReview(key: String) -> String? {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT json FROM arch_reviews WHERE diff_hash = ?", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return sqlite3_column_text(stmt, 0).map { String(cString: $0) }
+    }
+
+    func saveArchitectureReview(key: String, json: String) {
+        try? execute("INSERT OR REPLACE INTO arch_reviews (diff_hash, json, created_at) VALUES (?, ?, ?)",
+                     params: [.text(key), .text(json), .int(Int(Date().timeIntervalSince1970))])
+    }
+
+    /// The stored architecture, or nil when this workspace was never scanned.
+    func loadArchitecture() -> ArchitectureSnapshot? {
+        func text(_ stmt: OpaquePointer?, _ column: Int32) -> String? {
+            sqlite3_column_text(stmt, column).map { String(cString: $0) }
+        }
+        var meta: [String: String] = [:]
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT key, value FROM arch_meta", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let key = text(stmt, 0), let value = text(stmt, 1) { meta[key] = value }
+            }
+        }
+        sqlite3_finalize(stmt)
+        guard let scanned = meta["scannedAt"].flatMap(Double.init) else { return nil }
+
+        var nodesByView: [String: [ArchNode]] = [:]
+        stmt = nil
+        if sqlite3_prepare_v2(db, "SELECT view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json FROM arch_nodes", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let node = ArchNode(id: text(stmt, 1) ?? "", parent: text(stmt, 2), kind: text(stmt, 3) ?? "",
+                                    name: text(stmt, 4) ?? "", path: text(stmt, 5), language: text(stmt, 6),
+                                    loc: Int(sqlite3_column_int64(stmt, 7)), files: Int(sqlite3_column_int64(stmt, 8)),
+                                    summary: text(stmt, 9), role: text(stmt, 10), tech: text(stmt, 11),
+                                    signature: text(stmt, 12), summarySignature: text(stmt, 13), component: text(stmt, 14),
+                                    tags: (text(stmt, 15)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) })
+                nodesByView[text(stmt, 0) ?? "", default: []].append(node)
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        var edgesByView: [String: [ArchEdge]] = [:]
+        stmt = nil
+        if sqlite3_prepare_v2(db, "SELECT view, source, target, kind, weight, label FROM arch_edges", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let edge = ArchEdge(source: text(stmt, 1) ?? "", target: text(stmt, 2) ?? "", kind: text(stmt, 3) ?? "",
+                                    weight: Int(sqlite3_column_int64(stmt, 4)), label: text(stmt, 5))
+                edgesByView[text(stmt, 0) ?? "", default: []].append(edge)
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        var coverage: [String: CoverageEntry] = [:]
+        stmt = nil
+        if sqlite3_prepare_v2(db, "SELECT node_id, status, docs_json FROM arch_coverage", -1, &stmt, nil) == SQLITE_OK {
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let docs = (text(stmt, 2)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+                coverage[text(stmt, 0) ?? ""] = CoverageEntry(status: text(stmt, 1) ?? "none", docs: docs)
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        var metrics: [String: FileMetrics] = [:]
+        stmt = nil
+        if sqlite3_prepare_v2(db, "SELECT node_id, json FROM arch_metrics", -1, &stmt, nil) == SQLITE_OK {
+            let decoder = JSONDecoder()
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let id = text(stmt, 0), let data = text(stmt, 1)?.data(using: .utf8),
+                   let value = try? decoder.decode(FileMetrics.self, from: data) { metrics[id] = value }
+            }
+        }
+        sqlite3_finalize(stmt)
+
+        let order = ["modules", "deployment", "docs"]
+        let views = nodesByView.keys.sorted { (order.firstIndex(of: $0) ?? 9) < (order.firstIndex(of: $1) ?? 9) }
+            .map { ArchView(id: $0, nodes: nodesByView[$0] ?? [], edges: edgesByView[$0] ?? []) }
+        let hints = (meta["deploymentHints"]?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        func decode<T: Decodable>(_ key: String, _ type: T.Type) -> T? {
+            (meta[key]?.data(using: .utf8)).flatMap { try? JSONDecoder().decode(type, from: $0) }
+        }
+        return ArchitectureSnapshot(views: views, coverage: coverage, metrics: metrics,
+                                    coverageReport: meta["coverageReport"],
+                                    deploymentSignature: meta["deploymentSignature"],
+                                    systemName: meta["systemName"], systemPurpose: meta["systemPurpose"],
+                                    components: decode("components", [LogicalComponent].self) ?? [],
+                                    assignments: decode("assignments", [String: LogicalAssignment].self) ?? [:],
+                                    overrides: decode("overrides", [String: String].self) ?? [:],
+                                    logicalSignature: meta["logicalSignature"],
+                                    language: meta["language"],
+                                    logicalDraft: meta["logicalDraft"] == "1",
+                                    ratings: decode("ratings", [String: [String: ImportanceRater.Rating]].self) ?? [:],
+                                    deploymentHints: hints,
+                                    scannedAt: Date(timeIntervalSince1970: scanned),
+                                    enrichedAt: meta["enrichedAt"].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)),
+                                    gitHead: meta["gitHead"])
     }
 
     // MARK: - Project CRUD
@@ -742,50 +995,11 @@ class SemanticDatabase {
 
     // MARK: - Diagnostic CRUD
 
-    func upsertDiagnostic(_ diag: Diagnostic) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let claimIdsJSON = (try? JSONEncoder().encode(diag.claimIds)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let entityIdsJSON = (try? JSONEncoder().encode(diag.entityIds)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        try execute("""
-            INSERT INTO diagnostics (diagnostic_id, type, severity, message, explanation, document_id, block_id,
-                claim_ids_json, entity_ids_json, suggested_fix, is_suppressed, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(diagnostic_id) DO UPDATE SET message=?, severity=?
-        """, params: [.text(diag.id), .text(diag.type.rawValue), .text(diag.severity.rawValue),
-                     .text(diag.message), .textOrNull(diag.explanation), .text(diag.documentId),
-                     .textOrNull(diag.blockId), .text(claimIdsJSON), .text(entityIdsJSON),
-                     .textOrNull(diag.suggestedFix), .int(diag.isSuppressed ? 1 : 0), .int(now),
-                     .text(diag.message), .text(diag.severity.rawValue)])
-    }
-
     func deleteDiagnosticsForBlock(_ blockId: String) throws {
         try execute("DELETE FROM diagnostics WHERE block_id = ?", params: [.text(blockId)])
     }
 
     // MARK: - AI Job CRUD
-
-    func insertAIJob(_ job: AIJob) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        let blockIdsJSON = (try? JSONEncoder().encode(job.blockIds)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        try execute("""
-            INSERT INTO ai_jobs (job_id, job_type, priority, status, document_id, block_ids_json,
-                input_hash, model_policy, privacy_mode, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, params: [.text(job.id), .text(job.jobType.rawValue), .text(job.priority.rawValue),
-                     .text(job.status.rawValue), .textOrNull(job.documentId), .text(blockIdsJSON),
-                     .text(job.inputHash), .textOrNull(job.modelPolicy), .text(job.privacyMode.rawValue),
-                     .int(now)])
-    }
-
-    func updateAIJobStatus(_ jobId: String, status: AIJobStatus, resultRef: String? = nil, error: String? = nil) throws {
-        let now = Int(Date().timeIntervalSince1970)
-        try execute("""
-            UPDATE ai_jobs SET status = ?, result_ref = ?, error_state = ?,
-                completed_at = CASE WHEN ? IN ('completed','failed','cancelled') THEN ? ELSE completed_at END
-            WHERE job_id = ?
-        """, params: [.text(status.rawValue), .textOrNull(resultRef), .textOrNull(error),
-                     .text(status.rawValue), .int(now), .text(jobId)])
-    }
 
     func findCachedJob(inputHash: String) throws -> String? {
         var stmt: OpaquePointer?
@@ -800,18 +1014,6 @@ class SemanticDatabase {
     }
 
     // MARK: - Query Helpers
-
-    func blockCount(forDocument documentId: String) throws -> Int {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT COUNT(*) FROM blocks WHERE document_id = ?"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
-        sqlite3_bind_text(stmt, 1, documentId, -1, SQLITE_TRANSIENT)
-        if sqlite3_step(stmt) == SQLITE_ROW {
-            return Int(sqlite3_column_int(stmt, 0))
-        }
-        return 0
-    }
 
     /// Clear all semantic data (entities, claims, relations, diagnostics, jobs, cache) — keeps schema
     func clearAll() throws {
@@ -900,25 +1102,6 @@ class SemanticDatabase {
         return Int(sqlite3_column_int(stmt, 0))
     }
 
-    /// Detect legacy broken extraction state where entities were saved but claims failed FK validation.
-    func documentNeedsReanalysis(_ documentId: String) -> Bool {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = """
-            SELECT
-                (SELECT COUNT(*) FROM entities WHERE source_file = ?),
-                (SELECT COUNT(*) FROM claims WHERE source_file = ?)
-        """
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
-        sqlite3_bind_text(stmt, 1, documentId, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_text(stmt, 2, documentId, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
-
-        let entityCount = Int(sqlite3_column_int(stmt, 0))
-        let claimCount = Int(sqlite3_column_int(stmt, 1))
-        return entityCount > 0 && claimCount == 0
-    }
-
     /// Get deduplicated entities grouped by type (returns max ~300)
     func uniqueEntities() -> [SemanticEntity] {
         var results: [SemanticEntity] = []
@@ -969,176 +1152,6 @@ class SemanticDatabase {
         return results
     }
 
-    // MARK: - Joined Queries (for semantic panel views)
-
-    struct DependencyRow {
-        let serviceName: String
-        let dependsOn: String
-        let relation: String
-        let targetType: String
-        let sourceText: String
-        let filePath: String?
-    }
-
-    /// Get dependencies: service → what it uses/stores/calls
-    func serviceDependencies() -> [DependencyRow] {
-        var results: [DependencyRow] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = """
-            SELECT
-                COALESCE(se.canonical_name, c.subject_entity_id),
-                COALESCE(oe.canonical_name, NULLIF(c.object, '')),
-                c.predicate,
-                COALESCE(oe.type, ''),
-                COALESCE(c.raw_text, ''),
-                d.file_path
-            FROM claims c
-            LEFT JOIN entities se ON LOWER(c.subject_entity_id) = LOWER(se.entity_id)
-            LEFT JOIN entities oe ON LOWER(c.object_entity_id) = LOWER(oe.entity_id)
-            LEFT JOIN documents d ON d.document_id = c.source_file
-            WHERE c.predicate IS NOT NULL AND c.predicate != ''
-            ORDER BY COALESCE(se.canonical_name, c.subject_entity_id), c.predicate
-        """
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let svc = String(cString: sqlite3_column_text(stmt, 0))
-            let obj = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            let pred = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
-            let type = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
-            let sourceText = sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? ""
-            let filePath = sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-            if !obj.isEmpty {
-                results.append(DependencyRow(
-                    serviceName: svc,
-                    dependsOn: obj,
-                    relation: pred,
-                    targetType: type,
-                    sourceText: sourceText,
-                    filePath: filePath
-                ))
-            }
-        }
-        return results
-    }
-
-    struct DecisionRow {
-        let decision: String
-        let entityName: String
-        let filePath: String?
-        let claimType: String
-    }
-
-    /// Get decisions with entity context
-    func decisionsWithContext() -> [DecisionRow] {
-        var results: [DecisionRow] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = """
-            SELECT c.raw_text, COALESCE(e.canonical_name, c.subject_entity_id), d.file_path, c.type
-            FROM claims c
-            LEFT JOIN entities e ON LOWER(c.subject_entity_id) = LOWER(e.entity_id)
-            LEFT JOIN documents d ON d.document_id = c.source_file
-            WHERE c.type IN ('Decision', 'Risk', 'Constraint', 'Assumption', 'Requirement')
-            ORDER BY c.type, e.canonical_name
-        """
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let text = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            let entity = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            let file = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-            let type = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
-            if !text.isEmpty {
-                results.append(DecisionRow(decision: text, entityName: entity, filePath: file, claimType: type))
-            }
-        }
-        return results
-    }
-
-    struct EntityEvidenceRow {
-        let id: String
-        let name: String
-        let type: String
-        let canonicalName: String
-        let snippet: String
-        let filePath: String?
-    }
-
-    func entityEvidenceRows() -> [EntityEvidenceRow] {
-        var results: [EntityEvidenceRow] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = """
-            SELECT
-                e.entity_id,
-                e.name,
-                e.type,
-                e.canonical_name,
-                COALESCE(NULLIF(b.plain_text, ''), NULLIF(e.description, ''), e.name),
-                d.file_path
-            FROM entities e
-            LEFT JOIN blocks b ON b.block_id = e.source_block_id
-            LEFT JOIN documents d ON d.document_id = e.source_file
-            GROUP BY LOWER(e.canonical_name)
-            ORDER BY e.type, e.name
-        """
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append(EntityEvidenceRow(
-                id: String(cString: sqlite3_column_text(stmt, 0)),
-                name: String(cString: sqlite3_column_text(stmt, 1)),
-                type: String(cString: sqlite3_column_text(stmt, 2)),
-                canonicalName: String(cString: sqlite3_column_text(stmt, 3)),
-                snippet: sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? "",
-                filePath: sqlite3_column_text(stmt, 5).map { String(cString: $0) }
-            ))
-        }
-        return results
-    }
-
-    struct DataFlowRow {
-        let from: String
-        let to: String
-        let predicate: String
-        let sourceText: String
-        let filePath: String?
-    }
-
-    func dataFlowRows() -> [DataFlowRow] {
-        var results: [DataFlowRow] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = """
-            SELECT
-                COALESCE(se.canonical_name, c.subject_entity_id),
-                COALESCE(oe.canonical_name, NULLIF(c.object, '')),
-                c.predicate,
-                COALESCE(c.raw_text, ''),
-                d.file_path
-            FROM claims c
-            LEFT JOIN entities se ON LOWER(c.subject_entity_id) = LOWER(se.entity_id)
-            LEFT JOIN entities oe ON LOWER(c.object_entity_id) = LOWER(oe.entity_id)
-            LEFT JOIN documents d ON d.document_id = c.source_file
-            WHERE c.predicate IN ('publishes', 'consumes', 'stores', 'reads_from', 'writes_to', 'sends', 'receives')
-            ORDER BY COALESCE(se.canonical_name, c.subject_entity_id), c.predicate
-        """
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let from = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            let to = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            if from.isEmpty || to.isEmpty { continue }
-
-            results.append(DataFlowRow(
-                from: from,
-                to: to,
-                predicate: sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? "",
-                sourceText: sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? "",
-                filePath: sqlite3_column_text(stmt, 4).map { String(cString: $0) }
-            ))
-        }
-        return results
-    }
-
     // MARK: - V1 Structural Index
 
     func upsertModule(id: String, name: String, path: String, parentId: String?, level: Int, fileCount: Int) {
@@ -1162,15 +1175,6 @@ class SemanticDatabase {
             INSERT OR IGNORE INTO struct_relations (relation_id, source_id, target_id, type, source_doc, evidence)
             VALUES (?, ?, ?, ?, ?, ?)
         """, params: [.text(id), .text(sourceId), .text(targetId), .text(type), .textOrNull(sourceDoc), .textOrNull(evidence)])
-    }
-
-    func upsertArtifact(id: String, moduleId: String?, kind: String, content: String, model: String?) {
-        let now = Int(Date().timeIntervalSince1970)
-        try? execute("""
-            INSERT INTO artifacts (artifact_id, module_id, kind, content, created_at, model_used)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(artifact_id) DO UPDATE SET content=?, created_at=?
-        """, params: [.text(id), .textOrNull(moduleId), .text(kind), .text(content), .int(now), .textOrNull(model), .text(content), .int(now)])
     }
 
     func indexDocumentFTS(documentId: String, title: String, content: String) {
@@ -1260,91 +1264,6 @@ class SemanticDatabase {
         try? execute("DELETE FROM symbols WHERE document_id = ? AND kind = ?", params: [.text(docId), .text(kind)])
     }
 
-    /// Clear all Haiku-extracted components for a document (for re-extraction)
-    func clearExtractedComponents(forDocument docId: String) {
-        // Delete cmod_ modules first (before deleting their symbols, since we need module_id refs)
-        try? execute("DELETE FROM modules WHERE module_id LIKE 'cmod_%' AND module_id IN (SELECT DISTINCT module_id FROM symbols WHERE document_id = ? AND kind = 'component')", params: [.text(docId)])
-        try? execute("DELETE FROM symbols WHERE document_id = ? AND kind = 'component'", params: [.text(docId)])
-        // Clean up orphaned cmod_ modules
-        try? execute("DELETE FROM modules WHERE module_id LIKE 'cmod_%' AND module_id NOT IN (SELECT DISTINCT module_id FROM symbols WHERE kind = 'component')", params: [])
-    }
-
-    /// Check if a document already has Haiku-extracted component symbols
-    func hasExtractedComponents(forDocument docId: String) -> Bool {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT COUNT(*) FROM symbols WHERE document_id = ? AND kind = 'component'"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
-        sqlite3_bind_text(stmt, 1, docId, -1, SQLITE_TRANSIENT)
-        return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) > 0
-    }
-
-    func relationsForModule(_ moduleId: String) -> [(targetId: String, type: String, evidence: String?)] {
-        var results: [(String, String, String?)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT target_id, type, evidence FROM struct_relations WHERE source_id = ? ORDER BY type"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, moduleId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                String(cString: sqlite3_column_text(stmt, 1)),
-                sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-            ))
-        }
-        return results
-    }
-
-    func incomingRelationsForModule(_ moduleId: String) -> [(sourceId: String, type: String)] {
-        var results: [(String, String)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT source_id, type FROM struct_relations WHERE target_id = ? ORDER BY type"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, moduleId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((String(cString: sqlite3_column_text(stmt, 0)), String(cString: sqlite3_column_text(stmt, 1))))
-        }
-        return results
-    }
-
-    func artifactsForModule(_ moduleId: String) -> [(kind: String, content: String)] {
-        var results: [(String, String)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT kind, content FROM artifacts WHERE module_id = ? ORDER BY created_at DESC"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        sqlite3_bind_text(stmt, 1, moduleId, -1, SQLITE_TRANSIENT)
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((String(cString: sqlite3_column_text(stmt, 0)), String(cString: sqlite3_column_text(stmt, 1))))
-        }
-        return results
-    }
-
-    /// All research artifacts (Q&A history), newest first
-    func allResearchArtifacts() -> [(id: String, content: String, createdAt: Int)] {
-        var results: [(String, String, Int)] = []
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        let sql = "SELECT artifact_id, content, created_at FROM artifacts WHERE kind = 'research' ORDER BY created_at DESC"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            results.append((
-                String(cString: sqlite3_column_text(stmt, 0)),
-                String(cString: sqlite3_column_text(stmt, 1)),
-                Int(sqlite3_column_int(stmt, 2))
-            ))
-        }
-        return results
-    }
-
-    /// Delete all research artifacts
-    func clearResearchHistory() {
-        try? execute("DELETE FROM citations WHERE artifact_id IN (SELECT artifact_id FROM artifacts WHERE kind = 'research')", params: [])
-        try? execute("DELETE FROM artifacts WHERE kind = 'research'", params: [])
-    }
-
     // MARK: - V2 Chunks + Citations
 
     func insertChunk(id: String, documentId: String, text: String, charStart: Int, charEnd: Int) {
@@ -1368,14 +1287,6 @@ class SemanticDatabase {
             ))
         }
         return results
-    }
-
-    func insertCitation(id: String, artifactId: String, documentId: String, lineStart: Int?, lineEnd: Int?, quoteText: String?) {
-        try? execute("INSERT OR IGNORE INTO citations (citation_id, artifact_id, document_id, line_start, line_end, quote_text) VALUES (?, ?, ?, ?, ?, ?)",
-                    params: [.text(id), .text(artifactId), .text(documentId),
-                            lineStart.map { .int($0) } ?? .textOrNull(nil),
-                            lineEnd.map { .int($0) } ?? .textOrNull(nil),
-                            .textOrNull(quoteText)])
     }
 
     func citationsForArtifact(_ artifactId: String) -> [(documentId: String, lineStart: Int?, quoteText: String?)] {

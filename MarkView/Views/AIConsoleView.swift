@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import UniformTypeIdentifiers
 
 /// AI Console tab — chat with Claude Code CLI
@@ -457,5 +458,80 @@ struct AIAssistantPickerView: View {
             Dictionary(uniqueKeysWithValues: CLITool.allCases.map { ($0, AIAssistantPreferences.modelOptions(for: $0)) })
         }.value
         options = loaded
+    }
+}
+
+struct MarkdownContentView: NSViewRepresentable {
+    let markdown: String
+
+    func makeNSView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        webView.setValue(false, forKey: "drawsBackground")
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        let hash = markdown.hashValue
+        if context.coordinator.lastHash == hash { return }
+        context.coordinator.lastHash = hash
+        webView.loadHTMLString(buildHTML(), baseURL: nil)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    class Coordinator { var lastHash = 0 }
+
+    private func buildHTML() -> String {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let bg = isDark ? "#1e1e1e" : "#ffffff"
+        let fg = isDark ? "#d4d4d4" : "#1e1e1e"
+        let fgDim = isDark ? "#808080" : "#6e7681"
+        let codeBg = isDark ? "#252526" : "#f6f8fa"
+        let codeFg = isDark ? "#ce9178" : "#c7254e"
+        let borderC = isDark ? "#333" : "#e1e4e8"
+        let accent = isDark ? "#569cd6" : "#0366d6"
+        let accent2 = isDark ? "#9cdcfe" : "#0550ae"
+
+        let escaped = markdown
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+
+        return """
+        <!DOCTYPE html><html><head><meta charset="UTF-8">
+        <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                background: \(bg); color: \(fg); font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+                font-size: 12px; line-height: 1.6; padding: 12px 16px;
+            }
+            h1 { font-size: 16px; color: \(accent); margin: 12px 0 6px; border-bottom: 1px solid \(borderC); padding-bottom: 4px; }
+            h2 { font-size: 14px; color: \(accent); margin: 10px 0 4px; }
+            h3 { font-size: 13px; color: \(accent2); margin: 8px 0 4px; }
+            h4,h5,h6 { font-size: 12px; color: \(accent2); margin: 6px 0 3px; }
+            p { margin: 4px 0; }
+            ul, ol { margin: 4px 0 4px 20px; }
+            li { margin: 2px 0; }
+            code { background: \(codeBg); color: \(codeFg); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+            pre { background: \(codeBg); padding: 8px 10px; border-radius: 4px; margin: 6px 0; overflow-x: auto; }
+            pre code { background: none; padding: 0; color: \(fg); }
+            blockquote { border-left: 3px solid \(accent); padding-left: 10px; color: \(fgDim); margin: 6px 0; }
+            strong { color: \(isDark ? "#e0e0e0" : "#1a1a1a"); }
+            em { color: \(isDark ? "#c586c0" : "#6f42c1"); }
+            a { color: \(accent); text-decoration: none; }
+            a:hover { text-decoration: underline; }
+            table { border-collapse: collapse; margin: 6px 0; }
+            th, td { border: 1px solid \(borderC); padding: 4px 8px; font-size: 11px; }
+            th { background: \(codeBg); color: \(accent); }
+            hr { border: none; border-top: 1px solid \(borderC); margin: 8px 0; }
+        </style>
+        </head><body>
+        <div id="content"></div>
+        <script>
+            const md = window.markdownit({ html: false, linkify: true, typographer: true });
+            document.getElementById('content').innerHTML = md.render(`\(escaped)`);
+        </script>
+        </body></html>
+        """
     }
 }

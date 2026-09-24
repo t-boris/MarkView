@@ -121,6 +121,22 @@ struct VSDarkHeader: View {
     }
 }
 
+/// Segment in a side panel's tab bar.
+struct VSDarkTabButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                .frame(maxWidth: .infinity).padding(.vertical, 5)
+                .foregroundColor(isSelected ? VSDark.textBright : VSDark.textDim)
+                .background(isSelected ? VSDark.bgActive : Color.clear).cornerRadius(4)
+        }.buttonStyle(.plain)
+    }
+}
+
 // Backward compat
 typealias MatrixHeader = VSDarkHeader
 typealias MatrixRow = VSDarkRow
