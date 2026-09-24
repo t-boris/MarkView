@@ -5,10 +5,20 @@ import UniformTypeIdentifiers
 struct FocusedWorkspaceKey: FocusedValueKey {
     typealias Value = WorkspaceManager
 }
+// Menus re-evaluate only when a focused value changes. The WorkspaceManager
+// reference stays the same while a folder loads or closes, so menu state that
+// depends on the folder needs its own value-typed key.
+struct FocusedWorkspaceHasFolderKey: FocusedValueKey {
+    typealias Value = Bool
+}
 extension FocusedValues {
     var workspaceManager: WorkspaceManager? {
         get { self[FocusedWorkspaceKey.self] }
         set { self[FocusedWorkspaceKey.self] = newValue }
+    }
+    var workspaceHasFolder: Bool? {
+        get { self[FocusedWorkspaceHasFolderKey.self] }
+        set { self[FocusedWorkspaceHasFolderKey.self] = newValue }
     }
 }
 
@@ -161,6 +171,7 @@ struct ContentView: View {
         // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
         // folder URLs, preventing application:open: from receiving them.
         .focusedSceneValue(\.workspaceManager, workspaceManager)
+        .focusedSceneValue(\.workspaceHasFolder, workspaceManager.rootNode != nil)
         .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 workspaceManager.openFolder(url)

@@ -170,6 +170,7 @@ struct MarkViewApp: App {
     @NSApplicationDelegateAdaptor(MarkViewAppDelegate.self) private var appDelegate
     @StateObject private var themeManager = ThemeManager()
     @FocusedValue(\.workspaceManager) private var activeWorkspace
+    @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
     @State private var ddeSettingsWindow: NSWindow?
 
     /// Build timestamp for debugging — visible in window title
@@ -222,6 +223,11 @@ struct MarkViewApp: App {
                     NotificationCenter.default.post(name: .showFolderPicker, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+
+                Button("Close Folder") {
+                    activeWorkspace?.closeFolder()
+                }
+                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(replacing: .saveItem) {

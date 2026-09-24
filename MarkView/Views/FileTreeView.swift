@@ -119,6 +119,18 @@ struct FileTreeView: View {
                     .padding(.horizontal, 8)
                 }
                 .padding(.vertical, 4)
+                .overlay(alignment: .trailing) {
+                    Button(action: { workspaceManager.closeFolder() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(VSDark.textDim)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(VSDark.bgActive)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close Folder")
+                }
                 .background(VSDark.bgActive)
             }
 
@@ -217,6 +229,8 @@ struct FileTreeView: View {
                         .font(.system(size: 28)).foregroundColor(VSDark.textDim)
                     Text("No Folder Open")
                         .font(.system(size: 12, weight: .medium)).foregroundColor(VSDark.textDim)
+                    Button("Open Folder...", action: chooseFolder)
+                    .font(.system(size: 11))
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -236,6 +250,24 @@ struct FileTreeView: View {
             }
         }
         .background(VSDark.bgSidebar)
+        .onChange(of: workspaceManager.rootNode?.url) { _ in
+            // Browsing state belongs to the previous folder.
+            currentDirectory = nil
+            searchText = ""
+        }
+    }
+
+    /// Pick a folder for this window. Local panel rather than the global
+    /// `.showFolderPicker` notification, which every open window would answer.
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder to open in MarkView"
+        if panel.runModal() == .OK, let url = panel.url {
+            workspaceManager.openFolder(url)
+        }
     }
 
     // MARK: - Row Views

@@ -821,16 +821,10 @@ class WorkspaceManager: ObservableObject {
         return filePath.hasPrefix(rootPath)
     }
 
-    /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
-    private func initSingleFileWorkspace(fileURL: URL) {
-        let parentDir = fileURL.deletingLastPathComponent()
-        let fileName = fileURL.deletingPathExtension().lastPathComponent
-        let dbName = "file_\(fileName).db"
-
-        NSLog("[DDE] initSingleFileWorkspace: file=\(fileURL.path) dir=\(parentDir.path) dbName=\(dbName)")
-
-        // Close previous workspace
+    /// Drop the database and every engine bound to the current workspace.
+    private func releaseWorkspaceEngines() {
         semanticDatabase = nil
+        incrementalCompiler = nil
         researchEngine = nil
         actionEngine = nil
         hybridSearch = nil
@@ -842,6 +836,77 @@ class WorkspaceManager: ObservableObject {
         softwareArchMermaid = nil
         dataFlowMermaid = nil
         deploymentMermaid = nil
+    }
+
+    /// Close the open folder and every tab, returning the window to the welcome
+    /// screen so another folder can be chosen. Returns false if the user cancelled
+    /// or unsaved changes could not be written.
+    @discardableResult
+    func closeFolder() -> Bool {
+        let unsaved = openTabs.indices.filter { openTabs[$0].isModified }
+        if !unsaved.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = unsaved.count == 1
+                ? "Save changes to \(openTabs[unsaved[0]].displayName) before closing the folder?"
+                : "Save changes to \(unsaved.count) documents before closing the folder?"
+            alert.informativeText = "Your changes will be lost if you don't save them."
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Don't Save")
+            alert.addButton(withTitle: "Cancel")
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                unsaved.forEach { saveFile(at: $0) }
+                // saveFile only logs write errors — never close over unsaved work.
+                if let failed = openTabs.first(where: { $0.isModified }) {
+                    let error = NSAlert()
+                    error.messageText = "Couldn't save \(failed.displayName)"
+                    error.informativeText = "The folder was left open so no changes are lost."
+                    error.runModal()
+                    return false
+                }
+            case .alertSecondButtonReturn:
+                break
+            default:
+                return false
+            }
+        }
+
+        Self.debugLog("closeFolder: \(rootNode?.url.path ?? "(no folder)")")
+
+        // Stop work that would otherwise keep writing into the old workspace.
+        for tab in openTabs {
+            if case .insight(let session) = tab.kind {
+                Task { await session.cancel() }
+            }
+        }
+        aiConsoleEngine?.stop()
+        structuralIndexer?.terminate()
+        structuralIndexer = nil
+
+        tabsStore.reset()
+        fileTreeStore.reset()
+        releaseWorkspaceEngines()
+        gitClient.reset()
+        indexingProgress = nil
+        structuralIndexProgress = nil
+        analysisStage = nil
+        analysisDetail = nil
+        totalFilesInWorkspace = 0
+        analyzedFiles = 0
+        activeDiagramGenerationModes = []
+        pendingGraphCreatorType = nil
+        return true
+    }
+
+    /// Initialize workspace for a single .md file — DB named after the file, indexes only this file
+    private func initSingleFileWorkspace(fileURL: URL) {
+        let parentDir = fileURL.deletingLastPathComponent()
+        let fileName = fileURL.deletingPathExtension().lastPathComponent
+        let dbName = "file_\(fileName).db"
+
+        NSLog("[DDE] initSingleFileWorkspace: file=\(fileURL.path) dir=\(parentDir.path) dbName=\(dbName)")
+
+        releaseWorkspaceEngines()
 
         do {
             let db = try SemanticDatabase(workspacePath: parentDir, dbName: dbName)
@@ -2756,6 +2821,9 @@ Each component needs a correct type and one-sentence description.
     /// with no strong reference is released when the spawning scope returns and its
     /// handler then never runs.
     private static var runningIndexers: [Process] = []
+    /// This workspace's indexer, so closing the folder can stop it. Weak: the
+    /// static list above owns it.
+    private weak var structuralIndexer: Process?
 
     /// Run structural indexing in a SEPARATE PROCESS (re-exec of this binary with
     /// `--dde-index <folder>`) so the directory scan never competes with the UI.
@@ -2801,6 +2869,8 @@ Each component needs a correct type and one-sentence description.
             Task { @MainActor in
                 WorkspaceManager.runningIndexers.removeAll { $0 === p }
                 guard let self = self else { return }
+                // A newer indexer (folder closed and reopened) owns the footer now.
+                if let current = self.structuralIndexer, current !== p { return }
                 self.structuralIndexProgress = nil  // hide footer progress
                 self.loadCachedResults()
                 self.refreshSemanticViews()
@@ -2811,6 +2881,7 @@ Each component needs a correct type and one-sentence description.
             structuralIndexProgress = "Indexing…"  // footer only; updated from child stderr
             try proc.run()
             Self.runningIndexers.append(proc)  // retain until terminationHandler fires
+            structuralIndexer = proc
             Self.debugLog("structural index process launched pid=\(proc.processIdentifier)")
         } catch {
             structuralIndexProgress = nil

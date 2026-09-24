@@ -97,3 +97,33 @@ but SwiftUI shows the window before delivering the open event.
   window creation vs. `application(_:open:)` is not something to rely on.
 - Verify with `open -n -a <DerivedData app> <path>` and the debug log; one grep for
   "was it ever handled" (count = 0) proved the bug in seconds.
+
+## 2026-09-24 — Don't drive UI in the user's live app instance
+
+**Context:** To verify "Close Folder" I ran `install.sh` (which relaunches
+/Applications/MarkView.app) and clicked the menu item via System Events. On relaunch
+the app had reopened the user's own workspace (`vivaa-platform/docs`) in the key
+window, so the scripted click closed the user's real folder and tabs instead of the
+test fixture.
+
+**Rules:**
+- UI automation runs against the Debug build in /tmp/MarkViewDerivedData, never the
+  installed app the user is working in.
+- Before a scripted action, confirm which window/folder is key (debug log or window
+  title); abort if it is not the fixture I opened.
+- Destructive UI actions (close, delete, discard) are for the user to try, not me.
+
+## 2026-09-24 — Menu commands don't observe objects behind @FocusedValue
+
+**Context:** "Close Folder" used `.disabled(activeWorkspace?.rootNode == nil)`, where
+`activeWorkspace` is `@FocusedValue(\.workspaceManager)`. The user reported it
+permanently disabled. `Commands` re-evaluate only when a focused *value* changes; the
+WorkspaceManager reference is the same object before and after the folder loads
+asynchronously, so the item froze in whatever state it had when the window took focus.
+I had even seen the reverse symptom (still enabled after close) and wrote it off as
+cosmetic.
+
+**Rules:**
+- Menu enabled/checked state must come from a value-typed focused value
+  (`.focusedSceneValue(\.someBool, ...)`), not from properties of a focused object.
+- A stale menu state in either direction is the same bug — fix it, don't document it.

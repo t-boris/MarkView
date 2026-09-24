@@ -53,6 +53,16 @@ class GitClient: ObservableObject {
         Task { await refresh() }
     }
 
+    /// Forget the repository, e.g. when the workspace folder is closed.
+    func reset() {
+        workingDirectory = nil
+        isGitRepo = false
+        branch = ""
+        changedFiles = []
+        commitLog = []
+        lastError = nil
+    }
+
     // MARK: - Refresh
 
     func refresh() async {

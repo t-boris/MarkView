@@ -409,3 +409,26 @@ from the AI panel via a popover dialog. One source of truth: UserDefaults.
 
 ### Left for manual check
 - Popover and Settings picker in the running app (UI).
+
+## Close Folder — 2026-09-24
+
+Goal: close the open workspace and return to the welcome screen to pick another folder.
+
+- [x] `WorkspaceManager.closeFolder() -> Bool`: one "save changes to N documents?"
+      prompt (Save All / Don't Save / Cancel; abort if a save fails), cancel insight
+      sessions, stop the AI console run, terminate this window's structural-index
+      child, stop the file watcher, drop tabs, tree, engines and git state.
+- [x] Share the engine teardown with `initSingleFileWorkspace` (`releaseWorkspaceEngines`).
+- [x] `GitClient.reset()` so the branch bar disappears.
+- [x] UI: File → Close Folder menu item; ✕ button on the file-tree breadcrumb bar;
+      "Open Folder…" button in the empty file tree; breadcrumb state resets when the
+      root changes.
+- [x] Build, deploy locally, manual check.
+
+### Verification
+- Debug + Release builds succeed; installed to /Applications.
+- File → Close Folder ran `closeFolder` (log line with folder path); window returned
+  to the welcome screen.
+- Menu item was stuck disabled (Commands don't observe the focused WorkspaceManager);
+  fixed with a value-typed `workspaceHasFolder` focused value.
+- User confirmed Close Folder works in the installed build.
