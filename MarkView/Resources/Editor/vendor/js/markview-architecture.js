@@ -307,6 +307,8 @@
                 if (!node) return null;
                 if (node.kind === 'component') return 'c:' + node.id.replace(/^l:c:/, '');
                 if (node.kind === 'section') return node.id;
+                // A file's contents are not rated on their own.
+                if (node.kind === 'collection' || node.kind === 'group' || node.kind === 'entity') return null;
                 if (node.path != null && node.kind !== 'root') return 'p:' + node.path;
                 return null;
             }
@@ -516,7 +518,11 @@
                 const impact = prImpact(node);
                 if (impact) label += '\nrisk: ' + impact.risk;
                 const meta = [];
-                if (node.kind !== 'file' && node.kind !== 'doc' && node.files) meta.push(formatCount(node.files) + ' files');
+                if (node.kind === 'collection' || node.kind === 'group') {
+                    if (node.files) meta.push(formatCount(node.files) + (node.files === 1 ? ' item' : ' items'));
+                } else if (node.kind !== 'file' && node.kind !== 'doc' && node.kind !== 'entity' && node.files) {
+                    meta.push(formatCount(node.files) + ' files');
+                }
                 if (node.loc) meta.push(formatCount(node.loc) + ' lines');
                 if (node.tech) meta.push(node.tech);
                 if (info && info.kind === 'coverage' && info.total > 1) {
@@ -627,6 +633,10 @@
                     { selector: 'node.expandable', style: { 'border-style': 'solid', 'border-width': 1.5 } },
                     { selector: 'node.file, node.doc', style: { 'font-size': 10, 'font-family': '"SF Mono", Menlo, monospace' } },
                     { selector: 'node.section', style: { 'font-size': 10, 'border-style': 'dotted' } },
+                    // Contents of a file: collection → type → item.
+                    { selector: 'node.collection', style: { 'font-weight': 600, 'border-style': 'double', 'border-width': 3 } },
+                    { selector: 'node.group', style: { 'font-size': 10, 'border-style': 'solid' } },
+                    { selector: 'node.entity', style: { 'font-size': 9.5, 'border-style': 'dotted', 'text-max-width': 200 } },
                     { selector: 'node.external, node.externalGroup', style: { 'border-style': 'dashed', 'color': c.mute } },
                     { selector: 'node.moduleRef', style: { 'border-style': 'dotted' } },
                     { selector: 'node.box', style: {
@@ -826,9 +836,19 @@
                     render(expanded.has(id) ? id : null);
                 } else if (node.kind === 'section') {
                     post('openFile', { path: node.path, find: node.name });
+                } else if (node.kind === 'entity') {
+                    post('openFile', entityTarget(node));
                 } else if (node.path && (node.kind === 'file' || node.kind === 'doc' || node.kind === 'moduleRef')) {
                     post('openFile', { path: node.path });
                 }
+            }
+
+            /** Where an item of a file's contents is: its line (code) and its text (markdown). */
+            function entityTarget(node) {
+                const target = { path: node.path };
+                if (node.line) target.line = node.line;
+                if (node.anchor) target.find = node.anchor;
+                return target;
             }
 
             function collapse(id, idx) {
@@ -1061,12 +1081,26 @@
                     }
                 }
                 if (node.path != null && node.path !== '') {
-                    const openable = node.kind === 'file' || node.kind === 'doc' || node.kind === 'section';
-                    d.appendChild(linkButton(node.kind === 'section' ? node.path + ' › ' + node.name : node.path, function() {
-                        post('openFile', node.kind === 'section' ? { path: node.path, find: node.name } : { path: node.path });
+                    const openable = ['file', 'doc', 'section', 'entity'].indexOf(node.kind) >= 0;
+                    const title = node.kind === 'section' ? node.path + ' › ' + node.name
+                        : node.kind === 'entity' ? node.path + (node.line ? ':' + node.line : '')
+                        : node.path;
+                    d.appendChild(linkButton(title, function() {
+                        post('openFile', node.kind === 'section' ? { path: node.path, find: node.name }
+                            : node.kind === 'entity' ? entityTarget(node) : { path: node.path });
                     }, 'arch-path' + (openable ? '' : ' arch-reveal')));
                 }
-                addRow(d, 'Files', node.kind === 'file' || node.kind === 'doc' ? '' : (node.files ? String(node.files) : ''));
+                // What the file is made of: read it (again) with the assistant.
+                if (ui.view === 'logical' && node.kind === 'file' && node.path) {
+                    const reading = (ui.payload.outlining || []).indexOf(node.path) >= 0;
+                    const hasContents = (idx.children.get(node.id) || []).length > 0;
+                    const button = linkButton(reading ? 'Reading contents…' : hasContents ? 'Read contents again' : 'Break down contents',
+                        function() { if (!reading) post('outlineFile', { path: node.path }); }, 'arch-action');
+                    if (reading) button.disabled = true;
+                    d.appendChild(button);
+                }
+                addRow(d, ['collection', 'group'].indexOf(node.kind) >= 0 ? 'Items' : 'Files',
+                       ['file', 'doc', 'entity'].indexOf(node.kind) >= 0 ? '' : (node.files ? String(node.files) : ''));
                 addRow(d, 'Lines', node.loc ? String(node.loc) : '');
 
                 const kids = idx.children.get(node.id) || [];

@@ -7,7 +7,7 @@ struct ArchNode: Codable, Hashable {
     var id: String
     var parent: String?
     /// root | dir | package | file | externalGroup | external | service | datastore |
-    /// queue | client | infra | doc
+    /// queue | client | infra | doc | collection | group | entity (contents of a file)
     var kind: String
     var name: String
     /// Workspace-relative path for folders, files and documents.
@@ -27,6 +27,10 @@ struct ArchNode: Codable, Hashable {
     var component: String?
     /// Signals such as entry, ui, api, tests, config, build, docs, generated.
     var tags: [String]?
+    /// Contents of a file (`XRayContent`): the line an item starts on, and its text as
+    /// rendered, to find it in a markdown document. Not stored in the database.
+    var line: Int?
+    var anchor: String?
 }
 
 /// A dependency between two nodes. The scanner records file-level edges; the

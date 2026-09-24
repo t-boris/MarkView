@@ -246,7 +246,7 @@ struct EditorView: NSViewRepresentable {
 
             // Local .md/.canvas file links → open in a new tab
             if scheme == "file" {
-                if FileType.isSupported(url) {
+                if FileType.isOpenable(url) {
                     decisionHandler(.cancel)
                     Task { @MainActor in
                         self.parent.workspaceManager.openFile(url, lineFragment: url.fragment)
@@ -296,6 +296,9 @@ struct EditorView: NSViewRepresentable {
                 return
             case .architecture(let scope):
                 routeArchitecture(scope: scope, webView: webView)
+                return
+            case .terminal, .image:
+                // Drawn over the editor (TerminalTabView, ImageViewerView); it keeps its content.
                 return
             case .file:
                 architectureCancellable = nil
@@ -728,7 +731,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             let scheme = url.scheme?.lowercased() ?? ""
 
             if scheme == "file" {
-                if FileType.isSupported(url) {
+                if FileType.isOpenable(url) {
                     self.parent.workspaceManager.openFile(url, lineFragment: url.fragment)
                 } else {
                     NSWorkspace.shared.open(url)

@@ -74,6 +74,12 @@ final class ArchitectureStore: ObservableObject {
     private var analyzeAfterScan = false
     /// Node ids with an on-demand description in flight.
     private var describing: Set<String> = []
+    /// What each file is made of (`XRayContent`), by project-relative path; drawn under
+    /// the file boxes of the Logical view.
+    private var outlines: [String: XRayContent.Outline] = [:]
+    /// Files the assistant is outlining right now.
+    private var outlining: Set<String> = []
+    private var outlineTask: Task<Void, Never>?
     /// Containers whose children are being rated for importance.
     private var rating: Set<String> = []
 
@@ -157,6 +163,10 @@ final class ArchitectureStore: ObservableObject {
     func reset() {
         rootPath = nil
         snapshot = nil
+        outlineTask?.cancel()
+        outlineTask = nil
+        outlines = [:]
+        outlining = []
         status = nil
         error = nil
         prSources = []
@@ -245,6 +255,9 @@ final class ArchitectureStore: ObservableObject {
             if analyzeAfterScan && (next.enrichedAt == nil || Self.needsRegrouping(next) || next.language != Self.graphLanguage) {
                 analyzeAfterScan = false
                 analyze(root: root, db: db)
+            } else {
+                // Contents: stored outlines at once, then new or changed files.
+                outlineContents(root: root, db: db)
             }
         }
     }
@@ -345,6 +358,9 @@ final class ArchitectureStore: ObservableObject {
                 next.enrichedAt = Date()
                 next.language = Self.graphLanguage
                 commit(next, db: db)
+
+                beginStep(4, "Reading contents", started: started)
+                await buildOutlines(root: root, db: db)
             } catch is CancellationError {
                 // Keep the structure found so far (shown live, not yet saved).
                 if let found = snapshot, found.components.map(\.id) != next.components.map(\.id) { commit(found, db: db) }
@@ -363,7 +379,7 @@ final class ArchitectureStore: ObservableObject {
     private func beginStep(_ step: Int, _ title: String, started: Date) {
         setStatus(title + "…")
         let tool = AIAssistantPreferences.backend
-        progress = AnalysisProgress(step: step, steps: 3, title: title, scope: nil,
+        progress = AnalysisProgress(step: step, steps: 4, title: title, scope: nil,
                                     startedAt: started, stepStartedAt: Date(),
                                     assistant: AIAssistantPreferences.summary(tool: tool, model: AIAssistantPreferences.xrayModel(for: tool) ?? ""))
     }
@@ -918,6 +934,136 @@ final class ArchitectureStore: ObservableObject {
         commit(next, db: db)
     }
 
+    // MARK: - Contents
+
+    /// The snapshot with each file's contents under its Logical-view box.
+    private func withContents(_ snapshot: ArchitectureSnapshot) -> ArchitectureSnapshot {
+        guard !outlines.isEmpty, let index = snapshot.views.firstIndex(where: { $0.id == "logical" }) else { return snapshot }
+        var next = snapshot
+        var added: [ArchNode] = []
+        // What the assistant read first, then declarations; within a budget so a large
+        // project stays quick to draw.
+        let files = snapshot.views[index].nodes.filter { $0.kind == "file" && $0.path.flatMap { outlines[$0] } != nil }
+            .sorted { a, b in
+                let aiA = outlines[a.path!]?.source == "ai", aiB = outlines[b.path!]?.source == "ai"
+                return aiA != aiB ? aiA : a.path! < b.path!
+            }
+        for node in files {
+            let path = node.path!
+            let nodes = XRayContent.nodes(for: outlines[path]!, path: path, fileId: node.id)
+            guard added.count + nodes.count <= XRayContent.maxDrawnNodes else { break }
+            added += nodes
+        }
+        next.views[index].nodes += added
+        return next
+    }
+
+    /// Files of the Logical view with their language and size.
+    private var contentFiles: [(path: String, language: String?, lines: Int)] {
+        (snapshot?.view("logical")?.nodes ?? []).compactMap { node in
+            guard node.kind == "file", let path = node.path else { return nil }
+            return (path, node.language, node.loc)
+        }
+    }
+
+    /// Load stored outlines, then outline new or changed files (background; the
+    /// assistant only for up to `XRayContent.filesPerAnalysis` files).
+    func outlineContents(root: URL, db: SemanticDatabase?) {
+        outlineTask?.cancel()
+        outlineTask = Task { await buildOutlines(root: root, db: db) }
+    }
+
+    /// Outline the files that have no current outline: short code locally, documents and
+    /// long code with the assistant (longest first, a few calls side by side).
+    private func buildOutlines(root: URL, db: SemanticDatabase?) async {
+        let files = contentFiles
+        guard !files.isEmpty else { return }
+        let language = ActionOutputLanguage.current
+        let stored = await Task.detached(priority: .utility) { XRayContent.loadFresh(root: root, paths: files.map(\.path)) }.value
+        outlines = stored.filter { $0.value.source != "ai" || $0.value.language == language }
+        revision += 1
+
+        let missing = files.filter { outlines[$0.path] == nil }
+        let local = missing.filter { !XRayContent.needsAssistant(language: $0.language, lines: $0.lines) }
+        let assisted = missing.filter { XRayContent.needsAssistant(language: $0.language, lines: $0.lines) }
+            .sorted { $0.lines > $1.lines }
+            .prefix(XRayContent.filesPerAnalysis)
+
+        // Declarations of short code: local, fast.
+        let found = await Task.detached(priority: .utility) { () -> [String: XRayContent.Outline] in
+            var result: [String: XRayContent.Outline] = [:]
+            for file in local.prefix(5000) {
+                let url = root.appendingPathComponent(file.path)
+                guard let signature = XRayContent.signature(of: url),
+                      let text = try? String(contentsOf: url, encoding: .utf8),
+                      let outline = XRayContent.codeOutline(text: text, language: file.language, signature: signature) else { continue }
+                XRayContent.save(outline, root: root, path: file.path)
+                result[file.path] = outline
+            }
+            return result
+        }.value
+        outlines.merge(found) { _, new in new }
+        revision += 1
+
+        guard !assisted.isEmpty, !Task.isCancelled else { return }
+        setProgressScope("\(assisted.count) files")
+        var queue = Array(assisted)
+        await withTaskGroup(of: Void.self) { group in
+            var running = 0
+            var call = 100
+            while !queue.isEmpty || running > 0 {
+                while running < XRayContent.parallelCalls, !queue.isEmpty, !Task.isCancelled {
+                    let file = queue.removeFirst()
+                    running += 1
+                    call += 1
+                    let index = call
+                    group.addTask { await self.outlineWithAssistant(file.path, language: file.language, root: root, db: db, call: index) }
+                }
+                guard running > 0 else { break }
+                await group.next()
+                running -= 1
+            }
+        }
+    }
+
+    /// Outline one file with the assistant (details panel, or during the analysis).
+    func outlineFile(path: String, root: URL, db: SemanticDatabase?) {
+        guard !outlining.contains(path) else { return }
+        let language = contentFiles.first { $0.path == path }?.language
+        Task { await outlineWithAssistant(path, language: language, root: root, db: db, call: 99) }
+    }
+
+    private func outlineWithAssistant(_ path: String, language: String?, root: URL, db: SemanticDatabase?, call: Int) async {
+        let url = root.appendingPathComponent(path)
+        guard let signature = XRayContent.signature(of: url),
+              let text = await Task.detached(priority: .utility, operation: { try? String(contentsOf: url, encoding: .utf8) }).value
+        else { return }
+        outlining.insert(path)
+        revision += 1
+        defer { outlining.remove(path); revision += 1 }
+        let outputLanguage = ActionOutputLanguage.current
+        let languageLine = XRayContent.languageLine(summaries: outputLanguage == ActionOutputLanguage.documentLanguage
+                                                    ? "the language of the file" : outputLanguage)
+        var request = CLICompletion.Request(
+            prompt: XRayContent.numbered(text, name: path),
+            systemPrompt: XRayContent.isDocument(language)
+                ? XRayContent.documentSystemPrompt(languageLine: languageLine)
+                : XRayContent.codeSystemPrompt(languageLine: languageLine),
+            jsonSchema: XRayContent.documentSchema)
+        request.timeout = 300
+        do {
+            let object = try await xrayCall(request, root: root, db: db, call: call)
+            let outline = XRayContent.assistantOutline(from: object, text: text, signature: signature, language: outputLanguage)
+            guard !outline.collections.isEmpty else { return }
+            outlines[path] = outline
+            XRayContent.save(outline, root: root, path: path)
+        } catch is CancellationError {
+            return
+        } catch {
+            self.error = "Could not read \((path as NSString).lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Importance
 
     /// Drop ratings of files and folders whose content changed since they were rated.
@@ -1216,6 +1362,15 @@ final class ArchitectureStore: ObservableObject {
             }
         }
         return sources
+    }
+
+    /// Open pull requests of the repository at `root` (`gh`), newest first; empty without `gh`.
+    nonisolated static func openPullRequests(root: URL) -> [(number: Int, title: String)] {
+        guard let json = runGH(["pr", "list", "--state", "open", "--limit", "50", "--json", "number,title"], root: root),
+              let list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else { return [] }
+        return list.compactMap { pr in
+            (pr["number"] as? Int).map { ($0, pr["title"] as? String ?? "") }
+        }
     }
 
     nonisolated private static func baseBranch(root: URL) -> String? {
@@ -1689,11 +1844,12 @@ final class ArchitectureStore: ObservableObject {
             let describing: [String]
             let filters: [ImportanceRater.Filter]
             let root: String?
+            let outlining: [String]
         }
-        let payload = Payload(mode: mode, snapshot: snapshot, status: status, error: error,
+        let payload = Payload(mode: mode, snapshot: snapshot.map(withContents), status: status, error: error,
                               prSources: prSources, pr: prOverlay, busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
-                              root: rootPath)
+                              root: rootPath, outlining: Array(outlining))
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

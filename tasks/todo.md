@@ -673,3 +673,25 @@ User feedback on 1.1.0 (tested on broker-fabric / apps/bf-menubar):
       beside the code (Word-style comments) aligned to each section, scroll-synced, cached.
 - [ ] Importance (user request): Architecture overlay by dependency centrality (fan-in,
       transitive dependents, entry points); in Explain, each section gets an importance level.
+
+## AI panel: terminals only, prompt buttons, image viewer (2026-09-24)
+- [x] Remove the Actions tab, `ActionsView`, `DocumentActionsStore`/`DocumentAction*` and `runDocumentAction`; keep `ActionOutputLanguage` and the content hash (X-Ray, Explain) in `OutputLanguage.swift`
+- [x] AI panel = Terminal only: several terminals side by side (Claude Code, Codex, plain shell), sub-tab bar with "+" menu, close, restart
+- [x] Prompt buttons that paste a ready prompt into the active assistant terminal (Review PR… with a PR field, Review my changes, Docs ↔ code sync, Explain file, Find bugs, Write tests, Commit message, Security review, Update docs)
+- [x] Image viewer tab (`TabKind.image`): PNG/JPEG/GIF/HEIC/WebP/TIFF/BMP/ICO/SVG…, wheel/pinch zoom around the cursor, drag to pan, fit / 100 %, drop images to open, drag the image out
+- [x] Build, harness-check, bump minor, install
+
+### Review
+- Built; terminal harness: profile switch restarts with a full reset (mouse mode off). Canvas harness: fit 67 %, wheel zoom keeps the point under the cursor, ⇧+wheel pans, 1:1 = 400×200 px.
+- Not verified in the running app: the panel layout, the PR popover (needs `gh`), drag-and-drop in and out.
+
+## Logical X-Ray: contents of files (2026-09-24)
+- [x] Files still grouped into subsystems → components (clusters); under each file its contents (`XRayContent`)
+- [x] Markdown: assistant finds collections → types → items (e.g. Issues → bug/feature/chore → each issue), with line
+- [x] Long code (≥ 250 lines): assistant splits into logical parts → roles → every function/type; short code: local declarations (≥ 2)
+- [x] Analysis step 4 "Reading contents" (up to 60 files, longest first, 4 in parallel); on open: stored outlines + new/changed files; details panel "Break down contents"
+- [x] Double-click an item opens the file scrolled to it (line for code, line text for markdown)
+### Review
+- Real claude runs: sample backlog → Issues (bug 4, feature 3, chore 2) + Decisions, lines right, 6 s; TerminalSession.swift / ImageViewerView.swift → 6–7 logical parts. Labels in the file's language, summaries in the AI language.
+- Web view harness: drill-down Logical › Planning › Backlog › BACKLOG.md › Issues › bug renders, no JS errors.
+- Not verified in the running app: step 4 on a real project, opening an item scrolled in rendered markdown.

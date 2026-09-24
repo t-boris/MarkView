@@ -183,6 +183,8 @@
     </array>
 
     <!-- Microphone access for Whisper voice input -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>MarkView opens Terminal.app in a folder you choose ("Open in Terminal.app").</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>MarkView uses the microphone for voice input (Whisper transcription).</string>
 

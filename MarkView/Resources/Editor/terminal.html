@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- An embedded terminal (TerminalSession.swift): xterm.js drawing a PTY that Swift owns.
+     Swift → JS: mvWrite(base64 output), mvSetTheme(dark), mvFocus(), mvReset(), mvExited(code).
+     JS → Swift (message handler "terminal"): {type: ready|input|resize|link, …}. -->
+<link rel="stylesheet" href="vendor/css/xterm.css">
+<style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+    :root { --bg: #1e1e1e; }
+    :root.light { --bg: #ffffff; }
+    #term { position: absolute; inset: 6px 4px 4px 8px; }
+    .xterm .xterm-viewport { background-color: transparent !important; }
+</style>
+</head>
+<body>
+<div id="term"></div>
+<script src="vendor/js/xterm.bundle.js"></script>
+<script>
+(function() {
+    function post(message) {
+        try { window.webkit.messageHandlers.terminal.postMessage(message); } catch (e) { console.log('[terminal]', e); }
+    }
+    const themes = {
+        dark: { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#aeafad', selectionBackground: '#264f78',
+                black: '#000000', red: '#cd3131', green: '#0dbc79', yellow: '#e5e510', blue: '#2472c8', magenta: '#bc3fbc',
+                cyan: '#11a8cd', white: '#e5e5e5', brightBlack: '#666666', brightRed: '#f14c4c', brightGreen: '#23d18b',
+                brightYellow: '#f5f543', brightBlue: '#3b8eea', brightMagenta: '#d670d6', brightCyan: '#29b8db', brightWhite: '#e5e5e5' },
+        light: { background: '#ffffff', foreground: '#1f2328', cursor: '#1f2328', selectionBackground: '#add6ff',
+                 black: '#000000', red: '#cd3131', green: '#00bc00', yellow: '#949800', blue: '#0451a5', magenta: '#bc05bc',
+                 cyan: '#0598bc', white: '#555555', brightBlack: '#666666', brightRed: '#cd3131', brightGreen: '#14ce14',
+                 brightYellow: '#b5ba00', brightBlue: '#0451a5', brightMagenta: '#bc05bc', brightCyan: '#0598bc', brightWhite: '#a5a5a5' },
+    };
+    const term = new MVTerm.Terminal({
+        fontFamily: '"SF Mono", Menlo, Monaco, monospace', fontSize: 12, lineHeight: 1.15,
+        cursorBlink: true, scrollback: 10000, allowTransparency: true, macOptionIsMeta: true,
+        theme: themes.dark,
+    });
+    const fit = new MVTerm.FitAddon();
+    term.loadAddon(fit);
+    term.loadAddon(new MVTerm.WebLinksAddon(function(event, uri) { post({ type: 'link', url: uri }); }));
+    term.open(document.getElementById('term'));
+
+    let size = { cols: 0, rows: 0 };
+    function refit() {
+        try { fit.fit(); } catch (e) { return; }
+        if (term.cols !== size.cols || term.rows !== size.rows) {
+            size = { cols: term.cols, rows: term.rows };
+            post({ type: 'resize', cols: term.cols, rows: term.rows });
+        }
+    }
+    new ResizeObserver(refit).observe(document.getElementById('term'));
+    term.onData(function(data) { post({ type: 'input', data: data }); });
+    term.onBinary(function(data) { post({ type: 'input', data: data }); });
+
+    /** Output from the process, base64 (raw bytes: may split UTF-8 sequences). */
+    window.mvWrite = function(b64) {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        term.write(bytes);
+    };
+    window.mvSetTheme = function(dark) {
+        document.documentElement.classList.toggle('light', !dark);
+        term.options.theme = dark ? themes.dark : themes.light;
+    };
+    window.mvFocus = function() { term.focus(); };
+    /** Full reset before a new process: clears the screen and every mode the previous
+        program may have left on (mouse tracking, alternate screen, bracketed paste…). */
+    window.mvReset = function() { term.reset(); };
+    /** Whether the terminal reports the mouse to the program (diagnostics and tests). */
+    window.mvMouseMode = function() { return term.modes.mouseTrackingMode; };
+    /** The visible screen as text (diagnostics and tests). */
+    window.mvText = function() {
+        const buffer = term.buffer.active, lines = [];
+        for (let i = 0; i < buffer.length; i++) lines.push(buffer.getLine(i).translateToString(true));
+        return lines.join('\n').replace(/\n+$/, '');
+    };
+    window.mvSize = function() { return term.cols + 'x' + term.rows; };
+    window.mvExited = function(code) {
+        term.write('\r\n\x1b[2m[process exited' + (code ? ' with code ' + code : '') + ' — Restart to start again]\x1b[0m\r\n');
+    };
+
+    refit();
+    post({ type: 'ready', cols: term.cols, rows: term.rows });
+    term.focus();
+})();
+</script>
+</body>
+</html>

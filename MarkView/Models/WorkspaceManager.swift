@@ -336,10 +336,6 @@ class WorkspaceManager: ObservableObject {
     @Published var showTOC: Bool = true {
         didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC") }
     }
-    /// Selected tab of the AI panel (`ModuleExplorerView`), shared with `@AppStorage`.
-    static let aiPanelTabKey = "layout.moduleExplorerTab"
-    static let aiPanelActionsTab = 3
-    static let aiPanelDiscussionTab = 4
 
     @Published var showSemanticPanel: Bool = false {
         didSet { UserDefaults.standard.set(showSemanticPanel, forKey: "layout.showSemanticPanel") }
@@ -348,9 +344,17 @@ class WorkspaceManager: ObservableObject {
     @Published var incrementalCompiler: IncrementalCompiler?
     @Published var embeddingClient = EmbeddingClient()
     @Published var gitClient = GitClient()
-    @Published var aiConsoleEngine: AIConsoleEngine?
-    /// Per-document AI actions (AI panel → Actions).
-    let documentActions = DocumentActionsStore()
+    /// Where the AI terminal starts: the open folder, or a single file's folder.
+    @Published private(set) var aiWorkspaceRoot: URL?
+    /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
+    @Published private(set) var aiTerminals: [TerminalSession] = []
+    /// The terminal shown in the AI panel.
+    @Published var activeAITerminalID: UUID?
+    /// Terminals opened in folders, shown as editor tabs (keyed by tab id).
+    private var terminalTabs: [UUID: TerminalSession] = [:]
+    private var openFilesWatcher: Timer?
+    /// Last seen modification dates of open files (to reload what the assistant changed).
+    private var openFileDates: [URL: Date] = [:]
     /// Project architecture (Architecture tab).
     let architecture = ArchitectureStore()
     /// AI margin notes for code files (code viewer → Explain).
@@ -528,11 +532,7 @@ class WorkspaceManager: ObservableObject {
 
             self.incrementalCompiler = IncrementalCompiler(workspacePath: url, database: db)
             self.graphRAG = GraphRAG(db: db)
-            let aiEngine = AIConsoleEngine(workspaceRoot: url, db: db)
-            aiEngine.onFilesChanged = { [weak self] files in
-                self?.handleClaudeFileChanges(files)
-            }
-            self.aiConsoleEngine = aiEngine
+            self.aiWorkspaceRoot = url
             Self.debugLog("initDDE: engines created")
 
             indexingProgress = "Connecting services..."
@@ -676,20 +676,6 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// Handle files created/modified by Claude Code — auto-open and refresh tree
-    private func handleClaudeFileChanges(_ relativePaths: [String]) {
-        guard let root = rootNode?.url ?? aiConsoleEngine?.workspaceRoot else { return }
-
-        // Refresh file tree
-        refreshFileTree()
-
-        // Open or refresh each changed file
-        for relativePath in relativePaths {
-            let fileURL = root.appendingPathComponent(relativePath)
-            guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
-            openOrRefreshFile(fileURL)
-        }
-    }
-
     /// Open or refresh a file — if already open, reload content from disk.
     /// Insight tabs are skipped on the refresh branch: their placeholder URL
     /// is never written to disk, so reading it back would corrupt the in-memory
@@ -735,6 +721,27 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
+        // Images: the image viewer reads the file itself.
+        if FileType.isImage(url) {
+            var tab = OpenTab(url: url, content: "", originalContent: "")
+            tab.kind = .image
+            tabsStore.appendTab(tab)
+            addRecentFile(url)
+            return
+        }
+
+        openTextFile(url)
+    }
+
+    /// The image viewer's "Source" (SVG): replace the image tab with the file as text.
+    func openImageAsText(_ url: URL) {
+        if let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind {
+            tabsStore.removeTab(at: index)
+        }
+        openTextFile(url)
+    }
+
+    private func openTextFile(_ url: URL) {
         // Load file content
         do {
             let content = try String(contentsOf: url, encoding: .utf8)
@@ -784,7 +791,7 @@ class WorkspaceManager: ObservableObject {
         alert.informativeText = """
             \(list)
 
-            The search index, architecture, AI descriptions, filters, Actions analyses and Insight pages are deleted. \
+            The search index, architecture, AI descriptions, filters, file contents and Insight pages are deleted. \
             Your documents and code are not touched.\(recreate ? " The folder is then indexed and scanned again." : "")
             """
         alert.addButton(withTitle: recreate ? "Rebuild" : "Remove")
@@ -792,7 +799,7 @@ class WorkspaceManager: ObservableObject {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         // Stop everything that could still write into the folder.
-        aiConsoleEngine?.stop()
+        stopAllTerminals()
         structuralIndexer?.terminate()
         structuralIndexer = nil
         for tab in openTabs {
@@ -803,7 +810,6 @@ class WorkspaceManager: ObservableObject {
         releaseWorkspaceEngines()
         architecture.reset()
         folderXRays = [:]
-        documentActions.reset()
         codeExplain.reset()
         indexingProgress = nil
         structuralIndexProgress = nil
@@ -840,7 +846,7 @@ class WorkspaceManager: ObservableObject {
     }
 
     private func explainDirectory(for url: URL) -> URL {
-        actionsStoreDirectory(for: url).deletingLastPathComponent().appendingPathComponent("explain", isDirectory: true)
+        cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
     }
 
     /// AI filters available to the code viewer: Importance and the user's own.
@@ -926,7 +932,7 @@ class WorkspaceManager: ObservableObject {
         let store = ArchitectureStore()
         if let root = rootNode?.url {
             // Kept in the project's .dde, never inside the folder itself.
-            let key = String(DocumentActionsStore.contentHash(scope).prefix(24))
+            let key = String(ContentHash.of(scope).prefix(24))
             let base = root.appendingPathComponent(".dde/xray-folders", isDirectory: true)
             store.persistenceFile = base.appendingPathComponent(key + ".json")
             store.cacheDirectory = root.appendingPathComponent(".dde/cache/xray", isDirectory: true)
@@ -962,7 +968,7 @@ class WorkspaceManager: ObservableObject {
         } else {
             let marker = scope.isEmpty ? ".markview-architecture"
                 : scope == TabKind.pullRequestScope ? ".markview-pr-xray"
-                : ".markview-architecture-" + String(DocumentActionsStore.contentHash(scope).prefix(12))
+                : ".markview-architecture-" + String(ContentHash.of(scope).prefix(12))
             var tab = OpenTab(url: root.appendingPathComponent(marker), content: "", originalContent: "")
             tab.kind = .architecture(scope: scope)
             tabsStore.appendTab(tab)
@@ -1042,7 +1048,7 @@ class WorkspaceManager: ObservableObject {
             // Stay inside the open folder.
             guard url.path.hasPrefix(root.standardizedFileURL.path + "/"),
                   FileManager.default.fileExists(atPath: url.path) else { return }
-            if FileType.isSupported(url) {
+            if FileType.isOpenable(url) {
                 openFile(url, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
                 // Markdown: scroll to a heading or to where the document mentions something.
                 if let text = payload["find"] as? String, !text.isEmpty, FileType.from(url: url) == .markdown {
@@ -1097,6 +1103,9 @@ class WorkspaceManager: ObservableObject {
             createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
         case "deleteFilter":
             deleteFilter(id: payload["id"] as? String ?? "")
+        case "outlineFile":
+            guard let path = payload["path"] as? String, !path.isEmpty else { return }
+            architecture.outlineFile(path: path, root: root, db: semanticDatabase)
         case "describe":
             architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
                                   root: root, db: semanticDatabase)
@@ -1190,7 +1199,7 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        if FileType.isSupported(target) {
+        if FileType.isOpenable(target) {
             openFile(target)
         } else {
             NSWorkspace.shared.open(target)
@@ -1211,7 +1220,8 @@ class WorkspaceManager: ObservableObject {
         semanticDatabase = nil
         incrementalCompiler = nil
         graphRAG = nil
-        aiConsoleEngine = nil
+        stopAllTerminals()
+        aiWorkspaceRoot = nil
     }
 
     /// Close the open folder and every tab, returning the window to the welcome
@@ -1256,7 +1266,7 @@ class WorkspaceManager: ObservableObject {
                 Task { await session.cancel() }
             }
         }
-        aiConsoleEngine?.stop()
+        stopAllTerminals()
         structuralIndexer?.terminate()
         structuralIndexer = nil
 
@@ -1294,11 +1304,7 @@ class WorkspaceManager: ObservableObject {
             self.semanticDatabase = db
             self.incrementalCompiler = IncrementalCompiler(workspacePath: parentDir, database: db)
             self.graphRAG = GraphRAG(db: db)
-            let aiEngine = AIConsoleEngine(workspaceRoot: parentDir, db: db)
-            aiEngine.onFilesChanged = { [weak self] files in
-                self?.handleClaudeFileChanges(files)
-            }
-            self.aiConsoleEngine = aiEngine
+            self.aiWorkspaceRoot = parentDir
             gitClient.setup(at: parentDir)
 
             // Build file tree showing just the parent dir
@@ -1384,6 +1390,12 @@ class WorkspaceManager: ObservableObject {
         // Skip the dirty-save prompt — insight tabs are ephemeral and never
         // carry isModified == true in the file-save sense.
         let tab = openTabs[index]
+        // A terminal tab: end its shell; there is nothing to save.
+        if case .terminal(let id) = tab.kind {
+            closeTerminal(id)
+            tabsStore.removeTab(at: index)
+            return
+        }
         if case .insight(let session) = tab.kind {
             let releaseHook = self.releaseInsightBlobsHook
             let sessionId = session.id
@@ -1545,7 +1557,7 @@ class WorkspaceManager: ObservableObject {
             return "Nothing to translate — the document is empty."
         }
 
-        // The assistant chosen in DDE Settings / the AI console; fixed for the
+        // The assistant chosen in DDE Settings / the toolbar; fixed for the
         // whole document. A missing CLI is reported up front rather than as a
         // document full of untranslated sections.
         let tool = AIAssistantPreferences.backend
@@ -1692,18 +1704,9 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    // MARK: - Document Actions
-
-    /// The active tab when it is a file the Actions tab can work on (not Insight).
-    var actionsDocument: (url: URL, content: String)? {
-        guard let tab = activeTab else { return nil }
-        if !tab.isFileBacked { return nil }
-        return (tab.url, tab.content)
-    }
-
-    /// `<workspace>/.dde/cache/actions` — the open folder when the document is in it,
-    /// otherwise the document's own folder (same place single-file mode keeps `.dde`).
-    func actionsStoreDirectory(for url: URL) -> URL {
+    /// `<workspace>/.dde/cache` — the open folder when the document is in it, otherwise
+    /// the document's own folder (same place single-file mode keeps `.dde`).
+    func cacheDirectory(for url: URL) -> URL {
         let path = url.standardizedFileURL.path
         let root: URL
         if let folder = rootNode?.url, path.hasPrefix(folder.standardizedFileURL.path + "/") {
@@ -1711,80 +1714,7 @@ class WorkspaceManager: ObservableObject {
         } else {
             root = url.deletingLastPathComponent()
         }
-        return root.appendingPathComponent(".dde/cache/actions", isDirectory: true)
-    }
-
-    func analyzeActiveDocument() {
-        guard let document = actionsDocument else { return }
-        let directory = actionsStoreDirectory(for: document.url)
-        Task {
-            await documentActions.analyze(url: document.url, content: document.content,
-                                          storeDirectory: directory, db: semanticDatabase)
-        }
-    }
-
-    /// Run `action` on the active document. The result streams into a new unsaved
-    /// tab next to it; the source document is never modified.
-    func runDocumentAction(_ action: DocumentAction) {
-        guard let document = actionsDocument else { return }
-        let language = UserDefaults.standard.string(forKey: ActionOutputLanguage.storageKey)
-            ?? ActionOutputLanguage.documentLanguage
-        let tool = AIAssistantPreferences.backend
-        let assistant = AIAssistantPreferences.summary(tool: tool, model: AIAssistantPreferences.model(for: tool) ?? "")
-        let banner = "> ⏳ **\(action.title)** — generating from `\(document.url.lastPathComponent)` "
-            + "with \(assistant)…\n\n"
-
-        let tab = OpenTab(url: actionResultURL(for: document.url, action: action), content: banner, originalContent: "")
-        let tabId = tab.id
-        tabsStore.appendTab(tab)
-        documentActions.markRunning(action, for: document.url, true)
-
-        /// Re-resolve by id: the user may open or close tabs while this runs.
-        func write(_ content: String) {
-            guard let index = openTabs.firstIndex(where: { $0.id == tabId }) else { return }
-            tabsStore.updateTab(at: index) { tab in
-                tab.content = content
-                tab.isModified = true
-            }
-        }
-
-        var request = CLICompletion.Request(
-            prompt: "Task: \(action.instruction)\n\n"
-                + DocumentActionPrompts.document(name: document.url.lastPathComponent, content: document.content),
-            systemPrompt: DocumentActionPrompts.runSystem(language: language))
-        request.tool = tool
-        request.timeout = 600
-
-        Task {
-            defer { documentActions.markRunning(action, for: document.url, false) }
-            let streamed = StreamedText()
-            do {
-                let result = try await CLICompletion.run(request) { chunk in
-                    let snapshot = streamed.append(chunk)
-                    Task { @MainActor in write(banner + snapshot) }
-                }
-                result.record(in: semanticDatabase)
-                write(normalizeTranslation(result.text))
-            } catch is CancellationError {
-                return
-            } catch {
-                write(banner.replacingOccurrences(of: "⏳", with: "⚠️")
-                      + "**Failed:** \(error.localizedDescription)\n")
-            }
-        }
-    }
-
-    /// `<name>_<action>.md` beside the source, never an existing or already-open file.
-    private func actionResultURL(for source: URL, action: DocumentAction) -> URL {
-        let folder = source.deletingLastPathComponent()
-        let stem = "\(source.deletingPathExtension().lastPathComponent)_\(action.id)"
-        var candidate = folder.appendingPathComponent("\(stem).md")
-        var counter = 2
-        while FileManager.default.fileExists(atPath: candidate.path) || openTabs.contains(where: { $0.url == candidate }) {
-            candidate = folder.appendingPathComponent("\(stem)-\(counter).md")
-            counter += 1
-        }
-        return candidate
+        return root.appendingPathComponent(".dde/cache", isDirectory: true)
     }
 
     /// Strip the code fence models like to wrap whole-document answers in, and
@@ -2736,18 +2666,11 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        guard let engine = aiConsoleEngine,
-              let prompt = aiPrompt(for: tool, contentOverride: contentOverride) else {
-            return
-        }
-
-        engine.sendMessage(prompt)
-        showAIConsole()
+        guard let prompt = aiPrompt(for: tool, contentOverride: contentOverride) else { return }
+        sendToAssistant(prompt)
     }
 
     func runGraphEdit(instruction: String, currentMermaid: String) {
-        guard let engine = aiConsoleEngine else { return }
-
         let editPrompt = """
         I have a Mermaid diagram. Please modify it according to this instruction:
 
@@ -2769,18 +2692,11 @@ class WorkspaceManager: ObservableObject {
         Save the updated diagram to the currently open file.
         """
 
-        engine.sendMessage(editPrompt)
-        showAIConsole()
+        sendToAssistant(editPrompt)
     }
 
     func generateDocumentation(into outputURL: URL) {
-        guard let engine = aiConsoleEngine else {
-            NSLog("[Docs] No AI engine")
-            return
-        }
-
-        engine.sendMessage(documentationGenerationPrompt(outputDir: outputURL))
-        showAIConsole()
+        sendToAssistant(documentationGenerationPrompt(outputDir: outputURL))
     }
 
     // MARK: - Recent Files
@@ -2991,7 +2907,177 @@ class WorkspaceManager: ObservableObject {
     private func showAIConsole() {
         showTOC = true
         showSemanticPanel = true
-        UserDefaults.standard.set(Self.aiPanelDiscussionTab, forKey: Self.aiPanelTabKey)
+    }
+
+    // MARK: - Terminals
+
+    /// The terminal shown in the AI panel.
+    var aiTerminal: TerminalSession? {
+        aiTerminals.first { $0.id == activeAITerminalID } ?? aiTerminals.first
+    }
+
+    /// The command that starts `profile` in the shell with the model chosen for it, or nil
+    /// for a plain shell. Claude updates itself first and runs without permission prompts.
+    private func startupCommand(for profile: TerminalProfile) -> String? {
+        guard let tool = profile.tool else { return nil }
+        let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
+        let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let run = ([quoted] + tool.modelArgs(AIAssistantPreferences.model(for: tool))).joined(separator: " ")
+        switch tool {
+        case .claude: return "\(quoted) update && \(run) --dangerously-skip-permissions"
+        case .codex: return run
+        }
+    }
+
+    /// "Claude Code · opus", "Codex 2 · gpt-5", "Shell" — unique among the open terminals.
+    private func terminalTitle(for profile: TerminalProfile, excluding session: TerminalSession? = nil) -> String {
+        let taken = Set(aiTerminals.filter { $0 !== session }.map(\.title))
+        var base = profile.title
+        var counter = 2
+        while taken.contains(where: { $0 == base || $0.hasPrefix(base + " · ") }) {
+            base = "\(profile.title) \(counter)"
+            counter += 1
+        }
+        guard let tool = profile.tool, let model = AIAssistantPreferences.model(for: tool), !model.isEmpty else { return base }
+        return base + " · " + model
+    }
+
+    /// Open another terminal in the AI panel and show it.
+    @discardableResult
+    func openAITerminal(_ profile: TerminalProfile) -> TerminalSession? {
+        guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return nil }
+        let session = TerminalSession(directory: directory, profile: profile,
+                                      startupCommand: startupCommand(for: profile),
+                                      title: terminalTitle(for: profile))
+        aiTerminals.append(session)
+        activeAITerminalID = session.id
+        startWatchingOpenFiles()
+        return session
+    }
+
+    /// The first AI terminal (the toolbar's assistant) once a folder is open.
+    @discardableResult
+    func ensureAITerminal() -> TerminalSession? {
+        if let session = aiTerminal { return session }
+        return openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
+    }
+
+    func closeAITerminal(_ id: UUID) {
+        guard let index = aiTerminals.firstIndex(where: { $0.id == id }) else { return }
+        aiTerminals.remove(at: index).terminate()
+        if activeAITerminalID == id {
+            activeAITerminalID = aiTerminals.isEmpty ? nil : aiTerminals[min(index, aiTerminals.count - 1)].id
+        }
+    }
+
+    /// Start the shown terminal again, with the model chosen for its assistant now.
+    func restartAITerminal() {
+        guard let session = aiTerminal else { ensureAITerminal(); return }
+        session.restart(profile: session.profile, startupCommand: startupCommand(for: session.profile),
+                        title: terminalTitle(for: session.profile, excluding: session))
+    }
+
+    /// The toolbar's assistant changed: show a terminal running it — an open one, or the
+    /// shown assistant terminal restarted with it, or a new one next to a plain shell.
+    func aiBackendChanged() {
+        let profile = TerminalProfile(AIAssistantPreferences.backend)
+        if let existing = aiTerminals.first(where: { $0.profile == profile }) {
+            activeAITerminalID = existing.id
+            return
+        }
+        if let session = aiTerminal, session.profile != .shell {
+            session.restart(profile: profile, startupCommand: startupCommand(for: profile),
+                            title: terminalTitle(for: profile, excluding: session))
+            objectWillChange.send()
+        } else if aiTerminal != nil {
+            openAITerminal(profile)
+        }
+    }
+
+    /// A model changed in the toolbar: the shown terminal restarts when it runs that
+    /// assistant with another model; other terminals keep their session.
+    func aiModelChanged() {
+        guard let session = aiTerminal, session.profile != .shell else { return }
+        let command = startupCommand(for: session.profile)
+        guard session.startupCommand != command else { return }
+        session.restart(profile: session.profile, startupCommand: command,
+                        title: terminalTitle(for: session.profile, excluding: session))
+        objectWillChange.send()
+    }
+
+    /// Send a prompt to an assistant (prompt buttons, AI Tools menu, graph edits,
+    /// documentation): the shown terminal when it runs one, else an open assistant
+    /// terminal, else a new one with the toolbar's assistant. Pasted as one block;
+    /// `submit` presses Enter.
+    func sendToAssistant(_ prompt: String, submit: Bool = true) {
+        showAIConsole()
+        let session: TerminalSession?
+        if let shown = aiTerminal, shown.profile != .shell {
+            session = shown
+        } else if let open = aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend) })
+                    ?? aiTerminals.first(where: { $0.profile != .shell }) {
+            session = open
+        } else {
+            session = openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
+        }
+        guard let session else { return }
+        activeAITerminalID = session.id
+        session.pasteWhenReady(prompt, submit: submit)
+    }
+
+    /// Open a terminal in `folder` as an editor tab.
+    func openTerminal(in folder: URL) {
+        let session = TerminalSession(directory: folder.standardizedFileURL)
+        var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
+                          content: "", originalContent: "")
+        tab.kind = .terminal(session.id)
+        terminalTabs[session.id] = session
+        tabsStore.appendTab(tab)
+        startWatchingOpenFiles()
+    }
+
+    func terminalSession(_ id: UUID) -> TerminalSession? { terminalTabs[id] }
+
+    /// A terminal tab was closed: end its shell.
+    func closeTerminal(_ id: UUID) {
+        terminalTabs.removeValue(forKey: id)?.terminate()
+    }
+
+    private func stopAllTerminals() {
+        aiTerminals.forEach { $0.terminate() }
+        aiTerminals = []
+        activeAITerminalID = nil
+        terminalTabs.values.forEach { $0.terminate() }
+        terminalTabs = [:]
+        openFilesWatcher?.invalidate()
+        openFilesWatcher = nil
+    }
+
+    /// While terminals run, reload open files an assistant (or a command) changed on disk —
+    /// only tabs without unsaved edits, so nothing typed here is lost.
+    private func startWatchingOpenFiles() {
+        guard openFilesWatcher == nil else { return }
+        openFilesWatcher = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadChangedOpenFiles() }
+        }
+    }
+
+    private func reloadChangedOpenFiles() {
+        var changed = false
+        for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
+            let url = openTabs[index].url
+            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
+            defer { openFileDates[url] = date }
+            guard let seen = openFileDates[url], date > seen,
+                  let content = try? String(contentsOf: url, encoding: .utf8), content != openTabs[index].originalContent else { continue }
+            tabsStore.updateTab(at: index) { tab in
+                tab.content = content
+                tab.originalContent = content
+                tab.isModified = false
+            }
+            changed = true
+        }
+        if changed { refreshFileTree() }
     }
 
     private func activeDocumentContext(contentLimit: Int = 15000, contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
@@ -3010,10 +3096,10 @@ class WorkspaceManager: ObservableObject {
 
         switch tool {
         case .audit:
-            return AIConsoleEngine.codebaseAuditPrompt
+            return AIPrompts.codebaseAuditPrompt
 
         case .fulldocs:
-            return AIConsoleEngine.fullDocumentationPrompt
+            return AIPrompts.fullDocumentationPrompt
 
         case .codemap:
             return """

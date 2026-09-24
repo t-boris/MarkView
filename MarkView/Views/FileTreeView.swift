@@ -35,7 +35,7 @@ struct FileTreeView: View {
             guard !name.hasPrefix(".") else { return nil }
             let vals = try? itemURL.resourceValues(forKeys: Set(keys))
             let isDir = vals?.isDirectory ?? false
-            guard isDir || FileType.isSupported(itemURL) else { return nil }
+            guard isDir || FileType.isOpenable(itemURL) else { return nil }
             return (itemURL, isDir, vals?.contentModificationDate)
         }
 
@@ -359,8 +359,9 @@ struct FileTreeView: View {
                 Button("Stage All in Folder") { stageAllInFolder(url) }
             }
             Divider()
+            Button { workspaceManager.openTerminal(in: url) } label: { Label("Open Terminal Here", systemImage: "terminal") }
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
-            Button("Open in Terminal") { openTerminal(at: url) }
+            Button("Open in Terminal.app") { openTerminal(at: url) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
         }
     }
@@ -395,8 +396,11 @@ struct FileTreeView: View {
             }
             Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
             Divider()
+            Button { workspaceManager.openTerminal(in: url.deletingLastPathComponent()) } label: {
+                Label("Open Terminal Here", systemImage: "terminal")
+            }
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
-            Button("Open in Terminal") { openTerminal(at: url.deletingLastPathComponent()) }
+            Button("Open in Terminal.app") { openTerminal(at: url.deletingLastPathComponent()) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
         }
     }

@@ -158,10 +158,6 @@ struct GraphCreatorSheet: View {
     private func generate() {
         guard !selectedFiles.isEmpty else { return }
         guard let root = workspaceManager.rootNode?.url else { return }
-        guard let engine = workspaceManager.aiConsoleEngine else {
-            error = "AI engine not initialized"
-            return
-        }
 
         isGenerating = true
         error = nil
@@ -199,15 +195,9 @@ struct GraphCreatorSheet: View {
         \(String(content.prefix(15000)))
         """
 
-        // Send to Claude Code
-        engine.sendMessage(prompt)
-
-        // Close sheet — results will appear in AI tab
+        // To the assistant in the AI terminal (the AI panel opens on it).
+        workspaceManager.sendToAssistant(prompt)
         isPresented = false
         isGenerating = false
-
-        // Switch to AI tab to see progress
-        workspaceManager.showTOC = true
-        workspaceManager.showSemanticPanel = true
     }
 }

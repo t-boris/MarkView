@@ -53,10 +53,19 @@ struct ContentView: View {
                 // Editor or Welcome Screen
                 if workspaceManager.activeTabIndex >= 0,
                    workspaceManager.activeTabIndex < workspaceManager.openTabs.count {
-                    EditorView()
-                        .environmentObject(workspaceManager)
-                        .environmentObject(themeManager)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ZStack {
+                        EditorView()
+                            .environmentObject(workspaceManager)
+                            .environmentObject(themeManager)
+                        // Terminal and image tabs cover the editor, which stays loaded underneath.
+                        let activeTab = workspaceManager.openTabs[workspaceManager.activeTabIndex]
+                        if case .terminal(let id) = activeTab.kind, let session = workspaceManager.terminalSession(id) {
+                            TerminalTabView(session: session)
+                        } else if case .image = activeTab.kind {
+                            ImageViewerView(url: activeTab.url).id(activeTab.id)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     // Matrix-style diagnostics status bar
                     DiagnosticsBarView()
@@ -107,7 +116,7 @@ struct ContentView: View {
                 }
                 .help("Language the AI writes in — for every AI feature")
 
-                // Which assistant (and model) does every AI job: X-Ray, Explain, Actions, Discussion.
+                // Which assistant (and model) does every AI job: X-Ray, Explain, filters, AI terminal.
                 AssistantToolbarMenu()
 
                 Divider()
@@ -124,7 +133,7 @@ struct ContentView: View {
                 }
                 .help("Toggle Theme")
 
-                // Toggle AI panel (Actions / Discussion) vs Contents / Search / Git
+                // Toggle AI panel (Terminal) vs Contents / Search / Git
                 Button(action: { workspaceManager.showSemanticPanel.toggle() }) {
                     Image(systemName: workspaceManager.showSemanticPanel ? "brain.head.profile" : "brain")
                 }
@@ -429,7 +438,7 @@ struct ContentView: View {
                     let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                     if isDir {
                         workspaceManager.openFolder(url)
-                    } else if FileType.isSupported(url) {
+                    } else if FileType.isOpenable(url) {
                         workspaceManager.openFile(url)
                     }
                 }
@@ -462,7 +471,7 @@ private struct WindowAccessor: NSViewRepresentable {
 }
 
 /// Toolbar menu choosing the assistant CLI and its model for all AI features.
-/// Edits the same settings as DDE Settings and the Discussion quick switch.
+/// Edits the same settings as DDE Settings.
 struct AssistantToolbarMenu: View {
     @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
@@ -498,7 +507,7 @@ struct AssistantToolbarMenu: View {
             Label(AIAssistantPreferences.summary(tool: tool, model: model.wrappedValue), systemImage: "cpu")
                 .labelStyle(.titleAndIcon)
         }
-        .help("Assistant and model for every AI feature (X-Ray, Explain, Actions, Discussion)")
+        .help("Assistant and model for every AI feature (X-Ray, Explain, filters, AI terminal)")
         .task(id: backend) {
             let current = tool
             guard options[current] == nil else { return }

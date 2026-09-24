@@ -58,7 +58,7 @@ struct DDESettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Assistant & model").font(.caption.bold())
-                        Text("Runs every AI feature: console, selection actions, translation, diagrams, Recursive Insight. Also switchable from the console header.")
+                        Text("Runs every AI feature: X-Ray, Explain, selection actions, translation, diagrams, Recursive Insight, and the AI terminal. Also switchable from the toolbar.")
                             .font(.system(size: 9)).foregroundColor(.secondary)
                         AIAssistantPickerView()
                         HStack {
@@ -148,7 +148,7 @@ struct DDESettingsView: View {
             GroupBox("Maintenance") {
                 VStack(alignment: .leading, spacing: 8) {
                     if let folder = workspaceManager.rootNode?.url {
-                        Text("MarkView data stored in “\(folder.lastPathComponent)”: the search index, architecture, AI descriptions and filters, Actions analyses and Insight pages. Documents and code are never touched.")
+                        Text("MarkView data stored in “\(folder.lastPathComponent)”: the search index, architecture, AI descriptions and filters, file contents and Insight pages. Documents and code are never touched.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

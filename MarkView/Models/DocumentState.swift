@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import SwiftUI
 
 /// Supported file types for viewing/editing
@@ -21,9 +22,21 @@ enum FileType: String {
         "canvas"
     ])
 
-    /// Whether the app can open `url` — a dedicated viewer or the code viewer.
+    /// Whether the app can open `url` as text — a dedicated viewer or the code viewer.
     static func isSupported(_ url: URL) -> Bool {
         supportedExtensions.contains(url.pathExtension.lowercased()) || codeLanguage(for: url) != nil
+    }
+
+    /// Whether `url` is an image (any format the system decodes), shown in the image viewer.
+    static func isImage(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return false }
+        return type.conforms(to: .image)
+    }
+
+    /// Whether the app opens `url` at all: as text, or in the image viewer.
+    static func isOpenable(_ url: URL) -> Bool {
+        isSupported(url) || isImage(url)
     }
 
     /// Determine file type from URL extension
@@ -123,6 +136,10 @@ enum TabKind {
     /// X-Ray of the project (`scope` "") or of one of its folders (path relative to the
     /// project root); content lives in that scope's `ArchitectureStore`.
     case architecture(scope: String)
+    /// A terminal opened in a folder; the session lives in `WorkspaceManager`.
+    case terminal(UUID)
+    /// An image file, shown by `ImageViewerView` (no text content).
+    case image
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
@@ -150,6 +167,7 @@ struct OpenTab: Identifiable {
 
     /// The display name for the tab (file name)
     var displayName: String {
+        if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }
             return scope.isEmpty ? "X-Ray" : "X-Ray: " + (scope as NSString).lastPathComponent

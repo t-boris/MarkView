@@ -133,7 +133,7 @@ final class CodeExplainStore: ObservableObject {
 
     func isStale(path: String, content: String) -> Bool {
         guard let explanation = explanations[path] else { return false }
-        return explanation.contentHash != DocumentActionsStore.contentHash(content)
+        return explanation.contentHash != ContentHash.of(content)
             || (explanation.language ?? ActionOutputLanguage.documentLanguage) != ActionOutputLanguage.current
     }
 
@@ -181,7 +181,7 @@ final class CodeExplainStore: ObservableObject {
             request.model = AIAssistantPreferences.xrayModel(for: request.tool)
             request.effort = "low"
             request.timeout = 600
-            let contentHash = DocumentActionsStore.contentHash(content)
+            let contentHash = ContentHash.of(content)
             let lineCount = lines.count
             do {
                 let result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
@@ -200,7 +200,7 @@ final class CodeExplainStore: ObservableObject {
                 }.sorted { $0.startLine < $1.startLine }
                 let tool = request.tool
                 let explanation = CodeExplanation(
-                    path: path, contentHash: DocumentActionsStore.contentHash(content),
+                    path: path, contentHash: ContentHash.of(content),
                     summary: object["summary"] as? String ?? "", sections: sections,
                     assistant: AIAssistantPreferences.summary(tool: tool, model: request.model ?? ""),
                     createdAt: Date(), language: ActionOutputLanguage.current)
@@ -317,7 +317,7 @@ final class CodeExplainStore: ObservableObject {
     }
 
     private func fileURL(_ path: String, _ directory: URL) -> URL {
-        directory.appendingPathComponent(String(DocumentActionsStore.contentHash(path).prefix(24)) + ".json")
+        directory.appendingPathComponent(String(ContentHash.of(path).prefix(24)) + ".json")
     }
 
     private func save(_ explanation: CodeExplanation, directory: URL) {

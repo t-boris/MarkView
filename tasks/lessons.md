@@ -166,3 +166,7 @@ declaration in a file and grep each one before `git rm`.
 ## Never use `git stash` to compare before/after
 - I ran `git stash push <file>; …; git stash pop` to time an old version. The file was untracked, so nothing was stashed — and `pop` would have applied someone else's older stash to a working tree with 70+ uncommitted files.
 - Rule: to compare versions, build the old code from a copy (`git show HEAD:path > /tmp/...`) or a separate worktree; never stash in the user's working tree.
+
+## New files in Resources/Editor are not bundled automatically
+- The "Build Web Editor" pre-build script copies only listed files (`index.html`, `terminal.html`, `vendor/`). A new top-level page must be added to that script in both `project.yml` and `project.pbxproj`, or `Bundle.main.url(...)` returns nil and the web view stays blank with no error.
+- Check with `ls <App>/Contents/Resources/Editor/` after building.

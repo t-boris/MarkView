@@ -15,8 +15,8 @@ settings:
     SUPPORTS_MACCATALYST: false
     CODE_SIGN_STYLE: Automatic
     PRODUCT_NAME: MarkView
-    MARKETING_VERSION: "1.22.0"
-    CURRENT_PROJECT_VERSION: "1.22.0"
+    MARKETING_VERSION: "1.25.0"
+    CURRENT_PROJECT_VERSION: "1.25.0"
     INFOPLIST_FILE: MarkView/Info.plist
     GENERATE_INFOPLIST_FILE: false
 
@@ -42,6 +42,7 @@ targets:
           DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Editor"
           mkdir -p "${DEST}"
           /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/index.html" "${DEST}/index.html"
+          /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/terminal.html" "${DEST}/terminal.html"
           if [ -d "${SRCROOT}/MarkView/Resources/Editor/vendor" ]; then
             rm -rf "${DEST}/vendor"
             /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/vendor" "${DEST}/vendor"

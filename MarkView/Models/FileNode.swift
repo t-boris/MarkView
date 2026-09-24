@@ -57,7 +57,7 @@ class FileNode: Identifiable, ObservableObject, Hashable {
                 guard !name.hasPrefix(".") else { return nil }
                 let vals = try? itemURL.resourceValues(forKeys: Set(prefetchKeys))
                 let isDir = vals?.isDirectory ?? false
-                guard isDir || FileType.isSupported(itemURL) else { return nil }
+                guard isDir || FileType.isOpenable(itemURL) else { return nil }
                 return (itemURL, isDir, vals?.contentModificationDate)
             }
 
