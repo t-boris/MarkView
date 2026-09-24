@@ -375,3 +375,37 @@ reconfigure them from the UI.
 - Console round-trip on each backend (needs UI; `codex exec --full-auto` can write
   files, so it was not run headlessly).
 - Whisper 3-second self-test (needs a microphone and a click).
+
+## AI assistant + model selection (Claude / Codex) — 2026-09-24
+
+Goal: choose which CLI (Claude Code / Codex) and which model answers AI Console
+requests — every "ask AI" path (console input, AI tools, graph edit, docs) goes
+through `AIConsoleEngine.sendMessage`. Configurable in DDE Settings, quick-switchable
+from the AI panel via a popover dialog. One source of truth: UserDefaults.
+
+- [x] `AIAssistantPreferences` (AIConsoleEngine.swift): keys `settings.ai.backend`,
+      `settings.cli.<tool>Model` ("" = CLI default); model catalog per tool —
+      Claude aliases (fable/opus/sonnet/haiku), Codex list read from
+      `~/.codex/models_cache.json` (visibility == "list"), custom name always allowed.
+- [x] Engine: backend read from preferences; pass `--model` (claude) / `-m` (codex);
+      when backend changes between turns, drop the CLI session ids and post a system
+      note instead of wiping the visible history.
+- [x] AI panel: replace the two-tab header with a "Claude Code · opus ▾" button that
+      opens a popover (assistant segmented picker, model list, custom model field);
+      input placeholder names the active assistant.
+- [x] DDE Settings → AI CLI Tools: "Default assistant" picker + per-tool model picker.
+- [x] Build; verify CLI args with both backends; manual UI check.
+
+### Verification
+- `xcodebuild ... build` → BUILD SUCCEEDED; no new warnings in touched files (the
+  old off-actor reads of `backend`/session state are gone).
+- Exact argument shapes the engine builds, run against the real CLIs:
+  claude fresh `--model haiku` → init model claude-haiku-4-5, "OK";
+  claude `--resume <id> --model sonnet` → claude-sonnet-5, "OK2" (model switch keeps session);
+  codex `exec --full-auto --skip-git-repo-check -m gpt-5.5` → "OK";
+  codex `exec resume --last ... -m gpt-5.5` → "OK2".
+- Codex catalog lists models the account may not be allowed to use (e.g. gpt-6-luna
+  on a ChatGPT login → HTTP 400); the CLI's error text reaches the console as an error.
+
+### Left for manual check
+- Popover and Settings picker in the running app (UI).

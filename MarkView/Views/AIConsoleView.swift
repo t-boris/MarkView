@@ -30,24 +30,41 @@ struct AIConsoleInnerView: View {
     @ObservedObject var whisper: WhisperClient
 
     @State private var inputText = ""
+    @State private var showAssistantPicker = false
+
+    // Same keys DDE Settings edits, so a switch here and a change there stay in sync.
+    @AppStorage(AIAssistantPreferences.backendKey) private var backendRaw = CLITool.claude.rawValue
+    @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
+
+    private var backend: CLITool { CLITool(rawValue: backendRaw) ?? .claude }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Backend selector
+            // Assistant quick switch — applies from the next message.
             HStack(spacing: 4) {
-                ForEach(AIConsoleEngine.AIBackend.allCases, id: \.self) { b in
-                    Button(action: { engine.backend = b; engine.clearHistory() }) {
-                        Text(b.rawValue)
-                            .font(.system(size: 9, weight: engine.backend == b ? .bold : .regular))
-                            .foregroundColor(engine.backend == b ? VSDark.textBright : VSDark.textDim)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(engine.backend == b ? VSDark.bgActive : Color.clear)
-                            .cornerRadius(3)
-                    }.buttonStyle(.plain)
+                Button(action: { showAssistantPicker.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "cpu").font(.system(size: 9))
+                        Text(AIAssistantPreferences.summary(tool: backend,
+                                                            model: backend == .claude ? claudeModel : codexModel))
+                            .font(.system(size: 9, weight: .bold))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down").font(.system(size: 7))
+                    }
+                    .foregroundColor(VSDark.textBright)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(VSDark.bgActive)
+                    .cornerRadius(3)
+                }
+                .buttonStyle(.plain)
+                .help("Choose the assistant and model")
+                .popover(isPresented: $showAssistantPicker, arrowEdge: .bottom) {
+                    AIAssistantPickerView()
+                        .padding(12)
+                        .frame(width: 320)
                 }
                 Spacer()
-                Text(engine.backend == .claude ? "claude" : "codex")
-                    .font(.system(size: 8, design: .monospaced)).foregroundColor(VSDark.textDim)
             }
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(VSDark.bgSidebar)
@@ -195,7 +212,7 @@ struct AIConsoleInnerView: View {
             ZStack(alignment: .topLeading) {
                 // Placeholder
                 if inputText.isEmpty {
-                    Text("Ask Claude Code...")
+                    Text("Ask \(backend.displayName)...")
                         .font(.system(size: 12))
                         .foregroundColor(VSDark.textDim)
                         .padding(.horizontal, 4)
@@ -327,5 +344,118 @@ struct AIConsoleInnerView: View {
             }
             whisper.startRecording()
         }
+    }
+}
+
+
+// MARK: - Assistant Picker
+
+/// Chooses the CLI and model that answer AI Console requests. Shared by the
+/// console's quick switch and DDE Settings; both edit `AIAssistantPreferences`.
+struct AIAssistantPickerView: View {
+    @AppStorage(AIAssistantPreferences.backendKey) private var backendRaw = CLITool.claude.rawValue
+    @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
+
+    @State private var options: [CLITool: [AIModelOption]] = [:]
+    @State private var customModel = ""
+
+    private var backend: CLITool { CLITool(rawValue: backendRaw) ?? .claude }
+
+    private var selectedModel: Binding<String> {
+        backend == .claude ? $claudeModel : $codexModel
+    }
+
+    /// Catalog for the active CLI, plus the stored model when it was typed by hand.
+    private var currentOptions: [AIModelOption] {
+        let catalog = options[backend] ?? []
+        let stored = selectedModel.wrappedValue
+        guard !stored.isEmpty, !catalog.contains(where: { $0.id == stored }) else { return catalog }
+        return catalog + [AIModelOption(id: stored, name: stored, detail: "Custom model name")]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Assistant", selection: $backendRaw) {
+                ForEach(CLITool.allCases, id: \.self) { tool in
+                    Text(tool.displayName).tag(tool.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text("Model").font(.caption.bold())
+
+            if options[backend] == nil {
+                ProgressView().scaleEffect(0.5)
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(currentOptions) { option in
+                        modelRow(option)
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                TextField("Other model name", text: $customModel)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11, design: .monospaced))
+                    .onSubmit(applyCustomModel)
+                Button("Use", action: applyCustomModel)
+                    .disabled(customModel.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            Text("Applies from the next message. Switching assistant starts a new session.")
+                .font(.system(size: 9)).foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .task { await loadOptions() }
+    }
+
+    private func modelRow(_ option: AIModelOption) -> some View {
+        let isSelected = selectedModel.wrappedValue == option.id
+        return Button(action: { selectedModel.wrappedValue = option.id }) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(option.name).font(.system(size: 11, weight: .medium))
+                        if !option.id.isEmpty && option.id != option.name {
+                            Text(option.id)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    if !option.detail.isEmpty {
+                        Text(option.detail)
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 3).padding(.horizontal, 4)
+            .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+            .cornerRadius(4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func applyCustomModel() {
+        let name = customModel.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        selectedModel.wrappedValue = name
+        customModel = ""
+    }
+
+    /// Codex's catalog is a large JSON file, so build the lists off the main thread.
+    private func loadOptions() async {
+        let loaded = await Task.detached(priority: .userInitiated) {
+            Dictionary(uniqueKeysWithValues: CLITool.allCases.map { ($0, AIAssistantPreferences.modelOptions(for: $0)) })
+        }.value
+        options = loaded
     }
 }

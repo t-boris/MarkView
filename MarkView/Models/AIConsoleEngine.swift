@@ -4,21 +4,19 @@ import AppKit
 /// AI Console Engine — runs Claude Code CLI as subprocess
 @MainActor
 class AIConsoleEngine: ObservableObject {
-    enum AIBackend: String, CaseIterable {
-        case claude = "Claude Code"
-        case codex = "OpenAI Codex"
-    }
-
     @Published var messages: [ConsoleMessage] = []
     @Published var isProcessing = false
     @Published var currentStatus: String?
-    @Published var backend: AIBackend = .claude
 
     let workspaceRoot: URL
     let db: SemanticDatabase?
     private var currentProcess: Process?
     private var hasSessionStarted = false
     private var claudeSessionId: String?
+    /// CLI the current session belongs to. The assistant is chosen in
+    /// `AIAssistantPreferences` and can change between turns; a session cannot
+    /// carry over from one CLI to the other.
+    private var sessionBackend: CLITool?
     var onFilesChanged: (([String]) -> Void)?
 
     // Binary locations are resolved at call time by `CLIToolLocator` — a user
@@ -223,9 +221,23 @@ Begin scanning the current directory now and generate all documentation.
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard !isProcessing else { return }
 
+        // Resolve the assistant for this turn on the main actor; the worker below
+        // only sees these values.
+        let currentBackend = AIAssistantPreferences.backend
+        let model = AIAssistantPreferences.model(for: currentBackend)
+        if let previous = sessionBackend, previous != currentBackend {
+            hasSessionStarted = false
+            claudeSessionId = nil
+            messages.append(ConsoleMessage(role: .system, content:
+                "Switched from \(previous.displayName) to \(currentBackend.displayName) — new session; earlier replies are not in its context."))
+        }
+        sessionBackend = currentBackend
+        let claudeResumeId = claudeSessionId
+        let resumeCodex = hasSessionStarted
+
         messages.append(ConsoleMessage(role: .user, content: text))
         isProcessing = true
-        currentStatus = backend == .claude ? "Claude is starting..." : "Codex is starting..."
+        currentStatus = "\(AIAssistantPreferences.summary(tool: currentBackend, model: model ?? "")) is starting..."
 
         // Add empty assistant message that we'll update incrementally
         let assistantMsg = ConsoleMessage(role: .assistant, content: "")
@@ -246,8 +258,7 @@ Begin scanning the current directory now and generate all documentation.
             }
 
             let process = Process()
-            let currentBackend = self.backend
-            let tool: CLITool = currentBackend == .claude ? .claude : .codex
+            let tool = currentBackend
 
             guard let toolPath = CLIToolLocator.resolve(tool) else {
                 // Say exactly what is wrong and where to fix it — a missing binary
@@ -273,19 +284,18 @@ Begin scanning the current directory now and generate all documentation.
             switch currentBackend {
             case .claude:
                 var args = ["-p", text, "--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"]
-                if let sessionId = self.claudeSessionId {
+                args.append(contentsOf: tool.modelArgs(model))
+                if let sessionId = claudeResumeId {
                     args.append(contentsOf: ["--resume", sessionId])
                 }
                 process.arguments = args
             case .codex:
-                if self.hasSessionStarted {
-                    process.arguments = ["exec", "resume", "--last", "--full-auto", "--skip-git-repo-check", text]
-                } else {
-                    process.arguments = ["exec", "--full-auto", "--skip-git-repo-check", text]
-                }
+                let subcommand = resumeCodex ? ["exec", "resume", "--last"] : ["exec"]
+                process.arguments = subcommand + ["--full-auto", "--skip-git-repo-check"]
+                    + tool.modelArgs(model) + [text]
             }
             process.currentDirectoryURL = root
-            debugLog("Launching \(currentBackend.rawValue): \(process.executableURL?.path ?? "?") \(process.arguments ?? [])")
+            debugLog("Launching \(currentBackend.displayName): \(process.executableURL?.path ?? "?") \(process.arguments ?? [])")
             debugLog("CWD: \(root.path)")
 
             var env = ProcessInfo.processInfo.environment
@@ -682,6 +692,7 @@ Begin scanning the current directory now and generate all documentation.
         messages.removeAll()
         hasSessionStarted = false
         claudeSessionId = nil
+        sessionBackend = nil
     }
 }
 
@@ -728,6 +739,117 @@ enum CLITool: String, CaseIterable {
         case .claude: return "auth login"
         case .codex: return "login"
         }
+    }
+
+    /// Arguments that select `model` for one run.
+    func modelArgs(_ model: String?) -> [String] {
+        guard let model else { return [] }
+        switch self {
+        case .claude: return ["--model", model]
+        case .codex: return ["-m", model]
+        }
+    }
+}
+
+// MARK: - Assistant & Model Preferences
+
+/// A model the user can pick for a CLI. `id` is passed to the CLI's model flag;
+/// an empty `id` means "no flag" — the CLI uses its own configured default.
+struct AIModelOption: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let detail: String
+}
+
+/// Which CLI answers AI Console requests and which model it runs.
+///
+/// Stored in UserDefaults so DDE Settings and the console's quick switch edit the
+/// same values; views bind to the keys with `@AppStorage`, and the engine reads
+/// them at send time.
+enum AIAssistantPreferences {
+    static let backendKey = "settings.ai.backend"
+
+    static func modelKey(for tool: CLITool) -> String { "settings.cli.\(tool.rawValue)Model" }
+
+    static var backend: CLITool {
+        CLITool(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .claude
+    }
+
+    /// The selected model, or nil to let the CLI use its own default.
+    static func model(for tool: CLITool) -> String? {
+        let value = (UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        return value.isEmpty ? nil : value
+    }
+
+    /// Short label for the active selection, e.g. "Claude Code · opus".
+    static func summary(tool: CLITool, model: String) -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespaces)
+        return "\(tool.displayName) · \(trimmed.isEmpty ? "default model" : trimmed)"
+    }
+
+    /// Models offered in pickers. Codex reads its own catalog from disk (~350 KB of
+    /// JSON), so call this off the main thread.
+    static func modelOptions(for tool: CLITool) -> [AIModelOption] {
+        switch tool {
+        case .claude:
+            // Aliases resolve to the newest model of each family, so the list does
+            // not go stale when Claude Code ships a new version.
+            return [
+                AIModelOption(id: "", name: "Default", detail: "Claude Code's configured model"),
+                AIModelOption(id: "fable", name: "Fable", detail: "Latest Fable — most capable"),
+                AIModelOption(id: "opus", name: "Opus", detail: "Latest Opus"),
+                AIModelOption(id: "sonnet", name: "Sonnet", detail: "Latest Sonnet — balanced"),
+                AIModelOption(id: "haiku", name: "Haiku", detail: "Latest Haiku — fastest"),
+            ]
+        case .codex:
+            let configured = codexConfiguredModel()
+            let fallback = AIModelOption(
+                id: "", name: "Default",
+                detail: configured.map { "\($0) (from ~/.codex/config.toml)" } ?? "Codex's configured model"
+            )
+            return [fallback] + codexCatalog()
+        }
+    }
+
+    private static var codexHome: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
+    }
+
+    /// Models Codex itself lists in its picker, from the cache the CLI maintains.
+    private static func codexCatalog() -> [AIModelOption] {
+        let url = codexHome.appendingPathComponent("models_cache.json")
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = root["models"] as? [[String: Any]] else { return [] }
+        return models
+            .filter { ($0["visibility"] as? String) == "list" }
+            .sorted { ($0["priority"] as? Int ?? .max) < ($1["priority"] as? Int ?? .max) }
+            .compactMap { model in
+                guard let slug = model["slug"] as? String, !slug.isEmpty else { return nil }
+                return AIModelOption(
+                    id: slug,
+                    name: model["display_name"] as? String ?? slug,
+                    detail: model["description"] as? String ?? ""
+                )
+            }
+    }
+
+    /// Top-level `model = "..."` from Codex's config, used to label "Default".
+    private static func codexConfiguredModel() -> String? {
+        let url = codexHome.appendingPathComponent("config.toml")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") { break }  // past the top-level table
+            guard line.hasPrefix("model"),
+                  let eq = line.firstIndex(of: "="),
+                  line[..<eq].trimmingCharacters(in: .whitespaces) == "model" else { continue }
+            let value = line[line.index(after: eq)...]
+                .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'")))
+            return value.isEmpty ? nil : value
+        }
+        return nil
     }
 }
 

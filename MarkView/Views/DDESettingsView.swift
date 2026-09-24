@@ -129,6 +129,14 @@ struct DDESettingsView: View {
             // integration can always be repaired from the UI.
             GroupBox("AI CLI Tools (Claude Code / Codex)") {
                 VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Assistant & model").font(.caption.bold())
+                        Text("Answers the AI Console and every Ask AI action. Also switchable from the console header.")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                        AIAssistantPickerView()
+                    }
+
+                    Divider()
                     ForEach(CLITool.allCases, id: \.self) { tool in
                         cliToolRow(tool)
                         if tool != CLITool.allCases.last { Divider() }
