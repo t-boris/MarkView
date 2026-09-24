@@ -170,3 +170,6 @@ declaration in a file and grep each one before `git rm`.
 ## New files in Resources/Editor are not bundled automatically
 - The "Build Web Editor" pre-build script copies only listed files (`index.html`, `terminal.html`, `vendor/`). A new top-level page must be added to that script in both `project.yml` and `project.pbxproj`, or `Bundle.main.url(...)` returns nil and the web view stays blank with no error.
 - Check with `ls <App>/Contents/Resources/Editor/` after building.
+
+## Never restart the user's running MarkView
+- `install.sh` and `release.sh --install` quit and kill the running app; Boris works in it (live terminal sessions). Build into /tmp/MarkViewDerivedData or `./release.sh` (no `--install`) and let him install when he chooses.

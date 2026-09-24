@@ -148,8 +148,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
         // Everything the child needs is prepared before fork: after fork only
         // async-signal-safe calls (chdir, execve, _exit) are allowed.
-        let argv = [shell, "-l"].map { strdup($0) } + [nil]
-        let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        let argv: [UnsafeMutablePointer<CChar>?] = [strdup(shell), strdup("-l"), nil]
+        let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         let directoryPath = strdup(directory.path)
         let shellPath = strdup(shell)
         defer {
