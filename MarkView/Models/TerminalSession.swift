@@ -5,7 +5,7 @@ import WebKit
 /// What a terminal in the AI panel runs: an assistant inside the user's shell, or the
 /// shell alone.
 enum TerminalProfile: String, CaseIterable, Identifiable {
-    case claude, codex, shell
+    case claude, codex, cline, copilot, shell
 
     var id: String { rawValue }
 
@@ -13,6 +13,8 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
         switch tool {
         case .claude: self = .claude
         case .codex: self = .codex
+        case .cline: self = .cline
+        case .copilot: self = .copilot
         }
     }
 
@@ -20,6 +22,8 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return .claude
         case .codex: return .codex
+        case .cline: return .cline
+        case .copilot: return .copilot
         case .shell: return nil
         }
     }
@@ -28,6 +32,8 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return "Claude Code"
         case .codex: return "Codex"
+        case .cline: return "Cline"
+        case .copilot: return "Copilot"
         case .shell: return "Shell"
         }
     }
@@ -36,6 +42,8 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return "sparkle"
         case .codex: return "chevron.left.forwardslash.chevron.right"
+        case .cline: return "circle.hexagongrid"
+        case .copilot: return "airplane"
         case .shell: return "terminal"
         }
     }

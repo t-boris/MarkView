@@ -3017,7 +3017,7 @@ class WorkspaceManager: ObservableObject {
         let run = ([quoted] + tool.modelArgs(AIAssistantPreferences.model(for: tool))).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run) --dangerously-skip-permissions"
-        case .codex: return run
+        case .codex, .cline, .copilot: return run
         }
     }
 

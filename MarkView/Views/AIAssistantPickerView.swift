@@ -8,6 +8,8 @@ struct AIAssistantPickerView: View {
     @AppStorage(AIAssistantPreferences.backendKey) private var backendRaw = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
 
     @State private var options: [CLITool: [AIModelOption]] = [:]
     @State private var customModel = ""
@@ -15,7 +17,12 @@ struct AIAssistantPickerView: View {
     private var backend: CLITool { CLITool(rawValue: backendRaw) ?? .claude }
 
     private var selectedModel: Binding<String> {
-        backend == .claude ? $claudeModel : $codexModel
+        switch backend {
+        case .claude: return $claudeModel
+        case .codex: return $codexModel
+        case .cline: return $clineModel
+        case .copilot: return $copilotModel
+        }
     }
 
     /// Catalog for the active CLI, plus the stored model when it was typed by hand.
@@ -109,5 +116,11 @@ struct AIAssistantPickerView: View {
             Dictionary(uniqueKeysWithValues: CLITool.allCases.map { ($0, AIAssistantPreferences.modelOptions(for: $0)) })
         }.value
         options = loaded
+        // ACP assistants list the account's models; fetch them when none are cached.
+        for tool in CLITool.allCases where tool.usesACP && (loaded[tool]?.count ?? 0) <= 1 {
+            if let path = CLIToolLocator.resolve(tool), let models = try? await ACPAssistant.refreshModels(tool, toolPath: path) {
+                options[tool] = [loaded[tool]?.first].compactMap { $0 } + models
+            }
+        }
     }
 }

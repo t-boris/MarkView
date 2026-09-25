@@ -89,6 +89,8 @@ struct AITerminalPanel: View {
     @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
     @AppStorage("layout.terminalPromptsExpanded") private var promptsExpanded = true
 
     var body: some View {
@@ -111,6 +113,8 @@ struct AITerminalPanel: View {
         .onChange(of: backend) { _ in workspaceManager.aiBackendChanged() }
         .onChange(of: claudeModel) { _ in workspaceManager.aiModelChanged() }
         .onChange(of: codexModel) { _ in workspaceManager.aiModelChanged() }
+        .onChange(of: clineModel) { _ in workspaceManager.aiModelChanged() }
+        .onChange(of: copilotModel) { _ in workspaceManager.aiModelChanged() }
     }
 
     private var tabBar: some View {

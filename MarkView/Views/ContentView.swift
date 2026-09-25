@@ -476,14 +476,32 @@ struct AssistantToolbarMenu: View {
     @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
+    @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
     @AppStorage(AIAssistantPreferences.xrayModelKey(for: .claude)) private var xrayClaudeModel = AIAssistantPreferences.defaultXRayModel(for: .claude)
     @AppStorage(AIAssistantPreferences.xrayModelKey(for: .codex)) private var xrayCodexModel = AIAssistantPreferences.defaultXRayModel(for: .codex)
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .cline)) private var xrayClineModel = AIAssistantPreferences.defaultXRayModel(for: .cline)
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .copilot)) private var xrayCopilotModel = AIAssistantPreferences.defaultXRayModel(for: .copilot)
     /// Model lists per tool; Codex's is read from disk, so off the main thread.
     @State private var options: [CLITool: [AIModelOption]] = [:]
 
     private var tool: CLITool { CLITool(rawValue: backend) ?? .claude }
-    private var model: Binding<String> { tool == .claude ? $claudeModel : $codexModel }
-    private var xrayModel: Binding<String> { tool == .claude ? $xrayClaudeModel : $xrayCodexModel }
+    private var model: Binding<String> {
+        switch tool {
+        case .claude: return $claudeModel
+        case .codex: return $codexModel
+        case .cline: return $clineModel
+        case .copilot: return $copilotModel
+        }
+    }
+    private var xrayModel: Binding<String> {
+        switch tool {
+        case .claude: return $xrayClaudeModel
+        case .codex: return $xrayCodexModel
+        case .cline: return $xrayClineModel
+        case .copilot: return $xrayCopilotModel
+        }
+    }
 
     var body: some View {
         Menu {
@@ -511,10 +529,15 @@ struct AssistantToolbarMenu: View {
         .task(id: backend) {
             let current = tool
             guard options[current] == nil else { return }
-            let loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: current) }.value
+            var loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: current) }.value
+            // ACP assistants list the account's models only over ACP: fetch them the first time.
+            if current.usesACP, loaded.count <= 1, let path = CLIToolLocator.resolve(current),
+               let models = try? await ACPAssistant.refreshModels(current, toolPath: path) {
+                loaded = [loaded.first].compactMap { $0 } + models
+            }
             // Keep a model saved earlier selectable, but say that the CLI does not list it
             // (Codex rejects models its catalog dropped or the account cannot use).
-            let id = current == .claude ? claudeModel : codexModel
+            let id = model.wrappedValue
             options[current] = loaded.contains { $0.id == id } ? loaded
                 : loaded + [AIModelOption(id: id, name: "\(id) — not in \(current.displayName)'s list", detail: "")]
         }

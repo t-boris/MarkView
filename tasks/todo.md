@@ -1,5 +1,57 @@
 # MarkView — Follow-up Tasks
 
+## Done 14: GitHub Copilot as a fourth assistant (2026-09-25)
+
+Copilot CLI 1.0.88 speaks ACP too, and filters its tools at the source:
+`--available-tools view grep glob` (no shell, edits, web, subagents exist for the model),
+`--no-ask-user --disable-builtin-mcps --no-custom-instructions --no-auto-update`,
+`--reasoning-effort`. Reads in the working dir run without asking; anything else asks and is
+refused. It reports tokens per turn. It prints "Info: Disabled tools: …" as the first answer
+chunk — filtered.
+
+- [x] `ClineACP` → `ACPAssistant` (per-assistant profile: arguments, read-only mode, notice
+      filter); tokens recorded when reported; answer reset per turn.
+- [x] `CLITool.copilot` (`copilot`, `copilot login`, `--model`), menus, Settings probe
+      (version ≥ 1, models; signed in when the account lists models), terminal profile.
+- [x] Global Copilot CLI upgraded 0.0.348 → 1.0.88 (Homebrew's npm; signature valid).
+- [x] Version 1.31.0 → 1.32.0.
+
+### Review
+- Harness from the app's code, both assistants: Copilot (GPT-5 mini, 0x) structured answer on
+  MarkView 82 s, 15 reads / 17 searches, no shell; tokens 681k/4.5k; plain answer without the
+  notice; unknown model → clear error; cancel ok. Cline regression: same checks pass.
+- Not checked in the live app window.
+
+## Done 13: Cline as a third assistant (2026-09-25)
+
+Findings (Cline 3.0.65): ACP over stdio works (`cline --acp`): initialize → session/new
+(modes plan/act, account models) → session/set_mode plan → session/set_model → session/prompt.
+Every tool call asks `session/request_permission` with its kind (read, search, execute, edit…):
+allowing only read/search makes a run read-only (verified: reads work, shell and edits refused,
+no files created). No usage/cost over ACP. No JSON-schema flag → schema in the prompt, parse,
+one repair turn. `--json` rejects stdin prompts; ACP has no such limit. The npm 3.0.65 macOS
+binary ships with a broken signature (killed, silent `--version`): ad-hoc re-sign fixes it.
+
+- [x] `CLITool.cline` (Cline, `cline`, login `cline auth`, `-m` in terminals).
+- [x] `ClineACP.swift`: ACP client — plan mode, model, read/search-only permissions (none when
+      the request has no readable folder), streamed text and activity, cancel/timeout,
+      structured answers from the schema in the prompt with one repair turn.
+- [x] `CLICompletion.run` routes `.cline` to the ACP client.
+- [x] Models: from the account over ACP (cached), "Default" = Cline's configured model.
+- [x] Menus (toolbar, Settings, AI terminal), terminal profile, Settings row: probe (version,
+      signature problem explained with the fix), login in Terminal.
+- [x] Verify: build; real runs through the app's code path (Ask AI, filter, X-Ray part);
+      version bump (minor → 1.31.0).
+
+### Review
+- Harness compiled from the app's own ClineACP/CLICompletion/AIAssistants against the signed-in
+  Cline account (DeepSeek Flash): 318 models listed without a prompt; structured JSON answer
+  reading MarkView (Git files — correct), shell attempts refused, repo untouched; 91 s → 46 s after
+  telling the model only read/search work; plain streamed answer; cancel → CancellationError;
+  unknown model → clear error; Settings probe "3.0.65 · 318 models".
+- Global Cline upgraded 1.0.8 → 3.0.65 (Homebrew's npm) and ad-hoc re-signed (bin/.cline too).
+- Not checked in the live app window: menus, Settings row and a Cline terminal tab.
+
 ## Done 12: AI search inside the X-Ray instead of a separate panel (2026-09-25)
 
 User correction: the search belongs in the X-Ray as a filter, not in its own panel.

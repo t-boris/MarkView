@@ -94,11 +94,17 @@ enum CLICompletion {
         }
         let model = request.model ?? AIAssistantPreferences.model(for: tool)
         let workDir = request.readableFolder ?? scratchDirectory()
+        if tool.usesACP {
+            return try await ACPAssistant.run(request, tool: tool, toolPath: toolPath, model: model, workDir: workDir,
+                                              onDelta: onDelta, onActivity: onActivity)
+        }
 
         var arguments: [String]
         var input = request.prompt
         var schemaFile: URL?
         switch tool {
+        case .cline, .copilot:
+            preconditionFailure("\(tool.displayName) runs through ACPAssistant")
         case .claude:
             arguments = ["-p", "--safe-mode", "--no-session-persistence",
                          "--output-format", "stream-json", "--verbose", "--include-partial-messages",
@@ -319,6 +325,7 @@ private final class Invocation: @unchecked Sendable {
             switch tool {
             case .claude: handleClaude(type, json)
             case .codex: handleCodex(type, json)
+            case .cline, .copilot: break   // ACPAssistant has its own connection
             }
         }
     }

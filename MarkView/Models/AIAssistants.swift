@@ -3,7 +3,7 @@ import AppKit
 
 // MARK: - CLI Tool Discovery
 
-/// Locates the Claude Code and Codex command-line binaries.
+/// Locates the Claude Code, Codex, Cline and GitHub Copilot command-line binaries.
 ///
 /// These used to be hardcoded absolute paths, which broke silently whenever a tool
 /// was installed somewhere else — an npm/nvm install of Codex lands in
@@ -13,13 +13,22 @@ import AppKit
 enum CLITool: String, CaseIterable {
     case claude
     case codex
+    /// Cline 3.x, driven over the Agent Client Protocol (`ACPAssistant`).
+    case cline
+    /// GitHub Copilot CLI 1.x, driven over the Agent Client Protocol (`ACPAssistant`).
+    case copilot
 
     var displayName: String {
         switch self {
         case .claude: return "Claude Code"
         case .codex: return "Codex"
+        case .cline: return "Cline"
+        case .copilot: return "Copilot"
         }
     }
+
+    /// Driven over the Agent Client Protocol (`ACPAssistant`) rather than a one-shot CLI run.
+    var usesACP: Bool { self == .cline || self == .copilot }
 
     /// Executable name as installed on disk.
     var binaryName: String { rawValue }
@@ -35,6 +44,8 @@ enum CLITool: String, CaseIterable {
         switch self {
         case .claude: return ["auth", "status"]
         case .codex: return ["login", "status"]
+        // No status command that works without a terminal; see `probeACP`.
+        case .cline, .copilot: return []
         }
     }
 
@@ -43,6 +54,8 @@ enum CLITool: String, CaseIterable {
         switch self {
         case .claude: return "auth login"
         case .codex: return "login"
+        case .cline: return "auth"
+        case .copilot: return "login"
         }
     }
 
@@ -50,8 +63,8 @@ enum CLITool: String, CaseIterable {
     func modelArgs(_ model: String?) -> [String] {
         guard let model else { return [] }
         switch self {
-        case .claude: return ["--model", model]
-        case .codex: return ["-m", model]
+        case .claude, .copilot: return ["--model", model]
+        case .codex, .cline: return ["-m", model]
         }
     }
 }
@@ -96,6 +109,7 @@ enum AIAssistantPreferences {
         switch tool {
         case .claude: return "sonnet"
         case .codex: return "gpt-5.6-luna"
+        case .cline, .copilot: return ""
         }
     }
     /// The X-Ray model for `tool`; "" means the assistant's general model.
@@ -132,6 +146,13 @@ enum AIAssistantPreferences {
                 detail: configured.map { "\($0) (from ~/.codex/config.toml)" } ?? "Codex's configured model"
             )
             return [fallback] + codexCatalog()
+        case .cline:
+            // The account's models, as Cline listed them at the last check (Settings, menus).
+            return [AIModelOption(id: "", name: "Default", detail: "Cline's configured model (cline auth)")]
+                + ACPAssistant.cachedModels(.cline)
+        case .copilot:
+            return [AIModelOption(id: "", name: "Default", detail: "Copilot's configured model")]
+                + ACPAssistant.cachedModels(.copilot)
         }
     }
 
@@ -293,6 +314,9 @@ enum CLIToolLocator {
         }
 
         let versionRun = await run(path, tool.versionArgs, timeout: 20)
+        if tool.usesACP {
+            return await probeACP(tool, path: path, versionRun: versionRun)
+        }
         guard versionRun.exitCode == 0 else {
             let detail = (versionRun.stderr.isEmpty ? versionRun.stdout : versionRun.stderr)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -313,6 +337,8 @@ enum CLIToolLocator {
             } else {
                 loggedIn = authOutput.localizedCaseInsensitiveContains("logged in") ? true : nil
             }
+        case .cline, .copilot:
+            loggedIn = nil
         case .codex:
             // `codex login status` prints e.g. "Logged in using ChatGPT".
             if authOutput.localizedCaseInsensitiveContains("not logged in") {
@@ -324,6 +350,40 @@ enum CLIToolLocator {
             }
         }
         return ProbeResult(path: path, version: version, loggedIn: loggedIn)
+    }
+
+    /// Cline and Copilot: the version, then a session over ACP (no prompt, no tokens) that
+    /// lists the account's models and refreshes the model menus. Cline's npm launcher exits quietly when macOS kills its
+    /// binary for a broken signature, so an empty version means that.
+    private static func probeACP(_ tool: CLITool, path: String, versionRun: RunResult) async -> ProbeResult {
+        // "3.0.65" (Cline), "GitHub Copilot CLI 1.0.88." (Copilot).
+        let firstLine = versionRun.stdout.split(separator: "\n").first.map(String.init) ?? ""
+        let version = firstLine.range(of: #"\d+(\.\d+)+"#, options: .regularExpression).map { String(firstLine[$0]) } ?? ""
+        guard versionRun.exitCode == 0, !version.isEmpty else {
+            let detail = (versionRun.stderr + versionRun.stdout).trimmingCharacters(in: .whitespacesAndNewlines)
+            if detail.isEmpty && tool == .cline {
+                return ProbeResult(path: path, error: "Cline did not start — macOS stops it when its binary's signature is invalid "
+                    + "(a known problem of the npm package). Fix in Terminal: codesign --force --sign - "
+                    + "\"$(dirname $(readlink -f $(which cline)))/.cline\"")
+            }
+            return ProbeResult(path: path, error: "Could not run \(path): \(detail.prefix(200))")
+        }
+        let (minimum, install) = tool == .cline ? (3, "npm i -g cline@latest") : (1, "npm i -g @github/copilot@latest")
+        guard (Int(version.prefix(while: \.isNumber)) ?? 0) >= minimum else {
+            return ProbeResult(path: path, version: version,
+                               error: "\(tool.displayName) \(version) is too old for MarkView — update: \(install)")
+        }
+        do {
+            let models = try await ACPAssistant.refreshModels(tool, toolPath: path)
+            // Copilot lists models per account (so a list means signed in); Cline lists them signed out too.
+            return ProbeResult(path: path, version: "\(version) · \(models.count) models",
+                               loggedIn: tool == .copilot && !models.isEmpty ? true : nil)
+        } catch {
+            let message = error.localizedDescription
+            let signedOut = message.localizedCaseInsensitiveContains("auth") || message.localizedCaseInsensitiveContains("login")
+            return ProbeResult(path: path, version: version, loggedIn: signedOut ? false : nil,
+                               error: signedOut ? nil : "\(tool.displayName) started but its session failed: \(message)")
+        }
     }
 
     // MARK: - Process helper
