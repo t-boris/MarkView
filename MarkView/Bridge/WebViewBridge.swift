@@ -413,6 +413,11 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.setCodeNotes && window.setCodeNotes(\(json))")
     }
 
+    /// A go-to-definition / usages result or an AI answer for the code viewer.
+    func sendCodeNavEvent(_ json: String, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.onCodeNavEvent && window.onCodeNavEvent(\(json))")
+    }
+
     /// Select and centre 1-based lines in the code viewer (queued while it loads).
     func revealCodeLine(_ line: Int, endLine: Int?, in webView: WKWebView) {
         webView.evaluateJavaScript("window.codeGotoLine && window.codeGotoLine(\(line), \(endLine ?? line))")

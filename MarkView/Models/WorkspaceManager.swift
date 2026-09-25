@@ -336,6 +336,8 @@ class WorkspaceManager: ObservableObject {
     let architecture = ArchitectureStore()
     /// AI margin notes for code files (code viewer → Explain).
     let codeExplain = CodeExplainStore()
+    /// Go to definition / find usages, jump history and AI answers about selected code.
+    let codeNav = CodeNavigationStore()
     /// The open folder looks like a software project (manifest or source files).
     @Published var isCodeProject = false
     @Published var graphRAG: GraphRAG?
@@ -445,6 +447,7 @@ class WorkspaceManager: ObservableObject {
         tabsStore.reset()
         architecture.reset()
         folderXRays = [:]
+        codeNav.reset()
         indexingProgress = "Loading folder structure..."
         Self.debugLog("openFolder START: \(url.path)")
 
@@ -855,6 +858,7 @@ class WorkspaceManager: ObservableObject {
     /// Load cached notes for a code file that just opened.
     func prepareCodeNotes(for url: URL) {
         codeExplain.load(path: workspaceRelativePath(url), directory: explainDirectory(for: url))
+        codeNav.sendState(url: url)
     }
 
     /// The margin panel state for `url`, as a JSON object literal.
@@ -864,6 +868,19 @@ class WorkspaceManager: ObservableObject {
         let path = architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
         return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
                                        pr: architecture.prFileNotes(path: path, content: content))
+    }
+
+    // MARK: - Explain with AI
+
+    /// "Explain with AI — everything related" on a code element: the X-Ray's ⚡ search for
+    /// it, with everything connected to it in red.
+    func explainSymbol(name: String, path: String, line: Int) {
+        guard rootNode != nil, CodeNavigator.isNavigable(name) else { return }
+        let criterion = "\(name) — \((path as NSString).lastPathComponent):\(line)"
+        architecture.searchSymbols[criterion] = XRaySearch.Symbol(name: name, path: path, line: line)
+        setTemporaryFilter(criterion)
+        openArchitecture()
+        if let id = ImportanceRater.temporaryFilter?.id { architecture.activate(filterId: id) }
     }
 
     /// Show the active markdown document with Explain notes (like code), or back as a document.
@@ -896,6 +913,67 @@ class WorkspaceManager: ObservableObject {
             createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
         case "tempFilter":
             setTemporaryFilter(payload["criterion"] as? String ?? "")
+        case "explainSymbol":
+            guard let name = payload["name"] as? String else { return }
+            explainSymbol(name: name, path: path, line: (payload["line"] as? NSNumber)?.intValue ?? 1)
+        case "navDefinition", "navUsages", "navOpen", "navBack", "navForward", "askAI", "askStop":
+            handleNavigation(action, payload: payload, url: url, path: path, root: root)
+        default:
+            break
+        }
+    }
+
+    /// Go to definition, find usages, history and AI questions from the code viewer.
+    private func handleNavigation(_ action: String, payload: [String: Any], url: URL, path: String, root: URL) {
+        let line = (payload["line"] as? NSNumber)?.intValue ?? 1
+        let here = CodeNavigationStore.Place(url: url.standardizedFileURL, line: line)
+        let open: (URL, Int) -> Void = { [weak self] target, line in self?.openFile(target, line: line) }
+        switch action {
+        case "navDefinition":
+            guard let name = payload["name"] as? String else { return }
+            codeNav.goToDefinition(name: name, line: line, url: url, path: path, root: root, open: open)
+        case "navUsages":
+            guard let name = payload["name"] as? String else { return }
+            codeNav.findUsages(name: name, url: url, path: path, root: root)
+        case "navOpen":
+            // A result from the viewer's list or a `path:line` in an AI answer: a file inside
+            // the project only. A bare or partial path is looked up by its ending.
+            guard let target = payload["path"] as? String, let targetLine = (payload["target"] as? NSNumber)?.intValue else { return }
+            let base = root.standardizedFileURL.path + "/"
+            let file = root.appendingPathComponent(target).standardizedFileURL
+            if file.path.hasPrefix(base), FileManager.default.fileExists(atPath: file.path) {
+                codeNav.jump(from: here, to: file, line: targetLine, open: open)
+                return
+            }
+            let suffix = "/" + target.trimmingCharacters(in: CharacterSet(charactersIn: "./"))
+            let current = path
+            Task {
+                let match = await Task.detached(priority: .userInitiated) { () -> String? in
+                    let candidates = ArchitectureScanner.listFiles(root: root).filter { ("/" + $0).hasSuffix(suffix) }
+                    // Nearest to the file the question was about.
+                    let folder = (current as NSString).deletingLastPathComponent
+                    return candidates.max { a, b in
+                        a.commonPrefix(with: folder).count < b.commonPrefix(with: folder).count
+                    }
+                }.value
+                guard let match else { return }
+                codeNav.jump(from: here, to: root.appendingPathComponent(match), line: targetLine, open: open)
+            }
+        case "navBack":
+            codeNav.goBack(current: here, open: open)
+        case "navForward":
+            codeNav.goForward(current: here, open: open)
+        case "askAI":
+            guard let id = payload["id"] as? String, let question = payload["question"] as? String,
+                  let snippet = payload["text"] as? String, !snippet.isEmpty else { return }
+            let start = (payload["start"] as? NSNumber)?.intValue ?? 1
+            let history = (payload["history"] as? [[String: String]]) ?? []
+            codeNav.ask(id: id, question: question, snippet: snippet, start: start,
+                        end: (payload["end"] as? NSNumber)?.intValue ?? start, path: path,
+                        language: FileType.codeLanguage(for: url), history: history, url: url,
+                        root: root, db: semanticDatabase)
+        case "askStop":
+            if let id = payload["id"] as? String { codeNav.stopAnswer(id: id) }
         default:
             break
         }
@@ -1284,6 +1362,7 @@ class WorkspaceManager: ObservableObject {
         releaseWorkspaceEngines()
         architecture.reset()
         folderXRays = [:]
+        codeNav.reset()
         isCodeProject = false
         gitClient.reset()
         indexingProgress = nil

@@ -1208,6 +1208,11 @@ final class ArchitectureStore: ObservableObject {
         guard let current = snapshot, filterId != ImportanceRater.importance.id,
               let filter = ImportanceRater.allFilters.first(where: { $0.id == filterId }),
               rating.insert("search|" + filterId).inserted else { return }
+        // The ⚡ quick filter is a search: only what really matters is marked.
+        if ImportanceRater.isTemporary(filterId) {
+            aiSearch(filter: filter, snapshot: current, root: root, db: db)
+            return
+        }
         let files = current.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
         let sections = (current.view("docs")?.nodes ?? []).filter { $0.kind == "section" && $0.path != nil }
             .map { (id: $0.id, name: $0.name, path: $0.path!) }
@@ -1278,6 +1283,143 @@ final class ArchitectureStore: ObservableObject {
                 self.error = "\(filter.name) filter failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    // MARK: - ⚡ Search filter
+
+    /// Code elements behind search queries ("Explain with AI — everything related"), by criterion.
+    var searchSymbols: [String: XRaySearch.Symbol] = [:]
+    /// Tells the X-Ray to switch to this filter (a search started outside the X-Ray).
+    private(set) var activateFilter: String?
+    private var activateToken = 0
+
+    /// Show the filter `id` in the X-Ray (the next payload switches the overlay to it).
+    func activate(filterId: String) {
+        activateToken += 1
+        activateFilter = "\(filterId)|\(activateToken)"
+        revision += 1
+    }
+
+    /// The ⚡ search: keyword candidates first (dashed red outlines, in seconds), then the AI
+    /// reads the project and returns the places that matter; their files turn red and every
+    /// other file stays uncoloured. Places stream in as the AI writes them.
+    private func aiSearch(filter: ImportanceRater.Filter, snapshot current: ArchitectureSnapshot, root: URL, db: SemanticDatabase?) {
+        let filterId = filter.id
+        let files = current.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
+        let sections = (current.view("docs")?.nodes ?? []).filter { $0.kind == "section" && $0.path != nil }
+            .compactMap { node -> (id: String, path: String, line: Int)? in
+                guard let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { return nil }
+                return (node.id, node.path!, line)
+            }
+        let symbol = searchSymbols[filter.criterion]
+        setStatus(symbol != nil ? "Finding everything related to \(symbol!.name)…" : "Searching “\(filter.criterion)”…")
+        let cache = answerCache(root)
+        Task {
+            defer { rating.remove("search|" + filterId); if status?.hasPrefix("Search") == true || status?.hasPrefix("Finding") == true || status?.hasPrefix("AI") == true { setStatus(nil) } }
+            do {
+                // 1. Candidates in seconds: keyword hits, or where the element is defined and used.
+                let hints: [String]
+                var table: [String: ImportanceRater.Rating] = [:]
+                if let symbol {
+                    hints = await Task.detached(priority: .userInitiated) { XRaySearch.symbolHints(symbol, root: root) }.value
+                    table["p:" + symbol.path] = .init(level: "strong", reason: "Defines \(symbol.name)", provisional: true)
+                } else {
+                    let terms = try await FilterSearch.terms(for: filter, cache: cache)
+                    let found = await Task.detached(priority: .userInitiated) { FilterSearch.scoreFiles(files, root: root, terms: terms) }.value
+                    let levels = FilterSearch.levels(found.mapValues(\.score))
+                    for (path, level) in levels where level == "strong" {
+                        table["p:" + path] = .init(level: "strong", reason: "Mentions " + (found[path]?.hits.prefix(4).joined(separator: ", ") ?? ""), provisional: true)
+                    }
+                    hints = found.filter { $0.value.score > 0 }
+                        .sorted { ($0.value.score, $1.key) > ($1.value.score, $0.key) }
+                        .prefix(30)
+                        .map { "- \($0.key) (mentions \($0.value.hits.prefix(4).joined(separator: ", ")))" }
+                }
+                guard var next = snapshot else { return }
+                next.ratings[filterId] = table
+                commit(next, db: db)
+                setStatus("AI is reading the project for “\(symbol?.name ?? filter.criterion)”…")
+
+                // 2. The AI's places: their files (and document sections) are what matters.
+                let request = XRaySearch.request(query: filter.criterion, symbol: symbol, hints: hints, root: root)
+                let result = try await CLICompletion.run(request, onActivity: { activity in
+                    Task { @MainActor in self.receiveSearch(activity, filterId: filterId, root: root, sections: sections) }
+                })
+                result.record(in: db)
+                liveSearch[filterId] = nil
+                let object = result.structured as? [String: Any]
+                let places = await Task.detached { XRaySearch.places(from: object?["steps"], root: root) }.value
+                guard var done = snapshot else { return }
+                done.ratings[filterId] = Self.searchTable(places, sections: sections, confirmed: true)
+                commit(done, db: db)
+                if let summary = (object?["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
+                    searchSummaries[filterId] = summary
+                }
+                revision += 1
+            } catch is CancellationError {
+            } catch {
+                self.error = "Search failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// What the AI said about the search as a whole, by filter id (shown in the details panel).
+    private(set) var searchSummaries: [String: String] = [:]
+    private var liveSearch: [String: String] = [:]
+    private var liveSearchPending: Set<String> = []
+
+    private func receiveSearch(_ activity: CLICompletion.Activity, filterId: String, root: URL,
+                               sections: [(id: String, path: String, line: Int)]) {
+        switch activity {
+        case .read(let path):
+            let base = root.standardizedFileURL.path + "/"
+            setStatus("AI is reading " + (path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path))
+        case .answerDelta(let text):
+            liveSearch[filterId, default: ""] += text
+            guard liveSearchPending.insert(filterId).inserted else { return }
+            Task {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                liveSearchPending.remove(filterId)
+                guard let answer = liveSearch[filterId] else { return }
+                let places = await Task.detached {
+                    XRaySearch.places(from: XRayDigest.completedObjects(in: answer, key: "steps"), root: root)
+                }.value
+                guard !places.isEmpty, var next = snapshot, liveSearch[filterId] != nil else { return }
+                // Keyword candidates stay dashed until the answer is complete.
+                var table = next.ratings[filterId] ?? [:]
+                for (key, value) in Self.searchTable(places, sections: sections, confirmed: true) where value.level == "strong" {
+                    table[key] = value
+                }
+                next.ratings[filterId] = table
+                snapshot = next     // live; saved when the answer is complete
+                revision += 1
+            }
+        default:
+            break
+        }
+    }
+
+    /// Ratings from the search's places: "strong" for every file with a place (and every
+    /// document section a place falls in), "none" for nothing else — unrated means uncoloured.
+    nonisolated private static func searchTable(_ places: [XRaySearch.Place], sections: [(id: String, path: String, line: Int)],
+                                                confirmed: Bool) -> [String: ImportanceRater.Rating] {
+        var table: [String: ImportanceRater.Rating] = [:]
+        let byPath = Dictionary(grouping: places, by: \.path)
+        for (path, found) in byPath {
+            table["p:" + path] = .init(level: "strong", reason: XRaySearch.reason(for: found), provisional: !confirmed)
+        }
+        let sectionsByPath = Dictionary(grouping: sections, by: \.path)
+        for (path, found) in byPath {
+            let ordered = (sectionsByPath[path] ?? []).sorted { $0.line < $1.line }
+            for (i, section) in ordered.enumerated() {
+                let end = i + 1 < ordered.count ? ordered[i + 1].line - 1 : Int.max
+                let inside = found.filter { $0.start <= end && $0.end >= section.line }
+                if !inside.isEmpty {
+                    table[section.id] = .init(level: "strong", reason: XRaySearch.reason(for: inside), provisional: !confirmed)
+                }
+            }
+        }
+        return table
     }
 
     /// Streamed rating answers per filter, shown before the answer is complete.
@@ -2427,11 +2569,16 @@ final class ArchitectureStore: ObservableObject {
             let filters: [ImportanceRater.Filter]
             let root: String?
             let outlining: [String]
+            /// "filterId|token": switch the overlay to this filter once per token.
+            let activateFilter: String?
+            /// The AI's summary of each ⚡ search, by filter id.
+            let searchSummaries: [String: String]
         }
         let payload = Payload(mode: mode, snapshot: snapshot.map(withContents), status: status, error: error,
                               prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
-                              root: rootPath, outlining: Array(outlining))
+                              root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
+                              searchSummaries: searchSummaries)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

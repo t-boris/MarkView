@@ -143,6 +143,17 @@ struct EditorView: NSViewRepresentable {
                 self.applyPendingCodeReveal()
             }
 
+            // Navigation results and AI answers for the file in the code viewer.
+            NotificationCenter.default.addObserver(
+                forName: .codeNavEvent,
+                object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let self, let webView = self.webView,
+                      let url = notification.userInfo?["url"] as? URL, url == self.currentCodeURL,
+                      let json = notification.userInfo?["json"] as? String else { return }
+                self.bridge.sendCodeNavEvent(json, in: webView)
+            }
+
             // Listen for scroll-to-text requests (from Semantic Panel)
             NotificationCenter.default.addObserver(
                 forName: .scrollToText,

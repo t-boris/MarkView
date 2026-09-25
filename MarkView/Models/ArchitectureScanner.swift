@@ -115,7 +115,10 @@ struct ArchitectureScanner {
 
     /// Tracked and untracked-but-not-ignored files when the folder is a git work
     /// tree (so .gitignore is honoured); a filtered directory walk otherwise.
-    private func listFiles() -> [String] {
+    private func listFiles() -> [String] { Self.listFiles(root: root) }
+
+    /// The project's files, relative to `root` (see `listFiles()`); also used by the topic lens.
+    static func listFiles(root: URL) -> [String] {
         if let output = Self.runTool("/usr/bin/env", ["git", "-C", root.path, "ls-files", "-co", "--exclude-standard", "-z"]),
            !output.isEmpty {
             return output.split(separator: "\0").map(String.init).filter { path in

@@ -260,9 +260,12 @@
             }
             /** 0 = weakest … levels-1 = strongest. */
             function levelRank(filter, level) { const i = filter.levels.indexOf(level); return i < 0 ? -1 : filter.levels.length - 1 - i; }
+            /** The ⚡ quick filter is a search: only what matters is marked, in red. */
+            function isSearch(filter) { return !!filter && filter.id.indexOf('tmp-') === 0; }
             function levelColor(filter, rank, c) {
                 if (rank < 0) return null;
                 const top = filter.levels.length - 1;
+                if (isSearch(filter)) return rank === top ? '#e5484d' : null;
                 // Weakest → strongest along one ramp; the weakest relevance ("none") stays uncoloured.
                 if (filter.id === 'importance') return [c.mute, c.info, c.warn, c.bad][rank];
                 if (rank === 0) return null;
@@ -496,7 +499,8 @@
             /** "Only flagged": what deserves attention under the current overlay. */
             function overlayFlag(info) {
                 if (!info) return false;
-                if (info.kind === 'ai') return info.level >= info.filter.levels.length - 2;
+                if (info.kind === 'ai') return isSearch(info.filter) ? info.level === info.filter.levels.length - 1
+                                                                     : info.level >= info.filter.levels.length - 2;
                 if (info.kind === 'pr') return info.worst >= 2;
                 const v = overlayValue(info);
                 if (v == null) return false;
@@ -953,6 +957,21 @@
                 const filter = overlayApplies() && currentFilter();
                 if (scale) {
                     el.legend.appendChild(scaleLegend(scale));
+                } else if (isSearch(filter)) {
+                    // Search: one colour — what matters; everything else uncoloured.
+                    const title = document.createElement('span'); title.innerHTML = '<b></b>';
+                    title.firstChild.textContent = filter.name + ' — AI search';
+                    el.legend.appendChild(title);
+                    const found = document.createElement('span');
+                    const dot = document.createElement('i'); dot.style.background = levelColor(filter, filter.levels.length - 1, c);
+                    found.appendChild(dot); found.appendChild(document.createTextNode('Matters for it'));
+                    el.legend.appendChild(found);
+                    const summary = (ui.payload.searchSummaries || {})[filter.id];
+                    if (summary) {
+                        const s = document.createElement('span'); s.className = 'arch-search-summary';
+                        s.textContent = summary; s.title = summary;
+                        el.legend.appendChild(s);
+                    }
                 } else if (filter) {
                     // AI levels, weakest → strongest, on their ramp.
                     const ramp = filter.levels.slice().reverse().map(function(level) {
@@ -962,6 +981,7 @@
                 }
                 const note = scale ? scale.note
                     : filter && filter.id === 'importance' ? 'Rated by AI as you zoom in; a folder shows its strongest part'
+                    : isSearch(filter) ? (ui.payload.status ? 'Dashed = keyword candidate while the AI reads the project' : 'Uncoloured = not related; a folder is red when something inside matters')
                     : filter ? 'Dashed = keyword match, solid = checked by AI; a folder shows its strongest part' : null;
                 // No overlay: the colours are roles; list the ones on screen.
                 if (!scale && !filter && !(overlayApplies() && ui.overlay !== 'none') && cy) {
@@ -1572,6 +1592,12 @@
                 const temp = (p.filters || []).find(function(f) { return f.id.indexOf('tmp-') === 0; });
                 if (ui.pendingTemp && temp && temp.criterion === ui.pendingTemp) { ui.overlay = 'ai:' + temp.id; ui.pendingTemp = null; }
                 if (!temp && ui.overlay.indexOf('ai:tmp-') === 0) ui.overlay = 'none';
+                // A search started outside the X-Ray (Explain with AI on a code element).
+                if (p.activateFilter && p.activateFilter !== ui.activatedFilter) {
+                    ui.activatedFilter = p.activateFilter;
+                    const id = p.activateFilter.split('|')[0];
+                    if ((p.filters || []).some(function(f) { return f.id === id; })) ui.overlay = 'ai:' + id;
+                }
                 el.tempFilter.querySelector('button').hidden = !temp;
                 if (temp && document.activeElement !== el.tempFilter.querySelector('input')) el.tempFilter.querySelector('input').value = temp.criterion;
                 // A just-created filter becomes the active overlay.

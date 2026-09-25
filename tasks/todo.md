@@ -1,5 +1,77 @@
 # MarkView — Follow-up Tasks
 
+## Done 12: AI search inside the X-Ray instead of a separate panel (2026-09-25)
+
+User correction: the search belongs in the X-Ray as a filter, not in its own panel.
+
+- [x] ⚡ quick filter in the X-Ray = AI search (`ArchitectureStore.aiSearch`, `XRaySearch`):
+      keyword candidates dashed red in seconds, then the AI reads the project (read-only);
+      files/sections it names turn solid red, everything else stays uncoloured.
+      Saved filters (＋ New filter…) keep the strong/moderate/weak scale.
+- [x] Legend: "<query> — AI search", red = matters, AI summary; "Only flagged" keeps just the
+      red parts.
+- [x] Right-click → "Explain with AI — everything related" opens the X-Ray with a search for
+      that element (definition, calls, callers, data, tests).
+- [x] Removed: AI Search toolbar button, left panel, code-viewer "◎ Topic" lens (TopicLens*).
+- [x] Version 1.29.0 → 1.30.0.
+
+### Review
+- Build passes; X-Ray checked in Chrome on broker-fabric's saved X-Ray with a search result:
+  overlay switches to the search, 2 solid + 1 dashed red, 12 uncoloured; Only flagged → 3 red.
+- Search engine prompts are the ones verified live on grow-garden (44 / 28 places, all valid).
+- Not checked in the live app: a full search run from the X-Ray field (needs a manual run).
+
+## Done 11: Code navigation, AI on a selection, Explain with AI (2026-09-25)
+
+- [x] `CodeNavigation.swift`: definitions and usages of a symbol across the project (one
+      `git grep -w` pass, walk fallback), ranked (same file, same language, nearby path);
+      back/forward history of jumps.
+- [x] Code viewer: ⌘-hover link underline, ⌘-click → definition (on a declaration → usages),
+      ⌥⌘-click / right-click menu / F12 / ⇧F12; peek list for several results; ◀ ▶ history.
+- [x] AI on a selection: "✦ Ask AI" by the selection → Explain / Find bugs / Improve / own
+      question; streamed markdown answer, follow-ups, stop; the AI may read the project.
+- [x] Build, check on real projects and in the bundled editor, version bump (minor → 1.29.0).
+- [x] Right-click → "✦ Explain with AI — everything related" on any symbol: a topic map seeded
+      from its definition and usages (Definition / Calls / Called by / Data / Tests), coloured in
+      the code, the rest dimmed. Topic panel renamed "AI Search".
+
+### Review
+- Definitions/usages (harness over `CodeNavigator`): MarkView and grow-garden, 0.1–0.6 s per
+  lookup; calls no longer count as C definitions; test doubles rank after the real definition.
+- Live AI on grow-garden: `identifyPlantFromPhoto` map 28 places / 7 steps, all ranges valid
+  (57 s, $0.54); Find bugs on `pickAnalysisSource` — concrete answer with `path:line` (44 s, $0.23).
+- Viewer checked in Chrome with the bundled editor: ⌘-click / ⌥⌘-click posts, peek list with
+  ↑↓↵, context menu, Ask AI panel (streaming, stop, follow-up history, links, no HTML execution).
+- Not checked in the live app window: the full round trip through WKWebView (needs a manual run).
+
+## Done 10: Topic lens — "show me only what is about X" (2026-09-24)
+
+Goal: type a topic ("generating plants from a photo"); see only the project code that is
+about it, where exactly it lives (file + line range) and what each place does in the flow
+(where the photo comes in, processing, AI call, storage, tests, config…).
+
+- [x] `TopicLens.swift` (Models): `TopicLensStore` on `WorkspaceManager`.
+      1. Keyword pass: `FilterSearch.terms` → score every project file (git ls-files) →
+         candidate files with their hit lines, shown within seconds (provisional).
+      2. AI pass: Claude/Codex with read-only access to the folder, candidates as hints →
+         `{summary, steps:[{title, places:[{path,start,end,title,why}]}]}`; places streamed.
+      3. Validate paths/lines at the boundary; anchor text per place so line numbers
+         follow later edits; cache per topic in `.dde/cache/topics/`; recent topics.
+- [x] `TopicLensView` (left sidebar, "Topic" toggle next to the file tree): topic field,
+      summary, steps with places; click → open the file at those lines.
+- [x] Code viewer lens "◎ Topic": relevant ranges tinted with cards (step, why), the rest
+      of the file dimmed; auto-selected when a file is opened from the topic panel.
+- [x] Build, manual check on a real project, version bump (minor → 1.28.0).
+
+### Review
+- Prompt + schema run on grow-garden ("добавление растения по фото — где получаем фото, как
+  распознаём, как тестируем"): 44 places in 11 steps (web/iOS input, API, validation, Gemini
+  adapter, wiring/config, backend/web/iOS tests, ADR); every path exists and every range starts
+  on the right declaration. 135 s, $1.24 with the default model — keyword candidates show first.
+- Code-viewer Topic lens checked in Chrome with the bundled editor: step-coloured places,
+  dimmed rest, cards aligned, legend with steps and counts.
+- Not yet checked in the live app window: the SwiftUI panel and click-through (needs a manual run).
+
 ## Done 9: X-Ray and PR X-Ray round (2026-09-24, 1.2.0 → 1.22.0)
 
 - [x] X-Ray structure from clustering (imports, note links, co-change; `XRayCluster`), AI only names

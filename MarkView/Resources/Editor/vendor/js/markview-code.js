@@ -194,6 +194,7 @@
 
             window.leaveCodeView = function() {
                 if (!container.classList.contains('visible')) return;
+                if (window.closeCodeFloating) window.closeCodeFloating();
                 container.classList.remove('visible');
                 document.body.classList.remove('code-mode');
                 document.getElementById('wysiwyg-toolbar').style.display = '';
@@ -201,9 +202,12 @@
 
             /** Show `text` read-only with syntax highlighting for `language`. */
             window.setCodeContent = function(text, language, fileName) {
+                if (window.closeCodeFloating) window.closeCodeFloating();
+                if (fileName !== currentFile && typeof closeAI === 'function') closeAI();
                 currentFile = fileName || null;
                 enterCodeView(language);
                 documentButton.hidden = language !== 'markdown';
+                main.classList.toggle('code-md', language === 'markdown');
                 state.markdown = text;
                 docPending = true;
                 notesState = null;
@@ -758,6 +762,433 @@
                 pendingLens = text;
             });
             window.addEventListener('resize', queueLayout);
+
+            // ------------------------------------------------------------ navigation
+            // ⌘-click a symbol: its definition (on a declaration: its usages); ⌥⌘-click, ⇧F12
+            // or the context menu: every usage. Several results open a list to pick from;
+            // ◀ ▶ (⌘[ ⌘]) walk back and forward through the jumps. Swift answers through
+            // window.onCodeNavEvent.
+
+            const navBar = document.createElement('div'); navBar.className = 'code-nav';
+            navBar.innerHTML = '<button data-nav="back" title="Back (⌘[)" disabled>◀</button>'
+                + '<button data-nav="forward" title="Forward (⌘])" disabled>▶</button>';
+            main.appendChild(navBar);
+            const linkHover = document.createElement('div'); linkHover.className = 'code-link-hover'; linkHover.hidden = true;
+            document.body.appendChild(linkHover);
+            let peek = null;          // the open result list
+            let menu = null;          // the open context menu
+
+            /** The CodeMirror view when code (not formatted markdown) is shown. */
+            function cmView() {
+                return viewer && viewer === codeViewer && codeViewer && codeViewer.view && state.mode === 'code' ? codeViewer.view : null;
+            }
+
+            /** The word under a mouse position: {name, line, from, to} or null. */
+            function wordAtPoint(x, y) {
+                const view = cmView();
+                if (!view) return null;
+                const pos = view.posAtCoords({ x: x, y: y }, false);
+                if (pos == null) return null;
+                return wordAtPos(view, pos);
+            }
+
+            function wordAtPos(view, pos) {
+                const range = view.state.wordAt(pos);
+                if (!range) return null;
+                const name = view.state.sliceDoc(range.from, range.to);
+                if (!/^[A-Za-z_$][\w$]*$/.test(name) || name.length < 2) return null;
+                return { name: name, line: view.state.doc.lineAt(range.from).number, from: range.from, to: range.to };
+            }
+
+            /** The line the cursor is on (where "back" returns to). */
+            function cursorLine() {
+                const view = cmView();
+                return view ? view.state.doc.lineAt(view.state.selection.main.head).number : 1;
+            }
+
+            function showLink(word) {
+                const view = cmView();
+                const a = word && view ? view.coordsAtPos(word.from) : null;
+                const b = word && view ? view.coordsAtPos(word.to) : null;
+                if (!a || !b) { linkHover.hidden = true; return; }
+                linkHover.hidden = false;
+                linkHover.style.left = a.left + 'px';
+                linkHover.style.top = (a.bottom - 2) + 'px';
+                linkHover.style.width = Math.max(4, b.left - a.left) + 'px';
+            }
+
+            main.addEventListener('mousemove', function(e) {
+                if (!e.metaKey) { if (!linkHover.hidden) linkHover.hidden = true; main.classList.remove('code-linking'); return; }
+                const word = wordAtPoint(e.clientX, e.clientY);
+                main.classList.toggle('code-linking', !!word);
+                showLink(word);
+            });
+            main.addEventListener('mouseleave', function() { linkHover.hidden = true; main.classList.remove('code-linking'); });
+            document.addEventListener('keyup', function(e) {
+                if (e.key === 'Meta') { linkHover.hidden = true; main.classList.remove('code-linking'); }
+            });
+            main.addEventListener('scroll', function() { linkHover.hidden = true; }, true);
+
+            let peekAnchor = null;    // where the list opens: under the word that asked for it
+
+            let navLine = null;       // the line the lookup started on (where "back" returns)
+
+            function anchorAt(word) {
+                navLine = word ? word.line : null;
+                const view = cmView();
+                peekAnchor = word && view ? view.coordsAtPos(word.from) : null;
+            }
+
+            function goToDefinition(word) {
+                if (!word) return;
+                anchorAt(word);
+                postCode('navDefinition', { name: word.name, line: word.line });
+            }
+            function findUsages(word) {
+                if (!word) return;
+                anchorAt(word);
+                postCode('navUsages', { name: word.name, line: word.line });
+            }
+
+            // Capture phase: before CodeMirror turns the click into a selection.
+            main.addEventListener('mousedown', function(e) {
+                if (!e.metaKey || e.button !== 0) return;
+                const word = wordAtPoint(e.clientX, e.clientY);
+                if (!word) return;
+                e.preventDefault();
+                e.stopPropagation();
+                linkHover.hidden = true;
+                if (e.altKey) findUsages(word); else goToDefinition(word);
+            }, true);
+
+            navBar.addEventListener('click', function(e) {
+                const nav = e.target.getAttribute && e.target.getAttribute('data-nav');
+                if (nav === 'back') postCode('navBack', { line: cursorLine() });
+                if (nav === 'forward') postCode('navForward', { line: cursorLine() });
+            });
+
+            container.addEventListener('keydown', function(e) {
+                if (!container.classList.contains('visible')) return;
+                const view = cmView();
+                if (e.key === 'Escape' && (peek || menu || aiPanel)) {
+                    closePeek(); closeMenu();
+                    if (aiPanel && !aiPanel.contains(document.activeElement)) closeAI();
+                    return;
+                }
+                if (e.key === 'F12' && view) {
+                    e.preventDefault();
+                    const word = wordAtPos(view, view.state.selection.main.head);
+                    if (e.shiftKey) findUsages(word); else goToDefinition(word);
+                } else if (e.metaKey && (e.key === '[' || e.key === ']')) {
+                    e.preventDefault();
+                    postCode(e.key === '[' ? 'navBack' : 'navForward', { line: cursorLine() });
+                }
+            });
+
+            function closePeek() { if (peek) { peek.remove(); peek = null; } }
+            function closeMenu() { if (menu) { menu.remove(); menu = null; } }
+            document.addEventListener('mousedown', function(e) {
+                if (peek && !peek.contains(e.target)) closePeek();
+                if (menu && !menu.contains(e.target)) closeMenu();
+            });
+
+            function escapeHTML(text) {
+                return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            /** The line text with `name` marked as a word. */
+            function markName(text, name) {
+                const re = new RegExp('(^|[^\\w$])(' + name.replace(/\$/g, '\\$') + ')(?![\\w$])', 'g');
+                return escapeHTML(text).replace(re, '$1<mark>$2</mark>');
+            }
+
+            /** A list of definitions or usages, grouped by file; click (or ↵) opens one. */
+            function showPeek(event) {
+                closePeek(); closeMenu();
+                const results = event.results || [];
+                peek = document.createElement('div'); peek.className = 'code-peek'; peek.tabIndex = -1;
+                const defs = results.filter(function(r) { return r.kind !== 'usage'; }).length;
+                const uses = results.length - defs;
+                const title = event.type === 'definitions'
+                    ? results.length + ' definitions of ' + event.name
+                    : uses + (uses === 1 ? ' usage' : ' usages') + ' of ' + event.name + (defs ? ' · ' + defs + (defs === 1 ? ' definition' : ' definitions') : '');
+                peek.innerHTML = '<div class="code-peek-head"><b></b><span></span><button title="Close (Esc)">✕</button></div><div class="code-peek-list"></div>';
+                peek.querySelector('b').textContent = title + (event.truncated ? ' (first matches)' : '');
+                peek.querySelector('span').textContent = event.note || '';
+                peek.querySelector('button').onclick = closePeek;
+                const list = peek.querySelector('.code-peek-list');
+                if (!results.length) {
+                    const empty = document.createElement('div'); empty.className = 'code-peek-empty';
+                    empty.textContent = 'Nothing found in the project.';
+                    list.appendChild(empty);
+                }
+                let lastPath = null;
+                const rows = [];
+                results.forEach(function(r) {
+                    if (r.path !== lastPath) {
+                        lastPath = r.path;
+                        const file = document.createElement('div'); file.className = 'code-peek-file';
+                        const count = results.filter(function(x) { return x.path === r.path; }).length;
+                        file.innerHTML = '<span class="name"></span><span class="dir"></span><span class="count"></span>';
+                        const slash = r.path.lastIndexOf('/');
+                        file.querySelector('.name').textContent = r.path.slice(slash + 1);
+                        file.querySelector('.dir').textContent = slash > 0 ? r.path.slice(0, slash) : '';
+                        file.querySelector('.count').textContent = count;
+                        file.title = r.path;
+                        list.appendChild(file);
+                    }
+                    const row = document.createElement('div'); row.className = 'code-peek-row ' + r.kind;
+                    row.innerHTML = '<span class="ln"></span><span class="tx"></span>';
+                    row.querySelector('.ln').textContent = r.line;
+                    row.querySelector('.tx').innerHTML = (r.kind !== 'usage' ? '<i>' + r.kind + '</i> ' : '') + markName(r.text, event.name);
+                    row.title = r.path + ':' + r.line;
+                    row.onclick = function() { openResult(r); };
+                    list.appendChild(row);
+                    rows.push({ el: row, r: r });
+                });
+                // Below the cursor's line when there is room, otherwise centred.
+                const view = cmView();
+                const at = peekAnchor || (view ? view.coordsAtPos(view.state.selection.main.head) : null);
+                const box = main.getBoundingClientRect();
+                peek.style.left = Math.max(box.left + 12, Math.min(at ? at.left - 40 : box.left + 60, box.right - 620)) + 'px';
+                const top = at ? at.bottom + 6 : box.top + 60;
+                peek.style.top = (top + 320 > window.innerHeight ? Math.max(box.top + 8, window.innerHeight - 340) : top) + 'px';
+                document.body.appendChild(peek);
+                let selected = 0;
+                function select(i) {
+                    if (!rows.length) return;
+                    selected = (i + rows.length) % rows.length;
+                    rows.forEach(function(x, j) { x.el.classList.toggle('selected', j === selected); });
+                    rows[selected].el.scrollIntoView({ block: 'nearest' });
+                }
+                select(0);
+                peek.addEventListener('keydown', function(e) {
+                    if (e.key === 'ArrowDown') { e.preventDefault(); select(selected + 1); }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); select(selected - 1); }
+                    else if (e.key === 'Enter' && rows[selected]) { e.preventDefault(); openResult(rows[selected].r); }
+                    else if (e.key === 'Escape') { e.preventDefault(); closePeek(); }
+                });
+                peek.focus();
+            }
+
+            function openResult(r) {
+                closePeek();
+                postCode('navOpen', { path: r.path, target: r.line, line: navLine || cursorLine() });
+            }
+
+            // Right click: the navigation and AI actions for the word and the selection.
+            main.addEventListener('contextmenu', function(e) {
+                const view = cmView();
+                if (!view) return;
+                e.preventDefault();
+                closeMenu(); closePeek();
+                const word = wordAtPoint(e.clientX, e.clientY);
+                const sel = view.state.selection.main;
+                menu = document.createElement('div'); menu.className = 'code-menu';
+                function item(label, key, action, disabled) {
+                    const el = document.createElement('button');
+                    el.innerHTML = '<span></span><kbd></kbd>';
+                    el.firstChild.textContent = label; el.lastChild.textContent = key || '';
+                    el.disabled = !!disabled;
+                    el.onclick = function() { closeMenu(); action(); };
+                    menu.appendChild(el);
+                }
+                const name = word ? '“' + word.name + '”' : '';
+                item('Go to Definition ' + name, '⌘-click', function() { goToDefinition(word); }, !word);
+                item('Find Usages ' + name, '⌥⌘-click', function() { findUsages(word); }, !word);
+                menu.appendChild(document.createElement('hr'));
+                item('✦ Explain with AI — everything related ' + name, '', function() {
+                    postCode('explainSymbol', { name: word.name, line: word.line });
+                }, !word);
+                item(sel.empty ? '✦ Ask AI about this line' : '✦ Ask AI about the selection', '', function() {
+                    openAI(selectionRange(e.clientY));
+                });
+                item('Back', '⌘[', function() { postCode('navBack', { line: cursorLine() }); }, navBar.firstChild.disabled);
+                menu.style.left = Math.min(e.clientX, window.innerWidth - 260) + 'px';
+                menu.style.top = Math.min(e.clientY, window.innerHeight - 170) + 'px';
+                document.body.appendChild(menu);
+            });
+
+            // ------------------------------------------------------------ AI on a selection
+            // Select code → "✦ Ask AI": Explain / Find bugs / Improve or an own question.
+            // Answers stream in as Markdown; follow-up questions keep the conversation.
+
+            const askButton = document.createElement('button'); askButton.className = 'code-ask-btn';
+            askButton.textContent = '✦ Ask AI'; askButton.title = 'Ask the AI about the selected code'; askButton.hidden = true;
+            document.body.appendChild(askButton);
+            let aiPanel = null;
+            let ai = null;           // {id, range, turns: [{q, a, done, error, activity}]}
+            // AI text never runs as HTML (the document renderer allows HTML; this one does not).
+            const aiMd = window.markdownit ? window.markdownit({ html: false, linkify: true, breaks: false }) : null;
+
+            /** Lines of the selection, or the line at `y` (the mouse) / the cursor's line. */
+            function selectionRange(y) {
+                const view = cmView();
+                if (!view) return null;
+                const doc = view.state.doc;
+                const sel = view.state.selection.main;
+                let from = sel.from, to = sel.to;
+                if (sel.empty) {
+                    const pos = y != null ? view.posAtCoords({ x: view.contentDOM.getBoundingClientRect().left + 40, y: y }, false) : null;
+                    const line = doc.lineAt(pos != null ? pos : sel.head);
+                    from = line.from; to = line.to;
+                }
+                const start = doc.lineAt(from).number, end = doc.lineAt(to).number;
+                return { start: start, end: end, text: view.state.sliceDoc(from, to) };
+            }
+
+            function placeAskButton() {
+                const view = cmView();
+                if (!view || aiPanel) { askButton.hidden = true; return; }
+                const sel = view.state.selection.main;
+                if (sel.empty || view.state.sliceDoc(sel.from, sel.to).trim().length < 2) { askButton.hidden = true; return; }
+                const at = view.coordsAtPos(sel.to) || view.coordsAtPos(sel.from);
+                if (!at) { askButton.hidden = true; return; }
+                const box = main.getBoundingClientRect();
+                askButton.hidden = false;
+                askButton.style.left = Math.min(at.right + 8, box.right - 110) + 'px';
+                askButton.style.top = Math.max(box.top + 4, Math.min(at.bottom + 4, box.bottom - 60)) + 'px';
+            }
+            main.addEventListener('mouseup', function() { setTimeout(placeAskButton, 0); });
+            main.addEventListener('keyup', function(e) { if (e.shiftKey || e.key === 'Shift') placeAskButton(); });
+            main.addEventListener('scroll', function() { askButton.hidden = true; }, true);
+            askButton.addEventListener('mousedown', function(e) { e.preventDefault(); });   // keep the selection
+            askButton.addEventListener('click', function() { openAI(selectionRange()); });
+
+            function openAI(range) {
+                if (!range || !range.text.trim()) return;
+                askButton.hidden = true;
+                closeAI();
+                ai = { id: 'ai-' + Date.now(), range: range, turns: [] };
+                aiPanel = document.createElement('div'); aiPanel.className = 'code-ai';
+                aiPanel.innerHTML = '<div class="code-ai-head"><b>✦ Ask AI</b><span class="code-ai-range"></span>'
+                    + '<button class="code-ai-close" title="Close">✕</button></div>'
+                    + '<pre class="code-ai-snippet"></pre>'
+                    + '<div class="code-ai-quick"><button data-q="Explain what this code does, step by step, and why.">Explain</button>'
+                    + '<button data-q="Review this code for bugs, edge cases and risks. For each problem: how it shows up and how to fix it.">Find bugs</button>'
+                    + '<button data-q="How could this code be simpler, clearer or faster? Show the improved version.">Improve</button>'
+                    + '<button data-q="Where and how is this code used in the project, and what depends on it?">Where used</button></div>'
+                    + '<div class="code-ai-log"></div>'
+                    + '<form class="code-ai-form"><textarea rows="2" placeholder="Ask about this code… (↵ to send, ⇧↵ new line)"></textarea>'
+                    + '<button type="submit">Ask</button></form>';
+                aiPanel.querySelector('.code-ai-range').textContent = 'L' + range.start + (range.end !== range.start ? '–' + range.end : '')
+                    + (currentFile ? ' · ' + currentFile : '');
+                const lines = range.text.split('\n');
+                aiPanel.querySelector('.code-ai-snippet').textContent = lines.slice(0, 6).join('\n') + (lines.length > 6 ? '\n…' : '');
+                aiPanel.querySelector('.code-ai-close').onclick = closeAI;
+                aiPanel.querySelectorAll('.code-ai-quick button').forEach(function(b) {
+                    b.onclick = function() { askAI(b.getAttribute('data-q'), b.textContent); };
+                });
+                const form = aiPanel.querySelector('.code-ai-form');
+                const input = form.querySelector('textarea');
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const q = input.value.trim();
+                    if (!q) return;
+                    input.value = '';
+                    askAI(q, q);
+                });
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+                    if (e.key === 'Escape') { e.preventDefault(); closeAI(); }
+                });
+                main.appendChild(aiPanel);
+                input.focus();
+            }
+
+            function closeAI() {
+                if (ai) {
+                    const last = ai.turns[ai.turns.length - 1];
+                    if (last && !last.done) postCode('askStop', { id: ai.id });
+                }
+                if (aiPanel) aiPanel.remove();
+                aiPanel = null; ai = null;
+            }
+
+            function askAI(question, label) {
+                if (!ai) return;
+                const last = ai.turns[ai.turns.length - 1];
+                if (last && !last.done) return;   // one question at a time
+                const history = ai.turns.filter(function(t) { return t.done && !t.error; })
+                    .map(function(t) { return { q: t.q, a: t.a }; });
+                ai.turns.push({ q: question, label: label, a: '', done: false, activity: 'Thinking…' });
+                renderAI();
+                postCode('askAI', { id: ai.id, question: question, text: ai.range.text, start: ai.range.start,
+                                    end: ai.range.end, history: history });
+            }
+
+            /** `path:line` in an answer opens that place. */
+            function linkPlaces(el) {
+                el.querySelectorAll('code').forEach(function(code) {
+                    const m = code.textContent.match(/^([\w./@\-\[\]]+\.[A-Za-z0-9]+):(\d+)(?:[-–](\d+))?$/);
+                    if (!m || code.closest('pre')) return;
+                    code.classList.add('code-ai-place');
+                    code.title = 'Open ' + m[1] + ' at line ' + m[2];
+                    code.onclick = function() { postCode('navOpen', { path: m[1], target: +m[2], line: cursorLine() }); };
+                });
+            }
+
+            function renderAI() {
+                if (!aiPanel || !ai) return;
+                const log = aiPanel.querySelector('.code-ai-log');
+                log.textContent = '';
+                ai.turns.forEach(function(turn, i) {
+                    const q = document.createElement('div'); q.className = 'code-ai-q'; q.textContent = turn.label;
+                    const a = document.createElement('div'); a.className = 'code-ai-a markdown-body';
+                    if (turn.a) {
+                        a.innerHTML = aiMd ? aiMd.render(turn.a) : escapeHTML(turn.a).replace(/\n/g, '<br>');
+                        linkPlaces(a);
+                    }
+                    if (!turn.done) {
+                        const status = document.createElement('div'); status.className = 'code-ai-status';
+                        status.innerHTML = '<span class="code-ai-dot"></span><span></span><button>Stop</button>';
+                        status.children[1].textContent = turn.activity || 'Writing…';
+                        status.querySelector('button').onclick = function() { postCode('askStop', { id: ai.id }); };
+                        a.appendChild(status);
+                    } else if (turn.error || turn.stopped) {
+                        const status = document.createElement('div'); status.className = 'code-ai-status error';
+                        status.textContent = turn.error ? 'Failed: ' + turn.error : 'Stopped.';
+                        a.appendChild(status);
+                    }
+                    log.appendChild(q); log.appendChild(a);
+                });
+                aiPanel.querySelectorAll('.code-ai-quick button, .code-ai-form button').forEach(function(b) {
+                    const last = ai.turns[ai.turns.length - 1];
+                    b.disabled = !!(last && !last.done);
+                });
+                log.scrollTop = log.scrollHeight;
+            }
+
+            function receiveAnswer(event) {
+                if (!ai || event.id !== ai.id) return;
+                const turn = ai.turns[ai.turns.length - 1];
+                if (!turn) return;
+                if (event.text !== undefined && (event.text || event.done)) turn.a = event.text || turn.a;
+                if (event.activity) turn.activity = event.activity;
+                else if (event.text) turn.activity = 'Writing…';
+                if (event.done) { turn.done = true; turn.error = event.error || null; turn.stopped = !!event.stopped; }
+                renderAI();
+            }
+
+            /** Swift → JS: navigation results, history state and AI answers. */
+            window.onCodeNavEvent = function(event) {
+                if (!event) return;
+                if (event.type === 'state') {
+                    navBar.querySelector('[data-nav="back"]').disabled = !event.back;
+                    navBar.querySelector('[data-nav="forward"]').disabled = !event.forward;
+                    navBar.classList.toggle('active', !!(event.back || event.forward));
+                } else if (event.type === 'definitions' || event.type === 'usages') {
+                    showPeek(event);
+                } else if (event.type === 'answer') {
+                    receiveAnswer(event);
+                }
+            };
+
+            /** Hide lists, menus and the Ask button (another file or view is shown). */
+            window.closeCodeFloating = function() {
+                closePeek(); closeMenu();
+                askButton.hidden = true; linkHover.hidden = true;
+            };
 
             window.codeViewOpenSearch = function() {
                 if (viewer) viewer.openSearch();

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7A1C0E0F2B3D4E5F60718297 /* CodeNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0E0F2B3D4E5F60718298 /* CodeNavigation.swift */; };
+		7A1C0E0F2B3D4E5F60718293 /* XRaySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0E0F2B3D4E5F60718294 /* XRaySearch.swift */; };
 		37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5536B20A2DD735F6BA815A /* EditorView.swift */; };
 		48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FB90DA3782A6E99BB4881B /* FileNode.swift */; };
 		565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E3D6A8144A620B1B335381 /* DocumentState.swift */; };
@@ -85,6 +87,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		7A1C0E0F2B3D4E5F60718298 /* CodeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeNavigation.swift; sourceTree = "<group>"; };
+		7A1C0E0F2B3D4E5F60718294 /* XRaySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRaySearch.swift; sourceTree = "<group>"; };
 		1AEEAF25CA6416E0EE5FD908 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		26726FF62649B52BE2384159 /* FileTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTreeView.swift; sourceTree = "<group>"; };
 		374D415A70003378E9635011 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
@@ -151,6 +155,8 @@
 				E16395529941982676028954 /* AIAssistants.swift */,
 				D37A885AECF408932486180D /* CLICompletion.swift */,
 				CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */,
+				7A1C0E0F2B3D4E5F60718298 /* CodeNavigation.swift */,
+				7A1C0E0F2B3D4E5F60718294 /* XRaySearch.swift */,
 				A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */,
 				A7D1F2C3B4E5968778695A11 /* AIPrompts.swift */,
 				A7D1F2C3B4E5968778695A09 /* TerminalSession.swift */,
@@ -379,6 +385,8 @@
 				E13834677324410788145575 /* AIAssistants.swift in Sources */,
 				0D1D29948BB284ED1EDFEFDA /* CLICompletion.swift in Sources */,
 				20C0EE5BD083C8D1CAEC54A0 /* CodeExplainer.swift in Sources */,
+				7A1C0E0F2B3D4E5F60718297 /* CodeNavigation.swift in Sources */,
+				7A1C0E0F2B3D4E5F60718293 /* XRaySearch.swift in Sources */,
 				A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */,
 				A7D1F2C3B4E5968778695A12 /* AIPrompts.swift in Sources */,
 				A7D1F2C3B4E5968778695A10 /* TerminalSession.swift in Sources */,
@@ -443,7 +451,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1.27.0;
+				CURRENT_PROJECT_VERSION = 1.30.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -458,7 +466,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.27.0;
+				MARKETING_VERSION = 1.30.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -522,7 +530,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1.27.0;
+				CURRENT_PROJECT_VERSION = 1.30.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -543,7 +551,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.27.0;
+				MARKETING_VERSION = 1.30.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
