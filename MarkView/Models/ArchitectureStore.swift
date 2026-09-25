@@ -100,6 +100,26 @@ final class ArchitectureStore: ObservableObject {
         var risk: String?
         var summary: String?
         var findings: [PRFinding]?
+        /// What changed inside the file, drawn under it in the PR X-Ray (sent to the page;
+        /// filled from the X-Ray contents, then from the AI's explanation).
+        var changes: [PRChangeNote]?
+        /// The AI's one-paragraph reading of this file's change.
+        var changeSummary: String?
+        var explaining: Bool?
+    }
+
+    /// One change inside a changed file.
+    struct PRChangeNote: Codable {
+        /// The file's logical part it falls in (X-Ray contents), when known.
+        var part: String?
+        var title: String
+        /// New-file lines it covers (a removal: the line where the text was).
+        var start: Int
+        var end: Int
+        /// added | changed | removed | moved (AI)
+        var kind: String?
+        /// What the change does and why (AI).
+        var why: String?
     }
 
     struct PRFinding: Codable {
@@ -141,6 +161,8 @@ final class ArchitectureStore: ObservableObject {
         var fileDiff: PRFileDiff?
         /// Questions asked about this change and the AI's answers (newest last).
         var chat: [PRChat] = []
+        /// The code changed after the review and analysis shown (reloaded automatically).
+        var reviewOutdated: Bool?
     }
 
     struct PRFileDiff: Codable {
@@ -159,6 +181,16 @@ final class ArchitectureStore: ObservableObject {
     /// Per-file diffs of the loaded change (kept here, sent only for the selected file).
     private var prFileDiffs: [String: String] = [:]
     private var prDiffText = ""
+    /// The AI's explanations of changed files, by "<source>|<path>|<diff hash>".
+    private var prExplanations: [String: (summary: String, notes: [PRChangeNote])] = [:]
+    private var prExplaining: Set<String> = []
+    /// Files opened from the PR X-Ray: their viewer starts on the "Pull request" lens.
+    private var prFocusPaths: Set<String> = []
+    /// For reloading the shown change when its files moved on (see `prFileNotes`).
+    private var prRoot: URL?
+    /// The fetched pull request being shown (nil for local changes or when not fetchable).
+    private var prCheckout: PRCheckout?
+    private var prReloadedAt = Date.distantPast
 
     func reset() {
         rootPath = nil
@@ -543,7 +575,7 @@ final class ArchitectureStore: ObservableObject {
     /// One assistant call through the X-Ray settings (fast model, low effort, no tools),
     /// answered from `.dde/cache/xray` when the same input was analysed before.
     private func xrayCall(_ request: CLICompletion.Request, root: URL, db: SemanticDatabase?,
-                          call: Int) async throws -> [String: Any] {
+                          call: Int, fresh: Bool = false) async throws -> [String: Any] {
         var request = request
         request.model = AIAssistantPreferences.xrayModel(for: request.tool)
         request.effort = "low"
@@ -553,7 +585,7 @@ final class ArchitectureStore: ObservableObject {
         let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined().prefix(32)
         let cache = answerCache(root)
         let file = cache.appendingPathComponent(hash + ".json")
-        if let data = try? Data(contentsOf: file),
+        if !fresh, let data = try? Data(contentsOf: file),
            let cached = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             return cached
         }
@@ -1325,11 +1357,20 @@ final class ArchitectureStore: ObservableObject {
 
     // MARK: - Pull request overlay
 
+    /// Set when the PR X-Ray opens without a change chosen: show all local changes vs main.
+    var selectDefaultSource = false
+
     func refreshPRSources(root: URL) {
         Task {
             let sources = await Task.detached { Self.listPRSources(root: root) }.value
             prSources = sources
             revision += 1
+            if selectDefaultSource {
+                selectDefaultSource = false
+                if prOverlay == nil, let first = sources.first(where: { $0.id == "local" }) ?? sources.first {
+                    showPR(first.id, root: root)
+                }
+            }
         }
     }
 
@@ -1337,11 +1378,12 @@ final class ArchitectureStore: ObservableObject {
         guard ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--is-inside-work-tree"]) != nil else {
             return []
         }
-        var sources = [PRSource(id: "working", title: "Uncommitted changes")]
-        if let base = baseBranch(root: root),
-           let branch = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--abbrev-ref", "HEAD"])?
-               .trimmingCharacters(in: .whitespacesAndNewlines), branch != base.replacingOccurrences(of: "origin/", with: "") {
-            sources.append(PRSource(id: "branch", title: "\(branch) vs \(base)"))
+        // Two kinds of change: this checkout (what a pull request from here would contain:
+        // commits since the base plus uncommitted and new files), or a pull request on
+        // GitHub, fetched and read at its own head.
+        var sources: [PRSource] = []
+        if let base = baseBranch(root: root) {
+            sources.append(PRSource(id: "local", title: "All changes vs \(base.replacingOccurrences(of: "origin/", with: "")) (commits + uncommitted)"))
         }
         // Every open pull request, then the 30 most recently merged or closed ones (two
         // queries: with one, old open ones fall outside the limit behind recent merges).
@@ -1408,15 +1450,94 @@ final class ArchitectureStore: ObservableObject {
 
     nonisolated private static func diff(for source: PRSource, root: URL) -> String? {
         switch source.id {
-        case "working":
-            return ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", "HEAD", "--no-color", "-U3"])
-        case "branch":
-            guard let base = baseBranch(root: root) else { return nil }
-            return ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", "\(base)...HEAD", "--no-color", "-U3"])
+        case "local":
+            guard let base = baseBranch(root: root),
+                  let mergeBase = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "merge-base", base, "HEAD"])?
+                      .trimmingCharacters(in: .whitespacesAndNewlines), !mergeBase.isEmpty,
+                  let tracked = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", mergeBase, "--no-color", "-U3"])
+            else { return nil }
+            return tracked + untrackedDiff(root: root)
         default:
             guard source.id.hasPrefix("gh:") else { return nil }
-            return runGH(["pr", "diff", String(source.id.dropFirst(3)), "--color", "never"], root: root)
+            let number = String(source.id.dropFirst(3))
+            if let checkout = fetchPR(number: number, root: root),
+               let diff = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", checkout.mergeBase, checkout.head, "--no-color", "-U3"]) {
+                return diff
+            }
+            // Not fetchable (offline, no access): GitHub's diff; files are then the local ones.
+            return runGH(["pr", "diff", number, "--color", "never"], root: root)
         }
+    }
+
+    /// A pull request fetched into the local repository: its head commit and where it
+    /// branched from its base. Nothing is checked out; the working copy stays as it is.
+    struct PRCheckout: Sendable {
+        let number: String
+        let head: String
+        let mergeBase: String
+    }
+
+    /// Fetch pull request `number` (`pull/<n>/head`) and its base branch, unless already here.
+    nonisolated static func fetchPR(number: String, root: URL) -> PRCheckout? {
+        guard let json = runGH(["pr", "view", number, "--json", "headRefOid,baseRefName"], root: root),
+              let info = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let head = info["headRefOid"] as? String, let baseName = info["baseRefName"] as? String else { return nil }
+        func git(_ arguments: [String]) -> String? {
+            // Never wait for a password prompt that cannot be answered.
+            ArchitectureScanner.runTool("/usr/bin/env", ["GIT_TERMINAL_PROMPT=0", "git", "-C", root.path] + arguments)
+        }
+        if git(["cat-file", "-e", head + "^{commit}"]) == nil {
+            _ = git(["fetch", "--no-tags", "--quiet", "origin", "pull/\(number)/head"])
+            guard git(["cat-file", "-e", head + "^{commit}"]) != nil else { return nil }
+        }
+        _ = git(["fetch", "--no-tags", "--quiet", "origin", baseName])
+        guard let mergeBase = git(["merge-base", "origin/" + baseName, head])?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !mergeBase.isEmpty else { return nil }
+        return PRCheckout(number: number, head: head, mergeBase: mergeBase)
+    }
+
+    /// The pull request's version of `path`, written to MarkView's cache so the viewer
+    /// shows the code under review (not the working copy). Nil for local changes.
+    func prFileURL(path: String) -> URL? {
+        guard let checkout = prCheckout, let root = prRoot,
+              !path.split(separator: "/").contains("..") else { return nil }
+        let base = Self.prCacheRoot(root: root, checkout: checkout)
+        let file = base.appendingPathComponent(path)
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        guard let text = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "show", "\(checkout.head):\(path)"]) else { return nil }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return file
+    }
+
+    /// Project-relative path of a file shown from the fetched pull request, else nil.
+    func prRelativePath(for url: URL) -> String? {
+        guard let checkout = prCheckout, let root = prRoot else { return nil }
+        let base = Self.prCacheRoot(root: root, checkout: checkout).standardizedFileURL.path + "/"
+        let path = url.standardizedFileURL.path
+        return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : nil
+    }
+
+    nonisolated private static func prCacheRoot(root: URL, checkout: PRCheckout) -> URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let repo = String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
+        return caches.appendingPathComponent("MarkView/pull-requests/\(repo)/PR-\(checkout.number)-\(checkout.head.prefix(10))", isDirectory: true)
+    }
+
+    /// New files git does not track yet, as additions (text files up to 512 KB, at most 200).
+    nonisolated private static func untrackedDiff(root: URL) -> String {
+        guard let list = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "ls-files", "--others", "--exclude-standard"])
+        else { return "" }
+        var out = ""
+        for path in list.split(separator: "\n").prefix(200).map(String.init) {
+            let url = root.appendingPathComponent(path)
+            guard let data = try? Data(contentsOf: url), data.count <= 512 * 1024, !data.contains(0),
+                  let text = String(data: data, encoding: .utf8), !text.isEmpty else { continue }
+            let lines = text.editorLines
+            out += "diff --git a/\(path) b/\(path)\nnew file mode 100644\n--- /dev/null\n+++ b/\(path)\n@@ -0,0 +1,\(lines.count) @@\n"
+            out += lines.map { "+" + $0 }.joined(separator: "\n") + "\n"
+        }
+        return out
     }
 
     /// Added and removed lines of every file in a unified diff.
@@ -1497,27 +1618,103 @@ final class ArchitectureStore: ObservableObject {
             return
         }
         error = nil
-        setStatus("Loading \(source.title)…")
         Task {
-            let diff = await Task.detached { Self.diff(for: source, root: root) }.value
-            guard let diff else {
-                error = source.id.hasPrefix("gh:")
-                    ? "Could not load the pull request. Check that GitHub CLI (gh) is installed and signed in."
-                    : "Could not read the changes from git."
-                setStatus(nil)
-                return
-            }
-            let files = snapshot?.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
-            let dependencies = await Task.detached { () -> [PRDependency] in
-                ArchitectureScanner.dependencyChanges(lines: Self.diffLines(diff), projectFiles: files)
-                    .map { PRDependency(source: $0.source, target: $0.target, change: $0.added ? "added" : "removed") }
-            }.value
-            prDiffText = diff
-            prFileDiffs = Self.splitDiff(diff)
-            prOverlay = PROverlay(source: source, files: Self.parseDiff(diff), reviewed: false, dependencies: dependencies)
-            setStatus(nil)
+            guard await loadPR(source, root: root) else { return }
             if analyzeWhenLoaded { analyzeWhenLoaded = false; analyzePR(root: root, db: nil) }
         }
+    }
+
+    /// Read the change as it is now: diff, files, links. Questions asked so far are kept
+    /// when it is the change already shown.
+    @discardableResult
+    private func loadPR(_ source: PRSource, root: URL, keepReview: Bool = false) async -> Bool {
+        prRoot = root
+        setStatus("Loading \(source.title)…")
+        let (diff, checkout) = await Task.detached { () -> (String?, PRCheckout?) in
+            let checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root) : nil
+            return (Self.diff(for: source, root: root), checkout)
+        }.value
+        guard let diff else {
+            error = source.id.hasPrefix("gh:")
+                ? "Could not load the pull request. Check that GitHub CLI (gh) is installed and signed in."
+                : "Could not read the changes from git."
+            setStatus(nil)
+            return false
+        }
+        prCheckout = checkout
+        let files = snapshot?.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
+        let dependencies = await Task.detached { () -> [PRDependency] in
+            ArchitectureScanner.dependencyChanges(lines: Self.diffLines(diff), projectFiles: files)
+                .map { PRDependency(source: $0.source, target: $0.target, change: $0.added ? "added" : "removed") }
+        }.value
+        let previous = prOverlay?.source.id == source.id ? prOverlay : nil
+        let changed = diff != prDiffText
+        prDiffText = diff
+        prFileDiffs = Self.splitDiff(diff)
+        var overlay = PROverlay(source: source, files: Self.parseDiff(diff), reviewed: false, dependencies: dependencies)
+        overlay.chat = previous?.chat ?? []
+        // A reload after the code changed keeps the review, marked outdated.
+        if keepReview, let previous {
+            let reviewed = Dictionary(previous.files.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+            for i in overlay.files.indices {
+                guard let old = reviewed[overlay.files[i].path] else { continue }
+                overlay.files[i].verdict = old.verdict
+                overlay.files[i].risk = old.risk
+                overlay.files[i].summary = old.summary
+                overlay.files[i].findings = old.findings
+            }
+            overlay.reviewed = previous.reviewed
+            overlay.reviewSummary = previous.reviewSummary
+            overlay.analysis = previous.analysis
+            if changed && (previous.reviewed || previous.analysis != nil) { overlay.reviewOutdated = true }
+            else { overlay.reviewOutdated = previous.reviewOutdated }
+        }
+        prOverlay = overlay
+        setStatus(nil)
+        return true
+    }
+
+    /// The code changed, or the review should be redone: read the change again, then
+    /// review it (and repeat the architectural analysis if there was one) without the
+    /// cached answers.
+    func reviewAgain(root: URL, db: SemanticDatabase?) {
+        guard !busy, let source = prOverlay?.source else { return }
+        let hadAnalysis = prOverlay?.analysis != nil
+        Task {
+            guard await loadPR(source, root: root) else { return }
+            reviewPR(root: root, db: db, fresh: true)
+            if hadAnalysis { analyzePR(root: root, db: db, fresh: true) }
+        }
+    }
+
+    /// The review's findings and the analysis's checks as a task list — to paste into the
+    /// AI terminal or the clipboard. Nil when there is nothing to do.
+    func prTasksText() -> String? {
+        guard let overlay = prOverlay else { return nil }
+        var bugs: [String] = [], warnings: [String] = [], notes: [String] = []
+        for file in overlay.files {
+            for finding in file.findings ?? [] {
+                let line = "- [ ] \(file.path)\(finding.line > 0 ? ":\(finding.line)" : "") — \(finding.message)"
+                switch finding.severity {
+                case "bug": bugs.append(line)
+                case "warning": warnings.append(line)
+                default: notes.append(line)
+                }
+            }
+            if (file.findings ?? []).isEmpty, let verdict = file.verdict, verdict != "ok", let summary = file.summary {
+                let line = "- [ ] \(file.path) — \(summary)"
+                if verdict == "bug" { bugs.append(line) } else { warnings.append(line) }
+            }
+        }
+        var checks: [String] = []
+        if let analysis = overlay.analysis {
+            checks = analysis.checks.map { "- [ ] \($0.path)\($0.line > 0 ? ":\($0.line)" : "") — \($0.note)" }
+                + analysis.risks.map { "- [ ] Risk: \($0)" }
+        }
+        let sections = [("Bugs", bugs), ("Concerns", warnings), ("Notes", notes), ("To check", checks)].filter { !$0.1.isEmpty }
+        guard !sections.isEmpty else { return nil }
+        return "Tasks from the review of \(overlay.source.title). Check each one; fix it, or say why it is not a real problem.\n\n"
+            + sections.map { "## \($0.0)\n" + $0.1.joined(separator: "\n") }.joined(separator: "\n\n")
     }
 
     /// Each file's part of a unified diff, keyed by its new path.
@@ -1551,6 +1748,391 @@ final class ArchitectureStore: ObservableObject {
         guard prOverlay != nil else { return }
         prOverlay?.fileDiff = PRFileDiff(path: path, text: prFileDiffs[path] ?? "")
         revision += 1
+    }
+
+    // MARK: Changes inside a file
+
+    /// The loaded change as the code viewer's "Pull request" lens shows it for one file:
+    /// added lines, where lines were removed, and each change with its explanation and
+    /// its own lines of the diff. Nil when the file is not part of the change.
+    struct PRFileNotes: Encodable {
+        struct Change: Encodable {
+            var title: String
+            var start: Int
+            var end: Int
+            var kind: String?
+            var why: String?
+            /// The change's lines of the diff ("+…", "-…").
+            var diff: [String]
+        }
+        var title: String
+        var summary: String?
+        var explaining: Bool
+        var explained: Bool
+        var additions: Int
+        var deletions: Int
+        var changes: [Change]
+        /// Added new-file line ranges.
+        var added: [[Int]]
+        /// [line, count]: where lines were removed.
+        var removed: [[Int]]
+        /// Opened from the PR X-Ray: show this lens.
+        var focus: Bool
+        /// The file differs from the change's version: lines were matched by content.
+        var remapped: Bool
+        /// Identifies the diff (a new one needs a new explanation).
+        var diffKey: String
+        var reviewOutdated: Bool
+    }
+
+    /// New-file line numbers of a diff → lines of the file as it is now, matched by
+    /// content (longest common subsequence over the diff's new-side lines).
+    struct LineMap {
+        let inSync: Bool
+        private let mapped: [Int: Int]
+        private let known: [Int]   // sorted diff positions that were matched
+
+        init(inSync: Bool, mapped: [Int: Int]) {
+            self.inSync = inSync
+            self.mapped = mapped
+            self.known = mapped.keys.sorted()
+        }
+
+        /// The current line for a diff line: its match, else shifted like the nearest match.
+        func line(_ position: Int) -> Int {
+            if inSync { return position }
+            if let exact = mapped[position] { return exact }
+            guard !known.isEmpty else { return position }
+            var low = 0, high = known.count - 1
+            while low < high {
+                let mid = (low + high + 1) / 2
+                if known[mid] <= position { low = mid } else { high = mid - 1 }
+            }
+            let anchor = known[low] <= position ? known[low] : known[0]
+            return max(1, position + (mapped[anchor]! - anchor))
+        }
+
+        func exists(_ position: Int) -> Bool { inSync || mapped[position] != nil }
+    }
+
+    nonisolated static func lineMap(diff: String, current: String) -> LineMap {
+        // The diff's new side: positions and texts of context and added lines.
+        var side: [(position: Int, text: Substring)] = []
+        var newLine = 0
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@@") {
+                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
+                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
+                }
+            } else if line.hasPrefix("+") || line.hasPrefix(" ") {
+                side.append((newLine, line.dropFirst()))
+                newLine += 1
+            }
+        }
+        let lines = current.editorLines
+        func same(_ a: Substring, _ b: Substring) -> Bool {
+            a.trimmingCharacters(in: .whitespaces) == b.trimmingCharacters(in: .whitespaces)
+        }
+        if side.allSatisfy({ $0.position >= 1 && $0.position <= lines.count && same(lines[$0.position - 1], $0.text) }) {
+            return LineMap(inSync: true, mapped: [:])
+        }
+        let n = side.count, m = lines.count
+        guard n > 0, m > 0, n * m <= 8_000_000 else { return LineMap(inSync: false, mapped: [:]) }
+        let a = side.map { $0.text.trimmingCharacters(in: .whitespaces) }
+        let b = lines.map { $0.trimmingCharacters(in: .whitespaces) }
+        // LCS table (suffix lengths), then walk it forward.
+        var table = [UInt16](repeating: 0, count: (n + 1) * (m + 1))
+        let width = m + 1
+        for i in stride(from: n - 1, through: 0, by: -1) {
+            for j in stride(from: m - 1, through: 0, by: -1) {
+                table[i * width + j] = a[i] == b[j]
+                    ? table[(i + 1) * width + j + 1] &+ 1
+                    : max(table[(i + 1) * width + j], table[i * width + j + 1])
+            }
+        }
+        var mapped: [Int: Int] = [:]
+        var i = 0, j = 0
+        while i < n && j < m {
+            if a[i] == b[j] {
+                mapped[side[i].position] = j + 1
+                i += 1; j += 1
+            } else if table[(i + 1) * width + j] >= table[i * width + j + 1] {
+                i += 1
+            } else {
+                j += 1
+            }
+        }
+        return LineMap(inSync: false, mapped: mapped)
+    }
+
+    func markPRFocus(path: String) {
+        prFocusPaths.insert(path)
+    }
+
+    func prFileNotes(path: String, content: String) -> PRFileNotes? {
+        guard let overlay = prOverlay.map(withChangeNotes),
+              let file = overlay.files.first(where: { $0.path == path }) else { return nil }
+        let diff = prFileDiffs[path] ?? ""
+        let map = Self.lineMap(diff: diff, current: content)
+        // Local changes moved on (new commits, edits): read them again, at most every 10 s.
+        if !map.inSync, overlay.source.id == "local", let root = prRoot,
+           Date().timeIntervalSince(prReloadedAt) > 10 {
+            prReloadedAt = Date()
+            let source = overlay.source
+            Task { await loadPR(source, root: root, keepReview: true) }
+        }
+        // Walk the diff once: added runs, removal points, and each line's new-file position.
+        var added: [[Int]] = []
+        var removed: [[Int]] = []
+        var lines: [(position: Int, text: String)] = []
+        var newLine = 0
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@@") {
+                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
+                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
+                }
+            } else if line.hasPrefix("+") {
+                if let last = added.last, last[1] == newLine - 1 { added[added.count - 1][1] = newLine } else { added.append([newLine, newLine]) }
+                lines.append((newLine, String(line)))
+                newLine += 1
+            } else if line.hasPrefix("-") {
+                let at = max(newLine, 1)
+                if let last = removed.last, last[0] == at { removed[removed.count - 1][1] += 1 } else { removed.append([at, 1]) }
+                lines.append((at, String(line)))
+            } else if !line.hasPrefix("\\") {
+                newLine += 1
+            }
+        }
+        let changes = (file.changes ?? []).map { note -> PRFileNotes.Change in
+            let own = lines.filter { $0.position >= note.start && $0.position <= note.end }.map(\.text)
+            let start = map.line(note.start)
+            return PRFileNotes.Change(title: note.title, start: start, end: max(start, map.line(note.end)),
+                                      kind: note.kind, why: note.why, diff: Array(own.prefix(60)))
+        }
+        // Added lines still in the file, at their current lines; removal points shifted along.
+        var current: [[Int]] = []
+        for range in added {
+            for position in range[0]...range[1] where map.exists(position) {
+                let line = map.line(position)
+                if let last = current.last, last[1] == line - 1 { current[current.count - 1][1] = line } else { current.append([line, line]) }
+            }
+        }
+        return PRFileNotes(title: overlay.source.title, summary: file.changeSummary, explaining: file.explaining == true,
+                           explained: file.changeSummary != nil, additions: file.additions, deletions: file.deletions,
+                           changes: changes, added: current, removed: removed.map { [map.line($0[0]), $0[1]] },
+                           focus: prFocusPaths.contains(path), remapped: !map.inSync,
+                           diffKey: String(ContentHash.of(diff).prefix(12)), reviewOutdated: overlay.reviewOutdated == true)
+    }
+
+    private func explanationKey(_ source: PRSource, _ path: String) -> String {
+        source.id + "|" + path + "|" + String(ContentHash.of(prFileDiffs[path] ?? "").prefix(16))
+    }
+
+    /// The overlay with what changed inside each file: the AI's explanation when there is
+    /// one, else the touched lines placed in the file's X-Ray parts and items.
+    private func withChangeNotes(_ overlay: PROverlay) -> PROverlay {
+        var next = overlay
+        for i in next.files.indices {
+            let path = next.files[i].path
+            let key = explanationKey(overlay.source, path)
+            let spans = Self.itemSpans(outlines[path])
+            if let explained = prExplanations[key] {
+                next.files[i].changeSummary = explained.summary
+                next.files[i].changes = explained.notes.map { note in
+                    var note = note
+                    if note.part?.isEmpty != false { note.part = Self.part(at: note.start, in: spans) }
+                    return note
+                }
+            } else {
+                next.files[i].changes = Self.changeNotes(hunks: Self.changedRanges(prFileDiffs[path] ?? ""), spans: spans)
+            }
+            next.files[i].explaining = prExplaining.contains(key) ? true : nil
+        }
+        return next
+    }
+
+    /// Items of a file's X-Ray contents with the lines they cover (to the next item).
+    nonisolated private static func itemSpans(_ outline: XRayContent.Outline?)
+        -> [(part: String, name: String, start: Int, end: Int)] {
+        guard let outline else { return [] }
+        var items: [(part: String, name: String, start: Int)] = []
+        for collection in outline.collections {
+            for group in collection.groups {
+                for item in group.items { items.append((collection.name, item.name, item.line)) }
+            }
+        }
+        items.sort { $0.start < $1.start }
+        return items.enumerated().map { index, item in
+            let end = index + 1 < items.count ? max(item.start, items[index + 1].start - 1) : Int.max
+            return (item.part, item.name, item.start, end)
+        }
+    }
+
+    nonisolated private static func part(at line: Int, in spans: [(part: String, name: String, start: Int, end: Int)]) -> String? {
+        spans.last { $0.start <= line }?.part
+    }
+
+    /// Changed new-file line ranges of a file's diff: runs of added and removed lines
+    /// (a removal alone marks the line where the text was).
+    nonisolated static func changedRanges(_ diff: String) -> [[Int]] {
+        var ranges: [[Int]] = []
+        var newLine = 0
+        var run: [Int]?
+        func close() { if let r = run { ranges.append(r) }; run = nil }
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@@") {
+                close()
+                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
+                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
+                }
+            } else if line.hasPrefix("+") {
+                run = [min(run?[0] ?? newLine, newLine), newLine]
+                newLine += 1
+            } else if line.hasPrefix("-") {
+                let at = max(newLine, 1)
+                run = [min(run?[0] ?? at, at), max(run?[1] ?? at, at)]
+            } else if line.hasPrefix("\\") {
+                continue
+            } else {
+                close()
+                newLine += 1
+            }
+        }
+        close()
+        return ranges
+    }
+
+    /// Changed ranges placed in the items they touch; outside any item, "Lines a–b".
+    nonisolated private static func changeNotes(hunks: [[Int]],
+                                                spans: [(part: String, name: String, start: Int, end: Int)]) -> [PRChangeNote] {
+        var notes: [PRChangeNote] = []
+        var index: [String: Int] = [:]
+        for range in hunks {
+            let (a, b) = (range[0], range[1])
+            let touched = spans.filter { $0.start <= b && $0.end >= a }
+            if touched.isEmpty {
+                notes.append(PRChangeNote(part: nil, title: a == b ? "Line \(a)" : "Lines \(a)–\(b)", start: a, end: b))
+                continue
+            }
+            for item in touched {
+                let key = item.part + "\u{1}" + item.name
+                let start = max(a, item.start), end = min(b, item.end)
+                if let i = index[key] {
+                    notes[i].start = min(notes[i].start, start)
+                    notes[i].end = max(notes[i].end, end)
+                } else {
+                    index[key] = notes.count
+                    notes.append(PRChangeNote(part: item.part, title: item.name, start: start, end: end))
+                }
+            }
+            if notes.count >= 200 { break }
+        }
+        return notes
+    }
+
+    /// The AI's reading of one file's change — only what changed, split into its logical
+    /// changes with what each does and why. The diff and the file's X-Ray parts are the
+    /// whole input (no file reading); cached by the diff.
+    func explainPRFile(path: String, root: URL, db: SemanticDatabase?) {
+        guard let overlay = prOverlay, let diff = prFileDiffs[path], !diff.isEmpty else { return }
+        let key = explanationKey(overlay.source, path)
+        guard prExplanations[key] == nil, !prExplaining.contains(key) else { return }
+        prExplaining.insert(key)
+        revision += 1
+        let spans = Self.itemSpans(outlines[path])
+        var parts: [(name: String, start: Int, end: Int)] = []
+        for span in spans {
+            if let last = parts.last, last.name == span.part {
+                parts[parts.count - 1].end = span.end == Int.max ? span.start : span.end
+            } else {
+                parts.append((span.part, span.start, span.end == Int.max ? span.start : span.end))
+            }
+        }
+        var prompt = "Change: \(overlay.source.title)\nFile: \(path)\n"
+        if !parts.isEmpty {
+            prompt += "\nParts of the file (new line numbers):\n"
+                + parts.map { "- \($0.name): lines \($0.start)–\($0.end)" }.joined(separator: "\n") + "\n"
+        }
+        prompt += "\nDiff (new-file line numbers on the left):\n" + Self.numberedDiff(diff)
+        let outputLanguage = ActionOutputLanguage.current
+        var request = CLICompletion.Request(
+            prompt: prompt,
+            systemPrompt: """
+            You explain one file's part of a code change (a pull request) to a reviewer who is looking \
+            at that file inside an architecture diagram. Explain ONLY what changed — never describe what \
+            the file does in general. Split the diff into its logical changes (usually one per touched \
+            function, type, section or item; merge hunks that belong to one change; 1-15 changes). For \
+            each: a short title naming what changed ("Retry on timeout in fetchOrders"); its kind \
+            (added, changed, removed or moved); the new-file lines it covers (startLine and endLine from \
+            the numbers on the left; for a pure removal, the line where the text was); the part of the \
+            file it belongs to when parts are listed (the exact part name); and why: what the change does \
+            and why it was probably made, in one or two sentences. Also give a summary of the whole \
+            file's change in one or two sentences.
+            \(XRayContent.languageLine(summaries: outputLanguage == ActionOutputLanguage.documentLanguage
+                                                   ? "the language of the file" : outputLanguage))
+            """,
+            jsonSchema: [
+                "type": "object",
+                "properties": [
+                    "summary": ["type": "string"],
+                    "changes": ["type": "array", "items": [
+                        "type": "object",
+                        "properties": [
+                            "title": ["type": "string"],
+                            "kind": ["type": "string", "enum": ["added", "changed", "removed", "moved"]],
+                            "startLine": ["type": "integer"],
+                            "endLine": ["type": "integer"],
+                            "part": ["type": "string"],
+                            "why": ["type": "string"],
+                        ],
+                        "required": ["title", "kind", "startLine", "endLine", "why"],
+                    ]],
+                ],
+                "required": ["summary", "changes"],
+            ])
+        request.timeout = 300
+        Task {
+            defer { prExplaining.remove(key); revision += 1 }
+            do {
+                let object = try await xrayCall(request, root: root, db: db, call: 98)
+                let partNames = Set(parts.map(\.name))
+                let notes = (object["changes"] as? [[String: Any]] ?? []).compactMap { raw -> PRChangeNote? in
+                    guard let title = (raw["title"] as? String)?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { return nil }
+                    let start = max(1, raw["startLine"] as? Int ?? 1)
+                    let end = max(start, raw["endLine"] as? Int ?? start)
+                    let part = (raw["part"] as? String).flatMap { partNames.contains($0) ? $0 : nil }
+                    return PRChangeNote(part: part, title: title, start: start, end: end,
+                                        kind: raw["kind"] as? String, why: raw["why"] as? String)
+                }
+                guard !notes.isEmpty else { return }
+                prExplanations[key] = (object["summary"] as? String ?? "", notes.sorted { $0.start < $1.start })
+            } catch is CancellationError {
+            } catch {
+                self.error = "Could not explain the changes in \((path as NSString).lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// A file's diff with new-file line numbers on the left (clipped), for the prompt.
+    nonisolated private static func numberedDiff(_ diff: String, maxLines: Int = 1500) -> String {
+        var out: [String] = []
+        var newLine = 0
+        for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            if out.count >= maxLines { out.append("… (diff clipped)"); break }
+            if line.hasPrefix("@@") {
+                if let plus = line.split(separator: " ").first(where: { $0.hasPrefix("+") }) {
+                    newLine = Int(plus.dropFirst().split(separator: ",").first ?? "0") ?? 0
+                }
+                out.append(String(line))
+            } else if line.hasPrefix("+") {
+                out.append("\(newLine) + " + line.dropFirst()); newLine += 1
+            } else if line.hasPrefix("-") {
+                out.append("     - " + line.dropFirst())
+            } else if !line.hasPrefix("\\") {
+                out.append("\(newLine)   " + line.dropFirst()); newLine += 1
+            }
+        }
+        return out.joined(separator: "\n")
     }
 
     /// Ask the AI about the loaded change — the whole of it, or one file — with the
@@ -1617,7 +2199,7 @@ final class ArchitectureStore: ObservableObject {
     /// The AI's architectural reading of the loaded change: what it does, which components
     /// it touches and how risky that is, new or broken links between parts, and what to
     /// check. One pass over the diff and the X-Ray's structure (no file reading), cached.
-    func analyzePR(root: URL, db: SemanticDatabase?) {
+    func analyzePR(root: URL, db: SemanticDatabase?, fresh: Bool = false) {
         guard var overlay = prOverlay, overlay.analyzing != true else { return }
         overlay.analyzing = true
         prOverlay = overlay
@@ -1709,7 +2291,7 @@ final class ArchitectureStore: ObservableObject {
                 jsonSchema: schema)
             request.timeout = 300
             do {
-                let object = try await xrayCall(request, root: root, db: db, call: 0)
+                let object = try await xrayCall(request, root: root, db: db, call: 0, fresh: fresh)
                 let analysis = PRAnalysis(
                     summary: object["summary"] as? String ?? "",
                     verdict: object["verdict"] as? String ?? "attention",
@@ -1732,7 +2314,7 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// Ask the assistant to review the loaded change file by file.
-    func reviewPR(root: URL, db: SemanticDatabase?) {
+    func reviewPR(root: URL, db: SemanticDatabase?, fresh: Bool = false) {
         guard !busy, let overlay = prOverlay else { return }
         busy = true
         error = nil
@@ -1742,7 +2324,7 @@ final class ArchitectureStore: ObservableObject {
             setStatus("Reviewing \(source.title)…")
             let diff = await Task.detached { Self.diff(for: source, root: root) }.value ?? ""
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
-            if let cached = db?.loadArchitectureReview(key: key),
+            if !fresh, let cached = db?.loadArchitectureReview(key: key),
                let data = cached.data(using: .utf8),
                let reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
                 prOverlay = reviewed
@@ -1847,7 +2429,7 @@ final class ArchitectureStore: ObservableObject {
             let outlining: [String]
         }
         let payload = Payload(mode: mode, snapshot: snapshot.map(withContents), status: status, error: error,
-                              prSources: prSources, pr: prOverlay, busy: busy, describing: Array(describing),
+                              prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining))
         let encoder = JSONEncoder()

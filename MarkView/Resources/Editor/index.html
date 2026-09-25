@@ -1010,6 +1010,15 @@
         .code-note-title { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
         .code-note-meta { font: 10px "SF Mono", Menlo, monospace; color: var(--text-secondary); font-weight: 400; white-space: nowrap; }
         .code-note-body { margin-top: 3px; color: var(--text-primary); }
+        /* Pull request lens: the change's own lines of the diff, and the PR in the legend. */
+        .code-note-diff { margin: 5px 0 0; padding: 3px 0; font: 10px "SF Mono", Menlo, monospace; max-height: 180px; overflow: auto; border-radius: 4px; background: rgba(127, 127, 127, .08); }
+        .code-note-diff div { white-space: pre; padding: 0 5px; }
+        .code-note-diff .add { background: rgba(46, 160, 67, .2); }
+        .code-note-diff .del { background: rgba(229, 83, 75, .2); }
+        .code-note.compact .code-note-diff { display: none; }
+        .code-pr-summary { margin-top: 4px; font-size: 11px; line-height: 1.4; color: var(--text-primary); }
+        .code-legend-key { font-size: 10px; }
+        .code-pr-note { color: var(--text-secondary); font-style: italic; }
         .code-notes-legend { display: flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 10px; color: var(--text-secondary); border-bottom: 1px solid var(--border-color); flex-wrap: wrap; }
         .code-notes[hidden], .code-notes-legend[hidden] { display: none; }
         .code-notes-legend b { font-weight: 600; color: var(--text-primary); margin-right: 3px; }
@@ -1055,6 +1064,8 @@
         .arch-toolbar .arch-btn { cursor: pointer; }
         .arch-toolbar .arch-btn:disabled, .arch-toolbar select:disabled { opacity: .45; cursor: default; }
         .arch-toolbar .arch-spacer { flex: 1; }
+        .arch-toolbar .arch-actions { display: flex; flex-wrap: nowrap; gap: 6px; margin-left: auto; }
+        .arch-toolbar .arch-actions .arch-btn { white-space: nowrap; }
         .arch-check { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
         .arch-rank { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 11px; }
         .arch-rank button { text-align: left; border: 0; background: none; color: var(--accent-color, #569cd6); cursor: pointer; padding: 1px 0; font: 11px "SF Mono", Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1120,6 +1131,7 @@
         .arch-link i { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
         .arch-path { font-family: "SF Mono", Menlo, monospace; font-size: 11px; word-break: break-all; }
         .arch-action { margin-top: 6px; font-weight: 600; }
+        .arch-task-actions { display: flex; gap: 12px; }
         .arch-change { margin: 6px 0; padding-top: 4px; border-top: 1px solid var(--border-color); }
         .arch-finding { font-size: 11px; color: var(--text-primary); }
         .arch-finding.arch-bug { color: #d9534f; }
@@ -1354,10 +1366,13 @@
                     <button class="arch-btn" id="arch-review" hidden>Review with AI</button>
                     <span class="arch-spacer"></span>
                     <span id="arch-status"></span>
-                    <button class="arch-btn" id="arch-analyze" title="Describe modules and map deployment with the selected AI assistant">Analyze</button>
-                    <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)">Rescan</button>
-                    <button class="arch-btn" id="arch-fit" title="Fit to window">Fit</button>
-                    <button class="arch-btn" id="arch-details-toggle" title="Show or hide the details panel">Details</button>
+                    <!-- Kept together: when the toolbar is narrow the group moves to the next line as a whole. -->
+                    <div class="arch-actions">
+                        <button class="arch-btn" id="arch-analyze" title="Describe modules and map deployment with the selected AI assistant">Analyze</button>
+                        <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)">Rescan</button>
+                        <button class="arch-btn" id="arch-fit" title="Fit to window">Fit</button>
+                        <button class="arch-btn" id="arch-details-toggle" title="Show or hide the details panel">Details</button>
+                    </div>
                 </div>
                 <div class="arch-progress" id="arch-progress" hidden>
                     <div class="arch-progress-steps"></div>

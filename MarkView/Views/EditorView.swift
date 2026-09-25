@@ -357,8 +357,10 @@ struct EditorView: NSViewRepresentable {
         private func routeCodeNotes(url: URL, webView: WKWebView) {
             let wm = parent.workspaceManager
             wm.prepareCodeNotes(for: url)
-            codeNotesCancellable = wm.codeExplain.$revision
-                .receive(on: DispatchQueue.main)
+            // Notes change with the explanation and with the selected pull request (X-Ray).
+            codeNotesCancellable = wm.codeExplain.$revision.map { _ in () }
+                .merge(with: wm.architecture.$revision.map { _ in () })
+                .debounce(for: .milliseconds(120), scheduler: DispatchQueue.main)
                 .sink { [weak self, weak webView] _ in
                     guard let self, let webView, let current = self.currentCodeURL else { return }
                     self.bridge.setCodeNotes(self.parent.workspaceManager.codeNotesJSON(for: current), in: webView)

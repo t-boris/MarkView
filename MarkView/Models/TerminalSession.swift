@@ -110,6 +110,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
                 if let text = body["data"] as? String { write(text) }
             case "resize":
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
+            case "pasteFiles":
+                pasteClipboardFiles()
             case "link":
                 if let text = body["url"] as? String, let url = URL(string: text),
                    ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
@@ -141,6 +143,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         startupSent = false
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         var environment = ProcessInfo.processInfo.environment
+        // Markers of a Claude Code session MarkView may have been launched from: inherited,
+        // they make claude in this terminal act as that session's child (no transcripts).
+        // The login shell sets the user's own CLAUDE_CODE_* settings again from its rc files.
+        for key in environment.keys where key == "CLAUDECODE" || key.hasPrefix("CLAUDE_CODE_") {
+            environment[key] = nil
+        }
+        // Claude Code in these terminals always keeps its session transcripts (resume, history).
+        environment["CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"] = "1"
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "MarkView"
@@ -263,6 +273,34 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.write("\r") }
         }
         focus()
+    }
+
+    /// Paste of something that is not text: files copied in Finder are typed as their paths;
+    /// an image (a screenshot) is saved as a PNG and its path typed. Claude Code and Codex
+    /// attach an image given by its path.
+    func pasteClipboardFiles(from pasteboard: NSPasteboard = .general) {
+        var paths: [String] = []
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           !urls.isEmpty {
+            paths = urls.map(\.path)
+        } else if let image = NSImage(pasteboard: pasteboard), let tiff = image.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("MarkView/pasted-images", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("image-\(Int(Date().timeIntervalSince1970 * 1000)).png")
+            guard (try? png.write(to: file)) != nil else { return }
+            paths = [file.path]
+        }
+        guard !paths.isEmpty else { return }
+        // Escaped the way Terminal does for a dropped file.
+        let escaped = paths.map { path in
+            path.reduce(into: "") { out, character in
+                if " '\"()[]{}&;$`!*?<>|#~\\".contains(character) { out.append("\\") }
+                out.append(character)
+            }
+        }
+        paste(escaped.joined(separator: " "))
     }
 
     /// Like `paste`, but when the session has only just started, wait until the startup

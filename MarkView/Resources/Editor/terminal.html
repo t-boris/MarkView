@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <!-- An embedded terminal (TerminalSession.swift): xterm.js drawing a PTY that Swift owns.
      Swift → JS: mvWrite(base64 output), mvSetTheme(dark), mvFocus(), mvReset(), mvExited(code).
-     JS → Swift (message handler "terminal"): {type: ready|input|resize|link, …}. -->
+     JS → Swift (message handler "terminal"): {type: ready|input|resize|link|pasteFiles, …}. -->
 <link rel="stylesheet" href="vendor/css/xterm.css">
 <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
@@ -52,6 +52,24 @@
     }
     new ResizeObserver(refit).observe(document.getElementById('term'));
     term.onData(function(data) { post({ type: 'input', data: data }); });
+    // Shift+Enter: a new line in the prompt, not "send" — a line feed (Ctrl+J), which
+    // Claude Code and Codex take as a newline.
+    term.attachCustomKeyEventHandler(function(e) {
+        if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            if (e.type === 'keydown') post({ type: 'input', data: '\n' });
+            return false;
+        }
+        return true;
+    });
+    // ⌘V with no text on the clipboard (a screenshot, files copied in Finder): Swift saves
+    // the image or reads the files and types their paths — the assistants attach them.
+    document.addEventListener('paste', function(e) {
+        const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+        if (text) return;
+        e.preventDefault();
+        e.stopPropagation();
+        post({ type: 'pasteFiles' });
+    }, true);
     term.onBinary(function(data) { post({ type: 'input', data: data }); });
 
     /** Output from the process, base64 (raw bytes: may split UTF-8 sequences). */

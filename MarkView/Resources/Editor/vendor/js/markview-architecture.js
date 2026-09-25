@@ -60,6 +60,10 @@
             let libs = null;
 
             function post(action, fields) {
+                // A file opened while a change is shown opens on that change (viewer's "Pull request" lens).
+                if (action === 'openFile' && ui.payload && ui.payload.pr && (ui.view === 'pr' || ui.overlay === 'pr')) {
+                    fields = Object.assign({ fromPR: true }, fields || {});
+                }
                 try {
                     window.webkit.messageHandlers.bridge.postMessage({ type: 'arch', payload: Object.assign({ action: action }, fields || {}) });
                 } catch (e) { console.log('[arch] post failed', action, e); }
@@ -158,6 +162,26 @@
                     });
                 }
                 const nodes = base.nodes.filter(function(n) { return keep.has(n.id); }).concat(extra);
+                // Inside a changed file: only what changed (part → change), never the whole file.
+                pr.files.forEach(function(f) {
+                    const fileId = prefix + f.path;
+                    if (!keep.has(fileId)) return;
+                    const parts = new Map();
+                    (f.changes || []).forEach(function(c, i) {
+                        let parent = fileId;
+                        if (c.part) {
+                            const partId = fileId + '#p:' + c.part;
+                            if (!parts.has(partId)) {
+                                const part = { id: partId, parent: fileId, kind: 'changePart', name: c.part, path: f.path, files: 0 };
+                                parts.set(partId, part); nodes.push(part);
+                            }
+                            parts.get(partId).files++;
+                            parent = partId;
+                        }
+                        nodes.push({ id: fileId + '#c' + i, parent: parent, kind: 'change', name: c.title, path: f.path,
+                                     line: c.start, endLine: c.end, summary: c.why || null, change: c.kind || null });
+                    });
+                });
                 const edges = base.edges.filter(function(e) { return keep.has(e.source) && keep.has(e.target) && changed.has(e.source) && changed.has(e.target); })
                     .concat(prDependencyEdges(prefix).filter(function(e) { return keep.has(e.source) && keep.has(e.target); }));
                 return { id: 'pr', nodes: nodes, edges: edges };
@@ -207,7 +231,9 @@
 
             function descendantsFiles(id, idx, out) {
                 const kids = idx.children.get(id) || [];
-                if (!kids.length) { out.push(id); return out; }
+                // A file is a leaf here: its contents and changes are drawn under it but belong to it.
+                const node = idx.byId.get(id);
+                if (!kids.length || (node && node.kind === 'file')) { out.push(id); return out; }
                 kids.forEach(function(k) { descendantsFiles(k, idx, out); });
                 return out;
             }
@@ -308,7 +334,7 @@
                 if (node.kind === 'component') return 'c:' + node.id.replace(/^l:c:/, '');
                 if (node.kind === 'section') return node.id;
                 // A file's contents are not rated on their own.
-                if (node.kind === 'collection' || node.kind === 'group' || node.kind === 'entity') return null;
+                if (['collection', 'group', 'entity', 'change', 'changePart'].indexOf(node.kind) >= 0) return null;
                 if (node.path != null && node.kind !== 'root') return 'p:' + node.path;
                 return null;
             }
@@ -360,6 +386,12 @@
             /** Overlay facts for a drawn node (aggregated over its files). */
             function overlayInfo(node, idx) {
                 if (!overlayApplies()) return null;
+                // Contents and changes inside a file show the file's colour.
+                if (['collection', 'group', 'entity', 'change', 'changePart'].indexOf(node.kind) >= 0) {
+                    let file = node;
+                    while (file && file.kind !== 'file') file = file.parent != null ? idx.byId.get(file.parent) : null;
+                    if (file) node = file;
+                }
                 const filter = currentFilter();
                 if (filter) {
                     // Own rating, else the strongest rating found below (containers show their strongest part).
@@ -518,7 +550,12 @@
                 const impact = prImpact(node);
                 if (impact) label += '\nrisk: ' + impact.risk;
                 const meta = [];
-                if (node.kind === 'collection' || node.kind === 'group') {
+                if (node.kind === 'change') {
+                    meta.push((node.change ? node.change + ' · ' : '') + (node.endLine && node.endLine !== node.line
+                        ? 'lines ' + node.line + '–' + node.endLine : 'line ' + node.line));
+                } else if (node.kind === 'changePart') {
+                    meta.push(node.files + (node.files === 1 ? ' change' : ' changes'));
+                } else if (node.kind === 'collection' || node.kind === 'group') {
                     if (node.files) meta.push(formatCount(node.files) + (node.files === 1 ? ' item' : ' items'));
                 } else if (node.kind !== 'file' && node.kind !== 'doc' && node.kind !== 'entity' && node.files) {
                     meta.push(formatCount(node.files) + ' files');
@@ -528,7 +565,9 @@
                 if (info && info.kind === 'coverage' && info.total > 1) {
                     meta.push(Math.round(info.ratio * 100) + '% documented' + (info.stale ? ' · ' + info.stale + ' outdated' : ''));
                 }
-                if (info && info.kind === 'pr' && info.changed) meta.push('+' + info.adds + ' −' + info.dels);
+                // Line counts are the file's; parts and changes inside it do not repeat them.
+                const inside = ['collection', 'group', 'entity', 'change', 'changePart'].indexOf(node.kind) >= 0;
+                if (info && info.kind === 'pr' && info.changed && !inside) meta.push('+' + info.adds + ' −' + info.dels);
                 if (info && info.kind === 'tests' && info.sources) {
                     meta.push(info.lineCoverage != null ? Math.round(info.lineCoverage * 100) + '% lines covered'
                                                         : info.tested + '/' + info.sources + ' tested');
@@ -637,6 +676,9 @@
                     { selector: 'node.collection', style: { 'font-weight': 600, 'border-style': 'double', 'border-width': 3 } },
                     { selector: 'node.group', style: { 'font-size': 10, 'border-style': 'solid' } },
                     { selector: 'node.entity', style: { 'font-size': 9.5, 'border-style': 'dotted', 'text-max-width': 200 } },
+                    // What changed inside a file (PR X-Ray).
+                    { selector: 'node.changePart', style: { 'font-size': 10, 'border-style': 'solid' } },
+                    { selector: 'node.change', style: { 'font-size': 9.5, 'border-color': '#d29922', 'border-width': 1.5, 'text-max-width': 220 } },
                     { selector: 'node.external, node.externalGroup', style: { 'border-style': 'dashed', 'color': c.mute } },
                     { selector: 'node.moduleRef', style: { 'border-style': 'dotted' } },
                     { selector: 'node.box', style: {
@@ -838,6 +880,8 @@
                     post('openFile', { path: node.path, find: node.name });
                 } else if (node.kind === 'entity') {
                     post('openFile', entityTarget(node));
+                } else if (node.kind === 'change') {
+                    post('openFile', { path: node.path, line: node.line, endLine: node.endLine || node.line });
                 } else if (node.path && (node.kind === 'file' || node.kind === 'doc' || node.kind === 'moduleRef')) {
                     post('openFile', { path: node.path });
                 }
@@ -983,8 +1027,12 @@
 
                 if (!node && ui.view === 'pr') { renderPRPanel(d, snap, idx); return; }
                 // A changed file in the PR X-Ray: its diff, the review and questions about it.
-                if (node && ui.view === 'pr' && node.path && ui.payload.pr && ui.payload.pr.files.some(function(f) { return f.path === node.path; })) {
-                    renderPRFile(d, node.path);
+                // A changed file — in the PR X-Ray, or with the Pull request overlay on — shows its
+                // change: what was added and removed, and why.
+                const showsChange = ui.view === 'pr' || (overlayApplies() && ui.overlay === 'pr');
+                if (node && showsChange && node.path && (node.kind === 'file' || node.kind === 'change' || node.kind === 'changePart')
+                    && ui.payload.pr && ui.payload.pr.files.some(function(f) { return f.path === node.path; })) {
+                    if (node.kind === 'change') renderPRChange(d, node); else renderPRFile(d, node.path);
                     return;
                 }
                 if (!node) {
@@ -1276,34 +1324,91 @@
                     const first = f.ranges && f.ranges[0];
                     post('openFile', { path: path, line: first ? first[0] : 0, endLine: first ? first[1] : 0 });
                 }, 'arch-action'));
+                renderChangeExplanation(d, f);
                 if (f.summary || (f.findings || []).length) d.appendChild(changeRow(f));
+                renderDiffBox(d, path, null);
+                const sec = document.createElement('h5'); sec.textContent = 'Ask AI'; d.appendChild(sec);
+                renderAsk(d, path);
+            }
+
+            /** The AI's reading of a file's change; asked for the first time the file is shown. */
+            function renderChangeExplanation(d, f) {
+                const p = document.createElement('p');
+                if (f.changeSummary) {
+                    p.textContent = f.changeSummary;
+                } else if (f.explaining) {
+                    p.className = 'arch-muted'; p.textContent = 'Explaining the changes…';
+                } else {
+                    ui.explainRequested = ui.explainRequested || new Set();
+                    const key = ui.payload.pr.source.id + '|' + f.path;
+                    if (!ui.explainRequested.has(key)) { ui.explainRequested.add(key); post('explainPRFile', { path: f.path }); }
+                    p.className = 'arch-muted'; p.textContent = 'Explaining the changes…';
+                }
+                d.appendChild(p);
+            }
+
+            /** One change inside a file: why, where, and only its part of the diff. */
+            function renderPRChange(d, node) {
+                const pr = ui.payload.pr;
+                const f = pr.files.find(function(x) { return x.path === node.path; });
+                const h = document.createElement('h4'); h.textContent = node.name; d.appendChild(h);
+                if (node.change) {
+                    const badges = document.createElement('div'); badges.className = 'arch-badges';
+                    const chip = document.createElement('span'); chip.textContent = node.change; badges.appendChild(chip);
+                    d.appendChild(badges);
+                }
+                const where = node.path + ':' + node.line + (node.endLine && node.endLine !== node.line ? '–' + node.endLine : '');
+                d.appendChild(linkButton(where, function() {
+                    post('openFile', { path: node.path, line: node.line, endLine: node.endLine || node.line });
+                }, 'arch-path'));
+                if (node.summary) {
+                    const p = document.createElement('p'); p.textContent = node.summary; d.appendChild(p);
+                } else if (f) {
+                    renderChangeExplanation(d, f);
+                }
+                renderDiffBox(d, node.path, [node.line - 3, (node.endLine || node.line) + 3]);
+                const sec = document.createElement('h5'); sec.textContent = 'Ask AI'; d.appendChild(sec);
+                renderAsk(d, node.path);
+            }
+
+            /** A file's diff (click a line to open it there); `range` [from, to] keeps only
+             *  the hunks around those new-file lines. */
+            function renderDiffBox(d, path, range) {
+                const pr = ui.payload.pr;
                 const diff = pr.fileDiff && pr.fileDiff.path === path ? pr.fileDiff.text : null;
                 if (diff == null) {
                     if (ui.diffRequested !== path) { ui.diffRequested = path; post('prFileDiff', { path: path }); }
                     const p = document.createElement('p'); p.className = 'arch-muted'; p.textContent = 'Loading the diff…'; d.appendChild(p);
-                } else {
-                    const box = document.createElement('div'); box.className = 'arch-diff';
-                    let newLine = 0;
-                    diff.split('\n').forEach(function(line) {
-                        const row = document.createElement('div');
-                        const num = document.createElement('b');
-                        if (line.indexOf('@@') === 0) {
-                            const m = /\+(\d+)/.exec(line); newLine = m ? parseInt(m[1], 10) : newLine;
-                            row.className = 'hunk'; row.textContent = line; box.appendChild(row); return;
-                        }
-                        let at = null;
-                        if (line[0] === '+') { row.className = 'add'; at = newLine++; num.textContent = at; }
-                        else if (line[0] === '-') { row.className = 'del'; }
-                        else { at = newLine++; num.textContent = at; }
-                        row.appendChild(num);
-                        row.appendChild(document.createTextNode(line));
-                        if (at != null) row.onclick = function() { post('openFile', { path: path, line: at, endLine: at }); };
-                        box.appendChild(row);
-                    });
-                    d.appendChild(box);
+                    return;
                 }
-                const sec = document.createElement('h5'); sec.textContent = 'Ask AI'; d.appendChild(sec);
-                renderAsk(d, path);
+                const box = document.createElement('div'); box.className = 'arch-diff';
+                let newLine = 0;
+                let hunk = null;
+                diff.split('\n').forEach(function(line) {
+                    const row = document.createElement('div');
+                    const num = document.createElement('b');
+                    if (line.indexOf('@@') === 0) {
+                        const m = /\+(\d+)/.exec(line); newLine = m ? parseInt(m[1], 10) : newLine;
+                        row.className = 'hunk'; row.textContent = line;
+                        hunk = row;
+                        if (!range) box.appendChild(row);
+                        return;
+                    }
+                    let at = null;
+                    if (line[0] === '+') { row.className = 'add'; at = newLine++; num.textContent = at; }
+                    else if (line[0] === '-') { row.className = 'del'; }
+                    else { at = newLine++; num.textContent = at; }
+                    if (range) {
+                        const position = at != null ? at : newLine;
+                        if (position < range[0] || position > range[1]) return;
+                        if (hunk) { box.appendChild(hunk); hunk = null; }
+                    }
+                    row.appendChild(num);
+                    row.appendChild(document.createTextNode(line));
+                    if (at != null) row.onclick = function() { post('openFile', { path: path, line: at, endLine: at }); };
+                    box.appendChild(row);
+                });
+                d.appendChild(box);
             }
 
             /** The PR X-Ray's side panel: the AI's architectural reading, then the files. */
@@ -1317,6 +1422,11 @@
                     return;
                 }
                 const a = pr.analysis;
+                if (pr.reviewOutdated) {
+                    const warn = document.createElement('p'); warn.className = 'arch-muted';
+                    warn.textContent = 'The code changed since this review and analysis. Use Review again for a fresh one.';
+                    d.appendChild(warn);
+                }
                 if (pr.analyzing) {
                     const p = document.createElement('p'); p.className = 'arch-muted'; p.textContent = 'Analysing the change…'; d.appendChild(p);
                 } else if (!a) {
@@ -1353,6 +1463,7 @@
                         });
                     }
                 }
+                renderPRTasks(d, pr);
                 const ask = document.createElement('h5'); ask.textContent = 'Ask AI'; d.appendChild(ask);
                 renderAsk(d, null);
                 const deps = pr.dependencies || [];
@@ -1367,6 +1478,29 @@
                 const sec = document.createElement('h5'); sec.textContent = pr.files.length + ' changed files'; d.appendChild(sec);
                 if (pr.reviewSummary) { const p = document.createElement('p'); p.textContent = pr.reviewSummary; d.appendChild(p); }
                 pr.files.forEach(function(f) { d.appendChild(changeRow(f)); });
+            }
+
+            /** What the review and the analysis found, as tasks: into the AI terminal (typed,
+             *  not sent) or the clipboard. */
+            function renderPRTasks(d, pr) {
+                let count = 0;
+                pr.files.forEach(function(f) {
+                    const findings = (f.findings || []).length;
+                    count += findings || (f.verdict && f.verdict !== 'ok' && f.summary ? 1 : 0);
+                });
+                if (pr.analysis) count += pr.analysis.checks.length + pr.analysis.risks.length;
+                if (!count) return;
+                const sec = document.createElement('h5'); sec.textContent = count + (count === 1 ? ' task' : ' tasks') + ' found'; d.appendChild(sec);
+                const row = document.createElement('div'); row.className = 'arch-task-actions';
+                const send = linkButton('Send to terminal', function() { post('prTasksToTerminal'); }, 'arch-action');
+                send.title = 'Type the list at the AI terminal prompt (not sent: check it and press Enter)';
+                const copy = linkButton('Copy', function() {
+                    post('copyPRTasks');
+                    copy.textContent = 'Copied'; setTimeout(function() { copy.textContent = 'Copy'; }, 1500);
+                }, 'arch-action');
+                copy.title = 'Copy the list as markdown tasks';
+                row.appendChild(send); row.appendChild(copy);
+                d.appendChild(row);
             }
 
             function changeRow(f) {
@@ -1478,7 +1612,11 @@
                 el.prSource.hidden = !prMode;
                 el.review.hidden = !prMode;
                 el.review.disabled = !p.pr || p.busy;
-                el.review.textContent = p.pr && p.pr.reviewed ? 'Reviewed' : 'Review with AI';
+                // After a review: the code may have changed — read it again and review anew.
+                el.review.textContent = p.pr && p.pr.reviewed ? 'Review again' : 'Review with AI';
+                el.review.title = p.pr && p.pr.reviewed
+                    ? 'Reload the change as it is now and review it again (no cached answers)'
+                    : 'AI review of every changed file';
                 el.analyze.disabled = !!p.busy || !p.snapshot;
                 el.rescan.disabled = !!p.busy;
                 // The progress bar shows the analysis; the status line covers everything else.
@@ -1572,7 +1710,9 @@
                     const shape = (snap.components || []).map(function(c) { return c.id + '<' + c.parent; }).join(',')
                         + '|' + Object.keys(snap.assignments || {}).length;
                     const pr = ui.payload.pr;
-                    const prShape = ui.view === 'pr' && pr ? '|' + pr.source.id + ':' + pr.files.length + ':' + (pr.dependencies || []).length + ':' + !!pr.analysis : '';
+                    const prShape = ui.view === 'pr' && pr ? '|' + pr.source.id + ':' + pr.files.length + ':' + (pr.dependencies || []).length + ':' + !!pr.analysis
+                        // Changes inside files arrive later (the AI's explanation).
+                        + ':' + pr.files.map(function(f) { return (f.changes || []).length + (f.changeSummary ? 'e' : ''); }).join(',') : '';
                     const key = ui.view + '|' + snap.scannedAt + '|' + (snap.enrichedAt || '') + '|' + shape + prShape;
                     if (key !== ui.graphKey) autoExpand(snap);
                     if (key !== ui.graphKey) { ui.graphKey = key; render(); } else { restyle(); renderToolbar(); }
@@ -1609,7 +1749,11 @@
                 const current = ui.payload && ui.payload.pr ? ui.payload.pr.source.id : '';
                 post('openPRXRay', { source: current });
             });
-            el.analyzePR.addEventListener('click', function() { post('analyzePR'); });
+            el.analyzePR.addEventListener('click', function() {
+                const pr = ui.payload && ui.payload.pr;
+                // "Analyze again": a new answer, not the cached one.
+                post('analyzePR', { again: !!(pr && pr.analysis) });
+            });
             el.prNumber.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const text = el.prNumber.querySelector('input').value.trim();
@@ -1699,7 +1843,10 @@
                 post('tempFilter', { criterion: '' });
             });
 
-            el.review.addEventListener('click', function() { post('reviewPR'); });
+            el.review.addEventListener('click', function() {
+                const pr = ui.payload && ui.payload.pr;
+                post('reviewPR', { again: !!(pr && pr.reviewed) });
+            });
             el.analyze.addEventListener('click', function() { post('analyze'); });
             el.rescan.addEventListener('click', function() { post('rescan'); });
             el.fit.addEventListener('click', function() { if (cy) cy.animate({ fit: { eles: cy.elements(), padding: 28 }, duration: 240 }); });

@@ -86,11 +86,6 @@ final class WorkspaceFileTreeStore: ObservableObject {
         reloadFileTree()
     }
 
-    func reveal(url: URL) {
-        guard let root = rootNode else { return }
-        expandToReveal(node: root, targetURL: url)
-    }
-
     func startWatchingCurrentRoot() {
         guard let rootURL = rootNode?.url else { return }
         startFileWatcher(for: rootURL)
@@ -118,24 +113,6 @@ final class WorkspaceFileTreeStore: ObservableObject {
         if targetPath == rootPath { return "" }
         guard targetPath.hasPrefix(rootPath + "/") else { return nil }
         return String(targetPath.dropFirst(rootPath.count + 1))
-    }
-
-    @discardableResult
-    private func expandToReveal(node: FileNode, targetURL: URL) -> Bool {
-        if node.url == targetURL { return true }
-        guard node.isDirectory, targetURL.path.hasPrefix(node.url.path + "/") else { return false }
-
-        if node.children == nil || node.children?.isEmpty == true {
-            node.loadChildren()
-        }
-        node.isExpanded = true
-
-        for child in node.children ?? [] {
-            if expandToReveal(node: child, targetURL: targetURL) {
-                return true
-            }
-        }
-        return false
     }
 
     private func startFileWatcher(for url: URL) {
@@ -883,7 +860,10 @@ class WorkspaceManager: ObservableObject {
     /// The margin panel state for `url`, as a JSON object literal.
     func codeNotesJSON(for url: URL) -> String {
         let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
-        return codeExplain.payloadJSON(path: workspaceRelativePath(url), content: content, filters: aiFilters)
+        // A file shown from a fetched pull request counts as that project path.
+        let path = architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
+        return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
+                                       pr: architecture.prFileNotes(path: path, content: content))
     }
 
     /// Show the active markdown document with Explain notes (like code), or back as a document.
@@ -910,6 +890,8 @@ class WorkspaceManager: ObservableObject {
                              directory: explainDirectory(for: url), db: semanticDatabase)
         case "freshness":
             codeExplain.freshness(path: path, root: root, directory: explainDirectory(for: url))
+        case "explainPR":
+            architecture.explainPRFile(path: path, root: root, db: semanticDatabase)
         case "createFilter":
             createFilter(name: payload["name"] as? String ?? "", criterion: payload["criterion"] as? String ?? "")
         case "tempFilter":
@@ -1000,10 +982,14 @@ class WorkspaceManager: ObservableObject {
     func openPRXRay(source: String?) {
         guard let root = rootNode?.url else { return }
         openXRayTab(scope: TabKind.pullRequestScope)
-        architecture.refreshPRSources(root: root)
         if let source, !source.isEmpty {
+            architecture.refreshPRSources(root: root)
             architecture.analyzeWhenLoaded = true
             architecture.showPR(source, root: root)
+        } else {
+            // Nothing chosen yet: everything on this branch vs main, uncommitted included.
+            architecture.selectDefaultSource = true
+            architecture.refreshPRSources(root: root)
         }
     }
 
@@ -1046,8 +1032,17 @@ class WorkspaceManager: ObservableObject {
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
             let url = root.appendingPathComponent(path).standardizedFileURL
             // Stay inside the open folder.
-            guard url.path.hasPrefix(root.standardizedFileURL.path + "/"),
-                  FileManager.default.fileExists(atPath: url.path) else { return }
+            guard url.path.hasPrefix(root.standardizedFileURL.path + "/") else { return }
+            // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
+            // a fetched pull request's own version of the file (which may not exist here).
+            if payload["fromPR"] as? Bool == true {
+                architecture.markPRFocus(path: path)
+                if let prFile = architecture.prFileURL(path: path) {
+                    openFile(prFile, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
+                    return
+                }
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
             if FileType.isOpenable(url) {
                 openFile(url, line: payload["line"] as? Int, endLine: payload["endLine"] as? Int)
                 // Markdown: scroll to a heading or to where the document mentions something.
@@ -1076,9 +1071,11 @@ class WorkspaceManager: ObservableObject {
                 .map { String(text[$0]).filter(\.isNumber) } ?? ""
             if !number.isEmpty { openPRXRay(source: "gh:" + number) }
         case "analyzePR":
-            architecture.analyzePR(root: root, db: semanticDatabase)
+            architecture.analyzePR(root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
         case "prFileDiff":
             architecture.showFileDiff(path: payload["path"] as? String ?? "")
+        case "explainPRFile":
+            architecture.explainPRFile(path: payload["path"] as? String ?? "", root: root, db: semanticDatabase)
         case "askPR":
             let path = payload["path"] as? String
             architecture.askPR(question: payload["question"] as? String ?? "", path: path?.isEmpty == true ? nil : path,
@@ -1088,7 +1085,19 @@ class WorkspaceManager: ObservableObject {
         case "showPR":
             architecture.showPR(payload["source"] as? String ?? "", root: root)
         case "reviewPR":
-            architecture.reviewPR(root: root, db: semanticDatabase)
+            if payload["again"] as? Bool == true {
+                architecture.reviewAgain(root: root, db: semanticDatabase)
+            } else {
+                architecture.reviewPR(root: root, db: semanticDatabase)
+            }
+        case "prTasksToTerminal":
+            // Typed at the assistant's prompt, not sent: check the list and press Enter.
+            if let text = architecture.prTasksText() { sendToAssistant(text, submit: false) }
+        case "copyPRTasks":
+            if let text = architecture.prTasksText() {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
         case "refreshPRSources":
             architecture.refreshPRSources(root: root)
         case "setComponent":
@@ -1463,10 +1472,14 @@ class WorkspaceManager: ObservableObject {
         tabsStore.reset()
     }
 
-    /// Reveal a file in the file tree by expanding parent folders
+    /// A file the file tree should show ("Reveal in File Tree"); the tree browses its
+    /// folder, highlights it and clears the request.
+    @Published var fileTreeRevealRequest: URL?
+
+    /// Show the file tree at `url`'s folder with `url` highlighted.
     func revealInFileTree(url: URL) {
         showFileTree = true
-        fileTreeStore.reveal(url: url)
+        fileTreeRevealRequest = url.standardizedFileURL
     }
 
     /// Save the active tab's file.

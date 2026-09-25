@@ -173,3 +173,9 @@ declaration in a file and grep each one before `git rm`.
 
 ## Never restart the user's running MarkView
 - `install.sh` and `release.sh --install` quit and kill the running app; Boris works in it (live terminal sessions). Build into /tmp/MarkViewDerivedData or `./release.sh` (no `--install`) and let him install when he chooses.
+
+## Nodes inside files break "leaf = file" assumptions in the X-Ray JS
+- Overlays, PR highlighting and tag hiding collect `descendantsFiles` (leaves). Once files got children (contents, PR changes) a file stopped being a leaf and was dimmed/uncounted. A file is the aggregation boundary: stop at `kind === 'file'`; inner kinds inherit their file's overlay.
+
+## A loaded diff goes stale while the user keeps working
+- The PR X-Ray showed a diff taken before a later commit, so lines no longer matched the file. Any view that overlays a diff on a file must either show the diff's own version of the file or map lines by content, and local changes must be re-read when they move on.

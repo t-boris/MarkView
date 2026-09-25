@@ -695,3 +695,42 @@ User feedback on 1.1.0 (tested on broker-fabric / apps/bf-menubar):
 - Real claude runs: sample backlog → Issues (bug 4, feature 3, chore 2) + Decisions, lines right, 6 s; TerminalSession.swift / ImageViewerView.swift → 6–7 logical parts. Labels in the file's language, summaries in the AI language.
 - Web view harness: drill-down Logical › Planning › Backlog › BACKLOG.md › Issues › bug renders, no JS errors.
 - Not verified in the running app: step 4 on a real project, opening an item scrolled in rendered markdown.
+
+## PR X-Ray: inside a changed file show only its changes (2026-09-24)
+- [x] Swift: `PRChangeNote` per changed file — deterministic (touched ranges → X-Ray content parts/items, else "Lines a–b"); AI "explain changes" per file (diff only → title, kind, why), cached; `explainPRFile` action
+- [x] JS PR view: a changed file expands into part → change nodes (not the whole file); selecting a file asks for the explanation
+- [x] JS details for a change: why, kind, lines, only its hunks of the diff, open at line, Ask AI
+- [x] Build, harness render, bump patch (no install)
+### Review
+- Real diff (FileTreeView reveal fix) → claude: 5 logical changes with right lines, only what changed (6 s).
+- Web view harness: PR X-Ray file expands into State / Layout / Reveal / Rows → changes (kind, lines); a change shows its why and only its hunk.
+- Found and fixed on the way: overlays, PR highlighting and "Hide tests" treated a file with inner nodes (contents, changes) as a container → `descendantsFiles` stops at files; inner nodes take their file's colour.
+- Not verified in the running app (not installed: Boris is using it).
+
+## Pull request lens in the file viewer (2026-09-24, 1.26.0)
+- [x] Code/notes viewer lens "⎇ Pull request" (when a PR is loaded in X-Ray and the file is in it): added lines tinted, removal points marked, heat strip; a note per change with kind, lines, why (AI) and its own diff lines; PR title, +/−, summary in the legend
+- [x] Opening a file from the PR X-Ray (or with the PR overlay) starts on that lens; the explanation is requested automatically
+- [x] Logical X-Ray with the Pull request overlay: a changed file's details show its change (summary, diff, Ask AI)
+- [x] Terminal no longer inherits CLAUDECODE / CLAUDE_CODE_* from the process that launched MarkView (verified: 8 in the parent env → 0 in the shell)
+### Review
+- Web view harness with the real FileTreeView diff: lens auto-selected, 5 change notes, 6 bands, no JS errors. PR X-Ray regression render unchanged.
+- Not installed (Boris is using the app).
+
+## X-Ray toolbar, review again, tasks from the review (2026-09-24, 1.26.0)
+- [x] Analyze / Rescan / Fit / Details kept together; a narrow toolbar moves the group to the next line as a whole
+- [x] "Review again" (after a review): reload the change as it is now, review without the cached answer; also repeats the analysis if there was one; "Analyze again" bypasses the cache
+- [x] "N tasks found" in the PR panel: Send to terminal (typed at the assistant prompt, not sent) / Copy — bugs, concerns, notes, checks and risks as markdown tasks with path:line
+### Review
+- Harness: wide and 620 px wide PR panel — buttons on one row (tops 6,6,6,6 / 33,33,33,33), "Review again", "4 tasks found", no JS errors.
+- Not installed.
+
+## Changes in sync, local vs main, fetched PRs, terminal keys (2026-09-24, 1.27.0)
+- [x] Root cause of "not in sync": the PR X-Ray kept a diff loaded before a later commit (429 → 499 lines)
+- [x] Pull request lens matches the diff's lines to the file by content (LCS) — bands, notes and lines follow the current file; local changes reload by themselves when the file moved on (review kept, marked outdated)
+- [x] Sources: "All changes vs main (commits + uncommitted + new files)" (default when the PR X-Ray opens) and GitHub pull requests; "Uncommitted changes" / "branch vs base" removed
+- [x] A GitHub PR is fetched (`pull/N/head`, base; no checkout) and diffed locally (merge-base → head); files open in their PR version (cached snapshot) — always in sync; falls back to `gh pr diff`
+- [x] Terminal: Shift+Enter = new line (LF); ⌘V of an image saves a PNG and types its path, of Finder files types their paths
+### Review
+- Harness: Shift+Enter → '\n', Enter → '\r'; private pasteboard image → valid PNG path typed.
+- PR 161 fetch steps run by hand: head present, base fetched, 35 files diff, working copy and branch untouched.
+- Not verified in the running app; not installed.

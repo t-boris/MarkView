@@ -201,6 +201,7 @@
 
             /** Show `text` read-only with syntax highlighting for `language`. */
             window.setCodeContent = function(text, language, fileName) {
+                currentFile = fileName || null;
                 enterCodeView(language);
                 documentButton.hidden = language !== 'markdown';
                 state.markdown = text;
@@ -264,6 +265,8 @@
                 critical: '#d9534f', high: '#d9982b', normal: '#5a8bd6', low: '#8a9199',
                 // Relevance runs cold → hot in distinct hues, so each level reads at a glance.
                 strong: '#e0457b', moderate: '#e2a93b', weak: '#3fb8d0', none: 'transparent',
+                // Pull request lens: what the change did to each part.
+                added: '#2ea043', changed: '#d29922', removed: '#e5534b', moved: '#58a6ff',
             };
 
             // How a level marks the code: a tint (with an edge bar) or 'dim' to push it back.
@@ -271,6 +274,7 @@
                 critical: 'rgba(217, 83, 79, .17)', high: 'rgba(217, 152, 43, .13)', low: 'dim',
                 strong: 'rgba(224, 69, 123, .18)', moderate: 'rgba(226, 169, 59, .13)', weak: 'rgba(63, 184, 208, .08)', none: 'dim',
                 recent: 'rgba(43, 84, 217, .13)', months: 'rgba(47, 163, 122, .09)',
+                added: 'rgba(46, 160, 67, .18)', removed: 'rgba(229, 83, 75, .30)',
             };
 
             function renderBands() {
@@ -522,15 +526,28 @@
                 lens.textContent = '';
                 const add = function(value, label) { const o = document.createElement('option'); o.value = value; o.textContent = label; lens.appendChild(o); };
                 add('explain', 'Explanation');
+                if (notesState && notesState.pr) add('pr', '⎇ Pull request');
                 add('freshness', 'Freshness');
                 ((notesState && notesState.filters) || []).forEach(function(f) { add(f.id, f.name); });
                 add('__new__', '＋ New filter…');
                 lens.value = Array.from(lens.options).some(function(o) { return o.value === keep; }) ? keep : 'explain';
             }
 
+            let currentFile = null;      // name of the file in the viewer (setCodeContent)
+            let prFocusApplied = null;   // the file a PR X-Ray opened on its change (applied once)
+            let prRequested = null;      // the file whose change explanation was asked for
+
             function renderNotes() {
                 const st = notesState || {};
                 const exp = st.explanation;
+                // Opened from the PR X-Ray: start on the change.
+                if (st.pr && st.pr.focus && prFocusApplied !== currentFile) {
+                    prFocusApplied = currentFile;
+                    notesHidden = false;
+                    renderLensOptions();
+                    lens.value = 'pr';
+                }
+                if (lens.value === 'pr' && st.pr) { renderPRNotes(st); return; }
                 notes.hidden = notesHidden || (!exp && !st.working && !st.error);
                 // Hidden notes come back without a new AI call.
                 explainButton.hidden = !notes.hidden;
@@ -586,6 +603,92 @@
                 renderBands();
                 renderLegend();
                 queueLayout();
+            }
+
+            /** "Pull request" lens: added lines and removal points on the code, and each change
+             *  of the selected pull request with what it does and why, and its own diff lines. */
+            function renderPRNotes(st) {
+                const pr = st.pr;
+                notes.hidden = notesHidden;
+                explainButton.hidden = !notes.hidden;
+                container.classList.toggle('with-notes', !notes.hidden);
+                renderLensOptions();
+                notesStatus.textContent = pr.explaining ? 'Explaining the changes…' : '';
+                notesStatus.className = 'code-notes-status' + (pr.explaining ? ' working' : '');
+                info.title = pr.summary || '';
+                info.hidden = !pr.summary;
+                // A new diff (the change moved on) needs its own explanation.
+                const requestKey = currentFile + '|' + pr.diffKey;
+                if (!pr.explained && !pr.explaining && prRequested !== requestKey) {
+                    prRequested = requestKey;
+                    postCode('explainPR');
+                }
+                track.textContent = '';
+                marked = [];
+                pr.added.forEach(function(r) { marked.push({ start: r[0], end: r[1], level: 'added', title: 'Added' }); });
+                pr.removed.forEach(function(r) {
+                    marked.push({ start: r[0], end: r[0], level: 'removed', title: r[1] + (r[1] === 1 ? ' line' : ' lines') + ' removed' });
+                });
+                pr.changes.forEach(function(change) {
+                    const color = levelColors[change.kind] || levelColors.changed;
+                    const span = document.createElement('div'); span.className = 'code-note-span';
+                    span.style.background = color;
+                    const card = document.createElement('div'); card.className = 'code-note';
+                    card.dataset.start = change.start; card.dataset.end = change.end;
+                    card.style.borderLeftColor = color;
+                    card.style.setProperty('--note-color', color);
+                    const head = document.createElement('div'); head.className = 'code-note-title';
+                    head.textContent = change.title;
+                    const meta = document.createElement('span'); meta.className = 'code-note-meta';
+                    meta.textContent = 'L' + change.start + (change.end !== change.start ? '–' + change.end : '') + (change.kind ? ' · ' + change.kind : '');
+                    head.appendChild(meta);
+                    const body = document.createElement('div'); body.className = 'code-note-body';
+                    body.textContent = change.why || (pr.explaining ? 'Explaining…' : '');
+                    card.appendChild(head); card.appendChild(body);
+                    if (change.diff && change.diff.length) {
+                        const diff = document.createElement('pre'); diff.className = 'code-note-diff';
+                        change.diff.forEach(function(line) {
+                            const row = document.createElement('div');
+                            row.className = line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : '';
+                            row.textContent = line;
+                            diff.appendChild(row);
+                        });
+                        card.appendChild(diff);
+                    }
+                    card.title = change.title + '\n\n' + (change.why || '');
+                    card.onclick = function() { if (viewer) viewer.gotoLine(change.start, change.end); };
+                    card.ondblclick = function() { zoomToSection(change.start, change.end); };
+                    track.appendChild(span); track.appendChild(card);
+                });
+                renderBands();
+                renderPRLegend(pr);
+                queueLayout();
+            }
+
+            function renderPRLegend(pr) {
+                legend.textContent = '';
+                legend.hidden = notes.hidden;
+                const title = document.createElement('b'); title.textContent = pr.title;
+                legend.appendChild(title);
+                const counts = document.createElement('span');
+                counts.textContent = ' +' + pr.additions + ' −' + pr.deletions + ' · ' + pr.changes.length + (pr.changes.length === 1 ? ' change' : ' changes');
+                legend.appendChild(counts);
+                ['added', 'changed', 'removed'].forEach(function(kind) {
+                    const key = document.createElement('span'); key.className = 'code-legend-key';
+                    key.style.color = levelColors[kind]; key.textContent = ' ● ' + kind;
+                    legend.appendChild(key);
+                });
+                if (pr.summary) {
+                    const p = document.createElement('div'); p.className = 'code-pr-summary'; p.textContent = pr.summary;
+                    legend.appendChild(p);
+                }
+                if (pr.remapped || pr.reviewOutdated) {
+                    const note = document.createElement('div'); note.className = 'code-pr-summary code-pr-note';
+                    note.textContent = pr.remapped
+                        ? 'The file differs from this version of the change: lines are matched by content; the change is being read again.'
+                        : 'The code changed after the review — Review again in the PR X-Ray.';
+                    legend.appendChild(note);
+                }
             }
 
             /** Swift → JS: notes for the file in the viewer (CodeExplainStore payload). */

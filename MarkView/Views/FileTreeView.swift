@@ -8,6 +8,8 @@ struct FileTreeView: View {
     @State private var listVersion = 0
     /// Folder a drag is currently over (highlighted as the drop target).
     @State private var dropTarget: URL?
+    /// Row shown by "Reveal in File Tree" (highlighted until the next reveal).
+    @State private var revealedURL: URL?
 
     private var _theme: Int { workspaceManager.themeVersion }
     private var git: GitClient { workspaceManager.gitClient }
@@ -79,6 +81,7 @@ struct FileTreeView: View {
 
     var body: some View {
         let _ = _theme
+        ScrollViewReader { proxy in
         VStack(spacing: 0) {
             // Git bar
             if git.isGitRepo {
@@ -299,6 +302,39 @@ struct FileTreeView: View {
             // Browsing state belongs to the previous folder.
             currentDirectory = nil
             searchText = ""
+            revealedURL = nil
+        }
+        // The tree may have been hidden when the reveal was asked for.
+        .onAppear { reveal(with: proxy) }
+        .onChange(of: workspaceManager.fileTreeRevealRequest) { _ in reveal(with: proxy) }
+        }
+    }
+
+    /// "Reveal in File Tree": browse the item's folder, clear the filter, scroll to the
+    /// item and highlight it. An item not on disk (a terminal or X-Ray tab) shows its
+    /// nearest existing folder.
+    private func reveal(with proxy: ScrollViewProxy) {
+        guard let request = workspaceManager.fileTreeRevealRequest,
+              let root = workspaceManager.rootNode?.url.standardizedFileURL else { return }
+        workspaceManager.fileTreeRevealRequest = nil
+        var target = request.standardizedFileURL
+        guard target.path == root.path || target.path.hasPrefix(root.path + "/") else { return }
+        while target.path != root.path,
+              !FileManager.default.fileExists(atPath: target.path) || target.lastPathComponent.hasPrefix(".") {
+            target = target.deletingLastPathComponent()
+        }
+        guard target.path != root.path else {
+            currentDirectory = nil
+            revealedURL = nil
+            return
+        }
+        let folder = target.deletingLastPathComponent()
+        currentDirectory = folder.path == root.path ? nil : folder
+        searchText = ""
+        revealedURL = target
+        // After the list of the new folder is laid out.
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .center) }
         }
     }
 
@@ -335,7 +371,8 @@ struct FileTreeView: View {
         .contentShape(Rectangle())
         .onTapGesture { currentDirectory = url }
         .onDrag { dragItem(url) }
-        .background(dropTarget == url ? VSDark.blue.opacity(0.25) : Color.clear)
+        .background(dropTarget == url ? VSDark.blue.opacity(0.25)
+                    : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
         .opacity(workspaceManager.isExcluded(url) ? 0.4 : 1.0)
         .contextMenu {
@@ -381,6 +418,7 @@ struct FileTreeView: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture { workspaceManager.openFile(url) }
         .onDrag { dragItem(url) }
