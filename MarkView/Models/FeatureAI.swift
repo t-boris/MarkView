@@ -283,8 +283,10 @@ final class FeatureAssistant: ObservableObject {
                                  provenance: String) -> FeatureObject? {
         let criteria = (r["acceptance_criteria"] as? [String] ?? []).map { "- [ ] \($0)" }.joined(separator: "\n")
         let body = "## Statement\n\n\(r["statement"] as? String ?? "")\n\n## Acceptance Criteria\n\n\(criteria)\n"
+        // After Explore, a requirement the resolution or a consolidation writes is approved at once.
+        let status = store.feature(slug)?.isPastExplore == true ? "approved" : "draft"
         return store.create(.requirement, in: slug, title: r["title"] as? String ?? "Requirement",
-                            fields: [("req_type", .string(r["req_type"] as? String ?? "functional")),
+                            fields: [("status", .string(status)), ("req_type", .string(r["req_type"] as? String ?? "functional")),
                                      ("depends_on", .list([])), ("decisions", .list(decisions.map { .string($0) })),
                                      ("sources", .list(sources.map { .string($0) })), ("issues", .list([]))],
                             body: body, provenance: provenance)
@@ -531,7 +533,6 @@ final class FeatureAssistant: ObservableObject {
                 }
                 front.set("sources", list: Array(Set(front.strings("sources") + [id])).sorted())
                 if let decisionID { front.set("decisions", list: Array(Set(front.strings("decisions") + [decisionID])).sorted()) }
-                if front.string("status") == "approved" { front.set("status", "review") }
             }
             produced.append(rid)
         }
@@ -610,6 +611,7 @@ final class FeatureAssistant: ObservableObject {
             store.setUnderstanding(slug, Dictionary(uniqueKeysWithValues: current.openDimensions.map { ($0, "known") }))
         }
         store.updateFeature(slug) { front, _ in front.set("questions_left", "0") }
+        store.finishExplore(slug)
         let summary = made.isEmpty ? "No further decisions were needed." : made.map { "• " + $0 }.joined(separator: "\n")
         store.appendDiscussion(slug, speaker: "AI decided the rest", text: summary)
         results.insert(FeatureResult(title: "Discovery finished — AI decided \(made.count)",
@@ -792,6 +794,8 @@ final class FeatureAssistant: ObservableObject {
     func review(_ slug: String, focus: String? = nil) async {
         preparing.insert("review:" + slug)
         defer { preparing.remove("review:" + slug) }
+        // Reviewing the whole specification after discovery leaves Explore.
+        if focus == nil, store.feature(slug)?.discoveryDone == true { store.finishExplore(slug) }
         guard let feature = store.feature(slug) else { return }
         let scope = focus.map { "Review only \($0) and what it depends on." } ?? "Review the whole specification."
         let prompt = context(feature, focus: focus.map { [$0] } ?? feature.activeRequirements.map(\.id), budget: 70_000) + """
@@ -1055,7 +1059,6 @@ final class FeatureAssistant: ObservableObject {
         for target in finding.front.strings("refs") where FeatureObjectKind.of(id: target) == .requirement {
             store.update(target, in: slug) { front, _ in
                 front.set("decisions", list: Array(Set(front.strings("decisions") + [decision.id])).sorted())
-                if front.string("status") == "approved" { front.set("status", "review") }
             }
         }
     }

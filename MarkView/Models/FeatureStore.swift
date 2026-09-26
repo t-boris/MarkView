@@ -36,6 +36,8 @@ final class FeatureStore: ObservableObject {
     private var lifecycleBaseline: [String: LifecycleSnapshot]?
     /// Features whose next change is the app's own reset, not a lifecycle transition.
     private var lifecycleQuiet: Set<String> = []
+    /// Last look at GitHub for review, CI and merge events.
+    private var lastLifecycleSync: Date?
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
 
@@ -62,10 +64,13 @@ final class FeatureStore: ObservableObject {
         reload()
         loadGitUser()
         pollTask = Task { [weak self] in
+            var tick = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard let self, !Task.isCancelled else { return }
                 self.reloadIfChanged()
+                tick += 1
+                if tick % 20 == 0 { self.syncLifecycleWithGit() }  // about once a minute
             }
         }
     }
@@ -75,6 +80,7 @@ final class FeatureStore: ObservableObject {
         if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
         lifecycleBaseline = nil
         lifecycleQuiet = []
+        lastLifecycleSync = nil
         pollTask?.cancel()
         pollTask = nil
         root = nil
@@ -420,6 +426,23 @@ final class FeatureStore: ObservableObject {
         reloadSync(slug)
     }
 
+    /// Approve every draft and in-review requirement.
+    func approveRequirements(_ slug: String) {
+        guard let feature = feature(slug) else { return }
+        let pending = feature.activeRequirements.filter { ["draft", "review"].contains($0.status) }.map(\.id)
+        guard !pending.isEmpty else { return }
+        updateMany(pending, in: slug) { _, front, _ in front.set("status", "approved") }
+    }
+
+    /// Leaving Explore: the requirements say what the user answered or let the AI decide, so they
+    /// are approved, and the feature moves on to review.
+    func finishExplore(_ slug: String) {
+        approveRequirements(slug)
+        if let feature = feature(slug), !feature.isPastExplore {
+            updateFeature(slug) { front, _ in front.set("status", "review") }
+        }
+    }
+
     func setStatus(_ id: String, in slug: String, to status: String) {
         update(id, in: slug) { front, _ in front.set("status", status) }
     }
@@ -544,15 +567,19 @@ final class FeatureStore: ObservableObject {
 
     @discardableResult
     func recordLifecycle(_ stage: LifecycleStage, feature slug: String, source: LifecycleSource = .automatic,
-                         model: String? = nil, note: String? = nil) -> LifecycleEvent? {
+                         model: String? = nil, note: String? = nil, at time: Date? = nil) -> LifecycleEvent? {
         guard let project = lifecycleProject else { return nil }
         return LifecycleLog.shared.record(stage, project: project, feature: slug, actor: lifecycleActor,
-                                          source: source, model: model, note: note)
+                                          source: source, model: model, note: note, at: time)
     }
 
-    /// Compare every freshly read list with the last one: status into 'ready' records "spec
-    /// ready", open questions from ≥ 1 to 0 records "questions resolved" (DEC-008). Changes made
-    /// by the app and in files (editor, git, the AI terminal) alike.
+    /// Compare every freshly read list with the last one (DEC-008). Changes made by the app and
+    /// in files (editor, git, the AI terminal) alike:
+    /// - open questions from ≥ 1 to 0 → "questions resolved";
+    /// - status into 'ready', or readiness reaching 100 % → "spec ready";
+    /// - status into implementation with no "spec ready" yet (Create issues goes there straight
+    ///   from review) → "spec ready", so the chain is not broken;
+    /// - status into 'implemented' → "implementation finished".
     private func observeLifecycle() {
         guard let project = lifecycleProject else { return }
         let current = Dictionary(features.map { ($0.slug, LifecycleSnapshot($0)) }, uniquingKeysWith: { a, _ in a })
@@ -561,8 +588,143 @@ final class FeatureStore: ObservableObject {
         for (slug, now) in current where !lifecycleQuiet.contains(slug) {
             guard let before = previous[slug] else { continue }  // new or renamed: no transition seen
             if before.openQuestions > 0 && now.openQuestions == 0 { recordLifecycle(.questionsResolved, feature: slug) }
-            if before.status != "ready" && now.status == "ready" { recordLifecycle(.specReady, feature: slug) }
+            if (before.status != "ready" && now.status == "ready") || (before.readiness < 100 && now.readiness == 100) {
+                recordLifecycle(.specReady, feature: slug)
+            } else if !before.isImplementing && now.isImplementing {
+                recordSpecReadyIfMissing(slug)
+            }
+            if before.status != "implemented" && now.status == "implemented" {
+                recordLifecycle(.implementationFinished, feature: slug, note: "Status implemented")
+            }
         }
+    }
+
+    private func recordSpecReadyIfMissing(_ slug: String) {
+        guard !lifecycleEvents(slug).contains(where: { $0.stage == .specReady }) else { return }
+        recordLifecycle(.specReady, feature: slug, note: "Handed to implementation")
+    }
+
+    /// "Implement with AI" handed `slug` to `tool` running in `directory`: "implementation
+    /// started" at the click, with the model the CLI actually answered with — read from its own
+    /// session log once it replies, else the model it was started with or its configured default.
+    func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL) {
+        guard let project = lifecycleProject else { return }
+        recordSpecReadyIfMissing(slug)
+        let actor = lifecycleActor, started = Date()
+        let fallback = AIAssistantPreferences.model(for: tool) ?? AIAssistantPreferences.configuredModel(for: tool)
+        Task.detached(priority: .utility) {
+            let model = await Self.answeringModel(tool, directory: directory, since: started) ?? fallback ?? tool.displayName
+            await MainActor.run {
+                LifecycleLog.shared.record(.implementationStarted, project: project, feature: slug, actor: actor, source: .automatic,
+                                           model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
+            }
+        }
+    }
+
+    /// Polls the CLI's session log for its first reply since `since`, for up to 15 minutes
+    /// (the CLI may update itself and start first). CLIs without a readable log give nil.
+    nonisolated private static func answeringModel(_ tool: CLITool, directory: URL, since: Date) async -> String? {
+        guard tool == .claude || tool == .codex else { return nil }
+        let deadline = since.addingTimeInterval(15 * 60)
+        while Date() < deadline, !Task.isCancelled {
+            let model = tool == .claude ? AgentModelProbe.claudeModel(cwd: directory, since: since)
+                : AgentModelProbe.codexModel(cwd: directory, since: since)
+            if let model { return model }
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
+        return nil
+    }
+
+    /// Features whose GitHub and git history is followed: those with an "implementation
+    /// started" event, from that moment on (no backfill, DEC-013).
+    private var lifecycleTargets: [(slug: String, folder: String, issues: [Int], since: Date)] {
+        features.compactMap { feature in
+            guard let since = lifecycleEvents(feature.slug).first(where: { $0.stage == .implementationStarted })?.timestamp else { return nil }
+            let issues = Set(feature.issueNumbers + feature.planIssues.compactMap(\.github) + [feature.epic].compactMap { $0 })
+            return (feature.slug, relativePath(feature.folder), Array(issues.sorted().prefix(40)), since)
+        }
+    }
+
+    /// Record an automatic capture once: the same stage with the same note (a pull request or a
+    /// commit) is never recorded twice, also when two windows look.
+    private func recordCapture(_ stage: LifecycleStage, date: Date, note: String, feature slug: String, project: String, actor: String) {
+        let seen = LifecycleLog.shared.events(project: project, feature: slug).contains {
+            $0.stage == stage && $0.source == .automatic && $0.note == note
+        }
+        if !seen { LifecycleLog.shared.record(stage, project: project, feature: slug, actor: actor, source: .automatic, note: note, at: date) }
+    }
+
+    /// Review, CI, pull requests and merges on GitHub, stamped with GitHub's times: pull requests
+    /// that are or close the feature's issues, and Actions runs of the commits recorded as merged
+    /// to main. Called on the GitHub integration's poll (so never when it is off), at most every
+    /// idle interval, by the store that records the project's automatic events.
+    func syncLifecycle(with client: GitHubClient) {
+        guard let project = lifecycleProject, let root, LifecycleLog.shared.claim(project, by: self) else { return }
+        if let last = lastLifecycleSync, Date().timeIntervalSince(last) < GitHubSettings.idleInterval { return }
+        let targets = lifecycleTargets
+        guard !targets.isEmpty else { return }
+        lastLifecycleSync = Date()
+        let actor = lifecycleActor
+        Task {
+            for target in targets {
+                if !target.issues.isEmpty, let captures = try? await client.lifecycleCaptures(numbers: target.issues) {
+                    for capture in captures where capture.date >= target.since {
+                        recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
+                    }
+                }
+                // Commits on main from the last week still without "CI passed".
+                let events = LifecycleLog.shared.events(project: project, feature: target.slug)
+                let passed = Set(events.filter { $0.stage == .ciPassed }.compactMap(\.note))
+                let pending = events.filter {
+                    $0.stage == .mergedToMain && $0.source == .automatic && $0.note?.hasPrefix("commit ") == true
+                        && !passed.contains($0.note ?? "") && $0.timestamp > Date().addingTimeInterval(-7 * 86_400)
+                }
+                for event in pending {
+                    guard let note = event.note else { continue }
+                    let short = String(note.dropFirst("commit ".count))
+                    let sha = await GitHubClient.execute(["rev-parse", "--verify", "-q", short + "^{commit}"], in: root, git: true)
+                        .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !sha.isEmpty, let date = try? await client.ciPassed(commit: sha) else { continue }
+                    recordCapture(.ciPassed, date: date, note: note, feature: target.slug, project: project, actor: actor)
+                }
+            }
+        }
+    }
+
+    /// Work committed straight to the default branch: a commit naming the feature folder or one of
+    /// its issues, made after implementation started, is "merged to main" at its commit time.
+    /// Local git only (no GitHub needed); run from the store's poll about once a minute.
+    private func syncLifecycleWithGit() {
+        guard let project = lifecycleProject, let root, LifecycleLog.shared.claim(project, by: self) else { return }
+        let targets = lifecycleTargets
+        guard !targets.isEmpty else { return }
+        let actor = lifecycleActor
+        Task {
+            guard let branch = await Self.defaultBranch(root) else { return }
+            let output = await GitHubClient.execute(LifecycleGit.logArguments(branch: branch), in: root, git: true)
+            let commits = LifecycleGit.commits(from: output.stdout)
+            for target in targets {
+                for commit in commits where commit.date >= target.since
+                    && LifecycleGit.mentions(commit.message, folder: target.folder, issues: Set(target.issues)) {
+                    recordCapture(.mergedToMain, date: commit.date, note: commit.note, feature: target.slug, project: project, actor: actor)
+                }
+            }
+        }
+    }
+
+    /// The branch `origin/HEAD` points at (its local copy when there is one), else main or master.
+    nonisolated private static func defaultBranch(_ root: URL) async -> String? {
+        func exists(_ ref: String) async -> Bool {
+            await GitHubClient.execute(["rev-parse", "--verify", "-q", ref], in: root, git: true).status == 0
+        }
+        let head = await GitHubClient.execute(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], in: root, git: true)
+            .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !head.isEmpty {
+            let local = String(head.dropFirst("origin/".count))
+            return await exists("refs/heads/" + local) ? local : head
+        }
+        for name in ["main", "master"] where await exists("refs/heads/" + name) { return name }
+        return nil
     }
 
     // MARK: History (spec §30)
@@ -588,9 +750,13 @@ final class FeatureStore: ObservableObject {
 struct LifecycleSnapshot: Equatable {
     let status: String
     let openQuestions: Int
+    let readiness: Int
 
     init(_ feature: Feature) {
         status = feature.status
         openQuestions = feature.list(.question).filter { !$0.isClosed }.count
+        readiness = feature.isStructured ? feature.readiness : 0
     }
+
+    var isImplementing: Bool { ["implementing", "implemented", "verified"].contains(status) }
 }

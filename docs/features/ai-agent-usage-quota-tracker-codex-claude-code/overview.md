@@ -2,7 +2,7 @@
 type: feature
 id: ai-agent-usage-quota-tracker-codex-claude-code
 title: AI agent usage & quota tracker (Codex, Claude Code, etc.)
-status: review
+status: implementing
 owner: Boris Tsekinovsky
 created: 2026-09-26
 provenance: Created from the feature intake

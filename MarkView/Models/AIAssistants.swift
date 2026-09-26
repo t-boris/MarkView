@@ -156,6 +156,21 @@ enum AIAssistantPreferences {
         }
     }
 
+    /// The model the CLI runs when no flag is given, from its own configuration (Claude Code:
+    /// `~/.claude/settings.json` "model", Codex: `~/.codex/config.toml`), or nil.
+    static func configuredModel(for tool: CLITool) -> String? {
+        switch tool {
+        case .claude:
+            let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/settings.json")
+            guard let data = try? Data(contentsOf: url),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let model = (object["model"] as? String)?.trimmingCharacters(in: .whitespaces), !model.isEmpty else { return nil }
+            return model
+        case .codex: return codexConfiguredModel()
+        case .cline, .copilot: return nil
+        }
+    }
+
     private static var codexHome: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex")
     }

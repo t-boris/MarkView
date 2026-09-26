@@ -45,6 +45,8 @@ final class GitHubStore: ObservableObject {
     }
     /// Told the repository GitHub requests go to (the PR X-Ray of the same window follows it).
     var onRepoChange: ((GitHubRepo?) -> Void)?
+    /// Told on every poll (and when polling starts), for other state that follows GitHub.
+    var onPoll: ((GitHubClient) -> Void)?
     @Published var lastError: String?
 
     // Pull requests
@@ -316,6 +318,7 @@ final class GitHubStore: ObservableObject {
     private func startPolling() {
         pollTask?.cancel()
         guard selectedRepo != nil else { return }
+        if let client { onPoll?(client) }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 let active = self?.anyRunActive ?? false
@@ -325,6 +328,7 @@ final class GitHubStore: ObservableObject {
                 self.refreshRuns()
                 self.refreshBranchRuns()
                 for model in self.runModels.values where model.isLive { model.refresh() }
+                if let client = self.client { self.onPoll?(client) }
             }
         }
     }

@@ -17,6 +17,7 @@
 		E13141936367417093244259 /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16484821693680626118454 /* FeatureModels.swift */; };
 		E16770925975298407333923 /* LifecycleLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11845170636009720804643 /* LifecycleLog.swift */; };
 		E11905873699096501538840 /* LifecycleAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10970912149096880814357 /* LifecycleAnalytics.swift */; };
+		E11905873699096501538841 /* LifecycleCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10970912149096880814358 /* LifecycleCapture.swift */; };
 		E16868434366331489332852 /* FrontMatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19176763508153799250317 /* FrontMatter.swift */; };
 		E17451009770101104827274 /* GitHubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19812821332370322777652 /* GitHubViews.swift */; };
 		E10923401475930448596842 /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16498916146422574535717 /* GitHubStore.swift */; };
@@ -58,6 +59,9 @@
 		E16645386500824722723458 /* GraphCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCreatorSheet.swift; sourceTree = "<group>"; };
 		E19706015117051627326464 /* GitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitView.swift; sourceTree = "<group>"; };
 		E13834677324410788145575 /* AIAssistants.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16395529941982676028954 /* AIAssistants.swift */; };
+		AB5A0C0E1D2F3A4B5C6D7E02 /* AgentUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5A0C0E1D2F3A4B5C6D7E01 /* AgentUsage.swift */; };
+		AB5A0C0E1D2F3A4B5C6D7E04 /* AgentUsageLogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5A0C0E1D2F3A4B5C6D7E03 /* AgentUsageLogs.swift */; };
+		AB5A0C0E1D2F3A4B5C6D7E06 /* AgentUsageTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5A0C0E1D2F3A4B5C6D7E05 /* AgentUsageTracker.swift */; };
 		0D1D29948BB284ED1EDFEFDA /* CLICompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37A885AECF408932486180D /* CLICompletion.swift */; };
 		20C0EE5BD083C8D1CAEC54A0 /* CodeExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */; };
 		A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */; };
@@ -77,6 +81,9 @@
 		E11726806662746062743866 /* WhisperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12115144200861477320559 /* WhisperClient.swift */; };
 		E12115144200861477320559 /* WhisperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperClient.swift; sourceTree = "<group>"; };
 		E16395529941982676028954 /* AIAssistants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistants.swift; sourceTree = "<group>"; };
+		AB5A0C0E1D2F3A4B5C6D7E01 /* AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsage.swift; sourceTree = "<group>"; };
+		AB5A0C0E1D2F3A4B5C6D7E03 /* AgentUsageLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageLogs.swift; sourceTree = "<group>"; };
+		AB5A0C0E1D2F3A4B5C6D7E05 /* AgentUsageTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageTracker.swift; sourceTree = "<group>"; };
 		D37A885AECF408932486180D /* CLICompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletion.swift; sourceTree = "<group>"; };
 		CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeExplainer.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayDigest.swift; sourceTree = "<group>"; };
@@ -93,6 +100,7 @@
 		921A34A74571B93AEDC2B018 /* OutputLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputLanguage.swift; sourceTree = "<group>"; };
 		E21111111111111111111111 /* ModuleExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E22222222222222222222222 /* ModuleExplorerView.swift */; };
 		A7D1F2C3B4E5968778695A14 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A13 /* TerminalView.swift */; };
+		AB5A0C0E1D2F3A4B5C6D7E08 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5A0C0E1D2F3A4B5C6D7E07 /* AgentUsageViews.swift */; };
 		A7D1F2C3B4E5968778695A16 /* ImageViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A15 /* ImageViewerView.swift */; };
 		E31111111111111111111111 /* EmbeddingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32222222222222222222222 /* EmbeddingClient.swift */; };
 		E81111111111111111111111 /* GraphRAG.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82222222222222222222222 /* GraphRAG.swift */; };
@@ -112,6 +120,7 @@
 		E16484821693680626118454 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
 		E11845170636009720804643 /* LifecycleLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleLog.swift; sourceTree = "<group>"; };
 		E10970912149096880814357 /* LifecycleAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleAnalytics.swift; sourceTree = "<group>"; };
+		E10970912149096880814358 /* LifecycleCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleCapture.swift; sourceTree = "<group>"; };
 		E19176763508153799250317 /* FrontMatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontMatter.swift; sourceTree = "<group>"; };
 		E19812821332370322777652 /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		E16498916146422574535717 /* GitHubStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubStore.swift; sourceTree = "<group>"; };
@@ -151,6 +160,7 @@
 		E02222222222222222222222 /* StructuralIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralIndexer.swift; sourceTree = "<group>"; };
 		E22222222222222222222222 /* ModuleExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleExplorerView.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A13 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		AB5A0C0E1D2F3A4B5C6D7E07 /* AgentUsageViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageViews.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A15 /* ImageViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageViewerView.swift; sourceTree = "<group>"; };
 		E32222222222222222222222 /* EmbeddingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingClient.swift; sourceTree = "<group>"; };
 		E82222222222222222222222 /* GraphRAG.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphRAG.swift; sourceTree = "<group>"; };
@@ -183,6 +193,9 @@
 				CB2222222222222222222222 /* DependencyGraphScheduler.swift */,
 				E02222222222222222222222 /* StructuralIndexer.swift */,
 				E16395529941982676028954 /* AIAssistants.swift */,
+				AB5A0C0E1D2F3A4B5C6D7E01 /* AgentUsage.swift */,
+				AB5A0C0E1D2F3A4B5C6D7E03 /* AgentUsageLogs.swift */,
+				AB5A0C0E1D2F3A4B5C6D7E05 /* AgentUsageTracker.swift */,
 				D37A885AECF408932486180D /* CLICompletion.swift */,
 				CC0C3BF6FECD71A6D72D2590 /* CodeExplainer.swift */,
 				7A1C0E0F2B3D4E5F6071829A /* ACPAssistant.swift */,
@@ -208,6 +221,7 @@
 				E16484821693680626118454 /* FeatureModels.swift */,
 				E11845170636009720804643 /* LifecycleLog.swift */,
 				E10970912149096880814357 /* LifecycleAnalytics.swift */,
+				E10970912149096880814358 /* LifecycleCapture.swift */,
 				E19176763508153799250317 /* FrontMatter.swift */,
 				E16498916146422574535717 /* GitHubStore.swift */,
 				E10110360865000248980617 /* GitHubClient.swift */,
@@ -237,6 +251,7 @@
 				DA2222222222222222222222 /* DiagnosticsBarView.swift */,
 				E22222222222222222222222 /* ModuleExplorerView.swift */,
 				A7D1F2C3B4E5968778695A13 /* TerminalView.swift */,
+				AB5A0C0E1D2F3A4B5C6D7E07 /* AgentUsageViews.swift */,
 				A7D1F2C3B4E5968778695A15 /* ImageViewerView.swift */,
 				DC2222222222222222222222 /* MatrixTheme.swift */,
 				AD2222222222222222222222 /* DDESettingsView.swift */,
@@ -432,6 +447,9 @@
 				E17451009770101104827274 /* GitHubViews.swift in Sources */,
 				E17413308635163577843479 /* GraphCreatorSheet.swift in Sources */,
 				E13834677324410788145575 /* AIAssistants.swift in Sources */,
+				AB5A0C0E1D2F3A4B5C6D7E02 /* AgentUsage.swift in Sources */,
+				AB5A0C0E1D2F3A4B5C6D7E04 /* AgentUsageLogs.swift in Sources */,
+				AB5A0C0E1D2F3A4B5C6D7E06 /* AgentUsageTracker.swift in Sources */,
 				0D1D29948BB284ED1EDFEFDA /* CLICompletion.swift in Sources */,
 				20C0EE5BD083C8D1CAEC54A0 /* CodeExplainer.swift in Sources */,
 				7A1C0E0F2B3D4E5F60718299 /* ACPAssistant.swift in Sources */,
@@ -457,12 +475,14 @@
 				E13141936367417093244259 /* FeatureModels.swift in Sources */,
 				E16770925975298407333923 /* LifecycleLog.swift in Sources */,
 				E11905873699096501538840 /* LifecycleAnalytics.swift in Sources */,
+				E11905873699096501538841 /* LifecycleCapture.swift in Sources */,
 				E16868434366331489332852 /* FrontMatter.swift in Sources */,
 				E10923401475930448596842 /* GitHubStore.swift in Sources */,
 				E17358739185104628587482 /* GitHubClient.swift in Sources */,
 				E11726806662746062743866 /* WhisperClient.swift in Sources */,
 				E21111111111111111111111 /* ModuleExplorerView.swift in Sources */,
 				A7D1F2C3B4E5968778695A14 /* TerminalView.swift in Sources */,
+				AB5A0C0E1D2F3A4B5C6D7E08 /* AgentUsageViews.swift in Sources */,
 				A7D1F2C3B4E5968778695A16 /* ImageViewerView.swift in Sources */,
 				E31111111111111111111111 /* EmbeddingClient.swift in Sources */,
 				E81111111111111111111111 /* GraphRAG.swift in Sources */,
@@ -511,7 +531,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.13.0;
+				CURRENT_PROJECT_VERSION = 2.14.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -526,7 +546,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.13.0;
+				MARKETING_VERSION = 2.14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -590,7 +610,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.13.0;
+				CURRENT_PROJECT_VERSION = 2.14.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -611,7 +631,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.13.0;
+				MARKETING_VERSION = 2.14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

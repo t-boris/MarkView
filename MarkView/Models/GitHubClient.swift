@@ -461,6 +461,21 @@ struct GitHubClient: Sendable {
             + ["--json", GHPullRequest.listFields + ",mergeable,headRefOid"])
     }
 
+    /// Lifecycle events of the pull requests that are, or close, issues `numbers` (one query).
+    func lifecycleCaptures(numbers: [Int]) async throws -> [LifecycleGitHub.Capture] {
+        let parts = repo.slug.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.count == 2, !numbers.isEmpty else { return [] }
+        let text = try await gh(["api", "graphql", "-f", "query=" + LifecycleGitHub.query(numbers: numbers),
+                                 "-f", "owner=" + parts[0], "-f", "name=" + parts[1]])
+        return LifecycleGitHub.captures(from: Data(text.utf8))
+    }
+
+    /// When every Actions run of commit `sha` succeeded, the time the last one finished.
+    func ciPassed(commit sha: String) async throws -> Date? {
+        let json = try await gh(["run", "list"] + r + ["--commit", sha, "--json", "status,conclusion,updatedAt"])
+        return LifecycleGit.ciPassed(runsJSON: Data(json.utf8))
+    }
+
     /// Check the pull request out into the working copy (`gh pr checkout`).
     func checkout(_ number: Int) async throws {
         try await gh(["pr", "checkout", String(number)] + r)

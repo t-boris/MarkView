@@ -2,7 +2,7 @@
 type: feature
 id: lifecycle-event-log-cycle-time-analytics
 title: Lifecycle event log & cycle-time analytics
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-09-26
 provenance: Created from the feature intake

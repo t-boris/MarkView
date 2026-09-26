@@ -129,7 +129,11 @@ struct FeaturePanelView: View {
             }
             HStack(spacing: 2) {
                 ForEach(FeatureStage.allCases, id: \.self) { item in
-                    Button(action: { stage = item }) {
+                    Button(action: {
+                        // Leaving Explore once discovery is done approves the requirements.
+                        if stage == .explore, item != .explore, feature.discoveryDone { store.finishExplore(feature.slug) }
+                        stage = item
+                    }) {
                         Text(item.rawValue.uppercased())
                             .font(.system(size: 9, weight: stage == item ? .bold : .regular, design: .monospaced))
                             .frame(maxWidth: .infinity).padding(.vertical, 3)
@@ -403,9 +407,10 @@ struct ExploreStageView: View {
                         Image(systemName: "checkmark.seal.fill").foregroundColor(VSDark.green)
                         Text("Feature understood").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
                     }
-                    Text("Every dimension is known or not applicable, so discovery is done. Next: review the specification. To reopen discovery, mark a dimension partial or unknown.")
+                    Text("Every dimension is known or not applicable, so discovery is done. Leaving Explore approves the requirements. Next: review the specification. To reopen discovery, mark a dimension partial or unknown.")
                         .font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                     SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
+                        store.finishExplore(feature.slug)
                         UserDefaults.standard.set(FeatureStage.review.rawValue, forKey: FeatureStage.storageKey)
                     }
                 }
@@ -429,7 +434,7 @@ struct ExploreStageView: View {
             }
             if !feature.isUnderstood && !assistant.isRunning("decide:" + feature.slug) {
                 HStack(alignment: .top, spacing: 6) {
-                    Text("Enough questions? AI makes the remaining decisions itself (as proposed, to check in Review) and finishes discovery.")
+                    Text("Enough questions? AI makes the remaining decisions itself (as proposed, to check in Review), finishes discovery and approves the requirements.")
                         .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest and finish", icon: "flag.checkered") {
@@ -1244,9 +1249,14 @@ struct BuildStageView: View {
                 Spacer()
                 SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.implementWithAI(feature.folder) }
             }
-            if approved.isEmpty {
-                Text("Approve requirements first (their files' status, or in the object panel). The plan uses approved ones; without any it uses all non-rejected.")
-                    .font(.system(size: 9)).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+            let unapproved = feature.activeRequirements.filter { ["draft", "review"].contains($0.status) }
+            if !unapproved.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Text("\(unapproved.count) requirement\(unapproved.count == 1 ? "" : "s") not approved yet. The plan uses approved ones; without any it uses all non-rejected.")
+                        .font(.system(size: 9)).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    SmallButton(title: "Approve all", icon: "checkmark.seal") { store.approveRequirements(feature.slug) }
+                }
             }
             if !issues.isEmpty {
                 PanelSection(title: "Implementation coverage") {

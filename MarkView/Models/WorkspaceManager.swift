@@ -3182,7 +3182,9 @@ class WorkspaceManager: ObservableObject {
     /// documentation): the shown terminal when it runs one, else an open assistant
     /// terminal, else a new one with the toolbar's assistant. Pasted as one block;
     /// `submit` presses Enter.
-    func sendToAssistant(_ prompt: String, submit: Bool = true) {
+    /// Returns the terminal session the prompt went to.
+    @discardableResult
+    func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
         showAIConsole()
         let session: TerminalSession?
         if let shown = aiTerminal, shown.profile != .shell {
@@ -3193,9 +3195,10 @@ class WorkspaceManager: ObservableObject {
         } else {
             session = openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
         }
-        guard let session else { return }
+        guard let session else { return nil }
         activeAITerminalID = session.id
         session.pasteWhenReady(prompt, submit: submit)
+        return session
     }
 
     // MARK: - GitHub
@@ -3256,12 +3259,17 @@ class WorkspaceManager: ObservableObject {
 
     /// Hand a document to the AI to implement (the assistant in the Terminal tab): Claude Code gets
     /// it as a `/goal`, the others as a plain instruction.
+    /// The feature is recorded as "implementation started" with the CLI that got it.
     func implementWithAI(_ url: URL) {
         let path = workspaceRelativePath(url)
         let instruction = "implement \(path) — ask any question if you are in doubt"
         let prompt = AIAssistantPreferences.backend == .claude ? "/goal \(instruction)"
             : "Implement what \(path) specifies. Read it first; ask any question if you are in doubt before changing code."
-        sendToAssistant(prompt, submit: true)
+        guard let session = sendToAssistant(prompt, submit: true), let tool = session.profile.tool else { return }
+        let target = url.standardizedFileURL.path
+        let slug = features.features.first { $0.folder.standardizedFileURL.path == target }?.slug
+            ?? features.locate(url)?.feature.slug
+        if let slug { features.recordImplementationStarted(slug, tool: tool, directory: session.directory) }
     }
 
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
@@ -3327,6 +3335,7 @@ class WorkspaceManager: ObservableObject {
         gitHubRoot = root
         gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
         gitHub.onRepoChange = { [weak self] repo in self?.architecture.gitHubRepo = repo }
+        gitHub.onPoll = { [weak self] client in self?.features.syncLifecycle(with: client) }
         if gitHubSettingObserver == nil {
             gitHubSettingObserver = NotificationCenter.default.addObserver(
                 forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in

@@ -95,6 +95,15 @@ struct DDESettingsView: View {
                 }.padding(8)
             }
 
+            // Usage chips in the Terminal tab header: which detected agents are shown (DEC-012).
+            GroupBox("Agent usage (Terminal tab)") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(UsageAgent.allCases) { agent in AgentUsageVisibilityToggle(agent: agent) }
+                    Text("Official limit data is requested with the agent's own sign-in, read locally and sent only to its vendor. Otherwise usage is counted from local logs (~/.claude, ~/.codex).")
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                }.padding(8)
+            }
+
             // Whisper diagnostics — the config that has to line up for voice input.
             GroupBox("Whisper (voice input)") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -365,6 +374,30 @@ struct DDESettingsView: View {
                 }
             } catch {
                 openaiStatus = .invalid(error.localizedDescription)
+            }
+        }
+    }
+}
+
+/// Show or hide one agent's usage chip; undetected agents are listed but never shown.
+private struct AgentUsageVisibilityToggle: View {
+    let agent: UsageAgent
+    @AppStorage private var hidden: Bool
+    private let detected: Bool
+
+    init(agent: UsageAgent) {
+        self.agent = agent
+        _hidden = AppStorage(wrappedValue: false, agent.hiddenKey)
+        detected = AgentUsageTracker.isDetected(agent)
+    }
+
+    var body: some View {
+        HStack {
+            Toggle("Show \(agent.displayName) usage", isOn: Binding(get: { !hidden }, set: { hidden = !$0 }))
+                .font(.caption)
+                .disabled(!detected)
+            if !detected {
+                Text("not detected").font(.system(size: 9)).foregroundColor(.secondary)
             }
         }
     }

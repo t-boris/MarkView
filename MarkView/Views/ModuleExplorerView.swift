@@ -13,7 +13,8 @@ struct ModuleExplorerView: View {
             // Title and stats
             HStack(spacing: 6) {
                 Text("Terminal").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.text)
-                Spacer()
+                Spacer(minLength: 6)
+                AgentUsageBar()
                 if let db = workspaceManager.semanticDatabase {
                     let stats = db.getUsageStats()
                     if stats.totalJobs > 0 {

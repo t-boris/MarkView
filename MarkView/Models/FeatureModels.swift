@@ -260,6 +260,12 @@ struct Feature: Identifiable {
     /// Understanding dimension → known | partial | unknown | n/a.
     /// Implementation started or done: deleting or restarting the feature is not offered then.
     var isImplemented: Bool { ["implementing", "implemented", "verified"].contains(status) }
+    /// Discovery (Explore) is over: requirements written from now on are approved.
+    var isPastExplore: Bool { !["idea", "exploring", "draft"].contains(status) }
+    /// Every dimension is understood, or the questions asked are all answered or deferred.
+    var discoveryDone: Bool {
+        isUnderstood || (!list(.question).isEmpty && !list(.question).contains { $0.status == "open" })
+    }
 
     var understanding: [(dimension: String, state: String)] {
         let stored = front["understanding"]?.entries ?? []

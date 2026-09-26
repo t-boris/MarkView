@@ -114,5 +114,77 @@ expect(try? decoder.decode(LifecycleEvent.self, from: data), original, "round tr
 let bogus = String(decoding: data, as: UTF8.self).replacingOccurrences(of: "ci_passed", with: "deployed")
 expect((try? decoder.decode(LifecycleEvent.self, from: Data(bogus.utf8))) == nil, true, "unknown stage rejected")
 
+// GitHub: pull requests closing a feature's issues → lifecycle captures
+let github = """
+{"data":{"repository":{"defaultBranchRef":{"name":"main"},
+ "n5":{"closedByPullRequestsReferences":{"nodes":[
+   {"number":12,"state":"MERGED","createdAt":"2026-09-20T10:00:00Z","mergedAt":"2026-09-21T12:00:00Z","baseRefName":"main",
+    "reviews":{"nodes":[{"submittedAt":"2026-09-21T09:00:00Z"}]},
+    "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS","contexts":{"nodes":[
+      {"__typename":"CheckRun","completedAt":"2026-09-20T11:00:00Z"},{"__typename":"CheckRun","completedAt":"2026-09-20T11:30:00Z"}]}}}}]}},
+   {"number":13,"state":"CLOSED","createdAt":"2026-09-20T10:00:00Z","mergedAt":null,"baseRefName":"main"}]}},
+ "n14":{"number":14,"state":"OPEN","createdAt":"2026-09-22T08:00:00.123Z","mergedAt":null,"baseRefName":"main",
+   "reviews":{"nodes":[]},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE","contexts":{"nodes":[]}}}}]}},
+ "n7":{"number":7,"state":"MERGED","createdAt":"2026-09-19T10:00:00Z","mergedAt":"2026-09-19T12:00:00Z","baseRefName":"develop"},
+ "n9":null}}}
+"""
+let captures = LifecycleGitHub.captures(from: Data(github.utf8))
+func at(_ text: String) -> Date { LifecycleGitHub.date(text)! }
+expect(captures, [
+    .init(stage: .implementationFinished, date: at("2026-09-19T10:00:00Z"), note: "PR #7"),
+    .init(stage: .implementationFinished, date: at("2026-09-20T10:00:00Z"), note: "PR #12"),
+    .init(stage: .reviewDone, date: at("2026-09-21T09:00:00Z"), note: "PR #12"),
+    .init(stage: .ciPassed, date: at("2026-09-20T11:30:00Z"), note: "PR #12"),
+    .init(stage: .mergedToMain, date: at("2026-09-21T12:00:00Z"), note: "PR #12"),
+    .init(stage: .implementationFinished, date: at("2026-09-22T08:00:00.123Z"), note: "PR #14"),
+], "PR opened, approved, CI green, merged into main; closed-unmerged and other-branch merges ignored")
+expect(LifecycleGitHub.captures(from: Data("{\"errors\":[]}".utf8)), [], "error answer gives nothing")
+expect(LifecycleGitHub.query(numbers: [5, 14]).contains("n14: issueOrPullRequest(number: 14)"), true, "query per number")
+
+// CLI session logs: the model the CLI answered with after the click
+let home = FileManager.default.temporaryDirectory.appendingPathComponent("lifecycle-probe-\(UUID().uuidString)")
+defer { try? FileManager.default.removeItem(at: home) }
+let cwd = URL(fileURLWithPath: "/Users/me/github.com/My.App")
+let claudeDir = home.appendingPathComponent(".claude/projects/-Users-me-github-com-My-App")
+try! FileManager.default.createDirectory(at: claudeDir, withIntermediateDirectories: true)
+let click = Date()
+let iso = ISO8601DateFormatter()
+func line(_ date: Date, _ model: String) -> String {
+    #"{"type":"assistant","timestamp":"\#(iso.string(from: date))","message":{"model":"\#(model)"}}"#
+}
+try! [line(click.addingTimeInterval(-60), "claude-sonnet-5"), #"{"type":"user"}"#,
+      line(click.addingTimeInterval(2), "<synthetic>"), line(click.addingTimeInterval(5), "claude-opus-5-5")]
+    .joined(separator: "\n").write(to: claudeDir.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
+expect(AgentModelProbe.claudeModel(cwd: cwd, since: click, home: home), "claude-opus-5-5", "Claude: first real reply after the click")
+expect(AgentModelProbe.claudeModel(cwd: cwd, since: click.addingTimeInterval(60), home: home), nil, "Claude: no reply yet")
+
+var calendar = Calendar(identifier: .gregorian); calendar.timeZone = .current
+let today = calendar.dateComponents([.year, .month, .day], from: click)
+let codexDir = home.appendingPathComponent(String(format: ".codex/sessions/%04d/%02d/%02d", today.year!, today.month!, today.day!))
+try! FileManager.default.createDirectory(at: codexDir, withIntermediateDirectories: true)
+func turn(_ date: Date, _ cwd: String, _ model: String) -> String {
+    #"{"type":"turn_context","timestamp":"\#(iso.string(from: date))","payload":{"cwd":"\#(cwd)","model":"\#(model)"}}"#
+}
+try! [turn(click.addingTimeInterval(3), "/elsewhere", "gpt-other"), turn(click.addingTimeInterval(4), cwd.path, "gpt-6-astra")]
+    .joined(separator: "\n").write(to: codexDir.appendingPathComponent("rollout.jsonl"), atomically: true, encoding: .utf8)
+expect(AgentModelProbe.codexModel(cwd: cwd, since: click, home: home), "gpt-6-astra", "Codex: turn in this folder")
+
+// Commits straight to main
+let log = "abc1234def\u{1f}2026-09-26T15:00:00-05:00\u{1f}feat: lifecycle (2.12.0)\n\nImplements docs/features/lifecycle-x (#3–#9, epic #10).\n\u{1e}\n"
+    + "fff0000aaa\u{1f}2026-09-25T10:00:00Z\u{1f}docs: something\n\u{1e}\n"
+let commits = LifecycleGit.commits(from: log)
+expect(commits.map(\.sha), ["abc1234def", "fff0000aaa"], "commits parsed")
+expect(commits.first?.date, LifecycleGitHub.date("2026-09-26T20:00:00Z"), "commit time with offset")
+expect(commits.first?.note, "commit abc1234", "commit note")
+expect(LifecycleGit.mentions(commits[0].message, folder: "docs/features/lifecycle-x", issues: []), true, "names the folder")
+expect(LifecycleGit.mentions("Implements docs/features/lifecycle-x-2", folder: "docs/features/lifecycle-x", issues: []), false, "other feature with the same prefix")
+expect(LifecycleGit.mentions("fix #9 crash", folder: "docs/features/a", issues: [9]), true, "names an issue")
+expect(LifecycleGit.mentions("fix #90 and &#9;", folder: "docs/features/a", issues: [9]), false, "other numbers and entities")
+let runsOK = #"[{"status":"completed","conclusion":"success","updatedAt":"2026-09-26T20:10:00Z"},{"status":"completed","conclusion":"success","updatedAt":"2026-09-26T20:20:00Z"}]"#
+expect(LifecycleGit.ciPassed(runsJSON: Data(runsOK.utf8)), LifecycleGitHub.date("2026-09-26T20:20:00Z"), "all runs green")
+let runsRunning = #"[{"status":"in_progress","conclusion":"","updatedAt":"2026-09-26T20:10:00Z"}]"#
+expect(LifecycleGit.ciPassed(runsJSON: Data(runsRunning.utf8)), nil, "a run still going")
+expect(LifecycleGit.ciPassed(runsJSON: Data("[]".utf8)), nil, "no runs")
+
 print(failures == 0 ? "OK — \(checks) checks passed" : "\(failures) of \(checks) checks failed")
 exit(failures == 0 ? 0 : 1)

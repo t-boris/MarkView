@@ -1,5 +1,16 @@
 # Lessons
 
+## 2026-09-26 — Автоматическая фиксация: проверять на реальных данных и реальном процессе
+
+**Контекст:** Lifecycle log: «spec ready» ждал статус `ready`, который приложение никогда не
+ставит (Create issues переводит review → implementing). «Implement with AI» не писал событие.
+Слежение за merge строилось на PR, а в этом репозитории коммитят прямо в main без PR.
+
+**Правило:** Для каждого автоматического триггера найти код, который реально производит этот
+переход (grep по значению статуса/действию), и проверить на живых данных (лог событий, `git log`,
+`gh`), что событие появилось бы. Действие пользователя, запускающее этап (кнопка), само пишет
+событие; модель брать из того, что CLI фактически использовал, а не из настроек.
+
 ## 2026-09-26 — Прогресс не виден, если вид не наблюдает объект с состоянием
 
 **Контекст:** Карточки Feature читали `store.assistant.isRunning` через вычисляемое свойство, но
@@ -266,3 +277,16 @@ declaration in a file and grep each one before `git rm`.
 
 ## A loaded diff goes stale while the user keeps working
 - The PR X-Ray showed a diff taken before a later commit, so lines no longer matched the file. Any view that overlays a diff on a file must either show the diff's own version of the file or map lines by content, and local changes must be re-read when they move on.
+
+## JSONSerialization numbers 0 and 1 are also Bool
+- The usage parser skipped Bool values with `value is Bool`; `NSNumber` 0 and 1 match that, so
+  "0%" and "1%" windows vanished. Only the tests on real response shapes caught it.
+- Rule: tell booleans from numbers with `CFGetTypeID(number) == CFBooleanGetTypeID()`, never `is Bool`.
+
+## Scanning large files: read in chunks and drain the autorelease pool
+- The first scan of ~650 MB of agent logs peaked at 1.18 GB: whole files were read at once and
+  every `JSONSerialization`/`FileHandle` object stayed in the thread's autorelease pool until the
+  scan ended. Chunks of 8 MB, each inside `autoreleasepool {}`, brought it to 92 MB.
+- Rule: any loop over many files or lines that creates Foundation objects runs its body in
+  `autoreleasepool`; measure peak memory with `/usr/bin/time -l` on real data.
+

@@ -52,16 +52,19 @@ final class LifecycleLog: ObservableObject {
 
     // MARK: Recording
 
-    /// Add an event stamped now. Manual marks of automatic stages are refused (DEC-013).
+    /// Add an event stamped now. Manual marks of automatic stages are refused (DEC-013). An
+    /// automatic event may carry the time the transition happened (GitHub's merge time, the
+    /// click that handed a feature to the AI); manual marks are always stamped now (DEC-010).
     @discardableResult
     func record(_ stage: LifecycleStage, project: String, feature: String, actor: String,
-                source: LifecycleSource, model: String? = nil, note: String? = nil) -> LifecycleEvent? {
+                source: LifecycleSource, model: String? = nil, note: String? = nil, at time: Date? = nil) -> LifecycleEvent? {
         guard !project.isEmpty, !feature.isEmpty, source == .automatic || !stage.isAutomatic else { return nil }
+        let timestamp = source == .automatic ? min(time ?? Date(), Date()) : Date()
         func cleaned(_ text: String?) -> String? {
             guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
             return text
         }
-        let event = LifecycleEvent(id: UUID(), project: project, feature: feature, stage: stage, timestamp: Date(),
+        let event = LifecycleEvent(id: UUID(), project: project, feature: feature, stage: stage, timestamp: timestamp,
                                    actor: actor, source: source, model: cleaned(model),
                                    note: cleaned(note).map { String($0.prefix(LifecycleEvent.noteLimit)) })
         let encoder = JSONEncoder()

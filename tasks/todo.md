@@ -1,5 +1,112 @@
 # MarkView — Follow-up Tasks
 
+## Done 33: Requirements approved when Explore ends (2026-09-26)
+
+Nothing set `approved` automatically: Explore made `draft`, Resolve downgraded `approved → review`,
+Build asked to approve per file; readiness ("Requirements approved") never reached 100 %.
+User: leaving Explore approves; requirements from AI-decided questions are approved too.
+
+- [x] `FeatureStore.finishExplore` / `approveRequirements`; `Feature.isPastExplore`, `discoveryDone`
+- [x] Leaving Explore calls it: "Decide the rest and finish", "Go to Review", switching the stage tab
+      away from Explore once discovery is done, "Run review" once discovery is done
+- [x] Requirements created after Explore (resolution, consolidation, from a document) start `approved`
+- [x] No `approved → review` downgrade on refinements / resolved findings (delegation = approval)
+- [x] Build: "N not approved · Approve all" instead of the per-file hint
+- [x] Build (shared tree, succeeds)
+- [ ] Manual check in the app
+
+## Done 32: Automatic lifecycle capture — spec ready, implementation (with model), PR/commit review, CI, merge (2026-09-26, not committed, version bump pending)
+
+Report: "Implement with AI" recorded nothing; spec ready never fired; merge/CI not tracked.
+Root cause of spec ready: no code sets status `ready` (Create issues: review → implementing).
+User choices: GitHub's own times; implementation finished on status `implemented` AND PR opened;
+PRs linked by closing the feature's issues; spec ready = status ready or readiness 100 %, fallback at
+hand-off; no-PR flow: commits on main naming the feature folder / issues. See DEC-016.
+
+- [x] `LifecycleLog.record(at:)` for automatic events (manual stays now)
+- [x] `Models/LifecycleCapture.swift`: CLI model probe (Claude/Codex session logs), GitHub GraphQL
+      query + parser, git commit parser/matcher, Actions runs parser
+- [x] `FeatureStore`: spec ready (ready / 100 % / hand-off fallback), implementation finished on
+      `implemented`, `recordImplementationStarted`, GitHub sync (on `GitHubStore.onPoll`, throttled to
+      idle interval), git scan of the default branch (~1/min), CI for merged commits
+- [x] `WorkspaceManager.implementWithAI` records the start for the session that got the prompt
+- [x] DEC-016; lessons
+- [x] `tools/tests/lifecycle-tests.sh` — 54 checks pass; GraphQL query verified live against the repo;
+      commit matcher on real `git log` finds only c3d4f61 for the lifecycle feature
+- [x] Build: succeeds (isolated worktree, then the shared tree once the quota-tracker files landed)
+- [ ] Minor version bump at commit time (batch with the quota tracker's bump)
+- [ ] Manual check in the app: Implement with AI on a feature → event with model after the CLI replies
+
+## Done 31: AI agent usage & quota tracker (docs/features/ai-agent-usage-quota-tracker-codex-claude-code, 2.14.0)
+
+Spec: REQ-001…006, DEC-001…016, plan I-1…I-7. User answers (2026-09-26): chips in the right panel's
+Terminal tab header; no-limit state sums local usage for **today** (since local midnight); Claude Code
+credentials read silently with `/usr/bin/security find-generic-password -w` (read-only, no prompt).
+
+### Verified data sources (on this machine)
+- Claude official: `GET api.anthropic.com/api/oauth/usage` (Bearer + `anthropic-beta: oauth-2025-04-20`)
+  → `limits[]` {kind session|weekly_all|weekly_scoped, percent, resets_at, scope.model.display_name};
+  legacy `five_hour`/`seven_day`/`seven_day_opus`/`seven_day_sonnet` {utilization, resets_at}.
+  Token: Keychain "Claude Code-credentials" → `claudeAiOauth.accessToken`/`expiresAt` (ms).
+- Codex official: `GET chatgpt.com/backend-api/wham/usage` (Bearer + `ChatGPT-Account-Id`) →
+  `rate_limit.primary_window|secondary_window` {used_percent, limit_window_seconds, reset_at}.
+  Token: `~/.codex/auth.json` → `tokens.access_token`, `tokens.account_id`.
+- Claude local: `~/.claude/projects/**/*.jsonl`, `type=assistant` lines, `message.usage` (input, output,
+  cache_creation, cache_read), duplicated per content block → dedupe by `message.id:requestId`.
+  No per-message cost in current versions (only per-session cumulative `cost-state`) → USD only if a
+  line carries top-level `costUSD` (older CLIs).
+- Codex local: `~/.codex/sessions/**/*.jsonl`, `event_msg` `token_count` with cumulative
+  `info.total_token_usage.total_tokens` → per-file deltas. No cost.
+
+### Design
+- `Models/AgentUsage.swift` (pure, Foundation only): agents, windows, levels 80/95, headline window,
+  fallback limit + window math (anchor + n·period, month clamping), pace, state precedence,
+  official response parsers, formatting.
+- `Models/AgentUsageLogs.swift` (Foundation only): incremental per-file JSONL reader (byte offsets,
+  complete lines only), line parsers, dedupe; unreadable/unparseable → error, never zero.
+- `Models/AgentUsageTracker.swift` (@MainActor singleton): credentials (read on each poll, never
+  stored/logged, refresh token never used), ephemeral URLSession, 5-min poll only while a Terminal tab
+  is visible and the app is active, 60 s manual cooldown, backoff 5→30 min + Retry-After, FSEvents on
+  the log dirs debounced to 30 s, in-memory cache, stale after 15 min, 401/expired → fallback + hint.
+- `Views/AgentUsageViews.swift`: header chips (ViewThatFits full/short), popover (windows, remaining
+  in the limit's unit, reset, source, pace, local figures, updated N min ago, hint + retry, refresh),
+  limit form. Settings → DDE: show/hide per detected agent.
+
+### Tasks
+- [x] T1 Pure model + parsers (`AgentUsage.swift`) — I-1, I-3 math, I-4 parsing
+- [x] T2 Local log reader (`AgentUsageLogs.swift`) — I-2; measure scan time on real logs
+- [x] T3 Standalone tests `tools/tests/agent-usage-tests.sh` (levels, headline, windows, months,
+      pace, precedence, parsers on real response shapes, dedupe/deltas)
+- [x] T4 Tracker (credentials, fetch, scheduler, backoff, FSEvents, cache, staleness) — I-4, I-5
+- [x] T5 Chips + popover + limit form; wire into `ModuleExplorerView` header — I-6, I-7
+- [x] T6 Settings visibility toggles (DDESettingsView)
+- [x] T7 pbxproj entries; `./bump-version.sh minor`; Debug build
+- [x] T8 Verify: tests, harness run of tracker against real data (official + local), launch the
+      Debug build (not the installed app) and look at the header/popover
+- [x] T9 Feature docs: DEC-017..019 for the answers above; review section here
+
+### Review (2026-09-26)
+- Files: `Models/AgentUsage.swift`, `Models/AgentUsageLogs.swift`, `Models/AgentUsageTracker.swift`,
+  `Views/AgentUsageViews.swift`; wired in `ModuleExplorerView` (header) and `DDESettingsView`
+  (show/hide per agent). Decisions from the user's answers: DEC-017..019 in the feature folder.
+- Tests: `tools/tests/agent-usage-tests.sh` — 83 checks (levels at 80/95 boundaries, headline and
+  tie-break, pace, 5h/weekly/monthly windows incl. Jan 31 clamping and a future anchor, state
+  precedence, both official response shapes, log dedupe/deltas/incremental reads/partial lines,
+  changed format → error, missing logs → error).
+- Live harness (real tracker, real credentials, real logs): Claude official 3 windows (5h headline),
+  Codex official weekly; local figures per window after the 7-day rescan. Fake home
+  (`CFFIXED_USER_HOME`): expired Claude token → signed-out hint without any request; Codex 401 →
+  hint; broken Claude logs → "usage unavailable"; Codex no limit → today's tokens; 1000-token/5h
+  limit → estimated 90%, 100 left; clearing → back to no limit.
+- Rendering: header (wide/narrow), both popovers and the limit form rendered offscreen with
+  ImageRenderer from live data. Found and fixed: local all-model tokens shown under the
+  model-scoped "Weekly (Fable)" window → no local figure for scoped windows.
+- Perf: first 7-day Claude scan ≈ 6 s off-main (650 MB), rescans ≈ 30 ms; peak memory 92 MB
+  (was 1.18 GB before per-chunk reading + autorelease pools).
+- Not verified: the chips inside the running app window (an isolated Debug copy with its own
+  bundle id never opened its main window); backoff after 429/5xx was not triggered live.
+- Version 2.14.0.
+
 ## Done 30: Bug investigation — questions for a bug report in the Feature tab (option B, 2026-09-26, 2.13.0)
 
 User: after New Bug the Feature tab does not open, nothing investigates the bug or asks questions.
