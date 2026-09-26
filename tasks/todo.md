@@ -1,5 +1,21 @@
 # MarkView — Follow-up Tasks
 
+## Done 23: Explore feedback — clearer understanding, fewer waits, the user's language (2026-09-26)
+
+User testing a feature.
+- [x] Understanding is a list: each dimension with its state as a word and colour, the AI's note
+      (what is known / missing), a legend; states still changeable by click.
+- [x] Progress: "N of 11 clear · ≈N questions left" (the AI's estimate, `questions_left`) and
+      "Enough questions → Review".
+- [x] One AI call per answer: the decision, requirements, understanding and the next question come
+      together (checked: 15 s instead of ~35 s for two calls).
+- [x] Language: conversation (questions, options, notes, replies, suggestions) in the AI language
+      setting; the specification (requirements, decisions, findings, research) stays English
+      (checked with Russian: Russian question, English REQ/DEC).
+- [x] A chosen option / typed answer shows at once ("Answer taken — updating…"); steps are marked
+      running before their prompt is built.
+- [x] Version 2.5.1 → 2.6.0. Built; not installed.
+
 ## Done 22: Tab bar — overflow menu, reorder by dragging, wheel scrolling (2026-09-26)
 
 - [x] ▾ menu at the right of the tab bar lists every open tab (icon, ✓ active, • modified),

@@ -83,19 +83,36 @@ final class FeatureAssistant: ObservableObject {
         self.store = store
     }
 
-    func isRunning(_ key: String) -> Bool { running.contains(key) }
+    func isRunning(_ key: String) -> Bool { running.contains(key) || preparing.contains(key) }
+
+    /// Steps being prepared (context, files) before their AI call — shown as running at once.
+    @Published private(set) var preparing: Set<String> = []
 
     // MARK: - Running a request
 
-    private static let system = """
-    You are the facilitator of a documentation-driven workspace. The team specifies features in \
-    Markdown before building them: ideas become questions, decisions and requirements. Your job is \
-    convergence toward an implementation-ready specification — find what is missing, ask the most \
-    useful question, propose alternatives, challenge assumptions, spot contradictions and edge cases. \
-    Never present an inference as a fact: keep project facts, external facts, AI inferences, user \
-    decisions and open assumptions apart. Write everything in English, concisely. You may read the \
-    project's files (read-only) to check what already exists.
-    """
+    /// The facilitator's instructions. Conversation (questions, options, explanations, replies)
+    /// is in the user's AI language; the specification's own text stays English (user decision).
+    private static var system: String {
+        let language = ActionOutputLanguage.current
+        let conversation = language == ActionOutputLanguage.documentLanguage
+            ? "the language the user writes in (the project's documents' language when unclear)" : language
+        return """
+        You are the facilitator of a documentation-driven workspace. The team specifies features in \
+        Markdown before building them: ideas become questions, decisions and requirements. Your job is \
+        convergence toward an implementation-ready specification — find what is missing, ask the most \
+        useful question, propose alternatives, challenge assumptions, spot contradictions and edge cases. \
+        Never present an inference as a fact: keep project facts, external facts, AI inferences, user \
+        decisions and open assumptions apart. Be concise. You may read the project's files (read-only) \
+        to check what already exists.
+
+        Language: write what you say to the user — questions, their "why", options with pros and cons, \
+        understanding notes, suggestions, replies, explanations, resolution questions and options — in \
+        \(conversation). Write \
+        the specification itself — requirement titles, statements and acceptance criteria, decision \
+        texts, finding titles and details, research claims and summaries, source summaries and facts — \
+        in English. Keep JSON enum values exactly as specified.
+        """
+    }
 
     private func run(_ key: String, prompt: String, schema: [String: Any]?, web: Bool = false,
                      timeout: TimeInterval = 400, onDelta: (@Sendable (String) -> Void)? = nil) async -> CLICompletion.Result? {
@@ -212,12 +229,14 @@ final class FeatureAssistant: ObservableObject {
         "required": ["label", "text", "pros", "cons"],
     ]
 
+    /// Every dimension with its state and a short note: what is known, or what is still missing.
     private static let understandingSchema: [String: Any] = [
         "type": "array",
         "items": ["type": "object",
                   "properties": ["dimension": ["type": "string", "enum": FeatureVocabulary.understanding],
-                                 "state": ["type": "string", "enum": FeatureVocabulary.understandingStates]],
-                  "required": ["dimension", "state"]],
+                                 "state": ["type": "string", "enum": FeatureVocabulary.understandingStates],
+                                 "note": ["type": "string"]],
+                  "required": ["dimension", "state", "note"]],
     ]
 
     private static let requirementSchema: [String: Any] = [
@@ -302,6 +321,8 @@ final class FeatureAssistant: ObservableObject {
     /// Update the understanding model and ask the most useful next question (a Q file with
     /// options). Nothing is asked when the feature is well understood.
     func exploreNext(_ slug: String) async {
+        preparing.insert("explore:" + slug)
+        defer { preparing.remove("explore:" + slug) }
         guard let feature = store.feature(slug) else { return }
         let asked = feature.list(.question).map { "- \($0.id) [\($0.status)] \($0.title)" }.joined(separator: "\n")
         let prompt = context(feature) + """
@@ -309,42 +330,19 @@ final class FeatureAssistant: ObservableObject {
         ## Questions already asked
         \(asked.isEmpty ? "(none)" : asked)
 
-        Task: assess how well each understanding dimension is specified (known / partial / unknown / n/a). \
-        Then choose the ONE next question with the highest impact on the specification that has not been \
-        asked. Offer 2–4 concrete options (label them A, B, C…) with short pros and cons, unless the question \
-        is open-ended (then no options). Mark it blocking when requirements cannot be written without it. \
-        Set has_question false only when the feature is ready to be specified. Add up to 3 short suggestions \
-        (things to consider or add).
+        Task: \(Self.discoveryInstruction) Add up to 3 short suggestions (things to consider or add).
         """
         let schema = Self.object([
             "understanding": Self.understandingSchema,
             "has_question": ["type": "boolean"],
-            "question": Self.object(["text": Self.string, "why": Self.string,
-                                     "q_type": ["type": "string", "enum": FeatureVocabulary.questionTypes],
-                                     "blocking": ["type": "boolean"], "options": Self.array(Self.optionSchema)]),
+            "question": Self.questionSchema,
+            "questions_left": ["type": "integer"],
             "suggestions": Self.strings,
         ])
         guard let result = await run("explore:" + slug, prompt: prompt, schema: schema),
               let object = result.structured as? [String: Any] else { return }
-        let states = (object["understanding"] as? [[String: Any]] ?? []).reduce(into: [String: String]()) {
-            if let d = $1["dimension"] as? String, let s = $1["state"] as? String { $0[d] = s }
-        }
-        store.setUnderstanding(slug, states)
+        applyDiscovery(object, to: slug)
         if feature.status == "idea" { store.updateFeature(slug) { front, _ in front.set("status", "exploring") } }
-        if object["has_question"] as? Bool == true, let q = object["question"] as? [String: Any] {
-            let text = q["text"] as? String ?? ""
-            let optionList = q["options"] as? [[String: Any]] ?? []
-            var body = "## Question\n\n\(text)\n\n## Why it matters\n\n\(q["why"] as? String ?? "")\n"
-            if !optionList.isEmpty {
-                body += "\n## Options\n\n" + optionList.map { "- **\($0["label"] as? String ?? "")**: \($0["text"] as? String ?? "")" }.joined(separator: "\n") + "\n"
-            }
-            store.create(.question, in: slug, title: String(text.prefix(140)),
-                         fields: [("q_type", .string(q["q_type"] as? String ?? "clarification")),
-                                  ("priority", .string(q["blocking"] as? Bool == true ? "blocking" : "normal")),
-                                  ("origin", .string("explore")), ("blocking", .list([])),
-                                  ("options", options(optionList))],
-                         body: body, provenance: "Generated by AI (guided discovery)")
-        }
         let suggestions = object["suggestions"] as? [String] ?? []
         if !suggestions.isEmpty {
             results.insert(FeatureResult(title: "Suggestions", text: suggestions.map { "• " + $0 }.joined(separator: "\n"),
@@ -352,9 +350,74 @@ final class FeatureAssistant: ObservableObject {
         }
     }
 
+    private static let questionSchema: [String: Any] = [
+        "type": "object",
+        "properties": ["text": ["type": "string"], "why": ["type": "string"],
+                       "q_type": ["type": "string", "enum": FeatureVocabulary.questionTypes],
+                       "blocking": ["type": "boolean"], "options": ["type": "array", "items": optionSchema]],
+        "required": ["text", "why", "q_type", "blocking", "options"],
+    ]
+
+    private static let discoveryInstruction = """
+    Assess how well each understanding dimension is specified (known / partial / unknown / n/a). Then \
+    choose the ONE next question with the highest impact on the specification that has not been asked. \
+    Offer 2–4 concrete options (label them A, B, C…) with short pros and cons, unless the question is \
+    open-ended (then no options). Mark it blocking when requirements cannot be written without it. Set \
+    has_question false only when the feature is ready to be specified. questions_left: your honest \
+    estimate of how many more questions are needed before a first implementation-ready specification \
+    (0 when ready) — ask only what really changes the specification.
+    """
+
+    /// States and notes of the understanding dimensions from an answer.
+    private func applyUnderstanding(_ object: [String: Any], to slug: String) {
+        let items = object["understanding"] as? [[String: Any]] ?? []
+        let states = items.reduce(into: [String: String]()) {
+            if let d = $1["dimension"] as? String, let s = $1["state"] as? String { $0[d] = s }
+        }
+        store.setUnderstanding(slug, states)
+        let notes = items.compactMap { item -> (String, YAMLValue)? in
+            guard let d = item["dimension"] as? String, let n = item["note"] as? String, !n.isEmpty else { return nil }
+            return (d, .string(n))
+        }
+        if !notes.isEmpty {
+            store.updateFeature(slug) { front, _ in
+                var current = front["understanding_notes"]?.entries ?? []
+                for (dimension, note) in notes {
+                    if let i = current.firstIndex(where: { $0.key == dimension }) { current[i].value = note }
+                    else { current.append((dimension, note)) }
+                }
+                front["understanding_notes"] = .map(current)
+            }
+        }
+    }
+
+    /// Understanding, the next question and the estimate of questions left, from a discovery answer.
+    private func applyDiscovery(_ object: [String: Any], to slug: String) {
+        applyUnderstanding(object, to: slug)
+        if let left = object["questions_left"] as? Int {
+            store.updateFeature(slug) { front, _ in front.set("questions_left", String(max(0, left))) }
+        }
+        guard object["has_question"] as? Bool == true, let q = object["question"] as? [String: Any] else { return }
+        let text = q["text"] as? String ?? ""
+        guard !text.isEmpty else { return }
+        let optionList = q["options"] as? [[String: Any]] ?? []
+        var body = "## Question\n\n\(text)\n\n## Why it matters\n\n\(q["why"] as? String ?? "")\n"
+        if !optionList.isEmpty {
+            body += "\n## Options\n\n" + optionList.map { "- **\($0["label"] as? String ?? "")**: \($0["text"] as? String ?? "")" }.joined(separator: "\n") + "\n"
+        }
+        store.create(.question, in: slug, title: String(text.prefix(140)),
+                     fields: [("q_type", .string(q["q_type"] as? String ?? "clarification")),
+                              ("priority", .string(q["blocking"] as? Bool == true ? "blocking" : "normal")),
+                              ("origin", .string("explore")), ("blocking", .list([])),
+                              ("options", options(optionList))],
+                     body: body, provenance: "Generated by AI (guided discovery)")
+    }
+
     /// The user answered a question (chose an option or wrote an answer): record it, turn it into
     /// a decision and candidate requirements, update the understanding, and ask the next question.
     func answer(_ slug: String, question id: String, answer: String, next: Bool = true) async {
+        preparing.insert("answer:" + id)
+        defer { preparing.remove("answer:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
         let prompt = context(feature, focus: [id]) + """
 
@@ -364,14 +427,21 @@ final class FeatureAssistant: ObservableObject {
 
         Task: turn this answer into specification. If it settles a choice, write the decision (with the \
         alternatives that were considered). Derive the requirements it implies (0–4), each with acceptance \
-        criteria. Update the understanding dimensions it changes.
+        criteria. \(next ? "Then, with this answer taken into account: " + Self.discoveryInstruction : "Update the understanding dimensions it changes.")
         """
-        let schema = Self.object([
+        var properties: [String: Any] = [
             "has_decision": ["type": "boolean"],
             "decision": Self.decisionSchema,
             "requirements": Self.array(Self.requirementSchema),
             "understanding": Self.understandingSchema,
-        ])
+        ]
+        if next {
+            // The next question comes in the same answer: one AI call per answer instead of two.
+            properties["has_question"] = ["type": "boolean"]
+            properties["question"] = Self.questionSchema
+            properties["questions_left"] = ["type": "integer"]
+        }
+        let schema = Self.object(properties)
         guard let result = await run("answer:" + id, prompt: prompt, schema: schema),
               let object = result.structured as? [String: Any] else { return }
         var decisionID: String?
@@ -395,12 +465,8 @@ final class FeatureAssistant: ObservableObject {
             front.set("produces", list: produced)
             body += "\n## Answer\n\n\(answer)\n"
         }
-        let states = (object["understanding"] as? [[String: Any]] ?? []).reduce(into: [String: String]()) {
-            if let d = $1["dimension"] as? String, let s = $1["state"] as? String { $0[d] = s }
-        }
-        store.setUnderstanding(slug, states)
         store.appendDiscussion(slug, speaker: "Answer to \(id)", text: "\(question.title)\n\n\(answer)")
-        if next { await exploreNext(slug) }
+        if next { applyDiscovery(object, to: slug) } else { applyUnderstanding(object, to: slug) }
     }
 
     func skip(_ slug: String, question id: String) async {
@@ -509,6 +575,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// Review the feature from all perspectives; new findings become F files.
     func review(_ slug: String, focus: String? = nil) async {
+        preparing.insert("review:" + slug)
+        defer { preparing.remove("review:" + slug) }
         guard let feature = store.feature(slug) else { return }
         let scope = focus.map { "Review only \($0) and what it depends on." } ?? "Review the whole specification."
         let prompt = context(feature, focus: focus.map { [$0] } ?? feature.list(.requirement).map(\.id), budget: 70_000) + """

@@ -265,6 +265,14 @@ struct Feature: Identifiable {
         }
     }
 
+    /// What is known, or still missing, about a dimension (the AI's note).
+    func understandingNote(_ dimension: String) -> String {
+        front["understanding_notes"]?[dimension]?.string ?? ""
+    }
+
+    /// The AI's estimate of questions still needed before a first ready specification.
+    var questionsLeft: Int? { Int(front.string("questions_left")) }
+
     var epic: Int? { planFront.string("epic").isEmpty ? nil : Int(planFront.string("epic")) }
     var planIssues: [PlannedIssue] { (planFront["issues"]?.list ?? []).map(PlannedIssue.init) }
 

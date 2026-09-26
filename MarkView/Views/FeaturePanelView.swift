@@ -285,20 +285,50 @@ struct ExploreStageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             PanelSection(title: "Feature understanding") {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 3) {
-                    ForEach(feature.understanding, id: \.dimension) { item in
+                let known = feature.understanding.filter { $0.state == "known" || $0.state == "n/a" }.count
+                HStack(spacing: 6) {
+                    Text("\(known) of \(feature.understanding.count) clear").font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
+                    if let left = feature.questionsLeft {
+                        Text(left == 0 ? "· ready to specify" : "· ≈\(left) question\(left == 1 ? "" : "s") left")
+                            .font(.system(size: 10)).foregroundColor(left == 0 ? VSDark.green : VSDark.textDim)
+                    }
+                    Spacer()
+                    SmallButton(title: "Enough questions → Review") {
+                        UserDefaults.standard.set(FeatureStage.review.rawValue, forKey: FeatureStage.storageKey)
+                        Task { await assistant.review(feature.slug) }
+                    }
+                    .help("Stop the questions here and review what is specified so far")
+                }
+                HStack(spacing: 8) {
+                    ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
+                        HStack(spacing: 2) {
+                            Text(symbol(state)).font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundColor(color(state))
+                            Text(state).font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                        }
+                    }
+                }
+                ForEach(feature.understanding, id: \.dimension) { item in
+                    let note = feature.understandingNote(item.dimension)
+                    HStack(alignment: .top, spacing: 5) {
                         Menu {
                             ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
-                                Button(state) { store.setUnderstanding(feature.slug, [item.dimension: state]) }
+                                Button((state == item.state ? "✓ " : "") + state) { store.setUnderstanding(feature.slug, [item.dimension: state]) }
                             }
                         } label: {
-                            HStack(spacing: 3) {
-                                Text(symbol(item.state)).font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundColor(color(item.state))
-                                Text(item.dimension).font(.system(size: 10)).foregroundColor(VSDark.text).lineLimit(1)
-                            }
+                            Text(symbol(item.state)).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(color(item.state))
                         }
                         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                        .help("\(item.dimension): \(item.state) — click to change")
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 4) {
+                                Text(item.dimension).font(.system(size: 10, weight: .medium)).foregroundColor(VSDark.text)
+                                Text(item.state).font(.system(size: 9)).foregroundColor(color(item.state))
+                            }
+                            if !note.isEmpty {
+                                Text(note).font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -337,6 +367,8 @@ struct QuestionCard: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var answer = ""
     @State private var showDetails = false
+    /// The answer just given: shown at once, until the specification is updated.
+    @State private var sent: String?
 
     private var assistant: FeatureAssistant { store.assistant }
     private var busy: Bool {
@@ -375,7 +407,18 @@ struct QuestionCard: View {
                     }
                 }
             }
-            if busy {
+            if let sent, question.status == "open" {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.green)
+                    Text(sent).font(.system(size: 10, weight: .medium)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                }
+                if busy {
+                    Working(text: "Answer taken — updating the specification and preparing the next question…")
+                } else {
+                    // Finished without updating (an error is shown above): allow another try.
+                    SmallButton(title: "Try again") { self.sent = nil }
+                }
+            } else if busy {
                 Working(text: "Working on \(question.id)…")
             } else {
                 FlowButtons {
@@ -383,6 +426,7 @@ struct QuestionCard: View {
                         let label = option["label"]?.string ?? ""
                         SmallButton(title: "Choose \(label)", prominent: true) {
                             let text = option["text"]?.string ?? ""
+                            sent = "\(label). \(text)"
                             Task { await assistant.answer(feature.slug, question: question.id, answer: "\(label). \(text)") }
                         }
                     }
@@ -412,6 +456,7 @@ struct QuestionCard: View {
         let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         answer = ""
+        sent = text
         Task { await assistant.answer(feature.slug, question: question.id, answer: text) }
     }
 }
