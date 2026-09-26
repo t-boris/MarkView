@@ -3176,6 +3176,22 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - GitHub
 
+    /// Open GitHub issue #n: its tab when the GitHub integration is on, else the issue page in
+    /// the browser (repository from the `origin` remote; nothing is sent to GitHub by the app).
+    func openGitHubIssue(_ number: Int) {
+        if let slug = gitHub.selectedRepo?.slug {
+            openGitHubTab(.issue(number: number, repo: slug, title: "#\(number)"))
+            return
+        }
+        guard let root = rootNode?.url else { return }
+        Task {
+            let remote = await GitHubClient.execute(["remote", "get-url", "origin"], in: root, git: true)
+            guard let slug = GitHubClient.slug(fromRemoteURL: remote.stdout.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let url = URL(string: "https://github.com/\(slug)/issues/\(number)") else { return }
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     /// The "New" intake sheet shown (New Feature / New Bug / I Need to Understand).
     @Published var intake: IntakeRequest?
 
@@ -3232,7 +3248,8 @@ class WorkspaceManager: ObservableObject {
     func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
         if let slug = outcome.feature {
             features.activeSlug = slug
-            UserDefaults.standard.set("feature", forKey: "layout.leftPanel")
+            UserDefaults.standard.set("issues", forKey: "layout.leftPanel")
+            UserDefaults.standard.set(slug, forKey: "layout.issuesFeature")
             UserDefaults.standard.set(FeatureStage.explore.rawValue, forKey: FeatureStage.storageKey)
             showTOC = true
             showFileTree = true

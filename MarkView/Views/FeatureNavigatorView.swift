@@ -1,23 +1,46 @@
 import SwiftUI
 
-/// Left panel: the file tree, or — for a folder — the feature navigator.
+/// Left panel: the file tree, or — when the project has docs/features or docs/bugs — its issues:
+/// features and bugs, each with its GitHub issue.
 struct LeftPanelView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
+
+    var body: some View {
+        LeftPanelContent(store: workspaceManager.features)
+    }
+}
+
+private struct LeftPanelContent: View {
+    @ObservedObject var store: FeatureStore
+    @EnvironmentObject var workspaceManager: WorkspaceManager
     @AppStorage("layout.leftPanel") private var mode = "files"
+    /// The feature opened from the Issues list ("" = the list); kept so "New Feature" can open it.
+    @AppStorage("layout.issuesFeature") private var openFeatureSlug = ""
+    private var openFeature: String? {
+        get { openFeatureSlug.isEmpty ? nil : openFeatureSlug }
+        nonmutating set { openFeatureSlug = newValue ?? "" }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if workspaceManager.rootNode != nil {
+            if store.hasIssues {
                 HStack(spacing: 0) {
-                    VSDarkTabButton(title: "Files", isSelected: mode != "feature") { mode = "files" }
-                    VSDarkTabButton(title: "Feature", isSelected: mode == "feature") { mode = "feature" }
+                    VSDarkTabButton(title: "Files", isSelected: mode != "issues") { mode = "files" }
+                    VSDarkTabButton(title: "Issues", isSelected: mode == "issues") { mode = "issues" }
                 }
                 .padding(.horizontal, 4).padding(.vertical, 3)
                 .background(VSDark.bg)
                 Divider().background(VSDark.border)
             }
-            if mode == "feature", workspaceManager.rootNode != nil {
-                FeatureNavigatorView(store: workspaceManager.features)
+            if mode == "issues", store.hasIssues {
+                if let slug = openFeature, store.feature(slug) != nil {
+                    FeatureNavigatorView(store: store, onBack: { openFeature = nil })
+                } else {
+                    IssuesListView(store: store) { slug in
+                        store.activeSlug = slug
+                        openFeature = slug
+                    }
+                }
             } else {
                 FileTreeView()
             }
@@ -26,27 +49,143 @@ struct LeftPanelView: View {
     }
 }
 
-/// Sidebar sections of the active feature (spec §3, §29): each object opens its Markdown file.
-struct FeatureNavigatorView: View {
+/// Features (docs/features/*) and bugs (docs/bugs/*.md) of the project.
+struct IssuesListView: View {
     @ObservedObject var store: FeatureStore
+    let open: (String) -> Void
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @State private var expanded: Set<String> = ["requirement", "question", "decision"]
-    @State private var history: [String] = []
-    @State private var showHistory = false
-    @State private var creating = false
+    @State private var filter = ""
+    @State private var showFeatures = true
+    @State private var showBugs = true
 
     var body: some View {
         VStack(spacing: 0) {
-            FeaturePicker(store: store, creating: $creating)
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                TextField("Filter", text: $filter).textFieldStyle(.plain).font(.system(size: 11))
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
             Divider().background(VSDark.border)
-            if creating || store.features.isEmpty {
-                NewFeatureForm(store: store, creating: $creating)
-                Spacer()
-            } else if let feature = store.active {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    let features = store.features.filter { matches($0.title + " " + $0.slug) }
+                    sectionHeader("Features", count: features.count, expanded: $showFeatures, kind: .feature)
+                    if showFeatures {
+                        ForEach(features) { feature in
+                            Button(action: { open(feature.slug) }) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: feature.isStructured ? "square.stack.3d.up" : "doc.text")
+                                        .font(.system(size: 9)).foregroundColor(VSDark.blue).frame(width: 12)
+                                    Text(feature.title).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
+                                    Spacer(minLength: 2)
+                                    IssueLinks(numbers: feature.issueNumbers)
+                                    Text(FeatureVocabulary.label(feature.status)).font(.system(size: 8)).foregroundColor(VSDark.textDim)
+                                }
+                                .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(feature.slug)
+                        }
+                    }
+                    let bugs = store.bugs.filter { matches($0.title + " " + $0.key) }
+                    sectionHeader("Bugs", count: bugs.count, expanded: $showBugs, kind: .bug)
+                    if showBugs {
+                        ForEach(bugs) { bug in
+                            Button(action: { workspaceManager.openFile(bug.url) }) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "ladybug").font(.system(size: 9))
+                                        .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange).frame(width: 12)
+                                    Text(bug.key).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                                    Text(bug.title).font(.system(size: 11)).foregroundColor(bug.status == "open" ? VSDark.text : VSDark.textDim).lineLimit(1)
+                                    Spacer(minLength: 2)
+                                    IssueLinks(numbers: bug.issueNumbers)
+                                }
+                                .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
+                        }
+                    }
+                }
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    private func matches(_ text: String) -> Bool {
+        filter.isEmpty || text.localizedCaseInsensitiveContains(filter)
+    }
+
+    private func sectionHeader(_ title: String, count: Int, expanded: Binding<Bool>, kind: IntakeKind) -> some View {
+        HStack(spacing: 5) {
+            Button(action: { expanded.wrappedValue.toggle() }) {
+                HStack(spacing: 5) {
+                    Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right").font(.system(size: 8)).foregroundColor(VSDark.textDim).frame(width: 10)
+                    Text(title.uppercased()).font(.system(size: 9, weight: .bold)).foregroundColor(VSDark.textDim)
+                    Text("\(count)").font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                }
+            }.buttonStyle(.plain)
+            Spacer()
+            Button(action: { workspaceManager.intake = IntakeRequest(kind: kind) }) {
+                Image(systemName: "plus").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+            }.buttonStyle(.plain).help(kind.title)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+    }
+}
+
+/// "#12 #40": the GitHub issues something refers to, each opening the issue.
+struct IssueLinks: View {
+    let numbers: [Int]
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(numbers.prefix(3), id: \.self) { number in
+                Button("#\(number)") { workspaceManager.openGitHubIssue(number) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundColor(VSDark.blue)
+                    .help("Open GitHub issue #\(number)")
+            }
+        }
+    }
+}
+
+/// Sidebar sections of the active feature (spec §3, §29): each object opens its Markdown file.
+struct FeatureNavigatorView: View {
+    @ObservedObject var store: FeatureStore
+    var onBack: (() -> Void)? = nil
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @State private var expanded: Set<String> = ["requirement", "question", "decision", "documents"]
+    @State private var history: [String] = []
+    @State private var showHistory = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let onBack {
+                Button(action: onBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left").font(.system(size: 9))
+                        Text("Issues").font(.system(size: 11))
+                        Spacer()
+                    }
+                    .foregroundColor(VSDark.blue)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                Divider().background(VSDark.border)
+            }
+            if let feature = store.active {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         header(feature)
-                        row(icon: "doc.text", title: "Overview", detail: nil) { open(feature.overviewURL) }
+                        if feature.isStructured {
+                            row(icon: "doc.text", title: "Overview", detail: nil) { open(feature.overviewURL) }
+                        }
+                        documentsSection(feature)
                         ForEach(FeatureObjectKind.allCases, id: \.self) { kind in section(kind, feature) }
                         row(icon: "hammer", title: "Implementation", detail: feature.planIssues.isEmpty ? nil : "\(feature.planIssues.count)") {
                             if FileManager.default.fileExists(atPath: feature.planURL.path) { open(feature.planURL) }
@@ -63,9 +202,43 @@ struct FeatureNavigatorView: View {
         .background(VSDark.bgSidebar)
     }
 
+    @ViewBuilder
+    private func documentsSection(_ feature: Feature) -> some View {
+        if !feature.documents.isEmpty {
+            let isExpanded = expanded.contains("documents")
+            Button(action: { if isExpanded { expanded.remove("documents") } else { expanded.insert("documents") } }) {
+                HStack(spacing: 5) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right").font(.system(size: 8)).foregroundColor(VSDark.textDim).frame(width: 10)
+                    Image(systemName: "doc.on.doc").font(.system(size: 10)).foregroundColor(VSDark.blue).frame(width: 14)
+                    Text("Documents").font(.system(size: 11, weight: .medium)).foregroundColor(VSDark.text)
+                    Spacer()
+                    Text("\(feature.documents.count)").font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .contentShape(Rectangle())
+            }.buttonStyle(.plain)
+            if isExpanded {
+                ForEach(feature.documents, id: \.self) { url in
+                    Button(action: { open(url) }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "doc.text").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                            Text(url.deletingPathExtension().lastPathComponent).font(.system(size: 11))
+                                .foregroundColor(isActive(url) ? VSDark.textBright : VSDark.text).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.leading, 28).padding(.trailing, 8).padding(.vertical, 2)
+                        .background(isActive(url) ? VSDark.selection.opacity(0.35) : Color.clear)
+                        .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private func header(_ feature: Feature) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(feature.title).font(.system(size: 12, weight: .semibold)).foregroundColor(VSDark.textBright).lineLimit(2)
+            if !feature.issueNumbers.isEmpty { IssueLinks(numbers: feature.issueNumbers) }
             HStack(spacing: 6) {
                 FeatureStatusMenu(store: store, feature: feature)
                 Spacer()
@@ -165,71 +338,6 @@ struct FeatureNavigatorView: View {
     }
 
     private func open(_ url: URL) { workspaceManager.openFile(url) }
-}
-
-/// Feature switcher with "New Feature".
-struct FeaturePicker: View {
-    @ObservedObject var store: FeatureStore
-    @Binding var creating: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "square.stack.3d.up").font(.system(size: 10)).foregroundColor(VSDark.blue)
-            Menu {
-                ForEach(store.features) { feature in
-                    Button(feature.title) { store.activeSlug = feature.slug; creating = false }
-                }
-                if !store.features.isEmpty { Divider() }
-                Button("New Feature…") { creating = true }
-            } label: {
-                Text(store.active?.title ?? "No features").font(.system(size: 11, weight: .medium))
-            }
-            .menuStyle(.borderlessButton).fixedSize()
-            Spacer()
-            Button(action: { creating = true }) {
-                Image(systemName: "plus").font(.system(size: 10)).foregroundColor(VSDark.textDim)
-            }.buttonStyle(.plain).help("New feature")
-        }
-        .padding(.horizontal, 10).padding(.vertical, 5)
-    }
-}
-
-/// Create a feature from an idea (spec §6); guided discovery starts right away.
-struct NewFeatureForm: View {
-    @ObservedObject var store: FeatureStore
-    @Binding var creating: Bool
-    @State private var title = ""
-    @State private var idea = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("New feature").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
-            TextField("Name, e.g. WhatsApp Mirroring", text: $title)
-                .textFieldStyle(.plain).font(.system(size: 11))
-                .padding(5).background(VSDark.bgInput).cornerRadius(4)
-            Text("The idea, in your own words").font(.system(size: 10)).foregroundColor(VSDark.textDim)
-            TextEditor(text: $idea)
-                .font(.system(size: 11)).frame(minHeight: 90, maxHeight: 160)
-                .scrollContentBackground(.hidden).background(VSDark.bgInput).cornerRadius(4)
-            HStack {
-                if creating && !store.features.isEmpty { Button("Cancel") { creating = false }.buttonStyle(.link).font(.system(size: 11)) }
-                Spacer()
-                Button("Create & Explore") {
-                    guard let slug = store.createFeature(title: title.trimmingCharacters(in: .whitespaces),
-                                                         idea: idea.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
-                    creating = false
-                    title = ""; idea = ""
-                    UserDefaults.standard.set(FeatureStage.explore.rawValue, forKey: FeatureStage.storageKey)
-                    Task { await store.assistant.exploreNext(slug) }
-                }
-                .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
-                .font(.system(size: 11))
-            }
-            Text("Stored as Markdown in docs/features/<name>/ — overview, requirements, questions, decisions…")
-                .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(10)
-    }
 }
 
 struct FeatureStatusMenu: View {

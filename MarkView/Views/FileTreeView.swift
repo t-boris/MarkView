@@ -25,16 +25,16 @@ struct FileTreeView: View {
         guard let dir = browseURL else { return [] }
         let fm = FileManager.default
         let sort = workspaceManager.fileTreeSortOrder
-        let needsDate = sort.field == .dateModified
-        let keys: [URLResourceKey] = needsDate
-            ? [.isDirectoryKey, .contentModificationDateKey]
-            : [.isDirectoryKey]
+        // Dates are shown on every row, so always read them.
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
 
         guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return [] }
 
         let items: [(url: URL, isDir: Bool, modDate: Date?)] = contents.compactMap { itemURL in
             let name = itemURL.lastPathComponent
-            guard !name.hasPrefix(".") else { return nil }
+            // Dot files and folders are shown (.claude, .github, .gitignore…), except the
+            // repository's and MarkView's own and Finder's.
+            guard !Self.hiddenNames.contains(name) else { return nil }
             let vals = try? itemURL.resourceValues(forKeys: Set(keys))
             let isDir = vals?.isDirectory ?? false
             guard isDir || FileType.isOpenable(itemURL) else { return nil }
@@ -243,9 +243,9 @@ struct FileTreeView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filteredContents, id: \.url) { item in
                             if item.isDir {
-                                folderRow(item.url)
+                                folderRow(item.url, date: item.modDate)
                             } else {
-                                fileRow(item.url)
+                                fileRow(item.url, date: item.modDate)
                             }
                         }
                     }
@@ -260,6 +260,7 @@ struct FileTreeView: View {
                 .contextMenu {
                     if let here = browseURL {
                         Button("New File...") { createNewFile(in: here) }
+                        if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: here, ignored: true) } }
                         Button("New Folder...") { createNewFolder(in: here) }
                         Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
                     }
@@ -326,7 +327,7 @@ struct FileTreeView: View {
         var target = request.standardizedFileURL
         guard target.path == root.path || target.path.hasPrefix(root.path + "/") else { return }
         while target.path != root.path,
-              !FileManager.default.fileExists(atPath: target.path) || target.lastPathComponent.hasPrefix(".") {
+              !FileManager.default.fileExists(atPath: target.path) || Self.hiddenNames.contains(target.lastPathComponent) {
             target = target.deletingLastPathComponent()
         }
         guard target.path != root.path else {
@@ -359,16 +360,43 @@ struct FileTreeView: View {
 
     // MARK: - Row Views
 
-    private func folderRow(_ url: URL) -> some View {
+    /// Never listed: git's and MarkView's own data, Finder's files.
+    static let hiddenNames: Set<String> = [".git", ".dde", ".DS_Store", ".Trash", ".localized"]
+
+    /// "now", "5m", "3h", "2d", "4w", "2025-03-01".
+    private func shortDate(_ date: Date?) -> String {
+        guard let date else { return "" }
+        let seconds = Date().timeIntervalSince(date)
+        switch seconds {
+        case ..<60: return "now"
+        case ..<3600: return "\(Int(seconds / 60))m"
+        case ..<86_400: return "\(Int(seconds / 3600))h"
+        case ..<(86_400 * 14): return "\(Int(seconds / 86_400))d"
+        case ..<(86_400 * 60): return "\(Int(seconds / (86_400 * 7)))w"
+        default:
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            return f.string(from: date)
+        }
+    }
+
+    private func dateLabel(_ date: Date?) -> some View {
+        Text(shortDate(date))
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundColor(VSDark.textDim)
+            .help(date.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "")
+    }
+
+    private func folderRow(_ url: URL, date: Date?) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "folder.fill")
                 .font(.system(size: 11))
-                .foregroundColor(VSDark.yellow)
+                .foregroundColor(url.lastPathComponent.hasPrefix(".") ? VSDark.textDim : VSDark.yellow)
             Text(url.lastPathComponent)
                 .font(.system(size: 11))
                 .foregroundColor(VSDark.text)
                 .lineLimit(1)
             Spacer()
+            dateLabel(date)
             Image(systemName: "chevron.right")
                 .font(.system(size: 9))
                 .foregroundColor(VSDark.textDim)
@@ -396,11 +424,13 @@ struct FileTreeView: View {
             Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
             Divider()
             Button("New File...") { createNewFile(in: url) }
+            if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: url, ignored: true) } }
             Button("New Folder...") { createNewFolder(in: url) }
             Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: url) }
             if git.isGitRepo {
                 Divider()
                 Button("Stage All in Folder") { stageAllInFolder(url) }
+                Button("Add to .gitignore") { addToGitignore(url, isDirectory: true) }
             }
             Divider()
             Button { workspaceManager.openTerminal(in: url) } label: { Label("Open Terminal Here", systemImage: "terminal") }
@@ -410,13 +440,14 @@ struct FileTreeView: View {
         }
     }
 
-    private func fileRow(_ url: URL) -> some View {
+    private func fileRow(_ url: URL, date: Date?) -> some View {
         let gitStatus = fileGitStatus(url)
         let (icon, color) = fileIcon(for: url)
         return HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 11)).foregroundColor(color).frame(width: 16)
             Text(url.lastPathComponent).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
             Spacer()
+            dateLabel(date)
             if let gs = gitStatus {
                 Text(gs.status)
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
@@ -439,6 +470,7 @@ struct FileTreeView: View {
                 Button("Discard Changes") { workspaceManager.gitClient.discardChanges(gs.file) }
                 Divider()
             }
+            if git.isGitRepo { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
             Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
             Menu("New from This Document") {
                 ForEach(IntakeKind.allCases) { kind in
@@ -493,7 +525,31 @@ struct FileTreeView: View {
         }
     }
 
-    private func createNewFile(in folderURL: URL) {
+    /// Add a file or folder to the repository's .gitignore (as an anchored path), once.
+    private func addToGitignore(_ url: URL, isDirectory: Bool) {
+        guard let root = git.workingDirectory ?? workspaceManager.rootNode?.url else { return }
+        Task {
+            let top = await GitHubClient.execute(["rev-parse", "--show-toplevel"], in: root, git: true)
+            let repo = URL(fileURLWithPath: top.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                           ? root.path : top.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+            let base = repo.standardizedFileURL.path + "/"
+            let path = url.standardizedFileURL.path
+            guard path.hasPrefix(base) else { return showError("“\(url.lastPathComponent)” is outside the repository.") }
+            let entry = "/" + path.dropFirst(base.count) + (isDirectory ? "/" : "")
+            let ignore = repo.appendingPathComponent(".gitignore")
+            var text = (try? String(contentsOf: ignore, encoding: .utf8)) ?? ""
+            guard !text.components(separatedBy: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) else { return }
+            if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
+            text += entry + "\n"
+            do { try text.write(to: ignore, atomically: true, encoding: .utf8) } catch {
+                return showError("Couldn't update .gitignore: \(error.localizedDescription)")
+            }
+            listVersion += 1
+            await git.refresh()
+        }
+    }
+
+    private func createNewFile(in folderURL: URL, ignored: Bool = false) {
         let alert = NSAlert()
         alert.messageText = "New File"
         alert.informativeText = "Enter filename:"
@@ -517,6 +573,7 @@ struct FileTreeView: View {
             } catch {
                 return showError("Couldn't create “\(name)”: \(error.localizedDescription)")
             }
+            if ignored { addToGitignore(fileURL, isDirectory: false) }
             listVersion += 1
             workspaceManager.refreshFileTree()
             workspaceManager.openFile(fileURL)

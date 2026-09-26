@@ -230,13 +230,26 @@ struct Feature: Identifiable {
     var objects: [FeatureObjectKind: [FeatureObject]] = [:]
     var planFront = FrontMatter()
     var planBody = ""
+    /// The feature has an overview.md (made by the app). Features written by hand before — a
+    /// folder of requirements.md, design.md, … — are listed and read as they are.
+    var isStructured = true
+    /// Markdown documents in the feature folder itself (besides overview, plan and discussion).
+    var documents: [URL] = []
+    /// Title found in the documents (first heading) when the overview has none.
+    var documentTitle: String?
+    /// GitHub issues the feature refers to (front matter `issue`, links and "issue #n" in its documents).
+    var issueNumbers: [Int] = []
 
     var overviewURL: URL { folder.appendingPathComponent("overview.md") }
     var planURL: URL { folder.appendingPathComponent("implementation/plan.md") }
     var discussionURL: URL { folder.appendingPathComponent("discussion.md") }
 
-    var title: String { front.string("title").isEmpty ? slug : front.string("title") }
-    var status: String { front.string("status").isEmpty ? "idea" : front.string("status") }
+    var title: String {
+        if !front.string("title").isEmpty { return front.string("title") }
+        if let documentTitle { return documentTitle }
+        return slug.replacingOccurrences(of: "-", with: " ").capitalized
+    }
+    var status: String { front.string("status").isEmpty ? (isStructured ? "idea" : "draft") : front.string("status") }
 
     func list(_ kind: FeatureObjectKind) -> [FeatureObject] { objects[kind] ?? [] }
 
@@ -360,11 +373,31 @@ struct Feature: Identifiable {
     // MARK: Loading
 
     static func load(folder: URL) -> Feature? {
-        let overview = folder.appendingPathComponent("overview.md")
-        guard let text = try? String(contentsOf: overview, encoding: .utf8) else { return nil }
-        let (front, body) = FrontMatter.split(text)
-        var feature = Feature(slug: folder.lastPathComponent, folder: folder, front: front, overviewBody: body)
         let fm = FileManager.default
+        let overview = folder.appendingPathComponent("overview.md")
+        let text = try? String(contentsOf: overview, encoding: .utf8)
+        let (front, body) = text.map(FrontMatter.split) ?? (FrontMatter(), "")
+        var feature = Feature(slug: folder.lastPathComponent, folder: folder, front: front, overviewBody: body)
+        feature.isStructured = text != nil
+        let own: Set<String> = ["overview.md", "discussion.md"]
+        feature.documents = ((try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension.lowercased() == "md" && !own.contains($0.lastPathComponent) }
+            .sorted { Self.documentOrder($0.lastPathComponent) < Self.documentOrder($1.lastPathComponent) }
+        // A folder with nothing to read (assets, images) is not a feature.
+        guard feature.isStructured || !feature.documents.isEmpty else { return nil }
+        var texts = [body]
+        for document in feature.documents.prefix(12) {
+            guard let content = try? String(contentsOf: document, encoding: .utf8) else { continue }
+            texts.append(String(content.prefix(200_000)))
+            if feature.documentTitle == nil, let heading = content.components(separatedBy: "\n")
+                .first(where: { $0.hasPrefix("# ") })?.dropFirst(2).trimmingCharacters(in: .whitespaces), !heading.isEmpty {
+                // "Requirements: Dock Panel Collapse" → "Dock Panel Collapse"
+                let parts = heading.split(separator: ":", maxSplits: 1)
+                feature.documentTitle = parts.count == 2 && parts[0].count < 30
+                    ? parts[1].trimmingCharacters(in: .whitespaces) : heading
+            }
+        }
+        feature.issueNumbers = Self.issueReferences(in: texts, front: front)
         for kind in FeatureObjectKind.allCases {
             let dir = folder.appendingPathComponent(kind.folder)
             let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
@@ -377,6 +410,60 @@ struct Feature: Identifiable {
             (feature.planFront, feature.planBody) = FrontMatter.split(plan)
         }
         return feature
+    }
+}
+
+extension Feature {
+    /// README first, then requirements, design, decisions, plans, tests, the rest by name.
+    static func documentOrder(_ name: String) -> String {
+        let order = ["readme", "requirements", "design", "decisions", "implementation", "test"]
+        let lower = name.lowercased()
+        let rank = order.firstIndex { lower.hasPrefix($0) } ?? order.count
+        return "\(rank)-\(lower)"
+    }
+
+    /// GitHub issue numbers mentioned: front matter `issue`/`issues`, issue links and "issue #n".
+    static func issueReferences(in texts: [String], front: FrontMatter) -> [Int] {
+        var numbers = Set<Int>()
+        for value in front.strings("issue") + front.strings("issues") {
+            if let n = Int(value.filter(\.isNumber)) { numbers.insert(n) }
+        }
+        // Issue links, and "issue #n", "epic #n", "PR #n" (GitHub opens a PR at its issue number too).
+        let patterns = [#"github\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/(\d+)"#,
+                        #"(?i)\b(?:issue|issues|gh|epic|pr|pull request)\s*:?\s*#(\d+)"#]
+        for text in texts {
+            for pattern in patterns {
+                guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+                let range = NSRange(text.startIndex..., in: text)
+                for match in regex.matches(in: text, range: range) {
+                    if let r = Range(match.range(at: 1), in: text), let n = Int(text[r]) { numbers.insert(n) }
+                }
+            }
+        }
+        return numbers.sorted()
+    }
+}
+
+/// A bug report in docs/bugs/ (made by "New Bug", or written by hand).
+struct BugReport: Identifiable, Hashable {
+    var id: URL { url }
+    let url: URL
+    var key: String
+    var title: String
+    var status: String
+    var severity: String
+    var issueNumbers: [Int]
+
+    static func load(_ url: URL) -> BugReport? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let (front, body) = FrontMatter.split(text)
+        let heading = body.components(separatedBy: "\n").first { $0.hasPrefix("# ") }.map { String($0.dropFirst(2)) }
+        let name = url.deletingPathExtension().lastPathComponent
+        return BugReport(url: url, key: front.string("id").isEmpty ? String(name.prefix(7)) : front.string("id"),
+                         title: front.string("title").isEmpty ? (heading ?? name) : front.string("title"),
+                         status: front.string("status").isEmpty ? "open" : front.string("status"),
+                         severity: front.string("severity"),
+                         issueNumbers: Feature.issueReferences(in: [body], front: front))
     }
 }
 

@@ -56,8 +56,16 @@ enum FileType: String {
     /// file is not code. Ids match `languages` in tools/web-vendor/codemirror-entry.js.
     static func codeLanguage(for url: URL) -> String? {
         if let byName = codeFileNames[url.lastPathComponent] { return byName }
+        // Dot files without an extension (.gitignore, .env, .npmrc…) and well-known plain files.
+        if url.pathExtension.isEmpty {
+            if url.lastPathComponent.hasPrefix(".") { return "properties" }
+            if plainFileNames.contains(url.lastPathComponent) { return "" }
+        }
         return codeExtensions[url.pathExtension.lowercased()]
     }
+
+    private static let plainFileNames: Set<String> = ["LICENSE", "LICENCE", "COPYING", "CODEOWNERS", "AUTHORS",
+                                                       "NOTICE", "CHANGELOG", "VERSION", "CONTRIBUTORS"]
 
     private static let codeFileNames: [String: String] = [
         "Dockerfile": "dockerfile", "Containerfile": "dockerfile", "Makefile": "shell",

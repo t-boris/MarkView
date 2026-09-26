@@ -137,6 +137,14 @@ final class FeatureAssistant: ObservableObject {
     func context(_ feature: Feature, focus: [String] = [], query: String = "", budget: Int = 45_000) -> String {
         var out = "# Feature: \(feature.title) (\(feature.slug)) — status \(feature.status)\n\n"
         out += feature.overviewBody.prefix(6_000) + "\n\n"
+        // A feature's own documents (hand-written specs: requirements.md, design.md, …).
+        var documentBudget = 30_000
+        for document in feature.documents where documentBudget > 0 {
+            guard let text = try? String(contentsOf: document, encoding: .utf8) else { continue }
+            let part = String(text.prefix(min(12_000, documentBudget)))
+            documentBudget -= part.count
+            out += "## Document \(document.lastPathComponent)\n\n\(part)\n\n"
+        }
         out += "## Understanding\n" + feature.understanding.map { "- \($0.dimension): \($0.state)" }.joined(separator: "\n") + "\n\n"
         // Focus objects and one hop around them, in full.
         var full: [String] = []

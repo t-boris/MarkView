@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## Done 20: Issues list, hand-written features, dot files, .gitignore (2026-09-26)
+
+User feedback on 2.2.0.
+
+- [x] Left panel: "Issues" tab (only when docs/features or docs/bugs exists) with Features and
+      Bugs; each with its GitHub links (#n → the issue tab, or the browser without the
+      integration). A feature opens its navigator ("‹ Issues" back), incl. its Documents.
+- [x] Hand-written features (any folder in docs/features: requirements.md, design.md, …) are
+      listed and readable (title from the first heading, issue/PR/epic references found in the
+      text); AI steps read their documents; the first AI step adds an overview.md (their own
+      files untouched). Checked on broker-fabric: all 37 features, and vivaa's BUG-001 (#253).
+- [x] Right panel: the Feature tab only when docs/features exists (a plain Markdown viewer
+      shows no feature UI).
+- [x] File tree: dot files and folders shown (.claude, .github, .gitignore, .env…) except .git,
+      .dde, .DS_Store; they open as text; every row shows its modification date; "Add to
+      .gitignore" (files, folders) and "New File (Ignored by Git)…". Dot files stay out of code
+      search (secrets never reach the AI).
+- [x] Version 2.2.0 → 2.3.0. Built; not installed (the user installs when they allow).
+
 ## Done 19: X-Ray explains links and answers questions; New from GitHub / documents (2026-09-26)
 
 - [x] Click an arrow → details panel: source → target, the code lines behind the link (the

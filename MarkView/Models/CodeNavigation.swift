@@ -215,7 +215,9 @@ enum CodeNavigator {
         var hits: [(path: String, line: Int, text: String)] = []
         for path in ArchitectureScanner.listFiles(root: root) {
             let url = root.appendingPathComponent(path)
-            guard FileType.codeLanguage(for: url) != nil || url.pathExtension.lowercased() == "md",
+            // Dot files (.env, .npmrc…) may hold secrets: never searched or handed to the AI.
+            guard !url.lastPathComponent.hasPrefix("."),
+                  FileType.codeLanguage(for: url) != nil || url.pathExtension.lowercased() == "md",
                   let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int), size < 1_000_000,
                   let text = try? String(contentsOf: url, encoding: .utf8), text.contains(name) else { continue }
             for (index, line) in text.editorLines.enumerated() where line.contains(name) {

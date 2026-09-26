@@ -16,26 +16,20 @@ struct TOCView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    VSDarkTabButton(title: tab.rawValue, isSelected: selectedTab == tab) {
-                        selectedTab = tab
-                    }
-                }
-            }
-            .padding(4).background(VSDark.bg)
-            Divider().background(VSDark.border)
+        TOCTabs(store: workspaceManager.features, selectedTab: $selectedTab) {
+            tabContent
+        }
+    }
 
-            switch selectedTab {
+    @ViewBuilder
+    private var tabContent: some View {
+            switch selectedTab == .feature && !workspaceManager.features.hasFeaturesFolder ? .contents : selectedTab {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
             case .terminal: ModuleExplorerView().environmentObject(workspaceManager)
             case .feature: FeaturePanelView(store: workspaceManager.features)
             }
-        }
-        .background(VSDark.bgSidebar)
     }
 
     @ViewBuilder
@@ -95,6 +89,29 @@ struct TOCView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(VSDark.bgSidebar)
+    }
+}
+
+/// The tab row of the right panel; "Feature" only when the project has docs/features.
+private struct TOCTabs<Content: View>: View {
+    @ObservedObject var store: FeatureStore
+    @Binding var selectedTab: TOCView.Tab
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(TOCView.Tab.allCases.filter { $0 != .feature || store.hasFeaturesFolder }, id: \.self) { tab in
+                    VSDarkTabButton(title: tab.rawValue, isSelected: selectedTab == tab) {
+                        selectedTab = tab
+                    }
+                }
+            }
+            .padding(4).background(VSDark.bg)
+            Divider().background(VSDark.border)
+            content()
+        }
         .background(VSDark.bgSidebar)
     }
 }

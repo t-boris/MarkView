@@ -9,6 +9,12 @@ final class FeatureStore: ObservableObject {
     static let folderName = "docs/features"
 
     @Published private(set) var features: [Feature] = []
+    /// Bug reports in docs/bugs/.
+    @Published private(set) var bugs: [BugReport] = []
+    /// The project has docs/features/ (the Feature tab is shown only then).
+    @Published private(set) var hasFeaturesFolder = false
+    /// The project has docs/features/ or docs/bugs/ (the Issues list is shown only then).
+    @Published private(set) var hasIssues = false
     @Published var activeSlug: String? {
         didSet {
             guard let root, let activeSlug else { return }
@@ -27,6 +33,7 @@ final class FeatureStore: ObservableObject {
     private(set) lazy var assistant = FeatureAssistant(store: self)
 
     var featuresFolder: URL? { root?.appendingPathComponent(Self.folderName, isDirectory: true) }
+    var bugsFolder: URL? { root?.appendingPathComponent("docs/bugs", isDirectory: true) }
 
     var active: Feature? {
         features.first { $0.slug == activeSlug } ?? features.first
@@ -62,33 +69,51 @@ final class FeatureStore: ObservableObject {
         pollTask = nil
         root = nil
         features = []
+        bugs = []
+        hasFeaturesFolder = false
+        hasIssues = false
         fingerprint = ""
         lastError = nil
     }
 
     /// Read every feature again (off the main thread).
     func reload() {
-        guard let folder = featuresFolder else { return }
+        guard let folder = featuresFolder, let bugsFolder else { return }
         let started = generation
         Task {
-            let (loaded, print) = await Task.detached { () -> ([Feature], String) in
-                (Self.loadAll(folder), Self.fingerprint(folder))
+            let (loaded, bugList, print) = await Task.detached { () -> ([Feature], [BugReport], String) in
+                (Self.loadAll(folder), Self.loadBugs(bugsFolder), Self.fingerprint(folder) + "#" + Self.fingerprint(bugsFolder))
             }.value
             // The app wrote something meanwhile: this read may miss it.
             guard folder == featuresFolder, started == generation else { return }
             features = loaded
+            bugs = bugList
+            updateFolderFlags()
             fingerprint = print
             if let activeSlug, !loaded.contains(where: { $0.slug == activeSlug }) { self.activeSlug = loaded.first?.slug }
         }
     }
 
     private func reloadIfChanged() {
-        guard let folder = featuresFolder else { return }
+        guard let folder = featuresFolder, let bugsFolder else { return }
         let started = generation
         Task {
-            let print = await Task.detached { Self.fingerprint(folder) }.value
+            let print = await Task.detached { Self.fingerprint(folder) + "#" + Self.fingerprint(bugsFolder) }.value
             if started == generation, print != fingerprint { reload() }
         }
+    }
+
+    private func updateFolderFlags() {
+        let fm = FileManager.default
+        hasFeaturesFolder = featuresFolder.map { fm.fileExists(atPath: $0.path) } ?? false
+        hasIssues = hasFeaturesFolder || (bugsFolder.map { fm.fileExists(atPath: $0.path) } ?? false)
+    }
+
+    nonisolated private static func loadBugs(_ folder: URL) -> [BugReport] {
+        ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension.lowercased() == "md" && $0.lastPathComponent.lowercased() != "readme.md" }
+            .compactMap(BugReport.load)
+            .sorted { $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedDescending }
     }
 
     nonisolated private static func loadAll(_ folder: URL) -> [Feature] {
@@ -191,6 +216,8 @@ final class FeatureStore: ObservableObject {
         } else {
             features = Self.loadAll(folder)
         }
+        if let bugsFolder { bugs = Self.loadBugs(bugsFolder) }
+        updateFolderFlags()
         fingerprint = ""  // the poll re-reads the dates and settles
     }
 
@@ -255,7 +282,10 @@ final class FeatureStore: ObservableObject {
 
     /// Change the overview (status, understanding…).
     func updateFeature(_ slug: String, _ change: (inout FrontMatter, inout String) -> Void) {
-        guard let feature = feature(slug), let text = try? String(contentsOf: feature.overviewURL, encoding: .utf8) else { return }
+        guard let feature = feature(slug) else { return }
+        // A hand-written feature gets its overview.md the first time the app records something;
+        // its own documents are left as they are.
+        let text = (try? String(contentsOf: feature.overviewURL, encoding: .utf8)) ?? adoptedOverview(feature)
         var (front, body) = FrontMatter.split(text)
         guard front.isLossless else {
             lastError = "The overview of \(feature.title) has YAML the app cannot rewrite safely — change it in the editor."
@@ -266,6 +296,20 @@ final class FeatureStore: ObservableObject {
             lastError = "Could not save the overview: \(error.localizedDescription)"
         }
         reloadSync(slug)
+    }
+
+    private func adoptedOverview(_ feature: Feature) -> String {
+        var front = FrontMatter()
+        front.set("type", "feature")
+        front.set("id", feature.slug)
+        front.set("title", feature.title)
+        front.set("status", "draft")
+        front.set("owner", defaultOwner)
+        front.set("created", Self.today)
+        front.set("provenance", "Adopted existing feature documents")
+        front["understanding"] = .map(FeatureVocabulary.understanding.map { ($0, YAMLValue.string("unknown")) })
+        let list = feature.documents.map { "- [\($0.lastPathComponent)](\($0.lastPathComponent))" }.joined(separator: "\n")
+        return front.join(body: "# \(feature.title)\n\n## Documents\n\n\(list)\n")
     }
 
     func setUnderstanding(_ slug: String, _ states: [String: String]) {

@@ -46,7 +46,7 @@ struct FeaturePanelView: View {
                 }
                 DiscussionInput(store: store, feature: feature)
             } else {
-                panelEmpty("No feature yet. Create one in the left panel (Feature) from an idea.")
+                panelEmpty("No features yet. Use ⊞ → New Feature, or open one in the left panel (Issues).")
             }
         }
         .background(VSDark.bgSidebar)
