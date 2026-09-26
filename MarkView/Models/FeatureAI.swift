@@ -476,6 +476,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// "Suggest another approach": more options for a question.
     func moreOptions(_ slug: String, question id: String) async {
+        preparing.insert("options:" + id)
+        defer { preparing.remove("options:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
         let existing = (question.front["options"]?.list ?? []).map { "\($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
         let prompt = context(feature, focus: [id]) + """
@@ -496,6 +498,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// "Show pros/cons": fill in pros and cons of every option.
     func prosAndCons(_ slug: String, question id: String) async {
+        preparing.insert("pros:" + id)
+        defer { preparing.remove("pros:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
         let existing = (question.front["options"]?.list ?? []).map { "\($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
         let prompt = context(feature, focus: [id]) + """
@@ -528,6 +532,8 @@ final class FeatureAssistant: ObservableObject {
     /// Research a topic (web, project, code) and keep the claims with their kinds and sources.
     @discardableResult
     func research(_ slug: String, topic: String, for linked: String? = nil) async -> FeatureObject? {
+        preparing.insert("research:" + slug)
+        defer { preparing.remove("research:" + slug) }
         guard let feature = store.feature(slug) else { return nil }
         let prompt = context(feature, focus: linked.map { [$0] } ?? [], query: topic) + """
 
@@ -623,6 +629,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// Acceptance criteria for a requirement that has none (or more of them).
     func acceptanceCriteria(_ slug: String, requirement id: String) async {
+        preparing.insert("criteria:" + id)
+        defer { preparing.remove("criteria:" + id) }
         guard let feature = store.feature(slug), let requirement = feature.object(id) else { return }
         let prompt = context(feature, focus: [id]) + """
 
@@ -649,6 +657,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// Resolution options for a finding (conflict, ambiguity…), kept on the finding.
     func resolutionOptions(_ slug: String, finding id: String) async {
+        preparing.insert("resolveopts:" + id)
+        defer { preparing.remove("resolveopts:" + id) }
         guard let feature = store.feature(slug), let finding = feature.object(id) else { return }
         let prompt = context(feature, focus: [id]) + """
 
@@ -674,6 +684,8 @@ final class FeatureAssistant: ObservableObject {
     /// Resolve a finding with one of its options (or the user's own text): an accepted decision
     /// linked to the finding and the requirements it is about.
     func resolve(_ slug: String, finding id: String, with choice: String) async {
+        preparing.insert("resolve:" + id)
+        defer { preparing.remove("resolve:" + id) }
         guard let feature = store.feature(slug), let finding = feature.object(id) else { return }
         let others = (finding.front["options"]?.list ?? []).compactMap { $0["text"]?.string }.filter { $0 != choice }
         let prompt = context(feature, focus: [id]) + """
@@ -808,6 +820,8 @@ final class FeatureAssistant: ObservableObject {
     // MARK: - Discussion (free-form chat, with decision detection — spec §16, §32)
 
     func chat(_ slug: String, message: String) async {
+        preparing.insert("chat:" + slug)
+        defer { preparing.remove("chat:" + slug) }
         guard let feature = store.feature(slug) else { return }
         store.appendDiscussion(slug, speaker: store.defaultOwner.isEmpty ? "User" : store.defaultOwner, text: message)
         var item = FeatureResult(title: "Discussion", text: "", pending: true, feature: slug)
@@ -856,6 +870,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// Propose implementation issues covering the approved requirements.
     func decompose(_ slug: String) async {
+        preparing.insert("decompose:" + slug)
+        defer { preparing.remove("decompose:" + slug) }
         guard let feature = store.feature(slug) else { return }
         let approved = feature.list(.requirement).filter { $0.status == "approved" }
         let pool = approved.isEmpty ? feature.list(.requirement).filter { $0.status != "rejected" } : approved

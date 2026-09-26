@@ -28,6 +28,7 @@ struct FeaturePanelView: View {
             } else if let feature = store.active {
                 header(feature)
                 Divider().background(VSDark.border)
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         errors
@@ -43,6 +44,12 @@ struct FeaturePanelView: View {
                         }
                     }
                     .padding(10)
+                }
+                // A new answer (discussion, contextual action) is scrolled into view.
+                .onChange(of: assistant.results.first?.id) { id in
+                    guard let id else { return }
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .top) }
+                }
                 }
                 DiscussionInput(store: store, feature: feature)
             } else {
@@ -116,7 +123,7 @@ struct FeaturePanelView: View {
     @ViewBuilder
     private func results(_ feature: Feature) -> some View {
         let items = assistant.results.filter { $0.feature == nil || $0.feature == feature.slug }
-        ForEach(items) { item in ResultCard(store: store, result: item, feature: feature) }
+        ForEach(items) { item in ResultCard(store: store, result: item, feature: feature).id(item.id) }
     }
 
     private func panelEmpty(_ text: String) -> some View {
@@ -697,7 +704,7 @@ struct ReviewStageView: View {
                 Text("Is the specification complete, consistent and ready?").font(.system(size: 10)).foregroundColor(VSDark.textDim)
                 Spacer()
                 if store.assistant.isRunning("review:" + feature.slug) {
-                    Working(text: "Reviewing…")
+                    Working(text: "Reviewing the specification from every perspective — about a minute…")
                 } else {
                     SmallButton(title: "Run review", icon: "sparkles", prominent: true) { Task { await store.assistant.review(feature.slug) } }
                 }
@@ -732,6 +739,8 @@ struct FindingCard: View {
     let finding: FeatureObject
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var own = ""
+    /// What was just asked for this finding, shown at once.
+    @State private var started: String?
 
     private var assistant: FeatureAssistant { store.assistant }
 
@@ -757,6 +766,9 @@ struct FindingCard: View {
             }
             Text(finding.front.strings("perspectives").joined(separator: " · ")).font(.system(size: 9)).foregroundColor(VSDark.cyan)
             ResolutionOptions(store: store, feature: feature, finding: finding)
+            if let started, assistant.isRunning("chat:" + feature.slug) {
+                Working(text: started)
+            }
             if !assistant.isRunning("resolve:" + finding.id) && !assistant.isRunning("resolveopts:" + finding.id) {
                 FlowButtons {
                     if (finding.front["options"]?.list ?? []).isEmpty {
@@ -765,6 +777,7 @@ struct FindingCard: View {
                         }
                     }
                     SmallButton(title: "Discuss") {
+                        started = "Sent to the discussion — the reply appears at the top of this panel…"
                         Task { await assistant.chat(feature.slug, message: "Let's discuss \(finding.id): \(finding.title)") }
                     }
                     SmallButton(title: "Edit Requirement") { openTarget() }
@@ -795,11 +808,23 @@ struct ResolutionOptions: View {
     let feature: Feature
     let finding: FeatureObject
     @State private var own = ""
+    /// The resolution just chosen, shown at once while the decision is written.
+    @State private var chosen: String?
 
     var body: some View {
         let options = finding.front["options"]?.list ?? []
-        if store.assistant.isRunning("resolve:" + finding.id) || store.assistant.isRunning("resolveopts:" + finding.id) {
-            Working(text: "Working on \(finding.id)…")
+        if store.assistant.isRunning("resolve:" + finding.id) {
+            VStack(alignment: .leading, spacing: 3) {
+                if let chosen {
+                    HStack(alignment: .top, spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.green)
+                        Text(chosen).font(.system(size: 10, weight: .medium)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Working(text: "Recording the decision and closing \(finding.id)…")
+            }
+        } else if store.assistant.isRunning("resolveopts:" + finding.id) {
+            Working(text: "Looking for ways to resolve \(finding.id)…")
         } else if !options.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 let question = finding.front.string("resolution_question")
@@ -808,6 +833,7 @@ struct ResolutionOptions: View {
                     let text = option["text"]?.string ?? ""
                     VStack(alignment: .leading, spacing: 1) {
                         SmallButton(title: option["label"]?.string ?? "Option", prominent: true) {
+                            chosen = (option["label"]?.string ?? "") + " — " + text
                             Task { await store.assistant.resolve(feature.slug, finding: finding.id, with: text) }
                         }
                         Text(text).font(.system(size: 9)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
@@ -822,6 +848,7 @@ struct ResolutionOptions: View {
                         let text = own.trimmingCharacters(in: .whitespaces)
                         guard !text.isEmpty else { return }
                         own = ""
+                        chosen = text
                         Task { await store.assistant.resolve(feature.slug, finding: finding.id, with: text) }
                     }
                 }

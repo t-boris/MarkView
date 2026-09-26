@@ -15,6 +15,10 @@ User testing a feature.
 - [x] A chosen option / typed answer shows at once ("Answer taken — updating…"); steps are marked
       running before their prompt is built.
 - [x] Version 2.5.1 → 2.6.0. Built; not installed.
+- [x] 2.6.1: Review had no feedback either — every AI step (resolution options, resolve, pros/cons,
+      more options, research, criteria, discussion, plan) is marked running at the click; a
+      finding shows the chosen resolution with "Recording the decision…", Discuss says where the
+      reply comes, the panel scrolls to a new answer.
 
 ## Done 22: Tab bar — overflow menu, reorder by dragging, wheel scrolling (2026-09-26)
 
