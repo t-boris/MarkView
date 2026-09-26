@@ -895,6 +895,11 @@ struct BuildStageView: View {
                     }
                 }
             }
+            HStack {
+                Text("Hand the specification to the AI terminal to implement.").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                Spacer()
+                SmallButton(title: "Implement with AI", icon: "hammer") { workspaceManager.implementWithAI(feature.folder) }
+            }
             if approved.isEmpty {
                 Text("Approve requirements first (their files' status, or in the object panel). The plan uses approved ones; without any it uses all non-rejected.")
                     .font(.system(size: 9)).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)

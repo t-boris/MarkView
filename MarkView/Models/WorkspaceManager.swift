@@ -319,7 +319,7 @@ class WorkspaceManager: ObservableObject {
     @Published var gitClient = GitClient()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
     let gitHub = GitHubStore()
-    /// Feature workspaces of the folder (features/<slug>/…).
+    /// Feature workspaces of the folder (docs/features/<slug>/…).
     let features = FeatureStore()
     /// Where the AI terminal starts: the open folder, or a single file's folder.
     @Published private(set) var aiWorkspaceRoot: URL?
@@ -1237,6 +1237,11 @@ class WorkspaceManager: ObservableObject {
         case "outlineFile":
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
             architecture.outlineFile(path: path, root: root, db: semanticDatabase)
+        case "explainEdge":
+            guard let source = payload["source"] as? String, let target = payload["target"] as? String else { return }
+            architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
+                                     kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
+                                     root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
         case "describe":
             architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
                                   root: root, db: semanticDatabase)
@@ -3172,7 +3177,56 @@ class WorkspaceManager: ObservableObject {
     // MARK: - GitHub
 
     /// The "New" intake sheet shown (New Feature / New Bug / I Need to Understand).
-    @Published var intake: IntakeKind?
+    @Published var intake: IntakeRequest?
+
+    /// "New Feature / New Bug from #n": the issue's text and comments as the material, linked.
+    func startIntake(_ kind: IntakeKind, fromIssue number: Int) {
+        guard let client = gitHub.client else { return }
+        Task {
+            do {
+                let issue = try await client.issue(number)
+                var text = "GitHub issue #\(number): \(issue.title)\n\n\(issue.body ?? "")"
+                let comments = issue.comments ?? []
+                if !comments.isEmpty {
+                    text += "\n\nComments:\n\n" + comments.map { "\($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n\n")
+                }
+                intake = IntakeRequest(kind: kind, text: text, linkedIssue: number)
+            } catch {
+                gitHub.lastError = "Could not read #\(number): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// "New … from this pull request": its description as the material (a new issue is filed).
+    func startIntake(_ kind: IntakeKind, fromPullRequest pr: GHPullRequest) {
+        guard let client = gitHub.client else { return }
+        Task {
+            let body = (try? await client.gh(["pr", "view", String(pr.number), "-R", client.repo.slug, "--json", "body", "-q", ".body"])) ?? ""
+            intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))\n\n\(body)")
+        }
+    }
+
+    /// "New … from this document": the document is the material (attached, so the AI reads it whole).
+    func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
+        let path = workspaceRelativePath(url)
+        let lead: String
+        switch kind {
+        case .feature: lead = "Build a feature from the document \(path) (attached)."
+        case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
+        case .understand: lead = "Help me understand the document \(path) (attached): what it says, how it relates to the project, what is outdated or missing."
+        }
+        intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
+    }
+
+    /// Hand a document to the AI to implement (the assistant in the Terminal tab): Claude Code gets
+    /// it as a `/goal`, the others as a plain instruction.
+    func implementWithAI(_ url: URL) {
+        let path = workspaceRelativePath(url)
+        let instruction = "implement \(path) — ask any question if you are in doubt"
+        let prompt = AIAssistantPreferences.backend == .claude ? "/goal \(instruction)"
+            : "Implement what \(path) specifies. Read it first; ask any question if you are in doubt before changing code."
+        sendToAssistant(prompt, submit: true)
+    }
 
     /// An intake finished: open what it made, and for a feature show its workspace.
     func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {

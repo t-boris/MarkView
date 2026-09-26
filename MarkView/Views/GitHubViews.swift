@@ -349,6 +349,9 @@ struct GitHubPullRequestsView: View {
         Menu {
             Button("Open on GitHub") { openInBrowser(pr.url) }
             Button("Copy Link") { copyToPasteboard(pr.url) }
+            Divider()
+            Button("New Feature from This PR…") { workspaceManager.startIntake(.feature, fromPullRequest: pr) }
+            Button("New Bug from This PR…") { workspaceManager.startIntake(.bug, fromPullRequest: pr) }
             if pr.state.uppercased() == "OPEN" {
                 Divider()
                 Button("Approve…") { textAction = TextAction(pr: pr, kind: "approve") }
@@ -490,6 +493,11 @@ struct GitHubIssuesView: View {
                                 workspaceManager.openGitHubTab(.issue(number: issue.number, repo: repo, title: "#\(issue.number) \(issue.title)"))
                             }) { row(issue) }
                             .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("New Feature from #\(issue.number)…") { workspaceManager.startIntake(.feature, fromIssue: issue.number) }
+                                Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
+                                Button("Open on GitHub") { openInBrowser(issue.url) }
+                            }
                             Divider().background(VSDark.border)
                         }
                     }
@@ -1089,6 +1097,11 @@ struct GitHubIssueView: View {
                 Button(action: startWithAI) { Label("Start with AI", systemImage: "sparkles") }
                     .help("Create a branch for the issue and hand it to the AI terminal")
                     .disabled(starting)
+                Menu("New from It") {
+                    Button("New Feature from #\(issue.number)…") { workspaceManager.startIntake(.feature, fromIssue: issue.number) }
+                    Button("New Bug from #\(issue.number)…") { workspaceManager.startIntake(.bug, fromIssue: issue.number) }
+                }
+                .menuStyle(.borderlessButton).fixedSize()
                 Button(issue.isOpen ? "Close Issue" : "Reopen Issue") {
                     model.act(issue.isOpen ? "Close" : "Reopen") { try await $0.setIssueOpen(issue.number, open: !issue.isOpen) }
                 }

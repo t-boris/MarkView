@@ -440,6 +440,12 @@ struct FileTreeView: View {
                 Divider()
             }
             Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+            Menu("New from This Document") {
+                ForEach(IntakeKind.allCases) { kind in
+                    Button(kind.title + "…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                }
+            }
+            Button { workspaceManager.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
             Divider()
             Button { workspaceManager.openTerminal(in: url.deletingLastPathComponent()) } label: {
                 Label("Open Terminal Here", systemImage: "terminal")

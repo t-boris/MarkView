@@ -1,11 +1,12 @@
 import Foundation
 
-/// The feature workspaces of the open folder (`features/<slug>/`): read from their Markdown
+/// The feature workspaces of the open folder (`docs/features/<slug>/`): read from their Markdown
 /// files, written back as the user and the AI act on them. Files changed outside the app
 /// (editor, git, the AI terminal) are picked up by a light polling of their dates.
 @MainActor
 final class FeatureStore: ObservableObject {
-    static let folderName = "features"
+    /// Features live with the documentation: docs/features/<slug>/.
+    static let folderName = "docs/features"
 
     @Published private(set) var features: [Feature] = []
     @Published var activeSlug: String? {

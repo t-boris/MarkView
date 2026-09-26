@@ -110,7 +110,15 @@ struct ContentView: View {
                 // New feature / bug / "I need to understand" — the standard ways into the project.
                 Menu {
                     ForEach(IntakeKind.allCases) { kind in
-                        Button(kind.title + "…") { workspaceManager.intake = kind }
+                        Button(kind.title + "…") { workspaceManager.intake = IntakeRequest(kind: kind) }
+                    }
+                    if let url = workspaceManager.activeTab?.url, workspaceManager.activeTab?.isFileBacked == true {
+                        Section("From the open document (\(url.lastPathComponent))") {
+                            ForEach(IntakeKind.allCases) { kind in
+                                Button(kind.title + " from It…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                            }
+                            Button("Implement It with AI") { workspaceManager.implementWithAI(url) }
+                        }
                     }
                 } label: {
                     Image(systemName: "plus.square")
@@ -158,8 +166,8 @@ struct ContentView: View {
                 preselectedType: workspaceManager.pendingGraphCreatorType ?? "architecture"
             )
         }
-        .sheet(item: $workspaceManager.intake) { kind in
-            IntakeSheet(kind: kind, workspaceManager: workspaceManager)
+        .sheet(item: $workspaceManager.intake) { request in
+            IntakeSheet(request: request, workspaceManager: workspaceManager)
         }
         .background(WindowAccessor(window: $hostWindow))
         // Finder "Open With" / Quick Action: requests wait in

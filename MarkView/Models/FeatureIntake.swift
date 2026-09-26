@@ -24,6 +24,15 @@ enum IntakeKind: String, Identifiable, CaseIterable {
     }
 }
 
+/// A "New …" to start: its kind and, when it comes from somewhere, the material already filled in.
+struct IntakeRequest: Identifiable {
+    let id = UUID()
+    var kind: IntakeKind
+    var text = ""
+    var linkedIssue: Int?
+    var attachments: [URL] = []
+}
+
 extension FeatureAssistant {
     struct IntakeOutcome {
         /// The file to open (overview, bug report, research answer).
@@ -145,12 +154,12 @@ extension FeatureAssistant {
     // MARK: New Bug
 
     /// A bug report from the user's description: reproduction, expected and actual behaviour,
-    /// severity and the code it likely lives in; written to bugs/ and filed on GitHub.
+    /// severity and the code it likely lives in; written to docs/bugs/ and filed on GitHub.
     /// `linkedIssue`: the bug is already on GitHub — the report links it (and, with
     /// `commentOnIssue`, adds the analysis there as a comment) instead of filing a new issue.
     func newBug(from dump: String, attachments: [URL], linkedIssue: Int? = nil, commentOnIssue: Bool = false) async -> IntakeOutcome? {
         guard let root = store.root else { return nil }
-        let folder = root.appendingPathComponent("bugs", isDirectory: true)
+        let folder = root.appendingPathComponent("docs/bugs", isDirectory: true)
         let id = Self.nextNumbered("BUG", in: folder)
         // Attachments next to the report, referenced from it.
         var assets: [String] = []
@@ -166,7 +175,7 @@ extension FeatureAssistant {
 
         \(dump.prefix(30_000))
         \(attachmentText.isEmpty ? "" : "\n## Attachments\n\(attachmentText)")
-        \(assets.isEmpty ? "" : "\nAttached files (look at images): " + assets.map { "bugs/" + $0 }.joined(separator: ", "))
+        \(assets.isEmpty ? "" : "\nAttached files (look at images): " + assets.map { "docs/bugs/" + $0 }.joined(separator: ", "))
 
         Task: write a precise bug report. Search the project's code and documentation (read-only) for where \
         this behaviour most likely comes from and name the files with the reason. Give a short title, a summary, \
@@ -246,8 +255,8 @@ extension FeatureAssistant {
         }
         var issueRef = linkedIssue.map { "#\($0)" }
         if let client = gitHubClient() {
-            let issueBody = report.replacingOccurrences(of: "](assets/", with: "](bugs/assets/")
-                + "\n\n_Report: `bugs/\(fileName)`_"
+            let issueBody = report.replacingOccurrences(of: "](assets/", with: "](docs/bugs/assets/")
+                + "\n\n_Report: `docs/bugs/\(fileName)`_"
             if let linkedIssue {
                 if commentOnIssue {
                     do { try await client.commentIssue(linkedIssue, body: "### Analysis\n\n" + issueBody) }
@@ -266,10 +275,10 @@ extension FeatureAssistant {
     // MARK: I need to understand
 
     /// Research the project (code, docs, git history, web when useful) to answer a question;
-    /// the answer is kept in research/ and opened.
+    /// the answer is kept in docs/research/ and opened.
     func understand(_ question: String, attachments: [URL]) async -> IntakeOutcome? {
         guard let root = store.root else { return nil }
-        let folder = root.appendingPathComponent("research", isDirectory: true)
+        let folder = root.appendingPathComponent("docs/research", isDirectory: true)
         let id = Self.nextNumbered("RES", in: folder)
         var attachmentText = ""
         for url in attachments { attachmentText += "\n--- \(url.lastPathComponent) ---\n" + (await Self.readableText(of: url)).prefix(20_000) }

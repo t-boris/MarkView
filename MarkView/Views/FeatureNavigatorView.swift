@@ -225,7 +225,7 @@ struct NewFeatureForm: View {
                 .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
                 .font(.system(size: 11))
             }
-            Text("Stored as Markdown in features/<name>/ — overview, requirements, questions, decisions…")
+            Text("Stored as Markdown in docs/features/<name>/ — overview, requirements, questions, decisions…")
                 .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
@@ -293,7 +293,8 @@ struct FeatureStatusDot: View {
 /// "New Feature / New Bug / I Need to Understand": write everything you know, add files,
 /// the AI does the rest (feature files + GitHub issue, bug report + GitHub issue, researched answer).
 struct IntakeSheet: View {
-    let kind: IntakeKind
+    let request: IntakeRequest
+    private var kind: IntakeKind { request.kind }
     @ObservedObject var workspaceManager: WorkspaceManager
     @ObservedObject var assistant: FeatureAssistant
     @Environment(\.dismiss) private var dismiss
@@ -308,10 +309,13 @@ struct IntakeSheet: View {
     @State private var picking = false
     @State private var issueFilter = ""
 
-    init(kind: IntakeKind, workspaceManager: WorkspaceManager) {
-        self.kind = kind
+    init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
+        self.request = request
         self.workspaceManager = workspaceManager
         self.assistant = workspaceManager.features.assistant
+        _text = State(initialValue: request.text)
+        _attachments = State(initialValue: request.attachments)
+        _linkedIssue = State(initialValue: request.linkedIssue)
     }
 
     var body: some View {
@@ -437,9 +441,9 @@ struct IntakeSheet: View {
     private var footnote: String {
         let github = workspaceManager.gitHub.isAvailable
         switch kind {
-        case .feature: return "Creates features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
-        case .bug: return "Writes bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.")
-        case .understand: return "The answer is written to research/RES-nnn-….md and opened."
+        case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
+        case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.")
+        case .understand: return "The answer is written to docs/research/RES-nnn-….md and opened."
         }
     }
 

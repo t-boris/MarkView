@@ -227,6 +227,8 @@
             const codeViews = { modules: 1, logical: 1, pr: 1 };
             function overlayApplies() {
                 if (ui.overlay === 'none') return false;
+                // The ⚡ search also marks deployment nodes.
+                if (ui.view === 'deployment') return isSearch(currentFilter());
                 if (codeViews[ui.view]) return true;
                 return ui.view === 'docs' && (isAIFilter() || ui.overlay === 'size' || ui.overlay === 'freshness');
             }
@@ -327,6 +329,15 @@
                 const filter = currentFilter(); if (!filter) return null;
                 const all = (ui.payload.snapshot && ui.payload.snapshot.ratings) || {};
                 const table = all[filter.id] || {};
+                if (ui.view === 'deployment' && node) {
+                    // A deployment node the AI named, or one running code that matters.
+                    if (node.kind !== 'moduleRef') return table['dep:' + node.id.replace(/^p:/, '')] || null;
+                    const base = node.path || '';
+                    const hit = Object.keys(table).find(function(k) {
+                        return k.indexOf('p:') === 0 && table[k].level === 'strong' && (k === 'p:' + base || k.indexOf('p:' + base + '/') === 0);
+                    });
+                    return hit ? { level: 'strong', reason: 'Runs ' + hit.slice(2), provisional: !!table[hit].provisional } : null;
+                }
                 const key = importanceKey(node);
                 return key ? table[key] : null;
             }
@@ -817,6 +828,7 @@
                 cy = cytoscape({ container: el.graph, elements: [], style: stylesheet(), wheelSensitivity: 0.25,
                                  minZoom: 0.05, maxZoom: 3, boxSelectionEnabled: false });
                 cy.on('tap', 'node', function(evt) {
+                    ui.selectedEdge = null;
                     ui.selected = evt.target.id();
                     highlightNeighbourhood(evt.target);
                     renderDetails();
@@ -826,8 +838,19 @@
                         if (node && node.path && (node.kind === 'file' || node.kind === 'doc')) openPRFile(node.path);
                     }
                 });
+                // An arrow: why the link exists (the AI reads the code behind it).
+                cy.on('tap', 'edge', function(evt) {
+                    const e = evt.target;
+                    ui.selected = null;
+                    ui.selectedEdge = { view: ui.view, source: e.data('source'), target: e.data('target'),
+                                        kind: e.data('kind') || 'uses', label: e.data('label') || '' };
+                    cy.edges().removeClass('faded hot'); cy.edges().not(e).addClass('faded'); e.addClass('hot');
+                    renderDetails();
+                    post('explainEdge', { view: ui.view, source: ui.selectedEdge.source, target: ui.selectedEdge.target,
+                                          kind: ui.selectedEdge.kind, label: ui.selectedEdge.label || undefined });
+                });
                 cy.on('tap', function(evt) {
-                    if (evt.target === cy) { ui.selected = null; highlightNeighbourhood(null); renderDetails(); }
+                    if (evt.target === cy) { ui.selected = null; ui.selectedEdge = null; highlightNeighbourhood(null); renderDetails(); }
                 });
                 cy.on('dbltap', 'node', function(evt) { activate(evt.target.id()); });
             }
@@ -1039,6 +1062,11 @@
                 const idx = indexView(view);
                 const node = ui.selected ? idx.byId.get(ui.selected) : null;
 
+                if (!node && ui.selectedEdge && ui.selectedEdge.view === ui.view) { renderEdgeDetails(d, idx, ui.selectedEdge); return; }
+                if (!node && isSearch(currentFilter()) && overlayApplies() && (ui.payload.searchAnswers || {})[currentFilter().id]) {
+                    renderSearchAnswer(d, currentFilter(), ui.payload.searchAnswers[currentFilter().id]);
+                    return;
+                }
                 if (!node && ui.view === 'pr') { renderPRPanel(d, snap, idx); return; }
                 // A changed file in the PR X-Ray: its diff, the review and questions about it.
                 // A changed file — in the PR X-Ray, or with the Pull request overlay on — shows its
@@ -1287,6 +1315,73 @@
             }
 
             /** Questions about the change (or one file of it) and the AI's answers, plus the box to ask. */
+            /** An arrow: source → target, the code behind it and the AI's explanation. */
+            function renderEdgeDetails(d, idx, edge) {
+                const a = idx.byId.get(edge.source), b = idx.byId.get(edge.target);
+                const h = document.createElement('h4');
+                h.textContent = (a ? a.name : edge.source) + ' \u2192 ' + (b ? b.name : edge.target);
+                d.appendChild(h);
+                const kind = document.createElement('div'); kind.className = 'arch-badges';
+                const chip = document.createElement('span'); chip.textContent = edge.kind + (edge.label ? ' \u00B7 ' + edge.label : '');
+                kind.appendChild(chip); d.appendChild(kind);
+                [a, b].forEach(function(n) {
+                    if (!n) return;
+                    d.appendChild(linkButton((n === a ? 'From: ' : 'To: ') + n.name, function() { ui.selectedEdge = null; ui.selected = n.id; render(n.id); }, 'arch-path'));
+                });
+                const note = (ui.payload.edgeNotes || {})[edge.view + '|' + edge.source + '|' + edge.target];
+                const sec = document.createElement('h5'); sec.textContent = 'Why this link exists'; d.appendChild(sec);
+                const p = document.createElement('p'); p.className = 'arch-answer';
+                p.textContent = note && note.text ? note.text : 'The AI is reading the code behind this link\u2026';
+                d.appendChild(p);
+                if (note && note.pending) { const w = document.createElement('p'); w.className = 'arch-muted'; w.textContent = 'Working\u2026'; d.appendChild(w); }
+                if (note && !note.pending) {
+                    d.appendChild(linkButton('Explain again', function() {
+                        post('explainEdge', { view: edge.view, source: edge.source, target: edge.target, kind: edge.kind, label: edge.label || undefined, again: true });
+                    }, 'arch-action'));
+                }
+                if (note && note.evidence && note.evidence.length) {
+                    const ev = document.createElement('h5'); ev.textContent = 'Code behind it'; d.appendChild(ev);
+                    note.evidence.forEach(function(line) {
+                        const m = /^(.*?):(\d+): (.*)$/.exec(line);
+                        if (!m) return;
+                        const b2 = linkButton(m[1].split('/').pop() + ':' + m[2] + '  ' + m[3], function() {
+                            post('openFile', { path: m[1], line: parseInt(m[2], 10), endLine: parseInt(m[2], 10) });
+                        }, 'arch-path');
+                        b2.title = m[1] + ':' + m[2];
+                        d.appendChild(b2);
+                    });
+                }
+            }
+
+            /** The ⚡ search as a question answered: the answer, then the flow step by step. */
+            function renderSearchAnswer(d, filter, answer) {
+                const h = document.createElement('h4'); h.textContent = answer.question || filter.name; d.appendChild(h);
+                if (answer.answer) {
+                    const p = document.createElement('div'); p.className = 'arch-answer';
+                    p.textContent = answer.answer;
+                    d.appendChild(p);
+                } else {
+                    const summary = (ui.payload.searchSummaries || {})[filter.id];
+                    if (summary) { const p = document.createElement('p'); p.textContent = summary; d.appendChild(p); }
+                }
+                (answer.steps || []).forEach(function(step) {
+                    if (!step.places || !step.places.length) return;
+                    const sec = document.createElement('h5'); sec.textContent = step.title; d.appendChild(sec);
+                    step.places.forEach(function(place) {
+                        const b = linkButton(place.path.split('/').pop() + ':' + place.start + '  ' + place.title, function() {
+                            post('openFile', { path: place.path, line: place.start, endLine: place.end });
+                        }, 'arch-path');
+                        b.title = place.path + ':' + place.start + '\u2013' + place.end + '\n' + place.why;
+                        d.appendChild(b);
+                        if (place.why) { const w = document.createElement('div'); w.className = 'arch-muted arch-why'; w.textContent = place.why; d.appendChild(w); }
+                    });
+                });
+                const active = filter;
+                d.appendChild(linkButton('Close this search', function() {
+                    post('deleteFilter', { id: active.id }); ui.overlay = 'none';
+                }, 'arch-action'));
+            }
+
             function renderAsk(d, path) {
                 const pr = ui.payload.pr;
                 const chat = (pr.chat || []).filter(function(entry) { return (entry.path || null) === (path || null); });
@@ -1707,7 +1802,7 @@
                 renderFilterOptions();
                 el.views.forEach(function(b) { b.classList.toggle('on', b.getAttribute('data-arch-view') === ui.view); });
                 el.overlay.value = ui.overlay;
-                el.overlay.disabled = ui.view === 'deployment';
+                el.overlay.disabled = ui.view === 'deployment' && !isSearch(currentFilter());
                 el.flagged.checked = ui.onlyFlagged;
                 el.flagged.parentElement.hidden = !overlayApplies() || ui.overlay === 'size';
                 el.hide.hidden = !codeViews[ui.view];
@@ -1852,7 +1947,7 @@
                     ui.view = b.getAttribute('data-arch-view');
                     ui.viewChosen = true;
                     ui.selected = null;
-                    if (ui.view === 'deployment') ui.overlay = 'none';
+                    if (ui.view === 'deployment' && !isSearch(currentFilter())) ui.overlay = 'none';
                     ui.graphKey = null;
                     window.showArchitecture(ui.payload);
                 });

@@ -1,6 +1,6 @@
 import Foundation
 
-// Feature workspaces: a feature is a folder `features/<slug>/` of Markdown files — an
+// Feature workspaces: a feature is a folder `docs/features/<slug>/` of Markdown files — an
 // overview plus one file per requirement, question, decision, finding, research note and
 // source. Front matter holds the structure (ids, statuses, links); the body stays prose.
 // Everything the app shows is read back from these files.

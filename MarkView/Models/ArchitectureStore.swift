@@ -1387,7 +1387,12 @@ final class ArchitectureStore: ObservableObject {
                 setStatus("AI is reading the project for “\(symbol?.name ?? filter.criterion)”…")
 
                 // 2. The AI's places: their files (and document sections) are what matters.
-                let request = XRaySearch.request(query: filter.criterion, symbol: symbol, hints: hints, root: root)
+                let componentLines = current.components.map { "\($0.id) — \($0.name): \($0.purpose)" }
+                let deploymentLines = (current.view("deployment")?.nodes ?? [])
+                    .filter { $0.kind != "root" && $0.kind != "moduleRef" }
+                    .map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }
+                let request = XRaySearch.request(query: filter.criterion, symbol: symbol, hints: hints, root: root,
+                                                 components: componentLines, deployment: deploymentLines)
                 let result = try await CLICompletion.run(request, onActivity: { activity in
                     Task { @MainActor in self.receiveSearch(activity, filterId: filterId, root: root, sections: sections) }
                 })
@@ -1396,11 +1401,29 @@ final class ArchitectureStore: ObservableObject {
                 let object = result.structured as? [String: Any]
                 let places = await Task.detached { XRaySearch.places(from: object?["steps"], root: root) }.value
                 guard var done = snapshot else { return }
-                done.ratings[filterId] = Self.searchTable(places, sections: sections, confirmed: true)
+                var final = Self.searchTable(places, sections: sections, confirmed: true)
+                // Logical components and deployment nodes the AI named (besides those containing its files).
+                let knownComponents = Set(current.components.map(\.id))
+                for id in object?["components"] as? [String] ?? [] where knownComponents.contains(id) {
+                    final["c:" + id] = .init(level: "strong", reason: "Takes part (AI)", provisional: false)
+                }
+                let knownDeployment = Set((current.view("deployment")?.nodes ?? []).map { String($0.id.dropFirst(2)) })
+                for id in object?["deployment"] as? [String] ?? [] where knownDeployment.contains(id) {
+                    final["dep:" + id] = .init(level: "strong", reason: "Involved (AI)", provisional: false)
+                }
+                done.ratings[filterId] = final
                 commit(done, db: db)
                 if let summary = (object?["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
                     searchSummaries[filterId] = summary
                 }
+                let stepValues = (object?["steps"] as? [[String: Any]] ?? []).map { step -> SearchAnswer.Step in
+                    let stepPlaces = XRaySearch.places(from: [step], root: root)
+                    return SearchAnswer.Step(title: step["title"] as? String ?? "",
+                                             places: stepPlaces.map { .init(path: $0.path, start: $0.start, end: $0.end, title: $0.title, why: $0.why) })
+                }
+                searchAnswers[filterId] = SearchAnswer(question: filter.criterion,
+                                                       answer: (object?["answer"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                                                       steps: stepValues)
                 revision += 1
             } catch is CancellationError {
             } catch {
@@ -1411,6 +1434,133 @@ final class ArchitectureStore: ObservableObject {
 
     /// What the AI said about the search as a whole, by filter id (shown in the details panel).
     private(set) var searchSummaries: [String: String] = [:]
+
+    /// The ⚡ search's full answer: the question answered, and the flow step by step with its places.
+    struct SearchAnswer: Codable {
+        struct Place: Codable { var path: String; var start: Int; var end: Int; var title: String; var why: String }
+        struct Step: Codable { var title: String; var places: [Place] }
+        var question: String
+        var answer: String
+        var steps: [Step]
+    }
+    private(set) var searchAnswers: [String: SearchAnswer] = [:]
+
+    // MARK: - Why a link exists (click on an arrow)
+
+    /// The AI's explanation of one link, streamed.
+    struct EdgeNote: Codable {
+        var text: String
+        var pending: Bool
+        /// Code lines behind the link (file → file imports or calls), shown as evidence.
+        var evidence: [String]
+    }
+    private(set) var edgeNotes: [String: EdgeNote] = [:]
+
+    /// Files a node of a view stands for: itself, the files below it, a component's files,
+    /// the modules a deployment node runs.
+    private func memberFiles(of node: ArchNode, in view: ArchView) -> [String] {
+        let children = Dictionary(grouping: view.nodes.filter { $0.parent != nil }, by: { $0.parent! })
+        var out: [String] = []
+        func walk(_ id: String) {
+            for child in children[id] ?? [] {
+                if child.kind == "file", let path = child.path { out.append(path) }
+                walk(child.id)
+            }
+        }
+        if node.kind == "file", let path = node.path { return [path] }
+        walk(node.id)
+        if out.isEmpty, let path = node.path, !path.isEmpty {
+            // A folder or a deployment node's module: the modules view's files under that path.
+            out = (snapshot?.view("modules")?.nodes ?? []).filter { $0.kind == "file" && ($0.path ?? "").hasPrefix(path + "/") }.compactMap(\.path)
+        }
+        return out
+    }
+
+    /// Explain an arrow: why `source` depends on / calls `target`. The code lines behind the link
+    /// are found first (imports and references of the target's files in the source's files);
+    /// the AI reads them and the project and explains the link. Kept for the session.
+    func explainEdge(view viewId: String, source: String, target: String, kind: String, label: String?,
+                     root: URL, db: SemanticDatabase?, fresh: Bool = false) {
+        let key = "\(viewId)|\(source)|\(target)"
+        if !fresh, let note = edgeNotes[key], note.pending || !note.text.isEmpty { return }
+        guard let snapshot, let view = snapshot.view(viewId) ?? (viewId == "pr" ? snapshot.view("logical") : nil),
+              let a = view.nodes.first(where: { $0.id == source }), let b = view.nodes.first(where: { $0.id == target }) else { return }
+        edgeNotes[key] = EdgeNote(text: "", pending: true, evidence: [])
+        revision += 1
+        let aFiles = memberFiles(of: a, in: view), bFiles = memberFiles(of: b, in: view)
+        let describe = { (node: ArchNode) -> String in
+            var line = "\(node.name) (\(node.kind))"
+            if let path = node.path, !path.isEmpty { line += " at \(path)" }
+            if let summary = node.summary { line += " — \(summary)" }
+            return line
+        }
+        Task {
+            let evidence = await Task.detached { Self.linkEvidence(from: aFiles, to: bFiles, root: root) }.value
+            edgeNotes[key]?.evidence = evidence
+            revision += 1
+            var request = CLICompletion.Request(
+                prompt: """
+                Link in the X-Ray (\(viewId) view): \(describe(a))  →  \(describe(b))
+                Kind: \(kind)\(label.map { " (\($0))" } ?? "")
+                Files on the source side: \(aFiles.prefix(25).joined(separator: ", "))\(aFiles.count > 25 ? " …" : "")
+                Files on the target side: \(bFiles.prefix(25).joined(separator: ", "))\(bFiles.count > 25 ? " …" : "")
+
+                Code lines where the source side refers to the target side:
+                \(evidence.isEmpty ? "(none found by name — search the project)" : evidence.joined(separator: "\n"))
+                """,
+                systemPrompt: """
+                You explain one arrow of an architecture map to an engineer. Say why the source depends on or \
+                calls the target: what it uses from it, for which feature or flow, and through which code \
+                (`path:line`, function names). Then say whether the link is expected for this architecture or \
+                a smell (wrong direction, layer violation, hidden coupling), and what would break if the target \
+                changed. Read the files named (read-only) to be concrete. Short Markdown: 3–8 sentences or \
+                bullets, no headings.
+                """ + "\n\n" + ActionOutputLanguage.explanationLine(),
+                readableFolder: root)
+            request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+            request.effort = "low"
+            request.timeout = 300
+            var streamed = ""
+            var pendingRefresh = false
+            do {
+                let result = try await CLICompletion.run(request, onDelta: { text in
+                    Task { @MainActor in
+                        streamed += text
+                        self.edgeNotes[key]?.text = streamed
+                        guard !pendingRefresh else { return }
+                        pendingRefresh = true
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        pendingRefresh = false
+                        self.revision += 1
+                    }
+                })
+                result.record(in: db)
+                edgeNotes[key]?.text = result.text.isEmpty ? streamed : result.text
+            } catch is CancellationError {
+            } catch {
+                edgeNotes[key]?.text = "Failed: \(error.localizedDescription)"
+            }
+            edgeNotes[key]?.pending = false
+            revision += 1
+        }
+    }
+
+    /// Lines in the source files that name one of the target files (by module name), at most 20.
+    nonisolated private static func linkEvidence(from sources: [String], to targets: [String], root: URL) -> [String] {
+        let names = Set(targets.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension }.filter { $0.count > 2 })
+        guard !names.isEmpty else { return [] }
+        var out: [String] = []
+        for path in sources.prefix(200) {
+            guard let text = try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) else { continue }
+            for (index, line) in text.components(separatedBy: "\n").enumerated() {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.count < 240, names.contains(where: { trimmed.contains($0) }) else { continue }
+                out.append("\(path):\(index + 1): \(trimmed)")
+                if out.count >= 20 { return out }
+            }
+        }
+        return out
+    }
     private var liveSearch: [String: String] = [:]
     private var liveSearchPending: Set<String> = []
 
@@ -2911,12 +3061,16 @@ final class ArchitectureStore: ObservableObject {
             let activateFilter: String?
             /// The AI's summary of each ⚡ search, by filter id.
             let searchSummaries: [String: String]
+            /// The ⚡ search's full answer and its steps, by filter id.
+            let searchAnswers: [String: SearchAnswer]
+            /// The AI's explanations of links (arrows), by "view|source|target".
+            let edgeNotes: [String: EdgeNote]
         }
         let payload = Payload(mode: mode, snapshot: snapshot.map(withContents), status: status, error: error,
                               prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
-                              searchSummaries: searchSummaries)
+                              searchSummaries: searchSummaries, searchAnswers: searchAnswers, edgeNotes: edgeNotes)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

@@ -40,8 +40,11 @@ enum XRaySearch {
         }
     }
 
-    static func request(query: String, symbol: Symbol?, hints: [String], root: URL) -> CLICompletion.Request {
-        let prompt: String
+    /// `components` / `deployment`: "id — name: purpose" lines of the X-Ray's logical components
+    /// and deployment nodes, so the answer can name the ones involved.
+    static func request(query: String, symbol: Symbol?, hints: [String], root: URL,
+                        components: [String] = [], deployment: [String] = []) -> CLICompletion.Request {
+        var prompt: String
         if let symbol {
             prompt = """
             Topic: the code element `\(symbol.name)` at \(symbol.path):\(symbol.line) — what it is and \
@@ -67,6 +70,8 @@ enum XRaySearch {
             \(hints.isEmpty ? "(none found by keyword)" : hints.joined(separator: "\n"))
             """
         }
+        if !components.isEmpty { prompt += "\n\nLogical components (id — name: purpose):\n" + components.joined(separator: "\n") }
+        if !deployment.isEmpty { prompt += "\n\nDeployment nodes (id — name: what it is):\n" + deployment.joined(separator: "\n") }
         let place: [String: Any] = [
             "type": "object",
             "properties": [
@@ -79,13 +84,16 @@ enum XRaySearch {
             "type": "object",
             "properties": [
                 "summary": ["type": "string"],
+                "answer": ["type": "string"],
+                "components": ["type": "array", "items": ["type": "string"]],
+                "deployment": ["type": "array", "items": ["type": "string"]],
                 "steps": ["type": "array", "items": [
                     "type": "object",
                     "properties": ["title": ["type": "string"], "places": ["type": "array", "items": place]],
                     "required": ["title", "places"],
                 ]],
             ],
-            "required": ["summary", "steps"],
+            "required": ["summary", "answer", "components", "deployment", "steps"],
         ]
         var request = CLICompletion.Request(
             prompt: prompt,
@@ -111,6 +119,14 @@ enum XRaySearch {
 
             `summary`: 2-4 sentences on how the topic works end to end in this project, naming the key files; \
             if the project has nothing about the topic, say so and return no steps.
+
+            `answer`: the full answer to the topic as a question, for an engineer who must act on it — in \
+            Markdown with short sections: the direct answer first; then which logical parts, code, documents \
+            and deployment pieces take part and why (what each does for the topic, how they connect); what is \
+            missing or risky. Refer to code as `path:line`. Keep verified facts apart from inferences.
+
+            `components`: ids of the logical components (from the list) that take part; `deployment`: ids of \
+            the deployment nodes (from the list) involved. Empty when none apply or no list was given.
             """ + "\n\n" + ActionOutputLanguage.explanationLine(),
             jsonSchema: schema,
             readableFolder: root)

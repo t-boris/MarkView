@@ -1,13 +1,27 @@
 # MarkView — Follow-up Tasks
 
-## Next 19: X-Ray — explain links, answer questions (user, 2026-09-26, queued after 18)
+## Done 19: X-Ray explains links and answers questions; New from GitHub / documents (2026-09-26)
 
-- [ ] Click on an arrow (edge) → AI description of the link: why A calls / depends on B, with
-      the code/doc evidence (details panel).
-- [ ] ⚡ question (e.g. "check ability to work with tested rate as a command gateway") →
-      highlight only the related elements in every view (logical, structure, docs, deployment)
-      and answer the question in the details panel: which parts relate and why.
-- Keep "Only flagged" as it is (the user likes it).
+- [x] Click an arrow → details panel: source → target, the code lines behind the link (the
+      source's files naming the target's files), and the AI's explanation (why, through which
+      code, expected or a smell, what breaks) — streamed, "Explain again".
+- [x] ⚡ question → full answer in the details panel (direct answer, parts and why, risks) and
+      the flow step by step with clickable places; related logical components and deployment
+      nodes marked too (deployment view shows the search now: named nodes and nodes running
+      code that matters). "Only flagged" unchanged.
+- [x] New Feature / New Bug from a GitHub issue (list context menu, issue tab "New from It")
+      and from a PR (⋯ menu); New … from a document (file tree context menu, ⊞ → "From the
+      open document").
+- [x] Implement with AI (file tree, ⊞, Build stage of a feature): the document goes to the
+      assistant in the Terminal tab — `/goal implement <path> — ask any question if you are
+      in doubt` for Claude Code, a plain instruction for the others.
+- [x] Storage moved under docs/ (user): docs/features/, docs/bugs/, docs/research/.
+- [x] Version 2.1.0 → 2.2.0.
+
+### Review
+- Search request checked live on MarkView ("How does the Git tab show Actions runs and logs?"):
+  43 s, answer with `path:line` references, components [git, ai], deployment [app, gh], 8 steps,
+  19 places parsed. Edge explanation and the live X-Ray panels not clicked through in the window.
 
 ## Done 18: Feature workspaces — discovery, review, resolve, build (2026-09-26)
 
@@ -16,7 +30,7 @@ reuse the three panels; one Markdown file per object; in-app structured AI; IDs 
 one release; generated specs always in English; default owner = git user.name.
 
 ### Storage (Markdown is the source of truth)
-`features/<slug>/` — `overview.md` (type feature: title, status, understanding map, idea) and
+`docs/features/<slug>/` — `overview.md` (type feature: title, status, understanding map, idea) and
 one file per object, YAML front matter + Markdown body:
 - `requirements/REQ-001.md` — status draft|review|approved|rejected, req_type, depends_on,
   decisions, sources, issues, provenance; body: statement + `## Acceptance Criteria` (- [ ]).
