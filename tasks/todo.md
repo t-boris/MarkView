@@ -1,5 +1,80 @@
 # MarkView — Follow-up Tasks
 
+## Done 30: Bug investigation — questions for a bug report in the Feature tab (option B, 2026-09-26, 2.13.0)
+
+User: after New Bug the Feature tab does not open, nothing investigates the bug or asks questions.
+Today a bug is a one-shot report (`FeatureIntake.newBug`) that only lists "Missing information".
+Option B (user's choice): the bug stays ONE file in docs/bugs/; the missing information becomes
+questions answered in the Feature tab, and each answer refines the report.
+
+### Design
+- **Storage (one file, no workspace):** questions live in the report's front matter as
+  `questions:` — list of maps `id` (BQ-1…), `text`, `why`, `options` [{label, text}], `status`
+  (open / answered / skipped), `answer`. The body gets a `## Clarifications` section: one
+  "**BQ-n** question — answer" entry per answer (the readable history). "Missing information"
+  stays as the AI's current list.
+- **Intake:** the `intake:bug` schema adds `questions` (0–3, the most important of `missing`,
+  with 2–4 options where the answer is a choice, none when it is free text). Written into the
+  front matter. `intakeFinished` for a bug also shows the right panel and selects the Feature tab.
+- **Which panel:** the Feature tab shows a Bug panel whenever the active editor tab is a file in
+  docs/bugs/ (same rule as `openObject`), otherwise the feature as today. No new "active bug"
+  state; clicking a bug in Issues → Bugs opens the file and the panel follows.
+- **Bug panel:** header (BUG-id, title, severity, status, GitHub issue link); open question cards
+  (Choose option / own answer / "I don't know" = skip); answered questions (collapsed);
+  "Investigate" button — for a report with no open questions (hand-written or made before this
+  change) it runs the analysis on the file and asks the next questions; spinner while running;
+  errors in the panel as for features.
+- **Answer = one AI call** (`FeatureAssistant.answerBug(url, question:, answer:)`, key
+  `bug:<BUG-id>`): input = the report + all answers so far + this answer; the AI may read the
+  project (read-only) again. Output = the same fields as the intake (summary, steps, expected,
+  actual, environment, suspected, causes, missing, severity) + `has_question`/`question` (next
+  one, max 1) — the report sections are rewritten, "Original description", "Attachments" and
+  "Clarifications" are kept, the question is marked answered. Discovery ends when nothing needed
+  for reproduction and locating the cause is missing (no endless questions; cap: 8 answered).
+- **Language:** questions, options, "why" in the AI language (existing system prompt);
+  the report text stays English (as for features).
+- **GitHub:** nothing automatic; "Post update to #n" was not approved (not built).
+- **Fix with AI** (approved 2026-09-26): Bug panel button → status `fixing` and the report to the
+  Terminal assistant ("/goal fix the bug in <path>: reproduce, find the root cause, fix, verify");
+  a status menu (open / fixing / fixed / closed) closes the loop by hand.
+- The Feature tab is shown when the project has docs/features OR docs/bugs (was features only).
+- An answer is written to the file before the AI call, so a failed call loses nothing.
+
+### Tasks
+- [x] T1 `BugReport` model: parse `questions` from the front matter (`BugQuestion` struct),
+      open/answered accessors; keep hand-written reports without `questions` working
+- [x] T2 Report writing shared by intake and answers: one function builds the body from the AI
+      object, preserving Original description / Attachments / Clarifications; front matter
+      re-written without losing other keys (refuse when `isLossless` is false, as elsewhere)
+- [x] T3 `newBug`: `questions` in the schema and prompt, saved to the front matter
+- [x] T4 `FeatureAssistant.investigateBug(url)` (first questions for an existing report) and
+      `answerBug(url, question:, answer:)` / `skipBugQuestion`; store reloads `bugs` after writes
+- [x] T5 `intakeFinished`: bug → open the report, show the right panel on the Feature tab
+- [x] T6 `BugPanelView` in FeaturePanelView.swift (or its own file) reusing `card`, `SmallButton`,
+      `Working`, `FlowButtons`; FeaturePanelView switches to it for docs/bugs files
+- [x] T7 IntakeSheet footer text for bugs: mention that questions follow in the Feature tab
+- [x] T8 Version: `./bump-version.sh minor` (2.13.0); Debug build
+- [x] T10 Fix with AI + status menu (`FeatureStore.updateBug`, `WorkspaceManager.fixBugWithAI`)
+- [x] T9 Verify: harness (app sources + test main) on a temp git project with real AI —
+      New Bug with a vague description → questions in the front matter; answer one → report
+      sections refined, Clarifications entry, next question; skip; Investigate on a
+      hand-written report; a report with non-lossless front matter is refused, not damaged.
+      Then Boris checks the panel in the running app (not restarted by me).
+### Review
+- Harness (app sources + test main, real Claude calls) on a temp git project with a CSV export that
+  drops the last partial batch: two runs, all checks pass — intake asked 3 questions (options for
+  choices, none for free text); an answer recorded before the AI call, sections rewritten, one
+  Original description, settled questions closed (a Russian answer mentioning macOS settled two),
+  next question BQ-4 after the earlier ones; "I don't know" → skipped; a hand-written report
+  (no front matter, own "## Notes") got front matter and kept its text under Original description;
+  front matter with a comment is refused and left byte-identical.
+- First run: after a Russian answer the report itself came back in Russian. The system prompt lists
+  spec items to keep in English but not bug reports; the bug prompts now say it explicitly. Rerun
+  with a Russian answer: Summary in English.
+- Not built: "Post update to #n" (not approved). Not checked by hand yet: the Bug panel, Fix with AI
+  and the status menu in the running app; the Feature tab now also shows for docs/bugs-only projects.
+
+
 ## Done 29: Lifecycle event log & cycle-time analytics (docs/features/lifecycle-event-log-cycle-time-analytics, epic #10, 2026-09-26, 2.12.0)
 - [x] I-1 Event store: `LifecycleLog` (shared by all windows), append-only JSONL in ~/Library/Application Support/MarkView/lifecycle-events.jsonl; key = project root path + feature slug; nine stages only; no edit/delete API; damaged lines and unknown stages skipped on read; read and writes serialized on one queue
 - [x] I-2 Actor = git user.name of the project, else the macOS user; `LifecycleModels` in UserDefaults (most recent first, trimmed, case-insensitive dedup, new names added)

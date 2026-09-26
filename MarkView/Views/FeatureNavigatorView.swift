@@ -582,7 +582,7 @@ struct IntakeSheet: View {
         let github = workspaceManager.gitHub.isAvailable
         switch kind {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
-        case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.")
+        case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.") + " What is still missing is asked in the Feature tab."
         case .understand: return "Opens the X-Ray: related parts are marked in every view, the answer and the places are on the right; a file opened from there shows the places inside it."
         }
     }

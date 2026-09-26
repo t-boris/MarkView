@@ -29,6 +29,15 @@ struct FeaturePanelView: View {
         VStack(spacing: 0) {
             if workspaceManager.rootNode == nil {
                 panelEmpty("Open a folder to work on features.")
+            } else if let bug = openBug {
+                // A bug report open in the editor: its investigation.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        errors
+                        BugPanelView(store: store, bug: bug)
+                    }
+                    .padding(10)
+                }
             } else if let feature = store.active {
                 header(feature)
                 Divider().background(VSDark.border)
@@ -67,6 +76,10 @@ struct FeaturePanelView: View {
 
     private var openObject: (feature: Feature, object: FeatureObject?)? {
         workspaceManager.activeTab.flatMap { store.locate($0.url) }
+    }
+
+    private var openBug: BugReport? {
+        workspaceManager.activeTab.flatMap { store.bug(at: $0.url) }
     }
 
     private func header(_ feature: Feature) -> some View {
@@ -545,6 +558,139 @@ struct QuestionCard: View {
         answer = ""
         sent = text
         Task { await assistant.answer(feature.slug, question: question.id, answer: text) }
+    }
+}
+
+// MARK: - Bug investigation
+
+/// A bug report's investigation: the questions still open, what was answered, and the fix.
+struct BugPanelView: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @ObservedObject var store: FeatureStore
+    let bug: BugReport
+    @State private var showAnswered = false
+
+    private var busy: Bool { assistant.isRunning("bug:" + bug.key) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: "ladybug").font(.system(size: 10))
+                        .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange)
+                    Text(bug.key).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                    if !bug.severity.isEmpty {
+                        Text(bug.severity.uppercased()).font(.system(size: 8, weight: .bold)).foregroundColor(VSDark.textDim)
+                    }
+                    IssueLinks(numbers: bug.issueNumbers)
+                    Spacer()
+                    Menu {
+                        ForEach(BugReport.statuses, id: \.self) { status in
+                            Button((status == bug.status ? "✓ " : "") + status.capitalized) {
+                                store.updateBug(bug.url) { front, _ in front.set("status", status) }
+                            }
+                        }
+                    } label: {
+                        Text(bug.status.capitalized).font(.system(size: 10, weight: .semibold))
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .help("Bug status")
+                }
+                Text(bug.title).font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            PanelSection(title: "Investigation") {
+                if busy {
+                    Working(text: "Investigating — reading the code and refining the report…")
+                }
+                ForEach(bug.openQuestions) { question in
+                    BugQuestionCard(bug: bug, question: question, busy: busy)
+                }
+                if bug.openQuestions.isEmpty && !busy {
+                    Text(bug.answeredQuestions.isEmpty
+                         ? "No questions yet. Investigate: the AI checks the code and asks what is missing to reproduce the bug."
+                         : "Nothing more to ask — the report is ready to fix.")
+                        .font(.system(size: 10)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                }
+                FlowButtons {
+                    SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { workspaceManager.fixBugWithAI(bug.url) }
+                        .help("The report goes to the assistant in the Terminal tab: reproduce, find the root cause, fix, verify. Status becomes Fixing.")
+                    SmallButton(title: "Investigate", icon: "magnifyingglass") { Task { await assistant.investigateBug(bug.url) } }
+                        .disabled(busy)
+                        .help("The AI reads the code again with the answers so far, rewrites the report and asks what is still missing")
+                }
+            }
+            if !bug.answeredQuestions.isEmpty {
+                Button(action: { showAnswered.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showAnswered ? "chevron.down" : "chevron.right").font(.system(size: 8))
+                        Text("ANSWERED (\(bug.answeredQuestions.count))").font(.system(size: 9, weight: .bold))
+                    }.foregroundColor(VSDark.textDim)
+                }.buttonStyle(.plain)
+                if showAnswered {
+                    ForEach(bug.answeredQuestions) { question in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(question.id)  \(question.text)").font(.system(size: 10)).foregroundColor(VSDark.text)
+                            Text("→ " + question.answer).font(.system(size: 10))
+                                .foregroundColor(question.status == "skipped" ? VSDark.textDim : VSDark.green)
+                        }.fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// An open question about a bug: choose an option, answer in your own words, or "I don't know".
+struct BugQuestionCard: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
+    let bug: BugReport
+    let question: BugQuestion
+    let busy: Bool
+    @State private var answer = ""
+
+    var body: some View {
+        card {
+            Text(question.id).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+            Text(question.text).font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
+                .fixedSize(horizontal: false, vertical: true)
+            if !question.why.isEmpty {
+                Text(question.why).font(.system(size: 10)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(question.options, id: \.self) { option in
+                HStack(alignment: .top, spacing: 5) {
+                    Text(option.label).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundColor(VSDark.blue)
+                    Text(option.text).font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if !busy {
+                FlowButtons {
+                    ForEach(question.options, id: \.self) { option in
+                        SmallButton(title: "Choose \(option.label)", prominent: true) { send("\(option.label). \(option.text)") }
+                    }
+                    SmallButton(title: "I don't know") { send("") }
+                }
+                HStack(spacing: 4) {
+                    TextField("Answer in your own words…", text: $answer)
+                        .textFieldStyle(.plain).font(.system(size: 10))
+                        .padding(4).background(VSDark.bgInput).cornerRadius(3)
+                        .onSubmit(submit)
+                    SmallButton(title: "Answer", action: submit)
+                }
+            }
+        }
+    }
+
+    private func submit() {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        answer = ""
+        send(text)
+    }
+
+    private func send(_ text: String) {
+        Task { await assistant.answerBug(bug.url, question: question.id, answer: text) }
     }
 }
 

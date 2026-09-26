@@ -3264,6 +3264,16 @@ class WorkspaceManager: ObservableObject {
         sendToAssistant(prompt, submit: true)
     }
 
+    /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
+    func fixBugWithAI(_ url: URL) {
+        features.updateBug(url) { front, _ in front.set("status", "fixing") }
+        let path = workspaceRelativePath(url)
+        let prompt = AIAssistantPreferences.backend == .claude
+            ? "/goal fix the bug described in \(path): reproduce it first, find the root cause, fix it and verify the fix — ask any question if you are in doubt"
+            : "Fix the bug described in \(path). Read it first, reproduce the problem, find the root cause, fix it and verify the fix; ask any question if you are in doubt before changing code."
+        sendToAssistant(prompt, submit: true)
+    }
+
     /// An intake finished: open what it made, and for a feature show its workspace.
     func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
         if let slug = outcome.feature {
@@ -3273,6 +3283,10 @@ class WorkspaceManager: ObservableObject {
             UserDefaults.standard.set(FeatureStage.explore.rawValue, forKey: FeatureStage.storageKey)
             showTOC = true
             showFileTree = true
+            UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
+        } else if kind == .bug {
+            // The report opens in the editor; its questions are answered in the Feature tab.
+            showTOC = true
             UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
         }
         refreshFileTree()

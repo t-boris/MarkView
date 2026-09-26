@@ -184,58 +184,14 @@ extension FeatureAssistant {
         this behaviour most likely comes from and name the files with the reason. Give a short title, a summary, \
         steps to reproduce, expected and actual behaviour, severity (critical = data loss / security / outage; \
         high = main flow broken; medium; low), environment details if known, likely causes, and what information \
-        is still missing to reproduce it.
+        is still missing to reproduce it or to locate the cause. \(Self.bugQuestionRule(limit: 3))
         """
-        let schema: [String: Any] = ["type": "object",
-            "properties": ["title": ["type": "string"], "summary": ["type": "string"],
-                           "steps": ["type": "array", "items": ["type": "string"]],
-                           "expected": ["type": "string"], "actual": ["type": "string"],
-                           "severity": ["type": "string", "enum": ["critical", "high", "medium", "low"]],
-                           "environment": ["type": "string"],
-                           "suspected": ["type": "array", "items": ["type": "object",
-                               "properties": ["path": ["type": "string"], "reason": ["type": "string"]], "required": ["path", "reason"]]],
-                           "causes": ["type": "array", "items": ["type": "string"]],
-                           "missing": ["type": "array", "items": ["type": "string"]]],
-            "required": ["title", "summary", "steps", "expected", "actual", "severity", "environment", "suspected", "causes", "missing"]]
-        guard let object = await structured("intake:bug", prompt: prompt, schema: schema) else { return nil }
+        guard let object = await structured("intake:bug", prompt: prompt, schema: Self.bugSchema(title: true)) else { return nil }
         let title = object["title"] as? String ?? "Bug"
-        let suspected = (object["suspected"] as? [[String: Any]] ?? []).map { "- `\($0["path"] as? String ?? "")` — \($0["reason"] as? String ?? "")" }
-        func list(_ key: String, numbered: Bool = false) -> String {
-            (object[key] as? [String] ?? []).enumerated().map { numbered ? "\($0.offset + 1). \($0.element)" : "- \($0.element)" }.joined(separator: "\n")
-        }
-        var report = """
-        ## Summary
-
-        \(object["summary"] as? String ?? "")
-
-        ## Steps to reproduce
-
-        \(list("steps", numbered: true))
-
-        ## Expected
-
-        \(object["expected"] as? String ?? "")
-
-        ## Actual
-
-        \(object["actual"] as? String ?? "")
-
-        ## Environment
-
-        \((object["environment"] as? String ?? "").isEmpty ? "Unknown" : object["environment"] as? String ?? "")
-
-        ## Suspected code
-
-        \(suspected.isEmpty ? "Not located." : suspected.joined(separator: "\n"))
-
-        ## Likely causes
-
-        \(list("causes"))
-        """
-        let missing = list("missing")
-        if !missing.isEmpty { report += "\n\n## Missing information\n\n\(missing)" }
-        if !assets.isEmpty { report += "\n\n## Attachments\n\n" + assets.map { "![\($0)](\($0))" }.joined(separator: "\n") }
-        report += "\n\n## Original description\n\n\(dump)"
+        var sections = Self.bugReportSections(object)
+        if !assets.isEmpty { sections.append(("Attachments", assets.map { "![\($0)](\($0))" }.joined(separator: "\n"))) }
+        sections.append(("Original description", dump))
+        let report = Self.joinBugSections(sections)
         // The report is written first; GitHub comes after, so a failed write leaves no orphan issue.
         let fileName = "\(id)-\(featureSlug(title).prefix(50)).md"
         let file = folder.appendingPathComponent(fileName)
@@ -249,6 +205,8 @@ extension FeatureAssistant {
         front.set("reporter", store.defaultOwner)
         front.set("created", FeatureStore.today)
         front.set("provenance", linkedIssue.map { "Analyzed from GitHub issue #\($0)" } ?? "Created from the bug intake")
+        let questions = Self.newBugQuestions(object, after: [], limit: 3)
+        if !questions.isEmpty { front["questions"] = .list(questions.map(\.yaml)) }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try front.join(body: "# \(title)\n\n" + report).write(to: file, atomically: true, encoding: .utf8)
@@ -272,7 +230,194 @@ extension FeatureAssistant {
                 try? front.join(body: "# \(title)\n\n" + report).write(to: file, atomically: true, encoding: .utf8)
             }
         }
+        store.reloadSync()
         return IntakeOutcome(file: file, feature: nil, issue: issueRef)
+    }
+
+    // MARK: Bug investigation
+
+    /// Answered or skipped questions after which a bug asks nothing more.
+    static let bugQuestionLimit = 8
+    /// Sections the investigation keeps as they are; everything else is rewritten by the AI.
+    private static let keptBugSections = ["Attachments", "Clarifications", "Original description"]
+
+    /// Record the user's answer to a bug question (kept even when the AI call fails), then
+    /// investigate again. An empty answer means the user does not know.
+    func answerBug(_ url: URL, question id: String, answer: String) async {
+        let known = !answer.isEmpty
+        let written = store.updateBug(url) { front, body in
+            var questions = (front["questions"]?.list ?? []).compactMap(BugQuestion.init)
+            guard let index = questions.firstIndex(where: { $0.id == id }) else { return }
+            questions[index].status = known ? "answered" : "skipped"
+            questions[index].answer = known ? answer : "The user does not know."
+            front["questions"] = .list(questions.map(\.yaml))
+            let entry = "**\(id)** \(questions[index].text)\n→ \(questions[index].answer)"
+            var sections = Self.bugSections(body)
+            if let clarifications = sections.firstIndex(where: { $0.heading == "Clarifications" }) {
+                sections[clarifications].text += "\n\n" + entry
+            } else {
+                let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
+                sections.insert(("Clarifications", entry), at: at)
+            }
+            body = Self.joinBugSections(sections)
+        }
+        if written { await investigateBug(url) }
+    }
+
+    /// Investigate a bug again with everything answered so far: the report's own sections are
+    /// rewritten, questions the clarifications settle are closed, and the next ones are asked.
+    /// A hand-written report keeps its text as the original description.
+    func investigateBug(_ url: URL) async {
+        guard let bug = BugReport.load(url), let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let body = FrontMatter.split(text).1
+        let open = bug.openQuestions
+        let allowed = max(0, min(3 - open.count, Self.bugQuestionLimit - bug.answeredQuestions.count - open.count))
+        let prompt = """
+        ## Bug report `\(store.relativePath(url))`
+
+        \(body.prefix(40_000))
+        \(open.isEmpty ? "" : "\n## Questions already asked and still open (do not ask them again)\n\n" + open.map { "- \($0.id): \($0.text)" }.joined(separator: "\n"))
+
+        Task: investigate this bug again, taking the clarifications into account. Read the project's code and \
+        documentation (read-only) where it helps. Rewrite the report: summary, steps to reproduce, expected and \
+        actual behaviour, severity (critical = data loss / security / outage; high = main flow broken; medium; \
+        low), environment, the suspected code (files with the reason), likely causes, and what information is \
+        still missing to reproduce it or to locate the cause. In `settled`, list the ids of open questions the \
+        clarifications already answer. \(Self.bugQuestionRule(limit: allowed))
+        """
+        var schema = Self.bugSchema(title: false)
+        if var properties = schema["properties"] as? [String: Any], var required = schema["required"] as? [String] {
+            properties["settled"] = ["type": "array", "items": ["type": "string"]]
+            required.append("settled")
+            schema["properties"] = properties
+            schema["required"] = required
+        }
+        guard let object = await structured("bug:" + bug.key, prompt: prompt, schema: schema) else { return }
+        store.updateBug(url) { front, body in
+            var sections = Self.bugSections(body)
+            let heading = sections.first { $0.heading.isEmpty }?.text.components(separatedBy: "\n").first { $0.hasPrefix("# ") }
+            // A hand-written report: its text becomes the original description.
+            if !sections.contains(where: { $0.heading == "Original description" }) {
+                let own = sections.filter { !Self.keptBugSections.contains($0.heading) }
+                    .map { section -> (heading: String, text: String) in
+                        section.heading.isEmpty
+                            ? ("", section.text.components(separatedBy: "\n").filter { !$0.hasPrefix("# ") }.joined(separator: "\n"))
+                            : section
+                    }
+                sections.removeAll { !Self.keptBugSections.contains($0.heading) }
+                sections.append(("Original description", Self.joinBugSections(own)))
+            }
+            var rebuilt = Self.bugReportSections(object)
+            for name in Self.keptBugSections {
+                if let kept = sections.first(where: { $0.heading == name }) { rebuilt.append(kept) }
+            }
+            body = (heading ?? "# \(bug.title)") + "\n\n" + Self.joinBugSections(rebuilt)
+            // Front matter of a hand-written report.
+            if front.string("type").isEmpty { front.set("type", "bug") }
+            if front.string("id").isEmpty { front.set("id", bug.key) }
+            if front.string("title").isEmpty { front.set("title", bug.title) }
+            if front.string("status").isEmpty { front.set("status", "open") }
+            if let severity = object["severity"] as? String { front.set("severity", severity) }
+            var questions = (front["questions"]?.list ?? []).compactMap(BugQuestion.init)
+            let settled = Set(object["settled"] as? [String] ?? [])
+            for index in questions.indices where questions[index].status == "open" && settled.contains(questions[index].id) {
+                questions[index].status = "answered"
+                questions[index].answer = "Settled by the clarifications."
+            }
+            questions += Self.newBugQuestions(object, after: questions, limit: allowed)
+            front["questions"] = questions.isEmpty ? nil : .list(questions.map(\.yaml))
+        }
+    }
+
+    private static func bugQuestionRule(limit: Int) -> String {
+        "Write the report itself (every field except `questions`) in English, whatever language the " +
+        "description and the answers are in; the questions, their why and their options are in the conversation language. " +
+        (limit == 0 ? "Ask no questions (`questions`: [])." : """
+        In `questions`, ask the user at most \(limit) question(s) — only for information the user can give (what \
+        they saw, did or use) that is still missing and matters for reproducing the bug or locating its cause; \
+        none when the report is enough to start fixing. Give 2–4 short options when the answer is a choice, none \
+        for a free-text answer.
+        """)
+    }
+
+    private static func bugSchema(title: Bool) -> [String: Any] {
+        var properties: [String: Any] = [
+            "summary": ["type": "string"],
+            "steps": ["type": "array", "items": ["type": "string"]],
+            "expected": ["type": "string"], "actual": ["type": "string"],
+            "severity": ["type": "string", "enum": ["critical", "high", "medium", "low"]],
+            "environment": ["type": "string"],
+            "suspected": ["type": "array", "items": ["type": "object",
+                "properties": ["path": ["type": "string"], "reason": ["type": "string"]], "required": ["path", "reason"]]],
+            "causes": ["type": "array", "items": ["type": "string"]],
+            "missing": ["type": "array", "items": ["type": "string"]],
+            "questions": ["type": "array", "items": ["type": "object",
+                "properties": ["text": ["type": "string"], "why": ["type": "string"],
+                               "options": ["type": "array", "items": ["type": "object",
+                                   "properties": ["label": ["type": "string"], "text": ["type": "string"]],
+                                   "required": ["label", "text"]]]],
+                "required": ["text", "why", "options"]]],
+        ]
+        var required = ["summary", "steps", "expected", "actual", "severity", "environment", "suspected", "causes", "missing", "questions"]
+        if title {
+            properties["title"] = ["type": "string"]
+            required.insert("title", at: 0)
+        }
+        return ["type": "object", "properties": properties, "required": required]
+    }
+
+    /// The sections the AI writes, from its answer.
+    private static func bugReportSections(_ object: [String: Any]) -> [(heading: String, text: String)] {
+        func list(_ key: String, numbered: Bool = false) -> String {
+            (object[key] as? [String] ?? []).enumerated().map { numbered ? "\($0.offset + 1). \($0.element)" : "- \($0.element)" }.joined(separator: "\n")
+        }
+        let suspected = (object["suspected"] as? [[String: Any]] ?? []).map { "- `\($0["path"] as? String ?? "")` — \($0["reason"] as? String ?? "")" }
+        let environment = object["environment"] as? String ?? ""
+        var sections: [(heading: String, text: String)] = [
+            ("Summary", object["summary"] as? String ?? ""),
+            ("Steps to reproduce", list("steps", numbered: true)),
+            ("Expected", object["expected"] as? String ?? ""),
+            ("Actual", object["actual"] as? String ?? ""),
+            ("Environment", environment.isEmpty ? "Unknown" : environment),
+            ("Suspected code", suspected.isEmpty ? "Not located." : suspected.joined(separator: "\n")),
+            ("Likely causes", list("causes")),
+        ]
+        let missing = list("missing")
+        if !missing.isEmpty { sections.append(("Missing information", missing)) }
+        return sections
+    }
+
+    /// New questions from the AI's answer, numbered after the existing ones.
+    private static func newBugQuestions(_ object: [String: Any], after existing: [BugQuestion], limit: Int) -> [BugQuestion] {
+        var next = (existing.compactMap { Int($0.id.dropFirst(3)) }.max() ?? 0) + 1
+        return (object["questions"] as? [[String: Any]] ?? []).prefix(limit).compactMap { q in
+            let text = (q["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            defer { next += 1 }
+            return BugQuestion(id: "BQ-\(next)", text: text, why: q["why"] as? String ?? "",
+                               options: (q["options"] as? [[String: Any]] ?? []).map {
+                                   BugQuestion.Option(label: $0["label"] as? String ?? "", text: $0["text"] as? String ?? "")
+                               })
+        }
+    }
+
+    /// A report's "## " sections in order; the text before the first one has the heading "".
+    /// "Original description" runs to the end: the user's own text may contain headings.
+    static func bugSections(_ body: String) -> [(heading: String, text: String)] {
+        var sections: [(heading: String, text: String)] = [("", "")]
+        for line in body.components(separatedBy: "\n") {
+            if line.hasPrefix("## "), sections.last?.heading != "Original description" {
+                sections.append((line.dropFirst(3).trimmingCharacters(in: .whitespaces), ""))
+            } else {
+                sections[sections.count - 1].text += line + "\n"
+            }
+        }
+        return sections.map { ($0.heading, $0.text.trimmingCharacters(in: .newlines)) }
+            .filter { !$0.heading.isEmpty || !$0.text.isEmpty }
+    }
+
+    static func joinBugSections(_ sections: [(heading: String, text: String)]) -> String {
+        sections.map { $0.heading.isEmpty ? $0.text : "## \($0.heading)\n\n\($0.text)" }.joined(separator: "\n\n")
     }
 
     /// Next "BUG-003" in a folder of such files.

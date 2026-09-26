@@ -23,7 +23,7 @@ struct TOCView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-            switch selectedTab == .feature && !workspaceManager.features.hasFeaturesFolder ? .contents : selectedTab {
+            switch selectedTab == .feature && !workspaceManager.features.hasIssues ? .contents : selectedTab {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
@@ -102,7 +102,7 @@ private struct TOCTabs<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                ForEach(TOCView.Tab.allCases.filter { $0 != .feature || store.hasFeaturesFolder }, id: \.self) { tab in
+                ForEach(TOCView.Tab.allCases.filter { $0 != .feature || store.hasIssues }, id: \.self) { tab in
                     VSDarkTabButton(title: tab.rawValue, isSelected: selectedTab == tab) {
                         selectedTab = tab
                     }

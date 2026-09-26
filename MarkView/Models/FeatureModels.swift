@@ -512,6 +512,13 @@ struct BugReport: Identifiable, Hashable {
     var status: String
     var severity: String
     var issueNumbers: [Int]
+    /// Questions the AI asked to investigate the bug (front matter `questions`).
+    var questions: [BugQuestion] = []
+
+    var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
+    var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
+
+    static let statuses = ["open", "fixing", "fixed", "closed"]
 
     static func load(_ url: URL) -> BugReport? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
@@ -522,7 +529,42 @@ struct BugReport: Identifiable, Hashable {
                          title: front.string("title").isEmpty ? (heading ?? name) : front.string("title"),
                          status: front.string("status").isEmpty ? "open" : front.string("status"),
                          severity: front.string("severity"),
-                         issueNumbers: Feature.issueReferences(in: [body], front: front))
+                         issueNumbers: Feature.issueReferences(in: [body], front: front),
+                         questions: (front["questions"]?.list ?? []).compactMap(BugQuestion.init))
+    }
+}
+
+/// A question about a bug, kept in its report's front matter: what is missing to reproduce it
+/// or to locate the cause. `status`: open, answered or skipped (the user does not know).
+struct BugQuestion: Identifiable, Hashable {
+    struct Option: Hashable { var label: String; var text: String }
+
+    var id: String
+    var text: String
+    var why: String
+    var options: [Option]
+    var status: String
+    var answer: String
+
+    init(id: String, text: String, why: String, options: [Option], status: String = "open", answer: String = "") {
+        self.id = id; self.text = text; self.why = why; self.options = options; self.status = status; self.answer = answer
+    }
+
+    init?(_ value: YAMLValue) {
+        guard let id = value["id"]?.string, !id.isEmpty else { return nil }
+        self.init(id: id, text: value["text"]?.string ?? "", why: value["why"]?.string ?? "",
+                  options: (value["options"]?.list ?? []).map { Option(label: $0["label"]?.string ?? "", text: $0["text"]?.string ?? "") },
+                  status: value["status"]?.string ?? "open", answer: value["answer"]?.string ?? "")
+    }
+
+    var yaml: YAMLValue {
+        var entries: [(key: String, value: YAMLValue)] = [("id", .string(id)), ("text", .string(text)), ("why", .string(why))]
+        if !options.isEmpty {
+            entries.append(("options", .list(options.map { .map([("label", .string($0.label)), ("text", .string($0.text))]) })))
+        }
+        entries.append(("status", .string(status)))
+        if !answer.isEmpty { entries.append(("answer", .string(answer))) }
+        return .map(entries)
     }
 }
 

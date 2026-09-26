@@ -442,6 +442,33 @@ final class FeatureStore: ObservableObject {
         reloadSync(slug)
     }
 
+    /// Rewrite a bug report in docs/bugs/. A hand-written report without front matter gets one;
+    /// front matter the app cannot rewrite safely is left alone. Returns false when nothing was written.
+    @discardableResult
+    func updateBug(_ url: URL, _ change: (inout FrontMatter, inout String) -> Void) -> Bool {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            lastError = "Could not read \(url.lastPathComponent)."
+            return false
+        }
+        var (front, body) = FrontMatter.split(text)
+        guard front.isLossless else {
+            lastError = "\(url.lastPathComponent) has YAML the app cannot rewrite safely — change it in the editor."
+            return false
+        }
+        change(&front, &body)
+        do { try write(front.join(body: body), to: url) } catch {
+            lastError = "Could not save the bug report: \(error.localizedDescription)"
+            return false
+        }
+        reloadSync()
+        return true
+    }
+
+    func bug(at url: URL) -> BugReport? {
+        let path = url.standardizedFileURL.path
+        return bugs.first { $0.url.standardizedFileURL.path == path }
+    }
+
     private func adoptedOverview(_ feature: Feature) -> String {
         var front = FrontMatter()
         front.set("type", "feature")
