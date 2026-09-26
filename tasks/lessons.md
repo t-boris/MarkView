@@ -1,5 +1,15 @@
 # Lessons
 
+## 2026-09-26 — Содержимое .toolbar не получает environmentObject окна
+
+**Контекст:** 2.0.1 падал при запуске: `AIToolsMenu` в `.toolbar` читал
+`@EnvironmentObject WorkspaceManager`, а `WorkspaceManager` — `@StateObject` в `ContentView`, в
+окружение панели инструментов он не попадает (EnvironmentObject.error → SIGTRAP).
+
+**Правило:** Виды внутри `.toolbar` получают объекты параметром (`@ObservedObject`), как
+`AssistantToolbarMenu` работает только с `@AppStorage`. После изменений панели инструментов —
+запустить собранное приложение, сборка этого не ловит.
+
 ## 2026-09-26 — Файл вне папки проекта переключает рабочее пространство
 
 **Контекст:** `openFile` для `.md` вне корня папки вызывает `initSingleFileWorkspace`: закрывает

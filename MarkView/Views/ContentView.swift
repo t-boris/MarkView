@@ -110,7 +110,7 @@ struct ContentView: View {
                 // Which assistant (and model) does every AI job: X-Ray, Explain, filters, AI terminal.
                 AssistantToolbarMenu()
 
-                AIToolsMenu()
+                AIToolsMenu(workspaceManager: workspaceManager)
 
                 Button(action: { themeManager.toggleTheme() }) {
                     Image(systemName: themeManager.effectiveTheme == .dark ? "sun.max" : "moon")
@@ -435,7 +435,8 @@ struct AssistantToolbarMenu: View {
 
 /// Toolbar menu of AI tools: diagrams (Graph Creator) and the analyses that work.
 struct AIToolsMenu: View {
-    @EnvironmentObject var workspaceManager: WorkspaceManager
+    // Passed in: toolbar content does not get the window's environment objects.
+    @ObservedObject var workspaceManager: WorkspaceManager
 
     var body: some View {
         Menu {

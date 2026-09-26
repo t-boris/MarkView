@@ -27,6 +27,8 @@ User's decisions, plus an audit of which AI features work (code paths traced end
 - [x] 2.0.1: new app icon for 2.0 — dark console window, X-Ray viewfinder brackets, monospace
       "M" with a green cursor (drawn with CoreGraphics at 1024 px, all sizes from it; legible
       at 32 px).
+- [x] 2.0.2: 2.0.x crashed at launch — `AIToolsMenu` in the toolbar read `WorkspaceManager` as
+      an environment object the toolbar does not get; now passed in.
 
 ### Review
 - Build clean; JS syntax checked. Not checked in the live app window (needs an install).
