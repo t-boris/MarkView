@@ -25,8 +25,6 @@ extension FocusedValues {
 struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var workspaceManager = WorkspaceManager()
-    /// Language of everything the AI writes; shared by every AI feature.
-    @AppStorage(ActionOutputLanguage.storageKey) private var aiLanguage = ActionOutputLanguage.documentLanguage
     @State private var showFolderPicker = false
     /// NSWindow hosting this view — lets open-URL notifications target only the
     /// active window instead of racing across all ContentView instances.
@@ -88,104 +86,36 @@ struct ContentView: View {
             }
         }
         .toolbar {
+            // Panels, side by side at the leading edge.
+            ToolbarItemGroup(placement: .navigation) {
+                Button(action: { workspaceManager.showFileTree.toggle() }) {
+                    Image(systemName: "sidebar.leading")
+                }
+                .help("Files panel (⌘1)")
+
+                Button(action: { workspaceManager.showTOC.toggle() }) {
+                    Image(systemName: "sidebar.trailing")
+                }
+                .help("Contents / Search / Git / Terminal panel (⌘2)")
+            }
+
             ToolbarItemGroup(placement: .primaryAction) {
                 // X-Ray: the project's structure, logic, deployment and docs (the Architecture tab).
                 Button(action: { workspaceManager.openArchitecture() }) {
-                    Label("X-Ray", systemImage: "viewfinder")
-                        .labelStyle(.titleAndIcon)
+                    Image(systemName: "viewfinder")
                 }
-                .help("X-Ray — see the project's components, deployment and docs (⌘4)")
+                .help("X-Ray — the project's components, deployment and docs (⌘4)")
                 .disabled(workspaceManager.rootNode == nil)
-
-                // Language of all AI output (explanations, analysis, actions).
-                Menu {
-                    Picker("AI language", selection: $aiLanguage) {
-                        ForEach(ActionOutputLanguage.options, id: \.value) { option in
-                            Text(option.label).tag(option.value)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Label(aiLanguage == ActionOutputLanguage.documentLanguage ? "Auto" : ActionOutputLanguage.label(for: aiLanguage),
-                          systemImage: "globe")
-                        .labelStyle(.titleAndIcon)
-                }
-                .help("Language the AI writes in — for every AI feature")
 
                 // Which assistant (and model) does every AI job: X-Ray, Explain, filters, AI terminal.
                 AssistantToolbarMenu()
 
-                Divider()
+                AIToolsMenu()
 
-                // Toggle File Tree
-                Button(action: { workspaceManager.showFileTree.toggle() }) {
-                    Image(systemName: "sidebar.leading")
-                }
-                .help("Toggle File Tree")
-
-                // Theme Toggle
                 Button(action: { themeManager.toggleTheme() }) {
-                    Image(systemName: themeManager.effectiveTheme == .dark ? "sun.max.fill" : "moon.fill")
+                    Image(systemName: themeManager.effectiveTheme == .dark ? "sun.max" : "moon")
                 }
-                .help("Toggle Theme")
-
-                // Toggle TOC
-                Button(action: { workspaceManager.showTOC.toggle() }) {
-                    Image(systemName: "list.bullet.indent")
-                }
-                .help("Toggle Table of Contents")
-
-                // New File
-                Button(action: { createNewFileFromToolbar() }) {
-                    Image(systemName: "doc.badge.plus")
-                }
-                .help("New Markdown File")
-
-                // New Graph
-                Button(action: { workspaceManager.presentGraphCreator() }) {
-                    Image(systemName: "point.3.connected.trianglepath.dotted")
-                }
-                .help("New Graph Diagram")
-
-                // Generate Documentation
-                Button(action: { generateDocumentation() }) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                }
-                .help("Generate Documentation")
-
-                // AI Tools menu — always accessible
-                Menu {
-                    Section("Diagrams") {
-                        Button("🏗 System Architecture") { workspaceManager.runAITool(named: "architecture") }
-                        Button("🔀 Data Flow") { workspaceManager.runAITool(named: "dataflow") }
-                        Button("⚙ Pipeline") { workspaceManager.runAITool(named: "pipeline") }
-                        Button("☁ Deployment") { workspaceManager.runAITool(named: "deployment") }
-                        Button("↔ Sequence") { workspaceManager.runAITool(named: "sequence") }
-                        Button("◆ Entity-Relationship") { workspaceManager.runAITool(named: "er") }
-                    }
-                    Section("Analysis") {
-                        Button("🔍 Constructive Critic") { workspaceManager.runAITool(named: "critic") }
-                        Button("🌐 Deep Research") { workspaceManager.runAITool(named: "research") }
-                        Button("📋 Full Codebase Audit") { workspaceManager.runAITool(named: "audit") }
-                        Button("🗂 Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
-                        Button("📚 Generate Full Documentation") { workspaceManager.runAITool(named: "fulldocs") }
-                        Button("🧭 Recursive Insight") {
-                            workspaceManager.startRecursiveInsight()
-                        }
-                        .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
-                    }
-                } label: {
-                    Image(systemName: "wand.and.stars")
-                }
-                .help("AI Tools")
-
-                Divider()
-
-                // Export PDF
-                Button(action: { exportPDF() }) {
-                    Image(systemName: "arrow.down.doc")
-                }
-                .help("Export PDF")
+                .help("Light / dark theme")
             }
         }
         .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
@@ -299,37 +229,6 @@ struct ContentView: View {
         )
     }
 
-
-    private func createNewFileFromToolbar() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "md")!]
-        panel.nameFieldStringValue = "untitled.md"
-        panel.message = "Create new Markdown file"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            let name = url.deletingPathExtension().lastPathComponent
-            let template = "# \(name)\n\n"
-            try? template.write(to: url, atomically: true, encoding: .utf8)
-            workspaceManager.openFile(url)
-            // Refresh file tree if in same workspace
-            workspaceManager.refreshFileTree()
-        }
-    }
-
-    private func generateDocumentation() {
-        // Ask for output folder
-        let panel = NSOpenPanel()
-        panel.message = "Choose where to create documentation"
-        panel.prompt = "Create Here"
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-
-        if panel.runModal() == .OK, let outputURL = panel.url {
-            workspaceManager.generateDocumentation(into: outputURL)
-        }
-    }
 
     // MARK: - Welcome View
 
@@ -531,5 +430,36 @@ struct AssistantToolbarMenu: View {
             options[current] = loaded.contains { $0.id == id } ? loaded
                 : loaded + [AIModelOption(id: id, name: "\(id) — not in \(current.displayName)'s list", detail: "")]
         }
+    }
+}
+
+/// Toolbar menu of AI tools: diagrams (Graph Creator) and the analyses that work.
+struct AIToolsMenu: View {
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+
+    var body: some View {
+        Menu {
+            Section("Diagrams") {
+                Button("System Architecture") { workspaceManager.runAITool(named: "architecture") }
+                Button("Data Flow") { workspaceManager.runAITool(named: "dataflow") }
+                Button("Pipeline") { workspaceManager.runAITool(named: "pipeline") }
+                Button("Deployment") { workspaceManager.runAITool(named: "deployment") }
+                Button("Sequence") { workspaceManager.runAITool(named: "sequence") }
+                Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
+            }
+            // Each hands a prompt to the assistant in the Terminal tab, which writes the result.
+            Section("Analysis") {
+                Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
+                Button("Deep Research") { workspaceManager.runAITool(named: "research") }
+                Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
+                Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
+                Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }
+                    .disabled(workspaceManager.rootNode == nil || !workspaceManager.hasMarkdownFiles)
+            }
+        } label: {
+            Image(systemName: "wand.and.stars")
+        }
+        .menuIndicator(.hidden)
+        .help("AI tools: diagrams and analysis")
     }
 }

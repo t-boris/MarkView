@@ -14,7 +14,8 @@ struct GraphCreatorSheet: View {
 
     private let diagramTypes = [
         ("architecture", "System Architecture", "C4 component diagram showing all systems, services, databases and their connections"),
-        ("pipeline", "Data Pipeline", "Data flow diagram showing how data moves through processing stages"),
+        ("dataflow", "Data Flow", "Data flow diagram showing where data comes from, how it is transformed and where it goes"),
+        ("pipeline", "Data Pipeline", "Pipeline diagram showing the processing stages data passes through"),
         ("sequence", "Sequence Diagram", "Sequence diagram showing interactions between components"),
         ("er", "Entity-Relationship", "ER diagram showing data models and their relationships"),
         ("deployment", "Deployment", "Deployment diagram showing infrastructure, servers, and services"),
@@ -155,6 +156,14 @@ struct GraphCreatorSheet: View {
         selectedFiles = [relative]
     }
 
+    /// Where the file goes, relative to the project ("docs/" or "" for the root).
+    private func targetPath(root: URL) -> String {
+        guard let folder = workspaceManager.graphCreatorFolder?.standardizedFileURL else { return "" }
+        let base = root.standardizedFileURL.path + "/"
+        guard folder.path.hasPrefix(base) else { return "" }
+        return String(folder.path.dropFirst(base.count)) + "/"
+    }
+
     private func generate() {
         guard !selectedFiles.isEmpty else { return }
         guard let root = workspaceManager.rootNode?.url else { return }
@@ -182,7 +191,7 @@ struct GraphCreatorSheet: View {
         \(promptExtra.isEmpty ? "" : "Additional instructions: \(promptExtra)")
 
         RULES:
-        1. Create a markdown file called "graph-\(diagramType).md" in the current directory.
+        1. Create a markdown file called "\(targetPath(root: root))graph-\(diagramType).md".
         2. Include a ```mermaid code block. The FIRST LINE inside the mermaid block MUST be: %%INTERACTIVE
         3. Node IDs: alphanumeric + underscore only. Labels in square brackets [].
         4. DO NOT limit nodes — include ALL components, services, entities from the source.

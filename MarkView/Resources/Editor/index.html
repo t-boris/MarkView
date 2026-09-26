@@ -66,7 +66,7 @@
             /* Typography */
             --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
             --font-mono: 'Menlo', 'Monaco', 'Courier New', monospace;
-            --line-height-normal: 1.6;
+            --line-height-normal: 1.5;
             --line-height-tight: 1.4;
         }
 
@@ -154,34 +154,29 @@
         .wysiwyg-toolbar {
             display: flex;
             align-items: center;
-            padding: 3px 10px;
+            padding: 1px 6px;
             background: var(--bg-secondary);
             border-bottom: 1px solid var(--border-color);
             gap: 1px;
             flex-shrink: 0;
         }
         .wysiwyg-toolbar button {
-            width: 28px; height: 26px;
+            width: 24px; height: 22px;
             border: none; border-radius: 3px;
             background: transparent; color: #b0b0b0;
-            font-size: 13px; cursor: pointer;
+            font-size: 12px; cursor: pointer;
             display: flex; align-items: center; justify-content: center;
             transition: all 0.15s;
         }
         .wysiwyg-toolbar button:hover { background: #37373d; color: #d4d4d4; }
         .wysiwyg-toolbar button.active { background: #264f78; color: white; }
-        .wysiwyg-toolbar .sep { width: 1px; height: 18px; background: #3c3c3c; margin: 0 4px; }
+        .wysiwyg-toolbar .sep { width: 1px; height: 14px; background: #3c3c3c; margin: 0 3px; }
         .wysiwyg-toolbar .spacer { flex: 1; }
         .wysiwyg-toolbar .mode-label {
             font-size: 10px; color: #6a6a6a; padding: 0 6px; cursor: pointer;
             user-select: none;
         }
         .wysiwyg-toolbar .mode-label:hover { color: #b0b0b0; }
-        .graph-menu-item {
-            padding: 5px 10px; cursor: pointer; font-size: 11px;
-            color: var(--text-primary);
-        }
-        .graph-menu-item:hover { background: var(--bg-tertiary); }
 
         /* Canvas popup */
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -269,7 +264,7 @@
         .editor-rendered {
             flex: 1;
             overflow-y: auto;
-            padding: 16px 24px;
+            padding: 10px 18px;
             background-color: var(--bg-primary);
             font-size: var(--base-font-size, 13px);
             cursor: text;
@@ -308,8 +303,8 @@
         .markdown-body h4,
         .markdown-body h5,
         .markdown-body h6 {
-            margin-top: 1.5em;
-            margin-bottom: 0.75em;
+            margin-top: 1.1em;
+            margin-bottom: 0.5em;
             font-weight: 600;
             line-height: var(--line-height-tight);
             scroll-margin-top: 80px;
@@ -348,7 +343,7 @@
         }
 
         .markdown-body p {
-            margin: 0.7em 0;
+            margin: 0.5em 0;
         }
 
         .markdown-body a {
@@ -1097,7 +1092,7 @@
         .md-viewer { flex: 1; min-height: 0; overflow-y: auto; background: var(--bg-primary); }
         /* CodeMirror's theme sets display:flex !important on .cm-editor, so hiding needs !important too. */
         .md-viewer[hidden], .code-container .cm-editor[hidden] { display: none !important; }
-        .md-viewer-body { max-width: 860px; margin: 0 auto; padding: 24px 32px 40vh; font-size: var(--base-font-size, 15px); }
+        .md-viewer-body { max-width: 1100px; margin: 0 auto; padding: 12px 20px 40vh; font-size: var(--base-font-size, 14px); }
         .md-viewer-body .md-flash { background: color-mix(in srgb, var(--accent-color, #569cd6) 18%, transparent); transition: background .3s; border-radius: 3px; }
         .code-main.with-heat .md-viewer { margin-right: 10px; }
         .code-bands { position: absolute; left: 0; right: 10px; overflow: hidden; pointer-events: none; z-index: 2; }
@@ -1339,27 +1334,7 @@
             <button onclick="fmtCodeBlock()" title="Code block" style="font-family:monospace;font-size:10px">{ }</button>
             <button onclick="fmtTable()" title="Insert table">▦</button>
             <div class="sep"></div>
-            <div style="position:relative;display:inline-block;" id="graph-menu-wrap">
-                <button onclick="toggleGraphMenu()" title="AI Tools" style="font-size:10px">⟁ AI Tools ▾</button>
-                <div id="graph-menu" style="display:none;position:absolute;top:28px;left:0;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;min-width:200px;z-index:300;box-shadow:0 4px 12px rgba(0,0,0,0.4);">
-                    <div style="padding:3px 10px;font-size:8px;color:#808080;text-transform:uppercase;">Diagrams</div>
-                    <div class="graph-menu-item" onclick="generateGraph('architecture')">🏗 System Architecture</div>
-                    <div class="graph-menu-item" onclick="generateGraph('dataflow')">🔀 Data Flow</div>
-                    <div class="graph-menu-item" onclick="generateGraph('pipeline')">⚙ Pipeline</div>
-                    <div class="graph-menu-item" onclick="generateGraph('deployment')">☁ Deployment</div>
-                    <div class="graph-menu-item" onclick="generateGraph('sequence')">↔ Sequence</div>
-                    <div class="graph-menu-item" onclick="generateGraph('er')">◆ Entity-Relationship</div>
-                    <div style="border-top:1px solid var(--border-color);margin:2px 0;"></div>
-                    <div style="padding:3px 10px;font-size:8px;color:#808080;text-transform:uppercase;">Analysis</div>
-                    <div class="graph-menu-item" onclick="aiTool('critic')">🔍 Constructive Critic</div>
-                    <div class="graph-menu-item" onclick="aiTool('research')">🌐 Deep Research</div>
-                    <div class="graph-menu-item" onclick="aiTool('audit')">📋 Full Codebase Audit</div>
-                    <div class="graph-menu-item" onclick="aiTool('codemap')">🗂 Code Structure Map</div>
-                    <div class="graph-menu-item" onclick="aiTool('fulldocs')">📚 Generate Full Documentation</div>
-                    <div style="border-top:1px solid var(--border-color);margin:2px 0;"></div>
-                    <div class="graph-menu-item" onclick="fmtMermaid()">◇ Insert Empty Mermaid</div>
-                </div>
-            </div>
+            <button onclick="fmtMermaid()" title="Insert a Mermaid diagram" style="font-size:12px">◇</button>
             <div class="spacer"></div>
             <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_ru')" title="Translate selection to Russian" style="font-size:10px">RU</button>
             <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_en')" title="Translate selection to English" style="font-size:10px">EN</button>

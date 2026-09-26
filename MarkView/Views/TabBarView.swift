@@ -11,7 +11,7 @@ struct TabBarView: View {
                 }
             }
         }
-        .frame(height: 30)
+        .frame(height: 24)
         .background(VSDark.bg)
         .overlay(Rectangle().frame(height: 1).foregroundColor(VSDark.border), alignment: .bottom)
     }
@@ -31,7 +31,7 @@ struct TabBarView: View {
             }
 
             Text(tab.displayName)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundColor(isActive ? VSDark.textBright : VSDark.textDim)
                 .lineLimit(1)
 
@@ -43,8 +43,8 @@ struct TabBarView: View {
             .buttonStyle(.plain)
             .opacity(isActive ? 1 : 0.5)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
         .background(isActive ? VSDark.bgSidebar : VSDark.bg)
         .overlay(
             Rectangle().frame(height: 2)

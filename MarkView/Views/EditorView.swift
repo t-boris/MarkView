@@ -855,12 +855,6 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String) {
-        Task { @MainActor in
-            self.parent.workspaceManager.runAITool(named: tool, contentOverride: content)
-        }
-    }
-
     func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String) {
         Task { @MainActor in
             self.parent.workspaceManager.openCanvasFileReference(path)

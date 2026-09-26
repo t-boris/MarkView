@@ -61,12 +61,12 @@ struct TOCView: View {
                                             .fill(heading.id == tab.activeHeadingId ? VSDark.blue : VSDark.textDim.opacity(0.4))
                                             .frame(width: 5, height: 5)
                                         Text(heading.text)
-                                            .font(.system(size: 12))
+                                            .font(.system(size: 11))
                                             .foregroundColor(heading.id == tab.activeHeadingId ? VSDark.textBright : VSDark.text)
                                             .lineLimit(2)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                     }
-                                    .padding(.vertical, 4)
+                                    .padding(.vertical, 2)
                                     .padding(.horizontal, 8)
                                     .background(heading.id == tab.activeHeadingId ? VSDark.selection.opacity(0.3) : Color.clear)
                                     .contentShape(Rectangle())
@@ -109,7 +109,7 @@ struct WorkspaceSearchView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundColor(VSDark.textDim)
                 TextField("Search all files...", text: $searchQuery, onCommit: { performSearch() })
-                    .textFieldStyle(.plain).font(.system(size: 12)).foregroundColor(VSDark.text)
+                    .textFieldStyle(.plain).font(.system(size: 11)).foregroundColor(VSDark.text)
                 if !searchQuery.isEmpty {
                     Button(action: { searchQuery = ""; searchResults = [] }) {
                         Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.textDim)

@@ -1,5 +1,34 @@
 # MarkView — Follow-up Tasks
 
+## Done 17: Compact, console-like UI; toolbar and AI menus cleaned up (2026-09-26)
+
+User's decisions, plus an audit of which AI features work (code paths traced end to end).
+
+- [x] Toolbar, icons only: left and right panel toggles side by side (leading edge); X-Ray,
+      assistant/model, AI Tools, theme. Removed from it: AI language (already in Settings),
+      New Markdown File (file tree has it), New Graph Diagram (moved to the file tree),
+      Generate Documentation (removed), Export PDF (File menu, ⌘E, already there).
+- [x] File tree: "New graph diagram here" button and "New Graph Diagram…" in both context
+      menus; the diagram is written into that folder.
+- [x] AI Tools menu: Diagrams (6) + Analysis: Constructive Critic, Deep Research, Codebase
+      Audit, Code Structure Map, Recursive Insight — all traced working (prompt to the AI
+      terminal; Insight's pipeline complete). "Generate Full Documentation" removed with
+      Generate Documentation (same job).
+- [x] Fixed on the way: Data Flow diagram had no entry in the Graph Creator (fell back to
+      architecture); Critic from the toolbar wrote `review-x.md.md`; mermaid "AI Edit" never
+      told the assistant which file to save.
+- [x] Editor toolbar: the duplicate "⟁ AI Tools ▾" dropdown removed (and its `aiTool` bridge
+      message on both sides); "Insert Mermaid" kept as a button; RU / EN / ? (translate,
+      explain — working, CLICompletion) kept.
+- [x] Density: markdown line height 1.5, tighter heading/paragraph margins, editor padding
+      10/18, viewer 14px up to 1100px wide; formatting bar 22px; tab bar 24px, status bar
+      20px; 11pt rows in the file tree and contents; smaller segmented tabs.
+- [x] Version 1.34.2 → 2.0.0 (features removed).
+
+### Review
+- Build clean; JS syntax checked. Not checked in the live app window (needs an install).
+- Known, left as is: OpenAI key in Settings only serves Whisper voice input (embeddings unused).
+
 ## Done 16: Issue text as on GitHub, reliable AI prompts, Terminal tab (2026-09-26)
 
 User feedback on 1.33.0.

@@ -319,11 +319,6 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         case "refreshRequested":
             delegate?.bridgeRefreshRequested(self)
 
-        case "aiTool":
-            if let tool = data?["tool"] as? String, let content = data?["content"] as? String {
-                delegate?.bridge(self, didRequestAITool: tool, content: content)
-            }
-
         case "generateGraph":
             let type = data?["type"] as? String ?? "architecture"
             if type == "edit" {
@@ -697,7 +692,6 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String)
     func bridgeRefreshRequested(_ bridge: WebViewBridge)
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String)
-    func bridge(_ bridge: WebViewBridge, didRequestAITool tool: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String)
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any])
     func bridge(_ bridge: WebViewBridge, didReceiveCodeAction action: String, payload: [String: Any])

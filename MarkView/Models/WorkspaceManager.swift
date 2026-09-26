@@ -291,13 +291,12 @@ enum WorkspaceAITool: String {
     case research
     case audit
     case codemap
-    case fulldocs
 
     var opensGraphCreator: Bool {
         switch self {
         case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er:
             return true
-        case .critic, .research, .audit, .codemap, .fulldocs:
+        case .critic, .research, .audit, .codemap:
             return false
         }
     }
@@ -2789,7 +2788,11 @@ class WorkspaceManager: ObservableObject {
         set { fileTreeStore.sortOrder = newValue }
     }
 
-    func presentGraphCreator(for type: String = "architecture") {
+    /// Folder a new diagram goes into (the file tree's "New Graph Diagram"); nil = project root.
+    private(set) var graphCreatorFolder: URL?
+
+    func presentGraphCreator(for type: String = "architecture", in folder: URL? = nil) {
+        graphCreatorFolder = folder
         pendingGraphCreatorType = type
     }
 
@@ -2810,6 +2813,7 @@ class WorkspaceManager: ObservableObject {
     }
 
     func runGraphEdit(instruction: String, currentMermaid: String) {
+        let file = activeTab.map { workspaceRelativePath($0.url) } ?? "the currently open file"
         let editPrompt = """
         I have a Mermaid diagram. Please modify it according to this instruction:
 
@@ -2826,16 +2830,12 @@ class WorkspaceManager: ObservableObject {
         3. Maintain the subgraph structure and layers
         4. Return the COMPLETE updated mermaid code
         5. The FIRST LINE inside the mermaid block MUST be: %%INTERACTIVE
-        6. Update the current file with the new diagram (replace the old mermaid block)
+        6. Update the file with the new diagram (replace the old mermaid block)
 
-        Save the updated diagram to the currently open file.
+        Save the updated diagram to \(file).
         """
 
         sendToAssistant(editPrompt)
-    }
-
-    func generateDocumentation(into outputURL: URL) {
-        sendToAssistant(documentationGenerationPrompt(outputDir: outputURL))
     }
 
     // MARK: - Recent Files
@@ -3365,9 +3365,6 @@ class WorkspaceManager: ObservableObject {
         case .audit:
             return AIPrompts.codebaseAuditPrompt
 
-        case .fulldocs:
-            return AIPrompts.fullDocumentationPrompt
-
         case .codemap:
             return """
             Scan the current directory recursively and generate a VISUAL CODE STRUCTURE MAP.
@@ -3506,8 +3503,8 @@ class WorkspaceManager: ObservableObject {
 
             return """
             You are a CONSTRUCTIVE CRITIC. Analyze the current workspace documentation thoroughly.
-            Create a file "review-\(context.fileName).md" with: Summary, Strengths, Issues (with severity/location/fix), Missing Content, Consistency Issues, Action Items (P1/P2/P3), Overall Score 1-10.
-            Also create "tasks/review-tasks-\(context.fileName).md" with action items as checkboxes.
+            Create a file "review-\((context.fileName as NSString).deletingPathExtension).md" with: Summary, Strengths, Issues (with severity/location/fix), Missing Content, Consistency Issues, Action Items (P1/P2/P3), Overall Score 1-10.
+            Also create "tasks/review-tasks-\((context.fileName as NSString).deletingPathExtension).md" with action items as checkboxes.
             \(context.content.isEmpty ? "Scan all files in the current directory." : "Document:\n\(context.content)")
             """
 
@@ -3568,39 +3565,6 @@ class WorkspaceManager: ObservableObject {
         case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er:
             return nil
         }
-    }
-
-    private func documentationGenerationPrompt(outputDir: URL) -> String {
-        let prompt = """
-        Create a comprehensive documentation structure in the folder: \(outputDir.path)
-
-        Generate the following structure based on the project files in this workspace:
-
-        1. README.md — project overview with links to all sections
-        2. architecture/ folder:
-           - overview.md — high-level architecture with mermaid diagrams
-           - components.md — all components/modules listed with descriptions
-           - data-flow.md — how data flows between components
-        3. modules/ folder — one .md file per major component/service, with:
-           - Description, responsibilities
-           - Dependencies (links to other module files)
-           - API/interfaces
-           - Configuration
-        4. decisions/ folder:
-           - ADR-001.md (and more) — key architectural decisions
-        5. guides/ folder:
-           - getting-started.md
-           - deployment.md
-
-        Requirements:
-        - Every file must use proper markdown with headings, lists, code blocks
-        - Cross-reference between files using relative markdown links: [Component X](../modules/component-x.md)
-        - Include mermaid diagrams where appropriate (architecture overview, data flow)
-        - Be thorough and detailed — this should be production-quality documentation
-        - Write in English unless instructed otherwise
-        """
-
-        return prompt
     }
 
     private func resolveWorkspaceFileURL(filePath: String?, fallbackDocumentId: String?) -> URL? {

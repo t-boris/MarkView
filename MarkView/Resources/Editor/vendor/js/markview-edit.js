@@ -310,28 +310,6 @@
             sendToSwift('refreshRequested', {});
         }
 
-        function toggleGraphMenu() {
-            const menu = document.getElementById('graph-menu');
-            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
-        }
-        // Close menu on click outside
-        document.addEventListener('click', e => {
-            const wrap = document.getElementById('graph-menu-wrap');
-            if (wrap && !wrap.contains(e.target)) {
-                document.getElementById('graph-menu').style.display = 'none';
-            }
-        });
-
-        function generateGraph(type) {
-            document.getElementById('graph-menu').style.display = 'none';
-            sendToSwift('generateGraph', { type: type });
-        }
-
-        function aiTool(tool) {
-            document.getElementById('graph-menu').style.display = 'none';
-            sendToSwift('aiTool', { tool: tool, content: DOM.editor.value.substring(0, 15000) });
-        }
-
         // Keyboard shortcuts in WYSIWYG mode
         rendered.addEventListener('keydown', function(e) {
             if (e.metaKey || e.ctrlKey) {

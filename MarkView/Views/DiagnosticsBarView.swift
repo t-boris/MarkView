@@ -39,7 +39,7 @@ struct DiagnosticsBarView: View {
 
             Spacer()
         }
-        .frame(height: 24)
+        .frame(height: 20)
         .background(VSDark.bgBanner)
         .overlay(Rectangle().frame(height: 1).foregroundColor(VSDark.border), alignment: .top)
     }

@@ -160,7 +160,7 @@ struct FileTreeView: View {
                     .foregroundColor(VSDark.textDim)
                 TextField("Filter...", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundColor(VSDark.text)
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {
@@ -179,6 +179,11 @@ struct FileTreeView: View {
                     }
                     .buttonStyle(.plain)
                     .help("New folder here")
+                    Button { workspaceManager.presentGraphCreator(in: here) } label: {
+                        Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New graph diagram here (AI)")
                 }
                 if browseURL != nil {
                     // Sort toggle button
@@ -256,6 +261,7 @@ struct FileTreeView: View {
                     if let here = browseURL {
                         Button("New File...") { createNewFile(in: here) }
                         Button("New Folder...") { createNewFolder(in: here) }
+                        Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
                     }
                 }
                 .background(VSDark.bgSidebar)
@@ -359,7 +365,7 @@ struct FileTreeView: View {
                 .font(.system(size: 11))
                 .foregroundColor(VSDark.yellow)
             Text(url.lastPathComponent)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundColor(VSDark.text)
                 .lineLimit(1)
             Spacer()
@@ -367,7 +373,7 @@ struct FileTreeView: View {
                 .font(.system(size: 9))
                 .foregroundColor(VSDark.textDim)
         }
-        .padding(.horizontal, 10).padding(.vertical, 5)
+        .padding(.horizontal, 8).padding(.vertical, 3)
         .contentShape(Rectangle())
         .onTapGesture { currentDirectory = url }
         .onDrag { dragItem(url) }
@@ -391,6 +397,7 @@ struct FileTreeView: View {
             Divider()
             Button("New File...") { createNewFile(in: url) }
             Button("New Folder...") { createNewFolder(in: url) }
+            Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: url) }
             if git.isGitRepo {
                 Divider()
                 Button("Stage All in Folder") { stageAllInFolder(url) }
@@ -408,7 +415,7 @@ struct FileTreeView: View {
         let (icon, color) = fileIcon(for: url)
         return HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 11)).foregroundColor(color).frame(width: 16)
-            Text(url.lastPathComponent).font(.system(size: 12)).foregroundColor(VSDark.text).lineLimit(1)
+            Text(url.lastPathComponent).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
             Spacer()
             if let gs = gitStatus {
                 Text(gs.status)
@@ -417,7 +424,7 @@ struct FileTreeView: View {
                     .frame(width: 12)
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 4)
+        .padding(.horizontal, 8).padding(.vertical, 2)
         .background(revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture { workspaceManager.openFile(url) }
