@@ -445,8 +445,8 @@ struct IntakeSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(editorBorder, lineWidth: dropping || dictation.isRecording ? 2 : 1))
                 .overlay(alignment: .bottomTrailing) {
                     if !openAIKey.isEmpty {
-                        DictationButton(dictation: dictation) { transcript in
-                            DictationInsertion.insert(transcript, fieldFocused: editorFocused, text: &text)
+                        DictationButton(dictation: dictation) { transcript, window in
+                            DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
                         }
                         .padding(6)
                     }

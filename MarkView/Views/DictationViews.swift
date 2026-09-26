@@ -5,10 +5,11 @@ import AppKit
 /// only while an OpenAI key is set — the caller hides it otherwise (DEC-002).
 struct DictationButton: View {
     @ObservedObject var dictation: DictationController
-    let insert: (String) -> Void
+    /// The transcript and the window the mic was clicked in (the field's window).
+    let insert: (String, NSWindow?) -> Void
 
     var body: some View {
-        Button(action: { dictation.toggle(insert: insert) }) {
+        Button(action: toggle) {
             Group {
                 switch dictation.phase {
                 case .idle: Image(systemName: "mic")
@@ -25,6 +26,11 @@ struct DictationButton: View {
         .buttonStyle(.plain)
         .disabled(dictation.phase == .transcribing)
         .help(help)
+    }
+
+    private func toggle() {
+        let window = NSApp.keyWindow
+        dictation.toggle { [weak window] transcript in insert(transcript, window) }
     }
 
     private var help: String {
@@ -98,11 +104,12 @@ struct DictationStatusView: View {
 }
 
 enum DictationInsertion {
-    /// Inserts a transcript into the first responder text view when it is the dictation's field
-    /// — at the cursor, replacing a selection — and otherwise appends it to `text`. A space
+    /// Inserts a transcript into the field's own window's first responder text view when the
+    /// field is focused there — at the cursor, replacing a selection — and otherwise appends it
+    /// to `text`. Another window's text view (the user moved on) is never touched. A space
     /// separates it from a word it would touch. The field's whole text is never replaced.
-    static func insert(_ transcript: String, fieldFocused: Bool, text: inout String) {
-        if fieldFocused, let view = NSApp.keyWindow?.firstResponder as? NSTextView, view.isEditable {
+    static func insert(_ transcript: String, window: NSWindow?, fieldFocused: Bool, text: inout String) {
+        if fieldFocused, let view = window?.firstResponder as? NSTextView, view.isEditable {
             let range = view.selectedRange()
             let content = view.string as NSString
             let before = range.location > 0 ? content.substring(with: NSRange(location: range.location - 1, length: 1)) : ""

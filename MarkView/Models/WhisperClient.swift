@@ -56,16 +56,16 @@ class WhisperClient: ObservableObject {
         guard !isRecording else { return }
         error = nil
         transcribedText = nil
-        // Starting a microphone elsewhere discards the recording in progress there.
-        if let other = Self.active, other !== self, other.isRecording { other.cancel() }
-
         // Request microphone permission first
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             beginRecording()
         case .notDetermined:
+            // Cancelled while the permission prompt is up: the answer must not start recording.
+            let requested = generation
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 DispatchQueue.main.async {
+                    guard self.generation == requested else { return }
                     if granted { self.beginRecording() }
                     else { self.error = "Microphone access denied. Enable in System Settings → Privacy → Microphone." }
                 }
@@ -78,6 +78,11 @@ class WhisperClient: ObservableObject {
     }
 
     private func beginRecording() {
+        // A second start while the permission prompt was up: one recording is enough.
+        guard !isRecording else { return }
+        // Starting a microphone elsewhere discards the recording in progress there.
+        if let other = Self.active, other !== self, other.isRecording { other.cancel() }
+
         // Use WAV format — reliable for Whisper
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
@@ -221,6 +226,8 @@ class WhisperClient: ObservableObject {
             transcribedText = text
             return text
         } catch {
+            // Cancelled on purpose (`cancel()`): not a failure to report.
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { return nil }
             self.error = "Network error: \(error.localizedDescription)"
             return nil
         }
@@ -259,6 +266,9 @@ class WhisperClient: ObservableObject {
 
         try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
 
+        guard isRecording else {
+            return "⚠️ Interrupted: another microphone (terminal, voice note or intake) started during the test."
+        }
         let text = await stopRecording()
         if let error { return "❌ \(error)" }
         guard let text else { return "❌ No transcript returned and no error reported." }

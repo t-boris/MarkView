@@ -294,3 +294,14 @@ declaration in a file and grep each one before `git rm`.
 ## Launch tests must never touch the user's MarkView (2026-09-26)
 - Mistake: the launch test compared against a PID remembered from an earlier turn (48496); the user had restarted MarkView meanwhile (71011), so the test killed the user's app.
 - Rule: collect the running PIDs in the same command, immediately before `open -n`, and kill only a process whose executable path is `build/release/MarkView.app` (check `ps -o command=`), never by "not in an old list".
+
+## 2026-09-26 — Cancel must reach async callbacks; insert only into the field's own window
+
+**Context:** Review of the intake dictation: the microphone permission callback started recording
+after the user had cancelled (the mic stayed on, the WAV leaked); the transcript was inserted
+into whatever text view was first responder in the key window, including another window's
+API-key field.
+
+**Rule:** Anything started behind a prompt or callback captures a generation and does nothing if
+it changed. Text produced later is inserted only into the originating window's first responder
+(captured when the action started), otherwise appended to the field's own binding.

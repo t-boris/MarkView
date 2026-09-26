@@ -22,6 +22,9 @@ question answers stay out (DEC-009).
 - [x] Spec: DEC-012 (field scope), REQ-001 aligned, status implemented
 - [x] `tools/tests/dictation-insertion-tests.sh`: cursor insert, selection, spacing, undo, append
 - [x] Build (Debug, no warnings in changed files)
+- [x] Review fixes (2.16.1): cancel during the permission prompt no longer starts recording; one
+      recorder even with a double start; insertion only into the sheet's window; no
+      "cancelled" error; self-test reports an interruption
 - [ ] Manual check in the app with a microphone (Boris)
 
 ## Done 33: Requirements approved when Explore ends (2026-09-26)
