@@ -100,6 +100,30 @@ final class WhisperClient {}
                     check(inputs.count >= 2 && external.isEmpty && links.isEmpty, "ordinary TUI click preserved in mouse mode \(mode)")
                 }
             }
+            // Claude Code shape: Ink/ansi-escapes BEL terminator, id= param, mid-line label, alt screen + SGR drag tracking.
+            let pr = URL(string: "https://github.com/anthropics/claude-code/pull/1?x=1&y=%20")!
+            for (name, open, close) in [("BEL", "\u{1b}]8;;\(pr.absoluteString)\u{7}", "\u{1b}]8;;\u{7}"),
+                                         ("BEL+id", "\u{1b}]8;id=cc-7;\(pr.absoluteString)\u{7}", "\u{1b}]8;;\u{7}"),
+                                         ("ST+id", "\u{1b}]8;id=cc-8;\(pr.absoluteString)\u{1b}\\", "\u{1b}]8;;\u{1b}\\")] {
+                for mode in [0, 1002, 1003] {
+                    let prefix = mode == 0 ? "" : "\u{1b}[?1049h\u{1b}[?\(mode)h\u{1b}[?1006h"
+                    try await display(prefix + "\u{1b}[2;1H⏺ Opened \u{1b}[1m" + open + "PR #1" + close + "\u{1b}[0m for review\r\n")
+                    try await hover(col: 12, row: 2)
+                    try await click()
+                    check(links.count == 1 && external == [pr] && inputs.isEmpty, "CC-\(name) mode \(mode): links=\(links.count) ext=\(external) inputs=\(inputs.count)")
+                }
+            }
+            // TUIs such as Claude Code hard-wrap a long OSC 8 link with cursor moves; every row keeps the full target.
+            let long = URL(string: "https://github.com/anthropics/claude-code/issues/12345#issuecomment-987654321")!
+            let head = String(long.absoluteString.prefix(40)), tail = String(long.absoluteString.dropFirst(40))
+            let split = "\u{1b}[?1049h\u{1b}[?1002h\u{1b}[?1006h\u{1b}[2;3H\u{1b}]8;id=w1;\(long.absoluteString)\u{7}\(head)\u{1b}]8;;\u{7}"
+                + "\u{1b}[3;3H\u{1b}]8;id=w1;\(long.absoluteString)\u{7}\(tail)\u{1b}]8;;\u{7}\r\n"
+            for row in [2, 3] {
+                try await display(split)
+                try await hover(col: 6, row: row)
+                try await click()
+                check(links.count == 1 && external == [long] && inputs.isEmpty, "OSC 8 link hard-wrapped by TUI, row \(row)")
+            }
             for path in ["sample.swift:42:3", "./sample.swift:42", root.appendingPathComponent("sample.swift").path + ":42", "sample.swift:42:matched text"] {
                 try await display(path + "\r\n")
                 try await hover()
