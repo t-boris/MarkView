@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 27: Stop the endless questions — "Decide for me" and "Decide the rest and finish" (2026-09-26, 2.10.0)
+- [x] Question card: "Decide for me" — the AI picks the best answer itself (`chosen`, in the AI language), writes the decision as `proposed` ("Chosen by AI"), refines requirements and asks the next question in the same call; the question gets `answered_by: ai`
+- [x] Explore: "Decide the rest and finish" — one call makes the remaining product-owner decisions (≤ 8, proposed, "Decided by AI"), answers the open questions they settle, defers the rest, every open dimension ends known/n/a (forced), questions_left 0; result card lists the decisions
+- [x] Shared `applyRequirementChanges` for answers and AI decisions (no duplicate source ids)
+- [x] Research is only started by the user: question card "Research this", Review "Research gaps", the context panel of a question, the ✦ editor menu
+### Review
+- Real AI calls on a copy of the feature (two dimensions reopened): exploreNext asked Q-075; "Decide for me" → answered, DEC-100 proposed, dimensions closed; decideRest → 3 proposed decisions, understood, 0 open questions.
+- First run: `chosen` came in English; added it to the conversation-language list in the system prompt; rerun → Russian answer, English decision text.
+
 ## Done 26: Feature cleanup — outdated requirements, answered questions, closed findings, cancelled decisions (2026-09-26, 2.9.0)
 - [x] Categories (user's choice): superseded/rejected requirements; answered questions whose answer is in an accepted/proposed decision (resolved_by); resolved/dismissed findings and open ones whose requirements are all gone; rejected/superseded decisions
 - [x] Trash button in the feature header → "Clean up" sheet: per-category toggle, count, Show list (id, title, status), "Move N to Trash", spinner, result

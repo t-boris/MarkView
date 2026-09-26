@@ -362,6 +362,8 @@ struct ExploreStageView: View {
                     }
                 }
                 .padding(8).background(VSDark.green.opacity(0.08)).cornerRadius(5)
+            } else if assistant.isRunning("decide:" + feature.slug) {
+                Working(text: "AI is deciding the remaining questions and finishing discovery…")
             } else if assistant.isRunning("explore:" + feature.slug) {
                 Working(text: "Looking at what is still missing…")
             } else if let question = current {
@@ -374,6 +376,16 @@ struct ExploreStageView: View {
                     Spacer()
                     SmallButton(title: "Ask next question", icon: "sparkles", prominent: true) {
                         Task { await assistant.exploreNext(feature.slug) }
+                    }
+                }
+            }
+            if !feature.isUnderstood && !assistant.isRunning("decide:" + feature.slug) {
+                HStack(alignment: .top, spacing: 6) {
+                    Text("Enough questions? AI makes the remaining decisions itself (as proposed, to check in Review) and finishes discovery.")
+                        .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    SmallButton(title: "Decide the rest and finish", icon: "flag.checkered") {
+                        Task { await assistant.decideRest(feature.slug) }
                     }
                 }
             }
@@ -403,7 +415,8 @@ struct QuestionCard: View {
     @State private var sent: String?
 
     private var busy: Bool {
-        ["answer:", "options:", "pros:"].contains { assistant.isRunning($0 + question.id) } || assistant.isRunning("research:" + feature.slug)
+        ["answer:", "options:", "pros:"].contains { assistant.isRunning($0 + question.id) }
+            || assistant.isRunning("research:" + feature.slug) || assistant.isRunning("decide:" + feature.slug)
     }
 
     var body: some View {
@@ -464,6 +477,11 @@ struct QuestionCard: View {
                             Task { await assistant.answer(feature.slug, question: question.id, answer: "\(label). \(text)") }
                         }
                     }
+                    SmallButton(title: "Decide for me", icon: "wand.and.stars") {
+                        sent = "AI is choosing the best answer…"
+                        Task { await assistant.answer(feature.slug, question: question.id, answer: "", delegated: true) }
+                    }
+                    .help("AI chooses the best answer itself; the decision is recorded as proposed, to check in Review")
                     SmallButton(title: "Suggest another approach") { Task { await assistant.moreOptions(feature.slug, question: question.id) } }
                     SmallButton(title: "Research this", icon: "globe") {
                         Task { await assistant.research(feature.slug, topic: question.title, for: question.id) }
