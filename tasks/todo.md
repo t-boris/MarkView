@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 26: Feature cleanup — outdated requirements, answered questions, closed findings, cancelled decisions (2026-09-26, 2.9.0)
+- [x] Categories (user's choice): superseded/rejected requirements; answered questions whose answer is in an accepted/proposed decision (resolved_by); resolved/dismissed findings and open ones whose requirements are all gone; rejected/superseded decisions
+- [x] Trash button in the feature header → "Clean up" sheet: per-category toggle, count, Show list (id, title, status), "Move N to Trash", spinner, result
+- [x] "N outdated requirements" banner opens the same sheet with only requirements chosen
+- [x] `FeatureStore.cleanUp(slug, ids:)` replaces `deleteOutdatedRequirements`: list links and resolved_by/superseded_by move to the replacement (chains followed, never onto an object deleted in the same run, no self-links) or are removed; plan issues' requirements and decisions too
+### Review
+- Harness on a copy of feature-lifecycle-events-timing-analytics (after the 2.8.0 cleanup): 73 questions + 25 findings trashed (241 → 143 objects), 98 decisions + 2 requirements relinked (sources Q-… removed), 0 dangling or self links, no candidates left.
+- Body text that mentions deleted ids (e.g. "(Q-003)" in a decision's context) is left as written.
+
 ## Done 25: Delete outdated requirements after consolidation (2026-09-26, 2.8.0)
 - [x] Review stage: "N outdated requirements" banner (merged / rejected counts) with Delete… and a confirmation
 - [x] `FeatureStore.deleteOutdatedRequirements`: superseded and rejected requirement files go to the Trash

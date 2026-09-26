@@ -15,6 +15,7 @@ struct FeaturePanelView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @AppStorage(FeatureStage.storageKey) private var stage = FeatureStage.explore
     @State private var showConditions = false
+    @State private var cleanup: Set<FeatureCleanup>?
 
     init(store: FeatureStore) {
         self.store = store
@@ -70,7 +71,14 @@ struct FeaturePanelView: View {
             HStack(spacing: 6) {
                 Text(feature.title).font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright).lineLimit(1)
                 Spacer()
+                Button(action: { cleanup = Set(FeatureCleanup.allCases) }) {
+                    Image(systemName: "trash").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                }
+                .buttonStyle(.plain).help("Clean up… — delete outdated requirements, answered questions, closed findings and cancelled decisions")
                 FeatureStatusMenu(store: store, feature: feature)
+            }
+            .sheet(isPresented: Binding(get: { cleanup != nil }, set: { if !$0 { cleanup = nil } })) {
+                FeatureCleanupSheet(store: store, slug: feature.slug, selected: cleanup ?? []) { cleanup = nil }
             }
             HStack(spacing: 2) {
                 ForEach(FeatureStage.allCases, id: \.self) { item in
@@ -1311,13 +1319,11 @@ struct ObjectContextView: View {
 }
 
 
-/// "N outdated requirements — Delete…": the superseded / rejected ones go to the Trash, links to
-/// them move to the requirement that replaced them.
+/// "N outdated requirements — Clean up…": opens the cleanup sheet with the requirements chosen.
 struct OutdatedRequirementsBanner: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
-    @State private var confirming = false
-    @State private var working = false
+    @State private var showing = false
 
     var body: some View {
         let outdated = feature.outdatedRequirements
@@ -1329,27 +1335,101 @@ struct OutdatedRequirementsBanner: View {
                     .font(.system(size: 9)).foregroundColor(VSDark.textDim)
             }
             Spacer()
-            if working {
-                Working(text: "Deleting…")
-            } else {
-                SmallButton(title: "Delete…", icon: "trash") { confirming = true }
-            }
+            SmallButton(title: "Clean up…", icon: "trash") { showing = true }
         }
         .padding(8).background(VSDark.bgInput.opacity(0.5)).cornerRadius(5)
-        .confirmationDialog("Delete \(outdated.count) outdated requirements?", isPresented: $confirming) {
-            Button("Move \(outdated.count) files to the Trash", role: .destructive) {
-                working = true
-                // Let the spinner draw before the (synchronous) file work.
-                DispatchQueue.main.async {
-                    let removed = store.deleteOutdatedRequirements(feature.slug)
-                    working = false
-                    store.assistant.results.insert(FeatureResult(title: "Outdated requirements deleted",
-                        text: "\(removed) files moved to the Trash; links now point to the requirements that replaced them.",
-                        pending: false, feature: feature.slug), at: 0)
+        .sheet(isPresented: $showing) {
+            FeatureCleanupSheet(store: store, slug: feature.slug, selected: [.requirements]) { showing = false }
+        }
+    }
+}
+
+/// Preview of what a cleanup removes, by category; the chosen objects go to the Trash and the
+/// links to them move to their replacements or are removed.
+struct FeatureCleanupSheet: View {
+    @ObservedObject var store: FeatureStore
+    let slug: String
+    @State var selected: Set<FeatureCleanup>
+    let close: () -> Void
+    @State private var expanded: Set<FeatureCleanup> = []
+    @State private var working = false
+    @State private var removed: Int?
+
+    var body: some View {
+        let feature = store.feature(slug)
+        let candidates = Dictionary(uniqueKeysWithValues: FeatureCleanup.allCases.map { ($0, feature?.cleanupCandidates($0) ?? []) })
+        let chosen = FeatureCleanup.allCases.filter { selected.contains($0) }.flatMap { candidates[$0] ?? [] }
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Clean up \(feature?.title ?? slug)").font(.system(size: 13, weight: .semibold))
+            Text("Chosen files go to the Trash (restorable). Links to them in the remaining objects and the plan move to the object that replaced them, or are removed.")
+                .font(.system(size: 11)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(FeatureCleanup.allCases) { category in
+                        section(category, objects: candidates[category] ?? [])
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 180, maxHeight: 380)
+            HStack {
+                if let removed {
+                    Text("\(removed) files moved to the Trash.").font(.system(size: 11)).foregroundColor(.secondary)
+                } else if working {
+                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                    Text("Deleting…").font(.system(size: 11)).foregroundColor(.secondary)
+                }
+                Spacer()
+                Button(removed == nil ? "Cancel" : "Done", action: close).keyboardShortcut(.cancelAction)
+                if removed == nil {
+                    Button("Move \(chosen.count) to Trash", role: .destructive) {
+                        working = true
+                        let ids = Set(chosen.map(\.id))
+                        // Let the spinner draw before the (synchronous) file work.
+                        DispatchQueue.main.async {
+                            removed = store.cleanUp(slug, ids: ids)
+                            working = false
+                        }
+                    }
+                    .disabled(chosen.isEmpty || working)
                 }
             }
-        } message: {
-            Text("Superseded and rejected requirement files go to the Trash (restorable). References in other requirements, decisions, questions, findings and the plan are moved to the requirement each one was merged into, or removed.")
+        }
+        .padding(16).frame(width: 520)
+    }
+
+    private func section(_ category: FeatureCleanup, objects: [FeatureObject]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Toggle(isOn: Binding(get: { selected.contains(category) },
+                                     set: { if $0 { selected.insert(category) } else { selected.remove(category) } })) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("\(category.title) (\(objects.count))").font(.system(size: 12, weight: .medium))
+                        Text(category.detail).font(.system(size: 10)).foregroundColor(.secondary)
+                    }
+                }
+                .disabled(objects.isEmpty || working || removed != nil)
+                Spacer()
+                if !objects.isEmpty {
+                    Button(expanded.contains(category) ? "Hide" : "Show") {
+                        if expanded.contains(category) { expanded.remove(category) } else { expanded.insert(category) }
+                    }
+                    .buttonStyle(.link).font(.system(size: 10))
+                }
+            }
+            if expanded.contains(category) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(objects, id: \.id) { object in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(object.id).font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary)
+                            Text(object.title).font(.system(size: 10)).lineLimit(1)
+                            Spacer()
+                            Text(object.status).font(.system(size: 9)).foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(.leading, 22)
+            }
         }
     }
 }

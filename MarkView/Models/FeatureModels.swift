@@ -278,6 +278,31 @@ struct Feature: Identifiable {
         list(.requirement).filter { $0.status == "rejected" || $0.status == "superseded" }
     }
 
+    /// Objects that no longer carry information of their own, by cleanup category.
+    func cleanupCandidates(_ category: FeatureCleanup) -> [FeatureObject] {
+        switch category {
+        case .requirements:
+            return outdatedRequirements
+        case .questions:
+            // The answer lives on in the decision that resolved the question.
+            return list(.question).filter { question in
+                guard question.status == "answered", let decision = object(question.front.string("resolved_by")) else { return false }
+                return decision.status == "accepted" || decision.status == "proposed"
+            }
+        case .findings:
+            let outdated = Set(outdatedRequirements.map(\.id))
+            return list(.finding).filter { finding in
+                if finding.status == "resolved" || finding.status == "dismissed" { return true }
+                guard finding.status == "open" || finding.status == "discussing" else { return false }
+                // Every requirement it was about is gone or replaced.
+                let refs = finding.front.strings("refs").filter { FeatureObjectKind.of(id: $0) == .requirement }
+                return !refs.isEmpty && refs.allSatisfy { object($0) == nil || outdated.contains($0) }
+            }
+        case .decisions:
+            return list(.decision).filter { $0.status == "rejected" || $0.status == "superseded" }
+        }
+    }
+
     /// Requirements that count: not rejected, not merged into another (superseded).
     var activeRequirements: [FeatureObject] {
         list(.requirement).filter { $0.status != "rejected" && $0.status != "superseded" }
@@ -502,4 +527,28 @@ struct BugReport: Identifiable, Hashable {
 func featureSlug(_ title: String) -> String {
     let base = title.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
     return String(base).split(separator: "-").prefix(8).joined(separator: "-")
+}
+
+/// What "Clean up…" can remove from a feature.
+enum FeatureCleanup: String, CaseIterable, Identifiable {
+    case requirements, questions, findings, decisions
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .requirements: return "Outdated requirements"
+        case .questions: return "Answered questions"
+        case .findings: return "Closed findings"
+        case .decisions: return "Cancelled decisions"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .requirements: return "Merged in a consolidation (superseded) or rejected"
+        case .questions: return "Answered, the answer kept in its decision"
+        case .findings: return "Resolved or dismissed, or about requirements that are gone"
+        case .decisions: return "Rejected or superseded"
+        }
+    }
 }
