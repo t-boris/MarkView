@@ -417,6 +417,10 @@ struct IntakeSheet: View {
     @State private var picking = false
     @State private var issueFilter = ""
     @State private var loadingSource = false
+    /// Voice input for the text; lives as long as the sheet — closing it discards a recording.
+    @StateObject private var dictation = DictationController()
+    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
+    @FocusState private var editorFocused: Bool
 
     init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
         self.request = request
@@ -436,8 +440,17 @@ struct IntakeSheet: View {
             Text(kind.prompt).font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             TextEditor(text: $text)
                 .font(.system(size: 13))
+                .focused($editorFocused)
                 .frame(minWidth: 560, minHeight: 260)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(dropping ? VSDark.blue : VSDark.border, lineWidth: dropping ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(editorBorder, lineWidth: dropping || dictation.isRecording ? 2 : 1))
+                .overlay(alignment: .bottomTrailing) {
+                    if !openAIKey.isEmpty {
+                        DictationButton(dictation: dictation) { transcript in
+                            DictationInsertion.insert(transcript, fieldFocused: editorFocused, text: &text)
+                        }
+                        .padding(6)
+                    }
+                }
                 .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
                     for provider in providers {
                         _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -446,6 +459,7 @@ struct IntakeSheet: View {
                     }
                     return true
                 }
+            DictationStatusView(dictation: dictation)
             if kind != .understand, workspaceManager.gitHub.isAvailable {
                 HStack(spacing: 8) {
                     Button("From GitHub Issue…") {
@@ -492,14 +506,28 @@ struct IntakeSheet: View {
                         .font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(working)
+                // Esc cancels a dictation first; the next Esc closes the sheet.
+                Button(dictation.isActive ? "Cancel Dictation" : "Cancel") {
+                    if dictation.isActive { dictation.cancel() } else { dismiss() }
+                }
+                .keyboardShortcut(.cancelAction).disabled(working && !dictation.isActive)
                 Button(kind == .understand ? "Show in X-Ray" : "Create") { submit() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(working || loadingSource || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(working || loadingSource || dictation.isActive || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(16)
         .task { await loadRequestedSource() }
+        .onDisappear { dictation.cancel() }
+        .onChange(of: openAIKey.isEmpty) { removed in
+            // The key is gone: the mic disappears and its recording is discarded.
+            if removed { dictation.cancel() }
+        }
+    }
+
+    private var editorBorder: Color {
+        if dropping { return VSDark.blue }
+        return dictation.isRecording ? VSDark.red : VSDark.border
     }
 
     /// The issue or pull request the sheet was opened from: its text becomes the material.

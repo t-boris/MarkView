@@ -1,5 +1,29 @@
 # MarkView — Follow-up Tasks
 
+## Done 34: Voice input for intake text prompts (2026-09-26, issue #21, 2.16.0, not committed)
+
+Spec: docs/features/voice-input-for-text-prompts (REQ-001…004, DEC-001…011).
+User choice: the mic goes on the intake sheet's text field only (New Feature / New Bug /
+I Need to Understand) — the intake sheet has no separate answer fields; Feature-tab and bug
+question answers stay out (DEC-009).
+
+- [x] `WhisperClient`: one recording app-wide (starting one cancels the other), `cancel()`
+      discards audio and any in-flight transcription, recording capped at 10 min
+      (`record(forDuration:)` — Terminal had no limit), upload timeout scales with size
+- [x] `DictationController` (intake): idle / recording (elapsed, 30 s warning, auto-stop at the
+      cap) / transcribing; inline error, "No speech recognized", denied-permission flag
+- [x] `DictationButton` + status line: shown only with an OpenAI key (@AppStorage, live);
+      key removed → cancel
+- [x] Insert at the cursor of the focused field (NSTextView `insertText`), else append;
+      never replaces the field
+- [x] `IntakeSheet`: mic on the text field; Esc / Cancel cancels dictation first, then closes;
+      closing the sheet cancels
+- [x] Settings help text + README: audio goes to OpenAI, billed to the key, mic appears in intake
+- [x] Spec: DEC-012 (field scope), REQ-001 aligned, status implemented
+- [x] `tools/tests/dictation-insertion-tests.sh`: cursor insert, selection, spacing, undo, append
+- [x] Build (Debug, no warnings in changed files)
+- [ ] Manual check in the app with a microphone (Boris)
+
 ## Done 33: Requirements approved when Explore ends (2026-09-26)
 
 Nothing set `approved` automatically: Explore made `draft`, Resolve downgraded `approved → review`,

@@ -2,7 +2,7 @@
 type: feature
 id: voice-input-for-text-prompts
 title: Voice input for text prompts
-status: review
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-09-26
 provenance: Created from the feature intake

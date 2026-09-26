@@ -49,6 +49,9 @@ struct DDESettingsView: View {
                         Text("Used for: Whisper voice input")
                             .font(.system(size: 9)).foregroundColor(.secondary)
                     }
+                    Text("Used by the 🎤 in the terminals and in the New Feature / New Bug / I Need to Understand text (shown there only while a key is set). Dictated audio is sent to OpenAI for transcription and billed to this key; it is not stored — the temporary recording is deleted right after. Recordings stop at 10 minutes.")
+                        .font(.system(size: 9)).foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
             }
 

@@ -80,6 +80,8 @@
 		E16873462855109449748792 /* GitClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitClient.swift; sourceTree = "<group>"; };
 		E11726806662746062743866 /* WhisperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E12115144200861477320559 /* WhisperClient.swift */; };
 		E12115144200861477320559 /* WhisperClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperClient.swift; sourceTree = "<group>"; };
+		E10000000000000000034101 /* DictationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000034102 /* DictationController.swift */; };
+		E10000000000000000034102 /* DictationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationController.swift; sourceTree = "<group>"; };
 		E16395529941982676028954 /* AIAssistants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistants.swift; sourceTree = "<group>"; };
 		AB5A0C0E1D2F3A4B5C6D7E01 /* AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsage.swift; sourceTree = "<group>"; };
 		AB5A0C0E1D2F3A4B5C6D7E03 /* AgentUsageLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageLogs.swift; sourceTree = "<group>"; };
@@ -114,6 +116,8 @@
 		E10772207776679932541302 /* FeaturePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelView.swift; sourceTree = "<group>"; };
 		E16687301639066130688672 /* FeatureNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureNavigatorView.swift; sourceTree = "<group>"; };
 		E15392467522045207504274 /* LifecycleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleViews.swift; sourceTree = "<group>"; };
+		E10000000000000000034103 /* DictationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000034104 /* DictationViews.swift */; };
+		E10000000000000000034104 /* DictationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationViews.swift; sourceTree = "<group>"; };
 		E13074343125196662950763 /* FeatureIngest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureIngest.swift; sourceTree = "<group>"; };
 		E18556049108932663194623 /* FeatureAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureAI.swift; sourceTree = "<group>"; };
 		E17997508774002452137485 /* FeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStore.swift; sourceTree = "<group>"; };
@@ -226,6 +230,7 @@
 				E16498916146422574535717 /* GitHubStore.swift */,
 				E10110360865000248980617 /* GitHubClient.swift */,
 				E12115144200861477320559 /* WhisperClient.swift */,
+				E10000000000000000034102 /* DictationController.swift */,
 				E32222222222222222222222 /* EmbeddingClient.swift */,
 				E82222222222222222222222 /* GraphRAG.swift */,
 				1AEEAF25CA6416E0EE5FD908 /* ThemeManager.swift */,
@@ -243,6 +248,7 @@
 				E10772207776679932541302 /* FeaturePanelView.swift */,
 				E16687301639066130688672 /* FeatureNavigatorView.swift */,
 				E15392467522045207504274 /* LifecycleViews.swift */,
+				E10000000000000000034104 /* DictationViews.swift */,
 				E19812821332370322777652 /* GitHubViews.swift */,
 				E16645386500824722723458 /* GraphCreatorSheet.swift */,
 				3A5536B20A2DD735F6BA815A /* EditorView.swift */,
@@ -444,6 +450,7 @@
 				E16749769928002028098025 /* FeaturePanelView.swift in Sources */,
 				E18447699465247618246389 /* FeatureNavigatorView.swift in Sources */,
 				E17351536587449799499819 /* LifecycleViews.swift in Sources */,
+				E10000000000000000034103 /* DictationViews.swift in Sources */,
 				E17451009770101104827274 /* GitHubViews.swift in Sources */,
 				E17413308635163577843479 /* GraphCreatorSheet.swift in Sources */,
 				E13834677324410788145575 /* AIAssistants.swift in Sources */,
@@ -480,6 +487,7 @@
 				E10923401475930448596842 /* GitHubStore.swift in Sources */,
 				E17358739185104628587482 /* GitHubClient.swift in Sources */,
 				E11726806662746062743866 /* WhisperClient.swift in Sources */,
+				E10000000000000000034101 /* DictationController.swift in Sources */,
 				E21111111111111111111111 /* ModuleExplorerView.swift in Sources */,
 				A7D1F2C3B4E5968778695A14 /* TerminalView.swift in Sources */,
 				AB5A0C0E1D2F3A4B5C6D7E08 /* AgentUsageViews.swift in Sources */,
@@ -531,7 +539,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.15.0;
+				CURRENT_PROJECT_VERSION = 2.16.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -546,7 +554,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.15.0;
+				MARKETING_VERSION = 2.16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -610,7 +618,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.15.0;
+				CURRENT_PROJECT_VERSION = 2.16.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -631,7 +639,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.15.0;
+				MARKETING_VERSION = 2.16.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

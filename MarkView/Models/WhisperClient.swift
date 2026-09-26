@@ -10,9 +10,20 @@ class WhisperClient: ObservableObject {
     @Published var error: String?
 
     private var audioRecorder: AVAudioRecorder?
-    private var recordingURL: URL
+    /// A new file per recording, so a late cleanup never deletes a newer recording.
+    private var recordingURL: URL?
+    /// Bumped by `cancel()`: a transcription started before it delivers nothing.
+    private var generation = 0
+    private var transcription: Task<String?, Never>?
 
-    private static let apiKeyStorage = "com.markview.dde.openai.apikey"
+    /// The recording in progress anywhere in the app — only one microphone at a time.
+    private static weak var active: WhisperClient?
+
+    /// Longest recording: 16 kHz mono WAV grows ~1.9 MB a minute, so 10 minutes stays well
+    /// under Whisper's 25 MB upload limit. The recorder stops by itself at this length.
+    static let maxRecordingDuration: TimeInterval = 600
+
+    static let apiKeyStorage = "com.markview.dde.openai.apikey"
     static let modelStorage = "settings.whisper.model"
 
     /// Transcription models OpenAI accepts on /v1/audio/transcriptions.
@@ -39,19 +50,14 @@ class WhisperClient: ObservableObject {
         AVCaptureDevice.authorizationStatus(for: .audio)
     }
 
-    init() {
-        // `beginRecording` overwrites this with the .wav path it actually records
-        // to — which is what the multipart body declares. Start from the same
-        // extension so the two can never disagree.
-        recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_whisper_\(fileID).wav")
-    }
-
     // MARK: - Recording
 
     func startRecording() {
         guard !isRecording else { return }
         error = nil
         transcribedText = nil
+        // Starting a microphone elsewhere discards the recording in progress there.
+        if let other = Self.active, other !== self, other.isRecording { other.cancel() }
 
         // Request microphone permission first
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -72,9 +78,6 @@ class WhisperClient: ObservableObject {
     }
 
     private func beginRecording() {
-        // Delete old recording
-        try? FileManager.default.removeItem(at: recordingURL)
-
         // Use WAV format — reliable for Whisper
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatLinearPCM),
@@ -85,18 +88,21 @@ class WhisperClient: ObservableObject {
             AVLinearPCMIsBigEndianKey: false
         ]
 
-        // One file per recorder: two recordings (terminal, voice note) never overwrite each other.
-        recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_whisper_\(fileID).wav")
+        // One file per recording: two recordings (terminal, voice note, intake) never share a file.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("markview_whisper_\(UUID().uuidString).wav")
+        recordingURL = url
 
         do {
-            audioRecorder = try AVAudioRecorder(url: recordingURL, settings: settings)
+            audioRecorder = try AVAudioRecorder(url: url, settings: settings)
             audioRecorder?.isMeteringEnabled = true
             audioRecorder?.prepareToRecord()
-            let started = audioRecorder?.record() ?? false
+            let started = audioRecorder?.record(forDuration: Self.maxRecordingDuration) ?? false
             isRecording = started
             if started {
-                NSLog("[Whisper] Recording started to \(recordingURL.path)")
+                Self.active = self
+                NSLog("[Whisper] Recording started")
             } else {
+                try? FileManager.default.removeItem(at: url)
                 error = "Failed to start recording — check microphone"
                 NSLog("[Whisper] record() returned false")
             }
@@ -106,18 +112,17 @@ class WhisperClient: ObservableObject {
         }
     }
 
-    private let fileID = UUID().uuidString
-
     func stopRecording() async -> String? {
-        guard isRecording, let recorder = audioRecorder else { return nil }
+        guard isRecording, let recorder = audioRecorder, let url = recordingURL else { return nil }
         recorder.stop()
         isRecording = false
         audioRecorder = nil
+        recordingURL = nil
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: url) }
 
         // Check file exists and has content
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: recordingURL.path),
-              let attrs = try? fm.attributesOfItem(atPath: recordingURL.path),
+        guard let attrs = try? fm.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int, size > 100 else {
             NSLog("[Whisper] Recording file empty or missing")
             error = "Recording failed — no audio captured"
@@ -125,9 +130,30 @@ class WhisperClient: ObservableObject {
         }
         NSLog("[Whisper] Recording stopped, file size: \(size) bytes, sending to API...")
 
-        let text = await transcribe(fileURL: recordingURL)
-        try? fm.removeItem(at: recordingURL)
+        let started = generation
+        let task = Task { await transcribe(fileURL: url) }
+        transcription = task
+        let text = await task.value
+        if generation != started {
+            // Cancelled while transcribing: nothing is delivered, not even the cancellation error.
+            error = nil
+            transcribedText = nil
+            return nil
+        }
+        transcription = nil
         return text
+    }
+
+    /// Stops a recording or transcription without a result and deletes the audio.
+    func cancel() {
+        generation += 1
+        transcription?.cancel()
+        transcription = nil
+        audioRecorder?.stop()
+        audioRecorder = nil
+        isRecording = false
+        if let url = recordingURL { try? FileManager.default.removeItem(at: url) }
+        recordingURL = nil
     }
 
     // MARK: - Whisper API
@@ -172,7 +198,8 @@ class WhisperClient: ObservableObject {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
-        request.timeoutInterval = 30
+        // Long dictation uploads megabytes: allow time for them on a slow connection.
+        request.timeoutInterval = 30 + Double(audioData.count) / 200_000
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

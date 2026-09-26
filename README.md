@@ -88,7 +88,10 @@ Swift owns.
   - Click sends the prompt.
   - ⌥-click types it without sending, so you can edit it first.
 - **Dictation:** the 🎤 button transcribes speech with Whisper and types the text at the
-  prompt without sending it.
+  prompt without sending it. The same 🎤 is in the text of **New Feature**, **New Bug** and
+  **I Need to Understand**: click to record, click again and the text goes to the cursor
+  (Esc cancels). The 🎤 appears only when an OpenAI key is set. Dictated audio is sent to
+  OpenAI and billed to that key. It is not stored, and a recording stops at 10 minutes.
 - **Switching:** the toolbar picks the assistant and model. Switching the assistant
   moves to (or starts) a terminal running it.
 - **Terminal in any folder:** right-click a folder and choose **Open Terminal Here** to
@@ -154,7 +157,8 @@ dive deeper into any topic or explore all of them at depth 1–3, and export it 
   MarkView uses their sign-in and needs no provider key.
 - **Optional:**
   - `git`, and [`gh`](https://cli.github.com) for PR X-Ray and the *Review PR* list.
-  - An **OpenAI API key** (Settings → DDE) for Whisper dictation only.
+  - An **OpenAI API key** (Settings → DDE) for Whisper dictation only. Without it the
+    🎤 in the New Feature / New Bug text is hidden.
   - Internet access for interactive `%%INTERACTIVE` diagrams, which load D3 and Dagre
     from a CDN.
 
