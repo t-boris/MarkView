@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 25: Delete outdated requirements after consolidation (2026-09-26, 2.8.0)
+- [x] Review stage: "N outdated requirements" banner (merged / rejected counts) with Delete… and a confirmation
+- [x] `FeatureStore.deleteOutdatedRequirements`: superseded and rejected requirement files go to the Trash
+- [x] Links to them (depends_on, decisions, sources, produces, requirements, … and the plan's issues) move to the requirement they were merged into (following chains), or are removed; no self-links
+- [x] Plan rewritten only when one of its issues pointed at a deleted requirement (savePlan regenerates the body)
+### Review
+- Harness (app sources compiled with a test main) on a copy of feature-lifecycle-events-timing-analytics: 287 → 10 requirements, 277 files trashed, 162 decisions/questions/findings relinked (e.g. Q-001 produces REQ-076 → REQ-280 through REQ-248), 0 dangling links, merged requirements' sources emptied instead of pointing at themselves.
+- First run found the self-link bug (sources: [REQ-286] on REQ-286); fixed and re-run.
+
 ## Done 24: Discovery stops when the feature is understood; the spec stays small (2026-09-26)
 
 User: a small feature (timing events) grew to 69 questions, 81 decisions, 241 requirements.

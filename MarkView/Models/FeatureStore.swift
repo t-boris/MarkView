@@ -276,6 +276,66 @@ final class FeatureStore: ObservableObject {
         reloadSync(slug)
     }
 
+    /// Delete the superseded and rejected requirements (to the Trash). Links to them elsewhere
+    /// (requirements, decisions, questions, findings, the plan) are moved to the requirement they
+    /// were merged into, or removed. Returns how many files went.
+    @discardableResult
+    func deleteOutdatedRequirements(_ slug: String) -> Int {
+        guard let feature = feature(slug) else { return 0 }
+        let outdated = feature.outdatedRequirements
+        guard !outdated.isEmpty else { return 0 }
+        // old id → replacement (follows chains: A → B → C), nil = removed
+        var replacement: [String: String?] = [:]
+        for object in outdated {
+            var target = object.front.string("superseded_by")
+            var seen: Set<String> = [object.id]
+            while let next = feature.object(target), next.status == "superseded", !seen.contains(next.id) {
+                seen.insert(next.id)
+                target = next.front.string("superseded_by")
+            }
+            let alive = feature.object(target).map { $0.status != "rejected" && $0.status != "superseded" } ?? false
+            replacement[object.id] = alive ? target : nil
+        }
+        // `owner`: the object holding the links; a merged requirement's sources would otherwise
+        // point at itself.
+        func rewrite(_ ids: [String], owner: String? = nil) -> [String] {
+            var out: [String] = []
+            for id in ids {
+                let mapped: String?
+                if let entry = replacement[id] { mapped = entry } else { mapped = id }
+                if let mapped, mapped != owner, !out.contains(mapped) { out.append(mapped) }
+            }
+            return out
+        }
+        let keys = ["depends_on", "decisions", "sources", "blocking", "produces", "requirements", "refs", "related", "supersedes"]
+        let survivors = feature.allObjects.filter { !replacement.keys.contains($0.id) }
+        let touched = survivors.filter { object in keys.contains { !Set(object.front.strings($0)).isDisjoint(with: replacement.keys) } }
+        updateMany(touched.map(\.id), in: slug) { id, front, _ in
+            for key in keys where front[key] != nil {
+                let old = front.strings(key)
+                let new = rewrite(old, owner: id)
+                if new != old { front.set(key, list: new) }
+            }
+        }
+        // The plan's issues (savePlan regenerates the plan body, so only when a link changed).
+        if let current = self.feature(slug),
+           current.planIssues.contains(where: { !Set($0.requirements).isDisjoint(with: replacement.keys) }) {
+            let issues = current.planIssues.map { issue -> PlannedIssue in
+                var issue = issue
+                issue.requirements = rewrite(issue.requirements)
+                return issue
+            }
+            let title = current.planFront.string("title").isEmpty ? current.title : current.planFront.string("title")
+            savePlan(slug, title: title, issues: issues, epic: current.epic)
+        }
+        var removed = 0
+        for object in outdated {
+            if (try? FileManager.default.trashItem(at: object.url, resultingItemURL: nil)) != nil { removed += 1 }
+        }
+        reloadSync(slug)
+        return removed
+    }
+
     /// Change many objects with one reload at the end (consolidation touches hundreds).
     func updateMany(_ ids: [String], in slug: String, _ change: (String, inout FrontMatter, inout String) -> Void) {
         guard let feature = feature(slug) else { return }

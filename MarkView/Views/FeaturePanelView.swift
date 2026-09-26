@@ -730,6 +730,9 @@ struct ReviewStageView: View {
                     SmallButton(title: "Run review", icon: "sparkles", prominent: true) { Task { await assistant.review(feature.slug) } }
                 }
             }
+            if !feature.outdatedRequirements.isEmpty {
+                OutdatedRequirementsBanner(store: store, feature: feature)
+            }
             if feature.activeRequirements.count > 30 {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(feature.activeRequirements.count) requirements — too many to review or build well.")
@@ -1304,5 +1307,49 @@ struct ObjectContextView: View {
             for pr in await assistant.pullRequests(closing: number) { files += await assistant.files(of: pr.number) }
         }
         code = Array(Set(files)).sorted()
+    }
+}
+
+
+/// "N outdated requirements — Delete…": the superseded / rejected ones go to the Trash, links to
+/// them move to the requirement that replaced them.
+struct OutdatedRequirementsBanner: View {
+    @ObservedObject var store: FeatureStore
+    let feature: Feature
+    @State private var confirming = false
+    @State private var working = false
+
+    var body: some View {
+        let outdated = feature.outdatedRequirements
+        let superseded = outdated.filter { $0.status == "superseded" }.count
+        HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(outdated.count) outdated requirements").font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
+                Text("\(superseded) merged in a consolidation, \(outdated.count - superseded) rejected")
+                    .font(.system(size: 9)).foregroundColor(VSDark.textDim)
+            }
+            Spacer()
+            if working {
+                Working(text: "Deleting…")
+            } else {
+                SmallButton(title: "Delete…", icon: "trash") { confirming = true }
+            }
+        }
+        .padding(8).background(VSDark.bgInput.opacity(0.5)).cornerRadius(5)
+        .confirmationDialog("Delete \(outdated.count) outdated requirements?", isPresented: $confirming) {
+            Button("Move \(outdated.count) files to the Trash", role: .destructive) {
+                working = true
+                // Let the spinner draw before the (synchronous) file work.
+                DispatchQueue.main.async {
+                    let removed = store.deleteOutdatedRequirements(feature.slug)
+                    working = false
+                    store.assistant.results.insert(FeatureResult(title: "Outdated requirements deleted",
+                        text: "\(removed) files moved to the Trash; links now point to the requirements that replaced them.",
+                        pending: false, feature: feature.slug), at: 0)
+                }
+            }
+        } message: {
+            Text("Superseded and rejected requirement files go to the Trash (restorable). References in other requirements, decisions, questions, findings and the plan are moved to the requirement each one was merged into, or removed.")
+        }
     }
 }

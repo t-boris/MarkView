@@ -273,6 +273,11 @@ struct Feature: Identifiable {
     /// The AI's estimate of questions still needed before a first ready specification.
     var questionsLeft: Int? { Int(front.string("questions_left")) }
 
+    /// Requirements replaced in a consolidation or rejected: history that can be deleted.
+    var outdatedRequirements: [FeatureObject] {
+        list(.requirement).filter { $0.status == "rejected" || $0.status == "superseded" }
+    }
+
     /// Requirements that count: not rejected, not merged into another (superseded).
     var activeRequirements: [FeatureObject] {
         list(.requirement).filter { $0.status != "rejected" && $0.status != "superseded" }
