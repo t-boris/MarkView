@@ -64,7 +64,7 @@ enum FeatureObjectKind: String, CaseIterable, Codable, Sendable {
 enum FeatureVocabulary {
     static let featureStatuses = ["idea", "exploring", "draft", "review", "resolving", "ready",
                                   "implementing", "implemented", "verified", "archived"]
-    static let requirementStatuses = ["draft", "review", "approved", "rejected"]
+    static let requirementStatuses = ["draft", "review", "approved", "rejected", "superseded"]
     static let requirementTypes = ["functional", "non-functional", "ux", "security", "performance",
                                    "reliability", "privacy", "analytics", "operational", "compliance"]
     static let questionStatuses = ["open", "answered", "deferred"]
@@ -171,7 +171,7 @@ struct FeatureObject: Identifiable, Hashable {
         case .question: return status == "answered" || status == "deferred"
         case .finding: return ["resolved", "accepted-risk", "dismissed"].contains(status)
         case .decision: return status != "proposed"
-        case .requirement: return status == "approved" || status == "rejected"
+        case .requirement: return ["approved", "rejected", "superseded"].contains(status)
         default: return false
         }
     }
@@ -273,6 +273,24 @@ struct Feature: Identifiable {
     /// The AI's estimate of questions still needed before a first ready specification.
     var questionsLeft: Int? { Int(front.string("questions_left")) }
 
+    /// Requirements that count: not rejected, not merged into another (superseded).
+    var activeRequirements: [FeatureObject] {
+        list(.requirement).filter { $0.status != "rejected" && $0.status != "superseded" }
+    }
+
+    /// Discovery questions already answered or skipped.
+    var discoveryAnswered: Int {
+        list(.question).filter { $0.front.string("origin") == "explore" && ($0.status == "answered" || $0.status == "deferred") }.count
+    }
+
+    /// Dimensions still to clarify (unknown or partial). Discovery asks only about these.
+    var openDimensions: [String] {
+        understanding.filter { $0.state == "unknown" || $0.state == "partial" }.map(\.dimension)
+    }
+
+    /// The feature is understood: every dimension known or not applicable — discovery ends.
+    var isUnderstood: Bool { openDimensions.isEmpty }
+
     var epic: Int? { planFront.string("epic").isEmpty ? nil : Int(planFront.string("epic")) }
     var planIssues: [PlannedIssue] { (planFront["issues"]?.list ?? []).map(PlannedIssue.init) }
 
@@ -344,7 +362,7 @@ struct Feature: Identifiable {
     }
 
     var readinessConditions: [ReadinessCondition] {
-        let requirements = list(.requirement).filter { $0.status != "rejected" }
+        let requirements = activeRequirements
         let approved = requirements.filter { $0.status == "approved" }
         let blocking = list(.question).filter(\.isBlocking)
         let seriousFindings = list(.finding).filter { ["blocker", "high"].contains($0.front.string("severity")) }

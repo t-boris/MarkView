@@ -276,6 +276,19 @@ final class FeatureStore: ObservableObject {
         reloadSync(slug)
     }
 
+    /// Change many objects with one reload at the end (consolidation touches hundreds).
+    func updateMany(_ ids: [String], in slug: String, _ change: (String, inout FrontMatter, inout String) -> Void) {
+        guard let feature = feature(slug) else { return }
+        for id in ids {
+            guard let cached = feature.object(id), var object = FeatureObject.load(kind: cached.kind, url: cached.url),
+                  object.front.isLossless else { continue }
+            change(id, &object.front, &object.body)
+            object.front.set("updated", Self.today)
+            try? write(object.text(), to: object.url)
+        }
+        reloadSync(slug)
+    }
+
     func setStatus(_ id: String, in slug: String, to status: String) {
         update(id, in: slug) { front, _ in front.set("status", status) }
     }

@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## Done 24: Discovery stops when the feature is understood; the spec stays small (2026-09-26)
+
+User: a small feature (timing events) grew to 69 questions, 81 decisions, 241 requirements.
+Cause: no stop rule (the AI asked while anything was unclear, incl. implementation details) and
+every answer added up to 4 new requirements instead of refining existing ones.
+- [x] Completeness is defined: a dimension is known when every product-owner decision about it
+      is made; implementation details and review edge cases never make it partial. Every question
+      names the dimension it clarifies and must target an open one. All dimensions known / n/a →
+      discovery ends ("Feature understood → Review"); no AI call. No question budget (user).
+- [x] Scope rule: never grow the feature; no implementation-detail questions.
+- [x] Answers update existing requirements (requirement_updates) and add at most 2 new ones.
+- [x] Consolidate requirements (Review, shown above 30): the AI merges into ≤30; merged files stay
+      as status superseded with superseded_by (dropped ones rejected); one reload for all writes.
+      Superseded requirements are left out of context, readiness, review and planning.
+- [x] Progress line: understood N/11 · answered · requirements; "Still to clarify: …".
+- [x] Fixed: the next question's card showed the previous answer and "Try again" (SwiftUI reused
+      the card's state) — each question has its own card now.
+- [x] Version 2.6.2 → 2.7.0. Built; not installed.
+
 ## Done 23: Explore feedback — clearer understanding, fewer waits, the user's language (2026-09-26)
 
 User testing a feature.

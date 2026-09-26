@@ -296,19 +296,17 @@ struct ExploreStageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             PanelSection(title: "Feature understanding") {
-                let known = feature.understanding.filter { $0.state == "known" || $0.state == "n/a" }.count
+                let understood = feature.understanding.count - feature.openDimensions.count
                 HStack(spacing: 6) {
-                    Text("\(known) of \(feature.understanding.count) clear").font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
-                    if let left = feature.questionsLeft {
-                        Text(left == 0 ? "· ready to specify" : "· ≈\(left) question\(left == 1 ? "" : "s") left")
-                            .font(.system(size: 10)).foregroundColor(left == 0 ? VSDark.green : VSDark.textDim)
-                    }
+                    Text("\(understood) of \(feature.understanding.count) understood").font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(feature.isUnderstood ? VSDark.green : VSDark.text)
+                    Text("· \(feature.discoveryAnswered) answered · \(feature.activeRequirements.count) requirements")
+                        .font(.system(size: 10)).foregroundColor(VSDark.textDim)
                     Spacer()
-                    SmallButton(title: "Enough questions → Review") {
-                        UserDefaults.standard.set(FeatureStage.review.rawValue, forKey: FeatureStage.storageKey)
-                        Task { await assistant.review(feature.slug) }
-                    }
-                    .help("Stop the questions here and review what is specified so far")
+                }
+                if !feature.isUnderstood {
+                    Text("Still to clarify: " + feature.openDimensions.joined(separator: ", "))
+                        .font(.system(size: 10)).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 8) {
                     ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
@@ -343,10 +341,24 @@ struct ExploreStageView: View {
                     }
                 }
             }
-            if assistant.isRunning("explore:" + feature.slug) {
+            if feature.isUnderstood && current == nil {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "checkmark.seal.fill").foregroundColor(VSDark.green)
+                        Text("Feature understood").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
+                    }
+                    Text("Every dimension is known or not applicable, so discovery is done. Next: review the specification. To reopen discovery, mark a dimension partial or unknown.")
+                        .font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                    SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
+                        UserDefaults.standard.set(FeatureStage.review.rawValue, forKey: FeatureStage.storageKey)
+                    }
+                }
+                .padding(8).background(VSDark.green.opacity(0.08)).cornerRadius(5)
+            } else if assistant.isRunning("explore:" + feature.slug) {
                 Working(text: "Looking at what is still missing…")
             } else if let question = current {
-                QuestionCard(store: store, feature: feature, question: question)
+                // One card per question: its "answer sent" state never carries over to the next one.
+                QuestionCard(store: store, feature: feature, question: question).id(question.id)
             } else {
                 HStack {
                     Text(feature.list(.question).isEmpty ? "Start guided discovery." : "No open question.")
@@ -392,6 +404,9 @@ struct QuestionCard: View {
                 Text(question.id).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
                 if question.isBlocking { Text("BLOCKING").font(.system(size: 8, weight: .bold)).foregroundColor(VSDark.red) }
                 Text(question.front.string("q_type").uppercased()).font(.system(size: 8)).foregroundColor(VSDark.textDim)
+                if !question.front.string("dimension").isEmpty {
+                    Text("clarifies " + question.front.string("dimension")).font(.system(size: 8, weight: .semibold)).foregroundColor(VSDark.cyan)
+                }
                 Spacer()
                 Button(action: { workspaceManager.openFile(question.url) }) {
                     Image(systemName: "doc.text").font(.system(size: 9)).foregroundColor(VSDark.textDim)
@@ -714,6 +729,21 @@ struct ReviewStageView: View {
                 } else {
                     SmallButton(title: "Run review", icon: "sparkles", prominent: true) { Task { await assistant.review(feature.slug) } }
                 }
+            }
+            if feature.activeRequirements.count > 30 {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(feature.activeRequirements.count) requirements — too many to review or build well.")
+                        .font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.orange)
+                    if assistant.isRunning("consolidate:" + feature.slug) {
+                        Working(text: "Merging overlapping requirements into a compact set — a few minutes for large specs…")
+                    } else {
+                        SmallButton(title: "Consolidate requirements", icon: "arrow.triangle.merge", prominent: true) {
+                            Task { await assistant.consolidateRequirements(feature.slug) }
+                        }
+                        .help("Merge duplicates and refinements; merged files stay with status superseded")
+                    }
+                }
+                .padding(8).background(VSDark.orange.opacity(0.08)).cornerRadius(5)
             }
             let open = feature.list(.finding).filter { !$0.isClosed }
             PanelSection(title: "Review") {
@@ -1189,7 +1219,7 @@ struct ObjectContextView: View {
             }
         }
         if object.kind == .finding { ResolutionOptions(store: store, feature: feature, finding: object) }
-        if object.kind == .question && object.status == "open" { QuestionCard(store: store, feature: feature, question: object) }
+        if object.kind == .question && object.status == "open" { QuestionCard(store: store, feature: feature, question: object).id(object.id) }
         if ["review:" + feature.slug, "criteria:" + object.id, "research:" + feature.slug].contains(where: assistant.isRunning) {
             Working(text: "Working…")
         }

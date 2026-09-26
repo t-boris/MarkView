@@ -185,7 +185,8 @@ final class FeatureAssistant: ObservableObject {
         }
         // Digest of everything else.
         for kind in [FeatureObjectKind.requirement, .decision, .question, .finding, .research] {
-            let rest = feature.list(kind).filter { !seen.contains($0.id) }
+            // Merged (superseded) requirements are history, not specification.
+            let rest = feature.list(kind).filter { !seen.contains($0.id) && $0.status != "superseded" }
             guard !rest.isEmpty else { continue }
             out += "## \(kind.title)\n"
             for object in rest {
@@ -324,6 +325,13 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("explore:" + slug)
         defer { preparing.remove("explore:" + slug) }
         guard let feature = store.feature(slug) else { return }
+        // Understood (every dimension known / n/a): nothing to ask. Marking a dimension partial
+        // or unknown by hand opens discovery again.
+        guard !feature.isUnderstood else {
+            store.updateFeature(slug) { front, _ in front.set("questions_left", "0") }
+            return
+        }
+
         let asked = feature.list(.question).map { "- \($0.id) [\($0.status)] \($0.title)" }.joined(separator: "\n")
         let prompt = context(feature) + """
 
@@ -353,19 +361,30 @@ final class FeatureAssistant: ObservableObject {
     private static let questionSchema: [String: Any] = [
         "type": "object",
         "properties": ["text": ["type": "string"], "why": ["type": "string"],
+                       "dimension": ["type": "string", "enum": FeatureVocabulary.understanding],
                        "q_type": ["type": "string", "enum": FeatureVocabulary.questionTypes],
                        "blocking": ["type": "boolean"], "options": ["type": "array", "items": optionSchema]],
-        "required": ["text", "why", "q_type", "blocking", "options"],
+        "required": ["text", "why", "dimension", "q_type", "blocking", "options"],
     ]
 
     private static let discoveryInstruction = """
-    Assess how well each understanding dimension is specified (known / partial / unknown / n/a). Then \
-    choose the ONE next question with the highest impact on the specification that has not been asked. \
+    Assess how well each understanding dimension is specified (known / partial / unknown / n/a). A \
+    dimension is known when every decision the product owner must make about it is made; partial when \
+    such a decision is still missing; unknown when nothing is decided. Implementation details (formats, \
+    schemas, file layouts, naming, internal APIs) and edge cases for the review never make a dimension \
+    partial — the implementer and the review handle them. n/a when the dimension does not apply. Then, \
+    if some dimension is unknown or partial, choose the ONE next question that clarifies such a dimension \
+    (name it in `dimension`), the one with the highest impact that has not been asked. \
     Offer 2–4 concrete options (label them A, B, C…) with short pros and cons, unless the question is \
     open-ended (then no options). Mark it blocking when requirements cannot be written without it. Set \
     has_question false only when the feature is ready to be specified. questions_left: your honest \
     estimate of how many more questions are needed before a first implementation-ready specification \
     (0 when ready) — ask only what really changes the specification.
+    Scope: stay inside the feature's idea and scope as written in its overview. Never grow the feature — \
+    a question whose answer would add capabilities beyond the idea is out of scope. Do not ask about \
+    implementation details the implementer decides (formats, schemas, file layouts, naming, internal \
+    APIs); ask only what the product owner must decide. When the remaining unknowns are implementation \
+    details or edge cases the review will cover, set has_question false.
     """
 
     /// States and notes of the understanding dimensions from an answer.
@@ -397,9 +416,16 @@ final class FeatureAssistant: ObservableObject {
         if let left = object["questions_left"] as? Int {
             store.updateFeature(slug) { front, _ in front.set("questions_left", String(max(0, left))) }
         }
+        // Completeness decides: once every dimension is known or n/a, discovery ends.
+        guard let feature = store.feature(slug), !feature.isUnderstood else {
+            store.updateFeature(slug) { front, _ in front.set("questions_left", "0") }
+            return
+        }
         guard object["has_question"] as? Bool == true, let q = object["question"] as? [String: Any] else { return }
         let text = q["text"] as? String ?? ""
-        guard !text.isEmpty else { return }
+        let dimension = q["dimension"] as? String ?? ""
+        // A question only for a dimension still open (a known one needs no more questions).
+        guard !text.isEmpty, dimension.isEmpty || feature.openDimensions.contains(dimension) else { return }
         let optionList = q["options"] as? [[String: Any]] ?? []
         var body = "## Question\n\n\(text)\n\n## Why it matters\n\n\(q["why"] as? String ?? "")\n"
         if !optionList.isEmpty {
@@ -408,7 +434,7 @@ final class FeatureAssistant: ObservableObject {
         store.create(.question, in: slug, title: String(text.prefix(140)),
                      fields: [("q_type", .string(q["q_type"] as? String ?? "clarification")),
                               ("priority", .string(q["blocking"] as? Bool == true ? "blocking" : "normal")),
-                              ("origin", .string("explore")), ("blocking", .list([])),
+                              ("origin", .string("explore")), ("dimension", .string(dimension)), ("blocking", .list([])),
                               ("options", options(optionList))],
                      body: body, provenance: "Generated by AI (guided discovery)")
     }
@@ -425,14 +451,18 @@ final class FeatureAssistant: ObservableObject {
         Question: \(question.title)
         Answer: \(answer)
 
-        Task: turn this answer into specification. If it settles a choice, write the decision (with the \
-        alternatives that were considered). Derive the requirements it implies (0–4), each with acceptance \
-        criteria. \(next ? "Then, with this answer taken into account: " + Self.discoveryInstruction : "Update the understanding dimensions it changes.")
+        Task: turn this answer into specification, keeping the specification small. If it settles a \
+        choice, write the decision (with the alternatives that were considered). First UPDATE the existing \
+        requirements this answer refines (requirement_updates: their id, the new statement and acceptance \
+        criteria); create new requirements (0–2) only for what no existing requirement covers. Never create \
+        a requirement that restates or splits an existing one. \(next ? "Then, with this answer taken into account: " + Self.discoveryInstruction : "Update the understanding dimensions it changes.")
         """
         var properties: [String: Any] = [
             "has_decision": ["type": "boolean"],
             "decision": Self.decisionSchema,
             "requirements": Self.array(Self.requirementSchema),
+            "requirement_updates": Self.array(Self.object(["id": Self.string, "statement": Self.string,
+                                                           "acceptance_criteria": Self.strings])),
             "understanding": Self.understandingSchema,
         ]
         if next {
@@ -450,7 +480,23 @@ final class FeatureAssistant: ObservableObject {
                                       provenance: "Generated from discussion (\(id))")?.id
         }
         var produced: [String] = []
-        for r in object["requirements"] as? [[String: Any]] ?? [] {
+        // Refinements of existing requirements, in place.
+        for update in object["requirement_updates"] as? [[String: Any]] ?? [] {
+            guard let rid = update["id"] as? String, let existing = store.feature(slug)?.object(rid), existing.kind == .requirement,
+                  existing.status != "superseded" else { continue }
+            let statement = update["statement"] as? String ?? ""
+            let criteria = (update["acceptance_criteria"] as? [String] ?? []).map { "- [ ] \($0)" }.joined(separator: "\n")
+            store.update(rid, in: slug) { front, body in
+                if !statement.isEmpty || !criteria.isEmpty {
+                    body = "## Statement\n\n\(statement.isEmpty ? existing.section("Statement") : statement)\n\n## Acceptance Criteria\n\n\(criteria.isEmpty ? existing.section("Acceptance Criteria") : criteria)\n"
+                }
+                front.set("sources", list: Array(Set(front.strings("sources") + [id])).sorted())
+                if let decisionID { front.set("decisions", list: Array(Set(front.strings("decisions") + [decisionID])).sorted()) }
+                if front.string("status") == "approved" { front.set("status", "review") }
+            }
+            produced.append(rid)
+        }
+        for r in (object["requirements"] as? [[String: Any]] ?? []).prefix(2) {
             if let req = makeRequirement(r, in: slug, sources: [id] + (decisionID.map { [$0] } ?? []),
                                          decisions: decisionID.map { [$0] } ?? [],
                                          provenance: "Derived from \(decisionID ?? id)") {
@@ -467,6 +513,67 @@ final class FeatureAssistant: ObservableObject {
         }
         store.appendDiscussion(slug, speaker: "Answer to \(id)", text: "\(question.title)\n\n\(answer)")
         if next { applyDiscovery(object, to: slug) } else { applyUnderstanding(object, to: slug) }
+    }
+
+    /// Merge overlapping requirements into a small set (spec grew too large). The merged ones stay
+    /// as files with status "superseded" and a link to the requirement that replaces them.
+    func consolidateRequirements(_ slug: String) async {
+        preparing.insert("consolidate:" + slug)
+        defer { preparing.remove("consolidate:" + slug) }
+        guard let feature = store.feature(slug) else { return }
+        let active = feature.activeRequirements
+        guard active.count > 3 else { return }
+        let target = max(8, min(30, active.count / 5))
+        var list = ""
+        for r in active {
+            let criteria = r.acceptanceCriteria.prefix(6).map { "  - \($0.text)" }.joined(separator: "\n")
+            list += "### \(r.id) [\(r.status)] \(r.title)\n\(r.section("Statement").prefix(500))\n\(criteria)\n\n"
+        }
+        let prompt = """
+        # Feature: \(feature.title)
+
+        \(feature.overviewBody.prefix(4_000))
+
+        ## Its \(active.count) requirements
+
+        \(list.prefix(180_000))
+
+        Task: the specification has grown far too large and repetitive. Rewrite it as at most \(target) \
+        requirements that together keep every real, in-scope need: merge duplicates, refinements and \
+        splits of the same need into one requirement with complete acceptance criteria; drop what is an \
+        implementation detail or out of the feature's scope. For every new requirement list the ids it \
+        replaces (merges). Every old id should appear in exactly one merges list, or in dropped.
+        """
+        let item = Self.object(["title": Self.string, "statement": Self.string,
+                                "req_type": ["type": "string", "enum": FeatureVocabulary.requirementTypes],
+                                "acceptance_criteria": Self.strings, "merges": Self.strings])
+        let schema = Self.object(["requirements": Self.array(item), "dropped": Self.strings])
+        guard let result = await run("consolidate:" + slug, prompt: prompt, schema: schema, timeout: 1200),
+              let object = result.structured as? [String: Any] else { return }
+        let activeIDs = Set(active.map(\.id))
+        var replacedBy: [String: String] = [:]
+        var created = 0
+        for r in object["requirements"] as? [[String: Any]] ?? [] {
+            let merges = (r["merges"] as? [String] ?? []).filter(activeIDs.contains)
+            let decisions = Array(Set(merges.flatMap { feature.object($0)?.front.strings("decisions") ?? [] })).sorted()
+            guard let new = makeRequirement(r, in: slug, sources: merges, decisions: decisions,
+                                            provenance: "Consolidated from \(merges.count) requirements") else { continue }
+            created += 1
+            for old in merges { replacedBy[old] = new.id }
+        }
+        let dropped = (object["dropped"] as? [String] ?? []).filter { activeIDs.contains($0) && replacedBy[$0] == nil }
+        store.updateMany(Array(replacedBy.keys) + dropped, in: slug) { id, front, _ in
+            if let by = replacedBy[id] {
+                front.set("status", "superseded")
+                front.set("superseded_by", by)
+            } else {
+                front.set("status", "rejected")
+                front.set("rejected_reason", "Dropped in consolidation (detail or out of scope)")
+            }
+        }
+        results.insert(FeatureResult(title: "Requirements consolidated",
+                                     text: "\(active.count) → \(created) requirements; \(replacedBy.count) merged, \(dropped.count) dropped. The old files stay (status superseded / rejected) for history.",
+                                     pending: false, feature: slug), at: 0)
     }
 
     func skip(_ slug: String, question id: String) async {
@@ -585,7 +692,7 @@ final class FeatureAssistant: ObservableObject {
         defer { preparing.remove("review:" + slug) }
         guard let feature = store.feature(slug) else { return }
         let scope = focus.map { "Review only \($0) and what it depends on." } ?? "Review the whole specification."
-        let prompt = context(feature, focus: focus.map { [$0] } ?? feature.list(.requirement).map(\.id), budget: 70_000) + """
+        let prompt = context(feature, focus: focus.map { [$0] } ?? feature.activeRequirements.map(\.id), budget: 70_000) + """
 
         Task: \(scope) Judge whether it is complete, consistent, understandable and implementation-ready. \
         Look through these perspectives internally — Product, UX, Architecture, Backend, Frontend, Security, \
@@ -873,8 +980,8 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("decompose:" + slug)
         defer { preparing.remove("decompose:" + slug) }
         guard let feature = store.feature(slug) else { return }
-        let approved = feature.list(.requirement).filter { $0.status == "approved" }
-        let pool = approved.isEmpty ? feature.list(.requirement).filter { $0.status != "rejected" } : approved
+        let approved = feature.activeRequirements.filter { $0.status == "approved" }
+        let pool = approved.isEmpty ? feature.activeRequirements : approved
         let prompt = context(feature, focus: pool.map(\.id), budget: 70_000) + """
 
         Task: decompose the requirements \(pool.map(\.id).joined(separator: ", ")) into implementation issues \
