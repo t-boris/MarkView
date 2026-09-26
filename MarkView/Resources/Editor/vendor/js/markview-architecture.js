@@ -937,7 +937,14 @@
                 const top = document.createElement('button');
                 top.className = 'arch-crumb';
                 top.textContent = ({ logical: 'Logical', modules: 'Modules', deployment: 'Deployment', docs: 'Documentation', pr: 'Pull request' })[ui.view];
-                top.onclick = function() { ui.expanded[ui.view].clear(); ui.focus[ui.view] = null; render(); };
+                // The top level: the details panel goes back to the view's overview (the PR panel
+                // in the PR X-Ray) — nothing stays selected.
+                top.onclick = function() {
+                    ui.expanded[ui.view].clear(); ui.focus[ui.view] = null;
+                    ui.selected = null; ui.selectedEdge = null;
+                    if (cy) { cy.elements().unselect(); highlightNeighbourhood(null); }
+                    render();
+                };
                 el.crumbs.appendChild(top);
                 chain.forEach(function(node) {
                     const sep = document.createElement('span'); sep.className = 'arch-sep'; sep.textContent = '›';
@@ -946,7 +953,9 @@
                     b.onclick = function() {
                         // Keep this level expanded, collapse everything below it.
                         (idx.children.get(node.id) || []).forEach(function(k) { collapse(k, idx); });
-                        ui.focus[ui.view] = node.id; ui.selected = node.id; render(node.id);
+                        ui.focus[ui.view] = node.id; ui.selected = node.id; ui.selectedEdge = null;
+                        if (cy) cy.elements().unselect();
+                        render(node.id);
                     };
                     el.crumbs.appendChild(b);
                 });

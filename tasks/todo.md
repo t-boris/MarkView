@@ -12,6 +12,9 @@ User: the old one was slow and duplicated asking in the terminal; it should X-Ra
 - [x] "Save to docs/research" in the answer panel (user: the result may be kept): the answer and
       every place as `path:line` links, no new AI call.
 - [x] Version 2.3.0 → 2.4.0. Built; not installed.
+- [x] 2.4.1: X-Ray breadcrumbs did not move the details panel — the top crumb ("Pull request",
+      "Logical"…) kept the previous selection; now it clears it (overview / PR panel), and a
+      level crumb selects that level and drops a selected arrow.
 
 ## Done 20: Issues list, hand-written features, dot files, .gitignore (2026-09-26)
 
