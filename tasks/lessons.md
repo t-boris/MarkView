@@ -315,3 +315,10 @@ WKUIDelegate cannot display. Test both paths in native WebKit. Link activation o
 screen can also bubble into PTY mouse reporting in a TUI: reserve Cmd+click at the screen
 bubble phase after the linkifier, retaining ordinary TUI mouse events. Resolve relative file
 links against the live foreground/shell cwd, not only the folder where the terminal started.
+
+## Terminal escape-sequence tests must use the emitter's real encoding (2026-09-26)
+
+BUG-001 tests covered only ST-terminated OSC 8 (`ESC \`). Claude Code (Ink/ansi-escapes)
+ends OSC 8 with BEL and other tools add `id=` params. When reproducing a terminal bug reported
+against a specific program, replay that program's exact byte shape (terminator, params, SGR styling,
+alternate screen, mouse mode). Also run the new check against the pre-fix page to prove it catches the bug.

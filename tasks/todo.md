@@ -1,5 +1,23 @@
 # MarkView — Follow-up Tasks
 
+## Done 36: Architecture documentation set (2026-09-26, docs only, no version bump)
+
+Output: `docs/architecture/`, one doc per subsystem plus cross-cutting docs.
+Existing `docs/features|bugs|plans` stay untouched.
+
+- [x] Subsystem docs, written in parallel by 8 analysis agents under `docs/architecture/modules/`:
+      app shell & workspace; editor web layer & bridge; AI assistants & dictation;
+      feature workflow; architecture / X-Ray; semantic index & insight; Git/GitHub,
+      terminal, lifecycle, agent usage; build/release/testing
+- [x] Cross-cutting docs: index, system overview, runtime flows, data & storage,
+      configuration, external integrations, security, concurrency, risks & tech debt, glossary
+- [x] Verify: every file/symbol named in the docs exists; links resolve
+      (links/anchors: 0 broken; file refs exist; line ranges in bounds; 69 heuristic
+      symbol/line mismatches reviewed: 66 correct, 3 line numbers fixed, 0 false claims;
+      top findings re-read in code)
+- Review: `docs/architecture/risks-and-tech-debt.md` lists defects found (R1–R11, S1–S14), none fixed;
+  each needs its own approval. Docs only — no version bump.
+
 ## Done 35: Terminal browser/file links (2026-09-26, BUG-001 / issue #11, 2.17.0)
 
 - [x] Reproduced OSC 8 browser fallback and TUI mouse reports in native WKWebView before editing

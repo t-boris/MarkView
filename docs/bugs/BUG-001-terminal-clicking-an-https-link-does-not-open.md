@@ -73,47 +73,44 @@ questions:
 
 ## Summary
 
-In MarkView's built-in terminal (xterm.js in WKWebView), Cmd+clicking an underlined https link printed by Claude Code (full-screen TUI) does nothing: no browser opens. File paths in terminal output are not clickable at all. Code review: terminal.html sets no `linkHandler`, so OSC 8 hyperlinks (which Claude Code emits, with link text that can differ from the URL) fall back to xterm's default confirm()/window.open. WKWebView ignores these because there is no WKUIDelegate. Only WebLinksAddon (regex-detected URLs) posts {type:'link'} to Swift. TerminalSession drops non-http(s) URLs and unparsable URLs silently. Claude Code's full-screen UI may also enable mouse tracking, which can route clicks to the app instead of xterm link activation. File-path links are not implemented.
+In MarkView's built-in terminal (xterm.js in WKWebView), Cmd+clicking an OSC 8 hyperlink printed by Claude Code (full-screen TUI) did not open the browser, and file paths were not clickable. The problem was reproduced in a native WKWebView harness. Root cause: terminal.html configured no xterm `linkHandler`, so activating an OSC 8 link fell back to confirm()/window.open. WKWebView (no WKUIDelegate) ignored that fallback. Under mouse tracking, Cmd+click also leaked mouse reports to the TUI. Plain URLs worked through WebLinksAddon. File-path links did not exist. Fixed in 2.17.0.
 
 ## Steps to reproduce
 
-1. Open a folder in MarkView and choose 'Open Terminal Here' in the file tree.
-2. Run `printf '\e]8;;https://github.com\e\\link\e]8;;\e\\\n'`, hover 'link' (it is underlined) and Cmd+click it. No browser opens.
-3. Run `claude` (Claude Code, full-screen UI), get it to print a link, hover it and Cmd+click it. No browser opens.
-4. For comparison, run `echo https://github.com` and Cmd+click the URL (the WebLinksAddon path). This result has not been verified yet.
-5. Run `ls -1` or `grep -n foo *.md` and try to click a file path. It is not a link.
+1. Open a folder in MarkView and choose 'Open Terminal Here'.
+2. Run `printf '\e]8;;https://github.com\e\\link\e]8;;\e\\\n'`, hover 'link' (underlined) and Cmd+click it: no browser opens (confirm() fallback, no `link` message reaches Swift).
+3. Enable mouse tracking (e.g. run `claude` full-screen, or modes 1000/1002/1003) and Cmd+click an OSC 8 link: no browser opens, and mouse-down/up reports are sent to the TUI.
+4. Control: `echo https://github.com` + Cmd+click sends one `link` message (works, verified in the harness).
+5. Run `grep -n foo *.md` or print `README.md:42:3` and click the path: it is not a link.
 
 ## Expected
 
-Cmd+clicking any http/https link opens it in the default browser. This applies to regex-detected links and OSC 8 links, including links inside mouse-tracking TUIs such as Claude Code. Clicking a file path (absolute, or relative to the terminal cwd, optionally with :line[:col]) opens the file in a MarkView tab and scrolls to the line when FileType.isOpenable is true. Other files open in the default app. This mirrors EditorView's link handling.
+Cmd+click on any http/https link (regex-detected or OSC 8, including inside mouse-tracking TUIs) opens it in the default browser, and the TUI receives no mouse report. Clicking an existing file path (absolute or relative to the shell cwd, optionally with :line[:col]) opens openable files in a MarkView tab at that line, and other files in the default app.
 
 ## Actual
 
-A link printed by Claude Code is underlined on hover, but Cmd+click does nothing visible and no browser opens. File paths are not recognised as links.
+OSC 8 links are underlined on hover, but Cmd+click triggers xterm's default confirm()/window.open, which WKWebView drops, so nothing opens. With mouse tracking on, the click is also forwarded to the TUI. File paths are never recognised as links.
 
 ## Environment
 
-MarkView macOS app (SwiftUI + WKWebView) on macOS Darwin 27.0.0. The terminal is xterm.js with @xterm/addon-web-links bundled into vendor/js/xterm.bundle.js. The link source is Claude Code in full-screen mode. The build/commit is unknown.
+MarkView macOS app (SwiftUI + WKWebView), macOS Darwin 27.0.0. Terminal: xterm.js + @xterm/addon-web-links (vendor/js/xterm.bundle.js). Link source: Claude Code in full-screen mode (OSC 8). Reproduced before 2.17.0; fixed in 2.17.0.
 
 ## Suspected code
 
-- `MarkView/Resources/Editor/terminal.html` — Only WebLinksAddon posts {type:'link'}. No `linkHandler` is set in the Terminal options, so OSC 8 links go to the default confirm()/window.open. There is no file-path link provider.
-- `MarkView/Models/TerminalSession.swift` — The 'link' case silently drops non-http(s) URLs and strings that URL(string:) cannot parse, with no logging. There is no cwd-relative path resolution and no WKUIDelegate, so window.open is ignored.
-- `MarkView/Views/EditorView.swift` — Reference link handling (openFile with a line, NSWorkspace for http) that the terminal should reuse.
-- `tools/web-vendor/xterm-entry.js` — Defines what gets bundled. A stale xterm.bundle.js could change behaviour.
+- `MarkView/Resources/Editor/terminal.html` — No `linkHandler` for OSC 8 links. Cmd+click is not intercepted before mouse reporting. No file-path link provider.
+- `MarkView/Models/TerminalSession.swift` — The 'link' handler accepted only http(s) URLs. There was no cwd-aware file resolution or file-open route.
+- `MarkView/Views/EditorView.swift` — Reference open-file-at-line behaviour. Markdown and structured views needed line reveal.
 
 ## Likely causes
 
-- Fact (code): no `linkHandler` is configured. Claude Code emits OSC 8 hyperlinks, whose activation falls back to window.open/confirm, which WKWebView drops without a WKUIDelegate. This is the most likely cause.
-- Inference: Claude Code's full-screen UI enables mouse tracking, so the click may go to the app instead of xterm link activation.
-- Inference: a regex-detected URL fails URL(string:) (trailing punctuation or non-ASCII characters) and is dropped silently.
-- Fact: file-path links are not implemented (a feature gap).
+- Confirmed: the missing xterm `linkHandler` made OSC 8 activation fall back to confirm()/window.open, which WKWebView ignores without a WKUIDelegate.
+- Confirmed: under VT200/SGR mouse tracking, Cmd+click was also delivered as mouse reports to the TUI.
+- Confirmed: file-path links were not implemented (feature gap).
+- Ruled out as the primary cause: plain regex URLs worked through WebLinksAddon.
 
 ## Missing information
 
-- Whether `echo https://github.com` + Cmd+click works.
-- Web Inspector console output when clicking.
-- The build/commit and whether xterm.bundle.js is up to date.
+- None. On 2026-09-26 the reporter confirmed that Cmd+click on Claude Code links now works in the installed 2.17.0 app, with a physical mouse.
 
 ## Clarifications
 
@@ -179,3 +176,34 @@ Verification:
 
 The tests use deterministic OSC 8 and TUI mouse-mode output; they do not make a Claude API
 request. Reproduction and verification do not require a particular assistant response.
+
+## Re-verification (2026-09-26)
+
+- Reproduced again before the fix: the shipping harness was run against the pre-fix `terminal.html`
+  (`85b6f8d^`) and failed 34 of 71 checks. OSC 8 Cmd+click sent no `link` message, and mouse modes
+  1000/1002/1003 leaked `<0;2;1M` reports to the TUI.
+- Added Claude Code-shaped cases to `tools/tests/TerminalLinkTests.swift`. They use the
+  Ink/ansi-escapes BEL terminator, `id=` params and a bold mid-line label, in an alternate screen
+  with SGR modes 1002/1003. The pre-fix page fails all 9 (no `link`, 2–4 PTY mouse reports). The
+  fixed page passes all 9.
+- `tools/tests/terminal-link-tests.sh`: **80 terminal + 9 editor checks, 0 failures**.
+- The installed `/Applications/MarkView.app` (2.17.0) bundles the same `terminal.html` as `HEAD`.
+- Live Claude Code check, outside the repo, run once: real `claude` 2.1.283 (`"tui": "fullscreen"`, Haiku)
+  ran in the real `TerminalSession` PTY with the shipping `terminal.html`, in a WKWebView window.
+  It was asked to print `Docs at https://github.com/anthropics/claude-code and file README.md`.
+  Its raw output contains `ESC]8;id=…;https://…BEL` and enables modes 1049/1000/1002/1003/1006/1004.
+  The hover was sent as DOM `mousemove` events, since synthesized AppKit mouseMoved events do not reach
+  WebKit. The click was a real AppKit Cmd+`leftMouseDown`/`leftMouseUp` pair.
+  - Pre-fix page (`85b6f8d^`): the link was underlined, but Cmd+click sent no `link` message and
+    `README.md` was not a link. This is the reported behaviour.
+  - 2.17.0 page: the tooltip showed the target. Cmd+click sent exactly one `link` message, and the URL
+    reached `openExternalURL`. Claude Code received 0 mouse reports. Cmd+click on `README.md` opened
+    `<repo>/README.md` through `openFile`.
+
+### Known limitation (decision 2026-09-26)
+
+A long OSC 8 link that a TUI breaks across rows with cursor moves opens the full target from
+either row (regression check "OSC 8 link hard-wrapped by TUI"). A plain-text URL (not OSC 8)
+broken the same way opens truncated, because the terminal has no signal that the rows belong
+together. Other terminals behave the same way. The reporter chose to leave this as is and not add
+a row-continuation heuristic. Suite: **82 terminal + 9 editor checks, 0 failures**.
