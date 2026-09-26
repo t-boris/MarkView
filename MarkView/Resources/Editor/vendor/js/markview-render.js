@@ -45,7 +45,13 @@
                 // Render markdown to HTML
                 let html;
                 if (md) {
-                    html = md.render(contentMd);
+                    const offset = fmMatch ? markdown.slice(0, markdown.length - contentMd.length).split('\n').length - 1 : 0;
+                    const env = {};
+                    const tokens = md.parse(contentMd, env);
+                    tokens.forEach(function(t) {
+                        if (t.map && t.block && t.nesting >= 0) t.attrSet('data-line', String(t.map[0] + 1 + offset));
+                    });
+                    html = md.renderer.render(tokens, md.options, env);
                 } else {
                     // Fallback when markdown-it is unavailable
                     html = '<pre style="white-space: pre-wrap; word-break: break-word;">'

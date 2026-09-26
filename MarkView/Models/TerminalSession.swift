@@ -65,6 +65,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     @Published private(set) var profile: TerminalProfile
     /// Tab title in the AI panel ("Claude Code", "Codex 2").
     var title: String
+    /// Supplied by the workspace for both AI-panel terminals and folder terminal tabs.
+    var openFile: ((URL, Int?) -> Void)?
+    var openExternalURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     @Published private(set) var isRunning = false
     @Published private(set) var exitCode: Int32?
@@ -132,12 +135,49 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             case "pasteFiles":
                 pasteClipboardFiles()
             case "link":
-                if let text = body["url"] as? String, let url = URL(string: text),
-                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                    NSWorkspace.shared.open(url)
+                if let text = body["url"] as? String { activateLink(text) }
+            case "resolveLinks":
+                if let request = body["request"] as? Int, request >= 0,
+                   let paths = body["paths"] as? [String], paths.count <= 512 {
+                    resolveLinks(paths, request: request)
                 }
             default:
                 break
+            }
+        }
+    }
+
+    private var linkDirectoryProbe: (foreground: pid_t, shell: pid_t, fallback: URL) {
+        (masterFD >= 0 ? tcgetpgrp(masterFD) : 0, childPID, directory)
+    }
+
+    private func resolveLinks(_ paths: [String], request: Int) {
+        let probe = linkDirectoryProbe
+        Task {
+            let valid = await Task.detached(priority: .userInitiated) {
+                let cwd = TerminalLink.workingDirectory(foregroundPID: probe.foreground, shellPID: probe.shell, fallback: probe.fallback)
+                return paths.filter { if case .file = TerminalLink.resolve($0, directory: cwd) { return true }; return false }
+            }.value
+            guard let data = try? JSONSerialization.data(withJSONObject: valid),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            _ = try? await webView.evaluateJavaScript("window.mvResolvedLinks && window.mvResolvedLinks(\(request), \(json))")
+        }
+    }
+
+    /// Shared by regex URLs, OSC 8 hyperlinks and detected local paths.
+    func activateLink(_ text: String) {
+        let probe = linkDirectoryProbe
+        Task {
+            let target = await Task.detached(priority: .userInitiated) {
+                let cwd = TerminalLink.workingDirectory(foregroundPID: probe.foreground, shellPID: probe.shell, fallback: probe.fallback)
+                return TerminalLink.resolve(text, directory: cwd)
+            }.value
+            switch target {
+            case .web(let url): openExternalURL(url)
+            case .file(let url, let line):
+                if FileType.isOpenable(url), let openFile { openFile(url, line) }
+                else { openExternalURL(url) }
+            case nil: break
             }
         }
     }

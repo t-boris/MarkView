@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## Done 35: Terminal browser/file links (2026-09-26, BUG-001 / issue #11, 2.17.0)
+
+- [x] Reproduced OSC 8 browser fallback and TUI mouse reports in native WKWebView before editing
+- [x] Shared native activation for plain URLs and OSC 8; target tooltip; Cmd+click bypasses PTY mouse reports
+- [x] Existing-file provider, live terminal cwd after `cd`, line suffixes, quoted/wrapped/Unicode paths
+- [x] Both folder and AI-panel terminals open supported files in MarkView, other files in the default app
+- [x] Markdown/structured line reveal; preserve code line reveal across viewer loading
+- [x] `tools/tests/terminal-link-tests.sh`: 71 terminal + 9 editor checks pass; extra real browser dispatch passes
+- [x] Debug/Release builds; Developer ID signing verified; minor version bump; bug report resolution
+
 ## Done 34: Voice input for intake text prompts (2026-09-26, issue #21, 2.16.0, not committed)
 
 Spec: docs/features/voice-input-for-text-prompts (REQ-001…004, DEC-001…011).

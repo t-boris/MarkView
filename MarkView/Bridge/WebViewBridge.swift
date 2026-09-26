@@ -424,6 +424,10 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.codeGotoLine && window.codeGotoLine(\(line), \(endLine ?? line))")
     }
 
+    func revealDocumentLine(_ line: Int, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.documentGotoLine && window.documentGotoLine(\(line))")
+    }
+
     func loadStructuredContent(_ content: String, fileType: String, into webView: WKWebView, completion: @escaping () -> Void) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: [content], options: []),
               let jsonArrayString = String(data: jsonData, encoding: .utf8) else {

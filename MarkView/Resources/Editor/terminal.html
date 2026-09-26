@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <!-- An embedded terminal (TerminalSession.swift): xterm.js drawing a PTY that Swift owns.
      Swift → JS: mvWrite(base64 output), mvSetTheme(dark), mvFocus(), mvReset(), mvExited(code).
-     JS → Swift (message handler "terminal"): {type: ready|input|resize|link|pasteFiles, …}. -->
+     JS → Swift (message handler "terminal"): {type: ready|input|resize|link|resolveLinks|pasteFiles, …}. -->
 <link rel="stylesheet" href="vendor/css/xterm.css">
 <style>
     html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
@@ -32,15 +32,97 @@
                  cyan: '#0598bc', white: '#555555', brightBlack: '#666666', brightRed: '#cd3131', brightGreen: '#14ce14',
                  brightYellow: '#b5ba00', brightBlue: '#0451a5', brightMagenta: '#bc05bc', brightCyan: '#0598bc', brightWhite: '#a5a5a5' },
     };
+    function activateLink(event, uri) {
+        if (event.button !== 0 || (term.modes.mouseTrackingMode !== 'none' && !event.metaKey)) return;
+        event.preventDefault();
+        post({ type: 'link', url: uri });
+    }
+    function hoverLink(event, uri) { screen.title = uri + ' (⌘click to open)'; }
+    function leaveLink() { screen.removeAttribute('title'); }
     const term = new MVTerm.Terminal({
         fontFamily: '"SF Mono", Menlo, Monaco, monospace', fontSize: 12, lineHeight: 1.15,
         cursorBlink: true, scrollback: 10000, allowTransparency: true, macOptionIsMeta: true,
         theme: themes.dark,
+        // OSC 8 uses a separate provider from WebLinksAddon. WKWebView has no browser
+        // confirm/window.open UI; every target must cross the native bridge instead.
+        linkHandler: { activate: activateLink, hover: hoverLink, leave: leaveLink, allowNonHttpProtocols: true },
     });
     const fit = new MVTerm.FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new MVTerm.WebLinksAddon(function(event, uri) { post({ type: 'link', url: uri }); }));
+    term.loadAddon(new MVTerm.WebLinksAddon(activateLink, { hover: hoverLink, leave: leaveLink }));
     term.open(document.getElementById('term'));
+    const screen = term.element.querySelector('.xterm-screen');
+    // xterm's linkifier handles events on the screen; PTY mouse reporting handles
+    // their bubble at the outer terminal/document. Reserve ⌘click for links without
+    // disabling normal TUI clicks, dragging or wheel input. No private xterm APIs.
+    let commandClick = false;
+    screen.addEventListener('mousedown', function(e) {
+        commandClick = e.button === 0 && e.metaKey;
+        if (commandClick) e.stopPropagation();
+    });
+    screen.addEventListener('mouseup', function(e) {
+        if (e.button === 0 && (commandClick || e.metaKey)) e.stopPropagation();
+        commandClick = false;
+    });
+    screen.addEventListener('mousemove', function(e) {
+        if (e.metaKey || commandClick) e.stopPropagation();
+    });
+    document.addEventListener('mouseup', function() { commandClick = false; });
+
+    // Local paths (including ls/grep output). Swift checks existence off-main so
+    // prose is not underlined, and resolves relative paths against the live PTY cwd.
+    let linkRequest = 0;
+    const pendingLinks = new Map();
+    window.mvResolvedLinks = function(request, valid) {
+        const pending = pendingLinks.get(request);
+        if (!pending) return;
+        pendingLinks.delete(request);
+        const accepted = new Set(valid);
+        pending.callback(pending.links.filter(link => accepted.has(link.text)));
+    };
+    term.registerLinkProvider({ provideLinks: function(y, callback) {
+        const buffer = term.buffer.active;
+        let first = y - 1, last = y - 1;
+        // Reassemble soft-wrapped paths, using cell coordinates rather than string
+        // offsets (wide characters and combining marks change the mapping).
+        while (first > 0 && buffer.getLine(first).isWrapped && y - first < 64) first--;
+        while (last + 1 < buffer.length && buffer.getLine(last + 1).isWrapped && last - first < 64) last++;
+        let text = '';
+        const starts = [], ends = [];
+        for (let row = first; row <= last && text.length < 8192; row++) {
+            const line = buffer.getLine(row);
+            if (!line) break;
+            for (let col = 0; col < line.length; col++) {
+                const cell = line.getCell(col), width = cell.getWidth();
+                if (width === 0) continue;
+                const chars = cell.getChars() || ' ';
+                for (let i = 0; i < chars.length; i++) {
+                    starts.push({ x: col + 1, y: row + 1 });
+                    ends.push({ x: col + width, y: row + 1 });
+                }
+                text += chars;
+            }
+        }
+        const links = [];
+        const tokens = /"([^"]+)"|'([^']+)'|`([^`]+)`|[^\s"'`<>{}\[\]()]+/g;
+        let match;
+        while ((match = tokens.exec(text)) && links.length < 512) {
+            const quoted = match[1] || match[2] || match[3];
+            let path = quoted || match[0].replace(/[,;.!?]+$/, '');
+            if (!path || /^https?:/i.test(path)) continue;
+            // grep's file:line[:column]:matched text is not part of the target.
+            const location = path.match(/^(.+?:[1-9]\d*(?::[1-9]\d*)?)(?=:|$)/);
+            if (location) path = location[1];
+            const start = match.index + (quoted ? 1 : 0), end = start + path.length - 1;
+            if (!starts[start] || !ends[end]) continue;
+            links.push({ text: path, range: { start: starts[start], end: ends[end] },
+                         activate: activateLink, hover: hoverLink, leave: leaveLink });
+        }
+        if (!links.length) { callback(undefined); return; }
+        const request = ++linkRequest;
+        pendingLinks.set(request, { links: links, callback: callback });
+        post({ type: 'resolveLinks', request: request, paths: links.map(link => link.text) });
+    }});
 
     let size = { cols: 0, rows: 0 };
     function refit() {
@@ -86,7 +168,13 @@
     window.mvFocus = function() { term.focus(); };
     /** Full reset before a new process: clears the screen and every mode the previous
         program may have left on (mouse tracking, alternate screen, bracketed paste…). */
-    window.mvReset = function() { term.reset(); };
+    window.mvReset = function() {
+        pendingLinks.forEach(pending => pending.callback(undefined));
+        pendingLinks.clear();
+        leaveLink();
+        commandClick = false;
+        term.reset();
+    };
     /** Whether the terminal reports the mouse to the program (diagnostics and tests). */
     window.mvMouseMode = function() { return term.modes.mouseTrackingMode; };
     /** The visible screen as text (diagnostics and tests). */

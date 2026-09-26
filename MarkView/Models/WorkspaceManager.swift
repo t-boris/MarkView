@@ -3122,6 +3122,7 @@ class WorkspaceManager: ObservableObject {
         let session = TerminalSession(directory: directory, profile: profile,
                                       startupCommand: startupCommand(for: profile),
                                       title: terminalTitle(for: profile))
+        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         aiTerminals.append(session)
         activeAITerminalID = session.id
         startWatchingOpenFiles()
@@ -3451,6 +3452,7 @@ class WorkspaceManager: ObservableObject {
     /// Open a terminal in `folder` as an editor tab.
     func openTerminal(in folder: URL) {
         let session = TerminalSession(directory: folder.standardizedFileURL)
+        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)

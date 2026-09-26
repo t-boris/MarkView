@@ -41,6 +41,28 @@
             }
         };
 
+        // Terminal file:line links retain markdown's formatted view. Structured
+        // documents reveal the precise line in their source view.
+        window.documentGotoLine = function(line) {
+            if (state.mode === 'preview') {
+                const blocks = Array.from(DOM.rendered.querySelectorAll('[data-line]'));
+                let best = null;
+                blocks.forEach(function(el) {
+                    if (+el.getAttribute('data-line') <= line) best = el;
+                });
+                if (best) best.scrollIntoView({ block: 'center' });
+                return;
+            }
+            if (state.mode === 'structured') switchToStructuredSource();
+            if (state.mode !== 'source' && state.mode !== 'structured-source') return;
+            const lines = DOM.editor.value.split('\n');
+            const index = Math.max(0, Math.min(lines.length - 1, line - 1));
+            const start = lines.slice(0, index).reduce(function(n, s) { return n + s.length + 1; }, 0);
+            DOM.editor.setSelectionRange(start, start + lines[index].length);
+            const height = parseFloat(getComputedStyle(DOM.editor).lineHeight) || 20;
+            DOM.editor.scrollTop = Math.max(0, index * height - DOM.editor.clientHeight / 2);
+        };
+
         window.getHTML = function() {
             return DOM.rendered.innerHTML;
         };

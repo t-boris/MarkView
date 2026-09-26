@@ -67,9 +67,11 @@ struct EditorView: NSViewRepresentable {
         private let editorResourceBaseURL: URL
         private var currentDocumentBaseURL: URL?
         private var lastLoadedContent: String = ""
+        private var lastLoadedDocumentURL: URL?
         /// File whose content is in the code viewer, and a line to reveal once it is.
         private var currentCodeURL: URL?
         private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
+        private var currentLineRevealURL: URL?
         private var lastTheme: Theme?
         private var isEditorReady = false
         private var pendingContent: String?
@@ -298,6 +300,7 @@ struct EditorView: NSViewRepresentable {
             // no setContent). `.file` (or no tab — initial-load fallback) flows through
             // the existing path unchanged.
             let kind: TabKind = tab?.kind ?? .file
+            currentLineRevealURL = nil
             switch kind {
             case .insight(let session):
                 currentCodeURL = nil
@@ -312,6 +315,7 @@ struct EditorView: NSViewRepresentable {
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .file:
+                currentLineRevealURL = documentURL?.standardizedFileURL
                 architectureCancellable = nil
                 // If we were previously routed to an insight session, drop those subs
                 // before falling back to the file pipeline (avoid leaking + stale forward).
@@ -335,8 +339,12 @@ struct EditorView: NSViewRepresentable {
             let fileType = documentURL.map { FileType.from(url: $0) } ?? .markdown
             let asNotes = fileType == .markdown && tab?.notesView == true
             let loadKey = asNotes ? "notes\u{1}" + markdown : markdown
-            guard loadKey != lastLoadedContent else { return }
+            guard loadKey != lastLoadedContent || documentURL?.standardizedFileURL != lastLoadedDocumentURL else {
+                applyPendingCodeReveal()
+                return
+            }
             lastLoadedContent = loadKey
+            lastLoadedDocumentURL = documentURL?.standardizedFileURL
 
             // Route by file type
             currentCodeURL = nil
@@ -353,6 +361,7 @@ struct EditorView: NSViewRepresentable {
             }
             if fileType != .markdown {
                 bridge.loadStructuredContent(markdown, fileType: fileType.rawValue, into: webView) {}
+                applyPendingCodeReveal()
                 return
             }
 
@@ -362,6 +371,7 @@ struct EditorView: NSViewRepresentable {
                 ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL!)
                 : markdown
             bridge.loadContent(resolved, into: webView) {}
+            applyPendingCodeReveal()
         }
 
         /// Load cached notes for the code file and keep the margin panel in sync.
@@ -405,12 +415,16 @@ struct EditorView: NSViewRepresentable {
             }
         }
 
-        /// Send a queued line reveal once its file is the one in the code viewer.
+        /// Send a queued line reveal once its file is loaded in the editor.
         private func applyPendingCodeReveal() {
             guard let reveal = pendingCodeReveal, let webView,
-                  reveal.url == currentCodeURL else { return }
+                  reveal.url == currentLineRevealURL else { return }
             pendingCodeReveal = nil
-            bridge.revealCodeLine(reveal.line, endLine: reveal.endLine, in: webView)
+            if reveal.url == currentCodeURL {
+                bridge.revealCodeLine(reveal.line, endLine: reveal.endLine, in: webView)
+            } else {
+                bridge.revealDocumentLine(reveal.line, in: webView)
+            }
         }
 
         // MARK: - Insight routing (Recursive Insight v2, Task 7)

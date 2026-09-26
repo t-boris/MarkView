@@ -2,7 +2,7 @@
 type: bug
 id: BUG-001
 title: "Terminal: clicking an https link does not open the browser; file paths are not clickable at all"
-status: open
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-26
@@ -135,3 +135,47 @@ MarkView macOS app (SwiftUI + WKWebView) on macOS Darwin 27.0.0. The terminal is
 ## Original description
 
 В терминале, если есть там ссылка какая-то, у меня не получается открыть ссылку. То есть он не открывает браузер, например, если это HTTPS-ссылка. Ну и вообще ссылки на файлы он должен тоже открывать соответствующий файл сразу.
+
+
+## Resolution (2026-09-26, 2.17.0)
+
+Reproduced in a separate native WKWebView using the shipping terminal page and xterm bundle,
+before changing the app:
+
+- Plain `https://github.com` sent one `link` message to Swift.
+- The OSC 8 `link` label invoked browser `confirm()` and sent no `link` message. With no
+  WKUIDelegate, that fallback did not open a browser.
+- With VT200/SGR mouse tracking enabled, the same Cmd+click also emitted mouse-down and
+  mouse-up PTY reports to the TUI.
+- `README.md:42:3` produced no link message.
+
+The root cause was the missing OSC 8 `linkHandler`, as described in the
+[xterm option documentation](https://xtermjs.org/docs/api/terminal/interfaces/iterminaloptions/#optional-linkhandler).
+The WebLinksAddon handled only plain URLs. File paths had no link provider or native route.
+
+The fix configures both URL providers to send targets through the native bridge, shows the
+actual target on hover, and reserves Cmd+click for link activation before mouse events reach
+the TUI. Ordinary TUI clicks and mouse modes remain active. A file provider asks Swift to
+validate existing files off the main thread; it supports absolute/relative paths, quoted
+paths, `:line[:column]`, grep output and OSC 8 file URLs. Native resolution uses the
+foreground process/shell cwd, including after `cd`. Supported files open through the
+workspace's existing tab API, others through NSWorkspace. Markdown and structured documents
+now reveal the requested line too, alongside the existing code viewer. Unsafe schemes,
+missing files and directories receive no native action.
+
+Verification:
+
+- `tools/tests/terminal-link-tests.sh`: **71 terminal checks + 9 editor checks passed** in
+  real WKWebView using the shipping assets and TerminalSession handler. Includes OSC 8
+  labels, plain URLs, alternate-screen TUIs with modes 1000/1002/1003, no mouse reports on
+  Cmd+click, normal TUI clicks, file routing, wide/combining characters, wrapped paths,
+  right-click handling, and relative links after a real shell `cd`.
+- `tools/tests/terminal-link-tests.sh --open-browser`: the extra actual OSC 8 Cmd+click
+  returned success from `NSWorkspace.open`; the system default handler was Google Chrome.
+- Editor checks confirm Markdown front-matter line offsets and visible preview scrolling,
+  source selection/scrolling for Markdown and JSON, and queued code-viewer line navigation.
+- Debug and Release builds succeeded; the signed Release app passed strict codesign verification.
+  The fix adds no vendor dependency and uses the existing bundle.
+
+The tests use deterministic OSC 8 and TUI mouse-mode output; they do not make a Claude API
+request. Reproduction and verification do not require a particular assistant response.

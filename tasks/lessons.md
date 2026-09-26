@@ -305,3 +305,13 @@ API-key field.
 **Rule:** Anything started behind a prompt or callback captures a generation and does nothing if
 it changed. Text produced later is inserted only into the originating window's first responder
 (captured when the action started), otherwise appended to the field's own binding.
+
+
+## 2026-09-26 — Terminal OSC 8 and plain URLs have different activation paths
+
+WebLinksAddon handles regex URLs; xterm's OSC 8 provider uses Terminal.options.linkHandler.
+Without that handler it calls browser confirm/window.open, which WKWebView without a
+WKUIDelegate cannot display. Test both paths in native WebKit. Link activation on xterm's
+screen can also bubble into PTY mouse reporting in a TUI: reserve Cmd+click at the screen
+bubble phase after the linkifier, retaining ordinary TUI mouse events. Resolve relative file
+links against the live foreground/shell cwd, not only the folder where the terminal started.
