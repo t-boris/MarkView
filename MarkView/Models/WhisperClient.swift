@@ -128,7 +128,7 @@ class WhisperClient: ObservableObject {
 
     // MARK: - Whisper API
 
-    private func transcribe(fileURL: URL) async -> String? {
+    func transcribe(fileURL: URL) async -> String? {
         guard let apiKey = apiKey else {
             error = "OpenAI API key not set. Add it in Settings."
             return nil

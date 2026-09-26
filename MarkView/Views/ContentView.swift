@@ -35,7 +35,7 @@ struct ContentView: View {
         HSplitView {
             // MARK: - Left Panel: File Tree
             if workspaceManager.showFileTree {
-                FileTreeView()
+                LeftPanelView()
                     .environmentObject(workspaceManager)
                     .frame(minWidth: 180, idealWidth: 220, maxWidth: 350)
             }
@@ -107,6 +107,18 @@ struct ContentView: View {
                 .help("X-Ray — the project's components, deployment and docs (⌘4)")
                 .disabled(workspaceManager.rootNode == nil)
 
+                // New feature / bug / "I need to understand" — the standard ways into the project.
+                Menu {
+                    ForEach(IntakeKind.allCases) { kind in
+                        Button(kind.title + "…") { workspaceManager.intake = kind }
+                    }
+                } label: {
+                    Image(systemName: "plus.square")
+                }
+                .menuIndicator(.hidden)
+                .help("New feature, new bug, or research something in the project")
+                .disabled(workspaceManager.rootNode == nil)
+
                 // Which assistant (and model) does every AI job: X-Ray, Explain, filters, AI terminal.
                 AssistantToolbarMenu()
 
@@ -145,6 +157,9 @@ struct ContentView: View {
                 isPresented: graphCreatorSheetBinding,
                 preselectedType: workspaceManager.pendingGraphCreatorType ?? "architecture"
             )
+        }
+        .sheet(item: $workspaceManager.intake) { kind in
+            IntakeSheet(kind: kind, workspaceManager: workspaceManager)
         }
         .background(WindowAccessor(window: $hostWindow))
         // Finder "Open With" / Quick Action: requests wait in

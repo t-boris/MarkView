@@ -827,6 +827,12 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             .map { String($0.dropFirst().dropLast()) } ?? "\"\""
     }
 
+    func bridge(_ bridge: WebViewBridge, didRequestFeatureAction action: String, text: String, question: String) {
+        Task { @MainActor in
+            self.parent.workspaceManager.runFeatureAction(action, text: text, question: question)
+        }
+    }
+
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String) {
         Task { @MainActor in
             let wm = self.parent.workspaceManager

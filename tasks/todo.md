@@ -1,5 +1,113 @@
 # MarkView — Follow-up Tasks
 
+## Next 19: X-Ray — explain links, answer questions (user, 2026-09-26, queued after 18)
+
+- [ ] Click on an arrow (edge) → AI description of the link: why A calls / depends on B, with
+      the code/doc evidence (details panel).
+- [ ] ⚡ question (e.g. "check ability to work with tested rate as a command gateway") →
+      highlight only the related elements in every view (logical, structure, docs, deployment)
+      and answer the question in the details panel: which parts relate and why.
+- Keep "Only flagged" as it is (the user likes it).
+
+## Done 18: Feature workspaces — discovery, review, resolve, build (2026-09-26)
+
+Source: docs/plans/documents-actions.md (whole document). User decisions: everything in the doc;
+reuse the three panels; one Markdown file per object; in-app structured AI; IDs per feature;
+one release; generated specs always in English; default owner = git user.name.
+
+### Storage (Markdown is the source of truth)
+`features/<slug>/` — `overview.md` (type feature: title, status, understanding map, idea) and
+one file per object, YAML front matter + Markdown body:
+- `requirements/REQ-001.md` — status draft|review|approved|rejected, req_type, depends_on,
+  decisions, sources, issues, provenance; body: statement + `## Acceptance Criteria` (- [ ]).
+- `questions/Q-001.md` — status open|answered|deferred, q_type, blocking, owner, options,
+  answer, resolved_by.
+- `decisions/DEC-001.md` — status proposed|accepted|rejected|superseded; body: Context,
+  Alternatives, Decision, Reason, Consequences; sources, produces.
+- `findings/F-001.md` — severity blocker|high|medium|low, category, perspectives, status
+  open|discussing|resolved|accepted-risk|dismissed, document + quote, interpretations.
+- `research/R-001.md` — topic, claims with kind project-fact|external-fact|ai-inference|
+  user-decision|open-assumption and sources.
+- `references/SRC-001.md` (+ the ingested file next to it) — role, origin, extracted facts
+  (pending|accepted|rejected).
+- `implementation/plan.md` — issues (title, summary, requirements, decisions, github).
+Every object: id, type, feature, created, provenance, owner where relevant.
+
+### UI (three panels)
+- Left panel: `Files | Feature`. Feature navigator: feature picker + New Feature, status,
+  sections Overview, Requirements, Questions, Decisions, Findings, Research, References,
+  Implementation, History (git log) — rows open the Markdown file.
+- Right panel: new `Feature` tab — stage bar EXPLORE → REVIEW → RESOLVE → BUILD, readiness
+  (explicit conditions), and the stage view:
+  - Explore: idea, Understanding checklist, next prioritized question with options
+    (Choose A…, Suggest another, Research this, Show pros/cons, Skip, free answer);
+    ingestion (drop files, URL, GitHub issue, voice note) → facts to Accept/Reject/Edit/Discuss;
+    discussion with "Save as Decision?" detection.
+  - Review: run review (perspectives unified) → dashboard by category → finding cards
+    (Resolve, Discuss, Edit requirement, Accept risk, Dismiss).
+  - Resolve: Resolution Center — blocking questions, conflicts with AI options, findings,
+    assumptions, research gaps.
+  - Build: AI decomposition into issues (drag requirements between issues), coverage,
+    approve → GitHub issues with requirement/decision references; PR links.
+  - Object context (a REQ/Q/DEC/F file open in the editor): trace up/down and, for decisions,
+    change impact (requirements, issues, documents, code paths).
+- Editor selection → ✦ menu: Ask AI, Challenge, Expand, Research, Find Edge Cases, Find
+  Contradictions, Find Related Documentation, Explain, Generate Diagram, Turn Into
+  Requirement, Create Decision, Create Question — results in the Feature tab.
+
+### Engine
+- `FrontMatter` (YAML subset: scalars, lists, list of maps, nested maps).
+- `FeatureStore` per window: load/watch features, create/update objects, next IDs, graph
+  (contains, resolved-by, produces, depends-on, implemented-by), readiness, impact.
+- `FeatureAI`: CLICompletion with JSON schemas, read-only project access, web tools for
+  research (Claude WebSearch/WebFetch, Codex --search); context from the graph (§31).
+
+### Plan
+- [x] FrontMatter (YAML subset) — round-trip harness: scalars, lists, list of maps, nested maps,
+      quoting, edits.
+- [x] Feature models, store, IDs, graph, readiness (only measurable conditions count), impact,
+      history (git log), provenance on every object.
+- [x] FeatureAI actions: explore (understanding + next question with options), answer →
+      decision + requirements, more options, pros/cons, skip, research (web), review (unified
+      perspectives), acceptance criteria, resolution options + resolve, contextual actions,
+      chat with decision detection, decomposition, GitHub issues + epic, PR links, PR files.
+- [x] Left panel Files | Feature navigator; New Feature form; status; history.
+- [x] Right panel Feature tab: stage bar, readiness conditions, object context (trace, impact,
+      history), results, discussion; Explore / Review / Resolve / Build views.
+- [x] Editor selection ✦ menu (JS + bridge both sides) → Feature tab.
+- [x] Ingestion: files (PDF text, images for the assistant, audio via Whisper), URL, GitHub
+      issue, notes, voice notes; facts Accept/Reject/Edit/Discuss.
+- [x] Build: decomposition, drag requirements between issues, coverage, GitHub issues with
+      requirement/decision references, epic, PR links.
+- [x] "New" intake (user, mid-work): toolbar ⊞ → New Feature (feature files + GitHub issue),
+      New Bug (bugs/BUG-nnn with repro + suspected code + GitHub issue, no branch), I Need to
+      Understand (research/RES-nnn answer, opened).
+- [x] Code review (13 findings; 12 fixed, 1 not a bug — `codex --search exec` does search, seen
+      as web_search events): stale background reloads dropped (generation counter), new files
+      never overwrite (`withoutOverwriting`, ids above file names), updates re-read the file
+      first and refuse lossy YAML, front matter: CRLF, apostrophes in lists, one-pass unescape,
+      block scalars, comments detected; PDF/URL reading off the main thread; one feature
+      reloaded per write; source id reserved before copying; answers dropped when the folder
+      changed; distinct job keys, "already running" shown; trace list ids; bug report written
+      before its GitHub issue; issue creation stops instead of duplicating.
+- [x] From a GitHub issue (user, mid-work): New Feature / New Bug can start from an open issue
+      (text + comments as material); the result links that issue instead of filing a new one;
+      for a bug, optionally post the analysis as a comment.
+- [x] Version 2.0.2 → 2.1.0; regression run of the engine after the fixes.
+
+### Review
+- Engine checked end to end with the real assistant (Claude) on a scratch repo: create →
+  explore (10 s, blocking question with options) → answer A (DEC-001 + 3 REQs, links both
+  ways) → review (22 s, 9 findings incl. a contradiction found in the project docs) → plan
+  (4 issues covering every requirement) → resolution options + resolve (DEC-002, finding
+  closed) → acceptance criteria → research with web (claims with kinds) → ingest notes and a
+  URL (roles, facts) → challenge / create question / diagram → chat with decision detected.
+  Intake: new feature 35 s, new bug 19 s (found the cause in export.js), understand 31 s.
+- Fixed while testing: readiness counted empty conditions (an empty feature showed 43 %);
+  impact listed requirements twice.
+- UI: debug build launched separately — Files | Feature and the Feature tab present, no crash.
+  Stage views not clicked through in the live window; GitHub issue creation not exercised.
+
 ## Done 17: Compact, console-like UI; toolbar and AI menus cleaned up (2026-09-26)
 
 User's decisions, plus an audit of which AI features work (code paths traced end to end).

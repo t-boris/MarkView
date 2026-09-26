@@ -24,6 +24,8 @@ enum CLICompletion {
         /// Reasoning effort ("low", "medium", "high"); nil = the CLI's configured default.
         /// Low roughly halves the time of large structured answers.
         var effort: String? = nil
+        /// Web search and fetching for research (Claude WebSearch/WebFetch, Codex --search).
+        var allowWeb = false
     }
 
     struct Result {
@@ -108,7 +110,8 @@ enum CLICompletion {
         case .claude:
             arguments = ["-p", "--safe-mode", "--no-session-persistence",
                          "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                         "--tools", request.readableFolder == nil ? "" : "Read,Grep,Glob"]
+                         "--tools", ((request.readableFolder == nil ? [] : ["Read", "Grep", "Glob"])
+                                        + (request.allowWeb ? ["WebSearch", "WebFetch"] : [])).joined(separator: ",")]
             arguments += tool.modelArgs(model)
             if let effort = request.effort { arguments += ["--effort", effort] }
             if let system = request.systemPrompt {
@@ -118,7 +121,7 @@ enum CLICompletion {
                 arguments += ["--json-schema", try jsonString(schema)]
             }
         case .codex:
-            arguments = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+            arguments = (request.allowWeb ? ["--search"] : []) + ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                          "--json", "--color", "never", "-C", workDir.path]
             arguments += tool.modelArgs(model)
             if let effort = request.effort { arguments += ["-c", "model_reasoning_effort=\(effort)"] }

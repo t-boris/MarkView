@@ -10,6 +10,7 @@ struct TOCView: View {
         case search = "Search"
         case git = "Git"
         case terminal = "Terminal"
+        case feature = "Feature"
 
         static let storageKey = "layout.navigatorTab"
     }
@@ -31,6 +32,7 @@ struct TOCView: View {
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
             case .terminal: ModuleExplorerView().environmentObject(workspaceManager)
+            case .feature: FeaturePanelView(store: workspaceManager.features)
             }
         }
         .background(VSDark.bgSidebar)

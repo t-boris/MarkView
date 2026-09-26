@@ -316,6 +316,12 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridge(self, didRequestSelectionAction: action, text: text)
             }
 
+        case "featureAction":
+            // Contextual feature actions on the selection; the action name is checked in Swift.
+            if let action = data?["action"] as? String, let text = data?["text"] as? String, !text.isEmpty {
+                delegate?.bridge(self, didRequestFeatureAction: action, text: text, question: data?["question"] as? String ?? "")
+            }
+
         case "refreshRequested":
             delegate?.bridgeRefreshRequested(self)
 
@@ -690,6 +696,7 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridgeSaveRequested(_ bridge: WebViewBridge)
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String)
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String)
+    func bridge(_ bridge: WebViewBridge, didRequestFeatureAction action: String, text: String, question: String)
     func bridgeRefreshRequested(_ bridge: WebViewBridge)
     func bridge(_ bridge: WebViewBridge, didRequestGraph type: String, prompt: String, content: String)
     func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String)

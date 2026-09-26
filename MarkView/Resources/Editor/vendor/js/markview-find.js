@@ -40,6 +40,51 @@
             sendToSwift('selectionAction', { action: action, text: selectedText });
         }
 
+        // Feature actions (spec: contextual AI actions) — the selection goes to the Feature tab,
+        // where the answer appears or the requirement / decision / question is created.
+        let featureText = '';
+
+        function showFeatureMenu() {
+            let text = formatBarSelectedText;
+            if (!text) {
+                const sel = window.getSelection();
+                if (sel.rangeCount && !sel.isCollapsed) text = sel.toString().trim();
+            }
+            if (!text) text = currentSourceSelection();
+            if (!text) return;
+            featureText = text;
+            const bar = document.getElementById('format-bar');
+            const menu = document.getElementById('feature-menu');
+            const r = bar.getBoundingClientRect();
+            menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 230)) + 'px';
+            menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 330) + 'px';
+            menu.classList.add('visible');
+            const input = document.getElementById('feature-ask');
+            input.value = '';
+            setTimeout(function() { input.focus(); }, 0);
+        }
+
+        function hideFeatureMenu() {
+            document.getElementById('feature-menu').classList.remove('visible');
+        }
+
+        function featureAction(action) {
+            let question = '';
+            if (action === 'ask') {
+                question = document.getElementById('feature-ask').value.trim();
+                if (!question) return;
+            }
+            if (!featureText) return;
+            hideFeatureMenu();
+            document.getElementById('format-bar').classList.remove('visible');
+            sendToSwift('featureAction', { action: action, text: featureText, question: question });
+        }
+
+        document.addEventListener('mousedown', function(e) {
+            const menu = document.getElementById('feature-menu');
+            if (menu && menu.classList.contains('visible') && !menu.contains(e.target)) hideFeatureMenu();
+        });
+
         // Confirmation step for whole-document translation. Built from the
         // existing action-popup DOM rather than window.confirm(), which
         // silently returns false in this WKWebView (no WKUIDelegate is wired).

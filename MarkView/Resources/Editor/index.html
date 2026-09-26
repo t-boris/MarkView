@@ -830,6 +830,15 @@
         .find-highlight-active { background: rgba(255, 165, 0, 0.6); outline: 1px solid #ffa500; }
 
         /* Selection action popup */
+        .feature-menu { display: none; position: fixed; z-index: 250; min-width: 210px; padding: 4px;
+            background: var(--bg-secondary, #2d2d30); border: 1px solid var(--border-color, #3c3c3c); border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.45); font-size: 12px; }
+        .feature-menu.visible { display: block; }
+        .feature-menu input { width: 100%; box-sizing: border-box; margin-bottom: 3px; padding: 4px 6px; font-size: 12px;
+            background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; outline: none; }
+        .feature-menu-item { padding: 3px 8px; border-radius: 3px; cursor: pointer; color: var(--text-primary); }
+        .feature-menu-item:hover { background: var(--accent-primary, #0e639c); color: #fff; }
+        .feature-menu-sep { border-top: 1px solid var(--border-color); margin: 3px 0; }
         .action-popup {
             display: none;
             position: fixed;
@@ -1459,6 +1468,26 @@
             <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_ru')" title="Translate to Russian" style="font-size:10px">RU</button>
             <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_en')" title="Translate to English" style="font-size:10px">EN</button>
             <button onmousedown="event.preventDefault()" onclick="selectionAction('explain')" title="Explain selection" style="font-size:10px">?</button>
+            <div class="sep"></div>
+            <button onmousedown="event.preventDefault()" onclick="showFeatureMenu()" title="Feature actions (AI): challenge, requirements, decisions…" style="font-size:12px">✦</button>
+        </div>
+
+        <!-- Feature actions on the selection (results go to the Feature tab) -->
+        <div class="feature-menu" id="feature-menu">
+            <input id="feature-ask" type="text" placeholder="Ask AI about the selection…" spellcheck="false"
+                   onkeydown="if (event.key === 'Enter') featureAction('ask'); if (event.key === 'Escape') hideFeatureMenu();">
+            <div class="feature-menu-item" onclick="featureAction('challenge')">Challenge</div>
+            <div class="feature-menu-item" onclick="featureAction('expand')">Expand</div>
+            <div class="feature-menu-item" onclick="featureAction('research')">Research</div>
+            <div class="feature-menu-item" onclick="featureAction('edgeCases')">Find Edge Cases</div>
+            <div class="feature-menu-item" onclick="featureAction('contradictions')">Find Contradictions</div>
+            <div class="feature-menu-item" onclick="featureAction('related')">Find Related Documentation</div>
+            <div class="feature-menu-item" onclick="featureAction('explain')">Explain</div>
+            <div class="feature-menu-item" onclick="featureAction('diagram')">Generate Diagram</div>
+            <div class="feature-menu-sep"></div>
+            <div class="feature-menu-item" onclick="featureAction('requirement')">Turn Into Requirement</div>
+            <div class="feature-menu-item" onclick="featureAction('decision')">Create Decision</div>
+            <div class="feature-menu-item" onclick="featureAction('question')">Create Question</div>
         </div>
 
         <!-- Selection action popup overlay -->

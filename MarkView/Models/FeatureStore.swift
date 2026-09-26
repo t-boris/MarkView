@@ -1,0 +1,336 @@
+import Foundation
+
+/// The feature workspaces of the open folder (`features/<slug>/`): read from their Markdown
+/// files, written back as the user and the AI act on them. Files changed outside the app
+/// (editor, git, the AI terminal) are picked up by a light polling of their dates.
+@MainActor
+final class FeatureStore: ObservableObject {
+    static let folderName = "features"
+
+    @Published private(set) var features: [Feature] = []
+    @Published var activeSlug: String? {
+        didSet {
+            guard let root, let activeSlug else { return }
+            UserDefaults.standard.set(activeSlug, forKey: Self.activeKey(root))
+        }
+    }
+    @Published var lastError: String?
+
+    private(set) var root: URL?
+    private var pollTask: Task<Void, Never>?
+    private var fingerprint = ""
+    /// Bumped by every write and reset: a background reload that started earlier is dropped.
+    private var generation = 0
+    private var gitUserName: String?
+    /// The AI side of the workspaces (explore, review, actions…).
+    private(set) lazy var assistant = FeatureAssistant(store: self)
+
+    var featuresFolder: URL? { root?.appendingPathComponent(Self.folderName, isDirectory: true) }
+
+    var active: Feature? {
+        features.first { $0.slug == activeSlug } ?? features.first
+    }
+
+    func feature(_ slug: String) -> Feature? { features.first { $0.slug == slug } }
+
+    private static func activeKey(_ root: URL) -> String {
+        "features.active." + String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
+    }
+
+    // MARK: Setup and loading
+
+    func setup(root: URL) {
+        guard self.root != root else { return }
+        reset()
+        self.root = root
+        activeSlug = UserDefaults.standard.string(forKey: Self.activeKey(root))
+        reload()
+        loadGitUser()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.reloadIfChanged()
+            }
+        }
+    }
+
+    func reset() {
+        generation += 1
+        pollTask?.cancel()
+        pollTask = nil
+        root = nil
+        features = []
+        fingerprint = ""
+        lastError = nil
+    }
+
+    /// Read every feature again (off the main thread).
+    func reload() {
+        guard let folder = featuresFolder else { return }
+        let started = generation
+        Task {
+            let (loaded, print) = await Task.detached { () -> ([Feature], String) in
+                (Self.loadAll(folder), Self.fingerprint(folder))
+            }.value
+            // The app wrote something meanwhile: this read may miss it.
+            guard folder == featuresFolder, started == generation else { return }
+            features = loaded
+            fingerprint = print
+            if let activeSlug, !loaded.contains(where: { $0.slug == activeSlug }) { self.activeSlug = loaded.first?.slug }
+        }
+    }
+
+    private func reloadIfChanged() {
+        guard let folder = featuresFolder else { return }
+        let started = generation
+        Task {
+            let print = await Task.detached { Self.fingerprint(folder) }.value
+            if started == generation, print != fingerprint { reload() }
+        }
+    }
+
+    nonisolated private static func loadAll(_ folder: URL) -> [Feature] {
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        return dirs.filter { $0.hasDirectoryPath || (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .compactMap(Feature.load(folder:))
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// Paths and modification dates of every file under `features/`.
+    nonisolated private static func fingerprint(_ folder: URL) -> String {
+        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                              options: [.skipsHiddenFiles]) else { return "" }
+        var parts: [String] = []
+        while let url = enumerator.nextObject() as? URL {
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
+            parts.append(url.path + "@" + String(date))
+        }
+        return parts.sorted().joined(separator: "|")
+    }
+
+    /// Is `url` a file of one of the features? Returns the feature and, for an object, the object.
+    func locate(_ url: URL) -> (feature: Feature, object: FeatureObject?)? {
+        let path = url.standardizedFileURL.path
+        for feature in features where path.hasPrefix(feature.folder.standardizedFileURL.path + "/") {
+            let object = feature.allObjects.first { $0.url.standardizedFileURL.path == path }
+            return (feature, object)
+        }
+        return nil
+    }
+
+    // MARK: People
+
+    /// Default owner of new questions and decisions (git user.name).
+    var defaultOwner: String { gitUserName ?? "" }
+
+    private func loadGitUser() {
+        guard let root else { return }
+        Task {
+            let output = await GitHubClient.execute(["config", "user.name"], in: root, git: true)
+            gitUserName = output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    // MARK: Writing
+
+    private static let dateFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate]
+        return f
+    }()
+
+    static var today: String { dateFormatter.string(from: Date()) }
+
+    private func write(_ text: String, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Create a feature: its folder and overview. Returns its slug.
+    @discardableResult
+    func createFeature(title: String, idea: String) -> String? {
+        guard let folder = featuresFolder else { return nil }
+        var slug = featureSlug(title)
+        if slug.isEmpty { slug = "feature" }
+        var candidate = slug
+        var n = 2
+        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+            candidate = "\(slug)-\(n)"; n += 1
+        }
+        var front = FrontMatter()
+        front.set("type", "feature")
+        front.set("id", candidate)
+        front.set("title", title)
+        front.set("status", idea.isEmpty ? "idea" : "exploring")
+        front.set("owner", defaultOwner)
+        front.set("created", Self.today)
+        front.set("provenance", "Created manually")
+        front["understanding"] = .map(FeatureVocabulary.understanding.map { ($0, YAMLValue.string("unknown")) })
+        let body = "# \(title)\n\n## Idea\n\n\(idea.isEmpty ? "_Describe the idea._" : idea)\n\n## Problem\n\n## Scope\n"
+        do {
+            try write(front.join(body: body), to: folder.appendingPathComponent(candidate).appendingPathComponent("overview.md"))
+        } catch {
+            lastError = "Could not create the feature: \(error.localizedDescription)"
+            return nil
+        }
+        activeSlug = candidate
+        reloadSync()
+        return candidate
+    }
+
+    /// Reload now (after the app's own writes, so the UI shows them at once). Only the feature
+    /// written is read again; older background reloads are dropped.
+    func reloadSync(_ slug: String? = nil) {
+        guard let folder = featuresFolder else { return }
+        generation += 1
+        if let slug, let index = features.firstIndex(where: { $0.slug == slug }),
+           let feature = Feature.load(folder: folder.appendingPathComponent(slug)) {
+            features[index] = feature
+        } else {
+            features = Self.loadAll(folder)
+        }
+        fingerprint = ""  // the poll re-reads the dates and settles
+    }
+
+    /// Create an object file; returns it.
+    @discardableResult
+    func create(_ kind: FeatureObjectKind, in slug: String, title: String, fields: [(String, YAMLValue)] = [],
+                body: String, provenance: String) -> FeatureObject? {
+        guard let feature = feature(slug) else { return nil }
+        var id = feature.nextID(kind)
+        let dir = feature.folder.appendingPathComponent(kind.folder)
+        // Never over an existing file (another window, git, a copy made meanwhile).
+        while FileManager.default.fileExists(atPath: dir.appendingPathComponent(id + ".md").path) {
+            let number = (Int(id.split(separator: "-").last ?? "") ?? 0) + 1
+            id = String(format: "%@-%03d", kind.prefix, number)
+        }
+        var front = FrontMatter()
+        front.set("type", kind.rawValue)
+        front.set("id", id)
+        front.set("feature", slug)
+        front.set("title", title)
+        for (key, value) in fields { front[key] = value }
+        if front["status"] == nil {
+            let initial: [FeatureObjectKind: String] = [.requirement: "draft", .question: "open", .decision: "proposed", .finding: "open"]
+            if let status = initial[kind] { front.set("status", status) }
+        }
+        if [.question, .decision].contains(kind), front["owner"] == nil { front.set("owner", defaultOwner) }
+        front.set("created", Self.today)
+        front.set("provenance", provenance)
+        let url = dir.appendingPathComponent(id + ".md")
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            // withoutOverwriting: fails instead of replacing a file that appeared meanwhile.
+            try Data(front.join(body: body).utf8).write(to: url, options: .withoutOverwriting)
+        } catch {
+            lastError = "Could not write \(id): \(error.localizedDescription)"
+            return nil
+        }
+        reloadSync(slug)
+        return self.feature(slug)?.object(id)
+    }
+
+    /// Change an object: read from disk now (the user may just have edited it), change,
+    /// write. Front matter the app cannot rewrite without losing something is left alone.
+    func update(_ id: String, in slug: String, _ change: (inout FrontMatter, inout String) -> Void) {
+        guard let cached = feature(slug)?.object(id),
+              var object = FeatureObject.load(kind: cached.kind, url: cached.url) else { return }
+        guard object.front.isLossless else {
+            lastError = "\(id) has YAML the app cannot rewrite safely (comments or unusual structure) — change it in the editor."
+            return
+        }
+        change(&object.front, &object.body)
+        object.front.set("updated", Self.today)
+        do { try write(object.text(), to: object.url) } catch {
+            lastError = "Could not save \(id): \(error.localizedDescription)"
+        }
+        reloadSync(slug)
+    }
+
+    func setStatus(_ id: String, in slug: String, to status: String) {
+        update(id, in: slug) { front, _ in front.set("status", status) }
+    }
+
+    /// Change the overview (status, understanding…).
+    func updateFeature(_ slug: String, _ change: (inout FrontMatter, inout String) -> Void) {
+        guard let feature = feature(slug), let text = try? String(contentsOf: feature.overviewURL, encoding: .utf8) else { return }
+        var (front, body) = FrontMatter.split(text)
+        guard front.isLossless else {
+            lastError = "The overview of \(feature.title) has YAML the app cannot rewrite safely — change it in the editor."
+            return
+        }
+        change(&front, &body)
+        do { try write(front.join(body: body), to: feature.overviewURL) } catch {
+            lastError = "Could not save the overview: \(error.localizedDescription)"
+        }
+        reloadSync(slug)
+    }
+
+    func setUnderstanding(_ slug: String, _ states: [String: String]) {
+        updateFeature(slug) { front, _ in
+            var current = front["understanding"]?.entries ?? []
+            for (dimension, state) in states where FeatureVocabulary.understandingStates.contains(state) {
+                if let i = current.firstIndex(where: { $0.key == dimension }) { current[i].value = .string(state) }
+                else if FeatureVocabulary.understanding.contains(dimension) { current.append((dimension, .string(state))) }
+            }
+            front["understanding"] = .map(current)
+        }
+    }
+
+    /// Replace the implementation plan (issues and the epic's GitHub number).
+    func savePlan(_ slug: String, title: String, issues: [PlannedIssue], epic: Int?) {
+        guard let feature = feature(slug) else { return }
+        var front = feature.planFront
+        front.set("type", "plan")
+        front.set("feature", slug)
+        front.set("title", title)
+        front.set("epic", epic.map(String.init))
+        front["issues"] = .list(issues.map(\.yaml))
+        front.set("updated", Self.today)
+        var body = "# Implementation plan — \(feature.title)\n\n"
+        for issue in issues {
+            body += "## \(issue.id): \(issue.title)\(issue.github.map { " (#\($0))" } ?? "")\n\n\(issue.summary)\n\n"
+            body += "Requirements: \(issue.requirements.joined(separator: ", "))\n"
+            if !issue.decisions.isEmpty { body += "Decisions: \(issue.decisions.joined(separator: ", "))\n" }
+            body += "\n"
+        }
+        do { try write(front.join(body: body), to: feature.planURL) } catch {
+            lastError = "Could not save the plan: \(error.localizedDescription)"
+        }
+        reloadSync(slug)
+    }
+
+    /// Add a turn to the feature's discussion log (discussion.md).
+    func appendDiscussion(_ slug: String, speaker: String, text: String) {
+        guard let feature = feature(slug) else { return }
+        let url = feature.discussionURL
+        var existing = (try? String(contentsOf: url, encoding: .utf8)) ?? "# Discussion — \(feature.title)\n"
+        existing += "\n### \(speaker) · \(Self.today)\n\n\(text.trimmingCharacters(in: .whitespacesAndNewlines))\n"
+        try? write(existing, to: url)
+    }
+
+    /// Last turns of the discussion (for the AI's context).
+    func discussion(_ slug: String, limit: Int = 12_000) -> String {
+        guard let feature = feature(slug), let text = try? String(contentsOf: feature.discussionURL, encoding: .utf8) else { return "" }
+        return String(text.suffix(limit))
+    }
+
+    // MARK: History (spec §30)
+
+    /// Recent commits touching a path: "abc1234 · 2 days ago · Boris · message".
+    func history(of url: URL, limit: Int = 15) async -> [String] {
+        guard let root else { return [] }
+        let output = await GitHubClient.execute(["log", "-n", String(limit), "--format=%h · %ar · %an · %s", "--", url.path],
+                                                in: root, git: true)
+        return output.stdout.split(separator: "\n").map(String.init)
+    }
+
+    /// Project-relative path for display and for the AI.
+    func relativePath(_ url: URL) -> String {
+        guard let root else { return url.path }
+        let base = root.standardizedFileURL.path + "/"
+        let path = url.standardizedFileURL.path
+        return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
+    }
+}

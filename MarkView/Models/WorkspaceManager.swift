@@ -319,6 +319,8 @@ class WorkspaceManager: ObservableObject {
     @Published var gitClient = GitClient()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
     let gitHub = GitHubStore()
+    /// Feature workspaces of the folder (features/<slug>/…).
+    let features = FeatureStore()
     /// Where the AI terminal starts: the open folder, or a single file's folder.
     @Published private(set) var aiWorkspaceRoot: URL?
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
@@ -515,6 +517,7 @@ class WorkspaceManager: ObservableObject {
 
             gitClient.setup(at: url)
             setUpGitHub(at: url)
+            setUpFeatures(at: url)
             Self.debugLog("initDDE: git setup done")
 
             // Load cached diagrams and analysis results from database
@@ -1411,6 +1414,7 @@ class WorkspaceManager: ObservableObject {
         gitClient.reset()
         gitHubRoot = nil
         gitHub.reset()
+        features.reset()
         indexingProgress = nil
         structuralIndexProgress = nil
         analysisStage = nil
@@ -3166,6 +3170,44 @@ class WorkspaceManager: ObservableObject {
     }
 
     // MARK: - GitHub
+
+    /// The "New" intake sheet shown (New Feature / New Bug / I Need to Understand).
+    @Published var intake: IntakeKind?
+
+    /// An intake finished: open what it made, and for a feature show its workspace.
+    func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
+        if let slug = outcome.feature {
+            features.activeSlug = slug
+            UserDefaults.standard.set("feature", forKey: "layout.leftPanel")
+            UserDefaults.standard.set(FeatureStage.explore.rawValue, forKey: FeatureStage.storageKey)
+            showTOC = true
+            showFileTree = true
+            UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
+        }
+        refreshFileTree()
+        if let file = outcome.file { openFile(file) }
+    }
+
+    /// A contextual action on text selected in the editor: the answer (or the created
+    /// requirement / decision / question) appears in the right panel's Feature tab.
+    func runFeatureAction(_ name: String, text: String, question: String) {
+        guard let action = FeatureAction(rawValue: name) else { return }
+        guard rootNode != nil else { return }
+        let url = activeTab?.url
+        let located = url.flatMap { features.locate($0) }
+        let slug = located?.feature.slug ?? features.active?.slug
+        let document = url.map { features.relativePath($0) }
+        showTOC = true
+        UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
+        Task { await features.assistant.perform(action, selection: text, document: document, question: question, feature: slug) }
+    }
+
+    /// Feature workspaces of a folder, with the AI's access to the index and GitHub.
+    private func setUpFeatures(at root: URL) {
+        features.setup(root: root)
+        features.assistant.database = { [weak self] in self?.semanticDatabase }
+        features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
+    }
 
     /// Folder the GitHub integration works in (folders only, never a single file).
     private var gitHubRoot: URL?

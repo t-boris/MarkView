@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E11314692201596100464779 /* FeatureIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14572385577894328192737 /* FeatureIntake.swift */; };
+		E16749769928002028098025 /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10772207776679932541302 /* FeaturePanelView.swift */; };
+		E18447699465247618246389 /* FeatureNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16687301639066130688672 /* FeatureNavigatorView.swift */; };
+		E11732599971919576220456 /* FeatureIngest.swift in Sources */ = {isa = PBXBuildFile; fileRef = E13074343125196662950763 /* FeatureIngest.swift */; };
+		E18599223609103262129428 /* FeatureAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = E18556049108932663194623 /* FeatureAI.swift */; };
+		E12290185390351605194991 /* FeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17997508774002452137485 /* FeatureStore.swift */; };
+		E13141936367417093244259 /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16484821693680626118454 /* FeatureModels.swift */; };
+		E16868434366331489332852 /* FrontMatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19176763508153799250317 /* FrontMatter.swift */; };
 		E17451009770101104827274 /* GitHubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19812821332370322777652 /* GitHubViews.swift */; };
 		E10923401475930448596842 /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16498916146422574535717 /* GitHubStore.swift */; };
 		E17358739185104628587482 /* GitHubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10110360865000248980617 /* GitHubClient.swift */; };
@@ -91,6 +99,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		E14572385577894328192737 /* FeatureIntake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureIntake.swift; sourceTree = "<group>"; };
+		E10772207776679932541302 /* FeaturePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelView.swift; sourceTree = "<group>"; };
+		E16687301639066130688672 /* FeatureNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureNavigatorView.swift; sourceTree = "<group>"; };
+		E13074343125196662950763 /* FeatureIngest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureIngest.swift; sourceTree = "<group>"; };
+		E18556049108932663194623 /* FeatureAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureAI.swift; sourceTree = "<group>"; };
+		E17997508774002452137485 /* FeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStore.swift; sourceTree = "<group>"; };
+		E16484821693680626118454 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
+		E19176763508153799250317 /* FrontMatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrontMatter.swift; sourceTree = "<group>"; };
 		E19812821332370322777652 /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		E16498916146422574535717 /* GitHubStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubStore.swift; sourceTree = "<group>"; };
 		E10110360865000248980617 /* GitHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubClient.swift; sourceTree = "<group>"; };
@@ -179,6 +195,12 @@
 				C28386C5074A6157C28A501E /* ArchitectureModel.swift */,
 				921A34A74571B93AEDC2B018 /* OutputLanguage.swift */,
 				E16873462855109449748792 /* GitClient.swift */,
+				E14572385577894328192737 /* FeatureIntake.swift */,
+				E13074343125196662950763 /* FeatureIngest.swift */,
+				E18556049108932663194623 /* FeatureAI.swift */,
+				E17997508774002452137485 /* FeatureStore.swift */,
+				E16484821693680626118454 /* FeatureModels.swift */,
+				E19176763508153799250317 /* FrontMatter.swift */,
 				E16498916146422574535717 /* GitHubStore.swift */,
 				E10110360865000248980617 /* GitHubClient.swift */,
 				E12115144200861477320559 /* WhisperClient.swift */,
@@ -196,6 +218,8 @@
 				BC5216E2466E79A0507BEAE8 /* ContentView.swift */,
 				E16766861391371355183012 /* AIAssistantPickerView.swift */,
 				E19706015117051627326464 /* GitView.swift */,
+				E10772207776679932541302 /* FeaturePanelView.swift */,
+				E16687301639066130688672 /* FeatureNavigatorView.swift */,
 				E19812821332370322777652 /* GitHubViews.swift */,
 				E16645386500824722723458 /* GraphCreatorSheet.swift */,
 				3A5536B20A2DD735F6BA815A /* EditorView.swift */,
@@ -393,6 +417,8 @@
 				E01111111111111111111111 /* StructuralIndexer.swift in Sources */,
 				E15707257841204075452783 /* AIAssistantPickerView.swift in Sources */,
 				E15363864145856837847001 /* GitView.swift in Sources */,
+				E16749769928002028098025 /* FeaturePanelView.swift in Sources */,
+				E18447699465247618246389 /* FeatureNavigatorView.swift in Sources */,
 				E17451009770101104827274 /* GitHubViews.swift in Sources */,
 				E17413308635163577843479 /* GraphCreatorSheet.swift in Sources */,
 				E13834677324410788145575 /* AIAssistants.swift in Sources */,
@@ -414,6 +440,12 @@
 				88FE4C2C745049B2FB5E8220 /* ArchitectureModel.swift in Sources */,
 				6048E5A3B3B555A7893C6C3B /* OutputLanguage.swift in Sources */,
 				E12543631103902005656115 /* GitClient.swift in Sources */,
+				E11314692201596100464779 /* FeatureIntake.swift in Sources */,
+				E11732599971919576220456 /* FeatureIngest.swift in Sources */,
+				E18599223609103262129428 /* FeatureAI.swift in Sources */,
+				E12290185390351605194991 /* FeatureStore.swift in Sources */,
+				E13141936367417093244259 /* FeatureModels.swift in Sources */,
+				E16868434366331489332852 /* FrontMatter.swift in Sources */,
 				E10923401475930448596842 /* GitHubStore.swift in Sources */,
 				E17358739185104628587482 /* GitHubClient.swift in Sources */,
 				E11726806662746062743866 /* WhisperClient.swift in Sources */,
@@ -467,7 +499,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.0.2;
+				CURRENT_PROJECT_VERSION = 2.1.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -482,7 +514,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -546,7 +578,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.0.2;
+				CURRENT_PROJECT_VERSION = 2.1.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -567,7 +599,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.0.2;
+				MARKETING_VERSION = 2.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
