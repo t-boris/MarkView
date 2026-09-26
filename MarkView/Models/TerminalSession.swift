@@ -70,6 +70,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     @Published private(set) var exitCode: Int32?
 
     private(set) lazy var webView: WKWebView = makeWebView()
+    /// Dictation into this terminal. Owned by the session, so a recording survives switching
+    /// tabs and panels (the microphone button is only a view of it).
+    private(set) lazy var dictation = WhisperClient()
+    /// A finished recording is being transcribed.
+    @Published var transcribing = false
     private var masterFD: Int32 = -1
     private var childPID: pid_t = 0
     private var readSource: DispatchSourceRead?

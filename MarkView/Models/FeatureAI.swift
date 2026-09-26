@@ -72,6 +72,9 @@ final class FeatureAssistant: ObservableObject {
     @Published var results: [FeatureResult] = []
     @Published var error: String?
 
+    /// Voice notes for sources; owned here so a recording survives switching panels.
+    let voice = WhisperClient()
+
     /// Wired by WorkspaceManager.
     var database: () -> SemanticDatabase? = { nil }
     var gitHubClient: () -> GitHubClient? = { nil }

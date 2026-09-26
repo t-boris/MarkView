@@ -30,30 +30,42 @@ struct TerminalHostView: NSViewRepresentable {
 /// check it and press Enter yourself.
 struct TerminalDictationButton: View {
     let session: TerminalSession?
-    @StateObject private var whisper = WhisperClient()
-    @State private var transcribing = false
+
+    var body: some View {
+        if let session {
+            SessionDictationButton(session: session, whisper: session.dictation)
+        } else {
+            Image(systemName: "mic").font(.system(size: 12)).foregroundColor(VSDark.textDim.opacity(0.5))
+        }
+    }
+}
+
+/// The microphone of one session: the recording lives in the session, so switching tabs or
+/// panels keeps it going; the text is typed into the terminal the recording was started for.
+private struct SessionDictationButton: View {
+    @ObservedObject var session: TerminalSession
+    @ObservedObject var whisper: WhisperClient
     @State private var message: String?
 
     var body: some View {
         Button(action: toggle) {
-            Image(systemName: whisper.isRecording ? "mic.fill" : transcribing ? "waveform" : "mic")
+            Image(systemName: whisper.isRecording ? "mic.fill" : session.transcribing ? "waveform" : "mic")
                 .font(.system(size: 12))
                 .foregroundColor(whisper.isRecording ? VSDark.red : VSDark.textDim)
         }
         .buttonStyle(.plain)
-        .disabled(session == nil || transcribing)
-        .help(message ?? (whisper.isRecording ? "Stop and insert the text" : "Dictate (Whisper): the text is typed at the prompt"))
+        .disabled(session.transcribing)
+        .help(message ?? whisper.error ?? (whisper.isRecording ? "Stop and insert the text" : "Dictate (Whisper): the text is typed at the prompt"))
     }
 
     private func toggle() {
-        guard let session else { return }
         if whisper.isRecording {
-            transcribing = true
+            session.transcribing = true
+            let session = self.session, whisper = self.whisper
             Task {
                 let text = await whisper.stopRecording()
-                transcribing = false
+                session.transcribing = false
                 if let text, !text.isEmpty { session.paste(text) }
-                message = whisper.error
             }
         } else if !whisper.hasAPIKey {
             message = "Dictation needs an OpenAI API key in Settings → DDE."

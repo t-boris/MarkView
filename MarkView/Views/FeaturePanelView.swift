@@ -458,8 +458,14 @@ struct SourcesSection: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @StateObject private var whisper = WhisperClient()
+    @ObservedObject private var whisper: WhisperClient
     @State private var prompt: SourcePrompt?
+
+    init(store: FeatureStore, feature: Feature) {
+        self.store = store
+        self.feature = feature
+        self.whisper = store.assistant.voice
+    }
     @State private var dropping = false
 
     enum SourcePrompt: String, Identifiable { case url, issue, text; var id: String { rawValue } }

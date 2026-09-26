@@ -43,8 +43,7 @@ class WhisperClient: ObservableObject {
         // `beginRecording` overwrites this with the .wav path it actually records
         // to — which is what the multipart body declares. Start from the same
         // extension so the two can never disagree.
-        let tempDir = FileManager.default.temporaryDirectory
-        recordingURL = tempDir.appendingPathComponent("markview_whisper.wav")
+        recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_whisper_\(fileID).wav")
     }
 
     // MARK: - Recording
@@ -86,7 +85,8 @@ class WhisperClient: ObservableObject {
             AVLinearPCMIsBigEndianKey: false
         ]
 
-        recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_whisper.wav")
+        // One file per recorder: two recordings (terminal, voice note) never overwrite each other.
+        recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent("markview_whisper_\(fileID).wav")
 
         do {
             audioRecorder = try AVAudioRecorder(url: recordingURL, settings: settings)
@@ -106,6 +106,8 @@ class WhisperClient: ObservableObject {
         }
     }
 
+    private let fileID = UUID().uuidString
+
     func stopRecording() async -> String? {
         guard isRecording, let recorder = audioRecorder else { return nil }
         recorder.stop()
@@ -123,7 +125,9 @@ class WhisperClient: ObservableObject {
         }
         NSLog("[Whisper] Recording stopped, file size: \(size) bytes, sending to API...")
 
-        return await transcribe(fileURL: recordingURL)
+        let text = await transcribe(fileURL: recordingURL)
+        try? fm.removeItem(at: recordingURL)
+        return text
     }
 
     // MARK: - Whisper API

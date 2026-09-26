@@ -10,6 +10,9 @@
       swipes); the active tab is scrolled into view when it changes.
 - [x] Icons by kind: file, code, X-Ray, PR X-Ray, terminal, GitHub run / issue, image.
 - [x] Version 2.4.1 → 2.5.0. Built; not installed. Not tried in the live window.
+- [x] 2.5.1: voice recording broke when switching tabs — the recorder lived in the microphone
+      button's view and died with it; now the terminal session (and the feature engine, for voice
+      notes) owns it; each recording has its own temporary file, deleted after transcription.
 
 ## Done 21: "I Need to Understand" is an X-Ray search (2026-09-26)
 
