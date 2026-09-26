@@ -1,5 +1,19 @@
 # MarkView — Follow-up Tasks
 
+## Done 29: Lifecycle event log & cycle-time analytics (docs/features/lifecycle-event-log-cycle-time-analytics, epic #10, 2026-09-26, 2.12.0)
+- [x] I-1 Event store: `LifecycleLog` (shared by all windows), append-only JSONL in ~/Library/Application Support/MarkView/lifecycle-events.jsonl; key = project root path + feature slug; nine stages only; no edit/delete API; damaged lines and unknown stages skipped on read; read and writes serialized on one queue
+- [x] I-2 Actor = git user.name of the project, else the macOS user; `LifecycleModels` in UserDefaults (most recent first, trimmed, case-insensitive dedup, new names added)
+- [x] I-3 Automatic: idea created in `createFeature`; questions resolved (open ≥1 → 0) and spec ready (status → ready) found by diffing every reload (app writes and external edits); first load only sets the baseline (no backfill); restart does not count; one store per project records (several windows)
+- [x] I-4 Header "Lifecycle" row → "Mark stage" (six manual stages) → confirmation sheet: feature, stage, time now, actor, model (required for implementation started, prefilled for finished, menu of known models), note ≤ 500, warnings for a repeat and for later stages already recorded
+- [x] I-5 `LifecycleAnalytics` (Foundation only): adjacent steps, earliest start → latest end, no bridging, negative = inconsistent, total idea→verified, median/mean/count, model of the start event, "2d 3h 15m"; `tools/tests/lifecycle-tests.sh` (38 checks)
+- [x] I-6 Timeline in the collapsible Lifecycle section: events oldest first (time, stage, actor, model, auto/manual, note), 8 steps with duration / — / inconsistent, total
+- [x] I-7 ⋯ menu "Project Cycle Time…" sheet: step, median, mean, features; implementation step broken down by model; current project, existing features only
+- [x] Version 2.12.0, Debug build succeeds
+### Review
+- Harness (app sources compiled with a test main, `CFFIXED_USER_HOME` so the real log is untouched) on a temp git repo: 18 checks — actor from git, idea created, questions resolved only on the last close (and again after reopen + close), spec ready on entering ready only, an on-disk edit recorded once with two stores on the same folder, restart records nothing, manual automatic stage refused, model/note trimmed and capped, no backfill, file lines = events. A second launch reloads the file and skips a garbage line and an unknown stage.
+- Known limits: transitions that happen while MarkView is closed are not recorded (the next launch only sets the baseline); with two windows on one folder, a restart done in the non-recording window can record a "questions resolved"; timestamps are stored to the second.
+- Not checked by hand yet: the Lifecycle row, the Mark stage sheet and the Project Cycle Time sheet in the running app.
+
 ## Done 28: Findings decided by AI, outdated check, restart and delete a feature (2026-09-26, 2.11.0)
 - [x] Finding card: "Decide for me" — the AI picks the resolution (`chosen`, AI language), decision proposed ("Chosen by AI"), finding resolved (`answered_by: ai`)
 - [x] Review: "Decide all for me (N)" — open findings resolved by the AI, 8 per call, progress "k of N done"; shared `closeFinding`

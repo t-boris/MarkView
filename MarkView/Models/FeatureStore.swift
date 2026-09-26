@@ -8,7 +8,9 @@ final class FeatureStore: ObservableObject {
     /// Features live with the documentation: docs/features/<slug>/.
     static let folderName = "docs/features"
 
-    @Published private(set) var features: [Feature] = []
+    @Published private(set) var features: [Feature] = [] {
+        didSet { observeLifecycle() }
+    }
     /// Bug reports in docs/bugs/.
     @Published private(set) var bugs: [BugReport] = []
     /// The project has docs/features/ (the Feature tab is shown only then).
@@ -29,6 +31,11 @@ final class FeatureStore: ObservableObject {
     /// Bumped by every write and reset: a background reload that started earlier is dropped.
     private var generation = 0
     private var gitUserName: String?
+    /// Status and open questions of each feature as last seen; nil until the first load, which
+    /// only records the baseline (no backfill, DEC-013).
+    private var lifecycleBaseline: [String: LifecycleSnapshot]?
+    /// Features whose next change is the app's own reset, not a lifecycle transition.
+    private var lifecycleQuiet: Set<String> = []
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
 
@@ -65,6 +72,9 @@ final class FeatureStore: ObservableObject {
 
     func reset() {
         generation += 1
+        if let project = lifecycleProject { LifecycleLog.shared.release(project, by: self) }
+        lifecycleBaseline = nil
+        lifecycleQuiet = []
         pollTask?.cancel()
         pollTask = nil
         root = nil
@@ -150,6 +160,13 @@ final class FeatureStore: ObservableObject {
     /// Default owner of new questions and decisions (git user.name).
     var defaultOwner: String { gitUserName ?? "" }
 
+    /// Who lifecycle events are recorded for: git user.name of the project, else the macOS
+    /// user (DEC-011).
+    var lifecycleActor: String {
+        if let gitUserName, !gitUserName.isEmpty { return gitUserName }
+        return NSFullUserName().isEmpty ? NSUserName() : NSFullUserName()
+    }
+
     private func loadGitUser() {
         guard let root else { return }
         Task {
@@ -201,6 +218,7 @@ final class FeatureStore: ObservableObject {
             return nil
         }
         activeSlug = candidate
+        recordLifecycle(.ideaCreated, feature: candidate)
         reloadSync()
         return candidate
     }
@@ -370,6 +388,9 @@ final class FeatureStore: ObservableObject {
         let fm = FileManager.default
         let produced = FeatureObjectKind.allCases.filter { $0 != .source }.map { feature.folder.appendingPathComponent($0.folder) }
             + [feature.planURL.deletingLastPathComponent(), feature.discussionURL]
+        // Its questions go to the Trash: not "questions resolved".
+        lifecycleQuiet.insert(slug)
+        defer { lifecycleQuiet.remove(slug) }
         for url in produced where fm.fileExists(atPath: url.path) {
             do { try fm.trashItem(at: url, resultingItemURL: nil) } catch {
                 lastError = "Could not restart the feature: \(error.localizedDescription)"
@@ -484,6 +505,39 @@ final class FeatureStore: ObservableObject {
         return String(text.suffix(limit))
     }
 
+    // MARK: Lifecycle events (docs/features/lifecycle-event-log-cycle-time-analytics)
+
+    /// Events are keyed by the project root's absolute path (DEC-012).
+    var lifecycleProject: String? { root?.standardizedFileURL.path }
+
+    func lifecycleEvents(_ slug: String) -> [LifecycleEvent] {
+        guard let project = lifecycleProject else { return [] }
+        return LifecycleLog.shared.events(project: project, feature: slug)
+    }
+
+    @discardableResult
+    func recordLifecycle(_ stage: LifecycleStage, feature slug: String, source: LifecycleSource = .automatic,
+                         model: String? = nil, note: String? = nil) -> LifecycleEvent? {
+        guard let project = lifecycleProject else { return nil }
+        return LifecycleLog.shared.record(stage, project: project, feature: slug, actor: lifecycleActor,
+                                          source: source, model: model, note: note)
+    }
+
+    /// Compare every freshly read list with the last one: status into 'ready' records "spec
+    /// ready", open questions from ≥ 1 to 0 records "questions resolved" (DEC-008). Changes made
+    /// by the app and in files (editor, git, the AI terminal) alike.
+    private func observeLifecycle() {
+        guard let project = lifecycleProject else { return }
+        let current = Dictionary(features.map { ($0.slug, LifecycleSnapshot($0)) }, uniquingKeysWith: { a, _ in a })
+        defer { lifecycleBaseline = current }
+        guard let previous = lifecycleBaseline, LifecycleLog.shared.claim(project, by: self) else { return }
+        for (slug, now) in current where !lifecycleQuiet.contains(slug) {
+            guard let before = previous[slug] else { continue }  // new or renamed: no transition seen
+            if before.openQuestions > 0 && now.openQuestions == 0 { recordLifecycle(.questionsResolved, feature: slug) }
+            if before.status != "ready" && now.status == "ready" { recordLifecycle(.specReady, feature: slug) }
+        }
+    }
+
     // MARK: History (spec §30)
 
     /// Recent commits touching a path: "abc1234 · 2 days ago · Boris · message".
@@ -500,5 +554,16 @@ final class FeatureStore: ObservableObject {
         let base = root.standardizedFileURL.path + "/"
         let path = url.standardizedFileURL.path
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : path
+    }
+}
+
+/// What lifecycle capture watches in a feature.
+struct LifecycleSnapshot: Equatable {
+    let status: String
+    let openQuestions: Int
+
+    init(_ feature: Feature) {
+        status = feature.status
+        openQuestions = feature.list(.question).filter { !$0.isClosed }.count
     }
 }
