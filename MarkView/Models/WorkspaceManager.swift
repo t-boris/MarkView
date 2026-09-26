@@ -823,7 +823,11 @@ class WorkspaceManager: ObservableObject {
     }
 
     private func explainDirectory(for url: URL) -> URL {
-        cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
+        // A pull request's copy of a project file keeps its notes with the project's.
+        if architecture.prRelativePath(for: url) != nil, let root = rootNode?.url {
+            return root.appendingPathComponent(".dde/cache/explain", isDirectory: true)
+        }
+        return cacheDirectory(for: url).appendingPathComponent("explain", isDirectory: true)
     }
 
     /// AI filters available to the code viewer: Importance and the user's own.
@@ -852,17 +856,23 @@ class WorkspaceManager: ObservableObject {
         codeExplain.filtersChanged()
     }
 
+    /// Project path of a file in the code viewer. A file shown from a fetched pull request
+    /// (MarkView's cache) counts as that project path, so its notes, explanations and PR
+    /// lens are all about the same file.
+    private func codePath(for url: URL) -> String {
+        architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
+    }
+
     /// Load cached notes for a code file that just opened.
     func prepareCodeNotes(for url: URL) {
-        codeExplain.load(path: workspaceRelativePath(url), directory: explainDirectory(for: url))
+        codeExplain.load(path: codePath(for: url), directory: explainDirectory(for: url))
         codeNav.sendState(url: url)
     }
 
     /// The margin panel state for `url`, as a JSON object literal.
     func codeNotesJSON(for url: URL) -> String {
         let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
-        // A file shown from a fetched pull request counts as that project path.
-        let path = architecture.prRelativePath(for: url) ?? workspaceRelativePath(url)
+        let path = codePath(for: url)
         return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
                                        pr: architecture.prFileNotes(path: path, content: content))
     }
@@ -892,7 +902,7 @@ class WorkspaceManager: ObservableObject {
     func handleCodeAction(_ action: String, payload: [String: Any], url: URL) {
         guard let tab = openTabs.first(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return }
         let root = rootNode?.url ?? url.deletingLastPathComponent()
-        let path = workspaceRelativePath(url)
+        let path = codePath(for: url)
         switch action {
         case "explain":
             codeExplain.explain(path: path, content: tab.content, root: root, directory: explainDirectory(for: url),

@@ -744,6 +744,8 @@
             });
             explainButton.addEventListener('click', function() {
                 notesHidden = false;
+                // From the Pull request lens (a file opened from the PR X-Ray): the file's own notes.
+                if (lens.value === 'pr') lens.value = 'explain';
                 if (notesState && notesState.explanation) renderNotes(); else postCode('explain');
             });
             notes.querySelector('.code-notes-redo').addEventListener('click', function() { postCode('explain'); });

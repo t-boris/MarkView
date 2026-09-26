@@ -14,6 +14,10 @@ User feedback on 1.33.0.
 - [x] Right panel: Contents | Search | Git | Terminal; the "Toggle AI Panel" toolbar button and
       the panel swap are gone; ⌘3 (View → Terminal) opens the Terminal tab.
 - [x] Version 1.33.0 → 1.34.0.
+- [x] 1.34.1: Explain on a file opened from the PR X-Ray did nothing — the pull request's cached
+      copy was explained under its absolute cache path while the notes looked up the project
+      path (also broke explainPR there); one `codePath(for:)` everywhere, notes kept in the
+      project's .dde; the Explain button leaves the Pull request lens for the file's notes.
 
 ### Review
 - Issue page rendered offscreen from cli/cli#14528 (17 images, 2 comments) and checked on a
