@@ -16,6 +16,8 @@ struct FeaturePanelView: View {
     @AppStorage(FeatureStage.storageKey) private var stage = FeatureStage.explore
     @State private var showConditions = false
     @State private var cleanup: Set<FeatureCleanup>?
+    @State private var confirmRestart = false
+    @State private var confirmDelete = false
 
     init(store: FeatureStore) {
         self.store = store
@@ -71,11 +73,37 @@ struct FeaturePanelView: View {
             HStack(spacing: 6) {
                 Text(feature.title).font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright).lineLimit(1)
                 Spacer()
-                Button(action: { cleanup = Set(FeatureCleanup.allCases) }) {
-                    Image(systemName: "trash").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                SmallButton(title: "Clean up", icon: "trash") { cleanup = Set(FeatureCleanup.allCases) }
+                    .help("Delete outdated requirements, answered questions, closed findings and cancelled decisions")
+                Menu {
+                    Button("Restart Feature…") { confirmRestart = true }
+                        .disabled(feature.isImplemented || !feature.isStructured)
+                    Button("Delete Feature…") { confirmDelete = true }
+                        .disabled(feature.isImplemented)
+                    if feature.isImplemented {
+                        Text("Implementation started — restart and delete are off")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.system(size: 11))
                 }
-                .buttonStyle(.plain).help("Clean up… — delete outdated requirements, answered questions, closed findings and cancelled decisions")
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Restart or delete this feature")
                 FeatureStatusMenu(store: store, feature: feature)
+            }
+            .confirmationDialog("Restart \(feature.title)?", isPresented: $confirmRestart) {
+                Button("Restart from the idea", role: .destructive) {
+                    guard store.restartFeature(feature.slug) else { return }
+                    stage = .explore
+                    Task { await assistant.exploreNext(feature.slug) }
+                }
+            } message: {
+                Text("Requirements, questions, decisions, findings, research, the plan and the discussion go to the Trash. The idea (overview) and the attached sources stay; discovery starts again.")
+            }
+            .confirmationDialog("Delete \(feature.title)?", isPresented: $confirmDelete) {
+                Button("Move the feature to the Trash", role: .destructive) { store.deleteFeature(feature.slug) }
+            } message: {
+                let issues = feature.planIssues.compactMap(\.github).map { "#\($0)" }
+                Text("The whole folder \(store.relativePath(feature.folder)) goes to the Trash (restorable)." + (issues.isEmpty ? "" : " Its GitHub issues (\(issues.joined(separator: ", "))) stay open on GitHub."))
             }
             .sheet(isPresented: Binding(get: { cleanup != nil }, set: { if !$0 { cleanup = nil } })) {
                 FeatureCleanupSheet(store: store, slug: feature.slug, selected: cleanup ?? []) { cleanup = nil }
@@ -775,6 +803,19 @@ struct ReviewStageView: View {
                 .padding(8).background(VSDark.orange.opacity(0.08)).cornerRadius(5)
             }
             let open = feature.list(.finding).filter { !$0.isClosed }
+            if assistant.isRunning("decideall:" + feature.slug) {
+                let progress = assistant.decideProgress[feature.slug]
+                Working(text: "AI is resolving the findings itself — \(progress?.done ?? 0) of \(progress?.total ?? open.count) done…")
+            } else if !open.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Text("Too many to go through? AI resolves every open finding itself; its decisions are proposed, to accept or change.")
+                        .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    SmallButton(title: "Decide all for me (\(open.count))", icon: "wand.and.stars", prominent: true) {
+                        Task { await assistant.decideAllFindings(feature.slug) }
+                    }
+                }
+            }
             PanelSection(title: "Review") {
                 let counts = Dictionary(grouping: open) { $0.front.string("category") }
                 ForEach(FeatureVocabulary.findingCategories, id: \.self) { category in
@@ -834,8 +875,13 @@ struct FindingCard: View {
             if let started, assistant.isRunning("chat:" + feature.slug) {
                 Working(text: started)
             }
-            if !assistant.isRunning("resolve:" + finding.id) && !assistant.isRunning("resolveopts:" + finding.id) {
+            if !assistant.isRunning("resolve:" + finding.id) && !assistant.isRunning("resolveopts:" + finding.id)
+                && !assistant.isRunning("decideall:" + feature.slug) {
                 FlowButtons {
+                    SmallButton(title: "Decide for me", icon: "wand.and.stars") {
+                        Task { await assistant.resolve(feature.slug, finding: finding.id, with: "", delegated: true) }
+                    }
+                    .help("AI chooses the resolution itself; the decision is recorded as proposed")
                     if (finding.front["options"]?.list ?? []).isEmpty {
                         SmallButton(title: "Resolve", icon: "sparkles", prominent: true) {
                             Task { await assistant.resolutionOptions(feature.slug, finding: finding.id) }
@@ -887,7 +933,7 @@ struct ResolutionOptions: View {
                         Text(chosen).font(.system(size: 10, weight: .medium)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                Working(text: "Recording the decision and closing \(finding.id)…")
+                Working(text: chosen == nil ? "AI is choosing how to resolve \(finding.id)…" : "Recording the decision and closing \(finding.id)…")
             }
         } else if assistant.isRunning("resolveopts:" + finding.id) {
             Working(text: "Looking for ways to resolve \(finding.id)…")
@@ -1366,9 +1412,19 @@ struct OutdatedRequirementsBanner: View {
 /// links to them move to their replacements or are removed.
 struct FeatureCleanupSheet: View {
     @ObservedObject var store: FeatureStore
+    @ObservedObject var assistant: FeatureAssistant
     let slug: String
     @State var selected: Set<FeatureCleanup>
     let close: () -> Void
+    @State private var marked: String?
+
+    init(store: FeatureStore, slug: String, selected: Set<FeatureCleanup>, close: @escaping () -> Void) {
+        self.store = store
+        self.assistant = store.assistant
+        self.slug = slug
+        self._selected = State(initialValue: selected)
+        self.close = close
+    }
     @State private var expanded: Set<FeatureCleanup> = []
     @State private var working = false
     @State private var removed: Int?
@@ -1381,6 +1437,33 @@ struct FeatureCleanupSheet: View {
             Text("Clean up \(feature?.title ?? slug)").font(.system(size: 13, weight: .semibold))
             Text("Chosen files go to the Trash (restorable). Links to them in the remaining objects and the plan move to the object that replaced them, or are removed.")
                 .font(.system(size: 11)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Decisions and findings written against older requirements").font(.system(size: 11, weight: .medium))
+                    Text(marked ?? "AI compares them with the current requirements and marks the ones that no longer apply (decisions superseded, findings dismissed); they then appear below.")
+                        .font(.system(size: 10)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                if assistant.isRunning("outdated:" + slug) {
+                    ProgressView().scaleEffect(0.5).frame(width: 14, height: 14)
+                    Text("Checking… a few minutes").font(.system(size: 10)).foregroundColor(.secondary)
+                } else {
+                    Button("Find outdated (AI)") {
+                        marked = nil
+                        Task {
+                            if let result = await assistant.markOutdated(slug) {
+                                marked = "Marked \(result.decisions) decisions and \(result.findings) findings as outdated — see the lists below."
+                                if result.decisions > 0 { selected.insert(.decisions) }
+                                if result.findings > 0 { selected.insert(.findings) }
+                            } else {
+                                marked = assistant.error ?? "The check failed."
+                            }
+                        }
+                    }
+                    .disabled(working || removed != nil)
+                }
+            }
+            .padding(8).background(Color.secondary.opacity(0.08)).cornerRadius(5)
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(FeatureCleanup.allCases) { category in
@@ -1443,6 +1526,10 @@ struct FeatureCleanupSheet: View {
                             Text(object.title).font(.system(size: 10)).lineLimit(1)
                             Spacer()
                             Text(object.status).font(.system(size: 9)).foregroundColor(.secondary)
+                        }
+                        let reason = object.front.string("outdated_reason") + object.front.string("dismissed_reason")
+                        if !reason.isEmpty {
+                            Text(reason).font(.system(size: 9)).foregroundColor(.secondary).lineLimit(2).padding(.leading, 12)
                         }
                     }
                 }

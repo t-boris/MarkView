@@ -346,6 +346,46 @@ final class FeatureStore: ObservableObject {
         return removed
     }
 
+    /// Move a feature's whole folder to the Trash (not offered once implementation started).
+    @discardableResult
+    func deleteFeature(_ slug: String) -> Bool {
+        guard let feature = feature(slug), !feature.isImplemented else { return false }
+        do {
+            try FileManager.default.trashItem(at: feature.folder, resultingItemURL: nil)
+        } catch {
+            lastError = "Could not delete the feature: \(error.localizedDescription)"
+            return false
+        }
+        if activeSlug == slug { activeSlug = features.first { $0.slug != slug }?.slug }
+        reloadSync()
+        return true
+    }
+
+    /// Start a feature over from its idea: everything produced from it (requirements, questions,
+    /// decisions, findings, research, the plan, the discussion) goes to the Trash; the overview (the
+    /// idea) and the attached sources stay; status back to idea, understanding unknown.
+    @discardableResult
+    func restartFeature(_ slug: String) -> Bool {
+        guard let feature = feature(slug), feature.isStructured, !feature.isImplemented else { return false }
+        let fm = FileManager.default
+        let produced = FeatureObjectKind.allCases.filter { $0 != .source }.map { feature.folder.appendingPathComponent($0.folder) }
+            + [feature.planURL.deletingLastPathComponent(), feature.discussionURL]
+        for url in produced where fm.fileExists(atPath: url.path) {
+            do { try fm.trashItem(at: url, resultingItemURL: nil) } catch {
+                lastError = "Could not restart the feature: \(error.localizedDescription)"
+                reloadSync(slug)
+                return false
+            }
+        }
+        updateFeature(slug) { front, _ in
+            front.set("status", "idea")
+            for key in ["understanding", "understanding_notes", "questions_left"] { front[key] = nil }
+            front.set("restarted", Self.today)
+        }
+        reloadSync(slug)
+        return true
+    }
+
     /// Change many objects with one reload at the end (consolidation touches hundreds).
     func updateMany(_ ids: [String], in slug: String, _ change: (String, inout FrontMatter, inout String) -> Void) {
         guard let feature = feature(slug) else { return }

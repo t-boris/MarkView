@@ -258,6 +258,9 @@ struct Feature: Identifiable {
     func object(_ id: String) -> FeatureObject? { allObjects.first { $0.id == id } }
 
     /// Understanding dimension → known | partial | unknown | n/a.
+    /// Implementation started or done: deleting or restarting the feature is not offered then.
+    var isImplemented: Bool { ["implementing", "implemented", "verified"].contains(status) }
+
     var understanding: [(dimension: String, state: String)] {
         let stored = front["understanding"]?.entries ?? []
         return FeatureVocabulary.understanding.map { dimension in
@@ -548,7 +551,7 @@ enum FeatureCleanup: String, CaseIterable, Identifiable {
         case .requirements: return "Merged in a consolidation (superseded) or rejected"
         case .questions: return "Answered, the answer kept in its decision"
         case .findings: return "Resolved or dismissed, or about requirements that are gone"
-        case .decisions: return "Rejected or superseded"
+        case .decisions: return "Rejected, superseded, or marked outdated"
         }
     }
 }

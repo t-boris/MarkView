@@ -85,6 +85,9 @@ final class FeatureAssistant: ObservableObject {
 
     func isRunning(_ key: String) -> Bool { running.contains(key) || preparing.contains(key) }
 
+    /// "Decide all for me" progress per feature: findings done, total.
+    @Published var decideProgress: [String: (done: Int, total: Int)] = [:]
+
     /// Steps being prepared (context, files) before their AI call — shown as running at once.
     @Published private(set) var preparing: Set<String> = []
 
@@ -107,7 +110,7 @@ final class FeatureAssistant: ObservableObject {
 
         Language: write what you say to the user — questions, their "why", options with pros and cons, \
         understanding notes, suggestions, replies, explanations, resolution questions and options, the \
-        answer you chose when asked to decide yourself (`chosen`) — in \
+        answer or resolution you chose when asked to decide yourself (`chosen`) — in \
         \(conversation). Write \
         the specification itself — requirement titles, statements and acceptance criteria, decision \
         texts, finding titles and details, research claims and summaries, source summaries and facts — \
@@ -888,27 +891,165 @@ final class FeatureAssistant: ObservableObject {
     }
 
     /// Resolve a finding with one of its options (or the user's own text): an accepted decision
-    /// linked to the finding and the requirements it is about.
-    func resolve(_ slug: String, finding id: String, with choice: String) async {
+    /// linked to the finding and the requirements it is about. `delegated`: "Decide for me" — the AI
+    /// chooses the resolution itself and the decision is recorded as proposed.
+    func resolve(_ slug: String, finding id: String, with choice: String, delegated: Bool = false) async {
         preparing.insert("resolve:" + id)
         defer { preparing.remove("resolve:" + id) }
         guard let feature = store.feature(slug), let finding = feature.object(id) else { return }
-        let others = (finding.front["options"]?.list ?? []).compactMap { $0["text"]?.string }.filter { $0 != choice }
-        let prompt = context(feature, focus: [id]) + """
+        let options = (finding.front["options"]?.list ?? []).compactMap { $0["text"]?.string }
+        let task = delegated ? """
+        \(id): \(finding.title)
+        \(finding.front.string("resolution_question"))
+        \(options.isEmpty ? "" : "Ways proposed so far: " + options.joined(separator: " | "))
 
+        Task: the team asked you to decide this yourself. Choose the best resolution for this feature as \
+        an experienced product owner would — one of the proposed ways or a better one — state it in \
+        `chosen` (one or two sentences), and record it as a decision (context, alternatives, decision, \
+        reason, consequences).
+        """ : """
         \(id): \(finding.title)
         The team chose: \(choice)
-        Other options were: \(others.joined(separator: " | "))
+        Other options were: \(options.filter { $0 != choice }.joined(separator: " | "))
 
         Task: record this as a decision (context, alternatives, decision, reason, consequences).
         """
-        let schema = Self.object(["decision": Self.decisionSchema])
-        guard let result = await run("resolve:" + id, prompt: prompt, schema: schema),
-              let d = (result.structured as? [String: Any])?["decision"] as? [String: Any],
-              let decision = makeDecision(d, in: slug, status: "accepted", sources: [id], provenance: "Resolved \(id)") else { return }
+        var properties: [String: Any] = ["decision": Self.decisionSchema]
+        if delegated { properties["chosen"] = Self.string }
+        guard let object = await structured("resolve:" + id, prompt: context(feature, focus: [id]) + "\n" + task,
+                                            schema: Self.object(properties)),
+              let d = object["decision"] as? [String: Any] else { return }
+        closeFinding(finding, in: slug, decision: d, choice: delegated ? "AI: " + (object["chosen"] as? String ?? "") : choice,
+                     delegated: delegated)
+    }
+
+    /// "Decide all for me": the AI resolves every open finding itself, a few per call; the decisions
+    /// are proposed. `decideProgress` tells the view how far it got.
+    func decideAllFindings(_ slug: String) async {
+        let key = "decideall:" + slug
+        preparing.insert(key)
+        defer { preparing.remove(key); decideProgress[slug] = nil }
+        guard let feature = store.feature(slug) else { return }
+        let open = feature.list(.finding).filter { !$0.isClosed }
+        var done = 0
+        decideProgress[slug] = (0, open.count)
+        let item = Self.object(["id": Self.string, "chosen": Self.string, "decision": Self.decisionSchema])
+        for start in stride(from: 0, to: open.count, by: 8) {
+            guard let current = store.feature(slug) else { return }
+            // Findings closed meanwhile (by hand or another action) are skipped.
+            let chunk = open[start..<min(start + 8, open.count)].compactMap { current.object($0.id) }.filter { !$0.isClosed }
+            guard !chunk.isEmpty else { continue }
+            let list = chunk.map { f -> String in
+                let options = (f.front["options"]?.list ?? []).compactMap { $0["text"]?.string }
+                return "### \(f.id) [\(f.front.string("severity"))] \(f.title)\n\(f.section("Finding").prefix(1_200))"
+                    + (f.front.string("resolution_question").isEmpty ? "" : "\nQuestion: " + f.front.string("resolution_question"))
+                    + (options.isEmpty ? "" : "\nWays proposed: " + options.joined(separator: " | "))
+            }.joined(separator: "\n\n")
+            let prompt = context(current, focus: chunk.map(\.id)) + """
+
+            ## Findings to resolve
+            \(list)
+
+            Task: the team asked you to resolve these findings yourself. For each one choose the best \
+            resolution for this feature as an experienced product owner would — a proposed way or a better \
+            one, consistent with the other resolutions — state it in `chosen` (one or two sentences) and \
+            record it as a decision. One entry per finding, with its id.
+            """
+            if let object = await structured(key, prompt: prompt, schema: Self.object(["resolutions": Self.array(item)]), timeout: 900) {
+                for entry in object["resolutions"] as? [[String: Any]] ?? [] {
+                    guard let fid = entry["id"] as? String, let finding = chunk.first(where: { $0.id == fid }),
+                          let d = entry["decision"] as? [String: Any] else { continue }
+                    closeFinding(finding, in: slug, decision: d, choice: "AI: " + (entry["chosen"] as? String ?? ""), delegated: true)
+                }
+            } else {
+                return
+            }
+            done += chunk.count
+            decideProgress[slug] = (min(done, open.count), open.count)
+        }
+        results.insert(FeatureResult(title: "AI resolved \(done) findings",
+                                     text: "Their decisions are proposed: accept or change them (Decisions in the left panel).",
+                                     pending: false, feature: slug), at: 0)
+    }
+
+    /// "Find outdated": decisions and open findings written against an older specification (before a
+    /// consolidation) that no longer apply are marked — decisions superseded, findings dismissed — so
+    /// the cleanup can remove them. Returns (decisions, findings) marked, nil when it failed.
+    @discardableResult
+    func markOutdated(_ slug: String) async -> (decisions: Int, findings: Int)? {
+        let key = "outdated:" + slug
+        preparing.insert(key)
+        defer { preparing.remove(key) }
+        guard let feature = store.feature(slug) else { return nil }
+        let decisions = feature.list(.decision).filter { $0.status == "accepted" || $0.status == "proposed" }
+        let findings = feature.list(.finding).filter { !$0.isClosed }
+        guard !decisions.isEmpty || !findings.isEmpty else { return (0, 0) }
+        let requirements = feature.activeRequirements.map { r in
+            "### \(r.id) \(r.title)\n\(r.section("Statement").prefix(800))\n"
+                + r.acceptanceCriteria.prefix(8).map { "- \($0.text)" }.joined(separator: "\n")
+        }.joined(separator: "\n\n")
+        let decisionList = decisions.map { "- \($0.id) [\($0.status)] \($0.title): \($0.section("Decision").prefix(300))" }.joined(separator: "\n")
+        let findingList = findings.map { "- \($0.id) refs \($0.front.strings("refs").joined(separator: ",")): \($0.title). \($0.section("Finding").prefix(300))" }.joined(separator: "\n")
+        let prompt = """
+        # Feature: \(feature.title)
+
+        \(feature.overviewBody.prefix(3_000))
+
+        ## Current requirements
+        \(requirements.prefix(60_000))
+
+        ## Decisions
+        \(decisionList.prefix(60_000))
+
+        ## Open review findings
+        \(findingList.prefix(40_000))
+
+        Task: the specification was consolidated, so many decisions and findings were written against \
+        older requirements. List the decisions that no longer apply to the current specification — \
+        replaced by a later decision (give its id in replaced_by), about scope that was removed, or \
+        contradicted by the current requirements — and the open findings that no longer apply — already \
+        settled by the current requirement text, or about content that is gone. Give a short reason for \
+        each. Keep everything that still matters to the current specification; when in doubt, keep it.
+        """
+        let decisionItem = Self.object(["id": Self.string, "reason": Self.string, "replaced_by": Self.string])
+        let findingItem = Self.object(["id": Self.string, "reason": Self.string])
+        let schema = Self.object(["decisions": Self.array(decisionItem), "findings": Self.array(findingItem)])
+        guard let object = await structured(key, prompt: prompt, schema: schema, timeout: 1200) else { return nil }
+        let decisionIDs = Set(decisions.map(\.id))
+        let findingIDs = Set(findings.map(\.id))
+        var outdatedDecisions: [String: (reason: String, by: String)] = [:]
+        for item in object["decisions"] as? [[String: Any]] ?? [] {
+            guard let id = item["id"] as? String, decisionIDs.contains(id) else { continue }
+            outdatedDecisions[id] = (item["reason"] as? String ?? "", item["replaced_by"] as? String ?? "")
+        }
+        var outdatedFindings: [String: String] = [:]
+        for item in object["findings"] as? [[String: Any]] ?? [] {
+            guard let id = item["id"] as? String, findingIDs.contains(id) else { continue }
+            outdatedFindings[id] = item["reason"] as? String ?? ""
+        }
+        store.updateMany(Array(outdatedDecisions.keys) + Array(outdatedFindings.keys), in: slug) { id, front, _ in
+            if let entry = outdatedDecisions[id] {
+                front.set("status", "superseded")
+                // Only a decision that stays can replace this one.
+                if decisionIDs.contains(entry.by), outdatedDecisions[entry.by] == nil, entry.by != id { front.set("superseded_by", entry.by) }
+                front.set("outdated_reason", entry.reason)
+            } else if let reason = outdatedFindings[id] {
+                front.set("status", "dismissed")
+                front.set("dismissed_reason", reason)
+            }
+        }
+        return (outdatedDecisions.count, outdatedFindings.count)
+    }
+
+    /// A finding resolved by a decision: the decision, the finding closed, its requirements linked.
+    private func closeFinding(_ finding: FeatureObject, in slug: String, decision d: [String: Any], choice: String, delegated: Bool) {
+        let id = finding.id
+        guard let decision = makeDecision(d, in: slug, status: delegated ? "proposed" : "accepted", sources: [id],
+                                          provenance: delegated ? "Chosen by AI (\(id))" : "Resolved \(id)") else { return }
         store.update(id, in: slug) { front, body in
             front.set("status", "resolved")
             front.set("resolved_by", decision.id)
+            if delegated { front.set("answered_by", "ai") }
             body += "\n## Resolution\n\n\(choice) — see \(decision.id).\n"
         }
         for target in finding.front.strings("refs") where FeatureObjectKind.of(id: target) == .requirement {

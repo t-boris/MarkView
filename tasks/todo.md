@@ -1,5 +1,16 @@
 # MarkView — Follow-up Tasks
 
+## Done 28: Findings decided by AI, outdated check, restart and delete a feature (2026-09-26, 2.11.0)
+- [x] Finding card: "Decide for me" — the AI picks the resolution (`chosen`, AI language), decision proposed ("Chosen by AI"), finding resolved (`answered_by: ai`)
+- [x] Review: "Decide all for me (N)" — open findings resolved by the AI, 8 per call, progress "k of N done"; shared `closeFinding`
+- [x] Header: labelled "Clean up" button (the trash icon was not found)
+- [x] Cleanup sheet: "Find outdated (AI)" — one call compares decisions and open findings with the current requirements; outdated decisions → superseded (+ superseded_by, outdated_reason), findings → dismissed (dismissed_reason); reasons shown in the lists
+- [x] Header ⋯ menu: Restart Feature… (trash requirements, questions, decisions, findings, research, plan, discussion; keep overview and references; status idea, understanding reset, discovery starts) and Delete Feature… (folder to the Trash; GitHub issues named as staying open); both off once implementing/implemented/verified
+### Review
+- Why "cleanup does nothing with decisions/findings": the earlier cleanup did trash 73 questions and 26 closed findings; the 99 decisions were all accepted and 36 findings open, which the rules keep. After consolidation 23 findings pointed at REQ-275 — hence the AI outdated check.
+- Real AI on a copy: markOutdated → 7 decisions superseded, 0 findings (all judged still relevant); decideAllFindings → 32 of 36 resolved within the run, Russian resolutions, proposed decisions.
+- Harness on a copy: restart → only overview + SRC-001 left, status idea, 11 open dimensions, issue link kept; delete → folder trashed; both refused for status implementing.
+
 ## Done 27: Stop the endless questions — "Decide for me" and "Decide the rest and finish" (2026-09-26, 2.10.0)
 - [x] Question card: "Decide for me" — the AI picks the best answer itself (`chosen`, in the AI language), writes the decision as `proposed` ("Chosen by AI"), refines requirements and asks the next question in the same call; the question gets `answered_by: ai`
 - [x] Explore: "Decide the rest and finish" — one call makes the remaining product-owner decisions (≤ 8, proposed, "Decided by AI"), answers the open questions they settle, defers the rest, every open dimension ends known/n/a (forced), questions_left 0; result card lists the decisions
