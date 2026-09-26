@@ -24,6 +24,9 @@ User's decisions, plus an audit of which AI features work (code paths traced end
       10/18, viewer 14px up to 1100px wide; formatting bar 22px; tab bar 24px, status bar
       20px; 11pt rows in the file tree and contents; smaller segmented tabs.
 - [x] Version 1.34.2 → 2.0.0 (features removed).
+- [x] 2.0.1: new app icon for 2.0 — dark console window, X-Ray viewfinder brackets, monospace
+      "M" with a green cursor (drawn with CoreGraphics at 1024 px, all sizes from it; legible
+      at 32 px).
 
 ### Review
 - Build clean; JS syntax checked. Not checked in the live app window (needs an install).
