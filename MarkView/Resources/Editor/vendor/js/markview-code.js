@@ -531,6 +531,7 @@
                 const add = function(value, label) { const o = document.createElement('option'); o.value = value; o.textContent = label; lens.appendChild(o); };
                 add('explain', 'Explanation');
                 if (notesState && notesState.pr) add('pr', '⎇ Pull request');
+                if (notesState && notesState.search) add('search', '⚡ ' + notesState.search.question.slice(0, 40));
                 add('freshness', 'Freshness');
                 ((notesState && notesState.filters) || []).forEach(function(f) { add(f.id, f.name); });
                 add('__new__', '＋ New filter…');
@@ -540,6 +541,7 @@
             let currentFile = null;      // name of the file in the viewer (setCodeContent)
             let prFocusApplied = null;   // the file a PR X-Ray opened on its change (applied once)
             let prRequested = null;      // the file whose change explanation was asked for
+            let searchFocusApplied = null; // the file a ⚡ search opened on its places (applied once)
 
             function renderNotes() {
                 const st = notesState || {};
@@ -551,6 +553,14 @@
                     renderLensOptions();
                     lens.value = 'pr';
                 }
+                // Opened from the ⚡ search's answer: start on its places in this file.
+                if (st.search && st.search.focus && searchFocusApplied !== currentFile) {
+                    searchFocusApplied = currentFile;
+                    notesHidden = false;
+                    renderLensOptions();
+                    lens.value = 'search';
+                }
+                if (lens.value === 'search' && st.search) { renderSearchNotes(st); return; }
                 if (lens.value === 'pr' && st.pr) { renderPRNotes(st); return; }
                 notes.hidden = notesHidden || (!exp && !st.working && !st.error);
                 // Hidden notes come back without a new AI call.
@@ -667,6 +677,52 @@
                 });
                 renderBands();
                 renderPRLegend(pr);
+                queueLayout();
+            }
+
+            /** "⚡" lens: the places of the X-Ray's ⚡ search in this file, each with what it does
+             *  for the question. */
+            function renderSearchNotes(st) {
+                const search = st.search;
+                notes.hidden = notesHidden;
+                explainButton.hidden = !notes.hidden;
+                container.classList.toggle('with-notes', !notes.hidden);
+                renderLensOptions();
+                notesStatus.textContent = '';
+                notesStatus.className = 'code-notes-status';
+                info.hidden = true;
+                track.textContent = '';
+                marked = [];
+                const color = levelColors.strong;
+                search.places.forEach(function(place) {
+                    marked.push({ start: place.start, end: place.end, level: 'strong', title: place.title });
+                    const span = document.createElement('div'); span.className = 'code-note-span';
+                    span.style.background = color;
+                    const card = document.createElement('div'); card.className = 'code-note';
+                    card.dataset.start = place.start; card.dataset.end = place.end;
+                    card.style.borderLeftColor = color;
+                    card.style.setProperty('--note-color', color);
+                    const head = document.createElement('div'); head.className = 'code-note-title';
+                    head.textContent = place.title;
+                    const meta = document.createElement('span'); meta.className = 'code-note-meta';
+                    meta.textContent = 'L' + place.start + (place.end !== place.start ? '–' + place.end : '') + (place.step ? ' · ' + place.step : '');
+                    head.appendChild(meta);
+                    const body = document.createElement('div'); body.className = 'code-note-body';
+                    body.textContent = place.why || '';
+                    card.appendChild(head); card.appendChild(body);
+                    card.title = place.title + '\n\n' + (place.why || '');
+                    card.onclick = function() { if (viewer) viewer.gotoLine(place.start, place.end); };
+                    card.ondblclick = function() { zoomToSection(place.start, place.end); };
+                    track.appendChild(span); track.appendChild(card);
+                });
+                renderBands();
+                legend.textContent = '';
+                legend.hidden = notes.hidden;
+                const title = document.createElement('b'); title.textContent = '⚡ ' + search.question;
+                legend.appendChild(title);
+                const counts = document.createElement('span');
+                counts.textContent = ' · ' + search.places.length + (search.places.length === 1 ? ' place' : ' places') + ' in this file';
+                legend.appendChild(counts);
                 queueLayout();
             }
 

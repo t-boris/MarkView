@@ -463,6 +463,7 @@ struct IntakeSheet: View {
                     Spacer()
                 }
             }
+            if kind != .understand {
             HStack(spacing: 6) {
                 Button("Add Files…") { chooseFiles() }
                 ForEach(attachments, id: \.self) { url in
@@ -475,17 +476,18 @@ struct IntakeSheet: View {
                 }
                 Spacer()
             }
+            }
             Text(footnote).font(.caption2).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             if let failed { Text(failed).font(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
                 if working {
                     ProgressView().scaleEffect(0.6)
-                    Text(kind == .understand ? "Researching the project… this can take a few minutes." : "Analyzing…")
+                    Text("Analyzing…")
                         .font(.caption).foregroundColor(.secondary)
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(working)
-                Button(kind == .understand ? "Research" : "Create") { submit() }
+                Button(kind == .understand ? "Show in X-Ray" : "Create") { submit() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(working || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -551,7 +553,7 @@ struct IntakeSheet: View {
         switch kind {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
         case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.")
-        case .understand: return "The answer is written to docs/research/RES-nnn-….md and opened."
+        case .understand: return "Opens the X-Ray: related parts are marked in every view, the answer and the places are on the right; a file opened from there shows the places inside it."
         }
     }
 
@@ -565,6 +567,11 @@ struct IntakeSheet: View {
 
     private func submit() {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if kind == .understand {
+            dismiss()
+            workspaceManager.understandInXRay(input)
+            return
+        }
         working = true
         failed = nil
         Task {
@@ -573,7 +580,7 @@ struct IntakeSheet: View {
             case .feature: outcome = await assistant.newFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
             case .bug: outcome = await assistant.newBug(from: input, attachments: attachments, linkedIssue: linkedIssue,
                                                         commentOnIssue: commentOnIssue)
-            case .understand: outcome = await assistant.understand(input, attachments: attachments)
+            case .understand: outcome = nil
             }
             working = false
             guard let outcome else {

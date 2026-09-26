@@ -301,7 +301,7 @@ final class CodeExplainStore: ObservableObject {
 
     /// State of `path` for the code viewer's margin panel, as a JSON object literal.
     func payloadJSON(path: String, content: String, filters: [ImportanceRater.Filter],
-                     pr: ArchitectureStore.PRFileNotes? = nil) -> String {
+                     pr: ArchitectureStore.PRFileNotes? = nil, search: ArchitectureStore.SearchNotes? = nil) -> String {
         struct Payload: Encodable {
             let explanation: CodeExplanation?
             let working: Bool
@@ -311,9 +311,11 @@ final class CodeExplainStore: ObservableObject {
             let filters: [ImportanceRater.Filter]
             /// The selected pull request's changes in this file (the "Pull request" lens).
             let pr: ArchitectureStore.PRFileNotes?
+            /// The ⚡ search's places in this file (the "⚡" lens).
+            let search: ArchitectureStore.SearchNotes?
         }
         let payload = Payload(explanation: explanations[path], working: working.contains(path), activity: activity[path], error: errors[path],
-                              stale: isStale(path: path, content: content), filters: filters, pr: pr)
+                              stale: isStale(path: path, content: content), filters: filters, pr: pr, search: search)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

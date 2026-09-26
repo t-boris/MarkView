@@ -876,7 +876,8 @@ class WorkspaceManager: ObservableObject {
         let content = openTabs.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.content ?? ""
         let path = codePath(for: url)
         return codeExplain.payloadJSON(path: path, content: content, filters: aiFilters,
-                                       pr: architecture.prFileNotes(path: path, content: content))
+                                       pr: architecture.prFileNotes(path: path, content: content),
+                                       search: architecture.searchNotes(path: path))
     }
 
     // MARK: - Explain with AI
@@ -1122,6 +1123,8 @@ class WorkspaceManager: ObservableObject {
             guard url.path.hasPrefix(root.standardizedFileURL.path + "/") else { return }
             // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
             // a fetched pull request's own version of the file (which may not exist here).
+            // From the ⚡ search's answer: the viewer opens on the search's places in the file.
+            if payload["fromSearch"] as? Bool == true { architecture.markSearchFocus(path: path) }
             if payload["fromPR"] as? Bool == true {
                 architecture.markPRFocus(path: path)
                 if let prFile = architecture.prFileURL(path: path) {
@@ -1237,6 +1240,12 @@ class WorkspaceManager: ObservableObject {
         case "outlineFile":
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
             architecture.outlineFile(path: path, root: root, db: semanticDatabase)
+        case "saveSearchAnswer":
+            if let file = architecture.saveSearchAnswer(filterId: payload["filter"] as? String ?? "", root: root,
+                                                        author: features.defaultOwner) {
+                refreshFileTree()
+                openFile(file)
+            }
         case "explainEdge":
             guard let source = payload["source"] as? String, let target = payload["target"] as? String else { return }
             architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
@@ -3222,6 +3231,17 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// "I need to understand …": the X-Ray's ⚡ search for the question — what takes part is
+    /// marked in every view, the answer and its places are on the right, and a file opened from
+    /// there shows the places inside it.
+    func understandInXRay(_ question: String) {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rootNode != nil, !text.isEmpty else { return }
+        setTemporaryFilter(String(text.prefix(300)))
+        openArchitecture()
+        if let id = ImportanceRater.temporaryFilter?.id { architecture.activate(filterId: id) }
+    }
+
     /// "New … from this document": the document is the material (attached, so the AI reads it whole).
     func startIntake(_ kind: IntakeKind, fromDocument url: URL) {
         let path = workspaceRelativePath(url)
@@ -3229,9 +3249,9 @@ class WorkspaceManager: ObservableObject {
         switch kind {
         case .feature: lead = "Build a feature from the document \(path) (attached)."
         case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
-        case .understand: lead = "Help me understand the document \(path) (attached): what it says, how it relates to the project, what is outdated or missing."
+        case .understand: lead = "What implements \(path) in this project, and how do the documented parts work in the code?"
         }
-        intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
+        intake = IntakeRequest(kind: kind, text: lead, attachments: kind == .understand ? [] : [url])
     }
 
     /// Hand a document to the AI to implement (the assistant in the Terminal tab): Claude Code gets

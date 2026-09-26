@@ -1369,7 +1369,7 @@
                     const sec = document.createElement('h5'); sec.textContent = step.title; d.appendChild(sec);
                     step.places.forEach(function(place) {
                         const b = linkButton(place.path.split('/').pop() + ':' + place.start + '  ' + place.title, function() {
-                            post('openFile', { path: place.path, line: place.start, endLine: place.end });
+                            post('openFile', { path: place.path, line: place.start, endLine: place.end, fromSearch: true });
                         }, 'arch-path');
                         b.title = place.path + ':' + place.start + '\u2013' + place.end + '\n' + place.why;
                         d.appendChild(b);
@@ -1377,6 +1377,9 @@
                     });
                 });
                 const active = filter;
+                const save = linkButton('Save to docs/research', function() { post('saveSearchAnswer', { filter: active.id }); }, 'arch-action');
+                save.title = 'Keep this answer and its places as a Markdown document';
+                d.appendChild(save);
                 d.appendChild(linkButton('Close this search', function() {
                     post('deleteFilter', { id: active.id }); ui.overlay = 'none';
                 }, 'arch-action'));

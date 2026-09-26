@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## Done 21: "I Need to Understand" is an X-Ray search (2026-09-26)
+
+User: the old one was slow and duplicated asking in the terminal; it should X-Ray the project.
+
+- [x] "I Need to Understand" (⊞, from a document) runs the X-Ray ⚡ search at once: related parts
+      marked in every view, the answer and its places on the right. The slow research call and
+      its automatic docs/research file are gone.
+- [x] Code viewer "⚡ <question>" lens: the search's places inside the open file, highlighted,
+      each with what it does for the question; a file opened from the answer starts on it.
+- [x] "Save to docs/research" in the answer panel (user: the result may be kept): the answer and
+      every place as `path:line` links, no new AI call.
+- [x] Version 2.3.0 → 2.4.0. Built; not installed.
+
 ## Done 20: Issues list, hand-written features, dot files, .gitignore (2026-09-26)
 
 User feedback on 2.2.0.

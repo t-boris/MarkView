@@ -1445,6 +1445,64 @@ final class ArchitectureStore: ObservableObject {
     }
     private(set) var searchAnswers: [String: SearchAnswer] = [:]
 
+    /// The ⚡ search's places inside one file, for the code viewer's "⚡" lens.
+    struct SearchNotes: Encodable {
+        struct Place: Encodable { var start: Int; var end: Int; var title: String; var why: String; var step: String }
+        var question: String
+        var places: [Place]
+        /// Opened from the search: the viewer starts on this lens.
+        var focus: Bool
+    }
+    private var searchFocusPaths: Set<String> = []
+
+    func markSearchFocus(path: String) { searchFocusPaths.insert(path) }
+
+    /// Keep a ⚡ search's answer as a document: docs/research/RES-nnn-<title>.md with the answer
+    /// and every place as a `path:line` link. No new AI call. Returns the file.
+    func saveSearchAnswer(filterId: String, root: URL, author: String) -> URL? {
+        guard let answer = searchAnswers[filterId] else { return nil }
+        let folder = root.appendingPathComponent("docs/research", isDirectory: true)
+        let id = FeatureAssistant.nextNumbered("RES", in: folder)
+        let title = String(answer.question.prefix(90))
+        var body = "# \(title)\n\n> \(answer.question.replacingOccurrences(of: "\n", with: "\n> "))\n\n## Answer\n\n"
+        body += answer.answer.isEmpty ? (searchSummaries[filterId] ?? "") : answer.answer
+        body += "\n"
+        for step in answer.steps where !step.places.isEmpty {
+            body += "\n## \(step.title)\n\n"
+            for place in step.places {
+                body += "- [\(place.path):\(place.start)](../../\(place.path)) — **\(place.title)**: \(place.why)\n"
+            }
+        }
+        var front = FrontMatter()
+        front.set("type", "research")
+        front.set("id", id)
+        front.set("title", title)
+        front.set("question", String(answer.question.prefix(500)))
+        front.set("created", FeatureStore.today)
+        front.set("author", author)
+        front.set("provenance", "X-Ray ⚡ search")
+        let file = folder.appendingPathComponent("\(id)-\(featureSlug(title).prefix(50)).md")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data(front.join(body: body).utf8).write(to: file, options: .withoutOverwriting)
+        } catch {
+            self.error = "Could not save the answer: \(error.localizedDescription)"
+            revision += 1
+            return nil
+        }
+        return file
+    }
+
+    func searchNotes(path: String) -> SearchNotes? {
+        guard let id = ImportanceRater.temporaryFilter?.id, let answer = searchAnswers[id] else { return nil }
+        let places = answer.steps.flatMap { step in
+            step.places.filter { $0.path == path }.map { SearchNotes.Place(start: $0.start, end: $0.end, title: $0.title, why: $0.why, step: step.title) }
+        }
+        guard !places.isEmpty else { return nil }
+        return SearchNotes(question: answer.question, places: places.sorted { $0.start < $1.start },
+                           focus: searchFocusPaths.contains(path))
+    }
+
     // MARK: - Why a link exists (click on an arrow)
 
     /// The AI's explanation of one link, streamed.
