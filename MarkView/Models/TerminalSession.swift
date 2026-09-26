@@ -80,6 +80,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var startupSent = false
     /// When the shell started (for `pasteWhenReady`); nil before the page asked for it.
     private var startedAt: Date?
+    /// When the startup command was typed, and when the terminal last printed anything:
+    /// a paste waits until the assistant has come up and gone quiet.
+    private var startupSentAt: Date?
+    private var lastOutputAt: Date?
+    private var pendingPastes: [(text: String, submit: Bool, queued: Date)] = []
+    private var pasteTimer: Timer?
     private var size = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil, title: String? = nil) {
@@ -149,6 +155,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         guard masterFD < 0 else { return }
         exitCode = nil
         startupSent = false
+        startupSentAt = nil
+        lastOutputAt = nil
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         var environment = ProcessInfo.processInfo.environment
         // Markers of a Claude Code session MarkView may have been launched from: inherited,
@@ -311,11 +319,43 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         paste(escaped.joined(separator: " "))
     }
 
-    /// Like `paste`, but when the session has only just started, wait until the startup
-    /// command (the assistant) has had time to come up.
+    /// Like `paste`, but only once the terminal is ready for it: the shell is running, the
+    /// startup command (the assistant; Claude updates itself first) has been typed, and the
+    /// output has been quiet for 2 s — the assistant waits at its prompt. After 45 s it is
+    /// pasted anyway. A session that is already up gets it at once.
     func pasteWhenReady(_ text: String, submit: Bool) {
-        let wait = max(0, (startedAt?.timeIntervalSinceNow ?? 0) + 4)
-        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in self?.paste(text, submit: submit) }
+        pendingPastes.append((text, submit, Date()))
+        deliverPendingPastes()
+        guard !pendingPastes.isEmpty, pasteTimer == nil else { return }
+        pasteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.deliverPendingPastes() }
+        }
+    }
+
+    private var readyForPaste: Bool {
+        guard masterFD >= 0, let startedAt else { return false }
+        let now = Date()
+        let settled = startupCommand?.isEmpty ?? true
+            ? now.timeIntervalSince(startedAt) > 1
+            : startupSentAt.map { now.timeIntervalSince($0) > 2 } ?? false
+        let quiet = lastOutputAt.map { now.timeIntervalSince($0) > 2 } ?? true
+        return settled && quiet
+    }
+
+    private func deliverPendingPastes() {
+        guard let first = pendingPastes.first else {
+            pasteTimer?.invalidate(); pasteTimer = nil
+            return
+        }
+        guard readyForPaste || Date().timeIntervalSince(first.queued) > 45 else { return }
+        let pastes = pendingPastes
+        pendingPastes = []
+        pasteTimer?.invalidate(); pasteTimer = nil
+        for (index, item) in pastes.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.6) { [weak self] in
+                self?.paste(item.text, submit: item.submit)
+            }
+        }
     }
 
     private func resize(cols: Int, rows: Int) {
@@ -330,9 +370,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// shell has printed its prompt.
     private func deliver(_ data: Data) {
         pendingOutput.append(data)
+        lastOutputAt = Date()
         if !startupSent, let command = startupCommand, !command.isEmpty {
             startupSent = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.write(command + "\r") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.write(command + "\r")
+                self?.startupSentAt = Date()
+            }
         }
         guard pageReady, !flushScheduled else { return }
         flushScheduled = true

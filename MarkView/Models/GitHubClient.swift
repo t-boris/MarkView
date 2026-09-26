@@ -127,6 +127,18 @@ struct GHIssue: Codable, Identifiable, Hashable, Sendable {
     var isOpen: Bool { state.uppercased() == "OPEN" }
 }
 
+/// An issue's text and comments as HTML rendered by GitHub.
+struct GHIssueHTML: Sendable {
+    struct Comment: Codable, Hashable, Sendable {
+        var author: String?
+        var avatar: String?
+        var createdAt: String?
+        var html: String
+    }
+    var body: String
+    var comments: [Comment]
+}
+
 struct GHRun: Codable, Identifiable, Hashable, Sendable {
     var id: Int { databaseId }
     let databaseId: Int
@@ -508,6 +520,20 @@ struct GitHubClient: Sendable {
 
     func issue(_ number: Int) async throws -> GHIssue {
         try await decode(GHIssue.self, ["issue", "view", String(number)] + r + ["--json", GHIssue.viewFields])
+    }
+
+    /// The issue's text and comments as GitHub renders them (HTML, sanitized by GitHub; image
+    /// links are signed for a few minutes, so private repositories' images load too).
+    func issueHTML(_ number: Int) async throws -> GHIssueHTML {
+        let accept = ["-H", "Accept: application/vnd.github.full+json"]
+        let body = try await gh(["api", "repos/\(repo.slug)/issues/\(number)"] + accept + ["-q", ".body_html // \"\""])
+        // One JSON object per line, all pages.
+        let lines = try await gh(["api", "repos/\(repo.slug)/issues/\(number)/comments?per_page=100", "--paginate"] + accept
+            + ["-q", ".[] | {author: .user.login, avatar: .user.avatar_url, createdAt: .created_at, html: (.body_html // \"\")}"])
+        let comments = lines.split(separator: "\n").compactMap {
+            try? JSONDecoder().decode(GHIssueHTML.Comment.self, from: Data($0.utf8))
+        }
+        return GHIssueHTML(body: body.trimmingCharacters(in: .newlines), comments: comments)
     }
 
     func commentIssue(_ number: Int, body: String) async throws {

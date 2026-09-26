@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 // MARK: - Shared pieces
 
@@ -1035,6 +1036,7 @@ struct GitHubIssueView: View {
     @ObservedObject var model: GitHubIssueModel
     @ObservedObject var gitHub: GitHubStore
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject var themeManager: ThemeManager
     @State private var comment = ""
     @State private var starting = false
 
@@ -1044,18 +1046,16 @@ struct GitHubIssueView: View {
                 header(issue)
                 if let error = model.error { errorBanner(error) }
                 Divider().background(VSDark.border)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        post(author: issue.author?.login, date: issue.createdAt, body: issue.body ?? "")
-                        ForEach(Array((issue.comments ?? []).enumerated()), id: \.offset) { _, c in
-                            post(author: c.author?.login, date: c.createdAt, body: c.body)
-                        }
-                        commentBox(issue)
-                    }
-                    .padding(16)
-                    .frame(maxWidth: 820, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The text and comments as on GitHub: its own rendering of the markdown.
+                if let html = model.html {
+                    GitHubHTMLView(document: GitHubIssueDocument.html(issue: issue, rendered: html,
+                                                                       dark: themeManager.effectiveTheme == .dark))
+                } else {
+                    emptyList("Loading…")
                 }
+                Divider().background(VSDark.border)
+                commentBox(issue)
+                    .padding(.horizontal, 16).padding(.vertical, 8)
             } else if let error = model.error {
                 errorBanner(error)
                 Spacer()
@@ -1139,32 +1139,10 @@ struct GitHubIssueView: View {
         .menuStyle(.borderlessButton).fixedSize()
     }
 
-    private func post(author: String?, date: String?, body: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(author ?? "someone").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.text)
-                Text(GHDate.ago(date)).font(.system(size: 10)).foregroundColor(VSDark.textDim)
-            }
-            Text(markdown(body.isEmpty ? "_No description._" : body))
-                .font(.system(size: 13)).foregroundColor(VSDark.text)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(10)
-        .background(VSDark.bgSidebar)
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(VSDark.border))
-        .cornerRadius(6)
-    }
-
-    private func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
-    }
-
     private func commentBox(_ issue: GHIssue) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             TextEditor(text: $comment)
-                .font(.system(size: 12)).frame(minHeight: 80)
+                .font(.system(size: 12)).frame(minHeight: 60, maxHeight: 120)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
             HStack {
                 Spacer()
@@ -1185,6 +1163,112 @@ struct GitHubIssueView: View {
             let error = await workspaceManager.startIssueWithAI(issue)
             starting = false
             showError("Start with AI", error)
+        }
+    }
+}
+
+// MARK: Issue text (GitHub's HTML)
+
+/// The page of an issue: its text and comments in GitHub's own rendering, styled like the app.
+enum GitHubIssueDocument {
+    static func html(issue: GHIssue, rendered: GHIssueHTML, dark: Bool) -> String {
+        func escape(_ text: String) -> String {
+            text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+        }
+        func card(author: String?, avatar: String?, date: String?, html: String, first: Bool) -> String {
+            let who = escape(author ?? "someone")
+            let picture = avatar.flatMap { URL(string: $0) }.map { "<img class=\"avatar\" src=\"\(escape($0.absoluteString))&s=48\" alt=\"\">" } ?? ""
+            let body = html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "<p class=\"muted\"><em>No description provided.</em></p>" : html
+            return """
+            <section class="card\(first ? " first" : "")">
+              <header>\(picture)<b>\(who)</b> <span class="muted">\(first ? "opened" : "commented") \(escape(GHDate.ago(date)))</span></header>
+              <div class="markdown-body">\(body)</div>
+            </section>
+            """
+        }
+        var cards = card(author: issue.author?.login, avatar: nil, date: issue.createdAt, html: rendered.body, first: true)
+        for comment in rendered.comments {
+            cards += card(author: comment.author, avatar: comment.avatar, date: comment.createdAt, html: comment.html, first: false)
+        }
+        let c = dark
+            ? (bg: "#1e1e1e", card: "#252526", text: "#d4d4d4", muted: "#8b949e", border: "#3c3c3c", link: "#58a6ff", code: "#2d2d2d")
+            : (bg: "#ffffff", card: "#f6f8fa", text: "#1f2328", muted: "#656d76", border: "#d0d7de", link: "#0969da", code: "#eff1f3")
+        return """
+        <!doctype html><html><head><meta charset="utf-8">
+        <style>
+        :root { color-scheme: \(dark ? "dark" : "light"); }
+        body { margin: 0; padding: 16px 20px 24px; background: \(c.bg); color: \(c.text);
+               font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+        main { max-width: 860px; }
+        .card { border: 1px solid \(c.border); border-radius: 8px; margin: 0 0 16px; overflow: hidden; }
+        .card header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: \(c.card);
+                       border-bottom: 1px solid \(c.border); font-size: 13px; }
+        .avatar { width: 22px; height: 22px; border-radius: 50%; }
+        .muted { color: \(c.muted); }
+        .markdown-body { padding: 12px 16px; word-wrap: break-word; }
+        .markdown-body > :first-child { margin-top: 0; }
+        .markdown-body > :last-child { margin-bottom: 0; }
+        a { color: \(c.link); text-decoration: none; } a:hover { text-decoration: underline; }
+        h1, h2, h3, h4, h5, h6 { margin: 20px 0 10px; line-height: 1.25; font-weight: 600; }
+        h1 { font-size: 1.6em; } h2 { font-size: 1.35em; } h3 { font-size: 1.15em; }
+        h1, h2 { padding-bottom: .3em; border-bottom: 1px solid \(c.border); }
+        p, ul, ol, blockquote, table, pre, details { margin: 0 0 12px; }
+        ul, ol { padding-left: 2em; }
+        li + li { margin-top: .25em; }
+        ul.contains-task-list { list-style: none; padding-left: 1.2em; }
+        .task-list-item input { margin: 0 .4em 0 -1.2em; vertical-align: middle; }
+        blockquote { padding: 0 1em; color: \(c.muted); border-left: .25em solid \(c.border); }
+        code, tt { font: 12px "SF Mono", Menlo, monospace; background: \(c.code); padding: .15em .35em; border-radius: 5px; }
+        pre { background: \(c.code); padding: 12px 14px; border-radius: 6px; overflow: auto; }
+        pre code { background: none; padding: 0; font-size: 12px; line-height: 1.45; }
+        table { border-collapse: collapse; display: block; overflow: auto; }
+        th, td { border: 1px solid \(c.border); padding: 6px 12px; }
+        tr:nth-child(2n) { background: \(c.card); }
+        img { max-width: 100%; height: auto; border-radius: 4px; }
+        hr { border: 0; height: 1px; background: \(c.border); margin: 20px 0; }
+        details summary { cursor: pointer; }
+        .user-mention, .issue-link { font-weight: 600; }
+        </style></head><body><main>\(cards)</main></body></html>
+        """
+    }
+}
+
+/// Shows HTML from GitHub: scripts off, links open in the browser, images load from GitHub.
+struct GitHubHTMLView: NSViewRepresentable {
+    let document: String
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: .zero, configuration: configuration)
+        view.navigationDelegate = context.coordinator
+        view.setValue(false, forKey: "drawsBackground")
+        return view
+    }
+
+    func updateNSView(_ view: WKWebView, context: Context) {
+        guard context.coordinator.shown != document else { return }
+        context.coordinator.shown = document
+        view.loadHTMLString(document, baseURL: URL(string: "https://github.com/"))
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var shown: String?
+
+        func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // Only the page itself loads here; a clicked link opens in the browser.
+            if action.navigationType == .linkActivated, let url = action.request.url {
+                if url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto" { NSWorkspace.shared.open(url) }
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(action.navigationType == .other ? .allow : .cancel)
         }
     }
 }

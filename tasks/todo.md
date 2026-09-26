@@ -1,6 +1,26 @@
 # MarkView — Follow-up Tasks
 
-## Active 15: Full GitHub integration (2026-09-26)
+## Done 16: Issue text as on GitHub, reliable AI prompts, Terminal tab (2026-09-26)
+
+User feedback on 1.33.0.
+
+- [x] Issue tab: body and comments in GitHub's own rendering (`body_html`, full+json):
+      markdown, tables, code, task lists, details, images (signed links, private repos too),
+      avatars; WKWebView with scripts off, links open in the browser, app-like dark/light style.
+- [x] Prompts to the AI terminal were lost in a new terminal (fixed 4 s wait while
+      `claude update && claude` was still starting → text went to the shell). A paste now waits
+      until the startup command was typed and the output has been quiet for 2 s (max 45 s).
+      Affects "Start with AI", "Fix it", "Fix with AI" and every other prompt button.
+- [x] Right panel: Contents | Search | Git | Terminal; the "Toggle AI Panel" toolbar button and
+      the panel swap are gone; ⌘3 (View → Terminal) opens the Terminal tab.
+- [x] Version 1.33.0 → 1.34.0.
+
+### Review
+- Issue page rendered offscreen from cli/cli#14528 (17 images, 2 comments) and checked on a
+  snapshot: headings, tables, code blocks, details, images load.
+- Not checked in the live app: the new Terminal tab and the prompt timing with a real Claude start.
+
+## Done 15: Full GitHub integration (2026-09-26)
 
 Approved by the user (UI proposal + defaults to questions 1–12, one release, minor bump).
 Everything goes through the signed-in `gh` CLI (no tokens stored by MarkView).

@@ -1,15 +1,17 @@
 import SwiftUI
 
-/// Document-side panel: table of contents, workspace search and Git.
-/// Alternates with the AI panel (`ModuleExplorerView`).
+/// The right panel: table of contents, workspace search, Git and the AI terminals.
 struct TOCView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage("layout.navigatorTab") private var selectedTab = Tab.contents
+    @AppStorage(Tab.storageKey) private var selectedTab = Tab.contents
 
     enum Tab: String, CaseIterable {
         case contents = "Contents"
         case search = "Search"
         case git = "Git"
+        case terminal = "Terminal"
+
+        static let storageKey = "layout.navigatorTab"
     }
 
     var body: some View {
@@ -28,6 +30,7 @@ struct TOCView: View {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
+            case .terminal: ModuleExplorerView().environmentObject(workspaceManager)
             }
         }
         .background(VSDark.bgSidebar)

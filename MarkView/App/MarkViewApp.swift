@@ -276,8 +276,8 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 
-                Button("Toggle AI Panel") {
-                    activeWorkspace?.showSemanticPanel.toggle()
+                Button("Terminal") {
+                    activeWorkspace?.showAIConsole()
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 

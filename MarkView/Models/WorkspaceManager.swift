@@ -314,9 +314,6 @@ class WorkspaceManager: ObservableObject {
         didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC") }
     }
 
-    @Published var showSemanticPanel: Bool = false {
-        didSet { UserDefaults.standard.set(showSemanticPanel, forKey: "layout.showSemanticPanel") }
-    }
     @Published var semanticDatabase: SemanticDatabase?
     @Published var incrementalCompiler: IncrementalCompiler?
     @Published var embeddingClient = EmbeddingClient()
@@ -404,9 +401,6 @@ class WorkspaceManager: ObservableObject {
         }
         if ud.object(forKey: "layout.showTOC") != nil {
             showTOC = ud.bool(forKey: "layout.showTOC")
-        }
-        if ud.object(forKey: "layout.showSemanticPanel") != nil {
-            showSemanticPanel = ud.bool(forKey: "layout.showSemanticPanel")
         }
 
         loadRecentFiles()
@@ -3036,9 +3030,10 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    private func showAIConsole() {
+    /// Show the right panel on its Terminal tab (the AI terminals).
+    func showAIConsole() {
         showTOC = true
-        showSemanticPanel = true
+        UserDefaults.standard.set(TOCView.Tab.terminal.rawValue, forKey: TOCView.Tab.storageKey)
     }
 
     // MARK: - Terminals

@@ -80,19 +80,11 @@ struct ContentView: View {
             }
             .frame(minWidth: 400)
 
-            // MARK: - Right Panel: Contents/Search/Git or AI
-            // Single container with stable width — only content switches inside
+            // MARK: - Right Panel: Contents / Search / Git / Terminal
             if workspaceManager.showTOC {
-                VStack(spacing: 0) {
-                    if workspaceManager.showSemanticPanel {
-                        ModuleExplorerView()
-                            .environmentObject(workspaceManager)
-                    } else {
-                        TOCView()
-                            .environmentObject(workspaceManager)
-                    }
-                }
-                .frame(minWidth: 200, idealWidth: 300)
+                TOCView()
+                    .environmentObject(workspaceManager)
+                    .frame(minWidth: 200, idealWidth: 300)
             }
         }
         .toolbar {
@@ -136,12 +128,6 @@ struct ContentView: View {
                     Image(systemName: themeManager.effectiveTheme == .dark ? "sun.max.fill" : "moon.fill")
                 }
                 .help("Toggle Theme")
-
-                // Toggle AI panel (Terminal) vs Contents / Search / Git
-                Button(action: { workspaceManager.showSemanticPanel.toggle() }) {
-                    Image(systemName: workspaceManager.showSemanticPanel ? "brain.head.profile" : "brain")
-                }
-                .help("Toggle AI Panel")
 
                 // Toggle TOC
                 Button(action: { workspaceManager.showTOC.toggle() }) {

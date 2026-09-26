@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// AI panel (alternative to the Table of Contents side): the terminals where the
-/// assistants (claude, codex) run, with ready-made prompts. Search and Git live next to
-/// the Table of Contents in `TOCView`. (The type keeps its historical name from the
+/// The right panel's Terminal tab: the terminals where the
+/// assistants (claude, codex) run, with ready-made prompts. Contents, Search and Git are
+/// the other tabs of `TOCView`. (The type keeps its historical name from the
 /// removed Modules tab.)
 struct ModuleExplorerView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager

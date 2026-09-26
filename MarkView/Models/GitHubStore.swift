@@ -535,6 +535,8 @@ final class GitHubIssueModel: ObservableObject {
     private weak var store: GitHubStore?
 
     @Published private(set) var issue: GHIssue?
+    /// Text and comments as GitHub renders them (markdown, images, task lists…).
+    @Published private(set) var html: GHIssueHTML?
     @Published var error: String?
     @Published private(set) var busy = false
 
@@ -549,7 +551,11 @@ final class GitHubIssueModel: ObservableObject {
     func refresh() {
         Task {
             do {
-                issue = try await client.issue(number)
+                async let details = client.issue(number)
+                async let rendered = client.issueHTML(number)
+                let (issue, html) = try await (details, rendered)
+                self.issue = issue
+                self.html = html
                 error = nil
             } catch { self.error = error.localizedDescription }
         }
