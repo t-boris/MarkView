@@ -18,6 +18,10 @@ User feedback on 1.33.0.
       copy was explained under its absolute cache path while the notes looked up the project
       path (also broke explainPR there); one `codePath(for:)` everywhere, notes kept in the
       project's .dde; the Explain button leaves the Pull request lens for the file's notes.
+- [x] 1.34.2: "Initialize Git Repo" in a project with git — opening a markdown file from the PR
+      X-Ray (a PR's cached copy, or a removed file's old version) outside the folder turned the
+      window into a single-file workspace on the cache folder (no git, database dropped,
+      terminals stopped). PR cache copies now count as part of the open project.
 
 ### Review
 - Issue page rendered offscreen from cli/cli#14528 (17 images, 2 comments) and checked on a

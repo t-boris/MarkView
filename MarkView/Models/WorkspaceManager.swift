@@ -1339,9 +1339,12 @@ class WorkspaceManager: ObservableObject {
     private func isFileInCurrentWorkspace(_ url: URL) -> Bool {
         guard semanticDatabase != nil else { return false }
         guard let root = rootNode else { return false }
+        // A pull request's copy of a project file (MarkView's cache, opened from the PR
+        // X-Ray) belongs to the open project: it must not turn it into a single-file workspace.
+        if architecture.prRelativePath(for: url) != nil { return true }
         let filePath = url.standardizedFileURL.path
         let rootPath = root.url.standardizedFileURL.path
-        return filePath.hasPrefix(rootPath)
+        return filePath.hasPrefix(rootPath + "/")
     }
 
     /// Drop the database and every engine bound to the current workspace.
