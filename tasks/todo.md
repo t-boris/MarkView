@@ -1,5 +1,16 @@
 # MarkView — Follow-up Tasks
 
+## Done 22: Tab bar — overflow menu, reorder by dragging, wheel scrolling (2026-09-26)
+
+- [x] ▾ menu at the right of the tab bar lists every open tab (icon, ✓ active, • modified),
+      also those scrolled out of sight; Close All.
+- [x] Tabs reorder by drag and drop (a blue line marks the drop place; after the last tab =
+      at the end); the active tab stays active.
+- [x] The row scrolls with the plain mouse wheel (it only scrolled with sideways trackpad
+      swipes); the active tab is scrolled into view when it changes.
+- [x] Icons by kind: file, code, X-Ray, PR X-Ray, terminal, GitHub run / issue, image.
+- [x] Version 2.4.1 → 2.5.0. Built; not installed. Not tried in the live window.
+
 ## Done 21: "I Need to Understand" is an X-Ray search (2026-09-26)
 
 User: the old one was slow and duplicated asking in the terminal; it should X-Ray the project.

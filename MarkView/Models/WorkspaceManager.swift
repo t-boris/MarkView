@@ -255,6 +255,16 @@ final class WorkspaceTabsStore: ObservableObject {
         normalizeActiveTabIndex(preferred: activeTabIndex)
     }
 
+    /// Move a tab to `target` (the position it takes); the active tab stays active.
+    func moveTab(id: UUID, to target: Int) {
+        guard let from = openTabs.firstIndex(where: { $0.id == id }) else { return }
+        let activeID = openTabs.indices.contains(activeTabIndex) ? openTabs[activeTabIndex].id : nil
+        let tab = openTabs.remove(at: from)
+        let destination = min(max(0, target > from ? target - 1 : target), openTabs.count)
+        openTabs.insert(tab, at: destination)
+        if let activeID, let index = openTabs.firstIndex(where: { $0.id == activeID }) { activeTabIndex = index }
+    }
+
     func keepOnlyTab(at index: Int) {
         guard index >= 0 && index < openTabs.count else { return }
         let kept = openTabs[index]
@@ -1047,6 +1057,11 @@ class WorkspaceManager: ObservableObject {
     }
 
     // MARK: - Moving and copying files
+
+    /// Drag and drop in the tab bar: `id` goes before the tab at `index` (or last).
+    func moveTab(_ id: UUID, to index: Int) {
+        tabsStore.moveTab(id: id, to: index)
+    }
 
     /// Move (or copy) files and folders into `folder`, as the file tree's drag and drop
     /// does (see `FileTransfer`). Tabs of moved files follow them. Returns the errors.
