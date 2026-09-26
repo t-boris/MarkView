@@ -290,3 +290,7 @@ declaration in a file and grep each one before `git rm`.
 - Rule: any loop over many files or lines that creates Foundation objects runs its body in
   `autoreleasepool`; measure peak memory with `/usr/bin/time -l` on real data.
 
+
+## Launch tests must never touch the user's MarkView (2026-09-26)
+- Mistake: the launch test compared against a PID remembered from an earlier turn (48496); the user had restarted MarkView meanwhile (71011), so the test killed the user's app.
+- Rule: collect the running PIDs in the same command, immediately before `open -n`, and kill only a process whose executable path is `build/release/MarkView.app` (check `ps -o command=`), never by "not in an old list".
