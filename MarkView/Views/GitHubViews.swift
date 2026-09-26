@@ -205,6 +205,8 @@ struct GitHubPullRequestsView: View {
     @State private var textAction: TextAction?
     @State private var confirm: Confirm?
     @State private var showNewPR = false
+    /// A pull request an action is running on, and what the action is (shown in its row).
+    @State private var working: (number: Int, label: String)?
 
     struct TextAction: Identifiable {
         let id = UUID()
@@ -251,7 +253,9 @@ struct GitHubPullRequestsView: View {
             GitHubTextSheet(title: sheetTitle(action), placeholder: "Markdown is supported.",
                             action: action.kind == "approve" ? "Approve" : action.kind == "comment" ? "Comment" : "Request changes",
                             allowsEmpty: action.kind == "approve") { text in
+                working = (action.pr.number, action.kind == "approve" ? "Approving…" : action.kind == "comment" ? "Commenting…" : "Requesting changes…")
                 Task {
+                    defer { working = nil }
                     let error = await gitHub.perform("#\(action.pr.number)") { client in
                         if action.kind == "comment" { try await client.commentPR(action.pr.number, body: text) }
                         else { try await client.review(action.pr.number, action: action.kind, body: text) }
@@ -264,7 +268,9 @@ struct GitHubPullRequestsView: View {
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
                             presenting: confirm) { item in
             Button(item.kind == "close" ? "Close pull request" : "Merge", role: item.kind == "close" ? .destructive : nil) {
+                working = (item.pr.number, item.kind == "close" ? "Closing…" : "Merging…")
                 Task {
+                    defer { working = nil }
                     let error = await gitHub.perform("#\(item.pr.number)") { client in
                         if item.kind == "close" { try await client.closePR(item.pr.number) }
                         else { try await client.merge(item.pr.number, method: item.kind) }
@@ -328,9 +334,16 @@ struct GitHubPullRequestsView: View {
                 }
                 .buttonStyle(.plain).foregroundColor(VSDark.blue)
                 .help("Open this pull request in the PR X-Ray and start the AI review")
-                if pr.state.uppercased() == "OPEN" {
+                if let working, working.number == pr.number {
+                    Working(text: working.label)
+                } else if pr.state.uppercased() == "OPEN" {
                     Button(action: {
-                        Task { showError("Checkout #\(pr.number)", await workspaceManager.checkoutPullRequest(pr.number)) }
+                        working = (pr.number, "Checking out…")
+                        Task {
+                            let error = await workspaceManager.checkoutPullRequest(pr.number)
+                            working = nil
+                            showError("Checkout #\(pr.number)", error)
+                        }
                     }) {
                         Label("Checkout", systemImage: "arrow.down.to.line").font(.system(size: 10))
                     }

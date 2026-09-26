@@ -19,6 +19,10 @@ User testing a feature.
       more options, research, criteria, discussion, plan) is marked running at the click; a
       finding shows the chosen resolution with "Recording the decision…", Discuss says where the
       reply comes, the panel scrolls to a new answer.
+- [x] 2.6.2: still no spinner on Resolve — the cards watched the feature store, not the AI engine,
+      so SwiftUI never redrew them while a step ran. The engine is now an environment object every
+      Feature card watches. Also: PR row actions (checkout, approve, comment, merge, close) show a
+      spinner in the row; "New … from #n / PR" opens the sheet at once and loads the text there.
 
 ## Done 22: Tab bar — overflow menu, reorder by dragging, wheel scrolling (2026-09-26)
 

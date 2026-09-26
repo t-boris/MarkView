@@ -31,6 +31,9 @@ struct IntakeRequest: Identifiable {
     var text = ""
     var linkedIssue: Int?
     var attachments: [URL] = []
+    /// The sheet loads this issue's (or pull request's) text itself, with a spinner.
+    var loadIssue: Int?
+    var loadPullRequest: Int?
 }
 
 extension FeatureAssistant {

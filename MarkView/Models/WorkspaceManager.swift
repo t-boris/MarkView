@@ -3221,29 +3221,14 @@ class WorkspaceManager: ObservableObject {
 
     /// "New Feature / New Bug from #n": the issue's text and comments as the material, linked.
     func startIntake(_ kind: IntakeKind, fromIssue number: Int) {
-        guard let client = gitHub.client else { return }
-        Task {
-            do {
-                let issue = try await client.issue(number)
-                var text = "GitHub issue #\(number): \(issue.title)\n\n\(issue.body ?? "")"
-                let comments = issue.comments ?? []
-                if !comments.isEmpty {
-                    text += "\n\nComments:\n\n" + comments.map { "\($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n\n")
-                }
-                intake = IntakeRequest(kind: kind, text: text, linkedIssue: number)
-            } catch {
-                gitHub.lastError = "Could not read #\(number): \(error.localizedDescription)"
-            }
-        }
+        // The sheet opens at once and loads the issue itself (with a spinner).
+        intake = IntakeRequest(kind: kind, linkedIssue: number, loadIssue: number)
     }
 
     /// "New … from this pull request": its description as the material (a new issue is filed).
     func startIntake(_ kind: IntakeKind, fromPullRequest pr: GHPullRequest) {
-        guard let client = gitHub.client else { return }
-        Task {
-            let body = (try? await client.gh(["pr", "view", String(pr.number), "-R", client.repo.slug, "--json", "body", "-q", ".body"])) ?? ""
-            intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))\n\n\(body)")
-        }
+        intake = IntakeRequest(kind: kind, text: "Pull request #\(pr.number): \(pr.title) (\(pr.headRefName) → \(pr.baseRefName))",
+                               loadPullRequest: pr.number)
     }
 
     /// "I need to understand …": the X-Ray's ⚡ search for the question — what takes part is

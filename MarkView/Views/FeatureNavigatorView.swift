@@ -416,6 +416,7 @@ struct IntakeSheet: View {
     @State private var commentOnIssue = false
     @State private var picking = false
     @State private var issueFilter = ""
+    @State private var loadingSource = false
 
     init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
         self.request = request
@@ -480,6 +481,11 @@ struct IntakeSheet: View {
             Text(footnote).font(.caption2).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             if let failed { Text(failed).font(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
+                if loadingSource {
+                    ProgressView().scaleEffect(0.6)
+                    Text("Loading \(request.loadIssue.map { "#\($0)" } ?? request.loadPullRequest.map { "PR #\($0)" } ?? "")…")
+                        .font(.caption).foregroundColor(.secondary)
+                }
                 if working {
                     ProgressView().scaleEffect(0.6)
                     Text("Analyzing…")
@@ -489,10 +495,34 @@ struct IntakeSheet: View {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(working)
                 Button(kind == .understand ? "Show in X-Ray" : "Create") { submit() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(working || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(working || loadingSource || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(16)
+        .task { await loadRequestedSource() }
+    }
+
+    /// The issue or pull request the sheet was opened from: its text becomes the material.
+    private func loadRequestedSource() async {
+        guard let client = workspaceManager.gitHub.client else { return }
+        if let number = request.loadIssue {
+            loadingSource = true
+            defer { loadingSource = false }
+            do {
+                let issue = try await client.issue(number)
+                var material = "GitHub issue #\(number): \(issue.title)\n\n\(issue.body ?? "")"
+                let comments = issue.comments ?? []
+                if !comments.isEmpty {
+                    material += "\n\nComments:\n\n" + comments.map { "\($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n\n")
+                }
+                text = material
+            } catch { failed = "Could not read #\(number): \(error.localizedDescription)" }
+        } else if let number = request.loadPullRequest {
+            loadingSource = true
+            defer { loadingSource = false }
+            let body = (try? await client.gh(["pr", "view", String(number), "-R", client.repo.slug, "--json", "body", "-q", ".body"])) ?? ""
+            if !body.isEmpty { text += "\n\n" + body }
+        }
     }
 
     /// Open issues of the repository; picking one puts its text and comments into the editor.

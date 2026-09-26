@@ -57,6 +57,8 @@ struct FeaturePanelView: View {
             }
         }
         .background(VSDark.bgSidebar)
+        // Every card watches the AI engine itself, so "working…" shows the moment a step starts.
+        .environmentObject(assistant)
     }
 
     private var openObject: (feature: Feature, object: FeatureObject?)? {
@@ -201,6 +203,7 @@ private func markdown(_ text: String) -> AttributedString {
 
 /// An answer of a contextual action or of the discussion.
 struct ResultCard: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let result: FeatureResult
     let feature: Feature
@@ -213,7 +216,7 @@ struct ResultCard: View {
                 Text(result.title).font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.textBright)
                 Spacer()
                 if result.pending { ProgressView().scaleEffect(0.4).frame(width: 10, height: 10) }
-                Button(action: { store.assistant.dismissResult(result.id) }) {
+                Button(action: { assistant.dismissResult(result.id) }) {
                     Image(systemName: "xmark").font(.system(size: 8)).foregroundColor(VSDark.textDim)
                 }.buttonStyle(.plain)
             }
@@ -222,7 +225,7 @@ struct ResultCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let diagram = result.diagram {
                 SmallButton(title: "Save diagram to feature", icon: "square.and.arrow.down") {
-                    if let url = store.assistant.saveDiagram(diagram, title: "Diagram", in: feature.slug) { workspaceManager.openFile(url) }
+                    if let url = assistant.saveDiagram(diagram, title: "Diagram", in: feature.slug) { workspaceManager.openFile(url) }
                 }
             }
             if let decision = result.decision {
@@ -231,9 +234,9 @@ struct ResultCard: View {
                     Text(decision.title).font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
                     HStack {
                         SmallButton(title: "Create Decision", icon: "signpost.right", prominent: true) {
-                            store.assistant.saveDecision(decision, in: feature.slug, from: result.id)
+                            assistant.saveDecision(decision, in: feature.slug, from: result.id)
                         }
-                        SmallButton(title: "Continue Discussion") { store.assistant.dismissDecision(result.id) }
+                        SmallButton(title: "Continue Discussion") { assistant.dismissDecision(result.id) }
                     }
                 }
             }
@@ -243,6 +246,7 @@ struct ResultCard: View {
 
 /// Free-form discussion with the facilitator (spec §32), always at the bottom of the tab.
 struct DiscussionInput: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @State private var text = ""
@@ -254,7 +258,7 @@ struct DiscussionInput: View {
                 TextField("Discuss this feature…", text: $text, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 11)).lineLimit(1...5)
                     .onSubmit(send)
-                if store.assistant.isRunning("chat:" + feature.slug) {
+                if assistant.isRunning("chat:" + feature.slug) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 15)).foregroundColor(VSDark.blue) }
@@ -270,18 +274,18 @@ struct DiscussionInput: View {
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
         text = ""
-        Task { await store.assistant.chat(feature.slug, message: message) }
+        Task { await assistant.chat(feature.slug, message: message) }
     }
 }
 
 // MARK: - Explore (spec §6–7, §9–10)
 
 struct ExploreStageView: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
-    private var assistant: FeatureAssistant { store.assistant }
 
     /// The question guided discovery asks now: its newest open question, else any open one.
     private var current: FeatureObject? {
@@ -368,6 +372,7 @@ struct ExploreStageView: View {
 
 /// A question with its options and the discovery actions (spec §7, §15).
 struct QuestionCard: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let question: FeatureObject
@@ -377,7 +382,6 @@ struct QuestionCard: View {
     /// The answer just given: shown at once, until the specification is updated.
     @State private var sent: String?
 
-    private var assistant: FeatureAssistant { store.assistant }
     private var busy: Bool {
         ["answer:", "options:", "pros:"].contains { assistant.isRunning($0 + question.id) } || assistant.isRunning("research:" + feature.slug)
     }
@@ -507,6 +511,7 @@ struct FlowLayout: Layout {
 
 /// Source material and the facts extracted from it (spec §9–10).
 struct SourcesSection: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -522,7 +527,6 @@ struct SourcesSection: View {
 
     enum SourcePrompt: String, Identifiable { case url, issue, text; var id: String { rawValue } }
 
-    private var assistant: FeatureAssistant { store.assistant }
 
     var body: some View {
         PanelSection(title: "Sources", trailing: AnyView(addMenu)) {
@@ -631,6 +635,7 @@ struct SourceInputSheet: View {
 
 /// A source with its role and candidate facts: Accept / Reject / Edit / Discuss.
 struct SourceCard: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let source: FeatureObject
@@ -667,7 +672,7 @@ struct SourceCard: View {
                         if editing == index {
                             TextField("", text: $draft).textFieldStyle(.plain).font(.system(size: 10))
                                 .onSubmit {
-                                    store.assistant.setFact(feature.slug, source: source.id, index: index, status: "accepted", text: draft)
+                                    assistant.setFact(feature.slug, source: source.id, index: index, status: "accepted", text: draft)
                                     editing = nil
                                 }
                         } else {
@@ -677,11 +682,11 @@ struct SourceCard: View {
                     }
                     if status == "pending" {
                         HStack(spacing: 4) {
-                            SmallButton(title: "Accept") { store.assistant.setFact(feature.slug, source: source.id, index: index, status: "accepted") }
-                            SmallButton(title: "Reject") { store.assistant.setFact(feature.slug, source: source.id, index: index, status: "rejected") }
+                            SmallButton(title: "Accept") { assistant.setFact(feature.slug, source: source.id, index: index, status: "accepted") }
+                            SmallButton(title: "Reject") { assistant.setFact(feature.slug, source: source.id, index: index, status: "rejected") }
                             SmallButton(title: "Edit") { draft = text; editing = index }
                             SmallButton(title: "Discuss") {
-                                Task { await store.assistant.chat(feature.slug, message: "About this fact from \(source.id): \"\(text)\" — is it right, and what does it mean for the feature?") }
+                                Task { await assistant.chat(feature.slug, message: "About this fact from \(source.id): \"\(text)\" — is it right, and what does it mean for the feature?") }
                             }
                         }
                         .padding(.leading, 14)
@@ -695,6 +700,7 @@ struct SourceCard: View {
 // MARK: - Review (spec §12–14)
 
 struct ReviewStageView: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
 
@@ -703,10 +709,10 @@ struct ReviewStageView: View {
             HStack {
                 Text("Is the specification complete, consistent and ready?").font(.system(size: 10)).foregroundColor(VSDark.textDim)
                 Spacer()
-                if store.assistant.isRunning("review:" + feature.slug) {
+                if assistant.isRunning("review:" + feature.slug) {
                     Working(text: "Reviewing the specification from every perspective — about a minute…")
                 } else {
-                    SmallButton(title: "Run review", icon: "sparkles", prominent: true) { Task { await store.assistant.review(feature.slug) } }
+                    SmallButton(title: "Run review", icon: "sparkles", prominent: true) { Task { await assistant.review(feature.slug) } }
                 }
             }
             let open = feature.list(.finding).filter { !$0.isClosed }
@@ -734,6 +740,7 @@ struct ReviewStageView: View {
 
 /// A finding with its lifecycle actions (spec §14).
 struct FindingCard: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let finding: FeatureObject
@@ -742,7 +749,6 @@ struct FindingCard: View {
     /// What was just asked for this finding, shown at once.
     @State private var started: String?
 
-    private var assistant: FeatureAssistant { store.assistant }
 
     var body: some View {
         card {
@@ -804,6 +810,7 @@ struct FindingCard: View {
 
 /// The ways to resolve a finding (AI-proposed), as buttons, plus the user's own answer.
 struct ResolutionOptions: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let finding: FeatureObject
@@ -813,7 +820,7 @@ struct ResolutionOptions: View {
 
     var body: some View {
         let options = finding.front["options"]?.list ?? []
-        if store.assistant.isRunning("resolve:" + finding.id) {
+        if assistant.isRunning("resolve:" + finding.id) {
             VStack(alignment: .leading, spacing: 3) {
                 if let chosen {
                     HStack(alignment: .top, spacing: 4) {
@@ -823,7 +830,7 @@ struct ResolutionOptions: View {
                 }
                 Working(text: "Recording the decision and closing \(finding.id)…")
             }
-        } else if store.assistant.isRunning("resolveopts:" + finding.id) {
+        } else if assistant.isRunning("resolveopts:" + finding.id) {
             Working(text: "Looking for ways to resolve \(finding.id)…")
         } else if !options.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
@@ -834,7 +841,7 @@ struct ResolutionOptions: View {
                     VStack(alignment: .leading, spacing: 1) {
                         SmallButton(title: option["label"]?.string ?? "Option", prominent: true) {
                             chosen = (option["label"]?.string ?? "") + " — " + text
-                            Task { await store.assistant.resolve(feature.slug, finding: finding.id, with: text) }
+                            Task { await assistant.resolve(feature.slug, finding: finding.id, with: text) }
                         }
                         Text(text).font(.system(size: 9)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                         let consequence = option["consequence"]?.string ?? ""
@@ -849,7 +856,7 @@ struct ResolutionOptions: View {
                         guard !text.isEmpty else { return }
                         own = ""
                         chosen = text
-                        Task { await store.assistant.resolve(feature.slug, finding: finding.id, with: text) }
+                        Task { await assistant.resolve(feature.slug, finding: finding.id, with: text) }
                     }
                 }
             }
@@ -860,6 +867,7 @@ struct ResolutionOptions: View {
 // MARK: - Resolve (spec §17)
 
 struct ResolveStageView: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
 
@@ -927,7 +935,7 @@ struct ResolveStageView: View {
                             Text(gap.dimension).font(.system(size: 10)).foregroundColor(VSDark.text)
                             Spacer()
                             SmallButton(title: "Research", icon: "globe") {
-                                Task { await store.assistant.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)") }
+                                Task { await assistant.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)") }
                             }
                         }
                     }
@@ -949,11 +957,11 @@ struct ResolveStageView: View {
 // MARK: - Build (spec §24–26)
 
 struct BuildStageView: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
-    private var assistant: FeatureAssistant { store.assistant }
 
     var body: some View {
         let approved = feature.list(.requirement).filter { $0.status == "approved" }
@@ -1033,6 +1041,7 @@ struct RequirementChip: View {
 }
 
 struct IssuePlanCard: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let issue: PlannedIssue
@@ -1061,7 +1070,7 @@ struct IssuePlanCard: View {
             }
             if let number = issue.github {
                 if pulls.isEmpty {
-                    Button("Pull requests") { Task { pulls = await store.assistant.pullRequests(closing: number) } }
+                    Button("Pull requests") { Task { pulls = await assistant.pullRequests(closing: number) } }
                         .buttonStyle(.link).font(.system(size: 9))
                 }
                 ForEach(pulls, id: \.number) { pr in
@@ -1096,7 +1105,7 @@ struct IssuePlanCard: View {
     }
 
     private func openIssue(_ number: Int) {
-        if let slug = store.assistant.gitHubClient()?.repo.slug, let url = URL(string: "https://github.com/\(slug)/issues/\(number)") {
+        if let slug = assistant.gitHubClient()?.repo.slug, let url = URL(string: "https://github.com/\(slug)/issues/\(number)") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -1105,6 +1114,7 @@ struct IssuePlanCard: View {
 // MARK: - The object open in the editor: trace, impact, history (spec §21, §27, §30)
 
 struct ObjectContextView: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let object: FeatureObject
@@ -1114,7 +1124,6 @@ struct ObjectContextView: View {
     @State private var code: [String] = []
     @State private var loadedFor = ""
 
-    private var assistant: FeatureAssistant { store.assistant }
 
     var body: some View {
         card {
