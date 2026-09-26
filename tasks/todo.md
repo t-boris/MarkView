@@ -1,5 +1,81 @@
 # MarkView — Follow-up Tasks
 
+## Active 15: Full GitHub integration (2026-09-26)
+
+Approved by the user (UI proposal + defaults to questions 1–12, one release, minor bump).
+Everything goes through the signed-in `gh` CLI (no tokens stored by MarkView).
+
+### Spec
+- **Git tab** (right panel, Contents | Search | Git) gets sections
+  `Changes | PRs | Issues | Actions`; Changes = today's view. Branch header shows the current
+  branch's CI status dot. Repo picker when both `origin` and a fork `upstream` exist.
+- **PRs**: filters Open/Closed/Merged × All/Mine/Review requested, text filter; row = number,
+  title, author, head → base, age, checks, comments; buttons ✦ Review, Checkout, ⋯ (Open on
+  GitHub, Copy link, Approve, Request changes, Comment, Merge merge/squash/rebase, Close);
+  New PR (current branch, pushes first).
+- **Review** → PR X-Ray for that PR and starts "Review with AI" at once
+  (Settings toggle `settings.github.autoReview`, default on).
+- **PR X-Ray details panel**: PR header (state, checks, review decision) with Approve /
+  Request changes / Merge ▾ / Open on GitHub; every finding has ✦ Fix it, ✦ Explain (inline,
+  streamed), 💬 Comment on PR (line comment), ＋ Issue, ✕ Dismiss; "Fix all" next to the task list.
+  Fix it on a GitHub PR checks the PR branch out first (`gh pr checkout`), refusing when the
+  working tree has changes; then the prompt goes to the AI terminal.
+- **Actions**: list of runs (workflow/branch filter, status, duration, age; live), ▶ Run
+  workflow… (workflow_dispatch inputs form), workflow ⋯ → edit its .yml. A run opens as an
+  editor tab: header actions Re-run failed / Re-run all / Cancel / Open on GitHub / ✦ Explain
+  failure / ✦ Fix with AI; jobs list; steps with durations; log per step with search and
+  error highlighting. Logs exist per job once that job has finished (GitHub limitation);
+  running jobs show live step progress.
+- **Issues**: filters Open/Closed × All/Assigned to me/Created by me, text filter; New issue;
+  an issue opens as an editor tab: markdown body, comments, comment box, Close/Reopen, labels,
+  assignees, ✦ Start with AI (branch `issue-<n>-<slug>` + prompt to the AI terminal).
+- **Opt-in** (user, mid-work): Settings switch `settings.github.enabled`, off by default;
+  folders only (never a single file). Off → no `gh`, no polling, Git tab unchanged.
+- **Polling**: runs every 30 s while one is active, else every 5 min (Settings); macOS
+  notification when a run on one of my branches finishes (Settings toggle).
+- **Settings → GitHub** section: account/scopes (gh), Sign in / Switch (Terminal),
+  repository, refresh interval, notifications, auto-review.
+
+### Plan
+- [x] `Models/GitHubClient.swift`: `gh` runner off the main thread (pipes drained), repo
+      detection (origin/upstream), Codable models, all PR/issue/run/workflow commands;
+      workflow_dispatch input reader; job log split into steps by the log's own markers.
+- [x] `Models/GitHubStore.swift`: @MainActor store per folder — lists, filters, polling,
+      notifications, CI status of the current branch; `GitHubContext` for the PR X-Ray.
+- [x] `Views/GitHubViews.swift`: PRs, Issues, Actions sections + sheets (new PR / issue,
+      review text, dispatch inputs); `GitView` gets the section picker (only when on).
+- [x] `TabKind.github(...)`: run and issue tabs drawn over the editor like terminal/image tabs.
+- [x] PR X-Ray: PR header (state, checks, decision; Approve / Request changes / Comment /
+      Merge ▾ / Close / Open on GitHub), finding actions (Fix it / Explain / Comment on PR /
+      + Issue / Dismiss) and Fix all; review on load; `gh` calls use the selected repo.
+- [x] Settings GitHub section (switch off by default, account/scopes, sign in, intervals,
+      notifications, auto-review).
+- [x] pbxproj membership (project.yml globs `MarkView/`), build clean.
+- [x] Code review (10 findings, all fixed): PR header buttons were dropped (`action` field
+      overwrote the bridge action → `op`); PR actions/header now use the repo the PR was loaded
+      from; no app-wide repo state (each window passes its repo; every window observes the
+      Settings switch); repo switch clears all its state, tab models keyed by repo; stale async
+      results dropped (generation counter); checkout ignores untracked files (.dde); `gh` runs on
+      GCD threads with a timeout (60 s, logs 180 s) and refreshes don't overlap; review comment
+      per PR, kept across redraws, cleared only on success; transient state not cached; merge
+      method / PR op allow-listed in Swift.
+- [x] PR X-Ray per user (mid-work): the graph stops at files — no change nodes inside files;
+      a click on a file (graph or list) opens it on the Pull request lens, where every change
+      has its explanation; removed files are listed and open as they were (base version).
+- [x] Version 1.32.0 → 1.33.0.
+
+### Review
+- `gh` layer checked with a harness compiled from `GitHubClient.swift` against
+  t-boris/MarkView (read-only): repo detection, account + scopes, PR/issue lists with every
+  filter, labels, assignees, workflows, runs (+ workflow/branch filters), run, jobs, job log
+  split into its 11 steps correctly (first attempt by timestamps was off by one step — the
+  log's `##[group]Run` / "Post job cleanup." / "Cleaning up orphan processes" markers are
+  exact), remote workflow file, dispatch-input parser on a sample, error text for a missing repo.
+- Diff parser: removed file kept (`deleted`, no ranges), new file, and `---`/`+++`-looking lines
+  inside a hunk (previously reset the file). `gh` timeout: a hung process ends at the limit.
+- Not exercised: write actions against GitHub (approve, merge, comment, issue create, rerun,
+  cancel, dispatch) and the UI in the live app window.
+
 ## Done 14: GitHub Copilot as a fourth assistant (2026-09-25)
 
 Copilot CLI 1.0.88 speaks ACP too, and filters its tools at the source:

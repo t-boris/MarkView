@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E17451009770101104827274 /* GitHubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19812821332370322777652 /* GitHubViews.swift */; };
+		E10923401475930448596842 /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16498916146422574535717 /* GitHubStore.swift */; };
+		E17358739185104628587482 /* GitHubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10110360865000248980617 /* GitHubClient.swift */; };
 		7A1C0E0F2B3D4E5F60718299 /* ACPAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0E0F2B3D4E5F6071829A /* ACPAssistant.swift */; };
 		7A1C0E0F2B3D4E5F60718297 /* CodeNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0E0F2B3D4E5F60718298 /* CodeNavigation.swift */; };
 		7A1C0E0F2B3D4E5F60718293 /* XRaySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1C0E0F2B3D4E5F60718294 /* XRaySearch.swift */; };
@@ -88,6 +91,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		E19812821332370322777652 /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
+		E16498916146422574535717 /* GitHubStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubStore.swift; sourceTree = "<group>"; };
+		E10110360865000248980617 /* GitHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubClient.swift; sourceTree = "<group>"; };
 		7A1C0E0F2B3D4E5F6071829A /* ACPAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACPAssistant.swift; sourceTree = "<group>"; };
 		7A1C0E0F2B3D4E5F60718298 /* CodeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeNavigation.swift; sourceTree = "<group>"; };
 		7A1C0E0F2B3D4E5F60718294 /* XRaySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRaySearch.swift; sourceTree = "<group>"; };
@@ -173,6 +179,8 @@
 				C28386C5074A6157C28A501E /* ArchitectureModel.swift */,
 				921A34A74571B93AEDC2B018 /* OutputLanguage.swift */,
 				E16873462855109449748792 /* GitClient.swift */,
+				E16498916146422574535717 /* GitHubStore.swift */,
+				E10110360865000248980617 /* GitHubClient.swift */,
 				E12115144200861477320559 /* WhisperClient.swift */,
 				E32222222222222222222222 /* EmbeddingClient.swift */,
 				E82222222222222222222222 /* GraphRAG.swift */,
@@ -188,6 +196,7 @@
 				BC5216E2466E79A0507BEAE8 /* ContentView.swift */,
 				E16766861391371355183012 /* AIAssistantPickerView.swift */,
 				E19706015117051627326464 /* GitView.swift */,
+				E19812821332370322777652 /* GitHubViews.swift */,
 				E16645386500824722723458 /* GraphCreatorSheet.swift */,
 				3A5536B20A2DD735F6BA815A /* EditorView.swift */,
 				26726FF62649B52BE2384159 /* FileTreeView.swift */,
@@ -384,6 +393,7 @@
 				E01111111111111111111111 /* StructuralIndexer.swift in Sources */,
 				E15707257841204075452783 /* AIAssistantPickerView.swift in Sources */,
 				E15363864145856837847001 /* GitView.swift in Sources */,
+				E17451009770101104827274 /* GitHubViews.swift in Sources */,
 				E17413308635163577843479 /* GraphCreatorSheet.swift in Sources */,
 				E13834677324410788145575 /* AIAssistants.swift in Sources */,
 				0D1D29948BB284ED1EDFEFDA /* CLICompletion.swift in Sources */,
@@ -404,6 +414,8 @@
 				88FE4C2C745049B2FB5E8220 /* ArchitectureModel.swift in Sources */,
 				6048E5A3B3B555A7893C6C3B /* OutputLanguage.swift in Sources */,
 				E12543631103902005656115 /* GitClient.swift in Sources */,
+				E10923401475930448596842 /* GitHubStore.swift in Sources */,
+				E17358739185104628587482 /* GitHubClient.swift in Sources */,
 				E11726806662746062743866 /* WhisperClient.swift in Sources */,
 				E21111111111111111111111 /* ModuleExplorerView.swift in Sources */,
 				A7D1F2C3B4E5968778695A14 /* TerminalView.swift in Sources */,
@@ -455,7 +467,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1.32.0;
+				CURRENT_PROJECT_VERSION = 1.33.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -470,7 +482,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.32.0;
+				MARKETING_VERSION = 1.33.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -534,7 +546,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1.32.0;
+				CURRENT_PROJECT_VERSION = 1.33.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -555,7 +567,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.32.0;
+				MARKETING_VERSION = 1.33.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

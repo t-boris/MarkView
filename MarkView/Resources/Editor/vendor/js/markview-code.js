@@ -633,6 +633,7 @@
                 pr.removed.forEach(function(r) {
                     marked.push({ start: r[0], end: r[0], level: 'removed', title: r[1] + (r[1] === 1 ? ' line' : ' lines') + ' removed' });
                 });
+                if (pr.deletedLines) marked.push({ start: 1, end: pr.deletedLines, level: 'removed', title: 'Removed by this change' });
                 pr.changes.forEach(function(change) {
                     const color = levelColors[change.kind] || levelColors.changed;
                     const span = document.createElement('div'); span.className = 'code-note-span';
@@ -685,6 +686,11 @@
                 if (pr.summary) {
                     const p = document.createElement('div'); p.className = 'code-pr-summary'; p.textContent = pr.summary;
                     legend.appendChild(p);
+                }
+                if (pr.deletedLines) {
+                    const gone = document.createElement('div'); gone.className = 'code-pr-summary code-pr-note';
+                    gone.textContent = 'This change removes the file; it is shown as it was before.';
+                    legend.appendChild(gone);
                 }
                 if (pr.remapped || pr.reviewOutdated) {
                     const note = document.createElement('div'); note.className = 'code-pr-summary code-pr-note';

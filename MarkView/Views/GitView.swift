@@ -7,6 +7,15 @@ struct GitView: View {
     @State private var commitMessage = ""
     @State private var selectedFile: String?
     @State private var diffText = ""
+    /// GitHub sections, shown only when the integration is on and the folder is on GitHub.
+    @ObservedObject var gitHub: GitHubStore
+    @AppStorage("layout.gitSection") private var section = GitSection.changes
+
+    init(git: GitClient, workspaceManager: WorkspaceManager) {
+        self.git = git
+        self.workspaceManager = workspaceManager
+        self.gitHub = workspaceManager.gitHub
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,6 +25,27 @@ struct GitView: View {
                 // Branch header
                 branchHeader
 
+                if gitHub.isAvailable {
+                    GitHubSectionPicker(gitHub: gitHub, section: $section)
+                    Divider().background(VSDark.border)
+                    switch section {
+                    case .changes: localChanges
+                    case .pullRequests: GitHubPullRequestsView(gitHub: gitHub, workspaceManager: workspaceManager)
+                    case .issues: GitHubIssuesView(gitHub: gitHub, workspaceManager: workspaceManager)
+                    case .actions: GitHubActionsView(gitHub: gitHub, workspaceManager: workspaceManager)
+                    }
+                } else {
+                    localChanges
+                }
+            }
+        }
+        .background(VSDark.bgSidebar)
+        .onAppear { Task { await git.refresh() } }
+    }
+
+    /// Changes, diff, commit and history — the Git tab without GitHub.
+    @ViewBuilder
+    private var localChanges: some View {
                 // Changed files
                 changedFilesView
 
@@ -33,10 +63,6 @@ struct GitView: View {
 
                 // History
                 historyView
-            }
-        }
-        .background(VSDark.bgSidebar)
-        .onAppear { Task { await git.refresh() } }
     }
 
     // MARK: - No Repo
@@ -60,6 +86,12 @@ struct GitView: View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.branch").font(.system(size: 10)).foregroundColor(VSDark.blue)
             Text(git.branch).font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.text)
+            if gitHub.isAvailable {
+                GitHubBranchStatus(gitHub: gitHub) {
+                    gitHub.runBranch = git.branch
+                    section = .actions
+                }
+            }
             Spacer()
             if git.isOperating {
                 ProgressView().scaleEffect(0.4)

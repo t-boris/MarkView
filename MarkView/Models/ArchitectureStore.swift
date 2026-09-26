@@ -106,6 +106,8 @@ final class ArchitectureStore: ObservableObject {
         /// The AI's one-paragraph reading of this file's change.
         var changeSummary: String?
         var explaining: Bool?
+        /// The change removes the file (it opens as it was before).
+        var deleted: Bool?
     }
 
     /// One change inside a changed file.
@@ -127,6 +129,39 @@ final class ArchitectureStore: ObservableObject {
         /// info | warning | bug
         var severity: String
         var message: String
+        /// The AI's explanation of the finding (streamed), and whether it is being written.
+        var explanation: String?
+        var explaining: Bool?
+        /// Hidden by the reviewer as not a real problem.
+        var dismissed: Bool?
+        /// Posted to the pull request as a line comment.
+        var commented: Bool?
+        /// Link of the issue created from it.
+        var issueURL: String?
+    }
+
+    /// The pull request on GitHub behind a "gh:<n>" change: its state, checks and review.
+    struct PRInfo: Codable {
+        var number: Int
+        var url: String
+        var state: String
+        var isDraft: Bool
+        var author: String
+        var head: String
+        var base: String
+        /// APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | ""
+        var reviewDecision: String
+        var checksPassed: Int
+        var checksFailed: Int
+        var checksTotal: Int
+        /// MERGEABLE | CONFLICTING | UNKNOWN
+        var mergeable: String
+        var headOid: String
+        /// An action on the pull request is running (approve, merge…).
+        var busy: Bool?
+        /// Result of the last action, shown under the header, and whether it succeeded.
+        var message: String?
+        var ok: Bool?
     }
 
     /// A link between project files the change adds or removes.
@@ -163,6 +198,8 @@ final class ArchitectureStore: ObservableObject {
         var chat: [PRChat] = []
         /// The code changed after the review and analysis shown (reloaded automatically).
         var reviewOutdated: Bool?
+        /// The pull request on GitHub (nil for local changes).
+        var info: PRInfo?
     }
 
     struct PRFileDiff: Codable {
@@ -190,6 +227,15 @@ final class ArchitectureStore: ObservableObject {
     private var prRoot: URL?
     /// The fetched pull request being shown (nil for local changes or when not fetchable).
     private var prCheckout: PRCheckout?
+    /// Commit the shown change starts from (the old side of its diff): removed files open
+    /// in this version.
+    private var prBase: String?
+    /// The GitHub repository this window's integration selected (nil when it is off): its
+    /// pull requests are listed and fetched. Without it `gh` picks the repository itself.
+    var gitHubRepo: GitHubRepo?
+    /// The repository the shown pull request was loaded from — its actions go there, even
+    /// when the Git tab selects another repository afterwards.
+    private var prRepo: GitHubRepo?
     private var prReloadedAt = Date.distantPast
 
     func reset() {
@@ -1504,7 +1550,8 @@ final class ArchitectureStore: ObservableObject {
 
     func refreshPRSources(root: URL) {
         Task {
-            let sources = await Task.detached { Self.listPRSources(root: root) }.value
+            let repo = gitHubRepo
+            let sources = await Task.detached { Self.listPRSources(root: root, repo: repo) }.value
             prSources = sources
             revision += 1
             if selectDefaultSource {
@@ -1516,7 +1563,7 @@ final class ArchitectureStore: ObservableObject {
         }
     }
 
-    nonisolated private static func listPRSources(root: URL) -> [PRSource] {
+    nonisolated private static func listPRSources(root: URL, repo: GitHubRepo?) -> [PRSource] {
         guard ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--is-inside-work-tree"]) != nil else {
             return []
         }
@@ -1531,7 +1578,7 @@ final class ArchitectureStore: ObservableObject {
         // queries: with one, old open ones fall outside the limit behind recent merges).
         var prs: [[String: Any]] = []
         for (state, limit) in [("open", "50"), ("closed", "30")] {
-            if let json = runGH(["pr", "list", "--state", state, "--limit", limit, "--json", "number,title,state"], root: root),
+            if let json = runGH(["pr", "list", "--state", state, "--limit", limit, "--json", "number,title,state"], root: root, repo: repo),
                let data = json.data(using: .utf8),
                let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 prs += list
@@ -1569,13 +1616,18 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// `gh` with the same PATH the AI CLIs get (Homebrew and friends).
-    nonisolated private static func runGH(_ arguments: [String], root: URL) -> String? {
+    nonisolated private static func runGH(_ arguments: [String], root: URL, repo: GitHubRepo? = nil) -> String? {
         let path = CLIToolLocator.subprocessPath(toolPath: nil)
         let directory = path.split(separator: ":").map(String.init)
             .first { FileManager.default.isExecutableFile(atPath: $0 + "/gh") }
         guard let directory else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: directory + "/gh")
+        // Pull requests of the repository chosen in the Git tab (origin or upstream).
+        var arguments = arguments
+        if arguments.first == "pr", arguments.count >= 2, let repo {
+            arguments.insert(contentsOf: ["-R", repo.slug], at: 2)
+        }
         process.arguments = arguments
         process.currentDirectoryURL = root
         var env = ProcessInfo.processInfo.environment
@@ -1590,7 +1642,7 @@ final class ArchitectureStore: ObservableObject {
         return process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
     }
 
-    nonisolated private static func diff(for source: PRSource, root: URL) -> String? {
+    nonisolated private static func diff(for source: PRSource, root: URL, repo: GitHubRepo?) -> String? {
         switch source.id {
         case "local":
             guard let base = baseBranch(root: root),
@@ -1602,12 +1654,12 @@ final class ArchitectureStore: ObservableObject {
         default:
             guard source.id.hasPrefix("gh:") else { return nil }
             let number = String(source.id.dropFirst(3))
-            if let checkout = fetchPR(number: number, root: root),
+            if let checkout = fetchPR(number: number, root: root, repo: repo),
                let diff = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", checkout.mergeBase, checkout.head, "--no-color", "-U3"]) {
                 return diff
             }
             // Not fetchable (offline, no access): GitHub's diff; files are then the local ones.
-            return runGH(["pr", "diff", number, "--color", "never"], root: root)
+            return runGH(["pr", "diff", number, "--color", "never"], root: root, repo: repo)
         }
     }
 
@@ -1620,50 +1672,78 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// Fetch pull request `number` (`pull/<n>/head`) and its base branch, unless already here.
-    nonisolated static func fetchPR(number: String, root: URL) -> PRCheckout? {
-        guard let json = runGH(["pr", "view", number, "--json", "headRefOid,baseRefName"], root: root),
+    nonisolated static func fetchPR(number: String, root: URL, repo: GitHubRepo?) -> PRCheckout? {
+        guard let json = runGH(["pr", "view", number, "--json", "headRefOid,baseRefName"], root: root, repo: repo),
               let info = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
               let head = info["headRefOid"] as? String, let baseName = info["baseRefName"] as? String else { return nil }
         func git(_ arguments: [String]) -> String? {
             // Never wait for a password prompt that cannot be answered.
             ArchitectureScanner.runTool("/usr/bin/env", ["GIT_TERMINAL_PROMPT=0", "git", "-C", root.path] + arguments)
         }
+        // The remote of the repository the pull request belongs to (a name, or a URL for a
+        // fork's parent without an `upstream` remote).
+        let remote = repo?.remote ?? "origin"
         if git(["cat-file", "-e", head + "^{commit}"]) == nil {
-            _ = git(["fetch", "--no-tags", "--quiet", "origin", "pull/\(number)/head"])
+            _ = git(["fetch", "--no-tags", "--quiet", remote, "pull/\(number)/head"])
             guard git(["cat-file", "-e", head + "^{commit}"]) != nil else { return nil }
         }
-        _ = git(["fetch", "--no-tags", "--quiet", "origin", baseName])
-        guard let mergeBase = git(["merge-base", "origin/" + baseName, head])?.trimmingCharacters(in: .whitespacesAndNewlines),
+        _ = git(["fetch", "--no-tags", "--quiet", remote, baseName])
+        let baseRef = remote.contains("/") ? "FETCH_HEAD" : remote + "/" + baseName
+        guard let mergeBase = git(["merge-base", baseRef, head])?.trimmingCharacters(in: .whitespacesAndNewlines),
               !mergeBase.isEmpty else { return nil }
         return PRCheckout(number: number, head: head, mergeBase: mergeBase)
     }
 
-    /// The pull request's version of `path`, written to MarkView's cache so the viewer
-    /// shows the code under review (not the working copy). Nil for local changes.
+    /// The change's version of `path`, written to MarkView's cache so the viewer shows the
+    /// code under review (not the working copy): a fetched pull request's head, or — for a
+    /// file the change removes — the version before it. Nil when the working copy is it.
     func prFileURL(path: String) -> URL? {
-        guard let checkout = prCheckout, let root = prRoot,
-              !path.split(separator: "/").contains("..") else { return nil }
-        let base = Self.prCacheRoot(root: root, checkout: checkout)
-        let file = base.appendingPathComponent(path)
+        guard let root = prRoot, !path.split(separator: "/").contains("..") else { return nil }
+        let commit: String
+        let cache: URL
+        if prOverlay?.files.first(where: { $0.path == path })?.deleted == true, let base = prBase {
+            commit = base
+            cache = Self.prCacheRoot(root: root, label: "base-" + base.prefix(10))
+        } else if let checkout = prCheckout {
+            commit = checkout.head
+            cache = Self.prCacheRoot(root: root, label: "PR-\(checkout.number)-\(checkout.head.prefix(10))")
+        } else {
+            return nil
+        }
+        let file = cache.appendingPathComponent(path)
         if FileManager.default.fileExists(atPath: file.path) { return file }
-        guard let text = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "show", "\(checkout.head):\(path)"]) else { return nil }
+        guard let text = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "show", "\(commit):\(path)"]) else { return nil }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
         return file
     }
 
-    /// Project-relative path of a file shown from the fetched pull request, else nil.
+    /// Project-relative path of a file shown from the change's cache (see `prFileURL`), else nil.
     func prRelativePath(for url: URL) -> String? {
-        guard let checkout = prCheckout, let root = prRoot else { return nil }
-        let base = Self.prCacheRoot(root: root, checkout: checkout).standardizedFileURL.path + "/"
+        guard let root = prRoot else { return nil }
+        var labels: [String] = []
+        if let checkout = prCheckout { labels.append("PR-\(checkout.number)-\(checkout.head.prefix(10))") }
+        if let base = prBase { labels.append("base-" + base.prefix(10)) }
         let path = url.standardizedFileURL.path
-        return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : nil
+        for label in labels {
+            let base = Self.prCacheRoot(root: root, label: label).standardizedFileURL.path + "/"
+            if path.hasPrefix(base) { return String(path.dropFirst(base.count)) }
+        }
+        return nil
     }
 
-    nonisolated private static func prCacheRoot(root: URL, checkout: PRCheckout) -> URL {
+    nonisolated private static func prCacheRoot(root: URL, label: String) -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let repo = String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
-        return caches.appendingPathComponent("MarkView/pull-requests/\(repo)/PR-\(checkout.number)-\(checkout.head.prefix(10))", isDirectory: true)
+        return caches.appendingPathComponent("MarkView/pull-requests/\(repo)/\(label)", isDirectory: true)
+    }
+
+    /// Where this checkout's changes start: the merge base of the base branch and HEAD.
+    nonisolated private static func localMergeBase(root: URL) -> String? {
+        guard let base = baseBranch(root: root),
+              let mergeBase = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "merge-base", base, "HEAD"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !mergeBase.isEmpty else { return nil }
+        return mergeBase
     }
 
     /// New files git does not track yet, as additions (text files up to 512 KB, at most 200).
@@ -1708,8 +1788,9 @@ final class ArchitectureStore: ObservableObject {
         var current: PRFileChange?
         var newLine = 0
         var rangeStart: Int?
+        var oldPath: String?
         func closeRange(_ end: Int) {
-            if let start = rangeStart, current != nil { current!.ranges.append([start, max(start, end)]) }
+            if let start = rangeStart, current != nil, current!.deleted != true { current!.ranges.append([start, max(start, end)]) }
             rangeStart = nil
         }
         for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -1717,11 +1798,18 @@ final class ArchitectureStore: ObservableObject {
                 closeRange(newLine - 1)
                 if let file = current { files.append(file) }
                 current = nil
-            } else if line.hasPrefix("+++ ") {
+                oldPath = nil
+            } else if line.hasPrefix("--- ") && current == nil {
+                let path = String(line.dropFirst(4))
+                oldPath = path == "/dev/null" ? nil : (path.hasPrefix("a/") ? String(path.dropFirst(2)) : path)
+            } else if line.hasPrefix("+++ ") && current == nil {
                 let path = String(line.dropFirst(4))
                 if path != "/dev/null" {
                     current = PRFileChange(path: path.hasPrefix("b/") ? String(path.dropFirst(2)) : path,
                                            additions: 0, deletions: 0, ranges: [])
+                } else if let oldPath {
+                    // A removed file: kept, so it shows in the X-Ray and opens as it was.
+                    current = PRFileChange(path: oldPath, additions: 0, deletions: 0, ranges: [], deleted: true)
                 }
             } else if line.hasPrefix("@@") {
                 closeRange(newLine - 1)
@@ -1749,7 +1837,10 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// Show which files a change touches (no AI).
-    func showPR(_ sourceId: String, root: URL) {
+    /// Set by "Review" on a pull request: start the AI review as soon as it is loaded.
+    var reviewWhenLoaded = false
+
+    func showPR(_ sourceId: String, root: URL, db: SemanticDatabase? = nil) {
         // Any pull request by number, also one not in the list (older, merged, closed).
         if sourceId.hasPrefix("gh:"), !prSources.contains(where: { $0.id == sourceId }), Int(sourceId.dropFirst(3)) != nil {
             prSources.append(PRSource(id: sourceId, title: "#" + sourceId.dropFirst(3)))
@@ -1761,7 +1852,8 @@ final class ArchitectureStore: ObservableObject {
         }
         error = nil
         Task {
-            guard await loadPR(source, root: root) else { return }
+            guard await loadPR(source, root: root) else { reviewWhenLoaded = false; return }
+            if reviewWhenLoaded { reviewWhenLoaded = false; reviewPR(root: root, db: db) }
             if analyzeWhenLoaded { analyzeWhenLoaded = false; analyzePR(root: root, db: nil) }
         }
     }
@@ -1772,9 +1864,12 @@ final class ArchitectureStore: ObservableObject {
     private func loadPR(_ source: PRSource, root: URL, keepReview: Bool = false) async -> Bool {
         prRoot = root
         setStatus("Loading \(source.title)…")
-        let (diff, checkout) = await Task.detached { () -> (String?, PRCheckout?) in
-            let checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root) : nil
-            return (Self.diff(for: source, root: root), checkout)
+        // A reload keeps the repository the pull request came from.
+        let repo = prOverlay?.source.id == source.id && prRepo != nil ? prRepo : gitHubRepo
+        let (diff, checkout, base) = await Task.detached { () -> (String?, PRCheckout?, String?) in
+            let checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo) : nil
+            let base = checkout?.mergeBase ?? (source.id == "local" ? Self.localMergeBase(root: root) : nil)
+            return (Self.diff(for: source, root: root, repo: repo), checkout, base)
         }.value
         guard let diff else {
             error = source.id.hasPrefix("gh:")
@@ -1784,6 +1879,8 @@ final class ArchitectureStore: ObservableObject {
             return false
         }
         prCheckout = checkout
+        prBase = base
+        prRepo = source.id.hasPrefix("gh:") ? repo : nil
         let files = snapshot?.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
         let dependencies = await Task.detached { () -> [PRDependency] in
             ArchitectureScanner.dependencyChanges(lines: Self.diffLines(diff), projectFiles: files)
@@ -1811,8 +1908,10 @@ final class ArchitectureStore: ObservableObject {
             if changed && (previous.reviewed || previous.analysis != nil) { overlay.reviewOutdated = true }
             else { overlay.reviewOutdated = previous.reviewOutdated }
         }
+        if let previous, previous.info != nil { overlay.info = previous.info }
         prOverlay = overlay
         setStatus(nil)
+        if source.id.hasPrefix("gh:"), let number = Int(source.id.dropFirst(3)) { loadPRInfo(number, root: root) }
         return true
     }
 
@@ -1835,7 +1934,7 @@ final class ArchitectureStore: ObservableObject {
         guard let overlay = prOverlay else { return nil }
         var bugs: [String] = [], warnings: [String] = [], notes: [String] = []
         for file in overlay.files {
-            for finding in file.findings ?? [] {
+            for finding in file.findings ?? [] where finding.dismissed != true {
                 let line = "- [ ] \(file.path)\(finding.line > 0 ? ":\(finding.line)" : "") — \(finding.message)"
                 switch finding.severity {
                 case "bug": bugs.append(line)
@@ -1925,6 +2024,8 @@ final class ArchitectureStore: ObservableObject {
         /// Identifies the diff (a new one needs a new explanation).
         var diffKey: String
         var reviewOutdated: Bool
+        /// The change removes the file: all of its lines (shown as it was).
+        var deletedLines: Int?
     }
 
     /// New-file line numbers of a diff → lines of the file as it is now, matched by
@@ -2015,6 +2116,22 @@ final class ArchitectureStore: ObservableObject {
         guard let overlay = prOverlay.map(withChangeNotes),
               let file = overlay.files.first(where: { $0.path == path }) else { return nil }
         let diff = prFileDiffs[path] ?? ""
+        if file.deleted == true {
+            // The whole file goes: every change is about the old text, from its first line.
+            let lines = diff.split(separator: "\n", omittingEmptySubsequences: false)
+            let body = lines.drop { !$0.hasPrefix("@@") }   // skip the file header ("--- a/…")
+            let removedLines = body.filter { $0.hasPrefix("-") }.map(String.init)
+            let count = max(content.editorLines.count, 1)
+            let changes = (file.changes ?? []).map {
+                PRFileNotes.Change(title: $0.title, start: 1, end: count, kind: $0.kind ?? "removed", why: $0.why,
+                                   diff: Array(removedLines.prefix(60)))
+            }
+            return PRFileNotes(title: overlay.source.title, summary: file.changeSummary, explaining: file.explaining == true,
+                               explained: file.changeSummary != nil, additions: 0, deletions: file.deletions,
+                               changes: changes, added: [], removed: [], focus: prFocusPaths.contains(path),
+                               remapped: false, diffKey: String(ContentHash.of(diff).prefix(12)),
+                               reviewOutdated: overlay.reviewOutdated == true, deletedLines: count)
+        }
         let map = Self.lineMap(diff: diff, current: content)
         // Local changes moved on (new commits, edits): read them again, at most every 10 s.
         if !map.inSync, overlay.source.id == "local", let root = prRoot,
@@ -2063,7 +2180,8 @@ final class ArchitectureStore: ObservableObject {
                            explained: file.changeSummary != nil, additions: file.additions, deletions: file.deletions,
                            changes: changes, added: current, removed: removed.map { [map.line($0[0]), $0[1]] },
                            focus: prFocusPaths.contains(path), remapped: !map.inSync,
-                           diffKey: String(ContentHash.of(diff).prefix(12)), reviewOutdated: overlay.reviewOutdated == true)
+                           diffKey: String(ContentHash.of(diff).prefix(12)), reviewOutdated: overlay.reviewOutdated == true,
+                           deletedLines: nil)
     }
 
     private func explanationKey(_ source: PRSource, _ path: String) -> String {
@@ -2351,7 +2469,8 @@ final class ArchitectureStore: ObservableObject {
         Task {
             defer { prOverlay?.analyzing = nil; revision += 1; setStatus(nil) }
             setStatus("Analysing \(source.title)…")
-            let diff = await Task.detached { Self.diff(for: source, root: root) }.value ?? ""
+            let repo = prRepo ?? gitHubRepo
+            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo) }.value ?? ""
             // Which component each changed file belongs to, from the X-Ray.
             let fileNodes = Dictionary((current?.view("modules")?.nodes ?? []).filter { $0.kind == "file" }
                 .compactMap { node in node.path.map { ($0, node) } }, uniquingKeysWith: { a, _ in a })
@@ -2464,11 +2583,14 @@ final class ArchitectureStore: ObservableObject {
         Task {
             defer { busy = false }
             setStatus("Reviewing \(source.title)…")
-            let diff = await Task.detached { Self.diff(for: source, root: root) }.value ?? ""
+            let repo = prRepo ?? gitHubRepo
+            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo) }.value ?? ""
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
+            reviewKey = (key, db)
             if !fresh, let cached = db?.loadArchitectureReview(key: key),
                let data = cached.data(using: .utf8),
-               let reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
+               var reviewed = try? JSONDecoder().decode(PROverlay.self, from: data) {
+                reviewed.info = prOverlay?.info
                 prOverlay = reviewed
                 setStatus(nil)
                 return
@@ -2550,6 +2672,222 @@ final class ArchitectureStore: ObservableObject {
                 self.error = "Review failed: \(error.localizedDescription)"
             }
             setStatus(nil)
+        }
+    }
+
+    // MARK: - Pull request on GitHub: header and finding actions
+
+    /// Cache key of the review shown, to save the reviewer's marks on its findings.
+    private var reviewKey: (key: String, db: SemanticDatabase?)?
+
+    private func saveReviewMarks() {
+        guard let (key, db) = reviewKey, var overlay = prOverlay, overlay.reviewed else { return }
+        // Only what lasts: no work in progress, no GitHub state (loaded fresh each time).
+        overlay.info = nil
+        overlay.analyzing = nil
+        overlay.fileDiff = nil
+        for f in overlay.files.indices {
+            overlay.files[f].explaining = nil
+            for i in (overlay.files[f].findings ?? []).indices { overlay.files[f].findings?[i].explaining = nil }
+        }
+        guard let data = try? JSONEncoder().encode(overlay) else { return }
+        db?.saveArchitectureReview(key: key, json: String(decoding: data, as: UTF8.self))
+    }
+
+    /// The shown pull request's repository; for local changes, the selected one (issues).
+    private func githubClient(root: URL) -> GitHubClient? {
+        (prRepo ?? gitHubRepo).map { GitHubClient(root: root, repo: $0) }
+    }
+
+    /// The pull request number of the change shown, when it is one on GitHub.
+    var shownPRNumber: Int? {
+        guard let id = prOverlay?.source.id, id.hasPrefix("gh:") else { return nil }
+        return Int(id.dropFirst(3))
+    }
+
+    /// State, checks and review decision of pull request `number`, for the panel's header.
+    func loadPRInfo(_ number: Int, root: URL) {
+        guard let client = githubClient(root: root) else { return }
+        Task {
+            guard let pr = try? await client.pullRequest(number), shownPRNumber == number else { return }
+            let checks = pr.checks
+            let info = PRInfo(number: number, url: pr.url, state: pr.state, isDraft: pr.isDraft ?? false,
+                              author: pr.author?.login ?? "", head: pr.headRefName, base: pr.baseRefName,
+                              reviewDecision: pr.reviewDecision ?? "", checksPassed: pr.passedChecks,
+                              checksFailed: checks.filter { $0.outcome == .failure }.count, checksTotal: checks.count,
+                              mergeable: pr.mergeable ?? "UNKNOWN", headOid: pr.headRefOid ?? prCheckout?.head ?? "",
+                              busy: nil, message: prOverlay?.info?.message, ok: prOverlay?.info?.ok)
+            prOverlay?.info = info
+            revision += 1
+        }
+    }
+
+    /// Approve, request changes, comment, merge or close the pull request shown.
+    func prAction(_ action: String, body: String, method: String, root: URL) {
+        guard let number = shownPRNumber, let client = githubClient(root: root), prOverlay?.info?.busy != true else { return }
+        prOverlay?.info?.busy = true
+        prOverlay?.info?.message = nil
+        prOverlay?.info?.ok = nil
+        revision += 1
+        Task {
+            var message: String
+            var ok = true
+            do {
+                switch action {
+                case "approve":
+                    try await client.review(number, action: "approve", body: body); message = "Approved."
+                case "requestChanges":
+                    try await client.review(number, action: "request-changes", body: body); message = "Changes requested."
+                case "comment":
+                    try await client.commentPR(number, body: body); message = "Comment posted."
+                case "merge":
+                    try await client.merge(number, method: method); message = "Merged (\(method))."
+                case "close":
+                    try await client.closePR(number); message = "Closed."
+                default: message = ""
+                }
+            } catch { message = error.localizedDescription; ok = false }
+            guard shownPRNumber == number else { return }
+            prOverlay?.info?.busy = nil
+            prOverlay?.info?.message = message
+            prOverlay?.info?.ok = ok
+            revision += 1
+            loadPRInfo(number, root: root)
+        }
+    }
+
+    private func findingIndex(path: String, index: Int) -> (Int, Int)? {
+        guard let f = prOverlay?.files.firstIndex(where: { $0.path == path }),
+              let findings = prOverlay?.files[f].findings, findings.indices.contains(index) else { return nil }
+        return (f, index)
+    }
+
+    /// The prompt that asks the AI terminal to fix one finding.
+    func findingFixPrompt(path: String, index: Int) -> String? {
+        guard let (f, i) = findingIndex(path: path, index: index), let overlay = prOverlay,
+              let finding = overlay.files[f].findings?[i] else { return nil }
+        var prompt = "Fix this problem found by the review of \(overlay.source.title):\n\n"
+        prompt += "\(path)\(finding.line > 0 ? ":\(finding.line)" : "") (\(finding.severity)) — \(finding.message)\n"
+        if let explanation = finding.explanation, !explanation.isEmpty { prompt += "\nExplanation:\n\(explanation)\n" }
+        prompt += "\nCheck that it is a real problem first; if it is not, say why and change nothing. Keep the fix focused."
+        return prompt
+    }
+
+    func dismissFinding(path: String, index: Int) {
+        guard let (f, i) = findingIndex(path: path, index: index) else { return }
+        let dismissed = prOverlay?.files[f].findings?[i].dismissed == true
+        prOverlay?.files[f].findings?[i].dismissed = dismissed ? nil : true
+        revision += 1
+        saveReviewMarks()
+    }
+
+    private func updateFinding(source: String, path: String, index: Int, _ change: (inout PRFinding) -> Void) {
+        guard prOverlay?.source.id == source, let (f, i) = findingIndex(path: path, index: index),
+              var finding = prOverlay?.files[f].findings?[i] else { return }
+        change(&finding)
+        prOverlay?.files[f].findings?[i] = finding
+    }
+
+    /// Explain one finding inline: why it is a problem and how to fix it (streamed).
+    func explainFinding(path: String, index: Int, db: SemanticDatabase?) {
+        guard let (f, i) = findingIndex(path: path, index: index), let overlay = prOverlay,
+              let finding = overlay.files[f].findings?[i], finding.explaining != true else { return }
+        prOverlay?.files[f].findings?[i].explaining = true
+        prOverlay?.files[f].findings?[i].explanation = ""
+        revision += 1
+        let diff = prFileDiffs[path] ?? ""
+        let clipped = diff.count > 60_000 ? String(diff.prefix(60_000)) + "\n[diff truncated]" : diff
+        var request = CLICompletion.Request(
+            prompt: "Change: \(overlay.source.title)\nFinding in \(path) line \(finding.line) (\(finding.severity)): \(finding.message)\n\n```diff\n\(clipped)\n```",
+            systemPrompt: """
+            You are a senior engineer explaining one code review finding to the author. Say concretely why it is \
+            (or is not) a problem, what input or situation triggers it, and the smallest fix, quoting the code. \
+            Short paragraphs or bullets; plain text, no headings.
+            """ + "\n\n" + ActionOutputLanguage.explanationLine())
+        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.effort = "low"
+        request.timeout = 300
+        let source = overlay.source.id
+        Task {
+            var streamed = ""
+            var pendingRefresh = false
+            do {
+                let result = try await CLICompletion.run(request, onDelta: { text in
+                    Task { @MainActor in
+                        streamed += text
+                        self.updateFinding(source: source, path: path, index: index) { $0.explanation = streamed }
+                        guard !pendingRefresh else { return }
+                        pendingRefresh = true
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        pendingRefresh = false
+                        self.revision += 1
+                    }
+                })
+                result.record(in: db)
+                let text = result.text.isEmpty ? streamed : result.text
+                updateFinding(source: source, path: path, index: index) { $0.explanation = text }
+            } catch is CancellationError {
+            } catch {
+                let message = "Failed: \(error.localizedDescription)"
+                updateFinding(source: source, path: path, index: index) { $0.explanation = message }
+            }
+            updateFinding(source: source, path: path, index: index) { $0.explaining = nil }
+            revision += 1
+            saveReviewMarks()
+        }
+    }
+
+    /// Post a finding to the pull request as a comment on its line.
+    func commentFinding(path: String, index: Int, root: URL) {
+        guard let number = shownPRNumber, let client = githubClient(root: root),
+              let (f, i) = findingIndex(path: path, index: index), let finding = prOverlay?.files[f].findings?[i],
+              let commit = prOverlay?.info?.headOid ?? prCheckout?.head, !commit.isEmpty else {
+            error = "Only a pull request fetched from GitHub can get line comments."
+            revision += 1
+            return
+        }
+        var body = "**\(finding.severity.capitalized):** \(finding.message)"
+        if let explanation = finding.explanation, !explanation.isEmpty { body += "\n\n" + explanation }
+        let source = prOverlay?.source.id ?? ""
+        Task {
+            do {
+                if finding.line > 0 {
+                    try await client.lineComment(number, commit: commit, path: path, line: finding.line, body: body)
+                } else {
+                    try await client.commentPR(number, body: "`\(path)`: " + body)
+                }
+                updateFinding(source: source, path: path, index: index) { $0.commented = true }
+                saveReviewMarks()
+            } catch {
+                self.error = "Comment failed: \(error.localizedDescription)"
+            }
+            revision += 1
+        }
+    }
+
+    /// Create a GitHub issue from a finding.
+    func issueFromFinding(path: String, index: Int, root: URL) {
+        guard let client = githubClient(root: root), let overlay = prOverlay,
+              let (f, i) = findingIndex(path: path, index: index), let finding = overlay.files[f].findings?[i] else {
+            error = "No GitHub repository for this folder."
+            revision += 1
+            return
+        }
+        let title = String(finding.message.prefix(90))
+        var body = "Found by the review of \(overlay.source.title)"
+        if let url = overlay.info?.url { body += " (\(url))" }
+        body += ".\n\n`\(path)\(finding.line > 0 ? ":\(finding.line)" : "")` — \(finding.severity)\n\n\(finding.message)"
+        if let explanation = finding.explanation, !explanation.isEmpty { body += "\n\n" + explanation }
+        let source = overlay.source.id
+        Task {
+            do {
+                let url = try await client.createIssue(title: title, body: body)
+                updateFinding(source: source, path: path, index: index) { $0.issueURL = url }
+                saveReviewMarks()
+            } catch {
+                self.error = "Issue failed: \(error.localizedDescription)"
+            }
+            revision += 1
         }
     }
 

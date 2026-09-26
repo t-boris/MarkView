@@ -140,9 +140,38 @@ enum TabKind {
     case terminal(UUID)
     /// An image file, shown by `ImageViewerView` (no text content).
     case image
+    /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
+    case github(GitHubItem)
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
+}
+
+/// What a GitHub tab shows, in which repository ("owner/name"); `title` is the tab's name.
+enum GitHubItem: Hashable {
+    case run(id: Int, repo: String, title: String)
+    case issue(number: Int, repo: String, title: String)
+
+    var title: String {
+        switch self {
+        case .run(_, _, let title), .issue(_, _, let title): return title
+        }
+    }
+
+    var repo: String {
+        switch self {
+        case .run(_, let repo, _), .issue(_, let repo, _): return repo
+        }
+    }
+
+    /// Placeholder file name of the tab (never read or written).
+    var marker: String {
+        let repo = self.repo.replacingOccurrences(of: "/", with: "-")
+        switch self {
+        case .run(let id, _, _): return ".markview-github-\(repo)-run-\(id)"
+        case .issue(let number, _, _): return ".markview-github-\(repo)-issue-\(number)"
+        }
+    }
 }
 
 /// Represents an open tab with its associated file and state
@@ -168,6 +197,7 @@ struct OpenTab: Identifiable {
     /// The display name for the tab (file name)
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
+        if case .github(let item) = kind { return item.title }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }
             return scope.isEmpty ? "X-Ray" : "X-Ray: " + (scope as NSString).lastPathComponent

@@ -321,6 +321,8 @@ class WorkspaceManager: ObservableObject {
     @Published var incrementalCompiler: IncrementalCompiler?
     @Published var embeddingClient = EmbeddingClient()
     @Published var gitClient = GitClient()
+    /// Pull requests, issues and Actions of the folder's GitHub repository.
+    let gitHub = GitHubStore()
     /// Where the AI terminal starts: the open folder, or a single file's folder.
     @Published private(set) var aiWorkspaceRoot: URL?
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
@@ -519,6 +521,7 @@ class WorkspaceManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 100_000_000)
 
             gitClient.setup(at: url)
+            setUpGitHub(at: url)
             Self.debugLog("initDDE: git setup done")
 
             // Load cached diagrams and analysis results from database
@@ -1063,7 +1066,7 @@ class WorkspaceManager: ObservableObject {
         if let source, !source.isEmpty {
             architecture.refreshPRSources(root: root)
             architecture.analyzeWhenLoaded = true
-            architecture.showPR(source, root: root)
+            architecture.showPR(source, root: root, db: semanticDatabase)
         } else {
             // Nothing chosen yet: everything on this branch vs main, uncommitted included.
             architecture.selectDefaultSource = true
@@ -1178,6 +1181,41 @@ class WorkspaceManager: ObservableObject {
             }
         case "refreshPRSources":
             architecture.refreshPRSources(root: root)
+        case "prAction":
+            // op: approve | requestChanges | comment | merge | close; method: merge | squash | rebase.
+            let op = payload["op"] as? String ?? ""
+            let method = payload["method"] as? String ?? "squash"
+            guard ["approve", "requestChanges", "comment", "merge", "close"].contains(op),
+                  GitHubClient.mergeMethods.contains(method) else { return }
+            architecture.prAction(op, body: payload["body"] as? String ?? "", method: method, root: root)
+        case "prFindingFix", "prFixAll":
+            let prompt = action == "prFixAll"
+                ? architecture.prTasksText()
+                : architecture.findingFixPrompt(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
+            guard let prompt else { return }
+            let number = architecture.shownPRNumber
+            Task {
+                if let error = await fixInPullRequest(number, prompt: prompt) {
+                    let alert = NSAlert()
+                    alert.messageText = "Cannot fix in the pull request"
+                    alert.informativeText = error
+                    alert.runModal()
+                }
+            }
+        case "prFindingExplain":
+            architecture.explainFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, db: semanticDatabase)
+        case "prFindingComment":
+            architecture.commentFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
+        case "prFindingIssue":
+            architecture.issueFromFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1, root: root)
+        case "prFindingDismiss":
+            architecture.dismissFinding(path: payload["path"] as? String ?? "", index: payload["index"] as? Int ?? -1)
+        case "openURL":
+            // Only GitHub links, opened in the browser.
+            if let text = payload["url"] as? String, let url = URL(string: text), url.scheme == "https",
+               url.host == "github.com" {
+                NSWorkspace.shared.open(url)
+            }
         case "setComponent":
             architecture.setComponent(path: payload["path"] as? String ?? "", component: payload["component"] as? String ?? "",
                                       db: semanticDatabase)
@@ -1365,6 +1403,8 @@ class WorkspaceManager: ObservableObject {
         codeNav.reset()
         isCodeProject = false
         gitClient.reset()
+        gitHubRoot = nil
+        gitHub.reset()
         indexingProgress = nil
         structuralIndexProgress = nil
         analysisStage = nil
@@ -3115,6 +3155,133 @@ class WorkspaceManager: ObservableObject {
         guard let session else { return }
         activeAITerminalID = session.id
         session.pasteWhenReady(prompt, submit: submit)
+    }
+
+    // MARK: - GitHub
+
+    /// Folder the GitHub integration works in (folders only, never a single file).
+    private var gitHubRoot: URL?
+
+    /// Watches the Settings switch (every window follows it).
+    private var gitHubSettingObserver: NSObjectProtocol?
+    private var gitHubWasEnabled = GitHubSettings.enabled
+
+    /// Find the folder's GitHub repository and follow the current branch's CI — only when
+    /// the integration is turned on in Settings (MarkView stays a plain viewer otherwise).
+    private func setUpGitHub(at root: URL) {
+        gitHubRoot = root
+        gitClient.onBranch = { [weak self] branch in self?.gitHub.branchChanged(branch) }
+        gitHub.onRepoChange = { [weak self] repo in self?.architecture.gitHubRepo = repo }
+        if gitHubSettingObserver == nil {
+            gitHubSettingObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, GitHubSettings.enabled != self.gitHubWasEnabled else { return }
+                    self.gitHubSettingChanged()
+                }
+            }
+        }
+        gitHubSettingChanged()
+    }
+
+    /// Start or stop the integration for the open folder, as the Settings switch says.
+    private func gitHubSettingChanged() {
+        gitHubWasEnabled = GitHubSettings.enabled
+        if GitHubSettings.enabled, let root = gitHubRoot {
+            gitHub.setup(root: root)
+            if !gitClient.branch.isEmpty { gitHub.branchChanged(gitClient.branch) }
+        } else {
+            gitHub.reset()
+        }
+    }
+
+    /// Open (or switch to) the editor tab of a workflow run or an issue.
+    func openGitHubTab(_ item: GitHubItem) {
+        guard let root = rootNode?.url ?? gitHub.root else { return }
+        let url = root.appendingPathComponent(item.marker)
+        if tabsStore.selectTab(matching: url) != nil { return }
+        var tab = OpenTab(url: url, content: "", originalContent: "")
+        tab.kind = .github(item)
+        tabsStore.appendTab(tab)
+    }
+
+    /// "Review" on a pull request: its PR X-Ray, with the AI review started once it loads
+    /// (unless turned off in Settings).
+    func reviewPullRequest(_ number: Int) {
+        architecture.reviewWhenLoaded = GitHubSettings.autoReview
+        openPRXRay(source: "gh:\(number)")
+    }
+
+    /// Work on a pull request's code: check its branch out, refusing when the working tree
+    /// has changes (nothing is stashed or overwritten). Returns an error to show.
+    func checkoutPullRequest(_ number: Int) async -> String? {
+        guard let root = gitClient.workingDirectory ?? rootNode?.url else { return "No folder open." }
+        // Tracked changes only: untracked files (like MarkView's own .dde) do not block a
+        // checkout, and git itself refuses one that would overwrite them.
+        let status = await GitHubClient.execute(["status", "--porcelain", "--untracked-files=no"], in: root, git: true)
+        if !status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "The working tree has uncommitted changes. Commit or discard them before checking out PR #\(number)."
+        }
+        let error = await gitHub.perform("Checkout #\(number)") { try await $0.checkout(number) }
+        await gitClient.refresh()
+        refreshFileTree()
+        return error
+    }
+
+    /// The branch a pull request comes from, when it is the one checked out.
+    private func isCheckedOut(_ number: Int) async -> Bool {
+        guard let client = gitHub.client, let pr = try? await client.pullRequest(number) else { return false }
+        return pr.headRefName == gitClient.branch
+    }
+
+    /// Send a fix request for a pull request's code to the AI terminal, after checking its
+    /// branch out when needed. Returns an error to show.
+    func fixInPullRequest(_ number: Int?, prompt: String) async -> String? {
+        var prompt = prompt
+        if let number, gitHub.client != nil {
+            if !(await isCheckedOut(number)), let error = await checkoutPullRequest(number) { return error }
+        } else if let number {
+            // Without the GitHub integration the branch is not checked out for the AI.
+            prompt += "\n\nNote: this is pull request #\(number); its branch may not be the one checked out here."
+        }
+        sendToAssistant(prompt, submit: true)
+        return nil
+    }
+
+    /// "Start with AI" on an issue: a branch for it, then the issue to the AI terminal.
+    func startIssueWithAI(_ issue: GHIssue) async -> String? {
+        guard let root = gitClient.workingDirectory ?? rootNode?.url else { return "No folder open." }
+        let slug = String(issue.title.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+            .split(separator: "-").prefix(6).joined(separator: "-")
+        let branch = "issue-\(issue.number)" + (slug.isEmpty ? "" : "-" + slug)
+        let exists = await GitHubClient.execute(["rev-parse", "--verify", "--quiet", branch], in: root, git: true)
+        let result = await GitHubClient.execute(exists.status == 0 ? ["switch", branch] : ["switch", "-c", branch], in: root, git: true)
+        if result.status != 0 {
+            return "Could not switch to \(branch): " + result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        await gitClient.refresh()
+        var prompt = "Work on GitHub issue #\(issue.number) of \(gitHub.selectedRepo?.slug ?? "this repository"): \(issue.title)\n\n"
+        prompt += (issue.body ?? "").isEmpty ? "(no description)" : issue.body!
+        let comments = (issue.comments ?? []).suffix(10)
+        if !comments.isEmpty {
+            prompt += "\n\nComments:\n" + comments.map { "- \($0.author?.login ?? "someone"): \($0.body)" }.joined(separator: "\n")
+        }
+        prompt += "\n\nYou are on branch \(branch). Investigate, implement the change, and summarise what you did."
+        sendToAssistant(prompt, submit: true)
+        return nil
+    }
+
+    /// "Fix with AI" on a failed run: its failed steps' logs to the AI terminal.
+    func fixRunWithAI(_ model: GitHubRunModel) {
+        Task {
+            await model.loadFailedLogs()
+            var prompt = model.failureText()
+            if let run = model.run, run.headBranch != gitClient.branch {
+                prompt += "\nNote: the run was on branch \(run.headBranch); the working copy is on \(gitClient.branch)."
+            }
+            prompt += "\nFind the cause in this repository and fix it."
+            sendToAssistant(prompt, submit: true)
+        }
     }
 
     /// Open a terminal in `folder` as an editor tab.

@@ -11,6 +11,8 @@ class GitClient: ObservableObject {
     @Published var lastError: String?
 
     var workingDirectory: URL?
+    /// Told the current branch after every refresh (the GitHub store follows it).
+    var onBranch: ((String) -> Void)?
 
     struct GitFileStatus: Identifiable {
         let id = UUID()
@@ -86,6 +88,7 @@ class GitClient: ObservableObject {
 
         // Branch
         branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        onBranch?(branch)
 
         // Status — porcelain format: "XY filename" where X=index, Y=worktree
         let statusOutput = await run("git", "status", "--porcelain", in: dir) ?? ""

@@ -126,7 +126,8 @@
 
             /** The PR X-Ray: only the parts of the structure the change touches — its files
              *  inside their components and subsystems — with existing links between them and
-             *  the links the change adds (green) or removes (red, dashed). */
+             *  the links the change adds (green) or removes (red, dashed). A file is the leaf:
+             *  what changed inside it is shown when it is opened (the viewer's Pull request lens). */
             function buildPRView(snap, pr) {
                 if (!snap || !pr) return null;
                 const logical = snap.views.find(function(v) { return v.id === 'logical'; });
@@ -156,32 +157,13 @@
                         const comp = assigned(f.path);
                         const parent = comp && byId.has('l:c:' + comp) ? 'l:c:' + comp : 'l:';
                         extra.push({ id: id, parent: parent, kind: 'file', name: f.path.split('/').pop(), path: f.path,
-                                     loc: f.additions, files: 1, summary: 'New in this change' });
+                                     loc: f.deleted ? f.deletions : f.additions, files: 1,
+                                     summary: f.deleted ? 'Removed in this change' : 'New in this change' });
                         for (let n = byId.get(parent); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
                         keep.add(id);
                     });
                 }
                 const nodes = base.nodes.filter(function(n) { return keep.has(n.id); }).concat(extra);
-                // Inside a changed file: only what changed (part → change), never the whole file.
-                pr.files.forEach(function(f) {
-                    const fileId = prefix + f.path;
-                    if (!keep.has(fileId)) return;
-                    const parts = new Map();
-                    (f.changes || []).forEach(function(c, i) {
-                        let parent = fileId;
-                        if (c.part) {
-                            const partId = fileId + '#p:' + c.part;
-                            if (!parts.has(partId)) {
-                                const part = { id: partId, parent: fileId, kind: 'changePart', name: c.part, path: f.path, files: 0 };
-                                parts.set(partId, part); nodes.push(part);
-                            }
-                            parts.get(partId).files++;
-                            parent = partId;
-                        }
-                        nodes.push({ id: fileId + '#c' + i, parent: parent, kind: 'change', name: c.title, path: f.path,
-                                     line: c.start, endLine: c.end, summary: c.why || null, change: c.kind || null });
-                    });
-                });
                 const edges = base.edges.filter(function(e) { return keep.has(e.source) && keep.has(e.target) && changed.has(e.source) && changed.has(e.target); })
                     .concat(prDependencyEdges(prefix).filter(function(e) { return keep.has(e.source) && keep.has(e.target); }));
                 return { id: 'pr', nodes: nodes, edges: edges };
@@ -838,6 +820,11 @@
                     ui.selected = evt.target.id();
                     highlightNeighbourhood(evt.target);
                     renderDetails();
+                    // In the PR X-Ray a click on a file opens it (on its change when it has one).
+                    if (ui.view === 'pr') {
+                        const node = ui.prView && ui.prView.nodes.find(function(n) { return n.id === evt.target.id(); });
+                        if (node && node.path && (node.kind === 'file' || node.kind === 'doc')) openPRFile(node.path);
+                    }
                 });
                 cy.on('tap', function(evt) {
                     if (evt.target === cy) { ui.selected = null; highlightNeighbourhood(null); renderDetails(); }
@@ -884,11 +871,18 @@
                     post('openFile', { path: node.path, find: node.name });
                 } else if (node.kind === 'entity') {
                     post('openFile', entityTarget(node));
-                } else if (node.kind === 'change') {
-                    post('openFile', { path: node.path, line: node.line, endLine: node.endLine || node.line });
                 } else if (node.path && (node.kind === 'file' || node.kind === 'doc' || node.kind === 'moduleRef')) {
                     post('openFile', { path: node.path });
                 }
+            }
+
+            /** Open a file from the PR X-Ray: a changed one at its first change, in the change's
+             *  own version (removed files as they were), any other one as it is. */
+            function openPRFile(path) {
+                const pr = ui.payload && ui.payload.pr;
+                const f = pr && pr.files.find(function(x) { return x.path === path; });
+                const first = f && !f.deleted && f.ranges && f.ranges[0];
+                post('openFile', first ? { path: path, line: first[0], endLine: first[1] } : { path: path });
             }
 
             /** Where an item of a file's contents is: its line (code) and its text (markdown). */
@@ -1050,9 +1044,9 @@
                 // A changed file — in the PR X-Ray, or with the Pull request overlay on — shows its
                 // change: what was added and removed, and why.
                 const showsChange = ui.view === 'pr' || (overlayApplies() && ui.overlay === 'pr');
-                if (node && showsChange && node.path && (node.kind === 'file' || node.kind === 'change' || node.kind === 'changePart')
+                if (node && showsChange && node.path && node.kind === 'file'
                     && ui.payload.pr && ui.payload.pr.files.some(function(f) { return f.path === node.path; })) {
-                    if (node.kind === 'change') renderPRChange(d, node); else renderPRFile(d, node.path);
+                    renderPRFile(d, node.path);
                     return;
                 }
                 if (!node) {
@@ -1340,10 +1334,7 @@
                 const h = document.createElement('h4'); h.textContent = path.split('/').pop(); d.appendChild(h);
                 const sub = document.createElement('div'); sub.className = 'arch-muted';
                 sub.textContent = path + '  +' + f.additions + ' −' + f.deletions; d.appendChild(sub);
-                d.appendChild(linkButton('Open file', function() {
-                    const first = f.ranges && f.ranges[0];
-                    post('openFile', { path: path, line: first ? first[0] : 0, endLine: first ? first[1] : 0 });
-                }, 'arch-action'));
+                d.appendChild(linkButton('Open file', function() { openPRFile(path); }, 'arch-action'));
                 renderChangeExplanation(d, f);
                 if (f.summary || (f.findings || []).length) d.appendChild(changeRow(f));
                 renderDiffBox(d, path, null);
@@ -1365,30 +1356,6 @@
                     p.className = 'arch-muted'; p.textContent = 'Explaining the changes…';
                 }
                 d.appendChild(p);
-            }
-
-            /** One change inside a file: why, where, and only its part of the diff. */
-            function renderPRChange(d, node) {
-                const pr = ui.payload.pr;
-                const f = pr.files.find(function(x) { return x.path === node.path; });
-                const h = document.createElement('h4'); h.textContent = node.name; d.appendChild(h);
-                if (node.change) {
-                    const badges = document.createElement('div'); badges.className = 'arch-badges';
-                    const chip = document.createElement('span'); chip.textContent = node.change; badges.appendChild(chip);
-                    d.appendChild(badges);
-                }
-                const where = node.path + ':' + node.line + (node.endLine && node.endLine !== node.line ? '–' + node.endLine : '');
-                d.appendChild(linkButton(where, function() {
-                    post('openFile', { path: node.path, line: node.line, endLine: node.endLine || node.line });
-                }, 'arch-path'));
-                if (node.summary) {
-                    const p = document.createElement('p'); p.textContent = node.summary; d.appendChild(p);
-                } else if (f) {
-                    renderChangeExplanation(d, f);
-                }
-                renderDiffBox(d, node.path, [node.line - 3, (node.endLine || node.line) + 3]);
-                const sec = document.createElement('h5'); sec.textContent = 'Ask AI'; d.appendChild(sec);
-                renderAsk(d, node.path);
             }
 
             /** A file's diff (click a line to open it there); `range` [from, to] keeps only
@@ -1441,6 +1408,7 @@
                     d.appendChild(p);
                     return;
                 }
+                if (pr.info) renderPRHeader(d, pr.info);
                 const a = pr.analysis;
                 if (pr.reviewOutdated) {
                     const warn = document.createElement('p'); warn.className = 'arch-muted';
@@ -1505,7 +1473,7 @@
             function renderPRTasks(d, pr) {
                 let count = 0;
                 pr.files.forEach(function(f) {
-                    const findings = (f.findings || []).length;
+                    const findings = (f.findings || []).filter(function(x) { return !x.dismissed; }).length;
                     count += findings || (f.verdict && f.verdict !== 'ok' && f.summary ? 1 : 0);
                 });
                 if (pr.analysis) count += pr.analysis.checks.length + pr.analysis.risks.length;
@@ -1519,8 +1487,150 @@
                     copy.textContent = 'Copied'; setTimeout(function() { copy.textContent = 'Copy'; }, 1500);
                 }, 'arch-action');
                 copy.title = 'Copy the list as markdown tasks';
-                row.appendChild(send); row.appendChild(copy);
+                const fixAll = linkButton('\u2726 Fix all', function() { post('prFixAll'); }, 'arch-action');
+                fixAll.title = 'Send every task to the AI terminal and let it fix them (a GitHub pull request is checked out first)';
+                row.appendChild(fixAll); row.appendChild(send); row.appendChild(copy);
                 d.appendChild(row);
+            }
+
+            /** The pull request on GitHub: state, checks, review decision, and what to do with it.
+             *  The comment typed for a review is kept in `ui` so re-renders do not lose it. */
+            function renderPRHeader(d, info) {
+                const box = document.createElement('div'); box.className = 'arch-pr-header';
+                const badges = document.createElement('div'); badges.className = 'arch-badges';
+                function badge(text, cls) { const s = document.createElement('span'); s.textContent = text; if (cls) s.className = cls; badges.appendChild(s); }
+                badge(info.isDraft ? 'draft' : info.state.toLowerCase(), info.state === 'OPEN' ? 'arch-ok' : '');
+                if (info.checksTotal) {
+                    badge((info.checksFailed ? '\u2717 ' : info.checksPassed === info.checksTotal ? '\u2713 ' : '\u25CF ')
+                        + info.checksPassed + '/' + info.checksTotal + ' checks',
+                        info.checksFailed ? 'arch-bad' : info.checksPassed === info.checksTotal ? 'arch-ok' : 'arch-warn');
+                }
+                const decision = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes requested', REVIEW_REQUIRED: 'review required' }[info.reviewDecision];
+                if (decision) badge(decision, info.reviewDecision === 'APPROVED' ? 'arch-ok' : 'arch-warn');
+                if (info.mergeable === 'CONFLICTING') badge('conflicts', 'arch-bad');
+                box.appendChild(badges);
+                const meta = document.createElement('div'); meta.className = 'arch-muted';
+                meta.textContent = (info.author ? info.author + ' \u00B7 ' : '') + info.head + ' \u2192 ' + info.base;
+                box.appendChild(meta);
+                if (info.state === 'OPEN') {
+                    // The comment belongs to this pull request, survives the panel's redraws (keeping
+                    // the focus while typing) and is cleared only once GitHub took it.
+                    ui.prNotes = ui.prNotes || {};
+                    ui.prNoteSent = ui.prNoteSent || {};
+                    const key = String(info.number);
+                    if (ui.prNoteSent[key] && !info.busy && info.message) {
+                        if (info.ok) ui.prNotes[key] = '';
+                        ui.prNoteSent[key] = false;
+                    }
+                    const note = document.createElement('textarea'); note.className = 'arch-pr-note';
+                    note.placeholder = 'Review comment (optional for Approve)';
+                    note.value = ui.prNotes[key] || '';
+                    note.addEventListener('input', function() { ui.prNotes[key] = note.value; });
+                    note.addEventListener('focus', function() { ui.prNoteFocus = key; });
+                    note.addEventListener('blur', function() { if (ui.prNoteFocus === key) ui.prNoteFocus = null; });
+                    note.addEventListener('select', function() { ui.prNoteCaret = [note.selectionStart, note.selectionEnd]; });
+                    note.addEventListener('keyup', function() { ui.prNoteCaret = [note.selectionStart, note.selectionEnd]; });
+                    note.addEventListener('click', function() { ui.prNoteCaret = [note.selectionStart, note.selectionEnd]; });
+                    if (ui.prNoteFocus === key) setTimeout(function() {
+                        note.focus();
+                        const caret = ui.prNoteCaret || [note.value.length, note.value.length];
+                        note.selectionStart = caret[0]; note.selectionEnd = caret[1];
+                    }, 0);
+                    box.appendChild(note);
+                    const row = document.createElement('div'); row.className = 'arch-task-actions';
+                    function act(label, op, needsText, title) {
+                        const b = linkButton(label, function() {
+                            const body = (ui.prNotes[key] || '').trim();
+                            if (needsText && !body) { note.focus(); note.placeholder = 'Write what should change first'; return; }
+                            ui.prNoteSent[key] = true;
+                            post('prAction', { op: op, body: body, method: ui.prMergeMethod || 'squash' });
+                        }, 'arch-action');
+                        if (title) b.title = title;
+                        if (info.busy) b.disabled = true;
+                        row.appendChild(b);
+                    }
+                    act('Approve', 'approve', false);
+                    act('Request changes', 'requestChanges', true);
+                    act('Comment', 'comment', true);
+                    box.appendChild(row);
+                    const mergeRow = document.createElement('div'); mergeRow.className = 'arch-task-actions';
+                    const method = document.createElement('select'); method.className = 'arch-pr-method';
+                    [['squash', 'Squash and merge'], ['merge', 'Merge commit'], ['rebase', 'Rebase and merge']].forEach(function(m) {
+                        const o = document.createElement('option'); o.value = m[0]; o.textContent = m[1]; method.appendChild(o);
+                    });
+                    method.value = ui.prMergeMethod || 'squash';
+                    method.onchange = function() { ui.prMergeMethod = method.value; };
+                    // Merge and close ask for a second click within 4 s (kept in `ui` across redraws).
+                    function armed(op) { return ui.prArmed && ui.prArmed.key === key + op && Date.now() < ui.prArmed.until; }
+                    function confirmed(op, button, again, label, send) {
+                        return linkButton(armed(op) ? again : label, function() {
+                            if (!armed(op)) {
+                                ui.prArmed = { key: key + op, until: Date.now() + 4000 };
+                                button.self.textContent = again;
+                                setTimeout(function() { if (button.self.isConnected && !armed(op)) button.self.textContent = label; }, 4100);
+                                return;
+                            }
+                            ui.prArmed = null;
+                            send();
+                        }, 'arch-action');
+                    }
+                    const mergeRef = {}, closeRef = {};
+                    const merge = confirmed('merge', mergeRef, 'Click again to merge', 'Merge', function() {
+                        post('prAction', { op: 'merge', method: method.value });
+                    });
+                    mergeRef.self = merge;
+                    if (info.busy || info.mergeable === 'CONFLICTING') merge.disabled = true;
+                    const close = confirmed('close', closeRef, 'Click again to close', 'Close PR', function() {
+                        post('prAction', { op: 'close' });
+                    });
+                    closeRef.self = close;
+                    mergeRow.appendChild(method); mergeRow.appendChild(merge); mergeRow.appendChild(close);
+                    box.appendChild(mergeRow);
+                }
+                const open = linkButton('Open on GitHub \u2197', function() { post('openURL', { url: info.url }); }, 'arch-action');
+                box.appendChild(open);
+                if (info.busy) { const p = document.createElement('p'); p.className = 'arch-muted'; p.textContent = 'Working\u2026'; box.appendChild(p); }
+                if (info.message) { const p = document.createElement('p'); p.className = 'arch-muted'; p.textContent = info.message; box.appendChild(p); }
+                d.appendChild(box);
+            }
+
+            /** One review finding with what can be done about it. */
+            function findingRow(f, finding, index) {
+                const pr = ui.payload && ui.payload.pr;
+                const wrap = document.createElement('div');
+                wrap.className = 'arch-finding-box' + (finding.dismissed ? ' arch-dismissed' : '');
+                const b = linkButton('L' + finding.line + ' \u00B7 ' + finding.message, function() {
+                    post('openFile', { path: f.path, line: finding.line, endLine: finding.line });
+                }, 'arch-finding arch-' + finding.severity);
+                wrap.appendChild(b);
+                const row = document.createElement('div'); row.className = 'arch-finding-actions';
+                const fields = { path: f.path, index: index };
+                function act(label, action, title) {
+                    const a = linkButton(label, function() { post(action, fields); });
+                    a.title = title; row.appendChild(a); return a;
+                }
+                if (!finding.dismissed) {
+                    act('\u2726 Fix it', 'prFindingFix', 'Send to the AI terminal to fix (a GitHub pull request is checked out first)');
+                    const ex = act(finding.explaining ? 'Explaining\u2026' : '\u2726 Explain', 'prFindingExplain', 'Why this is a problem and how to fix it');
+                    if (finding.explaining) ex.disabled = true;
+                    if (pr && pr.info) {
+                        const c = act(finding.commented ? '\u2713 Commented' : 'Comment on PR', 'prFindingComment', 'Post as a review comment on this line');
+                        if (finding.commented) c.disabled = true;
+                        if (finding.issueURL) {
+                            act('Issue \u2197', 'openURL', 'Open the issue created from this finding');
+                            fields.url = finding.issueURL;
+                        } else {
+                            act('+ Issue', 'prFindingIssue', 'Create a GitHub issue from this finding');
+                        }
+                    }
+                }
+                act(finding.dismissed ? 'Restore' : '\u2715 Dismiss', 'prFindingDismiss', finding.dismissed ? 'Show it again' : 'Not a real problem: hide it and leave it out of the tasks');
+                wrap.appendChild(row);
+                if (finding.explanation && !finding.dismissed) {
+                    const p = document.createElement('p'); p.className = 'arch-finding-explanation'; p.textContent = finding.explanation;
+                    wrap.appendChild(p);
+                }
+                return wrap;
             }
 
             function changeRow(f) {
@@ -1530,22 +1640,11 @@
                 const dot = document.createElement('i');
                 dot.style.background = f.verdict === 'bug' ? c.bad : f.verdict === 'concern' ? c.warn : f.verdict === 'ok' ? c.ok : c.info;
                 head.appendChild(dot);
-                head.appendChild(document.createTextNode(f.path + '  +' + f.additions + ' −' + f.deletions));
-                const first = f.ranges && f.ranges[0];
-                head.onclick = function() {
-                    // In the PR X-Ray a file opens its diff there; elsewhere it opens the file.
-                    const node = ui.view === 'pr' && ui.prView && ui.prView.nodes.find(function(n) { return n.path === f.path && n.kind === 'file'; });
-                    if (node) { ui.selected = node.id; render(node.id); return; }
-                    post('openFile', { path: f.path, line: first ? first[0] : 0, endLine: first ? first[1] : 0 });
-                };
+                head.appendChild(document.createTextNode(f.path + (f.deleted ? '  removed −' + f.deletions : '  +' + f.additions + ' −' + f.deletions)));
+                head.onclick = function() { openPRFile(f.path); };
                 wrap.appendChild(head);
                 if (f.summary) { const p = document.createElement('p'); p.textContent = f.summary; wrap.appendChild(p); }
-                (f.findings || []).forEach(function(finding) {
-                    const b = linkButton('L' + finding.line + ' · ' + finding.message, function() {
-                        post('openFile', { path: f.path, line: finding.line, endLine: finding.line });
-                    }, 'arch-finding arch-' + finding.severity);
-                    wrap.appendChild(b);
-                });
+                (f.findings || []).forEach(function(finding, index) { wrap.appendChild(findingRow(f, finding, index)); });
                 return wrap;
             }
 

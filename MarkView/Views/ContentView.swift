@@ -63,6 +63,10 @@ struct ContentView: View {
                             TerminalTabView(session: session)
                         } else if case .image = activeTab.kind {
                             ImageViewerView(url: activeTab.url).id(activeTab.id)
+                        } else if case .github(let item) = activeTab.kind {
+                            GitHubTabView(item: item)
+                                .environmentObject(workspaceManager)
+                                .id(activeTab.id)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

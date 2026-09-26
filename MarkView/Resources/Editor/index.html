@@ -1193,6 +1193,21 @@
         .arch-finding { font-size: 11px; color: var(--text-primary); }
         .arch-finding.arch-bug { color: #d9534f; }
         .arch-finding.arch-warning { color: #c9892a; }
+        .arch-finding-box { margin: 2px 0 6px; }
+        .arch-finding-box.arch-dismissed .arch-finding { text-decoration: line-through; opacity: .55; }
+        .arch-finding-actions { display: flex; flex-wrap: wrap; gap: 2px 10px; padding-left: 10px; }
+        .arch-finding-actions .arch-link { width: auto; font-size: 10.5px; padding: 0; }
+        .arch-finding-actions .arch-link:disabled { color: var(--text-secondary); cursor: default; }
+        .arch-finding-explanation { margin: 4px 0 4px 10px !important; padding: 4px 8px; border-left: 2px solid var(--border-color); font-size: 11px; white-space: pre-wrap; }
+        .arch-pr-header { margin: 4px 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-color); }
+        .arch-pr-header .arch-task-actions { flex-wrap: wrap; align-items: center; }
+        .arch-pr-header .arch-link { width: auto; }
+        .arch-pr-header .arch-link:disabled { color: var(--text-secondary); cursor: default; }
+        .arch-pr-note { width: 100%; box-sizing: border-box; min-height: 44px; margin-top: 6px; font: 11px -apple-system, sans-serif; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px 6px; resize: vertical; }
+        .arch-pr-method { font-size: 11px; margin-top: 6px; }
+        .arch-badges span.arch-ok { color: #3c9a5f; }
+        .arch-badges span.arch-warn { color: #c9892a; }
+        .arch-badges span.arch-bad { color: #d9534f; }
         .arch-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 4px 12px; font-size: 10.5px; color: var(--text-secondary); border-top: 1px solid var(--border-color); min-height: 22px; }
         .arch-legend span { display: inline-flex; gap: 5px; align-items: center; }
         .arch-legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }

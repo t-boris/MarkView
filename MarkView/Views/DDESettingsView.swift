@@ -144,6 +144,8 @@ struct DDESettingsView: View {
                 }.padding(8)
             }
 
+            GitHubSettingsSection()
+
             // Clear database
             GroupBox("Maintenance") {
                 VStack(alignment: .leading, spacing: 8) {
