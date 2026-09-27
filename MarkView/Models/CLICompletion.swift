@@ -35,6 +35,8 @@ enum CLICompletion {
         let outputTokens: Int
         /// Claude reports the cost of a run; Codex reports tokens only.
         let costUSD: Double?
+        /// Tool calls the CLI refused (Claude `permission_denials`): the tool and its query or URL.
+        var refused: [(tool: String, input: String)] = []
 
         /// Add this run to the workspace's usage counter.
         @MainActor
@@ -73,6 +75,10 @@ enum CLICompletion {
         case search(String)
         /// Running a shell command (Codex reads files this way).
         case run(String)
+        /// A web search query sent (Claude WebSearch, Codex --search).
+        case webSearch(String)
+        /// A web page fetched (Claude WebFetch).
+        case webFetch(String)
         /// Reasoning before the next action.
         case thinking
         /// Characters of the answer produced so far.
@@ -112,6 +118,9 @@ enum CLICompletion {
                          "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                          "--tools", ((request.readableFolder == nil ? [] : ["Read", "Grep", "Glob"])
                                         + (request.allowWeb ? ["WebSearch", "WebFetch"] : [])).joined(separator: ",")]
+            // Headless runs cannot ask for permission: web tools must be pre-approved, or the
+            // CLI refuses every search (and fetches outside its built-in allowlist).
+            if request.allowWeb { arguments += ["--allowedTools", "WebSearch,WebFetch"] }
             arguments += tool.modelArgs(model)
             if let effort = request.effort { arguments += ["--effort", effort] }
             if let system = request.systemPrompt {
@@ -157,8 +166,10 @@ enum CLICompletion {
             }
             structured = object
         }
-        return Result(text: raw.text, structured: structured, inputTokens: raw.inputTokens,
-                      outputTokens: raw.outputTokens, costUSD: raw.costUSD)
+        var result = Result(text: raw.text, structured: structured, inputTokens: raw.inputTokens,
+                            outputTokens: raw.outputTokens, costUSD: raw.costUSD)
+        result.refused = raw.refused
+        return result
     }
 
     // MARK: - Helpers
@@ -207,6 +218,7 @@ private final class Invocation: @unchecked Sendable {
         var outputTokens = 0
         var costUSD: Double?
         var errorMessage: String?
+        var refused: [(tool: String, input: String)] = []
     }
 
     private static let ignoreSIGPIPE: Void = { signal(SIGPIPE, SIG_IGN) }()
@@ -346,7 +358,7 @@ private final class Invocation: @unchecked Sendable {
             guard event["type"] as? String == "content_block_delta",
                   let delta = event["delta"] as? [String: Any] else { return }
             if delta["type"] as? String == "input_json_delta", let part = delta["partial_json"] as? String,
-               !["Read", "Grep", "Glob"].contains(blockTool ?? "") {
+               !["Read", "Grep", "Glob", "WebSearch", "WebFetch"].contains(blockTool ?? "") {
                 // Structured output arrives as the input of a final tool call.
                 answerChars += part.count
                 onActivity?(.writing(answerChars))
@@ -365,12 +377,19 @@ private final class Invocation: @unchecked Sendable {
                 switch block["name"] as? String {
                 case "Read": if let path = input["file_path"] as? String { onActivity?(.read(path)) }
                 case "Grep", "Glob": onActivity?(.search(input["pattern"] as? String ?? ""))
+                case "WebSearch": if let query = input["query"] as? String { onActivity?(.webSearch(query)) }
+                case "WebFetch": if let url = input["url"] as? String { onActivity?(.webFetch(url)) }
                 default: break
                 }
             }
         case "result":
             output.text = json["result"] as? String ?? streamedText
             output.structured = json["structured_output"]
+            for denial in json["permission_denials"] as? [[String: Any]] ?? [] {
+                let input = denial["tool_input"] as? [String: Any] ?? [:]
+                output.refused.append((denial["tool_name"] as? String ?? "tool",
+                                       input["query"] as? String ?? input["url"] as? String ?? input["file_path"] as? String ?? ""))
+            }
             output.costUSD = json["total_cost_usd"] as? Double
             if let usage = json["usage"] as? [String: Any] {
                 output.inputTokens = (usage["input_tokens"] as? Int ?? 0)
@@ -394,8 +413,15 @@ private final class Invocation: @unchecked Sendable {
                 onActivity?(.run(command))
             } else if item["type"] as? String == "reasoning" {
                 onActivity?(.thinking)
+            } else if item["type"] as? String == "web_search", let query = item["query"] as? String, !query.isEmpty {
+                onActivity?(.webSearch(query))
             }
         case "item.completed":
+            if let item = json["item"] as? [String: Any], item["type"] as? String == "web_search",
+               let query = item["query"] as? String, !query.isEmpty {
+                onActivity?(.webSearch(query))   // listeners de-duplicate the started/completed pair
+                return
+            }
             guard let item = json["item"] as? [String: Any],
                   item["type"] as? String == "agent_message",
                   let text = item["text"] as? String else { return }

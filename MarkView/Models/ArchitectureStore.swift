@@ -482,7 +482,7 @@ final class ArchitectureStore: ObservableObject {
                 case .run(let command):
                     self.progress?.filesRead += 1
                     self.progress?.current = "Running " + String(command.prefix(80))
-                case .answerDelta:
+                case .answerDelta, .webSearch, .webFetch:
                     break
                 case .thinking:
                     self.progress?.current = "Thinking"

@@ -18,6 +18,9 @@
 		B2E0C7A1D4F3968778695B04 /* IssueListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0C7A1D4F3968778695B03 /* IssueListing.swift */; };
 		B2E0C7A1D4F3968778695B06 /* WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */; };
 		B2E0C7A1D4F3968778695B08 /* PanelLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0C7A1D4F3968778695B07 /* PanelLayout.swift */; };
+		0A0D8ADB6DEB753B3935157F /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2E4E9B03F140183CF5E02A /* ResearchPrompt.swift */; };
+		366212C2A0A5988C3DDC7FEC /* ResearchJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09B3D5CE263CFAE308BE157E /* ResearchJobs.swift */; };
+		743024AE5880EF271582EA73 /* ResearchDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FA6C0AE2D5428443B11700 /* ResearchDocument.swift */; };
 		E16770925975298407333923 /* LifecycleLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11845170636009720804643 /* LifecycleLog.swift */; };
 		E11905873699096501538840 /* LifecycleAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10970912149096880814357 /* LifecycleAnalytics.swift */; };
 		E11905873699096501538841 /* LifecycleCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10970912149096880814358 /* LifecycleCapture.swift */; };
@@ -54,6 +57,7 @@
 		AD1111111111111111111111 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2222222222222222222222 /* DDESettingsView.swift */; };
 		CB1111111111111111111111 /* DependencyGraphScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2222222222222222222222 /* DependencyGraphScheduler.swift */; };
 		DA1111111111111111111111 /* DiagnosticsBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2222222222222222222222 /* DiagnosticsBarView.swift */; };
+		DE141973D12218525798D528 /* ResearchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EBA80A843CD2ECD600740F /* ResearchViews.swift */; };
 		DC1111111111111111111111 /* MatrixTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2222222222222222222222 /* MatrixTheme.swift */; };
 		E01111111111111111111111 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02222222222222222222222 /* StructuralIndexer.swift */; };
 		E15707257841204075452783 /* AIAssistantPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16766861391371355183012 /* AIAssistantPickerView.swift */; };
@@ -132,6 +136,9 @@
 		B2E0C7A1D4F3968778695B03 /* IssueListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueListing.swift; sourceTree = "<group>"; };
 		B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitle.swift; sourceTree = "<group>"; };
 		B2E0C7A1D4F3968778695B07 /* PanelLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLayout.swift; sourceTree = "<group>"; };
+		0B2E4E9B03F140183CF5E02A /* ResearchPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchPrompt.swift; sourceTree = "<group>"; };
+		09B3D5CE263CFAE308BE157E /* ResearchJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchJobs.swift; sourceTree = "<group>"; };
+		F3FA6C0AE2D5428443B11700 /* ResearchDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchDocument.swift; sourceTree = "<group>"; };
 		E11845170636009720804643 /* LifecycleLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleLog.swift; sourceTree = "<group>"; };
 		E10970912149096880814357 /* LifecycleAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleAnalytics.swift; sourceTree = "<group>"; };
 		E10970912149096880814358 /* LifecycleCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleCapture.swift; sourceTree = "<group>"; };
@@ -170,6 +177,7 @@
 		AD2222222222222222222222 /* DDESettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DDESettingsView.swift; sourceTree = "<group>"; };
 		CB2222222222222222222222 /* DependencyGraphScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyGraphScheduler.swift; sourceTree = "<group>"; };
 		DA2222222222222222222222 /* DiagnosticsBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsBarView.swift; sourceTree = "<group>"; };
+		C7EBA80A843CD2ECD600740F /* ResearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchViews.swift; sourceTree = "<group>"; };
 		DC2222222222222222222222 /* MatrixTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTheme.swift; sourceTree = "<group>"; };
 		E02222222222222222222222 /* StructuralIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralIndexer.swift; sourceTree = "<group>"; };
 		E22222222222222222222222 /* ModuleExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModuleExplorerView.swift; sourceTree = "<group>"; };
@@ -238,6 +246,9 @@
 				B2E0C7A1D4F3968778695B03 /* IssueListing.swift */,
 				B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */,
 				B2E0C7A1D4F3968778695B07 /* PanelLayout.swift */,
+				0B2E4E9B03F140183CF5E02A /* ResearchPrompt.swift */,
+				09B3D5CE263CFAE308BE157E /* ResearchJobs.swift */,
+				F3FA6C0AE2D5428443B11700 /* ResearchDocument.swift */,
 				E11845170636009720804643 /* LifecycleLog.swift */,
 				E10970912149096880814357 /* LifecycleAnalytics.swift */,
 				E10970912149096880814358 /* LifecycleCapture.swift */,
@@ -270,6 +281,7 @@
 				26726FF62649B52BE2384159 /* FileTreeView.swift */,
 				4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */,
 				DA2222222222222222222222 /* DiagnosticsBarView.swift */,
+				C7EBA80A843CD2ECD600740F /* ResearchViews.swift */,
 				E22222222222222222222222 /* ModuleExplorerView.swift */,
 				A7D1F2C3B4E5968778695A13 /* TerminalView.swift */,
 				AB5A0C0E1D2F3A4B5C6D7E07 /* AgentUsageViews.swift */,
@@ -458,6 +470,7 @@
 				AD1111111111111111111111 /* DDESettingsView.swift in Sources */,
 				CB1111111111111111111111 /* DependencyGraphScheduler.swift in Sources */,
 				DA1111111111111111111111 /* DiagnosticsBarView.swift in Sources */,
+				DE141973D12218525798D528 /* ResearchViews.swift in Sources */,
 				DC1111111111111111111111 /* MatrixTheme.swift in Sources */,
 				E01111111111111111111111 /* StructuralIndexer.swift in Sources */,
 				E15707257841204075452783 /* AIAssistantPickerView.swift in Sources */,
@@ -500,6 +513,9 @@
 				B2E0C7A1D4F3968778695B04 /* IssueListing.swift in Sources */,
 				B2E0C7A1D4F3968778695B06 /* WindowTitle.swift in Sources */,
 				B2E0C7A1D4F3968778695B08 /* PanelLayout.swift in Sources */,
+				0A0D8ADB6DEB753B3935157F /* ResearchPrompt.swift in Sources */,
+				366212C2A0A5988C3DDC7FEC /* ResearchJobs.swift in Sources */,
+				743024AE5880EF271582EA73 /* ResearchDocument.swift in Sources */,
 				E16770925975298407333923 /* LifecycleLog.swift in Sources */,
 				E11905873699096501538840 /* LifecycleAnalytics.swift in Sources */,
 				E11905873699096501538841 /* LifecycleCapture.swift in Sources */,
@@ -559,7 +575,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.19.1;
+				CURRENT_PROJECT_VERSION = 2.20.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -574,7 +590,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.19.1;
+				MARKETING_VERSION = 2.20.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -638,7 +654,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.19.1;
+				CURRENT_PROJECT_VERSION = 2.20.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -659,7 +675,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.19.1;
+				MARKETING_VERSION = 2.20.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

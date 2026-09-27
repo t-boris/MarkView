@@ -7,6 +7,7 @@ struct DDESettingsView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var openaiKey: String = ""
     @AppStorage(ActionOutputLanguage.storageKey) private var outputLanguage = ActionOutputLanguage.documentLanguage
+    @AppStorage(ResearchSettings.timeoutKey) private var researchTimeout = ResearchSettings.defaultTimeoutMinutes
     @State private var showKey = false
     @State private var saved = false
     @State private var openaiStatus: KeyStatus = .unknown
@@ -75,6 +76,12 @@ struct DDESettingsView: View {
                             .fixedSize()
                         }
                         Text("Explanations, descriptions, reviews and Actions results. Changing it marks existing explanations as outdated.")
+                            .font(.system(size: 9)).foregroundColor(.secondary)
+                        Stepper(value: $researchTimeout, in: 5...120, step: 5) {
+                            Text("New Research time limit: \(researchTimeout) min").font(.caption)
+                        }
+                        .fixedSize()
+                        Text("A research job that runs longer stops; what it found so far is saved and marked incomplete.")
                             .font(.system(size: 9)).foregroundColor(.secondary)
                     }
 

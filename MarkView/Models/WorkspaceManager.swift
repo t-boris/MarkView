@@ -298,7 +298,6 @@ enum WorkspaceAITool: String {
     case sequence
     case er
     case critic
-    case research
     case audit
     case codemap
 
@@ -306,7 +305,7 @@ enum WorkspaceAITool: String {
         switch self {
         case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er:
             return true
-        case .critic, .research, .audit, .codemap:
+        case .critic, .audit, .codemap:
             return false
         }
     }
@@ -333,6 +332,8 @@ class WorkspaceManager: ObservableObject {
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).
     let features = FeatureStore()
+    /// New Research jobs of this window: research, follow-ups and comments (docs/research/).
+    let research = ResearchJobs()
     /// Where the AI terminal starts: the open folder, or a single file's folder.
     @Published private(set) var aiWorkspaceRoot: URL?
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
@@ -406,6 +407,7 @@ class WorkspaceManager: ObservableObject {
         let appDir = appSupport.appendingPathComponent("MarkView", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
+        research.workspace = self
 
         // Restore layout from UserDefaults
         let ud = UserDefaults.standard
@@ -3256,8 +3258,63 @@ class WorkspaceManager: ObservableObject {
         case .feature: lead = "Build a feature from the document \(path) (attached)."
         case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
         case .understand: lead = "What implements \(path) in this project, and how do the documented parts work in the code?"
+        case .research: lead = "Review \(path): "
         }
-        intake = IntakeRequest(kind: kind, text: lead, attachments: kind == .understand ? [] : [url])
+        switch kind {
+        case .understand: intake = IntakeRequest(kind: kind, text: lead)
+        case .research: intake = IntakeRequest(kind: kind, text: lead, targets: [url])
+        default: intake = IntakeRequest(kind: kind, text: lead, attachments: [url])
+        }
+    }
+
+    /// New Research (replaces the Deep Research AI tool, DEC-010): the intake sheet, with the open
+    /// document as its first target.
+    func newResearch() {
+        intake = IntakeRequest(kind: .research)
+    }
+
+    /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.
+    var researchDefaultTargets: [URL] {
+        guard let root = rootNode?.url, let tab = activeTab, tab.isFileBacked,
+              ResearchJobs.relative(tab.url, to: root) != nil else { return [] }
+        return [tab.url]
+    }
+
+    /// Before a research job reads `file`: unsaved edits in its tab are saved, or the user
+    /// cancels (DEC-014). True when the file on disk is current.
+    func saveBeforeResearch(_ file: URL, action: String) -> Bool {
+        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }),
+              openTabs[index].isModified else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Save changes to \(openTabs[index].displayName) before \(action)?"
+        alert.informativeText = "The AI works on the document as it is saved on disk."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        saveFile(at: index)
+        return !openTabs[index].isModified
+    }
+
+    /// A research job rewrote `file` on disk: its tab shows the new text; a tab with unsaved
+    /// edits gets the same change applied by `applyToEdited` so nothing typed is lost.
+    func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
+        refreshFileTree()
+        guard let index = openTabs.firstIndex(where: { $0.url.standardizedFileURL == file.standardizedFileURL && $0.isFileBacked }) else { return }
+        if !openTabs[index].isModified {
+            tabsStore.updateTab(at: index) { tab in
+                tab.content = content
+                tab.originalContent = content
+                tab.isModified = false
+            }
+        } else if let edited = applyToEdited(openTabs[index].content) {
+            tabsStore.updateTab(at: index) { tab in
+                tab.content = edited
+                tab.originalContent = content
+                tab.isModified = edited != content
+            }
+        } else {
+            research.message = "\(file.lastPathComponent) was updated on disk, but its tab has unsaved edits that conflict; reload it to see the AI's change."
+        }
     }
 
     /// Hand a document to the AI to implement (the assistant in the Terminal tab): Claude Code gets
@@ -3307,6 +3364,12 @@ class WorkspaceManager: ObservableObject {
     /// A contextual action on text selected in the editor: the answer (or the created
     /// requirement / decision / question) appears in the right panel's Feature tab.
     func runFeatureAction(_ name: String, text: String, question: String) {
+        // A comment on a research document: the AI revises that section (DEC-017).
+        if name == "comment" {
+            guard let url = activeTab?.url, activeTab?.isFileBacked == true, rootNode != nil else { return }
+            research.comment(on: text, comment: question, in: url)
+            return
+        }
         guard let action = FeatureAction(rawValue: name) else { return }
         guard rootNode != nil else { return }
         let url = activeTab?.url
@@ -3666,60 +3729,6 @@ class WorkspaceManager: ObservableObject {
             You are a CONSTRUCTIVE CRITIC. Analyze the current workspace documentation thoroughly.
             Create a file "review-\((context.fileName as NSString).deletingPathExtension).md" with: Summary, Strengths, Issues (with severity/location/fix), Missing Content, Consistency Issues, Action Items (P1/P2/P3), Overall Score 1-10.
             Also create "tasks/review-tasks-\((context.fileName as NSString).deletingPathExtension).md" with action items as checkboxes.
-            \(context.content.isEmpty ? "Scan all files in the current directory." : "Document:\n\(context.content)")
-            """
-
-        case .research:
-            if contentOverride != nil {
-                return """
-                You are a DEEP RESEARCHER. Analyze the following document and identify research points.
-
-                STEP 1: Read the document and identify all:
-                - External APIs, services, and integrations mentioned
-                - Technologies, frameworks, libraries referenced
-                - Architectural patterns and approaches used
-                - Claims about performance, scalability, or capabilities
-                - Third-party dependencies
-
-                STEP 2: For each research point, search online to find:
-                - Current status (is it still maintained? latest version?)
-                - Best practices and recommendations
-                - Known issues or limitations
-                - Alternatives and comparisons
-                - How it applies to this project specifically
-
-                STEP 3: Create a file called "research-\(context.fileName)" with findings:
-
-                # Deep Research Report: \(context.fileName)
-
-                ## Research Points Identified
-                List all points found.
-
-                ## Detailed Findings
-
-                ### 1. [Technology/API Name]
-                - **What it is**: Brief description
-                - **Current status**: Version, maintenance status
-                - **How it's used here**: Context from the document
-                - **Best practices**: What experts recommend
-                - **Risks/Issues**: Known problems
-                - **Alternatives**: Other options to consider
-                - **Recommendation**: Keep / Replace / Update / Investigate
-
-                (repeat for each research point)
-
-                ## Summary & Recommendations
-                Overall findings and priority actions.
-
-                Document to research:
-                \(context.content)
-                """
-            }
-
-            return """
-            You are a DEEP RESEARCHER. Analyze the current workspace and identify all external APIs, technologies, dependencies.
-            For each, search online for: current status, best practices, known issues, alternatives.
-            Create "research-\(context.fileName).md" with detailed findings and recommendations (Keep/Replace/Update).
             \(context.content.isEmpty ? "Scan all files in the current directory." : "Document:\n\(context.content)")
             """
 

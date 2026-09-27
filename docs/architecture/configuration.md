@@ -16,6 +16,8 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 | `layout.navigatorTab`, `layout.leftPanel`, `layout.issuesFeature`, `layout.gitSection`, `feature.stage` | enum/String | Last panel tab/section chosen. Each window keeps its own in `PanelLayout`; the key only seeds the next window and relaunch (BUG-004) | app shell, features, git |
 | `layout.terminalPromptsExpanded`, `feature.lifecycle.expanded` | Bool | Disclosure state (global across windows) | terminal, features |
 | `features.active.<12-char hash of root>` | String | Open feature per project | features |
+| `research.webDisabled.<12-char hash of root>` | Bool, false | New Research: repository-only, no web search, for this folder (DEC-011) | research |
+| `research.timeoutMinutes` | Int, 20 (5–120) | New Research job time limit; a longer run stops and is saved as incomplete (DEC-012) | research |
 | `features.issues.filter.<12-char hash of root>` | [String], `[]` | Issues list funnel filter per project: ids of `open`, `closed`, `bugs`, `features`, `implemented`, `not-implemented`; unknown ids ignored | features |
 | `features.issues.sort.<12-char hash of root>` | String, `date:desc` | Issues list order per project, `date\|priority:asc\|desc`; unknown values fall back to the default | features |
 | `fileTree.sortField`, `fileTree.sortAscending` | enum/Bool | File tree sort | app shell |

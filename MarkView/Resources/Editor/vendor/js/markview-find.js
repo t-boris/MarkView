@@ -59,9 +59,20 @@
             menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 230)) + 'px';
             menu.style.top = Math.min(r.bottom + 4, window.innerHeight - 330) + 'px';
             menu.classList.add('visible');
+            // Research documents (front matter "type: research") take comments the AI applies to the passage.
+            const research = isResearchDocument();
+            document.getElementById('feature-comment').style.display = research ? '' : 'none';
+            document.getElementById('feature-comment-sep').style.display = research ? '' : 'none';
             const input = document.getElementById('feature-ask');
+            input.placeholder = research ? 'Ask AI, or write a comment to revise this passage…' : 'Ask AI about the selection…';
             input.value = '';
             setTimeout(function() { input.focus(); }, 0);
+        }
+
+        function isResearchDocument() {
+            const md = (typeof state !== 'undefined' && state.markdown) || (DOM.editor && DOM.editor.value) || '';
+            const fm = md.match(/^---\n([\s\S]*?)\n---\n/);
+            return !!fm && /^type:\s*["']?research["']?\s*$/m.test(fm[1]);
         }
 
         function hideFeatureMenu() {
@@ -70,7 +81,7 @@
 
         function featureAction(action) {
             let question = '';
-            if (action === 'ask') {
+            if (action === 'ask' || action === 'comment') {
                 question = document.getElementById('feature-ask').value.trim();
                 if (!question) return;
             }

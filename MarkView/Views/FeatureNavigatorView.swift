@@ -557,6 +557,10 @@ struct IntakeSheet: View {
     @State private var picking = false
     @State private var issueFilter = ""
     @State private var loadingSource = false
+    /// New Research: documents to analyse first, the output path and whether the user edited it.
+    @State private var targets: [URL] = []
+    @State private var outputPath = ""
+    @State private var outputPathEdited = false
     /// Voice input for the text; lives as long as the sheet — closing it discards a recording.
     @StateObject private var dictation = DictationController()
     @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
@@ -569,6 +573,10 @@ struct IntakeSheet: View {
         _text = State(initialValue: request.text)
         _attachments = State(initialValue: request.attachments)
         _linkedIssue = State(initialValue: request.linkedIssue)
+        if request.kind == .research {
+            _targets = State(initialValue: request.targets ?? workspaceManager.researchDefaultTargets)
+            _outputPath = State(initialValue: Self.suggestedPath(for: request.text, root: workspaceManager.rootNode?.url))
+        }
     }
 
     var body: some View {
@@ -600,7 +608,10 @@ struct IntakeSheet: View {
                     return true
                 }
             DictationStatusView(dictation: dictation)
-            if kind != .understand, workspaceManager.gitHub.isAvailable {
+            if kind == .research, let root = workspaceManager.rootNode?.url {
+                ResearchIntakeOptions(root: root, targets: $targets, outputPath: $outputPath, outputPathEdited: $outputPathEdited)
+            }
+            if kind == .feature || kind == .bug, workspaceManager.gitHub.isAvailable {
                 HStack(spacing: 8) {
                     Button("From GitHub Issue…") {
                         picking = true
@@ -651,13 +662,19 @@ struct IntakeSheet: View {
                     if dictation.isActive { dictation.cancel() } else { dismiss() }
                 }
                 .keyboardShortcut(.cancelAction).disabled(working && !dictation.isActive)
-                Button(kind == .understand ? "Show in X-Ray" : "Create") { submit() }
+                Button(kind == .understand ? "Show in X-Ray" : kind == .research ? "Start Research" : "Create") { submit() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(working || loadingSource || dictation.isActive || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(16)
         .task { await loadRequestedSource() }
+        .onChange(of: text) { newText in
+            // The path follows the question until the user edits it (DEC-006).
+            if kind == .research, !outputPathEdited {
+                outputPath = Self.suggestedPath(for: newText, root: workspaceManager.rootNode?.url)
+            }
+        }
         .onDisappear { dictation.cancel() }
         .onChange(of: openAIKey.isEmpty) { removed in
             // The key is gone: the mic disappears and its recording is discarded.
@@ -743,7 +760,12 @@ struct IntakeSheet: View {
     }
 
     private var icon: String {
-        switch kind { case .feature: return "sparkles"; case .bug: return "ladybug"; case .understand: return "magnifyingglass" }
+        switch kind {
+        case .feature: return "sparkles"
+        case .bug: return "ladybug"
+        case .understand: return "magnifyingglass"
+        case .research: return "books.vertical"
+        }
     }
 
     private var footnote: String {
@@ -752,6 +774,7 @@ struct IntakeSheet: View {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
         case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.") + " What is still missing is asked in the Feature tab."
         case .understand: return "Opens the X-Ray: related parts are marked in every view, the answer and the places are on the right; a file opened from there shows the places inside it."
+        case .research: return "Runs in the background (progress and Cancel under the editor) and opens the report when it is done. Findings are labelled project fact, external fact, AI inference or open assumption, with file paths and URLs. Attachments are copied to docs/research/assets/."
         }
     }
 
@@ -763,11 +786,38 @@ struct IntakeSheet: View {
         attachments += panel.urls
     }
 
+    /// docs/research/<date>-<slug>.md for the question, with a free numeric suffix (DEC-006).
+    static func suggestedPath(for question: String, root: URL?) -> String {
+        ResearchDocument.relativePath(question: question, date: FeatureStore.today) { path in
+            root.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent(path).path) } ?? false
+        }
+    }
+
+    /// Why `path` cannot be the new research document, or nil.
+    static func pathProblem(_ path: String, root: URL) -> String? {
+        let path = path.trimmingCharacters(in: .whitespaces)
+        if path.isEmpty || !path.hasSuffix(".md") { return "The research is saved as a Markdown file: give a path ending in .md." }
+        if path.hasPrefix("/") || path.split(separator: "/").contains("..") { return "Give a path inside the folder, such as docs/research/name.md." }
+        if FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) { return "\(path) already exists; choose another name." }
+        return nil
+    }
+
     private func submit() {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if kind == .understand {
             dismiss()
             workspaceManager.understandInXRay(input)
+            return
+        }
+        if kind == .research {
+            guard let root = workspaceManager.rootNode?.url else { return }
+            if let problem = Self.pathProblem(outputPath, root: root) {
+                failed = problem
+                return
+            }
+            dismiss()
+            workspaceManager.research.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
+                                            targets: targets, attachments: attachments)
             return
         }
         working = true
@@ -778,7 +828,7 @@ struct IntakeSheet: View {
             case .feature: outcome = await assistant.newFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
             case .bug: outcome = await assistant.newBug(from: input, attachments: attachments, linkedIssue: linkedIssue,
                                                         commentOnIssue: commentOnIssue)
-            case .understand: outcome = nil
+            case .understand, .research: outcome = nil
             }
             working = false
             guard let outcome else {

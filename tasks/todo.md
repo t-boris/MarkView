@@ -1,6 +1,49 @@
 # MarkView — Follow-up Tasks
 
-## Done 41: Panel tabs switch in every window (2026-09-27, BUG-004 / issue #27, 2.19.1, branch `fix/bug-004-per-window-panel-tabs`, not committed)
+## Done 42: New Research — repository-grounded analysis (2026-09-27, issue #28, 2.20.0, merged to main)
+
+Spec: `docs/features/new-research-repository-grounded-analysis/` (REQ-001…005, DEC-001…017, plan I-1…I-6).
+Decided with the user: the toolbar's selected backend runs research (Cline/Copilot: repository-only, marked incomplete);
+findings that break the label/citation rule are relabelled [AI inference]; progress and actions in a bar under the
+editor; new REQ-005/DEC-017: comments on a selection make the AI revise that section in place (built now).
+
+- [x] I-1 `Models/ResearchDocument.swift` (pure, Foundation + FrontMatter): path `docs/research/<date>-<slug>.md` with
+      `-2`, `-3` suffixes; render the DEC-008 template (front-matter type/id/question/created/status/web_queries, Question,
+      Summary, Findings, Recommendations, Sources); parse the AI's Markdown sections; label validator (exactly one of the four
+      labels, path for project facts, URL for external facts); incomplete callout; follow-up sections and retry references;
+      status = complete only when every incomplete section has a successful retry. `tools/tests/research-document-tests.sh`
+- [x] I-2 `IntakeKind.research` ("New Research"): appears in every `IntakeKind.allCases` menu; sheet adds Target documents
+      (pre-filled with the open document, removable, add repository files), attachments, editable output path, per-repository
+      "Disable web search"; AI Tools "Deep Research" opens this sheet; `WorkspaceAITool.research` and its prompt retired
+- [x] I-3 `Models/ResearchJobs.swift` (per window, owned by `WorkspaceManager`): cancellable `CLICompletion` job, scope list
+      (git-listed text files honouring .gitignore, no binary/vendor/generated, ≤ 1 MB, targets always), timeout (default 20 min),
+      elapsed time + current step + Cancel in a bar under the editor; writes and opens the document; partial output saved
+      as incomplete on cancel / error / timeout / no web
+- [x] I-4 Prompt (labels, citations, sanitised web queries); `CLICompletion.Activity` reports web searches/fetches so
+      `web_queries` and Sources list what was really sent / read
+- [x] I-5 "Continue / deepen" on any open `type: research` document (same bar): save-or-cancel for unsaved edits, on-disk
+      document as context, append `---` + `## Follow-up N: … (date)` to the file as it is when the job ends; "Retry incomplete
+      part" pre-selected when the latest section is incomplete; front-matter status the only change to earlier content
+- [x] I-6 "Revise With Comment" in the editor selection menu for `type: research` documents: smallest enclosing section
+      revised in place, only if unchanged on disk; label check; web queries recorded; failure leaves the file unchanged
+- [x] Verify: pure tests; Debug build; copy with own bundle ID on a docs-only fixture and an empty fixture; follow-up + retry;
+      cancel → incomplete
+- [x] Minor version bump, feature docs status, architecture docs, lessons
+
+**Review:** Verified in a copy with its own bundle ID, driven through Accessibility by PID, with real Claude Code
+runs. Docs-only fixture: New Research from the ⊞ menu (path follows the question) → report written, opened,
+every finding labelled and cited, Sources from what was read/fetched/searched. The first run showed web search
+refused in headless mode (`permission_denials`): fixed in `CLICompletion` (`--allowedTools`) and confirmed with
+the bare CLI and the next follow-up (real queries in `web_queries`). Follow-up appended with earlier bytes
+unchanged; Cancel after 0:30 kept the partial text under an Incomplete callout (status incomplete); "Retry
+incomplete part" was pre-selected and its success set status complete. Comment on a finding rewrote only the
+enclosing Findings section; the first try exposed rendered typographic quotes vs source (fixed in `plain`, test
+added). README: no comment item, no research bar. AI Tools › Deep Research… opens New Research with the open
+document as target; I Need to Understand unchanged ("Show in X-Ray"). Empty repo with the web opt-out: "No
+project facts" summary, opt-out note, `web_queries: []`, complete. Not driven: Cline/Copilot backends (no web →
+incomplete), the 20 min timeout, a CLI error, attachments, and the conflict paths (section or tab changed
+while a job ran); they share the checked code paths. `tools/tests/research-document-tests.sh`: all checks pass.
+## Done 41: Panel tabs switch in every window (2026-09-27, BUG-004 / issue #27, 2.19.1, merged to main)
 
 Reproduced in a copy with its own bundle ID, six windows: pressing "Search" in window 0 switched all six from
 Git to Search. Cause: `TOCView` binds the tab to `@AppStorage("layout.navigatorTab")`, one app-wide
