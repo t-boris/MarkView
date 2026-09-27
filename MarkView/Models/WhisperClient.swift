@@ -8,6 +8,8 @@ class WhisperClient: ObservableObject {
     @Published var isRecording = false
     @Published var transcribedText: String?
     @Published var error: String?
+    /// The last error is fixed in DDE Settings (API key, model): callers can offer to open them.
+    @Published private(set) var errorOpensSettings = false
 
     private var audioRecorder: AVAudioRecorder?
     /// A new file per recording, so a late cleanup never deletes a newer recording.
@@ -55,6 +57,7 @@ class WhisperClient: ObservableObject {
     func startRecording() {
         guard !isRecording else { return }
         error = nil
+        errorOpensSettings = false
         transcribedText = nil
         // Request microphone permission first
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -164,8 +167,9 @@ class WhisperClient: ObservableObject {
     // MARK: - Whisper API
 
     func transcribe(fileURL: URL) async -> String? {
-        guard let apiKey = apiKey else {
-            error = "OpenAI API key not set. Add it in Settings."
+        errorOpensSettings = false
+        guard let apiKey, !apiKey.isEmpty else {
+            fail(.missingKey)
             return nil
         }
 
@@ -211,14 +215,16 @@ class WhisperClient: ObservableObject {
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 // Read the status outside the guard binding — it is not in scope here.
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                let errBody = String(data: data, encoding: .utf8) ?? ""
-                error = "Whisper API error (HTTP \(status), model \(Self.selectedModel)): \(errBody.prefix(300))"
+                let failure = TranscriptionFailure.http(status: status, body: data, model: Self.selectedModel)
+                // Status and error code only: the body can echo part of the API key.
+                NSLog("[Whisper] Transcription failed: \(failure.tag ?? "HTTP \(status)")")
+                fail(failure)
                 return nil
             }
 
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let text = json["text"] as? String else {
-                error = "Could not parse Whisper response"
+                fail(.unreadableResponse)
                 return nil
             }
 
@@ -228,9 +234,15 @@ class WhisperClient: ObservableObject {
         } catch {
             // Cancelled on purpose (`cancel()`): not a failure to report.
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { return nil }
-            self.error = "Network error: \(error.localizedDescription)"
+            NSLog("[Whisper] Transcription request failed: \(error)")
+            fail(.network(error))
             return nil
         }
+    }
+
+    private func fail(_ failure: TranscriptionFailure) {
+        errorOpensSettings = failure.fixInSettings
+        error = failure.message
     }
 
     // MARK: - Self test
@@ -277,5 +289,103 @@ class WhisperClient: ObservableObject {
             return "⚠️ Request succeeded but the transcript is empty — model \(Self.selectedModel) heard nothing. Check the input device level."
         }
         return "✅ \(Self.selectedModel): \"\(trimmed)\""
+    }
+}
+
+/// A failed transcription explained for people: what went wrong, what to do next, and a short
+/// technical tag (HTTP status, OpenAI error code) for bug reports — never the raw response body,
+/// which is JSON and can echo part of the API key (BUG-009). Pure, so it is testable on its own.
+struct TranscriptionFailure: Equatable {
+    var problem: String
+    var nextStep: String
+    var tag: String?
+    /// The fix is in DDE Settings (API key or model): the field offers to open them.
+    var fixInSettings = false
+
+    var message: String {
+        "\(problem) \(nextStep)" + (tag.map { " (\($0))" } ?? "")
+    }
+
+    private static let retryOrTest = "Try again; if it keeps failing, run \u{201C}Record 3s and transcribe\u{201D} in DDE Settings."
+
+    static let missingKey = TranscriptionFailure(
+        problem: "No OpenAI API key is set.", nextStep: "Add one in DDE Settings.", fixInSettings: true)
+
+    static let unreadableResponse = TranscriptionFailure(
+        problem: "OpenAI answered, but not with a transcript.", nextStep: retryOrTest, tag: "HTTP 200", fixInSettings: true)
+
+    /// A non-200 answer from /v1/audio/transcriptions. OpenAI's body is
+    /// `{"error": {"message", "type", "code", "param"}}`; only `code` (or `type`) is used.
+    static func http(status: Int, body: Data, model: String) -> TranscriptionFailure {
+        let code = errorCode(in: body)
+        let tag = (["HTTP \(status)"] + [code].compactMap { $0 }).joined(separator: " \u{00B7} ")
+        func failure(_ problem: String, _ nextStep: String, settings: Bool = false) -> TranscriptionFailure {
+            TranscriptionFailure(problem: problem, nextStep: nextStep, tag: tag, fixInSettings: settings)
+        }
+        switch (status, code) {
+        case (401, _), (_, "invalid_api_key"):
+            return failure("OpenAI rejected the API key.", "Check or replace the key in DDE Settings.", settings: true)
+        case (_, "insufficient_quota"):
+            return failure("The OpenAI account has run out of credit.",
+                           "Add credit or raise the limit at platform.openai.com (Settings \u{2192} Billing), then dictate again.")
+        case (429, _):
+            return failure("OpenAI is limiting requests right now.", "Wait a minute and dictate again.")
+        case (_, "unsupported_country_region_territory"):
+            return failure("OpenAI does not offer its API in this country or region.",
+                           "Transcription is not available from this network.")
+        case (404, _), (_, "model_not_found"):
+            return failure("The transcription model \(model) is not available for this API key.",
+                           "Choose another model in DDE Settings.", settings: true)
+        case (403, _):
+            return failure("This API key is not allowed to use \(model).",
+                           "Choose another model in DDE Settings, or check the key\u{2019}s permissions at platform.openai.com.", settings: true)
+        case (413, _):
+            return failure("The recording is too large for OpenAI.", "Dictate in shorter parts.")
+        case (_, "audio_too_short"):
+            return failure("The recording is too short to transcribe.", "Record a little longer.")
+        case (400..<500, _):
+            return failure("OpenAI could not process the recording.", retryOrTest, settings: true)
+        case (500..<600, _):
+            return failure("OpenAI\u{2019}s transcription service is having trouble.",
+                           "Try again in a minute; status.openai.com lists outages.")
+        default:
+            return failure("Transcription failed.", retryOrTest, settings: true)
+        }
+    }
+
+    /// The request never got an HTTP answer.
+    static func network(_ error: Error) -> TranscriptionFailure {
+        guard let urlError = error as? URLError else {
+            return TranscriptionFailure(problem: "The request to OpenAI failed.", nextStep: retryOrTest, fixInSettings: true)
+        }
+        let tag = "URLError \(urlError.code.rawValue)"
+        switch urlError.code {
+        case .timedOut:
+            return TranscriptionFailure(problem: "OpenAI took too long to answer.",
+                                        nextStep: "Try again, or dictate in shorter parts.", tag: tag)
+        case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+             .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed:
+            return TranscriptionFailure(problem: "MarkView cannot reach OpenAI.",
+                                        nextStep: "Check the internet connection, then dictate again.", tag: tag)
+        default:
+            return TranscriptionFailure(problem: "The request to OpenAI failed.",
+                                        nextStep: "Check the internet connection, then dictate again.", tag: tag)
+        }
+    }
+
+    /// OpenAI's machine-readable error code (or type), when the body is an OpenAI error object.
+    /// Anything that is not a short snake_case identifier is dropped, so no free text leaks out.
+    private static func errorCode(in body: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let error = json["error"] as? [String: Any] else { return nil }
+        for key in ["code", "type"] {
+            if let value = error[key] as? String, isIdentifier(value) { return value }
+        }
+        return nil
+    }
+
+    private static func isIdentifier(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 64
+            && value.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }
     }
 }

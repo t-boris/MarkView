@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 49: BUG-009 Raw JSON shown for transcription errors (2026-09-27, issue #41, branch fix/bug-009-transcription-errors, 2.25.2)
+
+- [x] Reproduced: fake key → HTTP 401 JSON body pasted verbatim into `WhisperClient.error` (first 300 chars)
+- [x] `TranscriptionFailure`: problem + next step + `(HTTP n · code)` tag; body never shown or logged
+- [x] `errorOpensSettings` → `DictationController.opensSettings` → "Open DDE Settings" in `DictationStatusView`;
+      `DDESettingsWindow` shared by the menu and the intake sheet (owner chose button + tag)
+- [x] `tools/tests/transcription-failure-tests.sh`; real `WhisperClient` harness with a fake key; Debug build
+- [ ] Owner: check the line and button in the intake form with a wrong key after installing
+
 ## Done 48: BUG-008 Implement with AI leaves status at review (2026-09-27, issue #29, branch fix/bug-008-implement-status, 2.25.1)
 
 - [x] Root causes: no status change in `implementWithAI`; event written only after the CLI reply (15 min poll, lost on quit)

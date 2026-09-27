@@ -22,6 +22,8 @@ final class DictationController: ObservableObject {
     @Published private(set) var message: String?
     /// The message is about microphone access: the field offers to open System Settings.
     @Published private(set) var microphoneDenied = false
+    /// The message is fixed in DDE Settings (API key, model): the field offers to open them.
+    @Published private(set) var opensSettings = false
 
     /// How long before the cap the recording indicator warns.
     static let warningLead: TimeInterval = 30
@@ -55,6 +57,7 @@ final class DictationController: ObservableObject {
             self.insert = insert
             message = nil
             microphoneDenied = false
+            opensSettings = false
             phase = .starting
             whisper.startRecording()
         case .starting:
@@ -79,6 +82,7 @@ final class DictationController: ObservableObject {
     func dismissMessage() {
         message = nil
         microphoneDenied = false
+        opensSettings = false
     }
 
     private func stop() {
@@ -94,6 +98,7 @@ final class DictationController: ObservableObject {
             insert = nil
             guard let text else {
                 message = whisper.error ?? "Transcription failed."
+                opensSettings = whisper.errorOpensSettings
                 return
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -123,6 +128,7 @@ final class DictationController: ObservableObject {
         phase = .idle
         insert = nil
         message = error
+        opensSettings = whisper.errorOpensSettings
         let status = WhisperClient.microphoneStatus
         microphoneDenied = status == .denied || status == .restricted
     }

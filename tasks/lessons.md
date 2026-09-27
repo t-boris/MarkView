@@ -412,3 +412,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: record a user-triggered event at the action itself with what is known then; never make its existence depend
   on a later, in-memory wait. Every entry point into a state (buttons, menus, AI actions) applies the same status rule:
   share it (`Feature.beforeImplementation`, `markImplementing`) instead of repeating it inline.
+
+## Never show an API response body as an error (BUG-009, 2026-09-27)
+- Whisper failures pasted the first 300 characters of OpenAI's JSON error body into the UI, including the masked
+  key fragment OpenAI echoes. Users saw JSON and no next step.
+- Rule: map HTTP status + the provider's machine-readable error code to a sentence, a next step and a short
+  `(HTTP n · code)` tag; accept only identifier-shaped codes; never display or log the body. Get a real error body
+  with a fake key (`curl … -H 'Authorization: Bearer sk-fake'`) and test the mapping against it.

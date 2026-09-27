@@ -185,7 +185,6 @@ struct MarkViewApp: App {
     @StateObject private var themeManager = ThemeManager()
     @FocusedValue(\.workspaceManager) private var activeWorkspace
     @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
-    @State private var ddeSettingsWindow: NSWindow?
 
     /// Marketing version from Info.plist, shown in each workspace window's title (ContentView).
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -313,38 +312,11 @@ struct MarkViewApp: App {
 
             CommandGroup(after: .appSettings) {
                 Button("DDE Settings...") {
-                    openDDESettings()
+                    DDESettingsWindow.show(workspace: activeWorkspace)
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
             }
         }
-    }
-
-    private func openDDESettings() {
-        if let ddeSettingsWindow {
-            ddeSettingsWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "DDE Settings"
-        window.isReleasedWhenClosed = false
-        window.isRestorable = false
-        window.center()
-        let wm = activeWorkspace ?? WorkspaceManager()
-        window.contentView = NSHostingView(
-            rootView: DDESettingsView()
-                .environmentObject(wm)
-                .appFontScaled()
-        )
-        ddeSettingsWindow = window
-        window.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - File Actions
@@ -451,6 +423,40 @@ struct MarkViewApp: App {
 
     private func exportPDF() {
         NotificationCenter.default.post(name: .exportPDFRequested, object: nil)
+    }
+}
+
+/// The single DDE Settings window, opened from the menu and from places that point to a fix
+/// there (a dictation field whose OpenAI key or model failed).
+@MainActor
+enum DDESettingsWindow {
+    private static var window: NSWindow?
+
+    static func show(workspace: WorkspaceManager?) {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "DDE Settings"
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.center()
+        let wm = workspace ?? WorkspaceManager()
+        window.contentView = NSHostingView(
+            rootView: DDESettingsView()
+                .environmentObject(wm)
+                .appFontScaled()
+        )
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
     }
 }
 
