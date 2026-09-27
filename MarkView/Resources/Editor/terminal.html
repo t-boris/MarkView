@@ -12,6 +12,10 @@
     :root.light { --bg: #ffffff; }
     #term { position: absolute; inset: 6px 4px 4px 8px; }
     .xterm .xterm-viewport { background-color: transparent !important; }
+    /* WebKit rounds inline glyph advances differently from xterm's row width.
+       Allow a cell of paint room in FitAddon's existing right-side gutter,
+       so the row's overflow:hidden does not shave the final glyph at DPR 1. */
+    .xterm .xterm-rows > div { padding-right: 8px; }
 </style>
 </head>
 <body>

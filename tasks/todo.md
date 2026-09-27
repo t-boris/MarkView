@@ -1673,3 +1673,12 @@ User feedback on 1.1.0 (tested on broker-fabric / apps/bf-menubar):
 - Harness: Shift+Enter → '\n', Enter → '\r'; private pasteboard image → valid PNG path typed.
 - PR 161 fetch steps run by hand: head present, base fetched, 35 files diff, working copy and branch untouched.
 - Not verified in the running app; not installed.
+
+## BUG-007 — terminal rightmost glyph clipping (2026-09-27, 2.23.1)
+- [x] Reproduce with native WebKit at DPR 1 and a full-width styled row.
+- [x] Confirm xterm columns and live PTY COLUMNS/tput agree.
+- [x] Give xterm DOM rows 8px of paint room in the existing right gutter.
+- [x] Native layout regression: seven widths, normal/alternate buffers, wide/styled glyphs, scrollback.
+- [x] Debug app build.
+
+The DOM renderer measures repeated glyphs with integer offsetWidth, while WebKit paints fractional advances. The final span can extend past the row's integer width; its overflow:hidden shaves the final glyph. The row padding restores the painted edge without changing the column count or PTY size. The regression fails 14 checks on the original page and passes all 46 with the fix; a pixel comparison at 699px confirms the restored right edge.
