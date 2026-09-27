@@ -177,6 +177,30 @@ the language AI output is written in, CLI paths, and the Whisper model.
 
 ## Build from source
 
+### Set up Xcode
+
+Install the full [Xcode app](https://developer.apple.com/xcode/) from the Mac App
+Store, then open it once and complete its first-launch setup. The standalone
+Command Line Tools package (`xcode-select --install`) does not include
+`xcodebuild`, which both build scripts require.
+
+Select Xcode for command-line builds and verify the setup:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+xcodebuild -version      # should print an Xcode version and build number
+```
+
+Adjust the path if Xcode is installed elsewhere. If `DEVELOPER_DIR` is set in your
+shell, update or unset it because it overrides `xcode-select`.
+
+If `./install.sh` reports that `xcodebuild` requires Xcode and the active developer
+directory is `/Library/Developer/CommandLineTools`, complete the steps above, then
+rerun the installer. See Apple's [command-line tools setup guide](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings).
+To use MarkView without installing Xcode, download the DMG under [Install](#install).
+
+### Build and install
+
 ```bash
 git clone https://github.com/t-boris/MarkView.git
 cd MarkView
