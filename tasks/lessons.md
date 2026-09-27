@@ -353,3 +353,13 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   PTYWriter.swift, and keep `project.yml` aligned.
 - A UI can be checked without touching the user's app: build with `PRODUCT_BUNDLE_IDENTIFIER=<other>` (separate
   defaults), seed its defaults, and read rows via `osascript` System Events (`help` of row buttons).
+
+## @AppStorage is app-wide: per-window UI state must not use it (BUG-004, 2026-09-27)
+- The right panel tab, left panel mode, open issue, Git section and feature stage were `@AppStorage`. That is one
+  UserDefaults value observed by every window, so a tab switched in one window switched in all of them.
+- Rule: state that describes what one window shows lives in that window's model (`WorkspaceManager.layout`,
+  `PanelLayout`). UserDefaults is only its seed for the next window and relaunch. Keep `@AppStorage` for preferences
+  that all windows should share (theme, model, API settings).
+- Driving a test copy through AppleScript: `process whose unix id is N` resolves back to
+  `application process "MarkView"` by NAME, so it reaches the user's installed app, not the copy. Use the AX API
+  directly (`AXUIElementCreateApplication(pid)`, small swiftc helpers) to address the copy by PID only.

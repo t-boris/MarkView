@@ -3,7 +3,8 @@ import SwiftUI
 /// The right panel: table of contents, workspace search, Git and the AI terminals.
 struct TOCView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage(Tab.storageKey) private var selectedTab = Tab.contents
+    /// This window's panel tabs (BUG-004: not @AppStorage, which every window observes).
+    @ObservedObject var layout: PanelLayout
 
     enum Tab: String, CaseIterable {
         case contents = "Contents"
@@ -16,19 +17,19 @@ struct TOCView: View {
     }
 
     var body: some View {
-        TOCTabs(store: workspaceManager.features, selectedTab: $selectedTab) {
+        TOCTabs(store: workspaceManager.features, selectedTab: $layout.navigatorTab) {
             tabContent
         }
     }
 
     @ViewBuilder
     private var tabContent: some View {
-            switch selectedTab == .feature && !workspaceManager.features.hasIssues ? .contents : selectedTab {
+            switch layout.navigatorTab == .feature && !workspaceManager.features.hasIssues ? .contents : layout.navigatorTab {
             case .contents: contentsList
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
             case .terminal: ModuleExplorerView().environmentObject(workspaceManager)
-            case .feature: FeaturePanelView(store: workspaceManager.features)
+            case .feature: FeaturePanelView(store: workspaceManager.features, layout: layout)
             }
     }
 
@@ -188,5 +189,6 @@ struct WorkspaceSearchView: View {
 }
 
 #Preview {
-    TOCView().environmentObject(WorkspaceManager())
+    let workspaceManager = WorkspaceManager()
+    return TOCView(layout: workspaceManager.layout).environmentObject(workspaceManager)
 }

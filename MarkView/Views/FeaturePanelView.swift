@@ -13,16 +13,22 @@ struct FeaturePanelView: View {
     @ObservedObject var store: FeatureStore
     @ObservedObject var assistant: FeatureAssistant
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage(FeatureStage.storageKey) private var stage = FeatureStage.explore
+    /// This window's stage (BUG-004: not shared between windows).
+    @ObservedObject var layout: PanelLayout
+    private var stage: FeatureStage {
+        get { layout.featureStage }
+        nonmutating set { layout.featureStage = newValue }
+    }
     @State private var showConditions = false
     @State private var cleanup: Set<FeatureCleanup>?
     @State private var confirmRestart = false
     @State private var confirmDelete = false
     @State private var showCycleTime = false
 
-    init(store: FeatureStore) {
+    init(store: FeatureStore, layout: PanelLayout) {
         self.store = store
         self.assistant = store.assistant
+        self.layout = layout
     }
 
     var body: some View {
@@ -411,7 +417,7 @@ struct ExploreStageView: View {
                         .font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                     SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
                         store.finishExplore(feature.slug)
-                        UserDefaults.standard.set(FeatureStage.review.rawValue, forKey: FeatureStage.storageKey)
+                        workspaceManager.layout.featureStage = .review
                     }
                 }
                 .padding(8).background(VSDark.green.opacity(0.08)).cornerRadius(5)

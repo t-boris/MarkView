@@ -9,12 +9,14 @@ struct GitView: View {
     @State private var diffText = ""
     /// GitHub sections, shown only when the integration is on and the folder is on GitHub.
     @ObservedObject var gitHub: GitHubStore
-    @AppStorage("layout.gitSection") private var section = GitSection.changes
+    /// This window's Git section (BUG-004: not shared between windows).
+    @ObservedObject var layout: PanelLayout
 
     init(git: GitClient, workspaceManager: WorkspaceManager) {
         self.git = git
         self.workspaceManager = workspaceManager
         self.gitHub = workspaceManager.gitHub
+        self.layout = workspaceManager.layout
     }
 
     var body: some View {
@@ -26,9 +28,9 @@ struct GitView: View {
                 branchHeader
 
                 if gitHub.isAvailable {
-                    GitHubSectionPicker(gitHub: gitHub, section: $section)
+                    GitHubSectionPicker(gitHub: gitHub, section: $layout.gitSection)
                     Divider().background(VSDark.border)
-                    switch section {
+                    switch layout.gitSection {
                     case .changes: localChanges
                     case .pullRequests: GitHubPullRequestsView(gitHub: gitHub, workspaceManager: workspaceManager)
                     case .issues: GitHubIssuesView(gitHub: gitHub, workspaceManager: workspaceManager)
@@ -89,7 +91,7 @@ struct GitView: View {
             if gitHub.isAvailable {
                 GitHubBranchStatus(gitHub: gitHub) {
                     gitHub.runBranch = git.branch
-                    section = .actions
+                    layout.gitSection = .actions
                 }
             }
             Spacer()

@@ -624,10 +624,12 @@ The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected
 | Store | Key / path | Format |
 |---|---|---|
 | UserDefaults | `features.active.<first 12 chars of ContentHash(root path)>` | active slug per project (`FeatureStore.swift:53-55`) |
-| UserDefaults (`@AppStorage`) | `layout.leftPanel` | `files` or `issues` (`FeatureNavigatorView.swift:16`) |
-| UserDefaults | `layout.issuesFeature` | slug of the feature open in the Issues list. Global, not per project (`FeatureNavigatorView.swift:18`) |
-| UserDefaults | `feature.stage` | `Explore/Review/Resolve/Build`. Global (`FeaturePanelView.swift:8,16`) |
-| UserDefaults | `layout.navigatorTab` | right panel tab, set by `intakeFinished` and `runFeatureAction` |
+| `PanelLayout` (per window) | `layout.leftPanel` | `files` or `issues` (`FeatureNavigatorView.swift`) |
+| `PanelLayout` (per window) | `layout.issuesFeature` | slug of the feature open in the Issues list. Per window, not per project |
+| `PanelLayout` (per window) | `feature.stage` | `Explore/Review/Resolve/Build` (`FeaturePanelView.swift`) |
+| `PanelLayout` (per window) | `layout.navigatorTab` | right panel tab, set by `intakeFinished` and `runFeatureAction` |
+
+The `PanelLayout` keys hold the last choice only to seed a new window and relaunch (BUG-004).
 | UserDefaults | `ai.customFilters` | JSON `[Filter]` (ImportanceRater) |
 | UserDefaults (read) | `com.markview.dde.openai.apikey` | OpenAI key, which shows the dictation button (`FeatureNavigatorView.swift:422`) |
 | App Support | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | lifecycle events written through `LifecycleLog` (`LifecycleLog.swift:23-24`) |
@@ -711,7 +713,7 @@ Settings read indirectly: `actions.outputLanguage` (conversation language), `AIA
 3. **Duplicate epic risk**: after the epic issue is created, a URL without a parseable number leaves `epic = nil` (`FeatureAI.swift:1293`). The next "create issues" files another epic. The per-issue path guards against this (`:1276-1279`); the epic path does not.
 4. **Bug ID race**: `nextNumbered("BUG")` followed by `write(..., atomically: true)` has no `withoutOverwriting` (`FeatureIntake.swift:166,212,230`). Two windows or a concurrent git pull can overwrite a report. Feature objects are protected (`FeatureStore.swift:277`); bugs are not.
 5. **Unvalidated AI output**: plan issue `requirements`/`decisions` (`FeatureAI.swift:1240-1244`) and finding `refs` (`:833`) are stored verbatim. `openTarget` guards only against `..` (`FeaturePanelView.swift:1064`).
-6. **Global UI state**: `feature.stage` and `layout.issuesFeature` are global UserDefaults keys, shared by all windows and projects (`FeaturePanelView.swift:16`; `FeatureNavigatorView.swift:18`). `ExploreStageView` writes the stage key directly instead of through the binding (`FeaturePanelView.swift:414`).
+6. **UI state per window, not per project**: `feature.stage` and `layout.issuesFeature` live in the window's `PanelLayout` (BUG-004), so two windows no longer share them. A window that switches projects keeps them, and a stale `issuesFeature` slug falls back to the list.
 7. **Plan body regenerated**: `savePlan` rebuilds the whole body (`FeatureStore.swift:530-536`), so hand edits below the front matter are lost on the next plan change or cleanup.
 8. **ASCII-only slugs**: non-Latin titles, such as Russian, which the examples show is the conversation language, collapse to `feature`, `feature-2`… and `BUG-nnn-.md` (`FeatureModels.swift:578-581`).
 9. **`PlannedIssue` fallback ID** is random (`UUID().uuidString.prefix(4)`) when `id` is missing (`FeatureModels.swift:214`). It changes on every load, which breaks drag and drop between issue cards for hand-written plans.

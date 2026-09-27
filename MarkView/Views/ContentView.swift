@@ -140,7 +140,7 @@ struct ContentView: View {
 
             // MARK: - Right Panel: Contents / Search / Git / Terminal
             if workspaceManager.showTOC {
-                TOCView()
+                TOCView(layout: workspaceManager.layout)
                     .environmentObject(workspaceManager)
                     .frame(minWidth: 200, idealWidth: 300)
             }

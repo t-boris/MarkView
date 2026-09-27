@@ -13,8 +13,8 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 | `workspace.lastFolder` | path | Folder restored on launch | app shell |
 | `layout.showFileTree`, `layout.showTOC` | Bool | Pane visibility | app shell |
 | `layout.leftPanelWidth` | Double, 220 (180–800) | Width of the left pane (Files and Issues), restored on launch | app shell |
-| `layout.navigatorTab`, `layout.leftPanel`, `layout.issuesFeature`, `layout.gitSection`, `layout.terminalPromptsExpanded` | enum/String/Bool | Panel state | app shell, features, git, terminal |
-| `feature.stage`, `feature.lifecycle.expanded` | String/Bool | Feature panel state (global across windows) | features |
+| `layout.navigatorTab`, `layout.leftPanel`, `layout.issuesFeature`, `layout.gitSection`, `feature.stage` | enum/String | Last panel tab/section chosen. Each window keeps its own in `PanelLayout`; the key only seeds the next window and relaunch (BUG-004) | app shell, features, git |
+| `layout.terminalPromptsExpanded`, `feature.lifecycle.expanded` | Bool | Disclosure state (global across windows) | terminal, features |
 | `features.active.<12-char hash of root>` | String | Open feature per project | features |
 | `features.issues.filter.<12-char hash of root>` | [String], `[]` | Issues list funnel filter per project: ids of `open`, `closed`, `bugs`, `features`, `implemented`, `not-implemented`; unknown ids ignored | features |
 | `features.issues.sort.<12-char hash of root>` | String, `date:desc` | Issues list order per project, `date\|priority:asc\|desc`; unknown values fall back to the default | features |

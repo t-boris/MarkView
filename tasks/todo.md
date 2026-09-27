@@ -1,5 +1,27 @@
 # MarkView — Follow-up Tasks
 
+## Done 41: Panel tabs switch in every window (2026-09-27, BUG-004 / issue #27, 2.19.1, branch `fix/bug-004-per-window-panel-tabs`, not committed)
+
+Reproduced in a copy with its own bundle ID, six windows: pressing "Search" in window 0 switched all six from
+Git to Search. Cause: `TOCView` binds the tab to `@AppStorage("layout.navigatorTab")`, one app-wide
+UserDefaults value observed by every window; `WorkspaceManager` also writes that key directly.
+Decided with the user: fix all five per-window navigation states, not just the TOC tab.
+
+- [x] I-1: `Models/PanelLayout.swift`: per-window `ObservableObject` owned by `WorkspaceManager.layout`, holding the TOC tab,
+      left panel mode, open issue, Git section and feature stage; seeded from the existing keys, each change written back
+      only as the seed for the next window and relaunch (same rule as `showTOC`); added to the pbxproj by hand
+- [x] I-2: `TOCView`, `LeftPanelContent`, `GitView`, `FeaturePanelView` observe the window's `PanelLayout` instead of `@AppStorage`
+- [x] I-3: `WorkspaceManager.showAIConsole` / `intakeFinished` / `runFeatureAction` and "Go to Review" set this window's layout
+- [x] Verify: Debug build (standard command too); copy with own bundle ID, through Accessibility by PID: TOC tab pressed in one of
+      eight windows changes only that one; New Window opens on the last choice; relaunch restores it; Files/Issues in one of two
+      fixture windows leaves the other on Files
+- [x] Version 2.19.1, BUG-004 `fixed` with a Resolution section, architecture docs (configuration, app shell, feature workflow, git), lessons
+
+**Review:** The View > Terminal (⌘3) path was not driven: it acts on the focused window, which would need the test copy to take
+focus from the user's screen. It writes only to that window's `layout`, the object the other checks covered. The Git section and
+feature stage were not clicked (no GitHub remote or feature in the fixtures); they use the same `PanelLayout` binding as the checked
+Files/Issues mode.
+
 ## Done 40: Workspace folder name in the window title (2026-09-26, issue #25, 2.19.0)
 
 - [x] I-1: pure `Models/WindowTitle.swift` (title text, Finder display name) + `tools/tests/window-title-tests.sh` (9 checks)

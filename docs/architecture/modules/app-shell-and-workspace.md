@@ -310,9 +310,13 @@ flowchart TD
 | `layout.showFileTree`, `layout.showTOC` | Bool | `WorkspaceManager.swift:319-324,410-415` |
 | `fileTree.sortField` (`"Name"`/`"Date Modified"`), `fileTree.sortAscending` | String, Bool | `WorkspaceManager.swift:13-14,28-34` |
 | `excludedFolders.<rootFolderName>` | [String] relative paths | `WorkspaceManager.swift:50,104` |
-| `layout.navigatorTab` | `TOCView.Tab` raw (`Contents`…`Feature`) | `TOCView.swift:6,15`; written by `showAIConsole` `:3082`, `intakeFinished`, `runFeatureAction` |
-| `layout.leftPanel` (`files`/`issues`), `layout.issuesFeature` | String | `FeatureNavigatorView.swift:16-18`; written `WorkspaceManager.swift:3290-3291` |
-| `feature.stage` (`FeatureStage.storageKey`) | String | written `WorkspaceManager.swift:3292` |
+| `layout.navigatorTab` | `TOCView.Tab` raw (`Contents`…`Feature`) | `PanelLayout.navigatorTab`; set by `TOCView`, `showAIConsole`, `intakeFinished`, `runFeatureAction` |
+| `layout.leftPanel` (`files`/`issues`), `layout.issuesFeature` | String | `PanelLayout.leftPanel` / `.issuesFeature`; `FeatureNavigatorView.swift`, `intakeFinished` |
+| `feature.stage` (`FeatureStage.storageKey`) | String | `PanelLayout.featureStage`; `FeaturePanelView`, `intakeFinished` |
+
+These four are per-window state: `WorkspaceManager.layout` (`Models/PanelLayout.swift`) reads them once when the
+window opens and writes each change back only to seed the next window and relaunch. Views observe the window's
+`PanelLayout`, never the keys. `@AppStorage` would switch every window at once (BUG-004).
 | `theme` | `light`/`dark`/`system` | `ThemeManager.swift:23` |
 | `settings.ai.backend` | `CLITool` raw | `AIAssistants.swift:88`; `ContentView.swift:388` |
 | `settings.cli.<tool>Model`, `settings.xray.<tool>Model` | String | `AIAssistants.swift:90,107`; `ContentView.swift:389-396` |
@@ -395,7 +399,7 @@ Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileD
   5. Include it in the `removeMetadata` cleanup (`:794-798`) and `closeFolder` (`:1427-1434`).
 - **Add a menu command**: add a `Button` in `MarkViewApp.commands` that uses `activeWorkspace?`. If it depends on the folder state, disable it with `activeWorkspaceHasFolder`, because the reference key does not change (`ContentView.swift:8-13`).
 - **Add a bridge action handled by the workspace**: add a `case` in `handleArchitectureAction` or `handleCodeAction` and validate every payload field there. Then update the JS sender and `EditorView`'s message routing together (CLAUDE.md rule). Keep paths inside root with the `hasPrefix(root + "/")` pattern.
-- **Add a persisted layout or setting key**: follow the `didSet` + `init` restore pattern (`WorkspaceManager.swift:319-324,409-415`) or use `@AppStorage`. Add the key to the table in section 6. A rename of an existing key is a **major** bump (CLAUDE.md "Versioning").
+- **Add a persisted layout or setting key**: per-window state (which tab or section a panel shows) goes into `PanelLayout` or follows the `didSet` + `init` restore pattern (`WorkspaceManager.swift:319-324,409-415`). Use `@AppStorage` only for app-wide preferences that every window should share (BUG-004). Add the key to the table in section 6. A rename of an existing key is a **major** bump (CLAUDE.md "Versioning").
 - **Add something under `.dde/`**: create it lazily in the owning store. If it is user-visible metadata, make sure `metadataItems()` still covers it; anything under `.dde` is covered. A layout change is a major bump.
 - **Add an AI Tools entry**: add a `WorkspaceAITool` case and prompt text in `aiPrompt(for:)` (`:3519-3726`), plus a button in `AIToolsMenu` (`ContentView.swift:460-489`).
 - **Add a file type**: update `FileType.supportedExtensions` / `codeExtensions` (`DocumentState.swift:18-23,77-123`), `Info.plist` `CFBundleDocumentTypes`, and, if needed, `FileTreeView.fileIcon`. `FileNode.loadChildren` and `FileTreeView` both filter with `FileType.isOpenable`.

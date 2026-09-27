@@ -316,6 +316,8 @@ enum WorkspaceAITool: String {
 @MainActor
 class WorkspaceManager: ObservableObject {
     @Published var recentFiles: [URL] = []
+    /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
+    let layout = PanelLayout()
     @Published var showFileTree: Bool = true {
         didSet { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") }
     }
@@ -3079,7 +3081,7 @@ class WorkspaceManager: ObservableObject {
     /// Show the right panel on its Terminal tab (the AI terminals).
     func showAIConsole() {
         showTOC = true
-        UserDefaults.standard.set(TOCView.Tab.terminal.rawValue, forKey: TOCView.Tab.storageKey)
+        layout.navigatorTab = .terminal
     }
 
     // MARK: - Terminals
@@ -3287,16 +3289,16 @@ class WorkspaceManager: ObservableObject {
     func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
         if let slug = outcome.feature {
             features.activeSlug = slug
-            UserDefaults.standard.set("issues", forKey: "layout.leftPanel")
-            UserDefaults.standard.set(slug, forKey: "layout.issuesFeature")
-            UserDefaults.standard.set(FeatureStage.explore.rawValue, forKey: FeatureStage.storageKey)
+            layout.leftPanel = "issues"
+            layout.issuesFeature = slug
+            layout.featureStage = .explore
             showTOC = true
             showFileTree = true
-            UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
+            layout.navigatorTab = .feature
         } else if kind == .bug {
             // The report opens in the editor; its questions are answered in the Feature tab.
             showTOC = true
-            UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
+            layout.navigatorTab = .feature
         }
         refreshFileTree()
         if let file = outcome.file { openFile(file) }
@@ -3312,7 +3314,7 @@ class WorkspaceManager: ObservableObject {
         let slug = located?.feature.slug ?? features.active?.slug
         let document = url.map { features.relativePath($0) }
         showTOC = true
-        UserDefaults.standard.set(TOCView.Tab.feature.rawValue, forKey: TOCView.Tab.storageKey)
+        layout.navigatorTab = .feature
         Task { await features.assistant.perform(action, selection: text, document: document, question: question, feature: slug) }
     }
 

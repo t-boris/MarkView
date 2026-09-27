@@ -188,7 +188,7 @@ MarkView stores no GitHub token; authentication is entirely `gh`'s own sign-in.
 | `settings.github.activeInterval` | Double seconds | 30 (UI: 15/30/60) | `Models/GitHubStore.swift:12`, `:24-27` |
 | `settings.github.notifyRuns` | Bool | true | `:14`, `:28` |
 | `settings.github.autoReview` | Bool | true | `:16`, `:29` |
-| `layout.gitSection` | `GitSection` raw value | `Changes` | `Views/GitView.swift:12`, `Views/GitHubViews.swift:130-135` |
+| `layout.gitSection` | `GitSection` raw value | `Changes` | Per window in `Models/PanelLayout.swift` (key seeds new windows); `Views/GitView.swift:12`, `Views/GitHubViews.swift:130-135` |
 | `~/Library/Application Support/MarkView/login-github.command` | zsh script | written on "Sign In…" | `Views/GitHubViews.swift:1406-1421` |
 
 Subprocess environment for `gh`/`git` via `GitHubClient.execute`: `PATH` from

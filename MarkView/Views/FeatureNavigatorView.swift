@@ -6,19 +6,23 @@ struct LeftPanelView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
-        LeftPanelContent(store: workspaceManager.features)
+        LeftPanelContent(store: workspaceManager.features, layout: workspaceManager.layout)
     }
 }
 
 private struct LeftPanelContent: View {
     @ObservedObject var store: FeatureStore
+    /// This window's Files/Issues choice and open feature (BUG-004: not shared between windows).
+    @ObservedObject var layout: PanelLayout
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @AppStorage("layout.leftPanel") private var mode = "files"
-    /// The feature opened from the Issues list ("" = the list); kept so "New Feature" can open it.
-    @AppStorage("layout.issuesFeature") private var openFeatureSlug = ""
+    private var mode: String {
+        get { layout.leftPanel }
+        nonmutating set { layout.leftPanel = newValue }
+    }
+    /// The feature opened from the Issues list; kept so "New Feature" can open it.
     private var openFeature: String? {
-        get { openFeatureSlug.isEmpty ? nil : openFeatureSlug }
-        nonmutating set { openFeatureSlug = newValue ?? "" }
+        get { layout.issuesFeature.isEmpty ? nil : layout.issuesFeature }
+        nonmutating set { layout.issuesFeature = newValue ?? "" }
     }
 
     var body: some View {
