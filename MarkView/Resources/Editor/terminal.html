@@ -131,15 +131,44 @@
         post({ type: 'resolveLinks', request: request, paths: links.map(link => link.text) });
     }});
 
+    const host = document.getElementById('term');
     let size = { cols: 0, rows: 0 };
+    let ready = false;
+    let fitRetryScheduled = false;
+    function retryFit() {
+        if (fitRetryScheduled) return;
+        fitRetryScheduled = true;
+        requestAnimationFrame(function() {
+            fitRetryScheduled = false;
+            refit();
+        });
+    }
     function refit() {
-        try { fit.fit(); } catch (e) { return; }
+        // FitAddon can return before xterm has measured a cell. The element does not
+        // necessarily resize again when those metrics arrive, so retry before starting
+        // the PTY instead of leaving its default 80x24 grid in a clipped viewport.
+        if (!host.clientWidth || !host.clientHeight) return;
+        try {
+            const dimensions = fit.proposeDimensions();
+            if (!dimensions || !Number.isFinite(dimensions.cols) || !Number.isFinite(dimensions.rows)) {
+                retryFit();
+                return;
+            }
+            fit.fit();
+        } catch (e) {
+            retryFit();
+            return;
+        }
         if (term.cols !== size.cols || term.rows !== size.rows) {
             size = { cols: term.cols, rows: term.rows };
-            post({ type: 'resize', cols: term.cols, rows: term.rows });
+            if (ready) post({ type: 'resize', cols: term.cols, rows: term.rows });
+        }
+        if (!ready) {
+            ready = true;
+            post({ type: 'ready', cols: term.cols, rows: term.rows });
         }
     }
-    new ResizeObserver(refit).observe(document.getElementById('term'));
+    new ResizeObserver(refit).observe(host);
     term.onData(function(data) { post({ type: 'input', data: data }); });
     // Shift+Enter: a new line in the prompt, not "send" — a line feed (Ctrl+J), which
     // Claude Code and Codex take as a newline.
@@ -203,7 +232,6 @@
     };
 
     refit();
-    post({ type: 'ready', cols: term.cols, rows: term.rows });
     term.focus();
 })();
 </script>

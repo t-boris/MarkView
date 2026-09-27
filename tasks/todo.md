@@ -1755,3 +1755,10 @@ The DOM renderer measures repeated glyphs with integer offsetWidth, while WebKit
 - [x] Isolated native app, with macOS window retention disabled: three windows in two folders → normal quit/relaunch → three windows. Close one and minimize another → quit/relaunch → two windows, one still minimized. Active tabs, drafts and deleted-file draft preserved; document files unchanged.
 
 Boris explicitly authorized committing/pushing this fix directly to main without a PR.
+
+## BUG-010 — terminal grid clips at startup (2026-09-27, 2.25.3)
+- [x] Reproduce a delayed xterm cell measurement in native WebKit: the original page sends `ready` at 80×24 and remains at that grid until a window resize.
+- [x] Wait for a valid FitAddon size before starting the PTY; retry transient unavailable metrics.
+- [x] Repair the native terminal layout harness after AppFontScale was added, and check the bottom row as well as the rightmost cell.
+- [x] Confirm the regression fails on the original page and passes with the fix.
+- [x] Debug app build; in an isolated 2.25.3 app, a new shell reports its fitted 33×31 grid and draws a full-width line inside the panel.
