@@ -322,3 +322,13 @@ BUG-001 tests covered only ST-terminated OSC 8 (`ESC \`). Claude Code (Ink/ansi-
 ends OSC 8 with BEL and other tools add `id=` params. When reproducing a terminal bug reported
 against a specific program, replay that program's exact byte shape (terminator, params, SGR styling,
 alternate screen, mouse mode). Also run the new check against the pre-fix page to prove it catches the bug.
+
+## Never edit a text view and its `inout` binding in the same call (BUG-003, 2026-09-26)
+- Dictation inserted the transcript through `NSTextView.insertText` inside a function that took the
+  field's text as `inout String`. The view updated the `@State`, then the `inout` write-back restored
+  the old text: the text flashed in and vanished, with no error. It was misread for hours as a
+  microphone/recording problem, because the logs had no public messages (NSLog shows `<private>`).
+- Rule: an edit goes to exactly one owner, the binding. Read the cursor from the view if needed, but
+  never mutate the view. To reproduce a UI bug without Accessibility access, run a Developer ID-signed
+  copy from a worktree with stderr tracing next to the user's app and have the user click. Trace
+  every step through to the final state, not just the part you suspect.

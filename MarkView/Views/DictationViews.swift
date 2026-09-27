@@ -104,20 +104,18 @@ struct DictationStatusView: View {
 }
 
 enum DictationInsertion {
-    /// Inserts a transcript into the field's own window's first responder text view when the
-    /// field is focused there — at the cursor, replacing a selection — and otherwise appends it
-    /// to `text`. Another window's text view (the user moved on) is never touched. A space
-    /// separates it from a word it would touch. The field's whole text is never replaced.
+    /// Inserts a transcript into `text`: at the cursor (replacing a selection) when the field is
+    /// focused in its own window, otherwise at the end. Only the cursor position is read from the
+    /// window's text view; the edit itself always goes to `text`. Editing the text view directly
+    /// does not work: its binding update is overwritten when this `inout` is written back
+    /// (BUG-003). A space separates the transcript from a word it would touch.
     static func insert(_ transcript: String, window: NSWindow?, fieldFocused: Bool, text: inout String) {
-        if fieldFocused, let view = window?.firstResponder as? NSTextView, view.isEditable {
-            let range = view.selectedRange()
-            let content = view.string as NSString
-            let before = range.location > 0 ? content.substring(with: NSRange(location: range.location - 1, length: 1)) : ""
-            let afterIndex = range.location + range.length
-            let after = afterIndex < content.length ? content.substring(with: NSRange(location: afterIndex, length: 1)) : ""
+        if fieldFocused, let view = window?.firstResponder as? NSTextView, view.isEditable,
+           view.string == text, let range = Range(view.selectedRange(), in: text) {
+            let before = text[..<range.lowerBound].last.map(String.init) ?? ""
+            let after = text[range.upperBound...].first.map(String.init) ?? ""
             let piece = (needsSpace(before) ? " " : "") + transcript + (isWordCharacter(after) ? " " : "")
-            // Through the text view, so it is one undoable edit and the binding follows.
-            view.insertText(piece, replacementRange: range)
+            text.replaceSubrange(range, with: piece)
         } else {
             let last = text.last.map(String.init) ?? ""
             text += (needsSpace(last) ? " " : "") + transcript

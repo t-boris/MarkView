@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## Done 37: Dictation transcript vanished from the intake field (2026-09-26, BUG-003 / issue #23, 2.17.1, not committed)
+
+- [x] Reproduce: signed 2.17.0 copy with stderr tracing next to the installed app; the user clicked
+- [x] Root cause: `NSTextView.insertText` updated the binding, then the `inout text` write-back restored the old text
+- [x] Fix: `DictationInsertion.insert` edits only `text` (cursor read from the view), in `Views/DictationViews.swift`
+- [x] Verify: New Bug from the navigator, text stays (0 → 23), second dictation inserts at the cursor; Debug build succeeds
+- [x] BUG-003 resolution, lesson, version 2.17.1
+
+**Review:** the recorder, Whisper and `DictationController` were fine; only the last step, inserting the text, was broken, in every intake kind.
+
 ## Done 36: Architecture documentation set (2026-09-26, docs only, no version bump)
 
 Output: `docs/architecture/`, one doc per subsystem plus cross-cutting docs.
