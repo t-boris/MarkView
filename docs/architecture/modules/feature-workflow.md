@@ -200,7 +200,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html:1480+`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift:319-323`) → `EditorView` delegate (`Views/EditorView.swift:844-846`) → `WorkspaceManager.runFeatureAction` (`WorkspaceManager.swift:3307-3317`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
 | Toolbar "New" menu (`Views/ContentView.swift:113`), issue and PR menus (`WorkspaceManager.startIntake`, `:3227-3259`) | Set `workspaceManager.intake` and present `IntakeSheet` (`ContentView.swift:170`) |
 | `IntakeSheet.submit` → `WorkspaceManager.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`WorkspaceManager.swift:3287-3304`) |
-| `BuildStageView` "Implement with AI" → `WorkspaceManager.implementWithAI` | Sends `/goal implement <path>` to the Terminal assistant, then calls `features.recordImplementationStarted` (`WorkspaceManager.swift:3264-3274`) |
+| `BuildStageView` "Implement with AI" → `WorkspaceManager.implementWithAI` | Sends `/goal implement <path>` to the Terminal assistant, then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`WorkspaceManager.swift`) |
 | `BugPanelView` "Fix with AI" → `WorkspaceManager.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends a fix prompt (`WorkspaceManager.swift:3277-3284`) |
 | `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/TOCView.swift:26-31`) |
 | `LifecycleViews` | Read `store.features` and `lifecycleEvents` (`Views/LifecycleViews.swift:22,106,206`) |
@@ -409,11 +409,11 @@ stateDiagram-v2
     idea --> review: finishExplore / review()
     exploring --> review: finishExplore / review()
     draft --> review: finishExplore / review()
-    review --> implementing: createIssues
-    exploring --> implementing: createIssues
-    draft --> implementing: createIssues
-    resolving --> implementing: createIssues
-    ready --> implementing: createIssues
+    review --> implementing: createIssues / implementWithAI
+    exploring --> implementing: createIssues / implementWithAI
+    draft --> implementing: createIssues / implementWithAI
+    resolving --> implementing: createIssues / implementWithAI
+    ready --> implementing: createIssues / implementWithAI
     implementing --> implemented: manual
     implemented --> verified: manual
     review --> idea: restartFeature (not when implementing+)
@@ -447,7 +447,7 @@ Automatic lifecycle events (`FeatureStore.swift:576-728`):
 | `questionsResolved` | The count of open questions goes from ≥1 to 0 (`:590`) |
 | `specReady` | Status enters `ready`, or readiness reaches 100 (`:591-592`). Also back-filled when the status jumps into implementing without it, or on "Implement with AI" (`:593-605,612`) |
 | `implementationFinished` | Status enters `implemented` (`:596-597`) |
-| `implementationStarted` | `recordImplementationStarted`, with the model from the CLI session log (polled up to 15 min) or the configured model (`:610-636`) |
+| `implementationStarted` | `recordImplementationStarted`, at the click and without waiting for a reply (BUG-008): the model the running terminal has answered with (one read of its session log), else the model it was started with or the configured default |
 | `mergedToMain` | A commit on the default branch that mentions the feature folder or its issues after implementation started, checked about once a minute (`:697-713`) |
 | GitHub captures, `ciPassed` | From `GitHubClient.lifecycleCaptures` and `ciPassed`, on the GitHub poll, deduplicated by note (`:650-692`) |
 

@@ -404,3 +404,11 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - A background test copy (`open -n -g`) opens no window: `newWindowForTab:` needs an active app. Press File › New
   Window through the AX menu bar, and open folders with `open -g -a <copy.app> <folder>` (its own bundle ID).
 - The "document language" default has no documents to go by in a new project; name the source of the language.
+
+## A lifecycle event that waits for something can be lost (BUG-008, 2026-09-27)
+- "Implement with AI" wrote `implementation_started` only after the CLI's first reply (polling up to 15 min), because
+  the append-only log cannot be amended with the model later. It showed up late, was lost if the app quit (reinstall),
+  and the status was never set at all, since only Create issues set `implementing`.
+- Rule: record a user-triggered event at the action itself with what is known then; never make its existence depend
+  on a later, in-memory wait. Every entry point into a state (buttons, menus, AI actions) applies the same status rule:
+  share it (`Feature.beforeImplementation`, `markImplementing`) instead of repeating it inline.

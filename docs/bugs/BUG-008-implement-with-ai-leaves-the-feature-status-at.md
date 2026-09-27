@@ -2,7 +2,7 @@
 type: bug
 id: BUG-008
 title: "\"Implement with AI\" leaves the feature status at \"review\" and doesn't record that implementation started"
-status: open
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-09-27
@@ -59,45 +59,44 @@ issue: "#29"
 
 ## Summary
 
-Clicking "Implement with AI" in the Feature panel sends the implement prompt to the AI assistant (Claude Code CLI), and the assistant starts implementing. The feature's front-matter status stays 'review', and the 'implementation started' lifecycle event is never recorded, even much later (BQ-2). implementWithAI never writes a status. It relies on a detached task that polls the Claude Code CLI session log to record implementationStarted, and that task fails silently. The workflow spec only allows the move into `implementing` through createIssues. The user decided the status after the click must be `implementing` (BQ-3).
+The Feature panel's `Implement with AI` action starts Claude Code CLI work but leaves the feature at `review`. The user chose `implementing` as the required status. The `implementationStarted` event was also absent later. Code confirms the missing status update; the lifecycle failure needs a debug trace because polling has a fallback after 15 minutes.
 
 ## Steps to reproduce
 
-1. Open a project with a feature whose front-matter status is 'review'.
-2. Select Claude (Claude Code CLI) as the AI backend.
-3. Open the feature in the Feature panel and click 'Implement with AI' without using 'Create issues' first.
-4. Watch the assistant start implementing in the Terminal tab.
-5. Check the feature status in the Feature panel, the file tree and the issue listing.
-6. Check the feature's lifecycle history, including after more than 15 minutes.
+1. Open a project containing a feature with front-matter status `review`.
+2. Select Claude Code CLI as the AI backend.
+3. Open that feature in the Feature panel and click `Implement with AI` without first creating issues.
+4. Confirm that the prompt reaches the Terminal assistant and implementation begins.
+5. Check the feature status in the Feature panel, file tree, and issue listing; check its lifecycle history immediately and again after more than 15 minutes.
 
 ## Expected
 
-Right after the click (once the prompt has been sent to the assistant), the feature's front-matter status changes to `implementing` (BQ-3). The new status shows everywhere in the UI. The 'implementation started' lifecycle event is recorded immediately and reliably, whether or not the Claude Code session log is found. Failures are logged, not swallowed.
+Once the prompt is successfully handed to the assistant, the feature's front-matter status becomes `implementing` and the UI reflects it. An `implementationStarted` lifecycle event is recorded reliably, even if the CLI session log cannot supply a model.
 
 ## Actual
 
-The status stays 'review' everywhere. The 'implementation started' event is never recorded, even after the assistant has been working for a long time (confirmed by the user).
+After the Feature panel button sends the prompt and Claude Code CLI begins implementing, the feature remains at `review` in the reported UI locations. The user reports that no `implementationStarted` event appeared later.
 
 ## Environment
 
-MarkView macOS app (Darwin 27.0.0). Triggered from the 'Implement with AI' button in the Feature panel. AI backend: Claude Code CLI (BQ-4).
+MarkView macOS app on Darwin 27.0.0; Feature panel button; Claude Code CLI backend.
 
 ## Suspected code
 
-- `MarkView/Models/WorkspaceManager.swift` — implementWithAI (~line 3264) sends the prompt but never sets the `implementing` status. By contrast, fixBugWithAI calls updateBug to set 'fixing'. implementWithAI also returns early without recording anything if the slug lookup fails or if sendToAssistant/profile.tool returns nil.
-- `MarkView/Models/FeatureStore.swift` — recordImplementationStarted (~lines 610-636) writes the event from Task.detached, and only after answeringModel finishes polling the Claude Code session log (up to 15 min). If polling fails or times out, nothing is recorded and nothing is logged. observeLifecycle only reacts to status changes, so it cannot back-fill the event.
-- `MarkView/Views/FeaturePanelView.swift` — This is the 'Implement with AI' button (~line 1250). The move to `implementing` is tied only to 'Create issues' (~line 1285).
-- `docs/architecture/modules/feature-workflow.md` — The state diagram only enters `implementing` through createIssues. It needs a review→implementing transition on Implement with AI.
+- `MarkView/Models/WorkspaceManager.swift` — `implementWithAI` sends the prompt but does not call `updateFeature` to set `implementing`. It records the event only when both a CLI tool and feature slug are available.
+- `MarkView/Models/FeatureStore.swift` — `recordImplementationStarted` returns if there is no lifecycle project, then records from a detached task after `answeringModel` returns. That task may wait up to 15 minutes; it has no diagnostic reporting for failure or noncompletion.
+- `MarkView/Views/FeaturePanelView.swift` — The reported button calls `implementWithAI(feature.folder)` directly; its action does not update feature status.
+- `docs/architecture/modules/feature-workflow.md` — The status diagram documents entry to `implementing` through `createIssues`, but omits the user-required transition when `Implement with AI` hands off the feature.
 
 ## Likely causes
 
-- implementWithAI has no step that updates the status. The spec only moves a feature to `implementing` through createIssues.
-- The implementationStarted event depends on a detached task that must find the Claude Code session log. If polling fails, times out, looks in the wrong session directory or file, or the app quits, the event is lost silently.
-- implementWithAI returns early without recording anything when the slug lookup fails or when sendToAssistant/profile.tool returns nil.
+- Confirmed in code: `implementWithAI` sends the prompt and attempts to record a lifecycle event, but never updates the feature's front-matter status.
+- Possible, unconfirmed: the feature slug was not resolved, the session had no CLI tool, lifecycle recording was unavailable, or the detached recording task did not complete. A missing Claude session log alone does not explain a permanently missing event: the code falls back to a configured model after polling ends.
 
 ## Missing information
 
-- It is not confirmed why the Claude Code session-log polling failed (wrong path, a timeout or a lost task). This needs app logs or a debug run.
+- The cause of the missing lifecycle event is not established. A debug run should check slug resolution, the selected terminal session and tool, lifecycle project availability, and whether the detached task completes.
+- The exact app version and feature path were not provided; they may help reproduce the lifecycle failure, but are not needed to begin fixing the confirmed status path.
 
 ## Clarifications
 
@@ -112,6 +111,22 @@ MarkView macOS app (Darwin 27.0.0). Triggered from the 'Implement with AI' butto
 
 **BQ-4** Какой ИИ-бэкенд был выбран, когда вы нажали Implement with AI?
 → Claude. Claude Code CLI
+
+## Resolution (2.25.1)
+
+- Root cause 1 (status): `WorkspaceManager.implementWithAI` sent the prompt but never changed the front matter.
+  It now calls `FeatureStore.markImplementing`, the same rule as Create issues (`ready/resolving/review/draft/exploring`
+  → `implementing`, shared as `Feature.beforeImplementation`).
+- Root cause 2 (event): the event was written only after polling the CLI's session log for its first reply (up to
+  15 minutes). It appeared late and was lost if MarkView quit first, e.g. for a reinstall. The log is append-only, so
+  it is now recorded at the click. The model is what the running terminal has answered with, from one read of its
+  session log; otherwise the model the terminal was started with or the configured default (owner's choice).
+- Evidence: in `lifecycle-events.jsonl`, every Implement-with-AI prompt found in the Claude/Codex session logs has
+  its event, but only after the reply. The 16:54Z press on `i-need-to-understand-a-real-answer-not` was still pending
+  shortly before this report was filed.
+- Verified in a test copy with its own bundle ID, on a fixture feature at `review`: 3 s after pressing the Feature
+  panel's Implement with AI, `status: implementing` was in the file and the panel, and `implementation_started` was in
+  the log.
 
 ## Original description
 

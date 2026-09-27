@@ -3566,11 +3566,15 @@ class WorkspaceManager: ObservableObject {
         let instruction = "implement \(path) — ask any question if you are in doubt"
         let prompt = AIAssistantPreferences.backend == .claude ? "/goal \(instruction)"
             : "Implement what \(path) specifies. Read it first; ask any question if you are in doubt before changing code."
-        guard let session = sendToAssistant(prompt, submit: true), let tool = session.profile.tool else { return }
+        guard let session = sendToAssistant(prompt, submit: true) else { return }
         let target = url.standardizedFileURL.path
-        let slug = features.features.first { $0.folder.standardizedFileURL.path == target }?.slug
-            ?? features.locate(url)?.feature.slug
-        if let slug { features.recordImplementationStarted(slug, tool: tool, directory: session.directory) }
+        guard let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
+            ?? features.locate(url)?.feature.slug else { return }
+        // Handed to the assistant: the feature is being implemented (BUG-008).
+        features.markImplementing(slug)
+        if let tool = session.profile.tool {
+            features.recordImplementationStarted(slug, tool: tool, directory: session.directory, runningSince: session.runningSince)
+        }
     }
 
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.

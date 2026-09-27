@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 48: BUG-008 Implement with AI leaves status at review (2026-09-27, issue #29, branch fix/bug-008-implement-status, 2.25.1)
+
+- [x] Root causes: no status change in `implementWithAI`; event written only after the CLI reply (15 min poll, lost on quit)
+- [x] `Feature.beforeImplementation` + `FeatureStore.markImplementing` shared with Create issues
+- [x] `recordImplementationStarted` at the click: running terminal's answered model (one read), else started/configured model
+- [x] Docs: feature-workflow status diagram and event table; BUG-008 resolution; lesson
+- [x] Verified: Debug build, lifecycle tests, test copy (own bundle ID) Feature panel → `implementing` + event in 3 s
+
+
 ## Done 47: Application font scale (2026-09-27, issue #40, branch feat/app-font-scale, 2.25.0)
 
 Spec: `docs/features/feature/` (REQ-001…003, DEC-001…011; DEC-006 authoritative for the editor).

@@ -93,6 +93,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var startupSent = false
     /// When the shell started (for `pasteWhenReady`); nil before the page asked for it.
     private var startedAt: Date?
+    /// When the running process started; nil before the first start.
+    var runningSince: Date? { isRunning ? startedAt : nil }
     /// When the startup command was typed, and when the terminal last printed anything:
     /// a paste waits until the assistant has come up and gone quiet.
     private var startupSentAt: Date?

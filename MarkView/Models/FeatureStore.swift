@@ -629,16 +629,25 @@ final class FeatureStore: ObservableObject {
         recordLifecycle(.specReady, feature: slug, note: "Handed to implementation")
     }
 
-    /// "Implement with AI" handed `slug` to `tool` running in `directory`: "implementation
-    /// started" at the click, with the model the CLI actually answered with — read from its own
-    /// session log once it replies, else the model it was started with or its configured default.
-    func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL) {
+    /// The feature was handed to implementation: a status before it becomes `implementing`.
+    func markImplementing(_ slug: String) {
+        guard let status = feature(slug)?.status, Feature.beforeImplementation.contains(status) else { return }
+        updateFeature(slug) { front, _ in
+            if Feature.beforeImplementation.contains(front.string("status") ?? "") { front.set("status", "implementing") }
+        }
+    }
+
+    /// "Implement with AI" handed `slug` to `tool` running in `directory` (BUG-008): "implementation
+    /// started" is recorded at the click, without waiting for the CLI to reply (a wait could outlive
+    /// the app, and the log cannot be amended). The model is what the already running terminal has
+    /// answered with (`runningSince`), else the model it was started with or its configured default.
+    func recordImplementationStarted(_ slug: String, tool: CLITool, directory: URL, runningSince: Date?) {
         guard let project = lifecycleProject else { return }
         recordSpecReadyIfMissing(slug)
         let actor = lifecycleActor, started = Date()
         let fallback = AIAssistantPreferences.model(for: tool) ?? AIAssistantPreferences.configuredModel(for: tool)
-        Task.detached(priority: .utility) {
-            let model = await Self.answeringModel(tool, directory: directory, since: started) ?? fallback ?? tool.displayName
+        Task.detached(priority: .userInitiated) {
+            let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {
                 LifecycleLog.shared.record(.implementationStarted, project: project, feature: slug, actor: actor, source: .automatic,
                                            model: LifecycleModels.use(model), note: "Implement with AI · \(tool.displayName)", at: started)
@@ -646,18 +655,15 @@ final class FeatureStore: ObservableObject {
         }
     }
 
-    /// Polls the CLI's session log for its first reply since `since`, for up to 15 minutes
-    /// (the CLI may update itself and start first). CLIs without a readable log give nil.
-    nonisolated private static func answeringModel(_ tool: CLITool, directory: URL, since: Date) async -> String? {
-        guard tool == .claude || tool == .codex else { return nil }
-        let deadline = since.addingTimeInterval(15 * 60)
-        while Date() < deadline, !Task.isCancelled {
-            let model = tool == .claude ? AgentModelProbe.claudeModel(cwd: directory, since: since)
-                : AgentModelProbe.codexModel(cwd: directory, since: since)
-            if let model { return model }
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+    /// One read of the CLI's session log for a reply since the terminal started; nil for a
+    /// terminal that has not started yet or a CLI without a readable log.
+    nonisolated private static func answeredModel(_ tool: CLITool, directory: URL, since: Date?) -> String? {
+        guard let since else { return nil }
+        switch tool {
+        case .claude: return AgentModelProbe.claudeModel(cwd: directory, since: since)
+        case .codex: return AgentModelProbe.codexModel(cwd: directory, since: since)
+        default: return nil
         }
-        return nil
     }
 
     /// Features whose GitHub and git history is followed: those with an "implementation
