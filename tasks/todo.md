@@ -1,5 +1,26 @@
 # MarkView — Follow-up Tasks
 
+## Done 47: Application font scale (2026-09-27, issue #40, branch feat/app-font-scale, 2.25.0)
+
+Spec: `docs/features/feature/` (REQ-001…003, DEC-001…011; DEC-006 authoritative for the editor).
+Owner answers (2026-09-27): graph/diagram canvas labels keep their own zoom; the GitHub issue body viewer is
+document content and follows the editor slider.
+
+- [x] I-1 `Models/AppFontScale.swift`: `appFontScalePercent`, 80…200 step 10, default 100, invalid → 100; environment
+      value, `.uiFont(...)`, `.appFontScaled()` at the WindowGroup root and the DDE Settings hosting view
+- [x] I-1 DDE Settings › Appearance: "Interface text size" stepper + Reset (window now resizable)
+- [x] I-2 all 644 SwiftUI `.font(...)` → `.uiFont(...)` (scripted); IntakeTextEditor NSTextView 13 × scale
+- [x] I-2 web chrome: 127 `font-size`/`font` px in `index.html` → `calc(Npx * var(--ui-scale, 1))` (not `.editor-input`),
+      Recursive Insight iframe CSS, insight empty state, d3 toolbar; `mvSetUIScale` from EditorView (initial value in the page)
+- [x] I-3 terminal: `mvFontScale` user script before load, `mvSetFontScale` → fontSize 12 × scale, refit, PTY resize
+- [x] I-4 slider stays document owner; `editorFontSize` bridge message mirrors it to `editorTextSizeMirror` for the
+      GitHub body (14px × size/13); card headers follow the interface scale
+- [x] `tools/tests/app-font-scale-tests.sh`; Debug build; test copy (own bundle ID) at 200%: sidebars, tabs, welcome,
+      Settings scale; Boris checked the build and confirmed it works
+
+Review: native bordered push buttons and GroupBox titles keep the system control size (AppKit ignores `.font`);
+system menus, alerts and tooltips are not scalable by the app.
+
 ## Done 46: Start a Project from Scratch (2026-09-27, issue #38, branch feat/start-project-from-scratch, 2.24.0)
 
 Spec: `docs/features/start-a-project-from-scratch/` (REQ-001…004, DEC-001…023, plan I-1…I-7);

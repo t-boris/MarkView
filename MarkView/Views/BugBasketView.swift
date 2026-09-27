@@ -37,24 +37,24 @@ struct BugBasketView: View {
         HStack(spacing: 5) {
             Button(action: { expanded.toggle() }) {
                 HStack(spacing: 5) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 8))
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8)
                         .foregroundColor(VSDark.textDim).frame(width: 10)
-                    Image(systemName: "basket.fill").font(.system(size: 9)).foregroundColor(VSDark.blue)
-                    Text("BASKET").font(.system(size: 9, weight: .bold)).foregroundColor(VSDark.textDim)
-                    Text("\(batch.basket.count)").font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                    Image(systemName: "basket.fill").uiFont(size: 9).foregroundColor(VSDark.blue)
+                    Text("BASKET").uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim)
+                    Text("\(batch.basket.count)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
                 }
             }
             .buttonStyle(.plain)
             Spacer()
             if !batch.basket.isEmpty {
                 Button(action: { Task { await batch.suggestSimilar(using: assistant) } }) {
-                    Image(systemName: "sparkles").font(.system(size: 10))
+                    Image(systemName: "sparkles").uiFont(size: 10)
                         .foregroundColor(suggesting ? VSDark.textDim : VSDark.text)
                 }
                 .buttonStyle(.plain).disabled(suggesting)
                 .help("Suggest similar: the AI looks for open bugs like these; you add the ones you want")
                 Button(action: { batch.clear() }) {
-                    Image(systemName: "trash").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                    Image(systemName: "trash").uiFont(size: 9).foregroundColor(VSDark.textDim)
                 }
                 .buttonStyle(.plain).help("Empty the basket")
             }
@@ -63,11 +63,11 @@ struct BugBasketView: View {
 
     private func noticeRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 4) {
-            Image(systemName: "info.circle").font(.system(size: 9)).foregroundColor(VSDark.yellow)
-            Text(text).font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: "info.circle").uiFont(size: 9).foregroundColor(VSDark.yellow)
+            Text(text).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 2)
             Button(action: { batch.notice = nil }) {
-                Image(systemName: "xmark").font(.system(size: 8)).foregroundColor(VSDark.textDim)
+                Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
             }
             .buttonStyle(.plain).help("Dismiss")
         }
@@ -78,14 +78,14 @@ struct BugBasketView: View {
         return HStack(spacing: 5) {
             Button(action: { open(bug.path) }) {
                 HStack(spacing: 5) {
-                    Text(bug.key).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
-                    Text(bug.title).font(.system(size: 11)).foregroundColor(fixing ? VSDark.textDim : VSDark.text).lineLimit(1)
+                    Text(bug.key).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                    Text(bug.title).uiFont(size: 11).foregroundColor(fixing ? VSDark.textDim : VSDark.text).lineLimit(1)
                     if !bug.feature.isEmpty {
-                        Text(bug.feature).font(.system(size: 9)).foregroundColor(VSDark.blue).lineLimit(1)
+                        Text(bug.feature).uiFont(size: 9).foregroundColor(VSDark.blue).lineLimit(1)
                     }
                     Spacer(minLength: 2)
                     if fixing {
-                        Text("being fixed").font(.system(size: 9, weight: .medium)).foregroundColor(VSDark.yellow)
+                        Text("being fixed").uiFont(size: 9, weight: .medium).foregroundColor(VSDark.yellow)
                     }
                 }
                 .contentShape(Rectangle())
@@ -93,7 +93,7 @@ struct BugBasketView: View {
             .buttonStyle(.plain)
             .help(fixing ? "\(bug.path) — already being fixed: left out of the batch" : bug.path)
             Button(action: { batch.remove(bug.path) }) {
-                Image(systemName: "xmark").font(.system(size: 8)).foregroundColor(VSDark.textDim)
+                Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
             }
             .buttonStyle(.plain).help("Remove from the basket")
         }
@@ -104,13 +104,13 @@ struct BugBasketView: View {
         if suggesting {
             Working(text: "Looking for similar open bugs…").padding(.top, 4)
         } else if let error = batch.suggestionError {
-            Text(error).font(.system(size: 10)).foregroundColor(VSDark.red)
+            Text(error).uiFont(size: 10).foregroundColor(VSDark.red)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 4)
         } else if batch.noSuggestions {
-            Text("No similar open bugs found; the basket is unchanged.").font(.system(size: 10))
+            Text("No similar open bugs found; the basket is unchanged.").uiFont(size: 10)
                 .foregroundColor(VSDark.textDim).padding(.top, 4)
         } else if !batch.suggestions.isEmpty {
-            Text("SIMILAR").font(.system(size: 9, weight: .bold)).foregroundColor(VSDark.textDim).padding(.top, 6)
+            Text("SIMILAR").uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 6)
             ForEach(batch.suggestions, id: \.path) { suggestionRow($0) }
         }
     }
@@ -119,17 +119,17 @@ struct BugBasketView: View {
         let bug = batch.bugs.first { $0.path == suggestion.path }
         return HStack(alignment: .top, spacing: 5) {
             Button(action: { batch.add(suggestion) }) {
-                Image(systemName: "plus.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.blue)
+                Image(systemName: "plus.circle.fill").uiFont(size: 10).foregroundColor(VSDark.blue)
             }
             .buttonStyle(.plain).help("Add to the basket")
             Button(action: { open(suggestion.path) }) {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
-                        Text(bug?.key ?? "").font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
-                        Text(bug?.title ?? suggestion.path).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
+                        Text(bug?.key ?? "").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                        Text(bug?.title ?? suggestion.path).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
                     }
                     if !suggestion.reason.isEmpty {
-                        Text(suggestion.reason).font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                        Text(suggestion.reason).uiFont(size: 10).foregroundColor(VSDark.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -138,7 +138,7 @@ struct BugBasketView: View {
             }
             .buttonStyle(.plain).help(suggestion.path)
             Button(action: { batch.dismiss(suggestion) }) {
-                Image(systemName: "xmark").font(.system(size: 8)).foregroundColor(VSDark.textDim)
+                Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
             }
             .buttonStyle(.plain).help("Not this one")
         }
@@ -154,7 +154,7 @@ struct BugBasketView: View {
                 if eligible.count == 1, let only = eligible.first {
                     HStack(spacing: 4) {
                         Text("One bug is not a batch: add another, or fix it on its own.")
-                            .font(.system(size: 10)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                         SmallButton(title: "Open \(only.key)") { open(only.path) }
                             .help("Its panel has Fix with AI for a single bug")
                     }

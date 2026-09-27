@@ -198,6 +198,7 @@ struct MarkViewApp: App {
         return WindowGroup(id: WindowSessionController.sceneID, for: UUID.self) { id in
             ContentView(windowSessionID: id.wrappedValue)
                 .environmentObject(themeManager)
+                .appFontScaled()
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     appDelegate.log("ContentView onAppear START")
@@ -328,7 +329,7 @@ struct MarkViewApp: App {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -340,6 +341,7 @@ struct MarkViewApp: App {
         window.contentView = NSHostingView(
             rootView: DDESettingsView()
                 .environmentObject(wm)
+                .appFontScaled()
         )
         ddeSettingsWindow = window
         window.makeKeyAndOrderFront(nil)

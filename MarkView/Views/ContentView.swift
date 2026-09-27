@@ -353,15 +353,15 @@ struct ContentView: View {
     private var welcomeView: some View {
         VStack(spacing: 16) {
             Image(systemName: "doc.richtext")
-                .font(.system(size: 48))
+                .uiFont(size: 48)
                 .foregroundColor(VSDark.blue)
 
             Text("MarkView DDE")
-                .font(.system(size: 24, weight: .light))
+                .uiFont(size: 24, weight: .light)
                 .foregroundColor(VSDark.textBright)
 
             Text("Documentation Development Environment")
-                .font(.system(size: 13))
+                .uiFont(size: 13)
                 .foregroundColor(VSDark.textDim)
 
             if workspaceManager.rootNode != nil {
@@ -380,7 +380,7 @@ struct ContentView: View {
                 Text(workspaceManager.isCodeProject
                      ? "This folder is a code project. X-Ray groups it into logical components with AI."
                      : "Pick a document in the file tree, or open X-Ray.")
-                    .font(.system(size: 11))
+                    .uiFont(size: 11)
                     .foregroundColor(VSDark.textDim)
             } else {
                 HStack(spacing: 16) {

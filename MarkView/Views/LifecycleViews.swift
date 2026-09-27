@@ -32,10 +32,10 @@ struct LifecycleSection: View {
             HStack(spacing: 6) {
                 Button(action: { expanded.toggle() }) {
                     HStack(spacing: 4) {
-                        Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 8)).foregroundColor(VSDark.textDim)
-                        Text("Lifecycle").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim)
+                        Text("Lifecycle").uiFont(size: 10).foregroundColor(VSDark.textDim)
                         Text("· \(events.count) \(events.count == 1 ? "event" : "events")" + (total.seconds.map { " · total \(LifecycleAnalytics.format($0))" } ?? ""))
-                            .font(.system(size: 10, design: .monospaced)).foregroundColor(VSDark.text).lineLimit(1)
+                            .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
                     }
                     .contentShape(Rectangle())
                 }.buttonStyle(.plain).help("Timestamped lifecycle events of this feature and the time between stages")
@@ -43,13 +43,13 @@ struct LifecycleSection: View {
                 Menu {
                     ForEach(LifecycleStage.manual) { stage in Button(stage.title + "…") { marking = stage } }
                 } label: {
-                    Text("Mark stage").font(.system(size: 10))
+                    Text("Mark stage").uiFont(size: 10)
                 }
                 .menuStyle(.borderlessButton).fixedSize()
                 .help("Record that a stage happened now (idea created, questions resolved and spec ready are recorded automatically)")
             }
             if let error = log.lastError {
-                Text(error).font(.system(size: 9)).foregroundColor(VSDark.red).onTapGesture { log.clearError() }
+                Text(error).uiFont(size: 9).foregroundColor(VSDark.red).onTapGesture { log.clearError() }
             }
             if expanded { details(events, total: total) }
         }
@@ -62,26 +62,26 @@ struct LifecycleSection: View {
     private func details(_ events: [LifecycleEvent], total: LifecycleDuration) -> some View {
         if events.isEmpty {
             Text("No events yet. Idea created, questions resolved and spec ready are recorded automatically from now on; mark the other stages when they happen.")
-                .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
         } else {
             ForEach(events) { event in
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
                         Text(event.timestamp.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
-                        Text(event.stage.title).font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.textBright)
+                            .uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                        Text(event.stage.title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textBright)
                         Spacer(minLength: 0)
                     }
                     Text([event.actor, event.model, event.source == .automatic ? "auto" : "manual"].compactMap { $0 }.joined(separator: " · "))
-                        .font(.system(size: 9)).foregroundColor(VSDark.textDim).lineLimit(1)
+                        .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
                     if let note = event.note {
-                        Text(note).font(.system(size: 9)).foregroundColor(VSDark.text).textSelection(.enabled)
+                        Text(note).uiFont(size: 9).foregroundColor(VSDark.text).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(.leading, 12)
             }
-            Text("STEPS").font(.system(size: 8, weight: .bold)).foregroundColor(VSDark.textDim).padding(.top, 2)
+            Text("STEPS").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
             ForEach(LifecycleAnalytics.steps(events), id: \.step) { item in
                 durationRow(item.step.title, item.duration)
             }
@@ -91,9 +91,9 @@ struct LifecycleSection: View {
 
     private func durationRow(_ title: String, _ duration: LifecycleDuration) -> some View {
         HStack(spacing: 4) {
-            Text(title).font(.system(size: 9)).foregroundColor(duration == .missing ? VSDark.textDim : VSDark.text).lineLimit(1)
+            Text(title).uiFont(size: 9).foregroundColor(duration == .missing ? VSDark.textDim : VSDark.text).lineLimit(1)
             Spacer(minLength: 4)
-            Text(durationText(duration)).font(.system(size: 9, design: .monospaced))
+            Text(durationText(duration)).uiFont(size: 9, design: .monospaced)
                 .foregroundColor(duration == .inconsistent ? VSDark.orange : duration == .missing ? VSDark.textDim : VSDark.textBright)
         }
         .padding(.leading, 12)
@@ -131,7 +131,7 @@ struct MarkStageSheet: View {
         let recorded = Set(events.map(\.stage))
         let later = LifecycleStage.allCases.filter { $0.order > stage.order && recorded.contains($0) }
         VStack(alignment: .leading, spacing: 10) {
-            Text("Mark “\(stage.title)”").font(.system(size: 13, weight: .semibold))
+            Text("Mark “\(stage.title)”").uiFont(size: 13, weight: .semibold)
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 5) {
                 row("Feature", feature.title)
                 row("Stage", stage.title)
@@ -140,7 +140,7 @@ struct MarkStageSheet: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(modelRequired ? "AI model / agent (required)" : "AI model / agent (if an AI did this step)")
-                    .font(.system(size: 11, weight: .medium))
+                    .uiFont(size: 11, weight: .medium)
                 HStack(spacing: 4) {
                     TextField("e.g. Claude Opus 5.5", text: $model).textFieldStyle(.roundedBorder)
                     let known = LifecycleModels.all
@@ -155,9 +155,9 @@ struct MarkStageSheet: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
-                    Text("Note (optional)").font(.system(size: 11, weight: .medium))
+                    Text("Note (optional)").uiFont(size: 11, weight: .medium)
                     Spacer()
-                    Text("\(note.count)/\(LifecycleEvent.noteLimit)").font(.system(size: 10, design: .monospaced))
+                    Text("\(note.count)/\(LifecycleEvent.noteLimit)").uiFont(size: 10, design: .monospaced)
                         .foregroundColor(note.count > LifecycleEvent.noteLimit ? .red : .secondary)
                 }
                 TextField("Why it took long, what was special…", text: $note, axis: .vertical)
@@ -169,7 +169,7 @@ struct MarkStageSheet: View {
             if !later.isEmpty {
                 warning("Later stages are already recorded: \(later.map(\.title).joined(separator: ", ")).")
             }
-            Text("Recorded events cannot be edited or deleted.").font(.system(size: 10)).foregroundColor(.secondary)
+            Text("Recorded events cannot be edited or deleted.").uiFont(size: 10).foregroundColor(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel", action: close).keyboardShortcut(.cancelAction)
@@ -187,15 +187,15 @@ struct MarkStageSheet: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         GridRow {
-            Text(label).font(.system(size: 11)).foregroundColor(.secondary)
-            Text(value).font(.system(size: 11)).lineLimit(2)
+            Text(label).uiFont(size: 11).foregroundColor(.secondary)
+            Text(value).uiFont(size: 11).lineLimit(2)
         }
     }
 
     private func warning(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 5) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundColor(.orange)
-            Text(text).font(.system(size: 10)).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: "exclamationmark.triangle.fill").uiFont(size: 10).foregroundColor(.orange)
+            Text(text).uiFont(size: 10).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -214,11 +214,11 @@ struct CycleTimeSummarySheet: View {
         let grouped = Dictionary(grouping: events.filter { slugs.contains($0.feature) }, by: \.feature)
         let summary = LifecycleAnalytics.summary(grouped)
         VStack(alignment: .leading, spacing: 10) {
-            Text("Cycle time — \(store.root?.lastPathComponent ?? "project")").font(.system(size: 13, weight: .semibold))
+            Text("Cycle time — \(store.root?.lastPathComponent ?? "project")").uiFont(size: 13, weight: .semibold)
             Text("Calendar time between adjacent stages over this project's features (\(grouped.count) with events). Only features with both boundary events count; inconsistent steps are left out.")
-                .font(.system(size: 11)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 11).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             if grouped.isEmpty {
-                Text("No lifecycle events recorded in this project yet.").font(.system(size: 11)).padding(.vertical, 12)
+                Text("No lifecycle events recorded in this project yet.").uiFont(size: 11).padding(.vertical, 12)
             } else {
                 ScrollView {
                     Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
@@ -248,15 +248,15 @@ struct CycleTimeSummarySheet: View {
     }
 
     private func header(_ text: String) -> some View {
-        Text(text).font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+        Text(text).uiFont(size: 10, weight: .bold).foregroundColor(.secondary)
     }
 
     private func statRow(_ title: String, _ statistic: LifecycleAnalytics.Statistic?, bold: Bool) -> some View {
         GridRow {
-            Text(title).font(.system(size: 11, weight: bold ? .medium : .regular)).lineLimit(1)
-            Text(statistic.map { LifecycleAnalytics.format($0.median) } ?? "—").font(.system(size: 11, design: .monospaced))
-            Text(statistic.map { LifecycleAnalytics.format($0.mean) } ?? "—").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
-            Text(statistic.map { "\($0.count)" } ?? "0").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+            Text(title).uiFont(size: 11, weight: bold ? .medium : .regular).lineLimit(1)
+            Text(statistic.map { LifecycleAnalytics.format($0.median) } ?? "—").uiFont(size: 11, design: .monospaced)
+            Text(statistic.map { LifecycleAnalytics.format($0.mean) } ?? "—").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+            Text(statistic.map { "\($0.count)" } ?? "0").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
                 .gridColumnAlignment(.trailing)
         }
     }

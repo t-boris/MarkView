@@ -32,12 +32,12 @@
                 overlay.appendChild(spinner);
                 const title = document.createElement('div');
                 title.id = 'insight-loading-title';
-                title.style.cssText = 'font-size:18px;font-weight:600;';
+                title.style.cssText = 'font-size:calc(18px * var(--ui-scale, 1));font-weight:600;';
                 title.textContent = 'Generating insight…';
                 overlay.appendChild(title);
                 const sub = document.createElement('div');
                 sub.id = 'insight-loading-sub';
-                sub.style.cssText = 'font-size:13px;color:var(--text-secondary,#808080);max-width:480px;line-height:1.5;';
+                sub.style.cssText = 'font-size:calc(13px * var(--ui-scale, 1));color:var(--text-secondary,#808080);max-width:480px;line-height:1.5;';
                 sub.textContent = message || 'Phase 1: analysing files (typically 30–60 s)…';
                 overlay.appendChild(sub);
                 if (!document.getElementById('insight-loading-style')) {

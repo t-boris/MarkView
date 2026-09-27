@@ -90,7 +90,7 @@ private struct AgentUsageChip: View {
                 ProgressView().scaleEffect(0.35).frame(width: 10, height: 10)
             }
         }
-        .font(.system(size: 9))
+        .uiFont(size: 9)
         .lineLimit(1)
         .fixedSize()
         .opacity(snapshot?.isStale(now: tracker.now) == true ? 0.6 : 1)
@@ -147,7 +147,7 @@ private struct AgentUsagePopover: View {
             } else {
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.6)
-                    Text("Reading usage…").font(.system(size: 11)).foregroundColor(.secondary)
+                    Text("Reading usage…").uiFont(size: 11).foregroundColor(.secondary)
                 }
             }
         }
@@ -158,7 +158,7 @@ private struct AgentUsagePopover: View {
     private func header(_ snapshot: AgentUsageSnapshot?) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(agent.displayName).font(.system(size: 13, weight: .semibold))
+                Text(agent.displayName).uiFont(size: 13, weight: .semibold)
                 if let snapshot {
                     HStack(spacing: 4) {
                         Text(sourceTitle(snapshot.state))
@@ -169,7 +169,7 @@ private struct AgentUsagePopover: View {
                             Label("stale", systemImage: "clock").foregroundColor(.orange)
                         }
                     }
-                    .font(.system(size: 10)).foregroundColor(.secondary)
+                    .uiFont(size: 10).foregroundColor(.secondary)
                 }
             }
             Spacer()
@@ -205,7 +205,7 @@ private struct AgentUsagePopover: View {
         if let note = snapshot.officialNote {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle").foregroundColor(.orange)
-                Text(note).font(.system(size: 10)).fixedSize(horizontal: false, vertical: true)
+                Text(note).uiFont(size: 10).fixedSize(horizontal: false, vertical: true)
             }
         }
         switch snapshot.state {
@@ -215,9 +215,9 @@ private struct AgentUsagePopover: View {
             windowRow(window, local: nil)
         case .noLimit:
             Text("No limit is set, so there is no percentage or reset time. Set the limit and window of your plan to see an estimate.")
-                .font(.system(size: 10)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(size: 10).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
         case .unavailable(let reason):
-            Text("Usage unavailable: \(reason).").font(.system(size: 11)).fixedSize(horizontal: false, vertical: true)
+            Text("Usage unavailable: \(reason).").uiFont(size: 11).fixedSize(horizontal: false, vertical: true)
         }
         if let today = snapshot.today {
             Divider()
@@ -226,7 +226,7 @@ private struct AgentUsagePopover: View {
                 Spacer()
                 Text(amountText(today))
             }
-            .font(.system(size: 10))
+            .uiFont(size: 10)
         }
         Divider()
         limitRow
@@ -235,22 +235,22 @@ private struct AgentUsagePopover: View {
     private func windowRow(_ window: QuotaWindow, local: UsageAmount?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(window.title).font(.system(size: 11, weight: .medium))
+                Text(window.title).uiFont(size: 11, weight: .medium)
                 Spacer()
                 Text(window.source == .official ? "Official" : "Estimated")
-                    .font(.system(size: 9, weight: .semibold))
+                    .uiFont(size: 9, weight: .semibold)
                     .foregroundColor(window.source == .official ? VSDark.green : .orange)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().stroke(window.source == .official ? VSDark.green : .orange, lineWidth: 0.5))
             }
             UsageMeter(percent: window.percentUsed, color: window.level.color).frame(height: 5)
-            Text(usedText(window)).font(.system(size: 10))
+            Text(usedText(window)).uiFont(size: 10)
             if let resetsAt = window.resetsAt {
-                Text(resetText(window, resetsAt: resetsAt)).font(.system(size: 10)).foregroundColor(.secondary)
+                Text(resetText(window, resetsAt: resetsAt)).uiFont(size: 10).foregroundColor(.secondary)
             }
             if let local {
                 Text("From local logs: \(amountText(local)) in this window")
-                    .font(.system(size: 9)).foregroundColor(.secondary)
+                    .uiFont(size: 9).foregroundColor(.secondary)
             }
         }
     }
@@ -292,17 +292,17 @@ private struct AgentUsagePopover: View {
         HStack(alignment: .firstTextBaseline) {
             if let limit {
                 Text("Your limit: \(UsageFormat.amount(limit.value, unit: limit.unit)) per \(limit.period.title)")
-                    .font(.system(size: 10)).foregroundColor(.secondary)
+                    .uiFont(size: 10).foregroundColor(.secondary)
             } else {
-                Text("No limit set").font(.system(size: 10)).foregroundColor(.secondary)
+                Text("No limit set").uiFont(size: 10).foregroundColor(.secondary)
             }
             Spacer()
             Button(limit == nil ? "Set a limit…" : "Edit limit…") { editingLimit = true }
-                .font(.system(size: 10))
+                .uiFont(size: 10)
         }
         if limit != nil, case .official = tracker.snapshots[agent]?.state {
             Text("Used only when official limit data is unavailable.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
+                .uiFont(size: 9).foregroundColor(.secondary)
         }
     }
 }
@@ -326,7 +326,7 @@ private struct FallbackLimitForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Limit for \(agent.displayName)").font(.system(size: 11, weight: .semibold))
+            Text("Limit for \(agent.displayName)").uiFont(size: 11, weight: .semibold)
             HStack {
                 TextField(unit == .tokens ? "e.g. 50M" : "e.g. 20", text: $valueText).textFieldStyle(.roundedBorder)
                 Picker("", selection: $unit) {
@@ -337,12 +337,12 @@ private struct FallbackLimitForm: View {
             }
             if !recordsCost {
                 Text("\(agent.displayName)'s logs record no cost, so the limit is in tokens.")
-                    .font(.system(size: 9)).foregroundColor(.secondary)
+                    .uiFont(size: 9).foregroundColor(.secondary)
             }
             DatePicker("Window starts", selection: $anchor, displayedComponents: [.date, .hourAndMinute])
-                .font(.system(size: 10))
+                .uiFont(size: 10)
             HStack {
-                Text("Resets every").font(.system(size: 10))
+                Text("Resets every").uiFont(size: 10)
                 Picker("", selection: $preset) {
                     ForEach(LimitPeriod.presets.indices, id: \.self) { index in
                         Text(LimitPeriod.presets[index].title).tag(index)
@@ -364,7 +364,7 @@ private struct FallbackLimitForm: View {
             if let limit {
                 let window = limit.window(containing: Date())
                 Text("Current window: \(Self.windowFormatter.string(from: window.start)) – \(Self.windowFormatter.string(from: window.end))")
-                    .font(.system(size: 9)).foregroundColor(.secondary)
+                    .uiFont(size: 9).foregroundColor(.secondary)
             }
             HStack {
                 if AgentUsageTracker.limit(for: agent) != nil {
@@ -382,7 +382,7 @@ private struct FallbackLimitForm: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(limit == nil)
             }
-            .font(.system(size: 10))
+            .uiFont(size: 10)
         }
         .onAppear(perform: load)
     }

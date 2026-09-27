@@ -43,7 +43,7 @@ struct AIAssistantPickerView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            Text("Model").font(.caption.bold())
+            Text("Model").uiFont(.caption, weight: .bold)
 
             if options[backend] == nil {
                 ProgressView().scaleEffect(0.5)
@@ -58,14 +58,14 @@ struct AIAssistantPickerView: View {
             HStack(spacing: 6) {
                 TextField("Other model name", text: $customModel)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11, design: .monospaced))
+                    .uiFont(size: 11, design: .monospaced)
                     .onSubmit(applyCustomModel)
                 Button("Use", action: applyCustomModel)
                     .disabled(customModel.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
             Text("Applies from the next message. Switching assistant starts a new session.")
-                .font(.system(size: 9)).foregroundColor(.secondary)
+                .uiFont(size: 9).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .task { await loadOptions() }
@@ -76,20 +76,20 @@ struct AIAssistantPickerView: View {
         return Button(action: { selectedModel.wrappedValue = option.id }) {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11))
+                    .uiFont(size: 11)
                     .foregroundColor(isSelected ? .accentColor : .secondary)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
-                        Text(option.name).font(.system(size: 11, weight: .medium))
+                        Text(option.name).uiFont(size: 11, weight: .medium)
                         if !option.id.isEmpty && option.id != option.name {
                             Text(option.id)
-                                .font(.system(size: 9, design: .monospaced))
+                                .uiFont(size: 9, design: .monospaced)
                                 .foregroundColor(.secondary)
                         }
                     }
                     if !option.detail.isEmpty {
                         Text(option.detail)
-                            .font(.system(size: 9)).foregroundColor(.secondary)
+                            .uiFont(size: 9).foregroundColor(.secondary)
                             .lineLimit(2)
                     }
                 }

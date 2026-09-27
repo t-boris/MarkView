@@ -86,18 +86,18 @@ struct FileTreeView: View {
             // Git bar
             if git.isGitRepo {
                 HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.branch").font(.system(size: 9)).foregroundColor(VSDark.blue)
-                    Text(git.branch).font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
+                    Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(VSDark.blue)
+                    Text(git.branch).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
                     Spacer()
                     if git.isOperating { ProgressView().scaleEffect(0.3) }
                     Button(action: { Task { await git.pull() } }) {
-                        Image(systemName: "arrow.down").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain).help("Pull")
                     Button(action: { Task { await git.push() } }) {
-                        Image(systemName: "arrow.up").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "arrow.up").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain).help("Push")
                     Button(action: { Task { await git.refresh() } }) {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "arrow.clockwise").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain).help("Refresh")
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
@@ -111,12 +111,12 @@ struct FileTreeView: View {
                         ForEach(breadcrumbs, id: \.path) { crumb in
                             if crumb != breadcrumbs.first {
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 7, weight: .semibold))
+                                    .uiFont(size: 7, weight: .semibold)
                                     .foregroundColor(VSDark.textDim)
                             }
                             Button(action: { currentDirectory = crumb }) {
                                 Text(crumb.lastPathComponent)
-                                    .font(.system(size: 10, weight: crumb == browseURL ? .semibold : .regular))
+                                    .uiFont(size: 10, weight: crumb == browseURL ? .semibold : .regular)
                                     .foregroundColor(crumb == browseURL ? VSDark.text : VSDark.blue)
                                     .lineLimit(1)
                             }
@@ -130,7 +130,7 @@ struct FileTreeView: View {
                     HStack(spacing: 0) {
                     Button(action: { workspaceManager.openArchitecture() }) {
                         Image(systemName: "viewfinder")
-                            .font(.system(size: 9, weight: .semibold))
+                            .uiFont(size: 9, weight: .semibold)
                             .foregroundColor(VSDark.textDim)
                             .padding(.horizontal, 6).padding(.vertical, 4)
                             .background(VSDark.bgActive)
@@ -140,7 +140,7 @@ struct FileTreeView: View {
                     .help("Open X-Ray (⌘4)")
                     Button(action: { workspaceManager.closeFolder() }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .semibold))
+                            .uiFont(size: 9, weight: .semibold)
                             .foregroundColor(VSDark.textDim)
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(VSDark.bgActive)
@@ -156,11 +156,11 @@ struct FileTreeView: View {
             // Toolbar: search + actions
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
+                    .uiFont(size: 11)
                     .foregroundColor(VSDark.textDim)
                 TextField("Filter...", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .uiFont(size: 11)
                     .foregroundColor(VSDark.text)
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {
@@ -170,17 +170,17 @@ struct FileTreeView: View {
                 if let here = browseURL {
                     // Create in the folder being browsed.
                     Button { createNewFile(in: here) } label: {
-                        Image(systemName: "doc.badge.plus").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "doc.badge.plus").uiFont(size: 11).foregroundColor(VSDark.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("New file here")
                     Button { createNewFolder(in: here) } label: {
-                        Image(systemName: "folder.badge.plus").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "folder.badge.plus").uiFont(size: 11).foregroundColor(VSDark.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("New folder here")
                     Button { workspaceManager.presentGraphCreator(in: here) } label: {
-                        Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "point.3.connected.trianglepath.dotted").uiFont(size: 11).foregroundColor(VSDark.textDim)
                     }
                     .buttonStyle(.plain)
                     .help("New graph diagram here (AI)")
@@ -197,9 +197,9 @@ struct FileTreeView: View {
                     } label: {
                         HStack(spacing: 1) {
                             Image(systemName: workspaceManager.fileTreeSortOrder.ascending ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 7, weight: .bold))
+                                .uiFont(size: 7, weight: .bold)
                             Text(workspaceManager.fileTreeSortOrder.field == .name ? "Az" : "Dt")
-                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .uiFont(size: 9, weight: .semibold, design: .monospaced)
                         }
                         .foregroundColor(VSDark.textDim)
                     }
@@ -220,10 +220,10 @@ struct FileTreeView: View {
                    current.path != root.path {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.left")
-                            .font(.system(size: 10, weight: .semibold))
+                            .uiFont(size: 10, weight: .semibold)
                             .foregroundColor(VSDark.blue)
                         Text("..")
-                            .font(.system(size: 12, weight: .medium))
+                            .uiFont(size: 12, weight: .medium)
                             .foregroundColor(VSDark.blue)
                         Spacer()
                     }
@@ -271,7 +271,7 @@ struct FileTreeView: View {
                     Spacer()
                     ProgressView().scaleEffect(0.8)
                     Text(workspaceManager.indexingProgress ?? "")
-                        .font(.system(size: 11)).foregroundColor(VSDark.blue)
+                        .uiFont(size: 11).foregroundColor(VSDark.blue)
                         .lineLimit(2).multilineTextAlignment(.center)
                     Spacer()
                 }
@@ -281,11 +281,11 @@ struct FileTreeView: View {
                 VStack(spacing: 8) {
                     Spacer()
                     Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 28)).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 28).foregroundColor(VSDark.textDim)
                     Text("No Folder Open")
-                        .font(.system(size: 12, weight: .medium)).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 12, weight: .medium).foregroundColor(VSDark.textDim)
                     Button("Open Folder...", action: chooseFolder)
-                    .font(.system(size: 11))
+                    .uiFont(size: 11)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -297,7 +297,7 @@ struct FileTreeView: View {
                 Divider().background(VSDark.border)
                 HStack(spacing: 6) {
                     ProgressView().scaleEffect(0.4).frame(width: 12, height: 12)
-                    Text(progress).font(.system(size: 10)).foregroundColor(VSDark.blue).lineLimit(1)
+                    Text(progress).uiFont(size: 10).foregroundColor(VSDark.blue).lineLimit(1)
                     Spacer()
                 }
                 .padding(.horizontal, 8).padding(.vertical, 5)
@@ -381,7 +381,7 @@ struct FileTreeView: View {
 
     private func dateLabel(_ date: Date?) -> some View {
         Text(shortDate(date))
-            .font(.system(size: 9, design: .monospaced))
+            .uiFont(size: 9, design: .monospaced)
             .foregroundColor(VSDark.textDim)
             .help(date.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "")
     }
@@ -389,16 +389,16 @@ struct FileTreeView: View {
     private func folderRow(_ url: URL, date: Date?) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "folder.fill")
-                .font(.system(size: 11))
+                .uiFont(size: 11)
                 .foregroundColor(url.lastPathComponent.hasPrefix(".") ? VSDark.textDim : VSDark.yellow)
             Text(url.lastPathComponent)
-                .font(.system(size: 11))
+                .uiFont(size: 11)
                 .foregroundColor(VSDark.text)
                 .lineLimit(1)
             Spacer()
             dateLabel(date)
             Image(systemName: "chevron.right")
-                .font(.system(size: 9))
+                .uiFont(size: 9)
                 .foregroundColor(VSDark.textDim)
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
@@ -445,13 +445,13 @@ struct FileTreeView: View {
         let gitStatus = fileGitStatus(url)
         let (icon, color) = fileIcon(for: url)
         return HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 11)).foregroundColor(color).frame(width: 16)
-            Text(url.lastPathComponent).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
+            Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
+            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
             Spacer()
             dateLabel(date)
             if let gs = gitStatus {
                 Text(gs.status)
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .uiFont(size: 8, weight: .bold, design: .monospaced)
                     .foregroundColor(gs.status == "M" ? VSDark.orange : gs.status == "?" ? VSDark.green : VSDark.red)
                     .frame(width: 12)
             }

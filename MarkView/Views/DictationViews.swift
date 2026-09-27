@@ -17,9 +17,9 @@ struct DictationButton: View {
                 case .starting, .recording: Image(systemName: "mic.fill")
                 case .transcribing: ProgressView().controlSize(.small).scaleEffect(0.7)
                 }
-                if prominent { Text(title).font(.system(size: 12, weight: .medium)) }
+                if prominent { Text(title).uiFont(size: 12, weight: .medium) }
             }
-            .font(.system(size: 13))
+            .uiFont(size: 13)
             .foregroundColor(dictation.isRecording || dictation.phase == .starting ? VSDark.red : prominent ? .primary : .secondary)
             .frame(width: prominent ? nil : 24, height: 24)
             .padding(.horizontal, prominent ? 10 : 0)
@@ -77,7 +77,7 @@ struct DictationStatusView: View {
                         .buttonStyle(.plain).foregroundColor(.secondary)
                     Spacer(minLength: 0)
                 }
-                .font(.caption)
+                .uiFont(.caption)
             }
         case .starting:
             label(dot: VSDark.red, "Starting the microphone…")
@@ -92,7 +92,7 @@ struct DictationStatusView: View {
                 Text("Transcribing… you can keep typing; the text goes to the cursor.").foregroundColor(.secondary)
                 Spacer(minLength: 0)
             }
-            .font(.caption)
+            .uiFont(.caption)
         }
     }
 
@@ -102,7 +102,7 @@ struct DictationStatusView: View {
             Text(text).foregroundColor(warning ? VSDark.orange : .secondary)
             Spacer(minLength: 0)
         }
-        .font(.caption)
+        .uiFont(.caption)
     }
 
     static func clock(_ seconds: TimeInterval) -> String {

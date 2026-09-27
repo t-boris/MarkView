@@ -30,7 +30,7 @@ struct NewProjectSheet: View {
             case .github(let url): githubStep(url)
             }
             if let error = flow.error {
-                Text(error).font(.caption).foregroundColor(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Text(error).uiFont(.caption).foregroundColor(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
             footer
         }
@@ -52,15 +52,15 @@ struct NewProjectSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "sparkles.rectangle.stack").foregroundColor(VSDark.blue)
-                Text(flow.draft.map { $0.title.isEmpty ? "New Project" : $0.title } ?? "New Project").font(.headline)
+                Text(flow.draft.map { $0.title.isEmpty ? "New Project" : $0.title } ?? "New Project").uiFont(.headline)
                 Spacer()
             }
             HStack(spacing: 4) {
                 ForEach(Array(["Idea", "Clarify", "Create", "GitHub"].enumerated()), id: \.offset) { index, name in
                     Text("\(index + 1) \(name)")
-                        .font(.system(size: 10, weight: index == stepIndex ? .bold : .regular))
+                        .uiFont(size: 10, weight: index == stepIndex ? .bold : .regular)
                         .foregroundColor(index == stepIndex ? VSDark.textBright : index < stepIndex ? VSDark.green : VSDark.textDim)
-                    if index < 3 { Image(systemName: "chevron.right").font(.system(size: 8)).foregroundColor(VSDark.textDim) }
+                    if index < 3 { Image(systemName: "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim) }
                 }
             }
         }
@@ -80,7 +80,7 @@ struct NewProjectSheet: View {
         HStack {
             if flow.working {
                 ProgressView().scaleEffect(0.6)
-                Text(flow.step == .destination ? "Creating the project…" : "Analyzing the idea…").font(.caption).foregroundColor(.secondary)
+                Text(flow.step == .destination ? "Creating the project…" : "Analyzing the idea…").uiFont(.caption).foregroundColor(.secondary)
             }
             if flow.draft != nil, flow.step == .clarify || flow.step == .destination {
                 Button("Discard Draft…") { confirmingDiscard = true }.disabled(flow.working)
@@ -120,7 +120,7 @@ struct NewProjectSheet: View {
     private var ideaStep: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Describe what you want to build — a sentence is enough. MarkView asks what it needs to know, you confirm the brief, and only then is a project folder created. GitHub is optional.")
-                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             IntakeTextEditor(text: $idea, focused: $editorFocused, attach: { urls in
                 attachments += urls.filter { !attachments.contains($0) }
             }, failed: { flow.error = $0 })
@@ -132,7 +132,7 @@ struct NewProjectSheet: View {
                         ForEach(attachments, id: \.self) { url in
                             HStack(spacing: 2) {
                                 IntakeAttachmentThumbnail(url: url)
-                                Text(url.lastPathComponent).font(.caption).lineLimit(1)
+                                Text(url.lastPathComponent).uiFont(.caption).lineLimit(1)
                                 Button(action: { attachments.removeAll { $0 == url } }) { Image(systemName: "xmark.circle.fill") }
                                     .buttonStyle(.plain).foregroundColor(.secondary)
                             }
@@ -142,7 +142,7 @@ struct NewProjectSheet: View {
                 }
             }
             Text("The draft is kept on this Mac until the project is created; you can continue it later from the welcome screen.")
-                .font(.caption2).foregroundColor(.secondary)
+                .uiFont(.caption2).foregroundColor(.secondary)
         }
     }
 
@@ -166,7 +166,7 @@ struct NewProjectSheet: View {
             Divider()
             HStack {
                 Text("Create in").frame(width: 80, alignment: .leading)
-                Text(flow.parentFolder.path).font(.system(size: 11, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                Text(flow.parentFolder.path).uiFont(size: 11, design: .monospaced).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Button("Choose…") { chooseParent() }.disabled(flow.working || flow.creationLocked)
             }
@@ -176,12 +176,12 @@ struct NewProjectSheet: View {
                     .disabled(flow.working || flow.creationLocked)
             }
             if let problem = destinationProblem {
-                Text(problem).font(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                Text(problem).uiFont(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
             } else {
-                Text(destination.path).font(.system(size: 10, design: .monospaced)).foregroundColor(.secondary).textSelection(.enabled)
+                Text(destination.path).uiFont(size: 10, design: .monospaced).foregroundColor(.secondary).textSelection(.enabled)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text("MarkView creates:").font(.caption.weight(.semibold))
+                Text("MarkView creates:").uiFont(.caption, weight: .semibold)
                 Group {
                     Text("• README.md — the brief, with a link to the specification")
                     if let feature = flow.feature {
@@ -190,11 +190,11 @@ struct NewProjectSheet: View {
                     Text("• .gitignore — keeps MarkView's local .dde/ folder out of Git")
                     Text("• a local Git repository; nothing is committed until you publish")
                 }
-                .font(.caption).foregroundColor(.secondary)
+                .uiFont(.caption).foregroundColor(.secondary)
             }
             if let draft = flow.draft, let created = draft.createdPath {
                 Text("Creation stopped at \(created). Retry continues in that folder; nothing else is touched.")
-                    .font(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -228,18 +228,18 @@ struct NewProjectSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.seal.fill").foregroundColor(VSDark.green)
-                Text("Project created").font(.system(size: 13, weight: .semibold))
+                Text("Project created").uiFont(size: 13, weight: .semibold)
             }
-            Text(url.path).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            Text(url.path).uiFont(size: 11, design: .monospaced).textSelection(.enabled)
             Text("It is open in this window with its specification. A local Git repository is initialized; the files are not committed yet.")
-                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Divider()
             if let publisher {
                 GitHubPublishView(publisher: publisher) { self.publisher = nil; dismiss() }
             } else {
-                Text("Connect it to GitHub? (optional)").font(.system(size: 12, weight: .semibold))
+                Text("Connect it to GitHub? (optional)").uiFont(size: 12, weight: .semibold)
                 Text("You choose the owner, the name and the visibility, and review the first commit before anything is published. You can also do this later: Git tab › Publish to GitHub…, or File › Publish to GitHub….")
-                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
                 Button("Connect to GitHub…") {
                     let manager = workspaceManager
                     let publisher = GitHubPublisher(root: url) { [weak manager] slug in
@@ -272,14 +272,14 @@ private struct ClarifyStep: View {
             VStack(spacing: 8) {
                 Spacer()
                 ProgressView()
-                Text("Reading your idea and preparing the first questions…").font(.caption).foregroundColor(.secondary)
+                Text("Reading your idea and preparing the first questions…").uiFont(.caption).foregroundColor(.secondary)
                 Spacer()
             }
             .frame(maxWidth: .infinity)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text("The idea is saved, but it has not been analyzed yet.").font(.caption)
-                Text(flow.draft?.idea ?? "").font(.caption).foregroundColor(.secondary).lineLimit(6)
+                Text("The idea is saved, but it has not been analyzed yet.").uiFont(.caption)
+                Text(flow.draft?.idea ?? "").uiFont(.caption).foregroundColor(.secondary).lineLimit(6)
                 Button("Analyze Again") { Task { await flow.analyze() } }
                 Spacer()
             }
@@ -307,7 +307,7 @@ private struct ClarifyContent: View {
             VStack(alignment: .leading, spacing: 10) {
                 BriefSummary(feature: feature, goal: flow.goal, compact: false)
                 if let error = assistant.error {
-                    Text(error).font(.caption).foregroundColor(.red).textSelection(.enabled)
+                    Text(error).uiFont(.caption).foregroundColor(.red).textSelection(.enabled)
                 }
                 if assistant.isRunning("decide:" + slug) {
                     Working(text: "AI is deciding the remaining questions…")
@@ -317,14 +317,14 @@ private struct ClarifyContent: View {
                     QuestionCard(store: store, feature: feature, question: question).id(question.id)
                 } else if !feature.isUnderstood {
                     HStack {
-                        Text("No open question.").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                        Text("No open question.").uiFont(size: 10).foregroundColor(VSDark.textDim)
                         Spacer()
                         SmallButton(title: "Ask next question", icon: "sparkles", prominent: true) {
                             Task { await assistant.exploreNext(slug) }
                         }
                     }
                 } else {
-                    Text("The project is clear enough to confirm.").font(.system(size: 10)).foregroundColor(VSDark.green)
+                    Text("The project is clear enough to confirm.").uiFont(size: 10).foregroundColor(VSDark.green)
                 }
                 confirmation
             }
@@ -339,22 +339,22 @@ private struct ClarifyContent: View {
         let later = flow.openQuestions.count - blockers.count
         VStack(alignment: .leading, spacing: 4) {
             if flow.goal.isEmpty {
-                Text("The goal is not written yet.").font(.system(size: 10)).foregroundColor(VSDark.orange)
+                Text("The goal is not written yet.").uiFont(size: 10).foregroundColor(VSDark.orange)
             }
             if !blockers.isEmpty {
-                Text("Answer before confirming (needed for the brief):").font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.orange)
+                Text("Answer before confirming (needed for the brief):").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
                 ForEach(blockers, id: \.id) { q in
-                    Text("• \(q.id) \(q.title)").font(.system(size: 10)).foregroundColor(VSDark.text)
+                    Text("• \(q.id) \(q.title)").uiFont(size: 10).foregroundColor(VSDark.text)
                 }
             }
             if later > 0 {
                 Text("\(later) open question\(later == 1 ? "" : "s") can wait — \(later == 1 ? "it goes" : "they go") into the project for later.")
-                    .font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
             }
             if !feature.isUnderstood && !assistant.isRunning("decide:" + slug) {
                 HStack(alignment: .top, spacing: 6) {
                     Text("Enough questions? AI decides the rest as proposed decisions you can review in the project.")
-                        .font(.system(size: 9)).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest", icon: "flag.checkered") {
                         Task { await assistant.decideRest(slug) }
@@ -374,24 +374,24 @@ private struct BriefSummary: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Brief").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textBright)
+            Text("Brief").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
             field("Goal", goal)
             if !compact {
                 field("Problem", ProjectFoundation.section("Problem", of: feature.overviewBody))
                 field("Scope", ProjectFoundation.section("Scope", of: feature.overviewBody))
                 let requirements = feature.activeRequirements
                 if !requirements.isEmpty {
-                    Text("Requirements").font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
+                    Text("Requirements").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
                     ForEach(requirements, id: \.id) { r in
-                        Text("• \(r.id) \(r.title)").font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        Text("• \(r.id) \(r.title)").uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 let decisions = feature.list(.decision).filter { $0.status != "superseded" && $0.status != "cancelled" }
                 if !decisions.isEmpty {
-                    Text("Decisions").font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
+                    Text("Decisions").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
                     ForEach(decisions, id: \.id) { d in
                         Text("• \(d.id) \(d.title)" + (d.status == "proposed" ? " (proposed)" : ""))
-                            .font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                            .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -404,8 +404,8 @@ private struct BriefSummary: View {
     private func field(_ title: String, _ text: String) -> some View {
         if !text.isEmpty {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text)
-                Text(text).font(.system(size: 10)).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Text(title).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                Text(text).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
         }
     }
@@ -423,9 +423,9 @@ struct GitHubPublishView: View {
         VStack(alignment: .leading, spacing: 8) {
             switch publisher.phase {
             case .loading:
-                HStack { ProgressView().scaleEffect(0.6); Text("Checking GitHub…").font(.caption) }
+                HStack { ProgressView().scaleEffect(0.6); Text("Checking GitHub…").uiFont(.caption) }
             case .needsSignIn(let message):
-                Text(message).font(.caption).fixedSize(horizontal: false, vertical: true)
+                Text(message).uiFont(.caption).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Sign In to GitHub…") { GitHubSettingsSection.openLoginInTerminal() }
                     Button("Check Again") { Task { await publisher.prepare() } }
@@ -433,30 +433,30 @@ struct GitHubPublishView: View {
                     Button("Close", action: close)
                 }
             case .blocked(let message):
-                Text(message).font(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                Text(message).uiFont(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
                 HStack { Spacer(); Button("Close", action: close) }
             case .choose, .checking:
                 choices
             case .confirm:
                 confirmation
             case .publishing:
-                HStack { ProgressView().scaleEffect(0.6); Text(publisher.progress).font(.caption) }
+                HStack { ProgressView().scaleEffect(0.6); Text(publisher.progress).uiFont(.caption) }
             case .done(let slug):
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.seal.fill").foregroundColor(VSDark.green)
-                    Text("Connected to github.com/\(slug)").font(.system(size: 12, weight: .semibold))
+                    Text("Connected to github.com/\(slug)").uiFont(size: 12, weight: .semibold)
                 }
                 Text("The first commit is pushed, the branch tracks origin, and MarkView's GitHub features are on for this folder (Git tab).")
-                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Open on GitHub") { if let url = URL(string: "https://github.com/\(slug)") { NSWorkspace.shared.open(url) } }
                     Spacer()
                     Button("Done", action: close).keyboardShortcut(.defaultAction)
                 }
             case .failed(let message):
-                Text(message).font(.caption).foregroundColor(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Text(message).uiFont(.caption).foregroundColor(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 Text("What already happened is kept: Retry continues with the same repository and never creates a second one.")
-                    .font(.caption2).foregroundColor(.secondary)
+                    .uiFont(.caption2).foregroundColor(.secondary)
                 HStack {
                     Spacer()
                     Button("Close", action: close)
@@ -468,7 +468,7 @@ struct GitHubPublishView: View {
 
     private var choices: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Signed in as \(publisher.account)").font(.caption).foregroundColor(.secondary)
+            Text("Signed in as \(publisher.account)").uiFont(.caption).foregroundColor(.secondary)
             HStack {
                 Text("Owner").frame(width: 70, alignment: .leading)
                 Picker("", selection: $publisher.owner) {
@@ -485,7 +485,7 @@ struct GitHubPublishView: View {
             }
             if publisher.lockedTarget {
                 Text("MarkView already created this repository for the project; publishing continues with it.")
-                    .font(.caption).foregroundColor(.secondary)
+                    .uiFont(.caption).foregroundColor(.secondary)
             }
             HStack(alignment: .top) {
                 Text("Visibility").frame(width: 70, alignment: .leading)
@@ -495,10 +495,10 @@ struct GitHubPublishView: View {
                 }
             }
             if let problem = publisher.targetProblem {
-                Text(problem).font(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                Text(problem).uiFont(.caption).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                if publisher.phase == .checking { ProgressView().scaleEffect(0.6); Text("Checking \(publisher.slug)…").font(.caption) }
+                if publisher.phase == .checking { ProgressView().scaleEffect(0.6); Text("Checking \(publisher.slug)…").uiFont(.caption) }
                 Spacer()
                 Button("Close", action: close)
                 Button("Continue") { Task { await publisher.check() } }
@@ -512,7 +512,7 @@ struct GitHubPublishView: View {
         Button(action: { publisher.visibility = value }) {
             HStack(spacing: 5) {
                 Image(systemName: publisher.visibility == value ? "largecircle.fill.circle" : "circle")
-                Text(label).font(.caption)
+                Text(label).uiFont(.caption)
             }
         }
         .buttonStyle(.plain)
@@ -520,7 +520,7 @@ struct GitHubPublishView: View {
 
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Publish to github.com/\(publisher.slug)").font(.system(size: 12, weight: .semibold))
+            Text("Publish to github.com/\(publisher.slug)").uiFont(size: 12, weight: .semibold)
             VStack(alignment: .leading, spacing: 3) {
                 switch publisher.target {
                 case .new?:
@@ -536,15 +536,15 @@ struct GitHubPublishView: View {
                     Text("• Commit \(publisher.files.count) file\(publisher.files.count == 1 ? "" : "s"):")
                 }
             }
-            .font(.caption)
+            .uiFont(.caption)
             if publisher.hasCommits && !publisher.files.isEmpty {
                 Toggle("Also commit the \(publisher.files.count) uncommitted file\(publisher.files.count == 1 ? "" : "s") below", isOn: $publisher.commitChanges)
-                    .font(.caption)
+                    .uiFont(.caption)
             }
             if !publisher.files.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 1) {
-                        ForEach(publisher.files, id: \.self) { Text($0).font(.system(size: 10, design: .monospaced)) }
+                        ForEach(publisher.files, id: \.self) { Text($0).uiFont(size: 10, design: .monospaced) }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -552,7 +552,7 @@ struct GitHubPublishView: View {
                 .padding(4).background(VSDark.bgInput).cornerRadius(4)
                 if publisher.commitChanges {
                     HStack {
-                        Text("Message").font(.caption)
+                        Text("Message").uiFont(.caption)
                         TextField("Commit message", text: $publisher.commitMessage).textFieldStyle(.roundedBorder)
                     }
                 }
@@ -561,7 +561,7 @@ struct GitHubPublishView: View {
                 Text(publisher.originSet ? "• Push \(publisher.branch) to origin" : "• Add it as origin and push \(publisher.branch)")
                 Text("• Turn on MarkView's GitHub integration (Settings › GitHub — it applies to every window)")
             }
-            .font(.caption)
+            .uiFont(.caption)
             HStack {
                 Button("Back") { publisher.back() }
                 Spacer()
@@ -591,7 +591,7 @@ struct GitHubPublishSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "icloud.and.arrow.up").foregroundColor(VSDark.blue)
-                Text("Publish to GitHub").font(.headline)
+                Text("Publish to GitHub").uiFont(.headline)
             }
             GitHubPublishView(publisher: publisher) { dismiss() }
         }
@@ -612,12 +612,12 @@ struct ProjectDraftList: View {
     var body: some View {
         if !drafts.drafts.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Unfinished projects").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textDim)
+                Text("Unfinished projects").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textDim)
                 ForEach(drafts.drafts) { draft in
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(draft.displayTitle).font(.system(size: 12)).foregroundColor(VSDark.textBright)
-                            Text(draft.resumeDescription).font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                            Text(draft.displayTitle).uiFont(size: 12).foregroundColor(VSDark.textBright)
+                            Text(draft.resumeDescription).uiFont(size: 10).foregroundColor(VSDark.textDim)
                         }
                         Spacer()
                         Button("Resume") { resume(draft.id) }

@@ -43,8 +43,11 @@
     }
     function hoverLink(event, uri) { screen.title = uri + ' (⌘click to open)'; }
     function leaveLink() { screen.removeAttribute('title'); }
+    // Glyph size follows the application interface text scale (set by Swift before load).
+    const BASE_FONT_SIZE = 12;
+    const initialScale = Number(window.mvFontScale) > 0 ? Number(window.mvFontScale) : 1;
     const term = new MVTerm.Terminal({
-        fontFamily: '"SF Mono", Menlo, Monaco, monospace', fontSize: 12, lineHeight: 1.15,
+        fontFamily: '"SF Mono", Menlo, Monaco, monospace', fontSize: BASE_FONT_SIZE * initialScale, lineHeight: 1.15,
         cursorBlink: true, scrollback: 10000, allowTransparency: true, macOptionIsMeta: true,
         theme: themes.dark,
         // OSC 8 uses a separate provider from WebLinksAddon. WKWebView has no browser
@@ -170,6 +173,13 @@
         term.options.theme = dark ? themes.dark : themes.light;
     };
     window.mvFocus = function() { term.focus(); };
+    /** New interface text scale: resize glyphs, refit the grid and report cols/rows to the PTY. */
+    window.mvSetFontScale = function(scale) {
+        const next = BASE_FONT_SIZE * (Number(scale) > 0 ? Number(scale) : 1);
+        if (term.options.fontSize === next) return;
+        term.options.fontSize = next;
+        refit();
+    };
     /** Full reset before a new process: clears the screen and every mode the previous
         program may have left on (mouse tracking, alternate screen, bracketed paste…). */
     window.mvReset = function() {

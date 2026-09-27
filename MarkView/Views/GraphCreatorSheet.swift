@@ -28,8 +28,8 @@ struct GraphCreatorSheet: View {
             // Header
             HStack {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
-                    .font(.system(size: 16)).foregroundColor(VSDark.blue)
-                Text("New Graph Diagram").font(.title3.bold()).foregroundColor(VSDark.text)
+                    .uiFont(size: 16).foregroundColor(VSDark.blue)
+                Text("New Graph Diagram").uiFont(.title3, weight: .bold).foregroundColor(VSDark.text)
                 Spacer()
             }
 
@@ -37,11 +37,11 @@ struct GraphCreatorSheet: View {
             GroupBox("Source Documents") {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("\(selectedFiles.count) selected").font(.caption).foregroundColor(.secondary)
+                        Text("\(selectedFiles.count) selected").uiFont(.caption).foregroundColor(.secondary)
                         Spacer()
-                        Button("Current") { selectCurrentFile() }.font(.caption)
-                        Button("All") { selectAll() }.font(.caption)
-                        Button("None") { selectedFiles.removeAll() }.font(.caption)
+                        Button("Current") { selectCurrentFile() }.uiFont(.caption)
+                        Button("All") { selectAll() }.uiFont(.caption)
+                        Button("None") { selectedFiles.removeAll() }.uiFont(.caption)
                     }
 
                     ScrollView {
@@ -49,9 +49,9 @@ struct GraphCreatorSheet: View {
                             ForEach(availableFiles(), id: \.self) { file in
                                 HStack(spacing: 6) {
                                     Image(systemName: selectedFiles.contains(file) ? "checkmark.square.fill" : "square")
-                                        .font(.system(size: 11))
+                                        .uiFont(size: 11)
                                         .foregroundColor(selectedFiles.contains(file) ? VSDark.blue : .secondary)
-                                    Text(file).font(.system(size: 11)).lineLimit(1)
+                                    Text(file).uiFont(size: 11).lineLimit(1)
                                     Spacer()
                                 }
                                 .contentShape(Rectangle())
@@ -82,7 +82,7 @@ struct GraphCreatorSheet: View {
             if diagramType == "custom" {
                 GroupBox("Custom Prompt") {
                     TextEditor(text: $customPrompt)
-                        .font(.system(size: 12))
+                        .uiFont(size: 12)
                         .frame(minHeight: 60)
                         .padding(4)
                 }
@@ -90,7 +90,7 @@ struct GraphCreatorSheet: View {
 
             // Error
             if let error = error {
-                Text(error).font(.caption).foregroundColor(.red)
+                Text(error).uiFont(.caption).foregroundColor(.red)
             }
 
             // Buttons
@@ -99,7 +99,7 @@ struct GraphCreatorSheet: View {
                 Spacer()
                 if isGenerating {
                     ProgressView().scaleEffect(0.6)
-                    Text("Generating...").font(.caption).foregroundColor(.secondary)
+                    Text("Generating...").uiFont(.caption).foregroundColor(.secondary)
                 } else {
                     Button("Generate") { generate() }
                         .buttonStyle(.borderedProminent)

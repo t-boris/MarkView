@@ -58,7 +58,7 @@ struct TOCView: View {
                                             .fill(heading.id == tab.activeHeadingId ? VSDark.blue : VSDark.textDim.opacity(0.4))
                                             .frame(width: 5, height: 5)
                                         Text(heading.text)
-                                            .font(.system(size: 11))
+                                            .uiFont(size: 11)
                                             .foregroundColor(heading.id == tab.activeHeadingId ? VSDark.textBright : VSDark.text)
                                             .lineLimit(2)
                                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,7 +85,7 @@ struct TOCView: View {
         VStack {
             Spacer()
             Text(text)
-                .font(.system(size: 12))
+                .uiFont(size: 12)
                 .foregroundColor(VSDark.textDim)
             Spacer()
         }
@@ -127,12 +127,12 @@ struct WorkspaceSearchView: View {
         VStack(spacing: 0) {
             // Search input
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                Image(systemName: "magnifyingglass").uiFont(size: 11).foregroundColor(VSDark.textDim)
                 TextField("Search all files...", text: $searchQuery, onCommit: { performSearch() })
-                    .textFieldStyle(.plain).font(.system(size: 11)).foregroundColor(VSDark.text)
+                    .textFieldStyle(.plain).uiFont(size: 11).foregroundColor(VSDark.text)
                 if !searchQuery.isEmpty {
                     Button(action: { searchQuery = ""; searchResults = [] }) {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "xmark.circle.fill").uiFont(size: 10).foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain)
                 }
             }.padding(8).background(VSDark.bgInput)
@@ -147,9 +147,9 @@ struct WorkspaceSearchView: View {
                         let r = searchResults[i]
                         Button(action: { openSearchResult(r) }) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(r.title).font(.system(size: 11, weight: .medium)).foregroundColor(VSDark.blue)
+                                Text(r.title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.blue)
                                 Text(r.snippet.replacingOccurrences(of: ">>>", with: "").replacingOccurrences(of: "<<<", with: ""))
-                                    .font(.system(size: 9)).foregroundColor(VSDark.text).lineLimit(3)
+                                    .uiFont(size: 9).foregroundColor(VSDark.text).lineLimit(3)
                             }
                         }.buttonStyle(.plain)
                     }

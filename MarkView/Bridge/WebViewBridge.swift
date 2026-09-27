@@ -268,6 +268,12 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         case "ready":
             delegate?.bridgeEditorReady(self)
 
+        // JS sends: { size: 13 } — the editor slider's document text size (mirror only)
+        case "editorFontSize":
+            if let size = data?["size"] as? Double, EditorTextSize.range.contains(size) {
+                UserDefaults.standard.set(size, forKey: EditorTextSize.mirrorKey)
+            }
+
         case "linkClicked":
             if let href = data?["href"] as? String {
                 delegate?.bridge(self, didClickLink: href)

@@ -21,7 +21,7 @@ struct GitHubOutcomeIcon: View {
 
     var body: some View {
         let icon = gitHubOutcomeIcon(outcome)
-        Image(systemName: icon.name).font(.system(size: size)).foregroundColor(icon.color)
+        Image(systemName: icon.name).uiFont(size: size).foregroundColor(icon.color)
     }
 }
 
@@ -39,15 +39,15 @@ private struct SectionBar<Leading: View>: View {
                 Spacer(minLength: 0)
                 if loading { ProgressView().scaleEffect(0.4).frame(width: 12, height: 12) }
                 Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                    Image(systemName: "arrow.clockwise").uiFont(size: 10).foregroundColor(VSDark.textDim)
                 }.buttonStyle(.plain).help("Refresh")
             }
             HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").font(.system(size: 9)).foregroundColor(VSDark.textDim)
-                TextField("Filter", text: $search).textFieldStyle(.plain).font(.system(size: 11))
+                Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                TextField("Filter", text: $search).textFieldStyle(.plain).uiFont(size: 11)
                 if !search.isEmpty {
                     Button(action: { search = "" }) {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                        Image(systemName: "xmark.circle.fill").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain)
                 }
             }
@@ -86,8 +86,8 @@ private func errorBanner(_ text: String?) -> some View {
     Group {
         if let text {
             HStack(alignment: .top, spacing: 4) {
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 9)).foregroundColor(VSDark.red)
-                Text(text).font(.system(size: 9)).foregroundColor(VSDark.red).lineLimit(3).textSelection(.enabled)
+                Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(VSDark.red)
+                Text(text).uiFont(size: 9).foregroundColor(VSDark.red).lineLimit(3).textSelection(.enabled)
                 Spacer()
             }.padding(.horizontal, 10).padding(.vertical, 4).background(VSDark.red.opacity(0.1))
         }
@@ -107,12 +107,12 @@ struct GitHubTextSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline)
+            Text(title).uiFont(.headline)
             TextEditor(text: $text)
-                .font(.system(size: 12))
+                .uiFont(size: 12)
                 .frame(minWidth: 380, minHeight: 120)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
-            Text(placeholder).font(.caption).foregroundColor(.secondary)
+            Text(placeholder).uiFont(.caption).foregroundColor(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -150,7 +150,7 @@ struct GitHubSectionPicker: View {
             .padding(.horizontal, 4).padding(.vertical, 3)
             if gitHub.repos.count > 1 {
                 HStack(spacing: 4) {
-                    Image(systemName: "shippingbox").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                    Image(systemName: "shippingbox").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     Picker("", selection: Binding(get: { gitHub.selectedRepo }, set: { gitHub.selectedRepo = $0 })) {
                         ForEach(gitHub.repos, id: \.self) { repo in
                             Text(repo.slug + (repo.isUpstream ? " (upstream)" : "")).tag(Optional(repo))
@@ -187,7 +187,7 @@ struct GitHubBranchStatus: View {
             Button(action: onTap) {
                 HStack(spacing: 2) {
                     GitHubOutcomeIcon(outcome: outcome, size: 9)
-                    Text("CI").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                    Text("CI").uiFont(size: 9).foregroundColor(VSDark.textDim)
                 }
             }
             .buttonStyle(.plain)
@@ -232,7 +232,7 @@ struct GitHubPullRequestsView: View {
                     ForEach(GitHubClient.PRFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.labelsHidden().controlSize(.small).fixedSize()
                 Button(action: { showNewPR = true }) {
-                    Image(systemName: "plus").font(.system(size: 10)).foregroundColor(VSDark.blue)
+                    Image(systemName: "plus").uiFont(size: 10).foregroundColor(VSDark.blue)
                 }.buttonStyle(.plain).help("New pull request from the current branch")
             }
             errorBanner(gitHub.lastError)
@@ -306,31 +306,31 @@ struct GitHubPullRequestsView: View {
     private func row(_ pr: GHPullRequest) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text("#\(pr.number)").font(.system(size: 10, design: .monospaced)).foregroundColor(VSDark.blue)
-                Text(pr.title).font(.system(size: 11, weight: .medium)).foregroundColor(VSDark.text).lineLimit(2)
+                Text("#\(pr.number)").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.blue)
+                Text(pr.title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(2)
                 Spacer(minLength: 4)
                 if let outcome = pr.checksOutcome {
                     HStack(spacing: 2) {
                         GitHubOutcomeIcon(outcome: outcome, size: 9)
-                        Text("\(pr.passedChecks)/\(pr.checks.count)").font(.system(size: 9)).foregroundColor(VSDark.textDim)
+                        Text("\(pr.passedChecks)/\(pr.checks.count)").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     }.help(pr.checks.map { "\($0.title): \($0.conclusion ?? $0.state ?? $0.status ?? "")" }.joined(separator: "\n"))
                 }
                 if let count = pr.comments?.count, count > 0 {
                     HStack(spacing: 1) {
-                        Image(systemName: "bubble.left").font(.system(size: 8))
-                        Text("\(count)").font(.system(size: 9))
+                        Image(systemName: "bubble.left").uiFont(size: 8)
+                        Text("\(count)").uiFont(size: 9)
                     }.foregroundColor(VSDark.textDim)
                 }
             }
             HStack(spacing: 4) {
-                if pr.isDraft == true { Text("draft").font(.system(size: 8)).padding(.horizontal, 3).background(VSDark.bgInput).cornerRadius(2) }
+                if pr.isDraft == true { Text("draft").uiFont(size: 8).padding(.horizontal, 3).background(VSDark.bgInput).cornerRadius(2) }
                 decisionBadge(pr.reviewDecision)
                 Text("\(pr.author?.login ?? "") · \(pr.headRefName) → \(pr.baseRefName) · \(GHDate.ago(pr.updatedAt))")
-                    .font(.system(size: 9)).foregroundColor(VSDark.textDim).lineLimit(1)
+                    .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
             }
             HStack(spacing: 10) {
                 Button(action: { workspaceManager.reviewPullRequest(pr.number) }) {
-                    Label("Review", systemImage: "sparkles").font(.system(size: 10))
+                    Label("Review", systemImage: "sparkles").uiFont(size: 10)
                 }
                 .buttonStyle(.plain).foregroundColor(VSDark.blue)
                 .help("Open this pull request in the PR X-Ray and start the AI review")
@@ -345,7 +345,7 @@ struct GitHubPullRequestsView: View {
                             showError("Checkout #\(pr.number)", error)
                         }
                     }) {
-                        Label("Checkout", systemImage: "arrow.down.to.line").font(.system(size: 10))
+                        Label("Checkout", systemImage: "arrow.down.to.line").uiFont(size: 10)
                     }
                     .buttonStyle(.plain).foregroundColor(VSDark.textDim)
                     .help("Check out the branch of this pull request (refused while there are uncommitted changes)")
@@ -379,7 +379,7 @@ struct GitHubPullRequestsView: View {
                 Button("Close…") { confirm = Confirm(pr: pr, kind: "close") }
             }
         } label: {
-            Image(systemName: "ellipsis.circle").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+            Image(systemName: "ellipsis.circle").uiFont(size: 11).foregroundColor(VSDark.textDim)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
@@ -387,8 +387,8 @@ struct GitHubPullRequestsView: View {
     @ViewBuilder
     private func decisionBadge(_ decision: String?) -> some View {
         switch decision {
-        case "APPROVED": Text("approved").font(.system(size: 8)).foregroundColor(VSDark.green)
-        case "CHANGES_REQUESTED": Text("changes requested").font(.system(size: 8)).foregroundColor(VSDark.red)
+        case "APPROVED": Text("approved").uiFont(size: 8).foregroundColor(VSDark.green)
+        case "CHANGES_REQUESTED": Text("changes requested").uiFont(size: 8).foregroundColor(VSDark.red)
         default: EmptyView()
         }
     }
@@ -397,7 +397,7 @@ struct GitHubPullRequestsView: View {
 private func emptyList(_ text: String) -> some View {
     VStack {
         Spacer()
-        Text(text).font(.system(size: 11)).foregroundColor(VSDark.textDim)
+        Text(text).uiFont(size: 11).foregroundColor(VSDark.textDim)
         Spacer()
     }.frame(maxWidth: .infinity, maxHeight: .infinity)
 }
@@ -416,15 +416,15 @@ struct GitHubNewPRSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("New Pull Request").font(.headline)
-            Text("From \(git.branch) into:").font(.caption).foregroundColor(.secondary)
+            Text("New Pull Request").uiFont(.headline)
+            Text("From \(git.branch) into:").uiFont(.caption).foregroundColor(.secondary)
             TextField("Base branch", text: $base).textFieldStyle(.roundedBorder)
             TextField("Title", text: $title).textFieldStyle(.roundedBorder)
             TextEditor(text: $bodyText)
-                .font(.system(size: 12)).frame(minWidth: 420, minHeight: 140)
+                .uiFont(size: 12).frame(minWidth: 420, minHeight: 140)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
             Toggle("Draft", isOn: $draft)
-            if let error { Text(error).font(.caption).foregroundColor(.red).textSelection(.enabled) }
+            if let error { Text(error).uiFont(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
                 if working { ProgressView().scaleEffect(0.6) }
                 Spacer()
@@ -486,7 +486,7 @@ struct GitHubIssuesView: View {
                     ForEach(GitHubClient.IssueFilter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.labelsHidden().controlSize(.small).fixedSize()
                 Button(action: { showNew = true }) {
-                    Image(systemName: "plus").font(.system(size: 10)).foregroundColor(VSDark.blue)
+                    Image(systemName: "plus").uiFont(size: 10).foregroundColor(VSDark.blue)
                 }.buttonStyle(.plain).help("New issue")
             }
             errorBanner(gitHub.lastError)
@@ -525,21 +525,21 @@ struct GitHubIssuesView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Image(systemName: issue.isOpen ? "circle.circle" : "checkmark.circle")
-                    .font(.system(size: 9)).foregroundColor(issue.isOpen ? VSDark.green : VSDark.purple)
-                Text("#\(issue.number)").font(.system(size: 10, design: .monospaced)).foregroundColor(VSDark.blue)
-                Text(issue.title).font(.system(size: 11, weight: .medium)).foregroundColor(VSDark.text).lineLimit(2)
+                    .uiFont(size: 9).foregroundColor(issue.isOpen ? VSDark.green : VSDark.purple)
+                Text("#\(issue.number)").uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.blue)
+                Text(issue.title).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(2)
                 Spacer(minLength: 4)
                 if let count = issue.comments?.count, count > 0 {
                     HStack(spacing: 1) {
-                        Image(systemName: "bubble.left").font(.system(size: 8))
-                        Text("\(count)").font(.system(size: 9))
+                        Image(systemName: "bubble.left").uiFont(size: 8)
+                        Text("\(count)").uiFont(size: 9)
                     }.foregroundColor(VSDark.textDim)
                 }
             }
             HStack(spacing: 4) {
                 ForEach((issue.labels ?? []).prefix(4), id: \.self) { GitHubLabelChip(label: $0) }
                 Text("\(issue.author?.login ?? "") · \(GHDate.ago(issue.updatedAt))")
-                    .font(.system(size: 9)).foregroundColor(VSDark.textDim).lineLimit(1)
+                    .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -554,7 +554,7 @@ struct GitHubLabelChip: View {
     var body: some View {
         let color = Color(hex: Int(label.color ?? "", radix: 16) ?? 0x808080)
         Text(label.name)
-            .font(.system(size: 8, weight: .medium))
+            .uiFont(size: 8, weight: .medium)
             .padding(.horizontal, 4).padding(.vertical, 1)
             .background(color.opacity(0.25))
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(color.opacity(0.6), lineWidth: 0.5))
@@ -574,10 +574,10 @@ struct GitHubNewIssueSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("New Issue").font(.headline)
+            Text("New Issue").uiFont(.headline)
             TextField("Title", text: $title).textFieldStyle(.roundedBorder)
             TextEditor(text: $bodyText)
-                .font(.system(size: 12)).frame(minWidth: 420, minHeight: 160)
+                .uiFont(size: 12).frame(minWidth: 420, minHeight: 160)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
             if !gitHub.labels.isEmpty {
                 Menu(chosen.isEmpty ? "Labels" : chosen.sorted().joined(separator: ", ")) {
@@ -588,7 +588,7 @@ struct GitHubNewIssueSheet: View {
                     }
                 }.fixedSize()
             }
-            if let error { Text(error).font(.caption).foregroundColor(.red).textSelection(.enabled) }
+            if let error { Text(error).uiFont(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
                 if working { ProgressView().scaleEffect(0.6) }
                 Spacer()
@@ -681,7 +681,7 @@ struct GitHubActionsView: View {
                 }
             }
         } label: {
-            Image(systemName: "play.circle").font(.system(size: 11)).foregroundColor(VSDark.blue)
+            Image(systemName: "play.circle").uiFont(size: 11).foregroundColor(VSDark.blue)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .help("Run a workflow, or edit a workflow file")
@@ -702,15 +702,15 @@ struct GitHubActionsView: View {
             GitHubOutcomeIcon(outcome: run.outcome, size: 11).padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(run.workflowName).font(.system(size: 11, weight: .medium)).foregroundColor(VSDark.text).lineLimit(1)
-                    Text("#\(run.number)").font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                    Text(run.workflowName).uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(1)
+                    Text("#\(run.number)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
                     Spacer(minLength: 4)
-                    Text(GHDate.duration(run.duration)).font(.system(size: 9, design: .monospaced))
+                    Text(GHDate.duration(run.duration)).uiFont(size: 9, design: .monospaced)
                         .foregroundColor(run.isActive ? VSDark.yellow : VSDark.textDim)
                 }
-                Text(run.displayTitle).font(.system(size: 10)).foregroundColor(VSDark.text).lineLimit(1)
+                Text(run.displayTitle).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
                 Text("\(run.headBranch) · \(run.event) · \(run.isActive ? "running" : GHDate.ago(run.createdAt))")
-                    .font(.system(size: 9)).foregroundColor(VSDark.textDim).lineLimit(1)
+                    .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -734,7 +734,7 @@ struct GitHubDispatchSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Run Workflow").font(.headline)
+            Text("Run Workflow").uiFont(.headline)
             Picker("Workflow", selection: $workflowId) {
                 Text("Choose…").tag(Int?.none)
                 ForEach(gitHub.workflows.filter { $0.state == "active" }) { Text($0.name).tag(Optional($0.id)) }
@@ -743,10 +743,10 @@ struct GitHubDispatchSheet: View {
             if loading { ProgressView().scaleEffect(0.6) }
             if !dispatchable {
                 Text("This workflow has no `workflow_dispatch` trigger, so it cannot be started by hand. Add one to its file to run it from here.")
-                    .font(.caption).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(inputs, id: \.name) { input in inputField(input) }
-            if let error { Text(error).font(.caption).foregroundColor(.red).textSelection(.enabled) }
+            if let error { Text(error).uiFont(.caption).foregroundColor(.red).textSelection(.enabled) }
             HStack {
                 if working { ProgressView().scaleEffect(0.6) }
                 Spacer()
@@ -781,7 +781,7 @@ struct GitHubDispatchSheet: View {
                 TextField(input.name + (input.required ? " *" : ""), text: binding).textFieldStyle(.roundedBorder)
             }
             if let description = input.description, !description.isEmpty {
-                Text(description).font(.caption2).foregroundColor(.secondary)
+                Text(description).uiFont(.caption2).foregroundColor(.secondary)
             }
         }
     }
@@ -849,9 +849,9 @@ struct GitHubTabView: View {
 
     private var unavailable: some View {
         VStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle").font(.system(size: 22)).foregroundColor(VSDark.textDim)
+            Image(systemName: "exclamationmark.triangle").uiFont(size: 22).foregroundColor(VSDark.textDim)
             Text("The GitHub integration is off or this folder has no \(item.repo) repository.")
-                .font(.system(size: 12)).foregroundColor(VSDark.textDim)
+                .uiFont(size: 12).foregroundColor(VSDark.textDim)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
@@ -888,9 +888,9 @@ struct GitHubRunView: View {
                 HStack(spacing: 6) {
                     GitHubOutcomeIcon(outcome: model.run?.outcome, size: 14)
                     Text(model.run.map { "\($0.workflowName) #\($0.number)" } ?? "Run \(model.runId)")
-                        .font(.system(size: 14, weight: .semibold)).foregroundColor(VSDark.textBright)
+                        .uiFont(size: 14, weight: .semibold).foregroundColor(VSDark.textBright)
                     if let run = model.run {
-                        Text(run.displayTitle).font(.system(size: 12)).foregroundColor(VSDark.text).lineLimit(1)
+                        Text(run.displayTitle).uiFont(size: 12).foregroundColor(VSDark.text).lineLimit(1)
                     }
                     Spacer()
                     if model.busy { ProgressView().scaleEffect(0.5) }
@@ -898,7 +898,7 @@ struct GitHubRunView: View {
                 if let run = model.run {
                     Text("\(run.conclusion ?? run.status) · \(run.headBranch) · \(run.event) · \(GHDate.duration(run.duration))"
                          + ((run.attempt ?? 1) > 1 ? " · attempt \(run.attempt!)" : ""))
-                        .font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
                 }
                 HStack(spacing: 12) {
                     if let run = model.run {
@@ -921,7 +921,7 @@ struct GitHubRunView: View {
                     Spacer()
                     Button(action: { model.refresh() }) { Image(systemName: "arrow.clockwise") }.help("Refresh")
                 }
-                .buttonStyle(.link).font(.system(size: 11)).disabled(model.busy)
+                .buttonStyle(.link).uiFont(size: 11).disabled(model.busy)
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
         }
@@ -934,12 +934,12 @@ struct GitHubRunView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label(model.explaining ? "Reading the failure…" : "Why it failed", systemImage: "sparkles")
-                    .font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.blue)
+                    .uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.blue)
                 Spacer()
             }
             ScrollView {
                 Text(model.explanation.isEmpty ? "…" : model.explanation)
-                    .font(.system(size: 12)).foregroundColor(VSDark.text).textSelection(.enabled)
+                    .uiFont(size: 12).foregroundColor(VSDark.text).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: 180)
         }
@@ -950,15 +950,15 @@ struct GitHubRunView: View {
         TimelineView(.periodic(from: .now, by: tick)) { _ in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    Text("Jobs").font(.system(size: 10, weight: .bold)).foregroundColor(VSDark.textDim)
+                    Text("Jobs").uiFont(size: 10, weight: .bold).foregroundColor(VSDark.textDim)
                         .padding(.horizontal, 10).padding(.vertical, 6)
                     ForEach(model.jobs) { job in
                         Button(action: { model.select(job) }) {
                             HStack(spacing: 6) {
                                 GitHubOutcomeIcon(outcome: job.outcome, size: 10)
-                                Text(job.name).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(2)
+                                Text(job.name).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
                                 Spacer(minLength: 4)
-                                Text(GHDate.duration(job.duration)).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                                Text(GHDate.duration(job.duration)).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
                             }
                             .padding(.horizontal, 10).padding(.vertical, 5)
                             .background(model.selected?.databaseId == job.databaseId ? VSDark.selection.opacity(0.35) : Color.clear)
@@ -977,12 +977,12 @@ struct GitHubRunView: View {
             let log = model.logs[job.databaseId]
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    Text(job.name).font(.system(size: 12, weight: .semibold)).foregroundColor(VSDark.textBright)
+                    Text(job.name).uiFont(size: 12, weight: .semibold).foregroundColor(VSDark.textBright)
                     if model.loadingLog.contains(job.databaseId) { ProgressView().scaleEffect(0.4) }
                     Spacer()
-                    Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundColor(VSDark.textDim)
-                    TextField("Search log", text: $search).textFieldStyle(.plain).font(.system(size: 11)).frame(width: 180)
-                    if let url = job.url { Button("Open on GitHub") { openInBrowser(url) }.buttonStyle(.link).font(.system(size: 11)) }
+                    Image(systemName: "magnifyingglass").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    TextField("Search log", text: $search).textFieldStyle(.plain).uiFont(size: 11).frame(width: 180)
+                    if let url = job.url { Button("Open on GitHub") { openInBrowser(url) }.buttonStyle(.link).uiFont(size: 11) }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 Divider().background(VSDark.border)
@@ -991,7 +991,7 @@ struct GitHubRunView: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             if job.outcome == .running {
                                 Text("The log appears when the job finishes; steps update live.")
-                                    .font(.system(size: 10)).foregroundColor(VSDark.textDim).padding(8)
+                                    .uiFont(size: 10).foregroundColor(VSDark.textDim).padding(8)
                             }
                             ForEach(job.steps ?? [], id: \.number) { step in
                                 stepRow(step, job: job, lines: log?[step.number] ?? [])
@@ -1020,13 +1020,13 @@ struct GitHubRunView: View {
         if query.isEmpty || !shown.isEmpty {
             Button(action: { if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) } }) {
                 HStack(spacing: 6) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").font(.system(size: 8)).foregroundColor(VSDark.textDim)
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").uiFont(size: 8).foregroundColor(VSDark.textDim)
                         .frame(width: 10)
                     GitHubOutcomeIcon(outcome: step.outcome, size: 10)
-                    Text(step.name).font(.system(size: 11)).foregroundColor(VSDark.text)
-                    if !query.isEmpty { Text("\(shown.count)").font(.system(size: 9)).foregroundColor(VSDark.yellow) }
+                    Text(step.name).uiFont(size: 11).foregroundColor(VSDark.text)
+                    if !query.isEmpty { Text("\(shown.count)").uiFont(size: 9).foregroundColor(VSDark.yellow) }
                     Spacer()
-                    Text(GHDate.duration(step.duration)).font(.system(size: 10, design: .monospaced)).foregroundColor(VSDark.textDim)
+                    Text(GHDate.duration(step.duration)).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 4)
                 .contentShape(Rectangle())
@@ -1034,11 +1034,11 @@ struct GitHubRunView: View {
             if isOpen {
                 if lines.isEmpty {
                     Text(job.outcome == .running ? "Running…" : model.loadingLog.contains(job.databaseId) ? "Loading log…" : "No output")
-                        .font(.system(size: 10)).foregroundColor(VSDark.textDim).padding(.leading, 40).padding(.vertical, 2)
+                        .uiFont(size: 10).foregroundColor(VSDark.textDim).padding(.leading, 40).padding(.vertical, 2)
                 } else {
                     ForEach(shown.suffix(query.isEmpty ? 5000 : 2000), id: \.index) { line in
                         Text(line.text.isEmpty ? " " : line.text)
-                            .font(.system(size: 11, design: .monospaced))
+                            .uiFont(size: 11, design: .monospaced)
                             .foregroundColor(line.isError ? VSDark.red : line.isWarning ? VSDark.yellow : VSDark.text)
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1058,6 +1058,8 @@ struct GitHubIssueView: View {
     @ObservedObject var gitHub: GitHubStore
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.appFontScale) private var fontScale
+    @AppStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
     @State private var comment = ""
     @State private var starting = false
 
@@ -1070,7 +1072,8 @@ struct GitHubIssueView: View {
                 // The text and comments as on GitHub: its own rendering of the markdown.
                 if let html = model.html {
                     GitHubHTMLView(document: GitHubIssueDocument.html(issue: issue, rendered: html,
-                                                                       dark: themeManager.effectiveTheme == .dark))
+                                                                       dark: themeManager.effectiveTheme == .dark,
+                                                                       textSize: editorTextSize, uiScale: fontScale))
                 } else {
                     emptyList("Loading…")
                 }
@@ -1089,21 +1092,21 @@ struct GitHubIssueView: View {
     private func header(_ issue: GHIssue) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(issue.title).font(.system(size: 16, weight: .semibold)).foregroundColor(VSDark.textBright)
+                Text(issue.title).uiFont(size: 16, weight: .semibold).foregroundColor(VSDark.textBright)
                     .textSelection(.enabled)
-                Text("#\(issue.number)").font(.system(size: 14)).foregroundColor(VSDark.textDim)
+                Text("#\(issue.number)").uiFont(size: 14).foregroundColor(VSDark.textDim)
                 Spacer()
                 if model.busy || starting { ProgressView().scaleEffect(0.5) }
             }
             HStack(spacing: 6) {
                 Text(issue.isOpen ? "Open" : "Closed")
-                    .font(.system(size: 10, weight: .semibold)).padding(.horizontal, 6).padding(.vertical, 2)
+                    .uiFont(size: 10, weight: .semibold).padding(.horizontal, 6).padding(.vertical, 2)
                     .background(issue.isOpen ? VSDark.green.opacity(0.25) : VSDark.purple.opacity(0.25)).cornerRadius(8)
                 Text("\(issue.author?.login ?? "") opened \(GHDate.ago(issue.createdAt))")
-                    .font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                    .uiFont(size: 11).foregroundColor(VSDark.textDim)
                 ForEach(issue.labels ?? [], id: \.self) { GitHubLabelChip(label: $0) }
                 if let assignees = issue.assignees, !assignees.isEmpty {
-                    Text("→ " + assignees.map(\.login).joined(separator: ", ")).font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                    Text("→ " + assignees.map(\.login).joined(separator: ", ")).uiFont(size: 11).foregroundColor(VSDark.textDim)
                 }
             }
             HStack(spacing: 12) {
@@ -1124,7 +1127,7 @@ struct GitHubIssueView: View {
                 Spacer()
                 Button(action: { model.refresh() }) { Image(systemName: "arrow.clockwise") }.help("Refresh")
             }
-            .buttonStyle(.link).font(.system(size: 11)).disabled(model.busy)
+            .buttonStyle(.link).uiFont(size: 11).disabled(model.busy)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
     }
@@ -1168,7 +1171,7 @@ struct GitHubIssueView: View {
     private func commentBox(_ issue: GHIssue) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             TextEditor(text: $comment)
-                .font(.system(size: 12)).frame(minHeight: 60, maxHeight: 120)
+                .uiFont(size: 12).frame(minHeight: 60, maxHeight: 120)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
             HStack {
                 Spacer()
@@ -1197,7 +1200,12 @@ struct GitHubIssueView: View {
 
 /// The page of an issue: its text and comments in GitHub's own rendering, styled like the app.
 enum GitHubIssueDocument {
-    static func html(issue: GHIssue, rendered: GHIssueHTML, dark: Bool) -> String {
+    /// `textSize` is the editor slider's document size (body text); `uiScale` the interface
+    /// scale (card headers).
+    static func html(issue: GHIssue, rendered: GHIssueHTML, dark: Bool,
+                     textSize: Double = EditorTextSize.defaultSize, uiScale: CGFloat = 1) -> String {
+        let bodySize = 14 * EditorTextSize.validated(textSize) / EditorTextSize.defaultSize
+        let headerSize = 13 * Double(uiScale)
         func escape(_ text: String) -> String {
             text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
                 .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
@@ -1226,11 +1234,11 @@ enum GitHubIssueDocument {
         <style>
         :root { color-scheme: \(dark ? "dark" : "light"); }
         body { margin: 0; padding: 16px 20px 24px; background: \(c.bg); color: \(c.text);
-               font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+               font: \(bodySize)px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
         main { max-width: 860px; }
         .card { border: 1px solid \(c.border); border-radius: 8px; margin: 0 0 16px; overflow: hidden; }
         .card header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: \(c.card);
-                       border-bottom: 1px solid \(c.border); font-size: 13px; }
+                       border-bottom: 1px solid \(c.border); font-size: \(headerSize)px; }
         .avatar { width: 22px; height: 22px; border-radius: 50%; }
         .muted { color: \(c.muted); }
         .markdown-body { padding: 12px 16px; word-wrap: break-word; }
@@ -1322,13 +1330,13 @@ struct GitHubSettingsSection: View {
                         if enabled { checkAccount() }
                     }
                 Text("Pull requests, issues and Actions in the Git tab, and GitHub actions in the PR X-Ray. Uses the GitHub CLI (gh) and its sign-in; off, MarkView never contacts GitHub.")
-                    .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
                 if enabled {
                     Divider()
                     accountRow
                     HStack {
-                        Text("Repository:").font(.caption.bold())
-                        Text(repositoryText).font(.caption).foregroundColor(.secondary)
+                        Text("Repository:").uiFont(.caption, weight: .bold)
+                        Text(repositoryText).uiFont(.caption).foregroundColor(.secondary)
                     }
                     HStack(spacing: 16) {
                         Picker("Check Actions every", selection: $idleInterval) {
@@ -1357,15 +1365,15 @@ struct GitHubSettingsSection: View {
     private var accountRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Account:").font(.caption.bold())
+                Text("Account:").uiFont(.caption, weight: .bold)
                 if checking {
                     ProgressView().scaleEffect(0.5)
                 } else if let account {
                     Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                    Text(account.login + " (via gh)").font(.caption)
+                    Text(account.login + " (via gh)").uiFont(.caption)
                 } else {
                     Image(systemName: "xmark.circle.fill").foregroundColor(.red)
-                    Text(accountError ?? "Not signed in").font(.caption).foregroundColor(.secondary).lineLimit(2)
+                    Text(accountError ?? "Not signed in").uiFont(.caption).foregroundColor(.secondary).lineLimit(2)
                 }
                 Spacer()
                 Button(account == nil ? "Sign In…" : "Switch Account…") { GitHubSettingsSection.openLoginInTerminal() }
@@ -1374,10 +1382,10 @@ struct GitHubSettingsSection: View {
             if let account {
                 let missing = ["repo", "workflow"].filter { !account.scopes.contains($0) }
                 Text("Scopes: " + (account.scopes.isEmpty ? "—" : account.scopes.joined(separator: ", ")))
-                    .font(.caption2).foregroundColor(.secondary)
+                    .uiFont(.caption2).foregroundColor(.secondary)
                 if !missing.isEmpty {
                     Text("Missing \(missing.joined(separator: ", ")): run `gh auth refresh -s \(missing.joined(separator: ","))` to run workflows and edit pull requests.")
-                        .font(.caption2).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
+                        .uiFont(.caption2).foregroundColor(.orange).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
