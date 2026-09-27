@@ -31,7 +31,8 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 | `ai.customFilters` | JSON | User-defined X-Ray AI filters | X-Ray |
 | `settings.whisper.model` | `whisper-1` / `gpt-4o-transcribe` / `gpt-4o-mini-transcribe` | Dictation model | dictation |
 | `com.markview.dde.openai.apikey` | String, **plaintext** | OpenAI key (Whisper, key check) | settings |
-| `settings.github.enabled` | Bool, `false` | Master switch for GitHub integration | GitHub |
+| `settings.github.enabled` | Bool, `false` | Master switch for GitHub integration. Also turned on by a completed Publish to GitHub (DEC-020 of start-a-project-from-scratch) | GitHub |
+| `newProject.parentFolder` | path, `~/Developer` else `~/Documents` | Last parent folder chosen for a new project (Start a Project from Scratch) | new project |
 | `settings.github.idleInterval` / `activeInterval` | seconds, 300 / 30 | Poll intervals | GitHub |
 | `settings.github.notifyRuns`, `settings.github.autoReview` | Bool, `true` | CI notifications, auto PR X-Ray | GitHub |
 | `settings.usage.{claude,codex}.hidden` | Bool | Hide (and stop polling) an agent's quota chip | agent usage |

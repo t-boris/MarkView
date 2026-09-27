@@ -394,3 +394,13 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Keep dedicated answer state independent of X-Ray's first snapshot. Merge its transient evidence into new snapshots, and guard deferred stream callbacks with a generation token so completed/retried questions cannot be overwritten.
 - Collect git log/blame for actual discovered evidence files and exact valid ranges. Keyword-only history misses introducing documents; blame 1–120 fails on short files. Supply bounded PR bodies as well as metadata.
 - Pasted question attachments belong in transient workspace storage until explicit RES save; copy saved assets so closing the filter cannot break the saved document.
+
+## Optional-success closures and nested ObservableObjects (Start a Project from Scratch, 2026-09-27)
+- `await manager?.activate() ?? "error"` where `activate()` returns `String?` with nil meaning success turns every
+  success into the error. Unwrap the owner first (`guard let manager else { return "error" }; return await …`).
+- A sheet observing only its flow object does not re-render when the flow's nested `FeatureStore`/`FeatureAssistant`
+  change: a button's `disabled` stayed stale. Forward nested `objectWillChange` into the flow, and check the button in
+  a real run — `AXPress` on a disabled SwiftUI button still reports success.
+- A background test copy (`open -n -g`) opens no window: `newWindowForTab:` needs an active app. Press File › New
+  Window through the AX menu bar, and open folders with `open -g -a <copy.app> <folder>` (its own bundle ID).
+- The "document language" default has no documents to go by in a new project; name the source of the language.

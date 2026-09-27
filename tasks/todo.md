@@ -1,5 +1,28 @@
 # MarkView — Follow-up Tasks
 
+## Done 46: Start a Project from Scratch (2026-09-27, issue #38, branch feat/start-project-from-scratch, 2.24.0)
+
+Spec: `docs/features/start-a-project-from-scratch/` (REQ-001…004, DEC-001…023, plan I-1…I-7);
+verification: `implementation/verification.md`.
+
+- [x] I-1 one foundation layout: DEC-023 (feature layout + root README) supersedes DEC-012; DEC-004 → DEC-007 (DEC-022)
+- [x] Pure module `NewProject.swift` (draft record, names, confirmation gate, README/.gitignore, origin, `status -z`,
+      publication checks) + `tools/tests/new-project-tests.sh`
+- [x] I-2 draft store in Application Support (`ProjectDrafts/<id>/draft.json` + `workspace/`): new, resume, discard
+- [x] I-3 clarification reuses `FeatureAssistant` on the draft (project-mode prompt and language, no GitHub issue,
+      no duplicate questions); brief confirmation gated on no open blocking question
+- [x] I-4 bootstrap: parent + name, unused path only, spec + README + .gitignore, `git init -b main`, uncommitted;
+      the window opens the project with its specification
+- [x] I-5/I-6 GitHub: account, owners, explicit visibility, existence/access/history/origin checks, reviewed commit,
+      push verified against GitHub, integration on and repository detected — right after bootstrap, from the Git tab
+      and from File › Publish to GitHub…
+- [x] I-7 persisted stages (draft.json; `.dde/github-connection.json`), retry without duplicates
+- [x] Live run in a test copy (AX by PID, real Claude and GitHub), code review and its fixes, version 2.24.0
+
+Review: the review agent found no data-loss path; its three GitHub-path bugs and five minor points are fixed and
+re-verified. Left: main-thread `fileExists` for the destination hint (cheap), and the throwaway repository
+`t-boris/markview-newproject-test` to delete by hand (token lacks `delete_repo`).
+
 ## Done 45: I Need to Understand — explanatory answers (2026-09-27, issue #26, 2.23.0)
 
 Branch: `feat/understanding-answer`. Spec and verification:

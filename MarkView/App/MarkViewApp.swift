@@ -232,6 +232,21 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
 
+                Button("New Project…") {
+                    // A window without a folder takes it; otherwise a new window does.
+                    if let workspace = activeWorkspace, activeWorkspaceHasFolder != true {
+                        workspace.newProject = NewProjectRequest()
+                    } else {
+                        Self.pendingNewProject = true
+                        newWindow()
+                    }
+                }
+
+                Button("Publish to GitHub…") {
+                    activeWorkspace?.gitHubPublishRequested = true
+                }
+                .disabled(activeWorkspaceHasFolder != true)
+
                 Button("Close Folder") {
                     activeWorkspace?.closeFolder()
                 }
@@ -376,6 +391,8 @@ struct MarkViewApp: App {
 
     /// Pending folder URL for new window to pick up
     static var pendingFolderURL: URL?
+    /// File › New Project… asked for a new window: it shows the new-project sheet on appearing.
+    static var pendingNewProject = false
     /// Files/folders requested from outside (Finder "Open With", Quick Action)
     /// that no window has taken yet. Durable until drained, so a request that
     /// arrives before any window is ready is never lost.

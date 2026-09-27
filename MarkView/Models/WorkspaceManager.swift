@@ -3418,6 +3418,49 @@ class WorkspaceManager: ObservableObject {
     /// The "New" intake sheet shown (New Feature / New Bug / I Need to Understand).
     @Published var intake: IntakeRequest?
 
+    /// Start a Project from Scratch shown in this window: a new idea, or an unfinished draft.
+    @Published var newProject: NewProjectRequest?
+    /// "Publish to GitHub…" shown for the open folder (REQ-003, later connection).
+    @Published var gitHubPublishRequested = false
+
+    /// The project a new-project flow created: open it with its specification in front — the
+    /// Issues list on it and the overview in the editor (DEC-023).
+    func openCreatedProject(_ url: URL, specification slug: String) {
+        openFolder(url) { [weak self] in
+            guard let self else { return }
+            self.features.activeSlug = slug
+            self.layout.leftPanel = "issues"
+            self.layout.issuesFeature = slug
+            self.layout.featureStage = .explore
+            self.showTOC = true
+            self.showFileTree = true
+            self.layout.navigatorTab = .feature
+            self.openFile(url.appendingPathComponent(FeatureStore.folderName).appendingPathComponent(slug).appendingPathComponent("overview.md"))
+        }
+    }
+
+    /// Turn MarkView's GitHub integration on (a Settings switch for every window, DEC-020) and
+    /// look for `slug` in this folder again. Nil when found, else why not.
+    func activateGitHub(expecting slug: String, in folder: URL) async -> String? {
+        // Right after bootstrap the folder may still be opening in this window.
+        for _ in 0..<40 where rootNode?.url.standardizedFileURL != folder.standardizedFileURL {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        guard let root = rootNode?.url, root.standardizedFileURL == folder.standardizedFileURL else {
+            return "This window does not show \(folder.lastPathComponent) any more. Open it and use File › Publish to GitHub… to finish."
+        }
+        if !GitHubSettings.enabled { UserDefaults.standard.set(true, forKey: GitHubSettings.enabledKey) }
+        // The remote was added after the folder opened: detect again.
+        gitHub.reset()
+        gitHubRoot = root
+        gitHubSettingChanged()
+        for _ in 0..<40 {
+            if gitHub.repos.contains(where: { $0.slug.lowercased() == slug.lowercased() }) { return nil }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return gitHub.lastError ?? "MarkView did not find \(slug) among this folder's remotes."
+    }
+
     /// "New Feature / New Bug from #n": the issue's text and comments as the material, linked.
     func startIntake(_ kind: IntakeKind, fromIssue number: Int) {
         // The sheet opens at once and loads the issue itself (with a spinner).

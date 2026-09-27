@@ -239,6 +239,20 @@ struct ContentView: View {
         .sheet(item: $workspaceManager.intake) { request in
             IntakeSheet(request: request, workspaceManager: workspaceManager)
         }
+        .sheet(item: $workspaceManager.newProject) { request in
+            NewProjectSheet(request: request, workspaceManager: workspaceManager)
+        }
+        .sheet(isPresented: $workspaceManager.gitHubPublishRequested) {
+            if let root = workspaceManager.rootNode?.url {
+                GitHubPublishSheet(root: root, workspaceManager: workspaceManager)
+            } else {
+                VStack(spacing: 10) {
+                    Text("Open a folder first, then publish it to GitHub.")
+                    Button("Close") { workspaceManager.gitHubPublishRequested = false }.keyboardShortcut(.defaultAction)
+                }
+                .padding(20)
+            }
+        }
         .background(WindowAccessor(window: $hostWindow))
         // "MarkView 2.18.0 — my-project" and the folder as the proxy icon, per window (issue #25).
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
@@ -265,6 +279,11 @@ struct ContentView: View {
                 MarkViewApp.pendingFolderURL = nil
                 WorkspaceManager.debugLog("onAppear: opening \(url.path)")
                 workspaceManager.openFolder(url)
+            }
+            // File › New Project… from a window with a folder: this new window takes it.
+            if MarkViewApp.pendingNewProject {
+                MarkViewApp.pendingNewProject = false
+                workspaceManager.newProject = NewProjectRequest()
             }
         }
     }
@@ -370,8 +389,15 @@ struct ContentView: View {
                         .tint(VSDark.blue)
                     Button("Open Folder...") { openFolder() }
                         .buttonStyle(.bordered)
+                    // Start a Project from Scratch (REQ-001): no folder needed.
+                    Button("New Project...") { workspaceManager.newProject = NewProjectRequest() }
+                        .buttonStyle(.bordered)
                 }
                 .padding(.top, 8)
+                ProjectDraftList(drafts: ProjectDraftStore.shared) { id in
+                    workspaceManager.newProject = NewProjectRequest(resume: id)
+                }
+                .padding(.top, 12)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

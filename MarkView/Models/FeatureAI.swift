@@ -78,6 +78,9 @@ final class FeatureAssistant: ObservableObject {
     /// Wired by WorkspaceManager.
     var database: () -> SemanticDatabase? = { nil }
     var gitHubClient: () -> GitHubClient? = { nil }
+    /// The store is a new-project draft (Start a Project from Scratch): the "feature" is the whole
+    /// project, specified before its folder exists.
+    var projectDiscovery = false
 
     init(store: FeatureStore) {
         self.store = store
@@ -118,6 +121,19 @@ final class FeatureAssistant: ObservableObject {
         """
     }
 
+    /// Added to the facilitator's instructions for a new-project draft (DEC-007, DEC-016, DEC-021).
+    private static let projectDiscoveryNote = """
+    This workspace is a draft of a NEW project that does not exist yet: no folder, no code, no \
+    repository. The "feature" you see is the whole project. Clarify what the user wants to build \
+    until its intent is clear: the goal, who it is for, the core workflow, and a first direction for \
+    the kind of project and its architecture. Record what is decided as decisions and requirements. \
+    Mark a question blocking only when the project brief (its goal and what the first version must \
+    do) cannot be confirmed without the answer; everything else is not blocking and may stay open \
+    for later work. Do not choose technology the user has not asked for, and do not plan files, \
+    templates or deployment. There are no project documents yet: "the language the user writes in" \
+    is the language of the user's idea (the Original request source).
+    """
+
     private func run(_ key: String, prompt: String, schema: [String: Any]?, web: Bool = false,
                      timeout: TimeInterval = 400, onDelta: (@Sendable (String) -> Void)? = nil) async -> CLICompletion.Result? {
         guard !running.contains(key) else {
@@ -128,7 +144,8 @@ final class FeatureAssistant: ObservableObject {
         defer { running.remove(key) }
         // The answer belongs to this folder: dropped if another folder was opened meanwhile.
         let folder = store.root
-        var request = CLICompletion.Request(prompt: prompt, systemPrompt: Self.system, jsonSchema: schema,
+        let system = projectDiscovery ? Self.system + "\n\n" + Self.projectDiscoveryNote : Self.system
+        var request = CLICompletion.Request(prompt: prompt, systemPrompt: system, jsonSchema: schema,
                                             readableFolder: store.root)
         request.allowWeb = web
         request.effort = "low"
@@ -453,6 +470,9 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("answer:" + id)
         defer { preparing.remove("answer:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
+        // A new project asks its open questions first; a new one only when none is left, so the
+        // AI cannot ask again what is already open.
+        let next = next && !(projectDiscovery && feature.list(.question).contains { $0.status == "open" && $0.id != id })
         let options = (question.front["options"]?.list ?? []).map { "- \($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
         let asked = delegated ? """
 

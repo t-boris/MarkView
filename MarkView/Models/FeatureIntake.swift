@@ -56,12 +56,25 @@ extension FeatureAssistant {
     /// `linkedIssue`: the feature starts from an existing GitHub issue (no new issue is filed).
     func newFeature(from dump: String, attachments: [URL], linkedIssue: Int? = nil) async -> IntakeOutcome? {
         guard store.root != nil else { return nil }
-        let prompt = """
+        let attachmentNames = attachments.map(\.lastPathComponent).joined(separator: ", ")
+        let prompt = projectDiscovery ? """
+        ## Everything the user wrote about a new project they want to start from scratch
+
+        \(dump.prefix(40_000))
+
+        Attachments: \(attachmentNames.isEmpty ? "none" : attachmentNames)
+
+        Task: turn this into the start of the project's specification. Nothing exists yet — no folder, \
+        no code. Give: a short project title (its name); the idea restated clearly as the project's goal; \
+        the problem it solves; the scope of a first version (in / out); how well each understanding \
+        dimension is known from this material; the requirements it already states or clearly implies \
+        (0–6, each with acceptance criteria); and the 1–3 most important open questions with options.
+        """ : """
         ## Everything the user wrote about a new feature
 
         \(dump.prefix(40_000))
 
-        Attachments: \(attachments.map(\.lastPathComponent).joined(separator: ", ").isEmpty ? "none" : attachments.map(\.lastPathComponent).joined(separator: ", "))
+        Attachments: \(attachmentNames.isEmpty ? "none" : attachmentNames)
 
         Task: turn this into the start of a feature specification. Read the project's documentation and code \
         (read-only) where it helps you understand what exists. Give: a short feature title; the idea restated \
@@ -100,7 +113,7 @@ extension FeatureAssistant {
         let problem = object["problem"] as? String ?? ""
         let scope = object["scope"] as? String ?? ""
         store.updateFeature(slug) { front, body in
-            front.set("provenance", "Created from the feature intake")
+            front.set("provenance", self.projectDiscovery ? "Created from the new-project intake" : "Created from the feature intake")
             body = body.replacingOccurrences(of: "## Problem\n\n## Scope\n", with: "## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n")
         }
         let states = (object["understanding"] as? [[String: Any]] ?? []).reduce(into: [String: String]()) {

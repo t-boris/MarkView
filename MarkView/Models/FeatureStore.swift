@@ -580,7 +580,10 @@ final class FeatureStore: ObservableObject {
     // MARK: Lifecycle events (docs/features/lifecycle-event-log-cycle-time-analytics)
 
     /// Events are keyed by the project root's absolute path (DEC-012).
-    var lifecycleProject: String? { root?.standardizedFileURL.path }
+    /// False for a new-project draft: it is not a project yet, so no lifecycle events.
+    var recordsLifecycle = true
+
+    var lifecycleProject: String? { recordsLifecycle ? root?.standardizedFileURL.path : nil }
 
     func lifecycleEvents(_ slug: String) -> [LifecycleEvent] {
         guard let project = lifecycleProject else { return [] }
