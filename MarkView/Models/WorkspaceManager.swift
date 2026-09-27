@@ -3505,14 +3505,15 @@ class WorkspaceManager: ObservableObject {
         if changed { refreshFileTree() }
     }
 
-    private func activeDocumentContext(contentLimit: Int = 15000, contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
+    /// The open document, whole: the terminal writer delivers pastes of any length (BUG-002).
+    private func activeDocumentContext(contentOverride: String? = nil, defaultFileName: String = "project") -> (fileName: String, content: String) {
         let fileName = activeTab?.url.lastPathComponent ?? defaultFileName
 
         if let contentOverride {
             return (fileName, contentOverride)
         }
 
-        let content = activeTab.map { String($0.content.prefix(contentLimit)) } ?? ""
+        let content = activeTab?.content ?? ""
         return (fileName, content)
     }
 

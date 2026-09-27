@@ -67,6 +67,7 @@
 		A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */; };
 		A7D1F2C3B4E5968778695A12 /* AIPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A11 /* AIPrompts.swift */; };
 		A7D1F2C3B4E5968778695A10 /* TerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A09 /* TerminalSession.swift */; };
+		B2E0C7A1D4F3968778695B02 /* PTYWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0C7A1D4F3968778695B01 /* PTYWriter.swift */; };
 		A7D1F2C3B4E5968778695A60 /* TerminalLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A59 /* TerminalLink.swift */; };
 		A7D1F2C3B4E5968778695A08 /* FileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */; };
 		A7D1F2C3B4E5968778695A06 /* FilterSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7D1F2C3B4E5968778695A05 /* FilterSearch.swift */; };
@@ -92,6 +93,7 @@
 		A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayDigest.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A11 /* AIPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIPrompts.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A09 /* TerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSession.swift; sourceTree = "<group>"; };
+		B2E0C7A1D4F3968778695B01 /* PTYWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYWriter.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A59 /* TerminalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLink.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransfer.swift; sourceTree = "<group>"; };
 		A7D1F2C3B4E5968778695A05 /* FilterSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterSearch.swift; sourceTree = "<group>"; };
@@ -210,6 +212,7 @@
 				A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */,
 				A7D1F2C3B4E5968778695A11 /* AIPrompts.swift */,
 				A7D1F2C3B4E5968778695A09 /* TerminalSession.swift */,
+				B2E0C7A1D4F3968778695B01 /* PTYWriter.swift */,
 				A7D1F2C3B4E5968778695A59 /* TerminalLink.swift */,
 				A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */,
 				A7D1F2C3B4E5968778695A05 /* FilterSearch.swift */,
@@ -468,6 +471,7 @@
 				A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */,
 				A7D1F2C3B4E5968778695A12 /* AIPrompts.swift in Sources */,
 				A7D1F2C3B4E5968778695A10 /* TerminalSession.swift in Sources */,
+				B2E0C7A1D4F3968778695B02 /* PTYWriter.swift in Sources */,
 				A7D1F2C3B4E5968778695A60 /* TerminalLink.swift in Sources */,
 				A7D1F2C3B4E5968778695A08 /* FileTransfer.swift in Sources */,
 				A7D1F2C3B4E5968778695A06 /* FilterSearch.swift in Sources */,
@@ -543,7 +547,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.17.1;
+				CURRENT_PROJECT_VERSION = 2.17.2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -558,7 +562,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.17.1;
+				MARKETING_VERSION = 2.17.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -622,7 +626,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.17.1;
+				CURRENT_PROJECT_VERSION = 2.17.2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -643,7 +647,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.17.1;
+				MARKETING_VERSION = 2.17.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

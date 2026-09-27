@@ -1,5 +1,16 @@
 # MarkView — Follow-up Tasks
 
+## Done 38: AI Tools menu prompts cut off in the AI terminal (2026-09-26, BUG-002 / issue #22, 2.17.2, not committed)
+
+- [x] Reproduce: PTY harness with the exact write loop, 1022 of 20275 bytes then EAGAIN, with a slow reader and with real Claude Code
+- [x] Root cause: non-blocking PTY master takes ~1 KB; `TerminalSession.write()` gave up on EAGAIN, lost `ESC[201~`, Enter went into the unclosed paste
+- [x] Fix: `Models/PTYWriter.swift` queues input and drains it on a write source; `TerminalSession.write()` uses it
+- [x] Documents pasted whole (reporter's decision): limits removed in `activeDocumentContext` and `GraphCreatorSheet`
+- [x] Verify: `tools/tests/pty-writer-tests.sh` passes; real Claude Code gets a 20 KB paste whole and submits it; Critic prompt writes its review file; terminal link tests 82 + 9 pass; Debug build succeeds
+- [x] BUG-002 resolution with per-item status, lesson, version 2.17.2
+
+**Review:** one cause made every item look dead: all prompts are over 1 KB. Open for the reporter: Diagrams items without a folder (sheet with no files, no message) and very large Graph Creator pastes when all files are selected.
+
 ## Done 37: Dictation transcript vanished from the intake field (2026-09-26, BUG-003 / issue #23, 2.17.1, not committed)
 
 - [x] Reproduce: signed 2.17.0 copy with stderr tracing next to the installed app; the user clicked

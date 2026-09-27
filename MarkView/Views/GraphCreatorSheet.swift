@@ -171,12 +171,12 @@ struct GraphCreatorSheet: View {
         isGenerating = true
         error = nil
 
-        // Build content from selected files
+        // Build content from selected files, whole: the terminal writer delivers pastes of any length.
         var content = ""
         for file in selectedFiles.sorted() {
             let url = root.appendingPathComponent(file)
             if let text = try? String(contentsOf: url, encoding: .utf8) {
-                content += "--- \(file) ---\n\(String(text.prefix(3000)))\n\n"
+                content += "--- \(file) ---\n\(text)\n\n"
             }
         }
 
@@ -201,7 +201,7 @@ struct GraphCreatorSheet: View {
         8. Add a brief description before the diagram and a legend after.
 
         Source documents (\(selectedFiles.count) files):
-        \(String(content.prefix(15000)))
+        \(content)
         """
 
         // To the assistant in the AI terminal (the AI panel opens on it).

@@ -1,5 +1,17 @@
 # Lessons
 
+## 2026-09-26 — Write to a PTY: EAGAIN means "later", not "stop"
+
+**Context:** BUG-002. `TerminalSession.write()` wrote to a non-blocking PTY master and stopped at the
+first `write` ≤ 0. macOS takes only about 1 KB of input at a time, so every prompt over 1 KB was cut
+at 1022 bytes. The closing `ESC[201~` was lost, and Enter was swallowed by the unclosed paste.
+Every AI Tools item then "did nothing". The code looked fine for short keystrokes.
+
+**Rule:** Every write to a non-blocking descriptor has an owner for the unsent part: keep it in order
+and finish on a write source (retry EINTR, wait on EAGAIN), never on the main thread by blocking. To
+reproduce terminal input bugs, use a standalone forkpty harness with the exact write code and a
+slow reader or the real CLI. Count the bytes accepted instead of guessing from the screen.
+
 ## 2026-09-26 — Автоматическая фиксация: проверять на реальных данных и реальном процессе
 
 **Контекст:** Lifecycle log: «spec ready» ждал статус `ready`, который приложение никогда не

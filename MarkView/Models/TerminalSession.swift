@@ -79,6 +79,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// A finished recording is being transcribed.
     @Published var transcribing = false
     private var masterFD: Int32 = -1
+    /// Everything typed or pasted goes through it: complete and in order even when the PTY is full.
+    private var input: PTYWriter?
     private var childPID: pid_t = 0
     private var readSource: DispatchSourceRead?
     private var exitSource: DispatchSourceProcess?
@@ -246,6 +248,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         isRunning = true
         startedAt = Date()
         _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
+        input = PTYWriter(fd: master)
 
         let read = DispatchSource.makeReadSource(fileDescriptor: master, queue: .global(qos: .userInitiated))
         read.setEventHandler { [weak self] in
@@ -271,6 +274,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private func processExited(status: Int32) {
         readSource?.cancel(); readSource = nil
         exitSource?.cancel(); exitSource = nil
+        input?.cancel(); input = nil
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
         childPID = 0
         isRunning = false
@@ -306,6 +310,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         if childPID > 0 { kill(-childPID, SIGHUP); kill(childPID, SIGHUP) }
         readSource?.cancel(); readSource = nil
         exitSource?.cancel(); exitSource = nil
+        input?.cancel(); input = nil
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
         childPID = 0
         isRunning = false
@@ -313,16 +318,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     // MARK: - Input and output
 
-    /// Keystrokes or text into the terminal, as if typed.
+    /// Keystrokes or text into the terminal, as if typed. Text longer than the PTY takes at
+    /// once is sent as the program reads it (`PTYWriter`), never cut off.
     func write(_ text: String) {
-        guard masterFD >= 0 else { return }
-        let bytes = Array(text.utf8)
-        var offset = 0
-        while offset < bytes.count {
-            let written = bytes[offset...].withUnsafeBufferPointer { Darwin.write(masterFD, $0.baseAddress, $0.count) }
-            if written <= 0 { break }
-            offset += written
-        }
+        input?.write(Data(text.utf8))
     }
 
     /// Insert text as a paste: full-screen programs (claude, codex) take it as one block,
