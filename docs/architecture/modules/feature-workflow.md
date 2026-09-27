@@ -35,7 +35,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
   - planning, and creating GitHub issues
   (`FeatureAI.swift`)
 - Adding sources: files, PDFs, audio, URLs, GitHub issues, notes, voice notes. The AI extracts candidate facts from each (`FeatureIngest.swift`).
-- The three intake flows: New Feature, New Bug, I Need to Understand. Also bug investigation with question rounds (`FeatureIntake.swift`).
+- The four intake flows: New Feature, New Bug, I Need to Understand, New Research. Also bug investigation with question rounds (`FeatureIntake.swift`). New Research runs as a background job of its own (§5.9).
 - Automatic lifecycle event capture for features: status and readiness transitions, git commits and GitHub captures (`FeatureStore.swift:558-728`).
 - UI:
   - left panel Issues list and feature navigator
@@ -160,8 +160,8 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 
 ### 3.4 Intake types (`FeatureIntake.swift:6-45`)
 
-- **`IntakeKind`** has the cases `feature`, `bug` and `understand`, each with a title and a prompt text.
-- **`IntakeRequest`** carries `kind`, `text`, `linkedIssue`, `attachments`, `loadIssue` and `loadPullRequest`. Setting `WorkspaceManager.intake` opens the sheet (`WorkspaceManager.swift:3223-3259`).
+- **`IntakeKind`** has the cases `feature`, `bug`, `understand` and `research`, each with a title and a prompt text. Every `IntakeKind.allCases` menu (toolbar ⊞, its "From the open document" section, the file tree's "New from This Document") lists all four.
+- **`IntakeRequest`** carries `kind`, `text`, `linkedIssue`, `attachments`, `targets` (New Research; nil = the open document), `loadIssue` and `loadPullRequest`. Setting `WorkspaceManager.intake` opens the sheet (`WorkspaceManager.swift:3223-3259`).
 - **`IntakeOutcome`** carries `file`, `feature` and `issue`.
 
 ### 3.5 Views
@@ -452,6 +452,35 @@ Automatic lifecycle events (`FeatureStore.swift:576-728`):
 | GitHub captures, `ciPassed` | From `GitHubClient.lifecycleCaptures` and `ciPassed`, on the GitHub poll, deduplicated by note (`:650-692`) |
 
 The first load only records a baseline (no backfill). A restart suppresses events through `lifecycleQuiet` (`:36-38,398-399`).
+
+### 5.9 New Research (feature `new-research-repository-grounded-analysis`)
+
+- **Files**: `Models/ResearchDocument.swift` (pure: path, template, label check, sections, status, comment
+  sections; `tools/tests/research-document-tests.sh`), `Models/ResearchJobs.swift` (per-window jobs, scope,
+  settings), `Models/ResearchPrompt.swift`, `Views/ResearchViews.swift` (intake fields, bar, follow-up sheet).
+- **Start**: the intake sheet (`.research`) takes the question, target documents (the open document by default),
+  attachments (copied to `docs/research/assets/<id>/`), the output path `docs/research/<date>-<slug>.md` and the
+  per-folder web opt-out. AI Tools › Deep Research… opens the same sheet; the old `research` terminal prompt is gone.
+- **Job**: `ResearchJobs` (owned by `WorkspaceManager.research`) runs `CLICompletion` with the selected backend,
+  `readableFolder` = root, web tools when allowed (Claude gets `--allowedTools WebSearch,WebFetch`: headless runs
+  cannot ask), timeout `research.timeoutMinutes`. The scope list (git-listed text files ≤ 1 MB, no vendor,
+  lock, minified or binary files) goes into the prompt. `CLICompletion.Activity.webSearch/webFetch` and
+  `Result.refused` give the real `web_queries` and fetched URLs.
+- **Write**: the app renders the document from the AI's Summary / Findings / Recommendations; it adds the
+  front matter, title, question and Sources, and relabels a finding as `[AI inference]` when it lacks one label,
+  a project fact lacks an existing path or an external fact a URL. Cancel, error, timeout, refused web or a
+  backend without web (Cline, Copilot) save what was produced under `> ⚠️ Incomplete: …` and `status: incomplete`.
+- **Continue / deepen** (bar under the editor, for any open `type: research` file, including X-Ray's saved
+  answers): unsaved edits are saved or the action is cancelled; the job appends `---` + `## Follow-up N: … (date)`
+  to the file as it is when the job ends. "Retry incomplete part" is pre-selected when the latest section is
+  incomplete; a retry names its section (`*Retry of the incomplete Follow-up 2.*`) and `status` becomes
+  `complete` once every incomplete section has a resolved retry.
+- **Comments** (DEC-017): the editor's ✦ menu shows "Revise With Comment" for `type: research` documents. The AI
+  returns the smallest heading-bounded section around the selection revised; it replaces that section only if it
+  is unchanged on disk. The selection comes from the rendered view, so matching ignores Markdown syntax and
+  typographic punctuation (`ResearchDocument.plain`).
+- **Open tabs**: `researchDocumentChanged` reloads an unmodified tab, or applies the same append/replace to a tab
+  with unsaved edits.
 
 ---
 

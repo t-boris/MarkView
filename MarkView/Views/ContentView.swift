@@ -135,6 +135,11 @@ struct ContentView: View {
                 } else {
                     welcomeView
                 }
+
+                // New Research: running jobs and, for a research document, "Continue / deepen".
+                ResearchBar(research: workspaceManager.research, root: workspaceManager.rootNode?.url,
+                            activeFile: workspaceManager.activeTab.flatMap { $0.isFileBacked ? $0.url : nil },
+                            activeContent: workspaceManager.activeTab?.content ?? "")
             }
             .frame(minWidth: 400)
 
@@ -546,7 +551,8 @@ struct AIToolsMenu: View {
             // Each hands a prompt to the assistant in the Terminal tab, which writes the result.
             Section("Analysis") {
                 Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
-                Button("Deep Research") { workspaceManager.runAITool(named: "research") }
+                // Superseded by New Research, which saves a report (DEC-010).
+                Button("Deep Research…") { workspaceManager.newResearch() }
                 Button("Codebase Audit") { workspaceManager.runAITool(named: "audit") }
                 Button("Code Structure Map") { workspaceManager.runAITool(named: "codemap") }
                 Button("Recursive Insight") { workspaceManager.startRecursiveInsight() }

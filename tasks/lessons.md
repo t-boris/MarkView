@@ -353,3 +353,21 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   PTYWriter.swift, and keep `project.yml` aligned.
 - A UI can be checked without touching the user's app: build with `PRODUCT_BUNDLE_IDENTIFIER=<other>` (separate
   defaults), seed its defaults, and read rows via `osascript` System Events (`help` of row buttons).
+
+## Headless `claude -p` refuses web tools unless pre-approved (New Research, 2026-09-27)
+- `--tools WebSearch,WebFetch` only makes the tools available. In `-p` mode nothing can approve them, so every
+  WebSearch was denied (listed in the result's `permission_denials`), and WebFetch worked only for Claude Code's
+  built-in allowlisted domains. The model then wrote "search not permitted" into the report, with no error.
+- Rule: `allowWeb` also passes `--allowedTools WebSearch,WebFetch`; read `permission_denials` and treat refused
+  web calls as lost web access. Reproduce with the exact CLI flags before blaming the prompt.
+
+## Text selected in the rendered editor is not the Markdown source (2026-09-27)
+- The rendered view shows `doesn’t` for `doesn't`, drops `**`, `[` `](url)` and list markers. Matching a selection
+  back to the source needs normalisation (`ResearchDocument.plain`), found only by a real selection, not by tests
+  written from the source.
+
+## Driving a background test copy through Accessibility (2026-09-27)
+- Toolbar `Menu`: `AXPress` on the AXMenuButton opens it and its AXMenuItems can be pressed; `AXShowMenu` does not.
+- SwiftUI tap gestures (file tree rows) ignore `CGEvent.postToPid` clicks while the app is in the background; open
+  files through a pressable path instead (Search tab results). Web content: select with
+  `AXTextMarkerRangeForUIElement` → set `AXSelectedTextMarkerRange` on the AXWebArea (fires `selectionchange`).

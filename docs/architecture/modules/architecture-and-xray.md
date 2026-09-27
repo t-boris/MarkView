@@ -680,7 +680,7 @@ ISO-8601 dates, without temporary ratings. It is written detached and atomically
 | `<project>/.dde/cache/xray/terms-<24 hex>.json` | `[String]` | SHA-256 of `"terms\u{1}" + criterion` | `FilterSearch.terms` (`FilterSearch.swift:19-24`) |
 | `<X-Ray root>/.dde/cache/xray-content/<24 hex>.json` | `XRayContent.Outline` `{signature, collections:[{name, summary?, groups:[{name, items:[{name, line, summary?, anchor?}]}]}], source: "ai" or "structure", language?}` | SHA-256 of the file's absolute path | `XRayContent.save` (`XRayContent.swift:72-100`) |
 | `~/Library/Caches/MarkView/pull-requests/<12 of hash(root)>/PR-<n>-<head10>/<path>` and `…/base-<sha10>/<path>` | Raw file text from `git show` | Commit and path | `prFileURL` (`ArchitectureStore.swift:1908-1947`) |
-| `<project>/docs/research/RES-nnn-<slug>.md` | Markdown with front matter (`type: research, id, title, question, created, author, provenance`) | Next number | `saveSearchAnswer` (`ArchitectureStore.swift:1462-1494`) |
+| `<project>/docs/research/RES-nnn-<slug>.md` | Markdown with front matter (`type: research, id, title, question, created, author, provenance`) | Next number | `saveSearchAnswer` (`ArchitectureStore.swift:1462-1494`); as `type: research` files they also get New Research's Continue / deepen and comments (feature-workflow §5.9) |
 
 ### 6.4 Settings and client storage
 

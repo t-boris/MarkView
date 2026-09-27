@@ -2,9 +2,10 @@ import Foundation
 
 /// The standard ways into the project (user request): dump everything you know and the AI
 /// turns it into a feature or a bug report (each with its GitHub issue), kept as Markdown;
-/// "I need to understand …" is answered by the X-Ray's ⚡ search instead of a document.
+/// "I need to understand …" is answered by the X-Ray's ⚡ search instead of a document; "New Research"
+/// answers an open analytical question with a saved report in docs/research/ (ResearchJobs).
 enum IntakeKind: String, Identifiable, CaseIterable {
-    case feature, bug, understand
+    case feature, bug, understand, research
     var id: String { rawValue }
 
     var title: String {
@@ -12,6 +13,7 @@ enum IntakeKind: String, Identifiable, CaseIterable {
         case .feature: return "New Feature"
         case .bug: return "New Bug"
         case .understand: return "I Need to Understand"
+        case .research: return "New Research"
         }
     }
 
@@ -20,6 +22,7 @@ enum IntakeKind: String, Identifiable, CaseIterable {
         case .feature: return "Describe the feature as you know it — what, why, for whom, ideas, constraints, links, anything. Drop files and screenshots too."
         case .bug: return "What goes wrong? Where, when, what you expected, what happened instead, error messages, logs, screenshots."
         case .understand: return "What do you need to understand about this project? The X-Ray searches the code, documents and deployment for it, marks what takes part and answers on the right."
+        case .research: return "Ask an open analytical question: how to replace one app with another, what would make the product more widely used, which features are missing, a review of a document. The AI studies the repository (and the web when useful) and saves a research report with findings, recommendations and sources that you can deepen later."
         }
     }
 }
@@ -31,6 +34,8 @@ struct IntakeRequest: Identifiable {
     var text = ""
     var linkedIssue: Int?
     var attachments: [URL] = []
+    /// New Research: documents to analyse first (DEC-009); nil = the open document.
+    var targets: [URL]?
     /// The sheet loads this issue's (or pull request's) text itself, with a spinner.
     var loadIssue: Int?
     var loadPullRequest: Int?

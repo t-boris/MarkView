@@ -1478,6 +1478,9 @@
         <div class="feature-menu" id="feature-menu">
             <input id="feature-ask" type="text" placeholder="Ask AI about the selection…" spellcheck="false"
                    onkeydown="if (event.key === 'Enter') featureAction('ask'); if (event.key === 'Escape') hideFeatureMenu();">
+            <div class="feature-menu-item" id="feature-comment" style="display:none" onclick="featureAction('comment')"
+                 title="Research document: the AI reworks the section around the selection according to your comment">Revise With Comment</div>
+            <div class="feature-menu-sep" id="feature-comment-sep" style="display:none"></div>
             <div class="feature-menu-item" onclick="featureAction('challenge')">Challenge</div>
             <div class="feature-menu-item" onclick="featureAction('expand')">Expand</div>
             <div class="feature-menu-item" onclick="featureAction('research')">Research</div>
