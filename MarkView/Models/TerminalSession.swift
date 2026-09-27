@@ -100,6 +100,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var pendingPastes: [(text: String, submit: Bool, queued: Date)] = []
     private var pasteTimer: Timer?
     private var size = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+    /// Interface text scale for the terminal glyphs; the host view keeps it current.
+    private var fontScale = AppFontScale.storedFactor
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
          resumeCommand: String? = nil, title: String? = nil) {
@@ -119,6 +121,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(WeakMessageHandler(self), name: "terminal")
+        // The first fit already uses the current scale, so the PTY starts with the final grid.
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: "window.mvFontScale = \(Double(fontScale));",
+            injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: configuration)
         if let page = Self.pageURL {
             view.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
@@ -134,6 +140,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
                 pageReady = true
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
                 applyTheme()
+                applyFontScale()
                 if masterFD < 0 { start() } else { flush() }
             case "input":
                 if let text = body["data"] as? String { write(text) }
@@ -193,6 +200,18 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         guard pageReady else { return }
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         webView.evaluateJavaScript("window.mvSetTheme && window.mvSetTheme(\(dark))")
+    }
+
+    func setFontScale(_ scale: CGFloat) {
+        guard scale != fontScale else { return }
+        fontScale = scale
+        applyFontScale()
+    }
+
+    /// The page refits and posts `resize` when the grid changes, which resizes the PTY.
+    private func applyFontScale() {
+        guard pageReady else { return }
+        webView.evaluateJavaScript("window.mvSetFontScale && window.mvSetFontScale(\(Double(fontScale)))")
     }
 
     func focus() {

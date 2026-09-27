@@ -101,13 +101,13 @@ struct VSDarkHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .uiFont(size: 11, weight: .semibold)
                 .foregroundColor(VSDark.text)
                 .textCase(.uppercase)
             Spacer()
             if let count = count {
                 Text("\(count)")
-                    .font(.system(size: 10, weight: .medium))
+                    .uiFont(size: 10, weight: .medium)
                     .foregroundColor(VSDark.textBright)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -129,7 +129,7 @@ struct VSDarkTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+            Text(title).uiFont(size: 10, weight: isSelected ? .semibold : .regular)
                 .frame(maxWidth: .infinity).padding(.vertical, 3)
                 .foregroundColor(isSelected ? VSDark.textBright : VSDark.textDim)
                 .background(isSelected ? VSDark.bgActive : Color.clear).cornerRadius(4)
@@ -153,17 +153,17 @@ struct VSDarkRow: View {
         Button(action: { action?() }) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 11))
+                    .uiFont(size: 11)
                     .foregroundColor(iconColor)
                     .frame(width: 16)
                 Text(text)
-                    .font(.system(size: 12))
+                    .uiFont(size: 12)
                     .foregroundColor(isActive ? VSDark.textBright : VSDark.text)
                     .lineLimit(1)
                 Spacer()
                 if let detail = detail {
                     Text(detail)
-                        .font(.system(size: 10))
+                        .uiFont(size: 10)
                         .foregroundColor(VSDark.textDim)
                 }
             }

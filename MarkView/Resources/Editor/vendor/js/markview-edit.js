@@ -19,12 +19,30 @@
             if (!slider) return;
             const saved = localStorage.getItem('markview-font-size');
             if (saved) { slider.value = saved; applyFontSize(parseFloat(saved)); }
+            // Swift mirrors the size for document text it hosts natively (GitHub issue bodies).
+            // Posted directly: this runs before markview-bridge.js defines sendToSwift.
+            function reportSize(size) {
+                try { window.webkit.messageHandlers.bridge.postMessage({ type: 'editorFontSize', payload: { size: size } }); } catch (e) {}
+            }
+            reportSize(parseFloat(slider.value));
             slider.addEventListener('input', function() {
                 const size = parseFloat(this.value);
                 applyFontSize(size);
                 localStorage.setItem('markview-font-size', size);
+                reportSize(size);
             });
         })();
+
+        /** Application interface text scale (1 = 100%). Scales chrome sized with
+            `calc(Npx * var(--ui-scale, 1))`; document text keeps the slider's size. Also
+            reaches same-origin panel iframes (Recursive Insight pages). */
+        window.mvSetUIScale = function(scale) {
+            const value = Number(scale) > 0 ? String(Number(scale)) : '1';
+            document.documentElement.style.setProperty('--ui-scale', value);
+            document.querySelectorAll('iframe').forEach(function(frame) {
+                try { frame.contentDocument.documentElement.style.setProperty('--ui-scale', value); } catch (e) {}
+            });
+        };
 
         function applyFontSize(size) {
             document.documentElement.style.setProperty('--base-font-size', size + 'px');

@@ -6,6 +6,7 @@ import Combine
 struct EditorView: NSViewRepresentable {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.appFontScale) private var fontScale
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -31,6 +32,7 @@ struct EditorView: NSViewRepresentable {
             context.coordinator.editorHTML = html
         }
 
+        context.coordinator.uiScale = fontScale
         // Always load the editor from the app bundle so local vendor assets resolve reliably.
         context.coordinator.loadEditorPage()
 
@@ -50,6 +52,7 @@ struct EditorView: NSViewRepresentable {
 
         // Update theme
         coordinator.setTheme(themeManager.effectiveTheme)
+        coordinator.setUIScale(fontScale)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -183,7 +186,10 @@ struct EditorView: NSViewRepresentable {
             guard let webView = webView, let html = editorHTML else { return }
             isEditorReady = false
             lastLoadedContent = ""
-            webView.loadHTMLString(html, baseURL: editorResourceBaseURL)
+            // The page starts at the current interface scale, so its chrome never flashes at 100%.
+            appliedUIScale = uiScale
+            let page = html.replacingOccurrences(of: "<html lang=\"en\"", with: "<html lang=\"en\" style=\"--ui-scale: \(Double(uiScale))\"")
+            webView.loadHTMLString(page, baseURL: editorResourceBaseURL)
         }
 
         // MARK: - WKNavigationDelegate
@@ -677,6 +683,17 @@ struct EditorView: NSViewRepresentable {
             return result
         }
 
+        /// Interface text scale for the editor chrome (toolbars, panels, AI answers).
+        var uiScale: CGFloat = 1
+        private var appliedUIScale: CGFloat?
+
+        func setUIScale(_ scale: CGFloat) {
+            uiScale = scale
+            guard let webView = webView, isEditorReady, scale != appliedUIScale else { return }
+            appliedUIScale = scale
+            webView.evaluateJavaScript("window.mvSetUIScale && window.mvSetUIScale(\(Double(scale)))")
+        }
+
         func setTheme(_ theme: Theme) {
             guard let webView = webView, isEditorReady, theme != lastTheme else { return }
             lastTheme = theme
@@ -797,6 +814,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             self.isEditorReady = true
             // Apply theme that was deferred while editor was loading
             self.setTheme(self.parent.themeManager.effectiveTheme)
+            self.setUIScale(self.uiScale)
             let idx = self.parent.workspaceManager.activeTabIndex
             if idx >= 0, idx < self.parent.workspaceManager.openTabs.count {
                 let tab = self.parent.workspaceManager.openTabs[idx]

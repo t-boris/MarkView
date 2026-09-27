@@ -5,15 +5,18 @@ import WebKit
 /// screen when SwiftUI rebuilds this host (tab or panel switches).
 struct TerminalHostView: NSViewRepresentable {
     @ObservedObject var session: TerminalSession
+    @Environment(\.appFontScale) private var fontScale
 
     func makeNSView(context: Context) -> NSView {
         let container = NSView()
         attach(to: container)
+        session.setFontScale(fontScale)
         return container
     }
 
     func updateNSView(_ container: NSView, context: Context) {
         if session.webView.superview !== container { attach(to: container) }
+        session.setFontScale(fontScale)
     }
 
     private func attach(to container: NSView) {
@@ -35,7 +38,7 @@ struct TerminalDictationButton: View {
         if let session {
             SessionDictationButton(session: session, whisper: session.dictation)
         } else {
-            Image(systemName: "mic").font(.system(size: 12)).foregroundColor(VSDark.textDim.opacity(0.5))
+            Image(systemName: "mic").uiFont(size: 12).foregroundColor(VSDark.textDim.opacity(0.5))
         }
     }
 }
@@ -50,7 +53,7 @@ private struct SessionDictationButton: View {
     var body: some View {
         Button(action: toggle) {
             Image(systemName: whisper.isRecording ? "mic.fill" : session.transcribing ? "waveform" : "mic")
-                .font(.system(size: 12))
+                .uiFont(size: 12)
                 .foregroundColor(whisper.isRecording ? VSDark.red : VSDark.textDim)
         }
         .buttonStyle(.plain)
@@ -84,7 +87,7 @@ struct TerminalRestartButton: View {
     var body: some View {
         Button(action: action) {
             Label("Restart", systemImage: "arrow.clockwise")
-                .font(.system(size: 10, weight: .medium))
+                .uiFont(size: 10, weight: .medium)
                 .foregroundColor(VSDark.text)
                 .padding(.horizontal, 7).padding(.vertical, 2)
                 .background(RoundedRectangle(cornerRadius: 4).fill(VSDark.border.opacity(0.6)))
@@ -158,7 +161,7 @@ struct AITerminalPanel: View {
                 Button { workspaceManager.openAITerminal(profile) } label: { Label(profile.title, systemImage: profile.icon) }
             }
         } label: {
-            Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.textDim)
+            Image(systemName: "plus").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textDim)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -169,14 +172,14 @@ struct AITerminalPanel: View {
     private var placeholder: some View {
         VStack(spacing: 10) {
             Spacer()
-            Image(systemName: "terminal").font(.system(size: 26)).foregroundColor(VSDark.textDim)
+            Image(systemName: "terminal").uiFont(size: 26).foregroundColor(VSDark.textDim)
             if workspaceManager.aiWorkspaceRoot == nil && workspaceManager.rootNode == nil {
-                Text("Open a folder to start a terminal").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                Text("Open a folder to start a terminal").uiFont(size: 11).foregroundColor(VSDark.textDim)
             } else {
                 HStack(spacing: 8) {
                     ForEach(TerminalProfile.allCases) { profile in
                         Button { workspaceManager.openAITerminal(profile) } label: {
-                            Label(profile.title, systemImage: profile.icon).font(.system(size: 11))
+                            Label(profile.title, systemImage: profile.icon).uiFont(size: 11)
                         }
                     }
                 }
@@ -197,13 +200,13 @@ private struct TerminalPanelTab: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: session.profile.icon).font(.system(size: 9))
-            Text(session.title).font(.system(size: 10, weight: isActive ? .semibold : .regular)).lineLimit(1)
+            Image(systemName: session.profile.icon).uiFont(size: 9)
+            Text(session.title).uiFont(size: 10, weight: isActive ? .semibold : .regular).lineLimit(1)
             if !session.isRunning {
                 Circle().fill(VSDark.textDim).frame(width: 5, height: 5).help("Exited")
             }
             Button(action: close) {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                Image(systemName: "xmark").uiFont(size: 8, weight: .bold)
             }
             .buttonStyle(.plain)
             .opacity(hovering || isActive ? 1 : 0)
@@ -229,8 +232,8 @@ private struct TerminalPromptBar: View {
         VStack(alignment: .leading, spacing: 5) {
             Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.system(size: 8, weight: .bold))
-                    Text("PROMPTS").font(.system(size: 9, weight: .bold))
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8, weight: .bold)
+                    Text("PROMPTS").uiFont(size: 9, weight: .bold)
                     Spacer()
                 }
                 .foregroundColor(VSDark.textDim)
@@ -264,8 +267,8 @@ private struct TerminalPromptBar: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: prompt.icon).font(.system(size: 9)).frame(width: 12)
-                Text(prompt.title).font(.system(size: 10)).lineLimit(1)
+                Image(systemName: prompt.icon).uiFont(size: 9).frame(width: 12)
+                Text(prompt.title).uiFont(size: 10).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundColor(unavailable ? VSDark.textDim.opacity(0.5) : VSDark.text)
@@ -305,7 +308,7 @@ private struct PullRequestPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Review pull request").font(.system(size: 12, weight: .semibold))
+            Text("Review pull request").uiFont(size: 12, weight: .semibold)
             HStack {
                 TextField("Number or URL", text: $typed).textFieldStyle(.roundedBorder).frame(width: 200)
                     .onSubmit(submitTyped)
@@ -316,15 +319,15 @@ private struct PullRequestPicker: View {
             if loading {
                 ProgressView().scaleEffect(0.6)
             } else if open.isEmpty {
-                Text("No open pull requests found (gh).").font(.system(size: 10)).foregroundColor(.secondary)
+                Text("No open pull requests found (gh).").uiFont(size: 10).foregroundColor(.secondary)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(open, id: \.number) { pr in
                             Button { choose("pull request #\(pr.number)") } label: {
                                 HStack(spacing: 6) {
-                                    Text("#\(pr.number)").font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
-                                    Text(pr.title).font(.system(size: 11)).lineLimit(1)
+                                    Text("#\(pr.number)").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+                                    Text(pr.title).uiFont(size: 11).lineLimit(1)
                                     Spacer(minLength: 0)
                                 }
                                 .contentShape(Rectangle())
@@ -361,8 +364,8 @@ struct TerminalTabView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "terminal").font(.system(size: 10)).foregroundColor(VSDark.textDim)
-                Text(session.directory.path).font(.system(size: 10)).foregroundColor(VSDark.textDim)
+                Image(systemName: "terminal").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Text(session.directory.path).uiFont(size: 10).foregroundColor(VSDark.textDim)
                     .lineLimit(1).truncationMode(.head)
                 Spacer()
                 TerminalDictationButton(session: session)

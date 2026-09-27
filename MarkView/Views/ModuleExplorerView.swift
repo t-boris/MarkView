@@ -12,19 +12,19 @@ struct ModuleExplorerView: View {
         VStack(spacing: 0) {
             // Title and stats
             HStack(spacing: 6) {
-                Text("Terminal").font(.system(size: 11, weight: .semibold)).foregroundColor(VSDark.text)
+                Text("Terminal").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
                 Spacer(minLength: 6)
                 AgentUsageBar()
                 if let db = workspaceManager.semanticDatabase {
                     let stats = db.getUsageStats()
                     if stats.totalJobs > 0 {
                         Text("$\(String(format: "%.2f", stats.totalCostDollars))")
-                            .font(.system(size: 9, weight: .bold)).foregroundColor(VSDark.textDim)
+                            .uiFont(size: 9, weight: .bold).foregroundColor(VSDark.textDim)
                     }
                 }
                 if let progress = workspaceManager.indexingProgress {
                     ProgressView().scaleEffect(0.4)
-                    Text(progress).font(.system(size: 8)).foregroundColor(VSDark.blue).lineLimit(1)
+                    Text(progress).uiFont(size: 8).foregroundColor(VSDark.blue).lineLimit(1)
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)

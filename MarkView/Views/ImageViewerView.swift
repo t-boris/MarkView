@@ -22,9 +22,9 @@ struct ImageViewerView: View {
             } else {
                 VStack(spacing: 8) {
                     Spacer()
-                    Image(systemName: "photo").font(.system(size: 28)).foregroundColor(VSDark.textDim)
+                    Image(systemName: "photo").uiFont(size: 28).foregroundColor(VSDark.textDim)
                     Text(canvas.loaded ? "This image format can't be displayed." : "Loading…")
-                        .font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -36,14 +36,14 @@ struct ImageViewerView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "photo").font(.system(size: 10)).foregroundColor(VSDark.textDim)
-            Text(url.lastPathComponent).font(.system(size: 10, weight: .semibold)).foregroundColor(VSDark.text).lineLimit(1)
-            Text(canvas.info).font(.system(size: 10)).foregroundColor(VSDark.textDim).lineLimit(1)
+            Image(systemName: "photo").uiFont(size: 10).foregroundColor(VSDark.textDim)
+            Text(url.lastPathComponent).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
+            Text(canvas.info).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
             Spacer()
             if canvas.image != nil {
                 iconButton("minus.magnifyingglass", "Zoom out") { canvas.zoom(by: 1 / 1.25) }
                 Text("\(Int((canvas.zoom * 100).rounded())) %")
-                    .font(.system(size: 10, design: .monospaced)).foregroundColor(VSDark.text)
+                    .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
                     .frame(minWidth: 44)
                 iconButton("plus.magnifyingglass", "Zoom in") { canvas.zoom(by: 1.25) }
                 textButton("Fit", "Fit the image in the window") { canvas.fit() }
@@ -53,7 +53,7 @@ struct ImageViewerView: View {
                 textButton("Source", "Open the SVG as XML text") { workspaceManager.openImageAsText(url) }
             }
             Image(systemName: "hand.draw")
-                .font(.system(size: 11)).foregroundColor(VSDark.textDim)
+                .uiFont(size: 11).foregroundColor(VSDark.textDim)
                 .padding(3)
                 .contentShape(Rectangle())
                 .onDrag { NSItemProvider(contentsOf: url) ?? NSItemProvider() }
@@ -66,7 +66,7 @@ struct ImageViewerView: View {
 
     private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 11)).foregroundColor(VSDark.textDim)
+            Image(systemName: symbol).uiFont(size: 11).foregroundColor(VSDark.textDim)
         }
         .buttonStyle(.plain)
         .help(help)
@@ -74,7 +74,7 @@ struct ImageViewerView: View {
 
     private func textButton(_ title: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.system(size: 10, weight: .medium)).foregroundColor(VSDark.text)
+            Text(title).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
                 .padding(.horizontal, 6).padding(.vertical, 1)
                 .background(RoundedRectangle(cornerRadius: 3).fill(VSDark.border.opacity(0.6)))
         }

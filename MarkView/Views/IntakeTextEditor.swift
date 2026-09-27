@@ -8,6 +8,7 @@ struct IntakeTextEditor: NSViewRepresentable {
     @Binding var focused: Bool
     var attach: ([URL]) -> Void
     var failed: (String) -> Void
+    @Environment(\.appFontScale) private var fontScale
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -18,7 +19,7 @@ struct IntakeTextEditor: NSViewRepresentable {
         let view = AttachmentTextView()
         view.isRichText = false
         view.allowsUndo = true
-        view.font = .systemFont(ofSize: 13)
+        view.font = .systemFont(ofSize: 13 * fontScale)
         view.textColor = .labelColor
         view.backgroundColor = .textBackgroundColor
         view.textContainerInset = NSSize(width: 5, height: 6)
@@ -39,6 +40,8 @@ struct IntakeTextEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let view = scroll.documentView as? NSTextView else { return }
+        let fontSize = 13 * fontScale
+        if view.font?.pointSize != fontSize { view.font = .systemFont(ofSize: fontSize) }
         if view.string != text {
             let selection = view.selectedRange()
             view.string = text

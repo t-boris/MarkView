@@ -11,10 +11,10 @@ struct DiagnosticsBarView: View {
                let block = tab.blocks.first(where: { $0.id == activeId }) {
                 HStack(spacing: 4) {
                     Image(systemName: "square.text.square")
-                        .font(.system(size: 9))
+                        .uiFont(size: 9)
                         .foregroundColor(VSDark.blue)
                     Text("\(block.type.rawValue) L\(block.lineStart)")
-                        .font(.system(size: 10))
+                        .uiFont(size: 10)
                         .foregroundColor(VSDark.text)
                 }
                 .padding(.horizontal, 10)
@@ -27,7 +27,7 @@ struct DiagnosticsBarView: View {
                         .controlSize(.mini)
                         .scaleEffect(0.7)
                     Text(progress)
-                        .font(.system(size: 10))
+                        .uiFont(size: 10)
                         .foregroundColor(VSDark.textDim)
                         .lineLimit(1)
                         .truncationMode(.middle)

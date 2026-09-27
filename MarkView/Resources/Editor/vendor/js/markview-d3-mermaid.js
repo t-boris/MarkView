@@ -29,7 +29,7 @@
             }
 
             const {nodes, links, groups} = parseMermaid(mermaidSource);
-            if (nodes.length === 0) { container.innerHTML = '<div style="padding:20px;color:#808080;font-size:11px;">No nodes found</div>'; return; }
+            if (nodes.length === 0) { container.innerHTML = '<div style="padding:20px;color:#808080;font-size:calc(11px * var(--ui-scale, 1));">No nodes found</div>'; return; }
 
             nodes.forEach(n => { n.type = guessType(n.label); n.color = tc[n.type] || tc.default; });
             const uniqueGroups = [...new Set(nodes.map(n=>n.group).filter(Boolean))];
@@ -219,7 +219,7 @@
             // Filter + controls bar
             const filterBar = document.createElement('div');
             filterBar.style.cssText = 'position:absolute;top:4px;left:4px;display:flex;gap:3px;flex-wrap:wrap;max-width:80%;';
-            const btnStyle = `padding:2px 6px;border:1px solid #3c3c3c;background:${isDark?'#252526':'#f3f3f3'};color:${textColor};border-radius:3px;font-size:9px;cursor:pointer;`;
+            const btnStyle = `padding:2px 6px;border:1px solid #3c3c3c;background:${isDark?'#252526':'#f3f3f3'};color:${textColor};border-radius:3px;font-size:calc(9px * var(--ui-scale, 1));cursor:pointer;`;
 
             // "All" filter
             filterBar.innerHTML = `<button style="${btnStyle}" onclick="filterCanvasGroup('${container.id}','all')">All</button>`;
@@ -238,7 +238,7 @@
             const ctrl = document.createElement('div');
             ctrl.style.cssText = 'position:absolute;bottom:4px;right:4px;display:flex;gap:4px;align-items:center;';
             ctrl.innerHTML = `
-                <span style="font-size:8px;color:#808080;">${nodes.length} nodes, ${links.length} edges</span>
+                <span style="font-size:calc(8px * var(--ui-scale, 1));color:#808080;">${nodes.length} nodes, ${links.length} edges</span>
             `;
             container.appendChild(ctrl);
 

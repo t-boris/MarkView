@@ -55,7 +55,7 @@ struct TabBarView: View {
                 Button("Close All") { workspaceManager.closeAllTabs() }
             }
         } label: {
-            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            Image(systemName: "chevron.down").uiFont(size: 9, weight: .semibold)
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .padding(.horizontal, 8)
@@ -82,7 +82,7 @@ struct TabBarView: View {
 
         return HStack(spacing: 5) {
             Image(systemName: icon(for: tab))
-                .font(.system(size: 10))
+                .uiFont(size: 10)
                 .foregroundColor(isActive ? VSDark.blue : VSDark.textDim)
 
             if tab.isModified {
@@ -92,13 +92,13 @@ struct TabBarView: View {
             }
 
             Text(tab.displayName)
-                .font(.system(size: 11))
+                .uiFont(size: 11)
                 .foregroundColor(isActive ? VSDark.textBright : VSDark.textDim)
                 .lineLimit(1)
 
             Button(action: { workspaceManager.closeTab(at: index) }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8))
+                    .uiFont(size: 8)
                     .foregroundColor(VSDark.textDim)
             }
             .buttonStyle(.plain)
