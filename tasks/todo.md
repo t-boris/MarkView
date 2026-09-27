@@ -1,5 +1,41 @@
 # MarkView — Follow-up Tasks
 
+## Done 43: Batch "Fix with AI" for multiple bugs (2026-09-27, issue #31, branch feat/batch-fix-with-ai, 2.21.0)
+
+Spec: `docs/features/batch-fix-with-ai-for-multiple-bugs/` (REQ-001…006, DEC-001…013, plan I-1…I-6).
+Decided with the user: "Suggest similar" = structured read-only AI call (CLICompletion + JSON schema, like
+Investigate), not the terminal; bugs are keyed by file path (IDs collide, e.g. two BUG-004) and have no feature —
+a feature shows only when a report's front matter has `feature:`; "AI terminal busy" = it printed output in the last ~3 s.
+
+- [x] I-1/I-4 `Models/BugBasket.swift` (pure, Foundation): ordered basket of workspace-relative paths; reconcile
+      (drop missing / closed, keep `fixing` as unavailable, count removed); batch prompt (claude `/goal` one line vs
+      generic numbered): path + id + title (+ feature) per bug, branch rules (dirty tree / existing branch → ask; the
+      batch's own report edits don't count as dirty), reproduce → root cause → fix → verify, one commit per fixed bug
+      with its ID, `fixed` + `branch` only after the commit, `open` + "AI fix attempt" note otherwise, never touch
+      other bugs, per-bug outcome report; suggestion prompt/schema + validated parse. `tools/tests/bug-basket-tests.sh`
+- [x] I-1 `BugBatch` (per window, owned by `WorkspaceManager`): basket + notice + suggestions; follows
+      `FeatureStore.bugs`; cleared on workspace switch
+- [x] I-2 Issues list: basket toggle on open bugs; basket view under the Issues list and feature navigator
+      (count, items, remove, clear, "already being fixed", removed-items notice, 1-bug hint)
+- [x] I-3 `fixBugsWithAI`: re-check, ≥ 2 eligible, busy guard (`TerminalSession.printed(within:)`), set `fixing`,
+      send prompt, clear basket; single-bug `fixBugWithAI` unchanged
+- [x] I-6 "Suggest similar": `FeatureAssistant` structured call, spinner, error, "none found", per-item Add / dismiss
+- [x] I-5 Verify status reflection by file watching and manual reset (existing status menu)
+- [x] Verify: pure tests, Debug build, test copy with own bundle ID on a fixture
+- [x] Minor version bump, feature doc status, lessons
+
+**Review:** Pure tests (`tools/tests/bug-basket-tests.sh`) and Debug build pass. Driven in a copy with its own bundle ID
+through Accessibility by PID on a fixture repo: toggles only on open bugs; both BUG-004 twins in the basket (path identity);
+feature shown from `feature:`; closing/deleting basket bugs → "2 bugs left the basket" notice; `fixing` item marked and not
+counted; 1-bug hint + disabled button; basket kept inside a feature; "Suggest similar" (real Claude) proposed the related
+bug with a reason and returned an empty list for an unrelated basket; Add → basket 2 → Fix 2 with AI set both to `fixing`
+and emptied the basket; busy guard disabled the button while the terminal printed. The copy's terminal did not start
+Claude (`claude update && …` failed), so the prompt was run with headless `claude -p` in the fixture: first run stopped
+on the untracked `.dde/` and asked (DEC-003) → new DEC-017 (MarkView's `.dde/` is expected); final run made
+`fix/search-count-first`, one commit per bug starting with its id, then `status: fixed` + `branch:` in both reports, no
+other report touched; the app showed `fixed` by file watching, and a report reset to open got its toggle back. Not driven:
+Codex/Cline/Copilot backends, the interactive "/goal" paste in a live Claude terminal.
+
 ## Done 42: New Research — repository-grounded analysis (2026-09-27, issue #28, 2.20.0, merged to main)
 
 Spec: `docs/features/new-research-repository-grounded-analysis/` (REQ-001…005, DEC-001…017, plan I-1…I-6).

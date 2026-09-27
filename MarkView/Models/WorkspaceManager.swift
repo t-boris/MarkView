@@ -334,6 +334,8 @@ class WorkspaceManager: ObservableObject {
     let features = FeatureStore()
     /// New Research jobs of this window: research, follow-ups and comments (docs/research/).
     let research = ResearchJobs()
+    /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
+    private(set) lazy var bugBatch = BugBatch(store: features)
     /// Where the AI terminal starts: the open folder, or a single file's folder.
     @Published private(set) var aiWorkspaceRoot: URL?
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
@@ -3191,19 +3193,25 @@ class WorkspaceManager: ObservableObject {
     @discardableResult
     func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
         showAIConsole()
-        let session: TerminalSession?
-        if let shown = aiTerminal, shown.profile != .shell {
-            session = shown
-        } else if let open = aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend) })
-                    ?? aiTerminals.first(where: { $0.profile != .shell }) {
-            session = open
-        } else {
-            session = openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
-        }
-        guard let session else { return nil }
+        guard let session = assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend)) else { return nil }
         activeAITerminalID = session.id
         session.pasteWhenReady(prompt, submit: submit)
         return session
+    }
+
+    /// The open assistant terminal a prompt goes to: the one shown, else one of the chosen
+    /// backend, else any assistant; nil when none is open (`sendToAssistant` then opens one).
+    var assistantTerminal: TerminalSession? {
+        if let shown = aiTerminal, shown.profile != .shell { return shown }
+        return aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend) })
+            ?? aiTerminals.first(where: { $0.profile != .shell })
+    }
+
+    /// The assistant terminal is working: it printed in the last few seconds (Claude Code's
+    /// spinner keeps printing while it runs). Batch Fix with AI waits for it (DEC-010).
+    var assistantIsBusy: Bool {
+        guard let session = assistantTerminal, session.isRunning else { return false }
+        return session.printed(within: 3)
     }
 
     // MARK: - GitHub
@@ -3342,6 +3350,21 @@ class WorkspaceManager: ObservableObject {
         sendToAssistant(prompt, submit: true)
     }
 
+    /// Batch Fix with AI (issue #31): the basket's open bugs go to the assistant in one prompt —
+    /// one branch made by the AI, one commit and one outcome per bug. Each is marked `fixing`
+    /// and the basket is emptied. The app runs no git itself (DEC-002).
+    func fixBasketWithAI() {
+        bugBatch.reconcile()
+        let bugs = bugBatch.eligible
+        guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, let root = features.root else { return }
+        for bug in bugs {
+            features.updateBug(root.appendingPathComponent(bug.path)) { front, _ in front.set("status", "fixing") }
+        }
+        let prompt = BatchFixPrompt.make(bugs, claude: AIAssistantPreferences.backend == .claude)
+        guard sendToAssistant(prompt, submit: true) != nil else { return }
+        bugBatch.clear()
+    }
+
     /// An intake finished: open what it made, and for a feature show its workspace.
     func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
         if let slug = outcome.feature {
@@ -3383,7 +3406,9 @@ class WorkspaceManager: ObservableObject {
 
     /// Feature workspaces of a folder, with the AI's access to the index and GitHub.
     private func setUpFeatures(at root: URL) {
+        let newFolder = features.root != root
         features.setup(root: root)
+        if newFolder { bugBatch.reset() }
         features.assistant.database = { [weak self] in self?.semanticDatabase }
         features.assistant.gitHubClient = { [weak self] in self?.gitHub.client }
     }

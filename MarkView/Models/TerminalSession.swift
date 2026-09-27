@@ -376,6 +376,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
     }
 
+    /// The terminal printed something in the last `seconds` (the program in it is working).
+    func printed(within seconds: TimeInterval) -> Bool {
+        lastOutputAt.map { Date().timeIntervalSince($0) < seconds } ?? false
+    }
+
     private var readyForPaste: Bool {
         guard masterFD >= 0, let startedAt else { return false }
         let now = Date()
