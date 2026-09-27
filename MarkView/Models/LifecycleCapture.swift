@@ -49,18 +49,18 @@ enum AgentModelProbe {
 
     /// `.jsonl` files changed since `since`, newest first.
     private static func recentFiles(in folders: [URL], since: Date) -> [URL] {
+        // Plain loops: one chained expression took Xcode 16 too long to type-check (CI failed).
         let fm = FileManager.default
-        return folders.flatMap { folder in
-            (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        var dated: [(url: URL, date: Date)] = []
+        for folder in folders {
+            let files = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            for url in files where url.pathExtension == "jsonl" {
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                guard let date = values?.contentModificationDate, date >= since else { continue }
+                dated.append((url, date))
+            }
         }
-        .filter { $0.pathExtension == "jsonl" }
-        .compactMap { url -> (URL, Date)? in
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  date >= since else { return nil }
-            return (url, date)
-        }
-        .sorted { $0.1 > $1.1 }
-        .map(\.0)
+        return dated.sorted { $0.date > $1.date }.map(\.url)
     }
 
     private static func lines(of url: URL) -> [[String: Any]] {
