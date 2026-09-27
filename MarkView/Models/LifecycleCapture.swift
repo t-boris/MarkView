@@ -10,9 +10,7 @@ enum AgentModelProbe {
     /// Claude Code: `~/.claude/projects/<cwd, non-alphanumerics as "-">/*.jsonl`, assistant
     /// lines carry `message.model`.
     static func claudeModel(cwd: URL, since: Date, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
-        let name = String(cwd.standardizedFileURL.path.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
-        let folder = home.appendingPathComponent(".claude/projects").appendingPathComponent(name, isDirectory: true)
-        for file in recentFiles(in: [folder], since: since) {
+        for file in recentFiles(in: [claudeSessionFolder(cwd: cwd, home: home)], since: since) {
             for object in lines(of: file) where object["type"] as? String == "assistant" {
                 guard let date = timestamp(object), date >= since,
                       let model = (object["message"] as? [String: Any])?["model"] as? String,
@@ -21,6 +19,17 @@ enum AgentModelProbe {
             }
         }
         return nil
+    }
+
+    /// Claude Code has a session log for `cwd`: `claude --continue` has something to resume there.
+    static func hasClaudeSession(cwd: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: claudeSessionFolder(cwd: cwd, home: home).path)) ?? []
+        return files.contains { $0.hasSuffix(".jsonl") }
+    }
+
+    private static func claudeSessionFolder(cwd: URL, home: URL) -> URL {
+        let name = String(cwd.standardizedFileURL.path.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+        return home.appendingPathComponent(".claude/projects").appendingPathComponent(name, isDirectory: true)
     }
 
     /// Codex: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, `turn_context` lines carry the model and cwd.

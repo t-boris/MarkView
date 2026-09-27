@@ -7,7 +7,7 @@ Flags checked with `--help` of the installed CLIs (claude 2.1.283, codex 0.157.1
 - [x] CI: `main` red since 2.13 — Xcode 16 cannot type-check `AgentModelProbe.recentFiles` (LifecycleCapture.swift:53)
 - [x] BUG-006: per-tool `CLITool.fullAccessArgs` (claude `--dangerously-skip-permissions`, codex
       `--dangerously-bypass-approvals-and-sandbox`, cline `--auto-approve true`, copilot `--allow-all`) in `startupCommand`
-- [ ] BUG-005: save the AI panel's terminals per workspace (profiles, order, shown one); `ensureAITerminal` reopens
+- [x] BUG-005: save the AI panel's terminals per workspace (profiles, order, shown one); `ensureAITerminal` reopens
       them after a relaunch, each assistant with `CLITool.continueArgs` (claude `--continue` only when a session log
       exists for the folder, codex `resume --last`, copilot `--continue`; Cline has none → fresh). Restarts and
       model changes start fresh (the resume command is used for the first start only)

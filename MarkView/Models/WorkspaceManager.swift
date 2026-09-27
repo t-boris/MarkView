@@ -337,11 +337,17 @@ class WorkspaceManager: ObservableObject {
     /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
     private(set) lazy var bugBatch = BugBatch(store: features)
     /// Where the AI terminal starts: the open folder, or a single file's folder.
-    @Published private(set) var aiWorkspaceRoot: URL?
+    @Published private(set) var aiWorkspaceRoot: URL? {
+        // After a relaunch the folder's AI terminals come back even while the panel is hidden.
+        didSet { if aiWorkspaceRoot != nil, aiWorkspaceRoot != oldValue { restoreAITerminals() } }
+    }
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
     @Published private(set) var aiTerminals: [TerminalSession] = []
     /// The terminal shown in the AI panel.
-    @Published var activeAITerminalID: UUID?
+    @Published var activeAITerminalID: UUID? {
+        // Closing the workspace empties `aiTerminals` first, so it does not overwrite the saved set.
+        didSet { if !aiTerminals.isEmpty { saveAITerminals() } }
+    }
     /// Terminals opened in folders, shown as editor tabs (keyed by tab id).
     private var terminalTabs: [UUID: TerminalSession] = [:]
     private var openFilesWatcher: Timer?
@@ -3097,16 +3103,27 @@ class WorkspaceManager: ObservableObject {
 
     /// The command that starts `profile` in the shell with the model chosen for it, or nil
     /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
-    private func startupCommand(for profile: TerminalProfile) -> String? {
+    /// `continuing` adds the assistant's option that picks up its last session in the folder.
+    private func startupCommand(for profile: TerminalProfile, continuing: Bool = false) -> String? {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let run = ([quoted] + tool.modelArgs(AIAssistantPreferences.model(for: tool)) + tool.fullAccessArgs)
-            .joined(separator: " ")
+        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(AIAssistantPreferences.model(for: tool))
+                   + tool.fullAccessArgs).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
         case .codex, .cline, .copilot: return run
         }
+    }
+
+    /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start
+    /// fresh: a shell, Cline (no "continue last" option), or Claude with no session there —
+    /// `claude --continue` then stops with "No conversation found" instead of starting one.
+    /// Codex and Copilot start a new session by themselves when there is none.
+    private func resumeCommand(for profile: TerminalProfile, in directory: URL) -> String? {
+        guard let tool = profile.tool, !tool.continueArgs.isEmpty else { return nil }
+        if tool == .claude, !AgentModelProbe.hasClaudeSession(cwd: directory) { return nil }
+        return startupCommand(for: profile, continuing: true)
     }
 
     /// "Claude Code · opus", "Codex 2 · gpt-5", "Shell" — unique among the open terminals.
@@ -3123,11 +3140,13 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// Open another terminal in the AI panel and show it.
+    /// `resuming` continues the assistant's last session in the folder (terminals restored after a relaunch).
     @discardableResult
-    func openAITerminal(_ profile: TerminalProfile) -> TerminalSession? {
+    func openAITerminal(_ profile: TerminalProfile, resuming: Bool = false) -> TerminalSession? {
         guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return nil }
         let session = TerminalSession(directory: directory, profile: profile,
                                       startupCommand: startupCommand(for: profile),
+                                      resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
                                       title: terminalTitle(for: profile))
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         aiTerminals.append(session)
@@ -3140,7 +3159,33 @@ class WorkspaceManager: ObservableObject {
     @discardableResult
     func ensureAITerminal() -> TerminalSession? {
         if let session = aiTerminal { return session }
-        return openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
+        restoreAITerminals()
+        return aiTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
+    }
+
+    // MARK: AI terminals across launches (BUG-005)
+
+    private static func aiTerminalsKey(_ directory: URL) -> String {
+        "aiTerminals." + String(ContentHash.of(directory.standardizedFileURL.path).prefix(12))
+    }
+
+    /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
+    private func saveAITerminals() {
+        guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return }
+        let shown = aiTerminals.firstIndex { $0.id == activeAITerminalID } ?? 0
+        UserDefaults.standard.set(["profiles": aiTerminals.map(\.profile.rawValue), "shown": shown],
+                                  forKey: Self.aiTerminalsKey(directory))
+    }
+
+    /// Reopen the AI terminals the folder had when MarkView last ran, each assistant continuing
+    /// its last session there. Does nothing once a terminal is open or when none were saved.
+    private func restoreAITerminals() {
+        guard aiTerminals.isEmpty, let directory = aiWorkspaceRoot ?? rootNode?.url,
+              let saved = UserDefaults.standard.dictionary(forKey: Self.aiTerminalsKey(directory)),
+              let names = saved["profiles"] as? [String] else { return }
+        let sessions = names.compactMap(TerminalProfile.init(rawValue:)).compactMap { openAITerminal($0, resuming: true) }
+        let shown = saved["shown"] as? Int ?? 0
+        if sessions.indices.contains(shown) { activeAITerminalID = sessions[shown].id }
     }
 
     func closeAITerminal(_ id: UUID) {
@@ -3149,6 +3194,7 @@ class WorkspaceManager: ObservableObject {
         if activeAITerminalID == id {
             activeAITerminalID = aiTerminals.isEmpty ? nil : aiTerminals[min(index, aiTerminals.count - 1)].id
         }
+        saveAITerminals()
     }
 
     /// Start the shown terminal again, with the model chosen for its assistant now.
@@ -3169,6 +3215,7 @@ class WorkspaceManager: ObservableObject {
         if let session = aiTerminal, session.profile != .shell {
             session.restart(profile: profile, startupCommand: startupCommand(for: profile),
                             title: terminalTitle(for: profile, excluding: session))
+            saveAITerminals()
             objectWillChange.send()
         } else if aiTerminal != nil {
             openAITerminal(profile)
@@ -3194,6 +3241,7 @@ class WorkspaceManager: ObservableObject {
     @discardableResult
     func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
         showAIConsole()
+        restoreAITerminals()
         guard let session = assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend)) else { return nil }
         activeAITerminalID = session.id
         session.pasteWhenReady(prompt, submit: submit)

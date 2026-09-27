@@ -70,6 +70,17 @@ enum CLITool: String, CaseIterable {
         }
     }
 
+    /// Arguments, right after the executable, that continue the most recent session in the
+    /// working folder without a picker (BUG-005). Empty when the CLI has no such option:
+    /// Cline resumes a session only by its id.
+    var continueArgs: [String] {
+        switch self {
+        case .claude, .copilot: return ["--continue"]
+        case .codex: return ["resume", "--last"]
+        case .cline: return []
+        }
+    }
+
     /// Arguments that select `model` for one run.
     func modelArgs(_ model: String?) -> [String] {
         guard let model else { return [] }

@@ -157,6 +157,9 @@ try! [line(click.addingTimeInterval(-60), "claude-sonnet-5"), #"{"type":"user"}"
     .joined(separator: "\n").write(to: claudeDir.appendingPathComponent("s.jsonl"), atomically: true, encoding: .utf8)
 expect(AgentModelProbe.claudeModel(cwd: cwd, since: click, home: home), "claude-opus-5-5", "Claude: first real reply after the click")
 expect(AgentModelProbe.claudeModel(cwd: cwd, since: click.addingTimeInterval(60), home: home), nil, "Claude: no reply yet")
+expect(AgentModelProbe.hasClaudeSession(cwd: cwd, home: home), true, "Claude: a session to continue in this folder")
+expect(AgentModelProbe.hasClaudeSession(cwd: URL(fileURLWithPath: "/Users/me/other"), home: home), false,
+       "Claude: nothing to continue in a folder without sessions")
 
 var calendar = Calendar(identifier: .gregorian); calendar.timeZone = .current
 let today = calendar.dateComponents([.year, .month, .day], from: click)
