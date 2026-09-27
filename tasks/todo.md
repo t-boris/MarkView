@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 40: Workspace folder name in the window title (2026-09-26, issue #25, 2.19.0)
+
+- [x] I-1: pure `Models/WindowTitle.swift` (title text, Finder display name) + `tools/tests/window-title-tests.sh` (9 checks)
+- [x] I-2: title owned by `ContentView` (`.navigationTitle`), bound to `rootNode`; scene-level title in `MarkViewApp` removed
+- [x] I-3: `NSWindow.representedURL` = workspace root, nil without a folder, set together with the title
+- [x] I-4: spec wording (REQ-001/002), verified in a copy with its own bundle ID through Accessibility (window names + `AXDocument`): restore → "MarkView 2.19.0 — issues-fixture" with the proxy URL; missing last folder → "MarkView 2.19.0", no URL; two "docs" windows → same text, different URLs; Close Folder → fallback, URL cleared; Window menu lists the same titles; version 2.19.0; Debug build
+
+**Review:** Drag-and-drop and Cmd+click on the title were not driven here. They follow from the same `rootNode` binding and the standard proxy icon. Open requests always open a new window (existing routing), so "foo → bar in one window" was checked as folder → none → folder.
+
 ## Done 39: Issues panel filters, sorting, status badges, wider pane (2026-09-26, issue #24, 2.18.0, not committed)
 
 Decided with the user before starting: feature `verified`/`done` count as Implemented + Closed,

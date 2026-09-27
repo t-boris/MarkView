@@ -173,8 +173,7 @@ struct MarkViewApp: App {
     @FocusedValue(\.workspaceHasFolder) private var activeWorkspaceHasFolder
     @State private var ddeSettingsWindow: NSWindow?
 
-    /// Build timestamp for debugging — visible in window title
-    /// Marketing version from Info.plist, shown in the window title.
+    /// Marketing version from Info.plist, shown in each workspace window's title (ContentView).
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
 
     init() {
@@ -186,7 +185,6 @@ struct MarkViewApp: App {
             ContentView()
                 .environmentObject(themeManager)
                 .frame(minWidth: 900, minHeight: 600)
-                .navigationTitle("MarkView \(Self.version)")
                 .onAppear {
                     appDelegate.log("ContentView onAppear START")
                     NSApp.appearance = NSAppearance(named: .darkAqua)

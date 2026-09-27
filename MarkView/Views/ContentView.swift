@@ -85,6 +85,8 @@ struct ContentView: View {
     /// NSWindow hosting this view — lets open-URL notifications target only the
     /// active window instead of racing across all ContentView instances.
     @State private var hostWindow: NSWindow?
+    /// Finder name of the open folder, for the window title; nil without a folder.
+    @State private var workspaceFolderName: String?
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -228,6 +230,9 @@ struct ContentView: View {
             IntakeSheet(request: request, workspaceManager: workspaceManager)
         }
         .background(WindowAccessor(window: $hostWindow))
+        // "MarkView 2.18.0 — my-project" and the folder as the proxy icon, per window (issue #25).
+        .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
+        .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
         // Finder "Open With" / Quick Action: requests wait in
         // MarkViewApp.pendingOpenURLs until the active window takes them.
         // Drain on every moment this window may have become eligible — a new
@@ -237,6 +242,7 @@ struct ContentView: View {
             drainPendingOpens(trigger: "request")
         }
         .onChange(of: hostWindow) { _ in
+            updateWindowIdentity()
             drainPendingOpens(trigger: "windowAttached")
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
@@ -252,6 +258,14 @@ struct ContentView: View {
             }
             restoreLastFolder()
         }
+    }
+
+    /// Title and proxy icon follow the workspace root: every way of opening, restoring or
+    /// closing a folder changes `rootNode`.
+    private func updateWindowIdentity() {
+        let root = workspaceManager.rootNode?.url
+        workspaceFolderName = root.map(WindowTitle.folderName(of:))
+        hostWindow?.representedURL = root
     }
 
     /// Reopen the folder that was open when the app last quit. Waits briefly so a
