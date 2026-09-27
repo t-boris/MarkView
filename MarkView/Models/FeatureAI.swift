@@ -1313,9 +1313,7 @@ final class FeatureAssistant: ObservableObject {
                 epic = Int(url.split(separator: "/").last ?? "")
             }
             store.savePlan(slug, title: title, issues: issues, epic: epic)
-            store.updateFeature(slug) { front, _ in
-                if ["ready", "resolving", "review", "draft", "exploring"].contains(front.string("status")) { front.set("status", "implementing") }
-            }
+            store.markImplementing(slug)
         } catch {
             store.savePlan(slug, title: title, issues: issues, epic: feature.epic)
             self.error = "Creating issues: \(error.localizedDescription)"
