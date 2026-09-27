@@ -58,9 +58,12 @@ struct DictationButton: View {
 }
 
 /// The line under a dictation field: recording time and the cap warning, transcribing,
-/// or the last failure (with a way to microphone settings when access was denied).
+/// or the last failure (with a way to microphone settings when access was denied, and to
+/// DDE Settings when the API key or model is the problem).
 struct DictationStatusView: View {
     @ObservedObject var dictation: DictationController
+    /// Opens DDE Settings; without it the settings button is not shown.
+    var openSettings: (() -> Void)? = nil
 
     var body: some View {
         switch dictation.phase {
@@ -72,6 +75,8 @@ struct DictationStatusView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     if dictation.microphoneDenied {
                         Button("Open Microphone Settings") { openMicrophoneSettings() }
+                    } else if dictation.opensSettings, let openSettings {
+                        Button("Open DDE Settings", action: openSettings)
                     }
                     Button(action: dictation.dismissMessage) { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.plain).foregroundColor(.secondary)

@@ -641,7 +641,7 @@ struct IntakeSheet: View {
                     }
                     return true
                 }
-            DictationStatusView(dictation: dictation)
+            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
             if kind == .research, let root = workspaceManager.rootNode?.url {
                 ResearchIntakeOptions(root: root, targets: $targets, outputPath: $outputPath, outputPathEdited: $outputPathEdited)
             }

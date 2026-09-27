@@ -147,9 +147,16 @@ Plain class (not actor-isolated). `embed`, `embedBatch`, `cosineSimilarity`,
 `saveEmbedding`/`loadEmbedding` (raw little-endian `Float` bytes), `loadKey`/`saveKey`.
 
 ### `WhisperClient` — `@MainActor`, `ObservableObject` (`WhisperClient.swift:6-281`)
-Published `isRecording`, `transcribedText`, `error`. `static weak var active` enforces one
+Published `isRecording`, `transcribedText`, `error`, `errorOpensSettings`. `static weak var active` enforces one
 microphone app-wide (`:20`, `:84`). `generation` counter invalidates in-flight work on
 `cancel()` (`:16`, `:153-162`).
+
+Transcription failures go through `TranscriptionFailure` (end of `WhisperClient.swift`): the HTTP status and
+OpenAI's `error.code` (or `type`, only if it is a snake_case identifier) become a problem, a next step and a tag
+such as `(HTTP 401 · invalid_api_key)`; `URLError`s are mapped the same way. The response body is never shown or
+logged — it is JSON and echoes part of the key (BUG-009). `fixInSettings` (key, model, unexplained 4xx) sets
+`errorOpensSettings`, which `DictationController.opensSettings` carries to the **Open DDE Settings** button of
+`DictationStatusView` (`DDESettingsWindow.show`, `MarkViewApp.swift`).
 
 ### `DictationController` — `@MainActor`, `ObservableObject` (`DictationController.swift:10-148`)
 Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) | transcribing`.

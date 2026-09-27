@@ -61,6 +61,7 @@ open -n -a /tmp/MarkViewDerivedData/Build/Products/Debug/MarkView.app TestFiles/
 | `tools/tests/lifecycle-tests.sh` | any shell |
 | `tools/tests/agent-usage-tests.sh` | any shell |
 | `tools/tests/dictation-insertion-tests.sh` | logged-in GUI session; briefly opens a window |
+| `tools/tests/transcription-failure-tests.sh` | any shell |
 | `tools/tests/terminal-link-tests.sh [--open-browser]` | GUI session; `--open-browser` launches the default browser |
 | `tools/importance-check.sh [claude\|codex] [model]` | signed-in AI CLI, costs tokens; **broken** until `:19` stops reading the removed `AIConsoleEngine.swift` |
 
