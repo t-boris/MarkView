@@ -239,6 +239,16 @@ final class ArchitectureStore: ObservableObject {
     private var prReloadedAt = Date.distantPast
 
     func reset() {
+        clearUnderstandingAttachments()
+        understandingTasks.values.forEach { $0.cancel() }
+        understandingTasks = [:]
+        understandingTokens = [:]
+        understandingAnswers = [:]
+        understandingInputAttachments = [:]
+        understandingRatings = [:]
+        searchAnswers = [:]
+        searchSummaries = [:]
+        liveSearch = [:]
         rootPath = nil
         snapshot = nil
         outlineTask?.cancel()
@@ -1251,6 +1261,8 @@ final class ArchitectureStore: ObservableObject {
     /// every file and document section a provisional level in seconds; the AI then
     /// confirms the strongest candidates, shown as each answer streams in.
     func searchFilter(filterId: String, root: URL, db: SemanticDatabase?) {
+        // I Need to Understand owns a separate answer job, started before the scan finishes.
+        if understandingAnswers[filterId] != nil { return }
         guard let current = snapshot, filterId != ImportanceRater.importance.id,
               let filter = ImportanceRater.allFilters.first(where: { $0.id == filterId }),
               rating.insert("search|" + filterId).inserted else { return }
@@ -1332,6 +1344,215 @@ final class ArchitectureStore: ObservableObject {
     }
 
     // MARK: - ⚡ Search filter
+
+    struct UnderstandingState: Encodable {
+        var question: String
+        var state: String = "loading"
+        var message: String = "Reading the project and its history…"
+        var answer: UnderstandingAnswer?
+        var saveMessage: String?
+        var attachments: [String] = []
+    }
+    private(set) var understandingAnswers: [String: UnderstandingState] = [:]
+    private var understandingRatings: [String: [String: ImportanceRater.Rating]] = [:]
+    private var understandingTasks: [String: Task<Void, Never>] = [:]
+    private var understandingTokens: [String: UUID] = [:]
+    private var understandingAttachmentFolders: [String: URL] = [:]
+    private var understandingInputAttachments: [String: [URL]] = [:]
+
+    private func clearUnderstandingAttachments(filterId: String? = nil) {
+        let folders: [URL]
+        if let filterId { folders = understandingAttachmentFolders.removeValue(forKey: filterId).map { [$0] } ?? [] }
+        else { folders = Array(understandingAttachmentFolders.values); understandingAttachmentFolders = [:] }
+        Task.detached { for folder in folders { try? FileManager.default.removeItem(at: folder) } }
+    }
+
+    /// Both intake entry points use this job. It can answer before X-Ray's first scan,
+    /// and retains provisional/streamed evidence when generation or validation fails.
+    func understand(filter: ImportanceRater.Filter, root: URL, db: SemanticDatabase?, attachments: [URL]? = nil) {
+        let id = filter.id
+        understandingTasks[id]?.cancel()
+        let previousAttachments = understandingAnswers[id]?.attachments ?? []
+        if let attachments {
+            clearUnderstandingAttachments(filterId: id)
+            understandingInputAttachments[id] = attachments
+        }
+        let token = UUID()
+        let attachmentFolder = attachments?.isEmpty == false ? root.appendingPathComponent(".dde/understanding/" + token.uuidString) : nil
+        if let attachmentFolder { understandingAttachmentFolders[id] = attachmentFolder }
+        understandingTokens[id] = token
+        understandingAnswers[id] = .init(question: filter.criterion)
+        if attachments == nil { understandingAnswers[id]?.attachments = previousAttachments }
+        liveSearch[id] = nil
+        revision += 1
+        let current = snapshot
+        let sections = (current?.view("docs")?.nodes ?? []).compactMap { node -> (id: String, path: String, line: Int)? in
+            guard node.kind == "section", let path = node.path,
+                  let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { return nil }
+            return (node.id, path, line)
+        }
+        let files = Array(Set((current?.view("modules")?.nodes.compactMap(\.path) ?? [])
+                             + (current?.view("docs")?.nodes.compactMap(\.path) ?? [])))
+        understandingTasks[id] = Task {
+            defer {
+                if understandingTokens[id] != token, let attachmentFolder {
+                    Task.detached { try? FileManager.default.removeItem(at: attachmentFolder) }
+                }
+                if understandingTokens[id] == token {
+                    understandingTasks[id] = nil
+                    liveSearch[id] = nil
+                }
+            }
+            do {
+                if let attachmentFolder, let attachments {
+                    let paths = try await Task.detached {
+                        try UnderstandingAttachments.copy(attachments, to: attachmentFolder, root: root)
+                    }.value
+                    guard understandingTokens[id] == token else { return }
+                    understandingAnswers[id]?.attachments = paths
+                }
+                let attachmentPaths = understandingAnswers[id]?.attachments ?? []
+                // Local candidates are useful even when the CLI is unavailable. Answer
+                // generation does not depend on a second AI call to extract keywords.
+                let terms = filter.criterion.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                    .filter { $0.count >= 3 }.map(String.init)
+                let found = await Task.detached(priority: .userInitiated) {
+                    FilterSearch.scoreFiles(files, root: root, terms: terms)
+                }.value
+                guard understandingTokens[id] == token else { return }
+                let paths = found.filter { $0.value.score > 0 }.sorted { $0.value.score > $1.value.score }.prefix(30).map(\.key)
+                var candidates = understandingRatings[id] ?? [:]
+                for path in paths { candidates["p:" + path] = .init(level: "strong", reason: "Question keyword candidate", provisional: true) }
+                understandingRatings[id] = candidates
+                if var next = snapshot {
+                    next.ratings[id] = candidates
+                    snapshot = next
+                    revision += 1
+                }
+                understandingAnswers[id]?.message = "Finding evidence in code and documents…"
+                revision += 1
+                var historyFiles: [XRaySearch.HistoryFile] = []
+                do {
+                    let scope = try await CLICompletion.run(XRaySearch.understandingScopeRequest(query: filter.criterion, root: root, attachments: attachmentPaths))
+                    guard understandingTokens[id] == token else { return }
+                    scope.record(in: db)
+                    historyFiles = await Task.detached { XRaySearch.historyFiles(scope.structured, root: root) }.value
+                } catch is CancellationError { throw CancellationError() }
+                catch {
+                    // Discovery is a hint, never a gate. The answer agent can still read
+                    // all files; unavailable history is explicitly noted in its context.
+                }
+                guard understandingTokens[id] == token else { return }
+                if historyFiles.isEmpty {
+                    historyFiles = await Task.detached {
+                        XRaySearch.historyFiles(["files": paths.prefix(8).map { ["path": $0, "start": 1, "end": 120] }], root: root)
+                    }.value
+                }
+                for file in historyFiles { understandingRatings[id, default: [:]]["p:" + file.path] = .init(level: "strong", reason: "Answer evidence candidate", provisional: true) }
+                understandingAnswers[id]?.message = "Reading git history and pull requests…"
+                revision += 1
+                let context = await XRaySearch.provenance(root: root, files: historyFiles)
+                try Task.checkCancellation()
+                guard understandingTokens[id] == token else { return }
+                let components = snapshot?.components ?? []
+                let nodes = snapshot?.view("deployment")?.nodes.filter { $0.kind != "root" && $0.kind != "moduleRef" } ?? []
+                let request = XRaySearch.understandingRequest(query: filter.criterion, hints: historyFiles.map { "- \($0.path):\($0.start)-\($0.end)" }, root: root,
+                    context: context, components: components.map { "\($0.id) — \($0.name): \($0.purpose)" },
+                    deployment: nodes.map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }, attachments: attachmentPaths)
+                let result = try await CLICompletion.run(request, onActivity: { activity in
+                    Task { @MainActor in
+                        guard self.understandingTokens[id] == token, self.understandingAnswers[id]?.state == "loading" else { return }
+                        if case .read(let path) = activity {
+                            self.understandingAnswers[id]?.message = "Reading " + (path as NSString).lastPathComponent + "…"
+                            self.revision += 1
+                        }
+                        if case .answerDelta = activity {
+                            self.receiveSearch(activity, filterId: id, root: root, sections: sections)
+                        }
+                    }
+                })
+                try Task.checkCancellation()
+                guard understandingTokens[id] == token else { return }
+                result.record(in: db)
+                let object = result.structured as? [String: Any]
+                let places = await Task.detached { XRaySearch.places(from: object?["steps"], root: root) }.value
+                guard understandingTokens[id] == token else { return }
+                understandingRatings[id, default: [:]].merge(Self.searchTable(places, sections: sections, confirmed: true)) { _, confirmed in confirmed }
+                // Keep these even if the explanatory part is empty or invalid.
+                if var next = snapshot {
+                    var table = next.ratings[id] ?? [:]
+                    table.merge(Self.searchTable(places, sections: sections, confirmed: true)) { _, confirmed in confirmed }
+                    next.ratings[id] = table
+                    snapshot = next
+                    revision += 1
+                }
+                let parsed = try await Task.detached {
+                    try UnderstandingAnswer.parse(object?["explanation"], root: root, components: Set(components.map(\.id)),
+                        deployment: Set(nodes.map { String($0.id.dropFirst(2)) }), commits: context.commits, pullRequests: context.pullRequests)
+                }.value
+                guard understandingTokens[id] == token else { return }
+                // Typed citations are authoritative, even if the AI forgot a highlight/step.
+                let citedPlaces = parsed.sources.filter { $0.kind == .code || $0.kind == .document }.map {
+                    XRaySearch.Place(path: $0.path, start: $0.start, end: $0.end, title: $0.label, why: "Cited in the answer", step: "Evidence")
+                }
+                let allPlaces = Array(Set(places + citedPlaces)).sorted { ($0.path, $0.start) < ($1.path, $1.start) }
+                var table = Self.searchTable(allPlaces, sections: sections, confirmed: true)
+                for source in parsed.sources {
+                    if source.kind == .component { table["c:" + source.target] = .init(level: "strong", reason: source.label, provisional: false) }
+                    if source.kind == .deployment { table["dep:" + source.target] = .init(level: "strong", reason: source.label, provisional: false) }
+                }
+                understandingRatings[id] = table
+                if var next = snapshot {
+                    next.ratings[id] = table
+                    snapshot = next
+                }
+                searchAnswers[id] = .init(question: filter.criterion, answer: parsed.markdown(question: filter.criterion),
+                    steps: [.init(title: "Evidence", places: allPlaces.map { .init(path: $0.path, start: $0.start, end: $0.end, title: $0.title, why: $0.why) })])
+                understandingAnswers[id]?.answer = parsed
+                understandingAnswers[id]?.state = "ready"
+                understandingAnswers[id]?.message = ""
+                revision += 1
+            } catch {
+                guard understandingTokens[id] == token else { return }
+                understandingAnswers[id]?.state = "failed"
+                understandingAnswers[id]?.message = error is CancellationError ? "Answer generation was cancelled." : error.localizedDescription
+                revision += 1
+            }
+        }
+    }
+
+    func retryUnderstanding(filterId: String, root: URL, db: SemanticDatabase?) {
+        guard understandingAnswers[filterId]?.state == "failed",
+              let filter = ImportanceRater.temporaryFilter, filter.id == filterId else { return }
+        let retryCopy = understandingAnswers[filterId]?.attachments.isEmpty == true
+            ? understandingInputAttachments[filterId] : nil
+        understand(filter: filter, root: root, db: db, attachments: retryCopy)
+    }
+
+    func understandingSource(filterId: String, sourceId: String) -> UnderstandingAnswer.Source? {
+        understandingAnswers[filterId]?.answer?.sources.first { $0.id == sourceId }
+    }
+
+    func saveUnderstanding(filterId: String, root: URL, author: String) async -> URL? {
+        guard let state = understandingAnswers[filterId], state.state == "ready", let answer = state.answer,
+              state.saveMessage != "Saving…" else { return nil }
+        understandingAnswers[filterId]?.saveMessage = "Saving…"
+        revision += 1
+        let date = FeatureStore.today
+        do {
+            let file = try await Task.detached {
+                try answer.save(question: state.question, root: root, author: author, date: date,
+                    attachments: state.attachments.map { root.appendingPathComponent($0) })
+            }.value
+            understandingAnswers[filterId]?.saveMessage = "Saved as " + file.lastPathComponent
+            revision += 1
+            return file
+        } catch {
+            understandingAnswers[filterId]?.saveMessage = "Could not save: " + error.localizedDescription
+            revision += 1
+            return nil
+        }
+    }
 
     /// Code elements behind search queries ("Explain with AI — everything related"), by criterion.
     var searchSymbols: [String: XRaySearch.Symbol] = [:]
@@ -1631,20 +1852,22 @@ final class ArchitectureStore: ObservableObject {
         case .answerDelta(let text):
             liveSearch[filterId, default: ""] += text
             guard liveSearchPending.insert(filterId).inserted else { return }
+            let token = understandingTokens[filterId]
             Task {
                 try? await Task.sleep(nanoseconds: 700_000_000)
                 liveSearchPending.remove(filterId)
-                guard let answer = liveSearch[filterId] else { return }
+                guard understandingTokens[filterId] == token, let answer = liveSearch[filterId] else { return }
                 let places = await Task.detached {
                     XRaySearch.places(from: XRayDigest.completedObjects(in: answer, key: "steps"), root: root)
                 }.value
-                guard !places.isEmpty, var next = snapshot, liveSearch[filterId] != nil else { return }
+                guard !places.isEmpty, var next = snapshot, liveSearch[filterId] != nil, understandingTokens[filterId] == token else { return }
                 // Keyword candidates stay dashed until the answer is complete.
                 var table = next.ratings[filterId] ?? [:]
                 for (key, value) in Self.searchTable(places, sections: sections, confirmed: true) where value.level == "strong" {
                     table[key] = value
                 }
                 next.ratings[filterId] = table
+                if understandingAnswers[filterId] != nil { understandingRatings[filterId] = table }
                 snapshot = next     // live; saved when the answer is complete
                 revision += 1
             }
@@ -1701,6 +1924,15 @@ final class ArchitectureStore: ObservableObject {
 
     /// Drop this project's ratings for a deleted filter.
     func forgetRatings(filterId: String, db: SemanticDatabase?) {
+        clearUnderstandingAttachments(filterId: filterId)
+        understandingTokens[filterId] = nil
+        understandingTasks.removeValue(forKey: filterId)?.cancel()
+        understandingAnswers[filterId] = nil
+        understandingInputAttachments[filterId] = nil
+        understandingRatings[filterId] = nil
+        searchAnswers[filterId] = nil
+        searchSummaries[filterId] = nil
+        liveSearch[filterId] = nil
         guard var next = snapshot, next.ratings[filterId] != nil else { revision += 1; return }
         next.ratings[filterId] = nil
         commit(next, db: db)
@@ -3101,6 +3333,44 @@ final class ArchitectureStore: ObservableObject {
 
     // MARK: - Web view payload
 
+    /// Scans and analysis may finish while the answer runs. Keep transient evidence
+    /// outside their persisted snapshots, and project it onto the current graph.
+    private func withUnderstandingEvidence(_ value: ArchitectureSnapshot) -> ArchitectureSnapshot {
+        var next = value
+        let sections = (value.view("docs")?.nodes ?? []).compactMap { node -> (id: String, path: String, line: Int)? in
+            guard node.kind == "section", let path = node.path,
+                  let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { return nil }
+            return (node.id, path, line)
+        }
+        for (id, ratings) in understandingRatings {
+            var table = ratings
+            if let answer = searchAnswers[id] {
+                let places = answer.steps.flatMap { step in step.places.map {
+                    XRaySearch.Place(path: $0.path, start: $0.start, end: $0.end, title: $0.title, why: $0.why, step: step.title)
+                } }
+                table.merge(Self.searchTable(places, sections: sections, confirmed: true)) { _, confirmed in confirmed }
+            }
+            next.ratings[id] = table
+        }
+        // The agent may cite a readable source the scanner does not index (for example
+        // an uncommon extension). Give it a transient, selectable place in Structure,
+        // and documents a place in Docs as well. These nodes are never persisted.
+        for state in understandingAnswers.values {
+            for source in state.answer?.sources ?? [] where source.kind == .code || source.kind == .document {
+                for viewId in source.kind == .document ? ["modules", "docs"] : ["modules"] {
+                    guard let i = next.views.firstIndex(where: { $0.id == viewId }),
+                          !next.views[i].nodes.contains(where: { $0.path == source.path }) else { continue }
+                    let prefix = viewId == "modules" ? "m:" : "d:"
+                    let parent = next.views[i].nodes.first { $0.kind == "root" }?.id
+                    next.views[i].nodes.append(ArchNode(id: prefix + source.path, parent: parent,
+                        kind: viewId == "modules" ? "file" : "doc", name: (source.path as NSString).lastPathComponent,
+                        path: source.path, files: 1, summary: source.label))
+                }
+            }
+        }
+        return next
+    }
+
     /// Everything the Architecture tab renders, as a JSON object literal.
     func payloadJSON(mode: String? = nil) -> String {
         struct Payload: Encodable {
@@ -3121,14 +3391,16 @@ final class ArchitectureStore: ObservableObject {
             let searchSummaries: [String: String]
             /// The ⚡ search's full answer and its steps, by filter id.
             let searchAnswers: [String: SearchAnswer]
+            let understandingAnswers: [String: UnderstandingState]
             /// The AI's explanations of links (arrows), by "view|source|target".
             let edgeNotes: [String: EdgeNote]
         }
-        let payload = Payload(mode: mode, snapshot: snapshot.map(withContents), status: status, error: error,
+        let payload = Payload(mode: mode, snapshot: snapshot.map { withContents(withUnderstandingEvidence($0)) }, status: status, error: error,
                               prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
-                              searchSummaries: searchSummaries, searchAnswers: searchAnswers, edgeNotes: edgeNotes)
+                              searchSummaries: searchSummaries, searchAnswers: searchAnswers,
+                              understandingAnswers: understandingAnswers, edgeNotes: edgeNotes)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

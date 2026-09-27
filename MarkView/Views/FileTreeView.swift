@@ -422,6 +422,7 @@ struct FileTreeView: View {
             }
             Divider()
             Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+            Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
             Divider()
             Button("New File...") { createNewFile(in: url) }
             if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: url, ignored: true) } }

@@ -68,8 +68,8 @@ final class ResearchJobs: ObservableObject {
         let file = root.appendingPathComponent(relativePath)
         let id = ResearchDocument.id(forPath: relativePath)
         let title = Self.title(question)
-        let targetPaths = targets.compactMap { Self.relative($0, to: root) }
         launch(kind: .research, file: file, title: "Research: " + title) { job in
+            let targetPaths = await Task.detached { ResearchScope.targetFiles(root: root, targets: targets) }.value
             job.update("Copying attachments")
             let copied = Self.copyAttachments(attachments, root: root, id: id)
             job.update("Listing the repository")
@@ -241,7 +241,7 @@ final class ResearchJobs: ObservableObject {
         return cut.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces)) + "…"
     }
 
-    static func relative(_ url: URL, to root: URL) -> String? {
+    nonisolated static func relative(_ url: URL, to root: URL) -> String? {
         let base = root.standardizedFileURL.path + "/"
         let path = url.standardizedFileURL.path
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : nil
@@ -416,6 +416,27 @@ enum ResearchScope {
     static let maxBytes = 1_000_000
     private static let generatedNames: Set<String> = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Podfile.lock",
                                                       "Cargo.lock", "Gemfile.lock", "composer.lock", "poetry.lock"]
+
+    /// Explicit folder targets expand recursively into readable files, never directory
+    /// paths. Resolve symlinks at the boundary so a target cannot read outside the workspace.
+    static func targetFiles(root: URL, targets: [URL]) -> [String] {
+        let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        var paths = Set<String>()
+        for target in targets {
+            guard target.standardizedFileURL == root.standardizedFileURL || target.resolvingSymlinksInPath().path.hasPrefix(base) else { continue }
+            if (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                guard let entries = FileManager.default.enumerator(at: target, includingPropertiesForKeys: [.isRegularFileKey],
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { continue }
+                for case let file as URL in entries {
+                    guard file.resolvingSymlinksInPath().path.hasPrefix(base),
+                          (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                          isText(file), let path = ResearchJobs.relative(file, to: root) else { continue }
+                    paths.insert(path)
+                }
+            } else if let path = ResearchJobs.relative(target, to: root), isText(target) { paths.insert(path) }
+        }
+        return paths.sorted()
+    }
 
     static func files(root: URL, always: [String]) -> [String] {
         var result = ArchitectureScanner.listFiles(root: root).filter { path in

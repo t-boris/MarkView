@@ -875,6 +875,10 @@ class WorkspaceManager: ObservableObject {
     }
 
     func deleteFilter(id: String) {
+        if ImportanceRater.isTemporary(id) {
+            if ImportanceRater.temporaryFilter?.id == id { setTemporaryFilter("") }
+            return
+        }
         ImportanceRater.removeFilter(id: id)
         architecture.forgetRatings(filterId: id, db: semanticDatabase)
         codeExplain.filtersChanged()
@@ -1268,10 +1272,46 @@ class WorkspaceManager: ObservableObject {
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
             architecture.outlineFile(path: path, root: root, db: semanticDatabase)
         case "saveSearchAnswer":
+            let filterId = payload["filter"] as? String ?? ""
+            if architecture.understandingAnswers[filterId] != nil {
+                Task {
+                    if let file = await architecture.saveUnderstanding(filterId: filterId, root: root, author: features.defaultOwner) {
+                        refreshFileTree()
+                        openFile(file)
+                    }
+                }
+                return
+            }
             if let file = architecture.saveSearchAnswer(filterId: payload["filter"] as? String ?? "", root: root,
                                                         author: features.defaultOwner) {
                 refreshFileTree()
                 openFile(file)
+            }
+        case "retryUnderstanding":
+            architecture.retryUnderstanding(filterId: payload["filter"] as? String ?? "", root: root, db: db)
+        case "openUnderstandingSource":
+            guard let source = architecture.understandingSource(filterId: payload["filter"] as? String ?? "",
+                                                                sourceId: payload["source"] as? String ?? "") else { return }
+            if source.kind == .document {
+                guard let path = UnderstandingAnswer.relativePath(source.path, root: root) else { return }
+                openFile(root.appendingPathComponent(path), line: source.start, endLine: source.end)
+            } else if source.kind == .pr || source.kind == .commit {
+                if !source.url.isEmpty, UnderstandingAnswer.isGitHubURL(source.url, kind: source.kind, target: source.target),
+                   let url = URL(string: source.url) {
+                    NSWorkspace.shared.open(url)
+                } else if source.kind == .commit {
+                    let hash = source.target
+                    guard hash.count == 40, hash.allSatisfy(\.isHexDigit) else { return }
+                    Task {
+                        let result = await GitHubClient.execute(["show", "--format=fuller", "--stat", "--patch", hash, "--"], in: root, git: true)
+                        guard result.status == 0 else { return }
+                        let file = FileManager.default.temporaryDirectory.appendingPathComponent("MarkView-commit-\(hash).md")
+                        // Indent rather than fence: commit content may itself contain fences.
+                        let text = "# Commit \(hash)\n\n" + result.stdout.components(separatedBy: "\n").map { "    " + $0 }.joined(separator: "\n")
+                        do { try Data(text.utf8).write(to: file); openFile(file) }
+                        catch { NSLog("Could not open the commit document") }
+                    }
+                }
             }
         case "explainEdge":
             guard let source = payload["source"] as? String, let target = payload["target"] as? String else { return }
@@ -3299,12 +3339,15 @@ class WorkspaceManager: ObservableObject {
     /// "I need to understand …": the X-Ray's ⚡ search for the question — what takes part is
     /// marked in every view, the answer and its places are on the right, and a file opened from
     /// there shows the places inside it.
-    func understandInXRay(_ question: String) {
+    func understandInXRay(_ question: String, attachments: [URL] = []) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard rootNode != nil, !text.isEmpty else { return }
-        setTemporaryFilter(String(text.prefix(300)))
+        guard let root = rootNode?.url, !text.isEmpty else { return }
+        setTemporaryFilter(text)
         openArchitecture()
-        if let id = ImportanceRater.temporaryFilter?.id { architecture.activate(filterId: id) }
+        if let filter = ImportanceRater.temporaryFilter {
+            architecture.understand(filter: filter, root: root, db: semanticDatabase, attachments: attachments)
+            architecture.activate(filterId: filter.id)
+        }
     }
 
     /// "New … from this document": the document is the material (attached, so the AI reads it whole).
@@ -3328,6 +3371,10 @@ class WorkspaceManager: ObservableObject {
     /// document as its first target.
     func newResearch() {
         intake = IntakeRequest(kind: .research)
+    }
+
+    func startResearch(fromFolder folder: URL) {
+        intake = IntakeRequest(kind: .research, text: "Review the documents in \(workspaceRelativePath(folder)) and its subfolders: ", targets: [folder])
     }
 
     /// Documents a new research starts with (DEC-009): the open document when it is a file in the folder.

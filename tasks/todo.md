@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## Done 45: I Need to Understand — explanatory answers (2026-09-27, issue #26, 2.23.0)
+
+Branch: `feat/understanding-answer`. Spec and verification:
+`docs/features/i-need-to-understand-a-real-answer-not/implementation/verification.md`.
+
+- [x] I-1/I-2 typed What/Why/How/Origin with validated citations; readonly CLI + scoped git log/blame + PR context.
+- [x] I-3/I-4 primary expanded answer above details; evidence opens/selects code, docs, components, deployment, commits and PRs; transient highlights survive scans.
+- [x] I-5 explicit loading/failure reason and Retry retaining evidence and attachments.
+- [x] I-6 opt-in concurrent-safe RES save, full question/answer/source list, copied image assets; no automatic research writes.
+- [x] User follow-ups: visible Dictate in Understand and Research; creation form image paste, removable thumbnails; folder Research with recursive document targets.
+- [x] Debug and signed Release builds, answer/clipboard/research/dictation checks, native fixture checks and a real Claude image answer.
+
+
 ## Active 44: BUG-005 + BUG-006 — AI terminal resume and full access (2026-09-27, branch fix/ai-terminal-resume-full-access)
 
 Flags checked with `--help` of the installed CLIs (claude 2.1.283, codex 0.157.1, cline 3.0.65, copilot 1.0.88).

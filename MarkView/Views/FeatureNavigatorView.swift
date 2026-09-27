@@ -592,7 +592,7 @@ struct IntakeSheet: View {
     /// Voice input for the text; lives as long as the sheet — closing it discards a recording.
     @StateObject private var dictation = DictationController()
     @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
-    @FocusState private var editorFocused: Bool
+    @State private var editorFocused = false
 
     init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
         self.request = request
@@ -612,15 +612,21 @@ struct IntakeSheet: View {
             HStack {
                 Image(systemName: icon).foregroundColor(VSDark.blue)
                 Text(kind.title).font(.headline)
+                Spacer()
+                if (kind == .understand || kind == .research), !openAIKey.isEmpty {
+                    DictationButton(dictation: dictation, prominent: true) { transcript, window in
+                        DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
+                    }
+                }
             }
             Text(kind.prompt).font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextEditor(text: $text)
-                .font(.system(size: 13))
-                .focused($editorFocused)
+            IntakeTextEditor(text: $text, focused: $editorFocused, attach: { urls in
+                attachments += urls.filter { !attachments.contains($0) }
+            }, failed: { failed = $0 })
                 .frame(minWidth: 560, minHeight: 260)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(editorBorder, lineWidth: dropping || dictation.isRecording ? 2 : 1))
                 .overlay(alignment: .bottomTrailing) {
-                    if !openAIKey.isEmpty {
+                    if kind != .understand, kind != .research, !openAIKey.isEmpty {
                         DictationButton(dictation: dictation) { transcript, window in
                             DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
                         }
@@ -657,11 +663,15 @@ struct IntakeSheet: View {
                     Spacer()
                 }
             }
-            if kind != .understand {
             HStack(spacing: 6) {
                 Button("Add Files…") { chooseFiles() }
+                Text("or paste images with ⌘V").font(.caption).foregroundColor(.secondary)
+            }
+            ScrollView(.horizontal) {
+            HStack(spacing: 6) {
                 ForEach(attachments, id: \.self) { url in
                     HStack(spacing: 2) {
+                        IntakeAttachmentThumbnail(url: url)
                         Text(url.lastPathComponent).font(.caption).lineLimit(1)
                         Button(action: { attachments.removeAll { $0 == url } }) { Image(systemName: "xmark.circle.fill") }
                             .buttonStyle(.plain).foregroundColor(.secondary)
@@ -801,7 +811,7 @@ struct IntakeSheet: View {
         switch kind {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
         case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.") + " What is still missing is asked in the Feature tab."
-        case .understand: return "Opens the X-Ray: related parts are marked in every view, the answer and the places are on the right; a file opened from there shows the places inside it."
+        case .understand: return "The answer opens at the top of the X-Ray right panel, with What, Why, How and Origin sections. Sources reveal the evidence in X-Ray or open it. Save as research keeps the answer in docs/research; nothing is saved automatically."
         case .research: return "Runs in the background (progress and Cancel under the editor) and opens the report when it is done. Findings are labelled project fact, external fact, AI inference or open assumption, with file paths and URLs. Attachments are copied to docs/research/assets/."
         }
     }
@@ -834,7 +844,7 @@ struct IntakeSheet: View {
         let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if kind == .understand {
             dismiss()
-            workspaceManager.understandInXRay(input)
+            workspaceManager.understandInXRay(input, attachments: attachments)
             return
         }
         if kind == .research {

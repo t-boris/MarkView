@@ -1,7 +1,7 @@
 #!/bin/bash
 # Checks how a dictated transcript is inserted into a text field (DictationInsertion in
-# MarkView/Views/DictationViews.swift). It needs a real key window, so run it in a logged-in
-# session (it opens a small window for a moment). Only the enum is compiled, not the app.
+# MarkView/Views/DictationViews.swift). Hidden NSTextView fixtures supply selections; no recording or app activation.
+# Only the enum is compiled, not the app.
 #   tools/tests/dictation-insertion-tests.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."

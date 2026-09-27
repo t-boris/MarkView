@@ -1064,7 +1064,18 @@
 
             function renderDetails() {
                 const d = el.details;
+                const oldAnswerBody = d.querySelector('.arch-understanding-body');
+                const answerScroll = oldAnswerBody ? oldAnswerBody.scrollTop : 0;
                 d.textContent = '';
+                const filter = currentFilter();
+                const understanding = filter && (ui.payload.understandingAnswers || {})[filter.id];
+                if (understanding) {
+                    renderUnderstanding(d, filter, understanding);
+                    const body = d.querySelector('.arch-understanding-body');
+                    if (body) body.scrollTop = answerScroll;
+                    const key = filter.id + ':' + understanding.state;
+                    if (ui.answerDisplayKey !== key) { d.scrollTop = 0; ui.answerDisplayKey = key; }
+                }
                 const view = currentView();
                 const snap = ui.payload && ui.payload.snapshot;
                 if (!view || !snap) return;
@@ -1072,7 +1083,7 @@
                 const node = ui.selected ? idx.byId.get(ui.selected) : null;
 
                 if (!node && ui.selectedEdge && ui.selectedEdge.view === ui.view) { renderEdgeDetails(d, idx, ui.selectedEdge); return; }
-                if (!node && isSearch(currentFilter()) && overlayApplies() && (ui.payload.searchAnswers || {})[currentFilter().id]) {
+                if (!understanding && !node && isSearch(currentFilter()) && overlayApplies() && (ui.payload.searchAnswers || {})[currentFilter().id]) {
                     renderSearchAnswer(d, currentFilter(), ui.payload.searchAnswers[currentFilter().id]);
                     return;
                 }
@@ -1363,6 +1374,87 @@
             }
 
             /** The ⚡ search as a question answered: the answer, then the flow step by step. */
+            function revealUnderstandingSource(source) {
+                if (source.kind === 'document' || source.kind === 'commit' || source.kind === 'pr') {
+                    post('openUnderstandingSource', { filter: currentFilter().id, source: source.id });
+                    return;
+                }
+                const views = (ui.payload.snapshot || {}).views || [];
+                let view;
+                let node;
+                if (source.kind === 'component') {
+                    view = views.find(function(v) { return v.id === 'logical'; });
+                    node = view && view.nodes.find(function(n) { return n.id === 'l:c:' + source.target; });
+                } else if (source.kind === 'deployment') {
+                    view = views.find(function(v) { return v.id === 'deployment'; });
+                    node = view && view.nodes.find(function(n) { return n.id.slice(2) === source.target; });
+                } else {
+                    // Prefer the current logical view; Structure also covers files that
+                    // have not yet been assigned to a logical component.
+                    view = views.find(function(v) {
+                        return v.id === ui.view && v.nodes.some(function(n) { return n.path === source.path && n.kind === 'file'; });
+                    }) || views.find(function(v) { return v.id === 'modules'; });
+                    node = view && view.nodes.find(function(n) { return n.path === source.path && n.kind === 'file'; });
+                }
+                if (!node) {
+                    // A file changed since the answer: still let the user inspect it.
+                    if (source.kind === 'code') post('openFile', { path: source.path, line: source.start, endLine: source.end, fromSearch: true });
+                    return;
+                }
+                ui.onlyFlagged = false;
+                ui.selectedEdge = null;
+                ui.hidden.clear();
+                window.architectureFocus(node.id, view.id);
+                renderToolbar();
+            }
+
+            /** Primary answer stays above node/edge details, with its own readable scroll area. */
+            function renderUnderstanding(d, filter, result) {
+                const panel = document.createElement('section'); panel.className = 'arch-understanding'; d.appendChild(panel);
+                const heading = document.createElement('h4'); heading.textContent = 'Answer'; panel.appendChild(heading);
+                const question = document.createElement('p'); question.className = 'arch-question'; question.textContent = result.question; panel.appendChild(question);
+                if ((result.attachments || []).length) {
+                    const attached = document.createElement('p'); attached.className = 'arch-muted';
+                    attached.textContent = 'Attachments: ' + result.attachments.map(function(path) { return path.split('/').pop(); }).join(', ');
+                    panel.appendChild(attached);
+                }
+                const actions = document.createElement('div'); actions.className = 'arch-understanding-actions'; panel.appendChild(actions);
+                if (result.state === 'ready' && result.answer) {
+                    const save = linkButton('Save as research', function() { post('saveSearchAnswer', { filter: filter.id }); }, 'arch-action');
+                    save.disabled = result.saveMessage === 'Saving…'; actions.appendChild(save);
+                } else if (result.state === 'failed') {
+                    actions.appendChild(linkButton('Retry', function() { post('retryUnderstanding', { filter: filter.id }); }, 'arch-action'));
+                }
+                actions.appendChild(linkButton('Close this search', function() { post('deleteFilter', { id: filter.id }); ui.overlay = 'none'; }, 'arch-action'));
+                if (result.saveMessage) { const saved = document.createElement('p'); saved.className = 'arch-muted'; saved.textContent = result.saveMessage; panel.appendChild(saved); }
+                const body = document.createElement('div'); body.className = 'arch-understanding-body'; panel.appendChild(body);
+                if (result.state !== 'ready' || !result.answer) {
+                    const message = document.createElement('p'); message.setAttribute('role', 'status');
+                    message.className = result.state === 'failed' ? 'arch-error' : 'arch-working';
+                    message.textContent = result.state === 'failed' ? 'Could not answer: ' + (result.message || 'The AI returned an empty answer.') : (result.message || 'Reading the project…');
+                    body.appendChild(message);
+                    return;
+                }
+                const answer = result.answer;
+                const sources = new Map((answer.sources || []).map(function(s) { return [s.id, s]; }));
+                function evidenceButton(source, text) {
+                    const b = linkButton(text, function() { revealUnderstandingSource(source); }, 'arch-path');
+                    b.title = source.kind + ': ' + (source.path ? source.path + ':' + source.start : source.target);
+                    return b;
+                }
+                ['what', 'why', 'how', 'origin'].forEach(function(key) {
+                    const section = answer[key]; if (!section) return;
+                    const h = document.createElement('h5'); h.textContent = key[0].toUpperCase() + key.slice(1); body.appendChild(h);
+                    const text = document.createElement('div'); text.className = 'arch-answer'; text.textContent = section.text; body.appendChild(text);
+                    if (key === 'origin' && !answer.originFound) { const missing = document.createElement('p'); missing.className = 'arch-muted'; missing.textContent = 'No origin source found.'; body.appendChild(missing); }
+                    (section.sources || []).forEach(function(id) { const source = sources.get(id); if (source) body.appendChild(evidenceButton(source, '[' + id + '] ' + source.label)); });
+                });
+                if (sources.size) {
+                    const h = document.createElement('h5'); h.textContent = 'Sources'; body.appendChild(h);
+                    sources.forEach(function(source) { body.appendChild(evidenceButton(source, '[' + source.id + '] ' + source.label)); });
+                }
+            }
+
             function renderSearchAnswer(d, filter, answer) {
                 const h = document.createElement('h4'); h.textContent = answer.question || filter.name; d.appendChild(h);
                 if (answer.answer) {
@@ -1803,6 +1895,12 @@
                     ui.activatedFilter = p.activateFilter;
                     const id = p.activateFilter.split('|')[0];
                     if ((p.filters || []).some(function(f) { return f.id === id; })) ui.overlay = 'ai:' + id;
+                    if ((p.understandingAnswers || {})[id]) {
+                        setDetailsHidden(false, false);
+                        el.details.scrollTop = 0;
+                        ui.selected = null; ui.selectedEdge = null;
+                        ui.onlyFlagged = false;
+                    }
                 }
                 el.tempFilter.querySelector('button').hidden = !temp;
                 if (temp && document.activeElement !== el.tempFilter.querySelector('input')) el.tempFilter.querySelector('input').value = temp.criterion;
@@ -1924,9 +2022,9 @@
                     ui.overlay = 'none';
                 }
                 renderToolbar();
+                renderDetails();
                 const snap = ui.payload.snapshot;
                 if (!snap) {
-                    el.details.textContent = '';
                     if (cy) cy.elements().remove();
                     return;
                 }
@@ -1940,7 +2038,8 @@
                     ensureCy();
                     // The structure grows live during an analysis: redraw when it changes.
                     const shape = (snap.components || []).map(function(c) { return c.id + '<' + c.parent; }).join(',')
-                        + '|' + Object.keys(snap.assignments || {}).length;
+                        + '|' + Object.keys(snap.assignments || {}).length
+                        + '|' + snap.views.map(function(v) { return v.id + ':' + v.nodes.length; }).join(',');
                     const pr = ui.payload.pr;
                     const prShape = ui.view === 'pr' && pr ? '|' + pr.source.id + ':' + pr.files.length + ':' + (pr.dependencies || []).length + ':' + !!pr.analysis
                         // Changes inside files arrive later (the AI's explanation).
