@@ -380,3 +380,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - SwiftUI tap gestures (file tree rows) ignore `CGEvent.postToPid` clicks while the app is in the background; open
   files through a pressable path instead (Search tab results). Web content: select with
   `AXTextMarkerRangeForUIElement` → set `AXSelectedTextMarkerRange` on the AXWebArea (fires `selectionchange`).
+
+## Prompts that make the AI check git state must exclude the app's own files (batch Fix with AI, 2026-09-27)
+- The batch prompt told the AI to ask before continuing when the tree is dirty. The app had just marked the batch's reports
+  `fixing`, and MarkView keeps its index in an untracked `.dde/`, so every real run would have stopped on the question.
+- Rule: when a prompt conditions on "uncommitted changes", list what the app itself changed or owns (its own edits, `.dde/`)
+  as expected and never committed. Verify such prompts with a headless `claude -p` run in a fixture repo, not only by reading.
+

@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C31B0A5E7D2F968778695C06 /* BugBasketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31B0A5E7D2F968778695C05 /* BugBasketView.swift */; };
+		C31B0A5E7D2F968778695C04 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31B0A5E7D2F968778695C03 /* BugBatch.swift */; };
+		C31B0A5E7D2F968778695C02 /* BugBasket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31B0A5E7D2F968778695C01 /* BugBasket.swift */; };
 		E11314692201596100464779 /* FeatureIntake.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14572385577894328192737 /* FeatureIntake.swift */; };
 		E16749769928002028098025 /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10772207776679932541302 /* FeaturePanelView.swift */; };
 		E18447699465247618246389 /* FeatureNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16687301639066130688672 /* FeatureNavigatorView.swift */; };
@@ -123,6 +126,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		C31B0A5E7D2F968778695C05 /* BugBasketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasketView.swift; sourceTree = "<group>"; };
+		C31B0A5E7D2F968778695C03 /* BugBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBatch.swift; sourceTree = "<group>"; };
+		C31B0A5E7D2F968778695C01 /* BugBasket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasket.swift; sourceTree = "<group>"; };
 		E14572385577894328192737 /* FeatureIntake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureIntake.swift; sourceTree = "<group>"; };
 		E10772207776679932541302 /* FeaturePanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeaturePanelView.swift; sourceTree = "<group>"; };
 		E16687301639066130688672 /* FeatureNavigatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureNavigatorView.swift; sourceTree = "<group>"; };
@@ -226,6 +232,8 @@
 				A7D1F2C3B4E5968778695A01 /* XRayDigest.swift */,
 				A7D1F2C3B4E5968778695A11 /* AIPrompts.swift */,
 				A7D1F2C3B4E5968778695A09 /* TerminalSession.swift */,
+				C31B0A5E7D2F968778695C03 /* BugBatch.swift */,
+				C31B0A5E7D2F968778695C01 /* BugBasket.swift */,
 				B2E0C7A1D4F3968778695B01 /* PTYWriter.swift */,
 				A7D1F2C3B4E5968778695A59 /* TerminalLink.swift */,
 				A7D1F2C3B4E5968778695A07 /* FileTransfer.swift */,
@@ -273,6 +281,7 @@
 				E19706015117051627326464 /* GitView.swift */,
 				E10772207776679932541302 /* FeaturePanelView.swift */,
 				E16687301639066130688672 /* FeatureNavigatorView.swift */,
+				C31B0A5E7D2F968778695C05 /* BugBasketView.swift */,
 				E15392467522045207504274 /* LifecycleViews.swift */,
 				E10000000000000000034104 /* DictationViews.swift */,
 				E19812821332370322777652 /* GitHubViews.swift */,
@@ -477,6 +486,7 @@
 				E15363864145856837847001 /* GitView.swift in Sources */,
 				E16749769928002028098025 /* FeaturePanelView.swift in Sources */,
 				E18447699465247618246389 /* FeatureNavigatorView.swift in Sources */,
+				C31B0A5E7D2F968778695C06 /* BugBasketView.swift in Sources */,
 				E17351536587449799499819 /* LifecycleViews.swift in Sources */,
 				E10000000000000000034103 /* DictationViews.swift in Sources */,
 				E17451009770101104827274 /* GitHubViews.swift in Sources */,
@@ -493,6 +503,8 @@
 				A7D1F2C3B4E5968778695A02 /* XRayDigest.swift in Sources */,
 				A7D1F2C3B4E5968778695A12 /* AIPrompts.swift in Sources */,
 				A7D1F2C3B4E5968778695A10 /* TerminalSession.swift in Sources */,
+				C31B0A5E7D2F968778695C04 /* BugBatch.swift in Sources */,
+				C31B0A5E7D2F968778695C02 /* BugBasket.swift in Sources */,
 				B2E0C7A1D4F3968778695B02 /* PTYWriter.swift in Sources */,
 				A7D1F2C3B4E5968778695A60 /* TerminalLink.swift in Sources */,
 				A7D1F2C3B4E5968778695A08 /* FileTransfer.swift in Sources */,
@@ -575,7 +587,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.20.0;
+				CURRENT_PROJECT_VERSION = 2.22.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -590,7 +602,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.20.0;
+				MARKETING_VERSION = 2.22.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -654,7 +666,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.20.0;
+				CURRENT_PROJECT_VERSION = 2.22.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -675,7 +687,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.20.0;
+				MARKETING_VERSION = 2.22.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

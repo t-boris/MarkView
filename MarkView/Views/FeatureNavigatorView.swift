@@ -40,11 +40,13 @@ private struct LeftPanelContent: View {
                 if let slug = openFeature, store.feature(slug) != nil {
                     FeatureNavigatorView(store: store, onBack: { openFeature = nil })
                 } else {
-                    IssuesListView(store: store) { slug in
+                    IssuesListView(store: store, batch: workspaceManager.bugBatch) { slug in
                         store.activeSlug = slug
                         openFeature = slug
                     }
                 }
+                // The basket stays in view while features are opened and closed (REQ-001).
+                BugBasketView(batch: workspaceManager.bugBatch, assistant: store.assistant)
             } else {
                 FileTreeView()
             }
@@ -57,6 +59,8 @@ private struct LeftPanelContent: View {
 /// field and the funnel menu, ordered by the sort menu within each section (issue #24).
 struct IssuesListView: View {
     @ObservedObject var store: FeatureStore
+    /// The window's bug basket: open bugs can be put in it from their rows (issue #31).
+    @ObservedObject var batch: BugBatch
     let open: (String) -> Void
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var filter = ""
@@ -126,6 +130,30 @@ struct IssuesListView: View {
     }
 
     private func bugRow(_ bug: BugReport) -> some View {
+        HStack(spacing: 0) {
+            bugButton(bug)
+            basketToggle(bug)
+        }
+    }
+
+    /// In the basket, or open and can go in; other bugs keep the space empty so rows line up.
+    @ViewBuilder private func basketToggle(_ bug: BugReport) -> some View {
+        let inBasket = batch.contains(bug)
+        if inBasket || batch.canAdd(bug) {
+            Button(action: { batch.toggle(bug) }) {
+                Image(systemName: inBasket ? "basket.fill" : "basket").font(.system(size: 9))
+                    .foregroundColor(inBasket ? VSDark.blue : VSDark.textDim)
+                    .frame(width: 18, height: 16).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 4)
+            .help(inBasket ? "Remove from basket" : "Add to basket — fix several bugs in one AI run")
+        } else {
+            Color.clear.frame(width: 22, height: 16)
+        }
+    }
+
+    private func bugButton(_ bug: BugReport) -> some View {
         Button(action: { workspaceManager.openFile(bug.url) }) {
             HStack(spacing: 5) {
                 Image(systemName: "ladybug").font(.system(size: 9))
@@ -137,7 +165,7 @@ struct IssuesListView: View {
                 IssueStatusBadge(text: bug.hasStatus ? IssueStatus.normalize(bug.status) : "open",
                                  tone: IssueStatus.tone(bug.issueFacts), muted: !bug.hasStatus)
             }
-            .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
+            .padding(.leading, 18).padding(.trailing, 2).padding(.vertical, 3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -10,9 +10,7 @@ enum AgentModelProbe {
     /// Claude Code: `~/.claude/projects/<cwd, non-alphanumerics as "-">/*.jsonl`, assistant
     /// lines carry `message.model`.
     static func claudeModel(cwd: URL, since: Date, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
-        let name = String(cwd.standardizedFileURL.path.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
-        let folder = home.appendingPathComponent(".claude/projects").appendingPathComponent(name, isDirectory: true)
-        for file in recentFiles(in: [folder], since: since) {
+        for file in recentFiles(in: [claudeSessionFolder(cwd: cwd, home: home)], since: since) {
             for object in lines(of: file) where object["type"] as? String == "assistant" {
                 guard let date = timestamp(object), date >= since,
                       let model = (object["message"] as? [String: Any])?["model"] as? String,
@@ -21,6 +19,17 @@ enum AgentModelProbe {
             }
         }
         return nil
+    }
+
+    /// Claude Code has a session log for `cwd`: `claude --continue` has something to resume there.
+    static func hasClaudeSession(cwd: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: claudeSessionFolder(cwd: cwd, home: home).path)) ?? []
+        return files.contains { $0.hasSuffix(".jsonl") }
+    }
+
+    private static func claudeSessionFolder(cwd: URL, home: URL) -> URL {
+        let name = String(cwd.standardizedFileURL.path.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
+        return home.appendingPathComponent(".claude/projects").appendingPathComponent(name, isDirectory: true)
     }
 
     /// Codex: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, `turn_context` lines carry the model and cwd.
@@ -49,18 +58,18 @@ enum AgentModelProbe {
 
     /// `.jsonl` files changed since `since`, newest first.
     private static func recentFiles(in folders: [URL], since: Date) -> [URL] {
+        // Plain loops: one chained expression took Xcode 16 too long to type-check (CI failed).
         let fm = FileManager.default
-        return folders.flatMap { folder in
-            (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        var dated: [(url: URL, date: Date)] = []
+        for folder in folders {
+            let files = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            for url in files where url.pathExtension == "jsonl" {
+                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                guard let date = values?.contentModificationDate, date >= since else { continue }
+                dated.append((url, date))
+            }
         }
-        .filter { $0.pathExtension == "jsonl" }
-        .compactMap { url -> (URL, Date)? in
-            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  date >= since else { return nil }
-            return (url, date)
-        }
-        .sorted { $0.1 > $1.1 }
-        .map(\.0)
+        return dated.sorted { $0.date > $1.date }.map(\.url)
     }
 
     private static func lines(of url: URL) -> [[String: Any]] {

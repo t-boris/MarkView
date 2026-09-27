@@ -61,6 +61,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     let directory: URL
     /// Typed into the shell once it is up (e.g. "claude --model sonnet"), or nil.
     private(set) var startupCommand: String?
+    /// Typed instead of `startupCommand` on the first start only: continues the assistant's
+    /// previous session after a relaunch (BUG-005). Restarts run `startupCommand`.
+    private var resumeCommand: String?
     /// What it runs; a shell for terminals opened in folders.
     @Published private(set) var profile: TerminalProfile
     /// Tab title in the AI panel ("Claude Code", "Codex 2").
@@ -98,10 +101,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var pasteTimer: Timer?
     private var size = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
 
-    init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil, title: String? = nil) {
+    init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
+         resumeCommand: String? = nil, title: String? = nil) {
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
+        self.resumeCommand = resumeCommand
         self.title = title ?? profile.title
         super.init()
     }
@@ -299,6 +304,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private func restartProcess() {
+        resumeCommand = nil
         terminate()
         pendingOutput.removeAll()
         webView.evaluateJavaScript("window.mvReset && window.mvReset()")
@@ -376,6 +382,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
     }
 
+    /// The terminal printed something in the last `seconds` (the program in it is working).
+    func printed(within seconds: TimeInterval) -> Bool {
+        lastOutputAt.map { Date().timeIntervalSince($0) < seconds } ?? false
+    }
+
     private var readyForPaste: Bool {
         guard masterFD >= 0, let startedAt else { return false }
         let now = Date()
@@ -415,8 +426,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private func deliver(_ data: Data) {
         pendingOutput.append(data)
         lastOutputAt = Date()
-        if !startupSent, let command = startupCommand, !command.isEmpty {
+        if !startupSent, let command = resumeCommand ?? startupCommand, !command.isEmpty {
             startupSent = true
+            resumeCommand = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 self?.write(command + "\r")
                 self?.startupSentAt = Date()

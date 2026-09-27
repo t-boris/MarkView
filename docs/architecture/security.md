@@ -38,7 +38,7 @@ flowchart LR
 | S1 | Markdown renders with `html: true` into the page that owns `window.webkit.messageHandlers.bridge`, and the CSP allows inline scripts (`markview-state.js:53`, `index.html:21`) | A crafted document can post any bridge message, for example PR actions or opening a `file://` link through `NSWorkspace` |
 | S2 | The Insight iframe is switched to `allow-scripts allow-same-origin` at runtime (`markview-insight-handlers.js:132`). The script stripping is a per-chunk regex, and Mermaid runs with `securityLevel:'loose'` | Model output can script the parent page. Exported HTML runs inline scripts in a browser |
 | S3 | `.canvas` text nodes render markdown with HTML enabled and an unescaped `color` style (`markview-canvas.js:163,463`) | HTML injection in the bridge-owning page |
-| S4 | The AI terminal runs `claude --dangerously-skip-permissions`, and GitHub issue bodies, CI logs and PR text are pasted into it | Prompt injection from repo or GitHub content gets full agent permissions |
+| S4 | Every AI terminal runs its assistant with full access, always and with no setting (BUG-006): `claude --dangerously-skip-permissions`, `codex --dangerously-bypass-approvals-and-sandbox`, `cline --auto-approve true`, `copilot --allow-all`; GitHub issue bodies, CI logs and PR text are pasted into it | Prompt injection from repo or GitHub content gets full agent permissions |
 | S5 | OpenAI key in plaintext UserDefaults, not the Keychain | Readable by any process running as the user |
 | S6 | `/tmp/markview_open_path.txt` is polled and trusted | Any local process can make the app open a path |
 | S7 | "Open in Terminal.app" escapes only `"` in AppleScript; the shell sees an unquoted path | A folder name containing `;`, `$()` or backticks runs a command |
