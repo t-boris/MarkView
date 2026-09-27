@@ -49,7 +49,8 @@ private struct LeftPanelContent: View {
     }
 }
 
-/// Features (docs/features/*) and bugs (docs/bugs/*.md) of the project.
+/// Features (docs/features/*) and bugs (docs/bugs/*.md) of the project, filtered by the text
+/// field and the funnel menu, ordered by the sort menu within each section (issue #24).
 struct IssuesListView: View {
     @ObservedObject var store: FeatureStore
     let open: (String) -> Void
@@ -59,59 +60,164 @@ struct IssuesListView: View {
     @State private var showBugs = true
 
     var body: some View {
+        let features = store.issueSort.sorted(store.features.filter {
+            matches($0.title + " " + $0.slug) && store.issueFilter.matches($0.issueFacts)
+        }, facts: \.issueFacts)
+        let bugs = store.issueSort.sorted(store.bugs.filter {
+            matches($0.title + " " + $0.key) && store.issueFilter.matches($0.issueFacts)
+        }, facts: \.issueFacts)
+        // Unfiltered, both sections show (with their "+"), even when empty.
+        let filtering = !filter.isEmpty || !store.issueFilter.isDefault
         VStack(spacing: 0) {
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass").font(.system(size: 9)).foregroundColor(VSDark.textDim)
                 TextField("Filter", text: $filter).textFieldStyle(.plain).font(.system(size: 11))
+                filterMenu
+                sortMenu
             }
             .padding(.horizontal, 8).padding(.vertical, 4)
+            if !store.issueFilter.isDefault { activeFilterSummary }
             Divider().background(VSDark.border)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    let features = store.features.filter { matches($0.title + " " + $0.slug) }
-                    sectionHeader("Features", count: features.count, expanded: $showFeatures, kind: .feature)
-                    if showFeatures {
-                        ForEach(features) { feature in
-                            Button(action: { open(feature.slug) }) {
-                                HStack(spacing: 5) {
-                                    Image(systemName: feature.isStructured ? "square.stack.3d.up" : "doc.text")
-                                        .font(.system(size: 9)).foregroundColor(VSDark.blue).frame(width: 12)
-                                    Text(feature.title).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
-                                    Spacer(minLength: 2)
-                                    IssueLinks(numbers: feature.issueNumbers)
-                                    Text(FeatureVocabulary.label(feature.status)).font(.system(size: 8)).foregroundColor(VSDark.textDim)
-                                }
-                                .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
-                                .contentShape(Rectangle())
+            if filtering, features.isEmpty, bugs.isEmpty {
+                noMatches
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if !(filtering && features.isEmpty) {
+                            sectionHeader("Features", count: features.count, expanded: $showFeatures, kind: .feature)
+                            if showFeatures {
+                                ForEach(features) { featureRow($0) }
                             }
-                            .buttonStyle(.plain)
-                            .help(feature.slug)
+                        }
+                        if !(filtering && bugs.isEmpty) {
+                            sectionHeader("Bugs", count: bugs.count, expanded: $showBugs, kind: .bug)
+                            if showBugs {
+                                ForEach(bugs) { bugRow($0) }
+                            }
                         }
                     }
-                    let bugs = store.bugs.filter { matches($0.title + " " + $0.key) }
-                    sectionHeader("Bugs", count: bugs.count, expanded: $showBugs, kind: .bug)
-                    if showBugs {
-                        ForEach(bugs) { bug in
-                            Button(action: { workspaceManager.openFile(bug.url) }) {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "ladybug").font(.system(size: 9))
-                                        .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange).frame(width: 12)
-                                    Text(bug.key).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
-                                    Text(bug.title).font(.system(size: 11)).foregroundColor(bug.status == "open" ? VSDark.text : VSDark.textDim).lineLimit(1)
-                                    Spacer(minLength: 2)
-                                    IssueLinks(numbers: bug.issueNumbers)
-                                }
-                                .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
-                        }
-                    }
+                    .padding(.bottom, 10)
                 }
-                .padding(.bottom, 10)
             }
         }
+    }
+
+    private func featureRow(_ feature: Feature) -> some View {
+        Button(action: { open(feature.slug) }) {
+            HStack(spacing: 5) {
+                Image(systemName: feature.isStructured ? "square.stack.3d.up" : "doc.text")
+                    .font(.system(size: 9)).foregroundColor(VSDark.blue).frame(width: 12)
+                Text(feature.title).font(.system(size: 11)).foregroundColor(VSDark.text).lineLimit(1)
+                Spacer(minLength: 2)
+                IssueLinks(numbers: feature.issueNumbers)
+                // Without a status the feature reads as its default (Idea / Draft), muted.
+                IssueStatusBadge(text: FeatureVocabulary.label(feature.status), tone: IssueStatus.tone(feature.issueFacts),
+                                 muted: feature.front.string("status").isEmpty)
+            }
+            .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(feature.slug)
+    }
+
+    private func bugRow(_ bug: BugReport) -> some View {
+        Button(action: { workspaceManager.openFile(bug.url) }) {
+            HStack(spacing: 5) {
+                Image(systemName: "ladybug").font(.system(size: 9))
+                    .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange).frame(width: 12)
+                Text(bug.key).font(.system(size: 9, design: .monospaced)).foregroundColor(VSDark.textDim)
+                Text(bug.title).font(.system(size: 11)).foregroundColor(bug.status == "open" ? VSDark.text : VSDark.textDim).lineLimit(1)
+                Spacer(minLength: 2)
+                IssueLinks(numbers: bug.issueNumbers)
+                IssueStatusBadge(text: bug.hasStatus ? IssueStatus.normalize(bug.status) : "open",
+                                 tone: IssueStatus.tone(bug.issueFacts), muted: !bug.hasStatus)
+            }
+            .padding(.leading, 18).padding(.trailing, 8).padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
+    }
+
+    /// Status, type and implementation toggles; highlighted while any is on (DEC-001, DEC-006).
+    private var filterMenu: some View {
+        let active = !store.issueFilter.isDefault
+        return Menu {
+            ForEach(IssueFilterToggle.Group.allCases, id: \.self) { group in
+                Section(group.title) {
+                    ForEach(group.toggles, id: \.self) { toggle in
+                        Toggle(toggle.title, isOn: Binding(get: { store.issueFilter.selected.contains(toggle) },
+                                                           set: { _ in store.issueFilter.toggle(toggle) }))
+                    }
+                }
+            }
+            if active {
+                Divider()
+                Button("Reset Filter") { store.issueFilter = IssueFilter() }
+            }
+        } label: {
+            Image(systemName: active ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 3).fill(active ? VSDark.blue.opacity(0.35) : Color.clear))
+        .help(active ? "Filter: \(store.issueFilter.summary)" : "Filter by status and type")
+    }
+
+    /// Date or priority, and the direction; a new field starts newest / highest first (DEC-008).
+    private var sortMenu: some View {
+        let sort = store.issueSort
+        return Menu {
+            Section("Sort By") {
+                ForEach(IssueSort.Field.allCases, id: \.self) { field in
+                    Toggle(field.title, isOn: Binding(get: { sort.field == field },
+                                                      set: { _ in if sort.field != field { store.issueSort = IssueSort(field: field) } }))
+                }
+            }
+            Section("Order") {
+                ForEach([true, false], id: \.self) { descending in
+                    Toggle(IssueSort.directionTitle(sort.field, descending: descending),
+                           isOn: Binding(get: { sort.descending == descending },
+                                         set: { _ in store.issueSort.descending = descending }))
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .padding(2)
+        .help("Sort: \(sort.field.title), \(sort.directionTitle.lowercased())")
+    }
+
+    /// "Open · Bugs  ✕": the funnel filter in force; ✕ clears it, not the text or the sort (DEC-010).
+    private var activeFilterSummary: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "line.3.horizontal.decrease").font(.system(size: 8)).foregroundColor(VSDark.blue)
+            Text(store.issueFilter.summary).font(.system(size: 10)).foregroundColor(VSDark.text)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 2)
+            Button(action: { store.issueFilter = IssueFilter() }) {
+                Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundColor(VSDark.textDim)
+            }
+            .buttonStyle(.plain).help("Reset the filter")
+        }
+        .padding(.horizontal, 8).padding(.bottom, 4)
+    }
+
+    /// Nothing matches the text and the funnel together: one action clears both (DEC-009).
+    private var noMatches: some View {
+        VStack(spacing: 6) {
+            Text("No matching items").font(.system(size: 11)).foregroundColor(VSDark.textDim)
+            Button("Reset Filters") {
+                store.issueFilter = IssueFilter()
+                filter = ""
+            }
+            .font(.system(size: 11))
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 16)
     }
 
     private func matches(_ text: String) -> Bool {
@@ -133,6 +239,36 @@ struct IssuesListView: View {
             }.buttonStyle(.plain).help(kind.title)
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
+    }
+}
+
+/// Status of a feature or bug in its row: up to 12 characters, then cut with the whole value in
+/// the tooltip; the title gives way first (DEC-014).
+struct IssueStatusBadge: View {
+    let text: String
+    let tone: IssueStatus.Tone
+    /// No status written: the default is shown dimmed.
+    var muted = false
+
+    var body: some View {
+        let color = muted ? VSDark.textDim : toneColor
+        Text(text.count > 12 ? String(text.prefix(11)) + "…" : text)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(color)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 3).fill(color.opacity(0.15)))
+            .fixedSize()
+            .layoutPriority(1)
+            .help(muted ? "No status set: \(text)" : "Status: \(text)")
+    }
+
+    private var toneColor: Color {
+        switch tone {
+        case .open: return VSDark.blue
+        case .active: return VSDark.yellow
+        case .done: return VSDark.green
+        case .dropped: return VSDark.textDim
+        }
     }
 }
 

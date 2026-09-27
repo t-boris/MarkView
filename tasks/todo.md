@@ -1,5 +1,23 @@
 # MarkView — Follow-up Tasks
 
+## Done 39: Issues panel filters, sorting, status badges, wider pane (2026-09-26, issue #24, 2.18.0, not committed)
+
+Decided with the user before starting: feature `verified`/`done` count as Implemented + Closed,
+`archived`/`rejected`/`cancelled` as Closed; the shared left pane gets a higher max width (800 px after
+a follow-up request) and remembers its width under `layout.leftPanelWidth`.
+
+- [x] I-1/I-2: pure `Models/IssueListing.swift`: status normalization, Open/Closed/Implemented, faceted filter, date/priority sort, persisted-value parsing
+- [x] Tests: `tools/tests/issue-listing-tests.sh`, 63 checks covering the REQ-001/002/005 criteria and DEC-006…015
+- [x] Models: bugs and features carry `updated`/`created`/`priority` and file modification time
+- [x] I-3: funnel and sort menus next to the Filter field, active-filter summary with reset, empty sections hidden, "No matching items" with reset
+- [x] I-4: status badge in every row (≤12 chars, tooltip, title truncates first)
+- [x] I-5: per-project `features.issues.filter.<hash>` / `features.issues.sort.<hash>` on `FeatureStore`
+- [x] I-6: left pane 180–800 px, width restored by `LeftPanelWidthKeeper`; REQ-004 records the mechanism
+- [x] Verify: a copy with its own bundle ID (own defaults) on a fixture project, checked through Accessibility: restored "Open · Bugs" + priority order, hidden Features section, empty state and its reset, default date order; restored pane width traced at 420/250 px
+- [x] Docs: configuration.md keys, REQ-004, spec status `implemented`, version 2.18.0, Debug build
+
+**Review:** Badge colours and menu looks were not seen, because screen capture is not permitted here; the user should look at them. `xcodegen generate` rewrote the whole pbxproj, so it was restored and the file was added by hand.
+
 ## Done 38: AI Tools menu prompts cut off in the AI terminal (2026-09-26, BUG-002 / issue #22, 2.17.2, not committed)
 
 - [x] Reproduce: PTY harness with the exact write loop, 1022 of 20275 bytes then EAGAIN, with a slow reader and with real Claude Code

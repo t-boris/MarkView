@@ -22,6 +22,62 @@ extension FocusedValues {
     }
 }
 
+/// Width of the left pane (Files and Issues share it), remembered across launches.
+enum LeftPanelWidth {
+    static let key = "layout.leftPanelWidth"
+    static let range: ClosedRange<CGFloat> = 180...800
+    static let standard: CGFloat = 220
+
+    static var saved: CGFloat {
+        let width = CGFloat(UserDefaults.standard.double(forKey: key))
+        return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
+    }
+
+    static func save(_ width: CGFloat) {
+        guard range.contains(width) else { return }
+        UserDefaults.standard.set(Double(width.rounded()), forKey: key)
+    }
+}
+
+/// Behind the left pane: when the pane appears it moves the split view's divider to the saved
+/// width (HSplitView ignores `idealWidth` and hands out space itself), then saves every width
+/// the user drags it to. Widths before the restore are layout passes, not the user's, and are not saved.
+private struct LeftPanelWidthKeeper: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { KeeperView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class KeeperView: NSView {
+        private var restored = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            restored = false
+            let width = LeftPanelWidth.saved
+            // After this layout pass, when the split view has its panes.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil else { return }
+                self.enclosingSplitView?.setPosition(width, ofDividerAt: 0)
+                self.restored = true
+            }
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            if restored { LeftPanelWidth.save(newSize.width) }
+        }
+
+        private var enclosingSplitView: NSSplitView? {
+            var view = superview
+            while let current = view {
+                if let split = current as? NSSplitView { return split }
+                view = current.superview
+            }
+            return nil
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @StateObject private var workspaceManager = WorkspaceManager()
@@ -37,7 +93,9 @@ struct ContentView: View {
             if workspaceManager.showFileTree {
                 LeftPanelView()
                     .environmentObject(workspaceManager)
-                    .frame(minWidth: 180, idealWidth: 220, maxWidth: 350)
+                    .frame(minWidth: LeftPanelWidth.range.lowerBound, idealWidth: LeftPanelWidth.standard,
+                           maxWidth: LeftPanelWidth.range.upperBound)
+                    .background(LeftPanelWidthKeeper())
             }
 
             // MARK: - Center Panel: Editor

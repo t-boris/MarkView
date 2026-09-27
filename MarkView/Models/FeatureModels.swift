@@ -239,6 +239,8 @@ struct Feature: Identifiable {
     var documentTitle: String?
     /// GitHub issues the feature refers to (front matter `issue`, links and "issue #n" in its documents).
     var issueNumbers: [Int] = []
+    /// Latest modification time of the overview and the documents (the Issues list's date fallback).
+    var modified: Date?
 
     var overviewURL: URL { folder.appendingPathComponent("overview.md") }
     var planURL: URL { folder.appendingPathComponent("implementation/plan.md") }
@@ -463,6 +465,7 @@ struct Feature: Identifiable {
             }
         }
         feature.issueNumbers = Self.issueReferences(in: texts, front: front)
+        feature.modified = ([overview] + feature.documents).compactMap(fileModificationDate).max()
         for kind in FeatureObjectKind.allCases {
             let dir = folder.appendingPathComponent(kind.folder)
             let files = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
@@ -520,6 +523,12 @@ struct BugReport: Identifiable, Hashable {
     var issueNumbers: [Int]
     /// Questions the AI asked to investigate the bug (front matter `questions`).
     var questions: [BugQuestion] = []
+    /// Front matter `updated` and `created`, as written; with `modified`, the Issues list's date.
+    var updated = ""
+    var created = ""
+    var modified: Date?
+    /// The report has a `status` (`status` reads "open" without one).
+    var hasStatus = true
 
     var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
     var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
@@ -536,7 +545,29 @@ struct BugReport: Identifiable, Hashable {
                          status: front.string("status").isEmpty ? "open" : front.string("status"),
                          severity: front.string("severity"),
                          issueNumbers: Feature.issueReferences(in: [body], front: front),
-                         questions: (front["questions"]?.list ?? []).compactMap(BugQuestion.init))
+                         questions: (front["questions"]?.list ?? []).compactMap(BugQuestion.init),
+                         updated: front.string("updated"), created: front.string("created"),
+                         modified: fileModificationDate(url), hasStatus: !front.string("status").isEmpty)
+    }
+}
+
+/// Modification time of a file; nil when it cannot be read.
+func fileModificationDate(_ url: URL) -> Date? {
+    (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+}
+
+// What the Issues list filters and sorts by (Models/IssueListing.swift).
+extension Feature {
+    var issueFacts: IssueFacts {
+        IssueFacts(kind: .feature, id: slug, title: title, status: front.string("status"), priority: front.string("priority"),
+                   updated: front.string("updated"), created: front.string("created"), modified: modified)
+    }
+}
+
+extension BugReport {
+    var issueFacts: IssueFacts {
+        IssueFacts(kind: .bug, id: key, title: title, status: hasStatus ? status : "", priority: severity,
+                   updated: updated, created: created, modified: modified)
     }
 }
 

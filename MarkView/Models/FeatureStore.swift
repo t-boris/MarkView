@@ -23,6 +23,19 @@ final class FeatureStore: ObservableObject {
             UserDefaults.standard.set(activeSlug, forKey: Self.activeKey(root))
         }
     }
+    /// Funnel filter and order of the Issues list, kept per project (REQ-005).
+    @Published var issueFilter = IssueFilter() {
+        didSet {
+            guard let root else { return }
+            UserDefaults.standard.set(issueFilter.storedValue, forKey: IssueListSettings.filterKey(Self.projectHash(root)))
+        }
+    }
+    @Published var issueSort = IssueSort.default {
+        didSet {
+            guard let root else { return }
+            UserDefaults.standard.set(issueSort.storedValue, forKey: IssueListSettings.sortKey(Self.projectHash(root)))
+        }
+    }
     @Published var lastError: String?
 
     private(set) var root: URL?
@@ -50,8 +63,11 @@ final class FeatureStore: ObservableObject {
 
     func feature(_ slug: String) -> Feature? { features.first { $0.slug == slug } }
 
-    private static func activeKey(_ root: URL) -> String {
-        "features.active." + String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
+    private static func activeKey(_ root: URL) -> String { "features.active." + projectHash(root) }
+
+    /// Keys per-project settings.
+    private static func projectHash(_ root: URL) -> String {
+        String(ContentHash.of(root.standardizedFileURL.path).prefix(12))
     }
 
     // MARK: Setup and loading
@@ -59,6 +75,10 @@ final class FeatureStore: ObservableObject {
     func setup(root: URL) {
         guard self.root != root else { return }
         reset()
+        // Restored while `root` is nil, so restoring does not write them back.
+        let project = Self.projectHash(root)
+        issueFilter = IssueFilter(stored: UserDefaults.standard.stringArray(forKey: IssueListSettings.filterKey(project)))
+        issueSort = IssueSort(stored: UserDefaults.standard.string(forKey: IssueListSettings.sortKey(project)))
         self.root = root
         activeSlug = UserDefaults.standard.string(forKey: Self.activeKey(root))
         reload()
@@ -84,6 +104,8 @@ final class FeatureStore: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         root = nil
+        issueFilter = IssueFilter()
+        issueSort = .default
         features = []
         bugs = []
         hasFeaturesFolder = false

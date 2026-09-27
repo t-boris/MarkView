@@ -344,3 +344,12 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   never mutate the view. To reproduce a UI bug without Accessibility access, run a Developer ID-signed
   copy from a worktree with stderr tracing next to the user's app and have the user click. Trace
   every step through to the final state, not just the part you suspect.
+
+## HSplitView ignores idealWidth; don't run xcodegen on this project (2026-09-26)
+- A pane given `idealWidth: savedWidth` opened at 199 or 600 px, depending on the window: SwiftUI `HSplitView`
+  divides the space itself. Restoring a width needs the underlying `NSSplitView.setPosition(_:ofDividerAt:)`
+  after the first layout (`LeftPanelWidthKeeper`). Don't save widths from before that restore, because they come from layout passes.
+- `xcodegen generate` rewrote every ID in `project.pbxproj` (870 lines). Add new files by hand, as was done for
+  PTYWriter.swift, and keep `project.yml` aligned.
+- A UI can be checked without touching the user's app: build with `PRODUCT_BUNDLE_IDENTIFIER=<other>` (separate
+  defaults), seed its defaults, and read rows via `osascript` System Events (`help` of row buttons).
