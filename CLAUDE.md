@@ -47,6 +47,29 @@ wired into the macOS app. Do not treat an `EditorWeb` build as an app change.
 - Avoid direct edits to minified third-party assets unless intentionally updating
   the bundled dependency.
 
+## Git Workflow
+
+These rules apply to every agent working in this repository (Claude Code, Codex,
+and others). Only an explicit instruction from Boris for a specific change
+overrides them.
+
+- Never commit to `main` directly. Start each feature, bug fix, or docs change on
+  its own branch from an up-to-date `origin/main`: `feat/<slug>`,
+  `fix/<bug-id>-<slug>`, or `docs/<slug>`.
+- When the work is committed, the version is bumped, and the build passes, push
+  the branch and open a pull request into `main` with `gh pr create`. Use one
+  pull request per feature or bug. Describe the changes, the version, and a test
+  plan.
+- Changes reach `main` only by merging their pull request (`gh pr merge --merge
+  --delete-branch`), and only when Boris asks for that merge. Never run a local
+  `git merge` into `main` and never push to `main`.
+- Work is not in `main` until its pull request is merged. When you report a
+  feature or bug as finished, include the pull request link and say whether it
+  is merged.
+- Several agent sessions may share this working tree. Do not switch branches or
+  stash over someone else's uncommitted changes. Use `git worktree add` for a
+  separate branch instead.
+
 ## Versioning
 
 Every change to the app bumps the version before it is committed, using semantic
