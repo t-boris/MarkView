@@ -72,6 +72,20 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task { @MainActor in
+            do {
+                try await WindowSessionController.shared.saveBeforeTermination()
+                sender.reply(toApplicationShouldTerminate: true)
+            } catch {
+                // Keep the windows and unsaved drafts open when the archive cannot be written.
+                sender.presentError(error)
+                sender.reply(toApplicationShouldTerminate: false)
+            }
+        }
+        return .terminateLater
+    }
+
     func log(_ msg: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) [AppDelegate] \(msg)\n"
         let path = NSHomeDirectory() + "/markview_debug.log"
@@ -95,7 +109,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 
     private func ensureWindowExists() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let visibleWindows = NSApp.windows.filter { $0.isVisible && !$0.className.contains("Panel") }
+            let visibleWindows = NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && !$0.className.contains("Panel") }
             if visibleWindows.isEmpty {
                 self.log("No visible windows — creating one")
                 // Try SwiftUI's built-in new window action
@@ -181,20 +195,13 @@ struct MarkViewApp: App {
 
     var body: some Scene {
         Self.debugLogStatic("MarkViewApp body evaluated")
-        return WindowGroup {
-            ContentView()
+        return WindowGroup(id: WindowSessionController.sceneID, for: UUID.self) { id in
+            ContentView(windowSessionID: id.wrappedValue)
                 .environmentObject(themeManager)
                 .frame(minWidth: 900, minHeight: 600)
                 .onAppear {
                     appDelegate.log("ContentView onAppear START")
                     NSApp.appearance = NSAppearance(named: .darkAqua)
-                    for window in NSApp.windows {
-                        window.appearance = NSAppearance(named: .darkAqua)
-                        if window.frameAutosaveName.isEmpty {
-                            window.setContentSize(NSSize(width: 1200, height: 800))
-                            window.center()
-                        }
-                    }
                     // Handle files/folders opened via Finder Services
                     appDelegate.onOpenURLs = { urls in
                         appDelegate.log("onOpenURLs callback fired with \(urls.count) URLs")
@@ -209,6 +216,8 @@ struct MarkViewApp: App {
                         }
                     }
                 }
+        } defaultValue: {
+            UUID()
         }
         .commands {
             // MARK: - File Menu
@@ -367,8 +376,6 @@ struct MarkViewApp: App {
 
     /// Pending folder URL for new window to pick up
     static var pendingFolderURL: URL?
-    /// The first window of a launch reopens the last folder (once per launch).
-    static var lastFolderRestored = false
     /// Files/folders requested from outside (Finder "Open With", Quick Action)
     /// that no window has taken yet. Durable until drained, so a request that
     /// arrives before any window is ready is never lost.

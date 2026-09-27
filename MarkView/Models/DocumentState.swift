@@ -156,7 +156,7 @@ enum TabKind {
 }
 
 /// What a GitHub tab shows, in which repository ("owner/name"); `title` is the tab's name.
-enum GitHubItem: Hashable {
+enum GitHubItem: Hashable, Codable {
     case run(id: Int, repo: String, title: String)
     case issue(number: Int, repo: String, title: String)
 

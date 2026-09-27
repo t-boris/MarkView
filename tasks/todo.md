@@ -1682,3 +1682,14 @@ User feedback on 1.1.0 (tested on broker-fabric / apps/bf-menubar):
 - [x] Debug app build.
 
 The DOM renderer measures repeated glyphs with integer offsetWidth, while WebKit paints fractional advances. The final span can extend past the row's integer width; its overflow:hidden shaves the final glyph. The row padding restores the painted edge without changing the column count or PTY size. The regression fails 14 checks on the original page and passes all 46 with the fix; a pixel comparison at 699px confirms the restored right edge.
+
+## Restore every workspace window (2026-09-27, 2.23.2)
+- [x] Replace the single last-folder restore with an app-owned, versioned archive of window identities.
+- [x] Restore folders, file/image/GitHub/X-Ray/folder-terminal tabs, active tab, per-window panels, frames and minimized state.
+- [x] Keep editor drafts private and restore them without writing document files; recover drafts whose files were removed.
+- [x] Debounced atomic saves off the main thread; await the final save on normal quit, and retain pending windows during asynchronous startup.
+- [x] Explicitly closed windows stay closed; same-folder windows retain separate identities; migrated lastFolder is used only without an archive.
+- [x] Unit checks: 18 archive checks and existing window-title checks. Debug build passes.
+- [x] Isolated native app, with macOS window retention disabled: three windows in two folders → normal quit/relaunch → three windows. Close one and minimize another → quit/relaunch → two windows, one still minimized. Active tabs, drafts and deleted-file draft preserved; document files unchanged.
+
+Boris explicitly authorized committing/pushing this fix directly to main without a PR.

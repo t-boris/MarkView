@@ -460,7 +460,7 @@ class WorkspaceManager: ObservableObject {
     /// Folder reopened on the next launch; cleared by Close Folder.
     static let lastFolderKey = "workspace.lastFolder"
 
-    func openFolder(_ url: URL) {
+    func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
@@ -497,6 +497,7 @@ class WorkspaceManager: ObservableObject {
             // Code projects get a prominent "Open Architecture" on the welcome screen.
             let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
             if rootNode?.url == url { isCodeProject = isCode }
+            completion?()
         }
     }
 
@@ -757,6 +758,99 @@ class WorkspaceManager: ObservableObject {
             addRecentFile(url)
         } catch {
             NSLog("Error opening file: \(error)")
+        }
+    }
+
+    // MARK: - Window session
+
+    func windowState(id: UUID) -> WorkspaceWindowState {
+        var state = WorkspaceWindowState(id: id, folder: rootNode?.url)
+        for (index, tab) in openTabs.enumerated() {
+            let saved: WorkspaceTabState
+            switch tab.kind {
+            case .file:
+                let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
+                saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(tab.scrollPosition))
+            case .image: saved = .image(tab.url)
+            case .github(let item): saved = .github(item)
+            case .architecture(let scope): saved = .architecture(scope)
+            case .terminal(let terminalID):
+                guard let terminal = terminalTabs[terminalID] else { continue }
+                saved = .terminal(terminal.directory)
+            case .insight: continue // in-memory jobs have their own export workflow
+            }
+            if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
+            state.tabs.append(saved)
+        }
+        state.panels = WorkspacePanelState(navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
+            feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
+            showFiles: showFileTree, showNavigator: showTOC)
+        return state
+    }
+
+    func restoreWindowState(_ state: WorkspaceWindowState) async {
+        let fm = FileManager.default
+        if let folder = state.folder, folder.isFileURL,
+           (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            await withCheckedContinuation { continuation in
+                openFolder(folder) { continuation.resume() }
+            }
+            // A folder chosen meanwhile wins over the old session.
+            guard rootNode?.url == folder else { return }
+        }
+        var selected: Int?
+        for (savedIndex, saved) in state.tabs.enumerated() {
+            let before = openTabs.count
+            switch saved {
+            case .file(let url, let draft, let notes, let scroll):
+                guard url.isFileURL else { continue }
+                if fm.fileExists(atPath: url.path) { openTextFile(url) }
+                if openTabs.count == before, let draft {
+                    // A removed file must not take the unsaved editor text with it.
+                    var tab = OpenTab(url: url, content: draft.content, originalContent: draft.original)
+                    tab.headings = extractHeadings(from: draft.content)
+                    tabsStore.appendTab(tab)
+                }
+                guard openTabs.count > before else { continue }
+                tabsStore.updateTab(at: before) { tab in
+                    if let draft {
+                        tab.content = draft.content
+                        tab.isModified = draft.content != tab.originalContent
+                        tab.headings = extractHeadings(from: draft.content)
+                    }
+                    tab.notesView = notes
+                    tab.scrollPosition = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
+                }
+            case .image(let url):
+                if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
+            case .github(let item): openGitHubTab(item)
+            case .architecture(let scope):
+                // Reopen cached views without triggering new scans/reviews during launch.
+                if let root = rootNode?.url {
+                    var tab = OpenTab(url: root.appendingPathComponent(".markview-restored-xray-" + String(ContentHash.of(scope).prefix(12))),
+                                      content: "", originalContent: "")
+                    tab.kind = .architecture(scope: scope)
+                    tabsStore.appendTab(tab)
+                    if let context = xrayContext(scope) {
+                        xrayStore(for: scope).restoreCached(root: context.root, db: context.db)
+                    }
+                }
+            case .terminal(let directory):
+                if directory.isFileURL, (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    openTerminal(in: directory)
+                }
+            }
+            if savedIndex == state.activeTabIndex, openTabs.count > before { selected = before }
+        }
+        activeTabIndex = selected ?? (openTabs.isEmpty ? -1 : 0)
+        if let panels = state.panels {
+            layout.navigatorTab = TOCView.Tab(rawValue: panels.navigator) ?? .contents
+            layout.leftPanel = panels.left == "issues" ? "issues" : "files"
+            layout.issuesFeature = panels.feature
+            layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
+            layout.featureStage = FeatureStage(rawValue: panels.stage) ?? .explore
+            showFileTree = panels.showFiles
+            showTOC = panels.showNavigator
         }
     }
 

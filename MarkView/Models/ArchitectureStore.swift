@@ -278,6 +278,15 @@ final class ArchitectureStore: ObservableObject {
         refreshPRSources(root: root)
     }
 
+    /// Window restoration displays the previous view without starting new AI work.
+    func restoreCached(root: URL, db: SemanticDatabase?) {
+        rootPath = root.standardizedFileURL.path
+        if snapshot == nil, let stored = db?.loadArchitecture() ?? loadPersisted() {
+            snapshot = stored
+            revision += 1
+        }
+    }
+
     /// Deterministic scan (no AI). Keeps AI descriptions and the Deployment view
     /// from the previous snapshot for nodes that still exist.
     func scan(root: URL, db: SemanticDatabase?) {

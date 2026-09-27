@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D724CF15C06243A08C1D22A4 /* WindowSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D724CF15C06243A08C1D22A3 /* WindowSessionController.swift */; };
+		D724CF15C06243A08C1D22A2 /* WindowSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D724CF15C06243A08C1D22A1 /* WindowSession.swift */; };
 		A92300000000000000000002 /* IntakeTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92300000000000000000001 /* IntakeTextEditor.swift */; };
 		9803A874E731E8A96D8E3FE6 /* UnderstandingAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18364863130DED6B4062B88C /* UnderstandingAnswer.swift */; };
 		C31B0A5E7D2F968778695C06 /* BugBasketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C31B0A5E7D2F968778695C05 /* BugBasketView.swift */; };
@@ -128,6 +130,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		D724CF15C06243A08C1D22A3 /* WindowSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionController.swift; sourceTree = "<group>"; };
+		D724CF15C06243A08C1D22A1 /* WindowSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSession.swift; sourceTree = "<group>"; };
 		A92300000000000000000001 /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
 		18364863130DED6B4062B88C /* UnderstandingAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnderstandingAnswer.swift; sourceTree = "<group>"; };
 		C31B0A5E7D2F968778695C05 /* BugBasketView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasketView.swift; sourceTree = "<group>"; };
@@ -258,6 +262,8 @@
 				E16484821693680626118454 /* FeatureModels.swift */,
 				B2E0C7A1D4F3968778695B03 /* IssueListing.swift */,
 				B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */,
+				D724CF15C06243A08C1D22A3 /* WindowSessionController.swift */,
+				D724CF15C06243A08C1D22A1 /* WindowSession.swift */,
 				B2E0C7A1D4F3968778695B07 /* PanelLayout.swift */,
 				0B2E4E9B03F140183CF5E02A /* ResearchPrompt.swift */,
 				09B3D5CE263CFAE308BE157E /* ResearchJobs.swift */,
@@ -532,6 +538,8 @@
 				E13141936367417093244259 /* FeatureModels.swift in Sources */,
 				B2E0C7A1D4F3968778695B04 /* IssueListing.swift in Sources */,
 				B2E0C7A1D4F3968778695B06 /* WindowTitle.swift in Sources */,
+				D724CF15C06243A08C1D22A4 /* WindowSessionController.swift in Sources */,
+				D724CF15C06243A08C1D22A2 /* WindowSession.swift in Sources */,
 				B2E0C7A1D4F3968778695B08 /* PanelLayout.swift in Sources */,
 				0A0D8ADB6DEB753B3935157F /* ResearchPrompt.swift in Sources */,
 				366212C2A0A5988C3DDC7FEC /* ResearchJobs.swift in Sources */,
@@ -595,7 +603,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.23.1;
+				CURRENT_PROJECT_VERSION = 2.23.2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -610,7 +618,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.23.1;
+				MARKETING_VERSION = 2.23.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -674,7 +682,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.23.1;
+				CURRENT_PROJECT_VERSION = 2.23.2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -695,7 +703,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.23.1;
+				MARKETING_VERSION = 2.23.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

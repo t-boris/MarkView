@@ -80,6 +80,8 @@ private struct LeftPanelWidthKeeper: NSViewRepresentable {
 
 struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.openWindow) private var openWindow
+    var windowSessionID = UUID()
     @StateObject private var workspaceManager = WorkspaceManager()
     @State private var showFolderPicker = false
     /// NSWindow hosting this view — lets open-URL notifications target only the
@@ -87,6 +89,8 @@ struct ContentView: View {
     @State private var hostWindow: NSWindow?
     /// Finder name of the open folder, for the window title; nil without a folder.
     @State private var workspaceFolderName: String?
+    @State private var sessionAttached = false
+    @State private var restorationComplete = false
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -222,6 +226,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showFolderPicker)) { _ in
+            guard isActiveWindow else { return }
             showFolderPicker = true
         }
         .sheet(isPresented: graphCreatorSheetBinding) {
@@ -248,7 +253,7 @@ struct ContentView: View {
         }
         .onChange(of: hostWindow) { _ in
             updateWindowIdentity()
-            drainPendingOpens(trigger: "windowAttached")
+            attachWindowSession()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             guard let window = note.object as? NSWindow, window === hostWindow else { return }
@@ -261,7 +266,6 @@ struct ContentView: View {
                 WorkspaceManager.debugLog("onAppear: opening \(url.path)")
                 workspaceManager.openFolder(url)
             }
-            restoreLastFolder()
         }
     }
 
@@ -273,20 +277,15 @@ struct ContentView: View {
         hostWindow?.representedURL = root
     }
 
-    /// Reopen the folder that was open when the app last quit. Waits briefly so a
-    /// Finder "Open With" request that launched the app wins over the restore.
-    private func restoreLastFolder() {
-        guard !MarkViewApp.lastFolderRestored else { return }
-        MarkViewApp.lastFolderRestored = true
-        guard let path = UserDefaults.standard.string(forKey: WorkspaceManager.lastFolderKey) else { return }
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // Something was opened meanwhile (Finder, Open Recent): leave it alone.
-            guard workspaceManager.rootNode == nil, workspaceManager.openTabs.isEmpty,
-                  MarkViewApp.pendingOpenURLs.isEmpty else { return }
-            WorkspaceManager.debugLog("restoreLastFolder: \(path)")
-            workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
+    private func attachWindowSession() {
+        guard let window = hostWindow, !sessionAttached else { return }
+        sessionAttached = true
+        Task { @MainActor in
+            await WindowSessionController.shared.attach(id: windowSessionID, window: window, workspace: workspaceManager) { id in
+                openWindow(id: WindowSessionController.sceneID, value: id)
+            }
+            restorationComplete = true
+            drainPendingOpens(trigger: "restorationComplete")
         }
     }
 
@@ -303,7 +302,7 @@ struct ContentView: View {
     /// Open all queued external requests in this window if it is the active one.
     /// The queue is emptied before opening, so exactly one window takes them.
     private func drainPendingOpens(trigger: String) {
-        guard !MarkViewApp.pendingOpenURLs.isEmpty, isActiveWindow else { return }
+        guard restorationComplete, !MarkViewApp.pendingOpenURLs.isEmpty, isActiveWindow else { return }
         let urls = MarkViewApp.pendingOpenURLs
         MarkViewApp.pendingOpenURLs.removeAll()
         for url in urls {
