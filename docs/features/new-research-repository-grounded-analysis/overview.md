@@ -2,7 +2,7 @@
 type: feature
 id: new-research-repository-grounded-analysis
 title: "New Research: repository-grounded analysis"
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake
