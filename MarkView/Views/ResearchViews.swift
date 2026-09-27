@@ -15,7 +15,7 @@ struct ResearchIntakeOptions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text("Target documents:").font(.caption)
+                Text("Documents / folders:").font(.caption)
                 ForEach(targets, id: \.self) { url in
                     HStack(spacing: 2) {
                         Text(ResearchJobs.relative(url, to: root) ?? url.lastPathComponent).font(.caption).lineLimit(1)
@@ -44,11 +44,11 @@ struct ResearchIntakeOptions: View {
     private func chooseTargets() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
+        panel.canChooseDirectories = true
         panel.directoryURL = root
-        panel.message = "Choose documents of this folder to analyse first"
+        panel.message = "Choose documents or folders to analyse first; folders include their subfolders"
         guard panel.runModal() == .OK else { return }
-        for url in panel.urls where ResearchJobs.relative(url, to: root) != nil && !targets.contains(url) {
+        for url in panel.urls where (url.standardizedFileURL == root.standardizedFileURL || ResearchJobs.relative(url, to: root) != nil) && !targets.contains(url) {
             targets.append(url)
         }
     }

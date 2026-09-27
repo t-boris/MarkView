@@ -5,27 +5,41 @@ import AppKit
 /// only while an OpenAI key is set — the caller hides it otherwise (DEC-002).
 struct DictationButton: View {
     @ObservedObject var dictation: DictationController
+    var prominent = false
     /// The transcript and the window the mic was clicked in (the field's window).
     let insert: (String, NSWindow?) -> Void
 
     var body: some View {
         Button(action: toggle) {
-            Group {
+            HStack(spacing: 6) {
                 switch dictation.phase {
                 case .idle: Image(systemName: "mic")
                 case .starting, .recording: Image(systemName: "mic.fill")
                 case .transcribing: ProgressView().controlSize(.small).scaleEffect(0.7)
                 }
+                if prominent { Text(title).font(.system(size: 12, weight: .medium)) }
             }
             .font(.system(size: 13))
-            .foregroundColor(dictation.isRecording || dictation.phase == .starting ? VSDark.red : .secondary)
-            .frame(width: 24, height: 24)
-            .background(Circle().fill(Color(nsColor: .textBackgroundColor)))
-            .contentShape(Circle())
+            .foregroundColor(dictation.isRecording || dictation.phase == .starting ? VSDark.red : prominent ? .primary : .secondary)
+            .frame(width: prominent ? nil : 24, height: 24)
+            .padding(.horizontal, prominent ? 10 : 0)
+            .padding(.vertical, prominent ? 3 : 0)
+            .background(RoundedRectangle(cornerRadius: prominent ? 6 : 12).fill(Color(nsColor: .textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: prominent ? 6 : 12).stroke(Color.secondary.opacity(prominent ? 0.4 : 0), lineWidth: 1))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(dictation.phase == .transcribing)
         .help(help)
+    }
+
+    private var title: String {
+        switch dictation.phase {
+        case .idle: return "Dictate"
+        case .starting: return "Starting…"
+        case .recording: return "Stop dictation"
+        case .transcribing: return "Transcribing…"
+        }
     }
 
     private func toggle() {

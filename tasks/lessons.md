@@ -387,3 +387,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: when a prompt conditions on "uncommitted changes", list what the app itself changed or owns (its own edits, `.dde/`)
   as expected and never committed. Verify such prompts with a headless `claude -p` run in a fixture repo, not only by reading.
 
+
+## 2026-09-27 — Understand answers and image paste
+
+- Plain `NSTextView` disables Paste for an image-only clipboard. A paste override also needs PNG/TIFF/file URL `readablePasteboardTypes`; verify Preview → Copy → ⌘V, not only conversion helpers.
+- Keep dedicated answer state independent of X-Ray's first snapshot. Merge its transient evidence into new snapshots, and guard deferred stream callbacks with a generation token so completed/retried questions cannot be overwritten.
+- Collect git log/blame for actual discovered evidence files and exact valid ranges. Keyword-only history misses introducing documents; blame 1–120 fails on short files. Supply bounded PR bodies as well as metadata.
+- Pasted question attachments belong in transient workspace storage until explicit RES save; copy saved assets so closing the filter cannot break the saved document.

@@ -71,6 +71,13 @@ Press **⌘4**, or right-click any folder and choose **X-Ray**.
   or ask questions.
 - **Explain:** right-click a file and choose X-Ray. Code and markdown get
   section-by-section margin notes with Explanation, Freshness and Importance lenses.
+- **I Need to Understand:** ask a question from **+** or a document's context menu.
+  The answer appears above X-Ray details with **What, Why, How and Origin**, clickable
+  evidence, and Retry when generation fails. **Save as research** creates a new
+  `RES-nnn` document only when requested.
+- **New Research:** choose documents or folders to analyse first, including nested
+  files. Right-click a folder → **New Research from This Folder…**. Creation forms
+  accept copied images with **⌘V**, showing removable attachment thumbnails.
 - **Speed:** results are cached by input, so a re-analysis only redoes what changed.
 
 ---
@@ -88,8 +95,9 @@ Swift owns.
   - Click sends the prompt.
   - ⌥-click types it without sending, so you can edit it first.
 - **Dictation:** the 🎤 button transcribes speech with Whisper and types the text at the
-  prompt without sending it. The same 🎤 is in the text of **New Feature**, **New Bug** and
-  **I Need to Understand**: click to record, click again and the text goes to the cursor
+  prompt without sending it. The same 🎤 is in **New Feature** and **New Bug**;
+  **I Need to Understand** and **New Research** have a labelled **Dictate** button.
+  Click to record, click again and the text goes to the cursor
   (Esc cancels). The 🎤 appears only when an OpenAI key is set. Dictated audio is sent to
   OpenAI and billed to that key. It is not stored, and a recording stops at 10 minutes.
 - **Switching:** the toolbar picks the assistant and model. Switching the assistant

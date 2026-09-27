@@ -21,7 +21,7 @@ enum IntakeKind: String, Identifiable, CaseIterable {
         switch self {
         case .feature: return "Describe the feature as you know it — what, why, for whom, ideas, constraints, links, anything. Drop files and screenshots too."
         case .bug: return "What goes wrong? Where, when, what you expected, what happened instead, error messages, logs, screenshots."
-        case .understand: return "What do you need to understand about this project? The X-Ray searches the code, documents and deployment for it, marks what takes part and answers on the right."
+        case .understand: return "Ask what a project part is, why it exists, how it works, or where it came from. X-Ray opens with an explained answer and clickable evidence from code, documents and history."
         case .research: return "Ask an open analytical question: how to replace one app with another, what would make the product more widely used, which features are missing, a review of a document. The AI studies the repository (and the web when useful) and saves a research report with findings, recommendations and sources that you can deepen later."
         }
     }
