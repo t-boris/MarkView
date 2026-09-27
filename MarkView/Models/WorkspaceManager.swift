@@ -3096,14 +3096,15 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// The command that starts `profile` in the shell with the model chosen for it, or nil
-    /// for a plain shell. Claude updates itself first and runs without permission prompts.
+    /// for a plain shell. Every assistant runs without permission prompts; Claude updates itself first.
     private func startupCommand(for profile: TerminalProfile) -> String? {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let run = ([quoted] + tool.modelArgs(AIAssistantPreferences.model(for: tool))).joined(separator: " ")
+        let run = ([quoted] + tool.modelArgs(AIAssistantPreferences.model(for: tool)) + tool.fullAccessArgs)
+            .joined(separator: " ")
         switch tool {
-        case .claude: return "\(quoted) update && \(run) --dangerously-skip-permissions"
+        case .claude: return "\(quoted) update && \(run)"
         case .codex, .cline, .copilot: return run
         }
     }

@@ -1,5 +1,17 @@
 # MarkView — Follow-up Tasks
 
+## Active 44: BUG-005 + BUG-006 — AI terminal resume and full access (2026-09-27, branch fix/ai-terminal-resume-full-access)
+
+Flags checked with `--help` of the installed CLIs (claude 2.1.283, codex 0.157.1, cline 3.0.65, copilot 1.0.88).
+
+- [x] CI: `main` red since 2.13 — Xcode 16 cannot type-check `AgentModelProbe.recentFiles` (LifecycleCapture.swift:53)
+- [x] BUG-006: per-tool `CLITool.fullAccessArgs` (claude `--dangerously-skip-permissions`, codex
+      `--dangerously-bypass-approvals-and-sandbox`, cline `--auto-approve true`, copilot `--allow-all`) in `startupCommand`
+- [ ] BUG-005: save the AI panel's terminals per workspace (profiles, order, shown one); `ensureAITerminal` reopens
+      them after a relaunch, each assistant with `CLITool.continueArgs` (claude `--continue` only when a session log
+      exists for the folder, codex `resume --last`, copilot `--continue`; Cline has none → fresh). Restarts and
+      model changes start fresh (the resume command is used for the first start only)
+
 ## Done 43: Batch "Fix with AI" for multiple bugs (2026-09-27, issue #31, branch feat/batch-fix-with-ai, 2.21.0)
 
 Spec: `docs/features/batch-fix-with-ai-for-multiple-bugs/` (REQ-001…006, DEC-001…013, plan I-1…I-6).

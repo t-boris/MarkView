@@ -59,6 +59,17 @@ enum CLITool: String, CaseIterable {
         }
     }
 
+    /// Arguments that let the interactive CLI in an AI terminal act without approval prompts:
+    /// every assistant there always runs with full access (BUG-006).
+    var fullAccessArgs: [String] {
+        switch self {
+        case .claude: return ["--dangerously-skip-permissions"]
+        case .codex: return ["--dangerously-bypass-approvals-and-sandbox"]
+        case .cline: return ["--auto-approve", "true"]
+        case .copilot: return ["--allow-all"]
+        }
+    }
+
     /// Arguments that select `model` for one run.
     func modelArgs(_ model: String?) -> [String] {
         guard let model else { return [] }
