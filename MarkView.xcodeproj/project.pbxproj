@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B46000000000000000000012 /* NewProjectSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46000000000000000000011 /* NewProjectSheet.swift */; };
+		B46000000000000000000010 /* GitHubPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46000000000000000000009 /* GitHubPublisher.swift */; };
+		B46000000000000000000008 /* NewProjectFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46000000000000000000007 /* NewProjectFlow.swift */; };
+		B46000000000000000000006 /* ProjectBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46000000000000000000005 /* ProjectBootstrap.swift */; };
+		B46000000000000000000004 /* ProjectDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46000000000000000000003 /* ProjectDraftStore.swift */; };
+		B46000000000000000000002 /* NewProject.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46000000000000000000001 /* NewProject.swift */; };
 		D724CF15C06243A08C1D22A4 /* WindowSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D724CF15C06243A08C1D22A3 /* WindowSessionController.swift */; };
 		D724CF15C06243A08C1D22A2 /* WindowSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D724CF15C06243A08C1D22A1 /* WindowSession.swift */; };
 		A92300000000000000000002 /* IntakeTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92300000000000000000001 /* IntakeTextEditor.swift */; };
@@ -130,6 +136,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B46000000000000000000011 /* NewProjectSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectSheet.swift; sourceTree = "<group>"; };
+		B46000000000000000000009 /* GitHubPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubPublisher.swift; sourceTree = "<group>"; };
+		B46000000000000000000007 /* NewProjectFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectFlow.swift; sourceTree = "<group>"; };
+		B46000000000000000000005 /* ProjectBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBootstrap.swift; sourceTree = "<group>"; };
+		B46000000000000000000003 /* ProjectDraftStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectDraftStore.swift; sourceTree = "<group>"; };
+		B46000000000000000000001 /* NewProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProject.swift; sourceTree = "<group>"; };
 		D724CF15C06243A08C1D22A3 /* WindowSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSessionController.swift; sourceTree = "<group>"; };
 		D724CF15C06243A08C1D22A1 /* WindowSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSession.swift; sourceTree = "<group>"; };
 		A92300000000000000000001 /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
@@ -256,6 +268,11 @@
 				921A34A74571B93AEDC2B018 /* OutputLanguage.swift */,
 				E16873462855109449748792 /* GitClient.swift */,
 				E14572385577894328192737 /* FeatureIntake.swift */,
+				B46000000000000000000009 /* GitHubPublisher.swift */,
+				B46000000000000000000007 /* NewProjectFlow.swift */,
+				B46000000000000000000005 /* ProjectBootstrap.swift */,
+				B46000000000000000000003 /* ProjectDraftStore.swift */,
+				B46000000000000000000001 /* NewProject.swift */,
 				E13074343125196662950763 /* FeatureIngest.swift */,
 				E18556049108932663194623 /* FeatureAI.swift */,
 				E17997508774002452137485 /* FeatureStore.swift */,
@@ -293,6 +310,7 @@
 				E10772207776679932541302 /* FeaturePanelView.swift */,
 				E16687301639066130688672 /* FeatureNavigatorView.swift */,
 				A92300000000000000000001 /* IntakeTextEditor.swift */,
+				B46000000000000000000011 /* NewProjectSheet.swift */,
 				C31B0A5E7D2F968778695C05 /* BugBasketView.swift */,
 				E15392467522045207504274 /* LifecycleViews.swift */,
 				E10000000000000000034104 /* DictationViews.swift */,
@@ -532,6 +550,12 @@
 				6048E5A3B3B555A7893C6C3B /* OutputLanguage.swift in Sources */,
 				E12543631103902005656115 /* GitClient.swift in Sources */,
 				E11314692201596100464779 /* FeatureIntake.swift in Sources */,
+				B46000000000000000000012 /* NewProjectSheet.swift in Sources */,
+				B46000000000000000000010 /* GitHubPublisher.swift in Sources */,
+				B46000000000000000000008 /* NewProjectFlow.swift in Sources */,
+				B46000000000000000000006 /* ProjectBootstrap.swift in Sources */,
+				B46000000000000000000004 /* ProjectDraftStore.swift in Sources */,
+				B46000000000000000000002 /* NewProject.swift in Sources */,
 				E11732599971919576220456 /* FeatureIngest.swift in Sources */,
 				E18599223609103262129428 /* FeatureAI.swift in Sources */,
 				E12290185390351605194991 /* FeatureStore.swift in Sources */,
@@ -603,7 +627,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.23.2;
+				CURRENT_PROJECT_VERSION = 2.24.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -618,7 +642,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.23.2;
+				MARKETING_VERSION = 2.24.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -682,7 +706,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.23.2;
+				CURRENT_PROJECT_VERSION = 2.24.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -703,7 +727,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.23.2;
+				MARKETING_VERSION = 2.24.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

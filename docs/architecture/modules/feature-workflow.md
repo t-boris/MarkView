@@ -484,6 +484,31 @@ The first load only records a baseline (no backfill). A restart suppresses event
 
 ---
 
+### 5.10 Start a Project from Scratch (feature `start-a-project-from-scratch`)
+
+Entry points: the welcome screen's **New Project...** (with Resume/Discard for unfinished drafts), File › New
+Project… (a window with a folder opens a new window for it, `MarkViewApp.pendingNewProject`).
+
+1. **Draft** (`NewProjectFlow`, `ProjectDraftStore`): the idea is saved at once as `ProjectDraft`; the draft's
+   `workspace/` is the root of a separate `FeatureStore` (`recordsLifecycle = false`) and its `FeatureAssistant`
+   (`projectDiscovery = true`: an extra system-prompt paragraph, a project-worded intake prompt, and `answer()`
+   asks a new question only when no other question is open). `gitHubClient` stays nil, so no issue is filed (DEC-021).
+2. **Clarify** (`NewProjectSheet` › `ClarifyStep`): the brief (overview Idea/Problem/Scope, requirements,
+   decisions) and the discovery's own `QuestionCard`, blocking questions first. **Confirm Brief** needs a goal and
+   no open blocking question (`ProjectConfirmation`, DEC-016); it writes `confirmed: <date>` to the overview.
+3. **Create** (`ProjectBootstrap.run`): parent folder + name; the folder is created only if the path does not
+   exist (no intermediate directories). The specification folder is copied to `docs/features/<slug>/`, a README
+   and `.gitignore` (`.dde/`) are written, `git init -b main`; nothing is committed. Each stage is recorded in
+   the draft (`createdPath`, `filesWritten`, `gitInitialized`) so Retry continues only in that folder. The draft is
+   removed after success and `WorkspaceManager.openCreatedProject` opens the folder with the spec selected.
+4. **GitHub** (`GitHubPublisher`, `GitHubPublishView`), also from the Git tab's cloud button and File › Publish
+   to GitHub…: account and owners from `gh`, name, explicit visibility; `check()` refuses another origin, a repo
+   without push access, and an existing repo with history unless MarkView created/pushed it or origin already
+   points to it. `publish()`: `gh repo create` (only if still missing), commit of the reviewed files, `origin`
+   added only when missing, `git push -u` with gh as credential helper for HTTPS, then remote branch == HEAD and
+   upstream `origin/<branch>`, then `activateGitHub` (turns `settings.github.enabled` on and waits for the repo in
+   `GitHubStore.repos`). Progress lives in `.dde/github-connection.json`.
+
 ## 6. Data model and persistence
 
 ### 6.1 Layout

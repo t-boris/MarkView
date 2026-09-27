@@ -34,6 +34,8 @@ documents, but no user content.
 | `~/Library/Application Support/MarkView/lifecycle-events.jsonl` | Append-only JSON Lines, ISO 8601, sorted keys. Never rotated | `LifecycleLog` |
 | `~/Library/Application Support/MarkView/<folder>/` | SQLite fallback when `.dde/` can't be created | `SemanticDatabase` |
 | `~/Library/Application Support/MarkView/login-<tool>.command`, `login-github.command` | zsh scripts (0755), never deleted | sign-in helpers |
+| `~/Library/Application Support/MarkView/ProjectDrafts/<uuid>/` | `draft.json` (`ProjectDraft`, ISO 8601) and `workspace/docs/features/<slug>/` — a new project before its folder exists. Removed after a successful bootstrap or Discard. A build with another bundle ID uses `MarkView-<bundle id>/` | `ProjectDraftStore` |
+| `<project>/.dde/github-connection.json` | `GitHubConnectionRecord`: target, visibility, created/committed/pushed. Deleted once connected | `GitHubPublisher` |
 | `~/Library/Caches/MarkView/pull-requests/<hash>/PR-<n>-<head>/…`, `base-<sha>/…` | file copies | PR X-Ray |
 | `~/Library/Caches/MarkView/pasted-images/image-<ms>.png` | PNG, never cleaned | terminal paste |
 | `~/markview_debug.log` | text, never rotated, includes file paths | `debugLog` |
