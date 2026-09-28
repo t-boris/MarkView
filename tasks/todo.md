@@ -1,5 +1,12 @@
 # MarkView — Follow-up Tasks
 
+## Done 52: BUG-012 X-Ray Logical view scatters a large folder (2026-09-28, issue #58, branch fix/bug-012-xray-scatter, 2.26.2)
+
+- [x] Reproduced headlessly from `.dde/state.db` with the bundled Cytoscape + ELK: MarkView/Models 2% fill
+- [x] Root cause: `layered` for any linked box, however many children; measured tuned layered, stress, force, packing
+- [x] Fix: `flowLimit` 20 — larger boxes always packed (owner's choice; grouping by meaning is a separate feature)
+- [x] Verified: 48-box replay sweep (min fill 2% → 55%, no overlaps); test copy fixed vs 2.26.1 screenshots
+
 ## Done 51: BUG-011 Implementation agent repeats answered questions (2026-09-27, issue #52, branch fix/bug-011-repeated-questions, 2.26.1)
 
 - [x] Measured the suspected handoff prompt: 6 headless runs (Claude, Codex) on a fixture + 24 real transcripts → minor cause
