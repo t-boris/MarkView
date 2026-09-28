@@ -394,6 +394,12 @@ class WorkspaceManager: ObservableObject {
         set { fileTreeStore.setRootNode(newValue) }
     }
 
+    /// False while the root is only a single file's folder (feature-2, DEC-012).
+    @Published private(set) var rootOpenedAsFolder = false
+
+    /// The open project folder, the one that gets a project color; nil for a single file's folder.
+    var projectFolder: URL? { rootOpenedAsFolder ? rootNode?.url : nil }
+
     var openTabs: [OpenTab] {
         get { tabsStore.openTabs }
         set { tabsStore.openTabs = newValue }
@@ -462,6 +468,7 @@ class WorkspaceManager: ObservableObject {
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
+        rootOpenedAsFolder = true
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
         architecture.reset()
@@ -1622,6 +1629,7 @@ class WorkspaceManager: ObservableObject {
 
             // Build file tree showing just the parent dir
             if rootNode == nil {
+                rootOpenedAsFolder = false
                 fileTreeStore.setRootNode(FileNode.buildTree(from: parentDir, sortOrder: fileTreeStore.sortOrder))
                 fileTreeStore.loadExcludedFolders()
             }

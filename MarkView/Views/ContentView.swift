@@ -89,6 +89,9 @@ struct ContentView: View {
     @State private var hostWindow: NSWindow?
     /// Finder name of the open folder, for the window title; nil without a folder.
     @State private var workspaceFolderName: String?
+    /// Project color identity of the open project folder; nil without one (feature-2, DEC-012).
+    @State private var projectKey: String?
+    @ObservedObject private var projectColors = ProjectColorStore.shared
     @State private var sessionAttached = false
     @State private var restorationComplete = false
 
@@ -154,6 +157,9 @@ struct ContentView: View {
                     .frame(minWidth: 200, idealWidth: 300)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let projectKey { ProjectColorBand(color: projectColors.color(forKey: projectKey)) }
+        }
         .toolbar {
             // Panels, side by side at the leading edge.
             ToolbarItemGroup(placement: .navigation) {
@@ -166,6 +172,11 @@ struct ContentView: View {
                     Image(systemName: "sidebar.trailing")
                 }
                 .help("Contents / Search / Git / Terminal panel (⌘2)")
+
+                // Last in the group, so it sits beside the window title.
+                if let projectKey {
+                    ProjectColorButton(store: projectColors, projectKey: projectKey)
+                }
             }
 
             ToolbarItemGroup(placement: .primaryAction) {
@@ -257,6 +268,7 @@ struct ContentView: View {
         // "MarkView 2.18.0 — my-project" and the folder as the proxy icon, per window (issue #25).
         .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
+        .onChange(of: workspaceManager.rootOpenedAsFolder) { _ in updateWindowIdentity() }
         // Finder "Open With" / Quick Action: requests wait in
         // MarkViewApp.pendingOpenURLs until the active window takes them.
         // Drain on every moment this window may have become eligible — a new
@@ -288,12 +300,14 @@ struct ContentView: View {
         }
     }
 
-    /// Title and proxy icon follow the workspace root: every way of opening, restoring or
-    /// closing a folder changes `rootNode`.
+    /// Title, proxy icon and project color follow the workspace root: every way of opening,
+    /// restoring or closing a folder changes `rootNode`.
     private func updateWindowIdentity() {
         let root = workspaceManager.rootNode?.url
         workspaceFolderName = root.map(WindowTitle.folderName(of:))
         hostWindow?.representedURL = root
+        projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
+        if let projectKey { projectColors.assignIfNeeded(key: projectKey) }
     }
 
     private func attachWindowSession() {
