@@ -177,7 +177,6 @@ struct ContentView: View {
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
-    @State private var showGitHubDetail = true
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -227,12 +226,20 @@ struct ContentView: View {
             case .file, .image, .terminal:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
+                if case .file = tab.kind,
+                   let feature = workspaceManager.features.locate(tab.url)?.feature {
+                    workspaceManager.showFeatureContext(feature.slug)
+                }
             case .architecture, .insight:
                 workspaceManager.layout.workspaceArea = .projectMap
-            case .github:
-                showGitHubDetail = true
-                workspaceManager.layout.workSection = .git
-                workspaceManager.layout.workspaceArea = .work
+            case .github(let item):
+                workspaceManager.layout.workspaceArea = .files
+                workspaceManager.layout.navigatorTab = .git
+                switch item {
+                case .issue: workspaceManager.layout.gitSection = .issues
+                case .run: workspaceManager.layout.gitSection = .actions
+                }
+                workspaceManager.terminalVisible = true
             }
             workspaceManager.showCenter = true
         }
@@ -361,12 +368,20 @@ struct ContentView: View {
                             .buttonStyle(.plain)
                             .frame(width: 22 * min(1.5, max(1, appFontScale)))
                     }
-                    Text(workspaceFolderName ?? "MarkView")
-                        .uiFont(size: 12, weight: .semibold)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(workspaceFolderName ?? "MarkView")
-                        .accessibilityLabel(workspaceFolderName.map { "Project: \($0)" } ?? "MarkView")
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(workspaceFolderName ?? "MarkView")
+                            .uiFont(size: 12, weight: .semibold)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if !MarkViewApp.version.isEmpty {
+                            Text("MarkView v\(MarkViewApp.version)")
+                                .uiFont(size: 10, weight: .medium)
+                                .foregroundColor(VSDark.text)
+                                .lineLimit(1)
+                        }
+                    }
+                    .help(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
+                    .accessibilityLabel("\(workspaceFolderName.map { "Project: \($0), " } ?? "")MarkView version \(MarkViewApp.version)")
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 12)
@@ -377,7 +392,7 @@ struct ContentView: View {
                 Spacer(minLength: 4)
                 if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
                     headerButton("list.bullet.indent", help: "Document contents (⌘2)", width: controlWidth,
-                                 selected: workspaceManager.terminalVisible && workspaceManager.showTOC) {
+                                 selected: workspaceManager.terminalVisible && workspaceManager.layout.navigatorTab == .contents) {
                         workspaceManager.toggleContext()
                     }
                 }
@@ -470,12 +485,13 @@ struct ContentView: View {
     }
 
     private var rightPane: some View {
-        Group {
-            if workspaceManager.showTOC && hasDocumentContents {
-                TOCView(layout: workspaceManager.layout, showTabs: false)
+        VStack(spacing: 0) {
+            TOCView(layout: workspaceManager.layout)
+                .environmentObject(workspaceManager)
+            if workspaceManager.rootNode != nil {
+                Divider()
+                ProjectChangeReviewBar(review: changeReview)
                     .environmentObject(workspaceManager)
-            } else {
-                ModuleExplorerView().environmentObject(workspaceManager)
             }
         }
     }
@@ -486,13 +502,9 @@ struct ContentView: View {
     }
 
     private var workspaceCenter: some View {
-        ZStack {
+        VStack(spacing: 0) {
+            TabBarView().environmentObject(workspaceManager)
             filesCenter
-                .opacity(workspaceManager.layout.workspaceArea == .work ? 0 : 1)
-                .allowsHitTesting(workspaceManager.layout.workspaceArea != .work)
-            if workspaceManager.layout.workspaceArea == .work {
-                workCenter
-            }
         }
         .background(VSDark.bg)
     }
@@ -505,9 +517,6 @@ struct ContentView: View {
             if let resume = workspaceManager.handoffResume,
                workspaceManager.layout.workspaceArea == .files {
                 HandoffResumeBar(resume: resume).environmentObject(workspaceManager)
-            }
-            if !workspaceManager.openTabs.isEmpty {
-                TabBarView().environmentObject(workspaceManager)
             }
             if workspaceManager.openTabs.indices.contains(workspaceManager.activeTabIndex) {
                 ZStack {
@@ -538,65 +547,6 @@ struct ContentView: View {
         }
     }
 
-    private var workCenter: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                ForEach([WorkSection.features, .git]) { section in
-                    Button {
-                        workspaceManager.layout.workSection = section
-                        if section == .git { showGitHubDetail = false }
-                    } label: {
-                        Label(section.rawValue, systemImage: section.symbol)
-                            .uiFont(size: 12, weight: workspaceManager.layout.workSection == section ? .semibold : .regular)
-                            .padding(.horizontal, 10).padding(.vertical, 7)
-                            .background(workspaceManager.layout.workSection == section ? VSDark.bgActive : Color.clear)
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                    .help(section.rawValue)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(VSDark.bgSidebar)
-            Divider()
-            switch workspaceManager.layout.workSection {
-            case .features:
-                VStack(spacing: 0) {
-                    if let feature = workspaceManager.features.active {
-                        HandoffPanelView(feature: feature).environmentObject(workspaceManager)
-                    }
-                    FeaturePanelView(store: workspaceManager.features, layout: workspaceManager.layout)
-                        .environmentObject(workspaceManager)
-                }
-            case .git:
-                if showGitHubDetail, let tab = workspaceManager.activeTab,
-                   case .github(let item) = tab.kind {
-                    VStack(spacing: 0) {
-                        HStack {
-                            Button("Back to Git") { showGitHubDetail = false }
-                            Spacer()
-                            Text(item.title).lineLimit(1)
-                        }
-                        .padding(8)
-                        GitHubTabView(item: item)
-                            .environmentObject(workspaceManager)
-                            .id(tab.id)
-                    }
-                } else {
-                    GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
-                }
-            case .terminal:
-                ModuleExplorerView().environmentObject(workspaceManager)
-            }
-            if workspaceManager.rootNode != nil {
-                Divider()
-                ProjectChangeReviewBar(review: changeReview)
-                    .environmentObject(workspaceManager)
-            }
-        }
-    }
-
     private func activate(_ area: WorkspaceArea) {
         workspaceManager.showCenter = true
         switch area {
@@ -617,7 +567,8 @@ struct ContentView: View {
             workspaceManager.openArchitecture()
         case .work:
             workspaceManager.layout.workspaceArea = .work
-            workspaceManager.layout.workSection = .features
+            workspaceManager.layout.leftPanel = "issues"
+            workspaceManager.showFeatureContext(workspaceManager.features.active?.slug)
         }
     }
 

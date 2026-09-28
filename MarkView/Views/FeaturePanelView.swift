@@ -358,9 +358,13 @@ struct ResultCard: View {
 /// Free-form discussion with the facilitator (spec §32), always at the bottom of the tab.
 struct DiscussionInput: View {
     @EnvironmentObject private var assistant: FeatureAssistant
+    @EnvironmentObject private var workspaceManager: WorkspaceManager
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @State private var text = ""
+    @StateObject private var dictation = DictationController()
+    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
+    @FocusState private var textFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -368,7 +372,20 @@ struct DiscussionInput: View {
             HStack(alignment: .bottom, spacing: 6) {
                 TextField("Discuss this feature…", text: $text, axis: .vertical)
                     .textFieldStyle(.plain).uiFont(size: 11).lineLimit(1...5)
+                    .focused($textFocused)
                     .onSubmit(send)
+                if openAIKey.isEmpty {
+                    Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
+                        Image(systemName: "mic").uiFont(size: 13).foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Set up voice input in DDE Settings")
+                    .accessibilityLabel("Set up voice input")
+                } else {
+                    DictationButton(dictation: dictation) { transcript, window in
+                        DictationInsertion.insert(transcript, window: window, fieldFocused: textFocused, text: &text)
+                    }
+                }
                 if assistant.isRunning("chat:" + feature.slug) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
                 } else {
@@ -378,7 +395,11 @@ struct DiscussionInput: View {
             }
             .padding(8)
             .background(VSDark.bgInput)
+            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
+                .padding(.horizontal, 8)
         }
+        .onDisappear { dictation.cancel() }
+        .onChange(of: feature.slug) { _ in dictation.cancel(); text = "" }
     }
 
     private func send() {

@@ -1,5 +1,13 @@
 # MarkView — Follow-up Tasks
 
+## Done 54: Workspace tabs, version, and Feature discussion dictation (2026-09-28, 3.1.0)
+
+- [x] Mark workspace redesign verified after merged PR #65 and documented QA; update Issue #63.
+- [x] Show the app version beside the project name in every workspace window.
+- [x] Keep the Files/Issues sidebar selection independent of center tabs; restore Contents, Search, Git, Terminal, and Tasks in the right column.
+- [x] Open task documents, GitHub issues, and workflow runs in center tabs while their Tasks or Git context stays visible on the right.
+- [x] Add the existing dictation flow to Discuss this feature, with a setup route when no API key is configured.
+
 ## Done 53: Project color identification (2026-09-28, issue #60, branch feat/project-color-identity, 2.27.0)
 
 Spec: `docs/features/feature-2/` (REQ-001/002, DEC-001…013). Owner answers during implementation

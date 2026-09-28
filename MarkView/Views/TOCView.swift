@@ -36,7 +36,14 @@ struct TOCView: View {
             case .search: WorkspaceSearchView().environmentObject(workspaceManager)
             case .git: GitView(git: workspaceManager.gitClient, workspaceManager: workspaceManager)
             case .terminal: ModuleExplorerView().environmentObject(workspaceManager)
-            case .feature: FeaturePanelView(store: workspaceManager.features, layout: layout)
+            case .feature:
+                VStack(spacing: 0) {
+                    if let tab = workspaceManager.activeTab,
+                       let feature = workspaceManager.features.locate(tab.url)?.feature {
+                        HandoffPanelView(feature: feature).environmentObject(workspaceManager)
+                    }
+                    FeaturePanelView(store: workspaceManager.features, layout: layout)
+                }
             }
     }
 
@@ -111,7 +118,7 @@ private struct TOCTabs<Content: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(TOCView.Tab.allCases.filter { $0 != .feature || store.hasIssues }, id: \.self) { tab in
-                    VSDarkTabButton(title: tab.rawValue, isSelected: selectedTab == tab) {
+                    VSDarkTabButton(title: tab == .feature ? "Tasks" : tab.rawValue, isSelected: selectedTab == tab) {
                         selectedTab = tab
                     }
                 }

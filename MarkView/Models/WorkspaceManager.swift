@@ -367,7 +367,19 @@ class WorkspaceManager: ObservableObject {
     func toggleContext() {
         guard let tab = activeTab, case .file = tab.kind,
               ["md", "markdown"].contains(tab.url.pathExtension.lowercased()) else { return }
-        showTOC.toggle()
+        showTOC = true
+        layout.navigatorTab = .contents
+        terminalVisible = true
+    }
+
+    /// Keep the selected task visible beside its documents in the right column.
+    func showFeatureContext(_ slug: String?) {
+        if let slug {
+            features.activeSlug = slug
+            layout.issuesFeature = slug
+        }
+        layout.navigatorTab = .feature
+        showTOC = true
         terminalVisible = true
     }
 
@@ -782,6 +794,9 @@ class WorkspaceManager: ObservableObject {
         let isMD = url.pathExtension.lowercased() == "md"
         if isMD && !isFileInCurrentWorkspace(url) {
             initSingleFileWorkspace(fileURL: url)
+        }
+        if let feature = features.locate(url)?.feature {
+            showFeatureContext(feature.slug)
         }
 
         // Check if file is already open
@@ -3358,15 +3373,17 @@ class WorkspaceManager: ObservableObject {
     /// Show the terminal in the right column without changing other columns.
     func showAIConsole() {
         showTOC = false
+        layout.navigatorTab = .terminal
         terminalVisible = true
     }
 
     func toggleAIConsole() {
-        if terminalVisible && !showTOC {
+        if terminalVisible && layout.navigatorTab == .terminal {
             guard showFileTree || showCenter else { return }
             terminalVisible = false
         } else {
             showTOC = false
+            layout.navigatorTab = .terminal
             terminalVisible = true
         }
     }
@@ -3876,8 +3893,15 @@ class WorkspaceManager: ObservableObject {
     /// Open (or switch to) the editor tab of a workflow run or an issue.
     func openGitHubTab(_ item: GitHubItem) {
         guard let root = rootNode?.url ?? gitHub.root else { return }
-        layout.workspaceArea = .work
+        layout.workspaceArea = .files
         layout.workSection = .git
+        layout.navigatorTab = .git
+        switch item {
+        case .issue: layout.gitSection = .issues
+        case .run: layout.gitSection = .actions
+        }
+        showCenter = true
+        terminalVisible = true
         let url = root.appendingPathComponent(item.marker)
         if tabsStore.selectTab(matching: url) != nil { return }
         var tab = OpenTab(url: url, content: "", originalContent: "")

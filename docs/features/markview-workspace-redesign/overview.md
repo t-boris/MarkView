@@ -2,7 +2,7 @@
 type: feature
 id: markview-workspace-redesign
 title: MarkView Workspace Redesign
-status: implementing
+status: verified
 owner: Boris Tsekinovsky
 created: 2026-09-28
 provenance: Created from the feature intake
@@ -47,3 +47,7 @@ The current window places file navigation, editing, X-Ray, search, Git, terminal
 ## Scope
 
 In: the application shell, start screen, Files/editor, X-Ray/Project Map, feature and Git work areas, terminal placement, search, AI action presentation, project identity, and shared visual styling. Preserve existing behaviors throughout. Out for this initial specification: a claim that the redesign will increase popularity, final pixel dimensions, a replacement editor engine, and a commitment to installation or release-process changes; these need separate evidence or decisions.
+
+## Completion
+
+The three-column redesign shipped in MarkView 3.0.0 through [PR #65](https://github.com/t-boris/MarkView/pull/65). Its implementation and running-app checks are recorded in [verification.md](implementation/verification.md). The full live assistant and GitHub action matrix remains a separate integration check, as documented there.

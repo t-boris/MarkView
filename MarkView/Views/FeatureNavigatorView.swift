@@ -26,8 +26,16 @@ private struct LeftPanelContent: View {
     }
 
     var body: some View {
-        let showingIssues = layout.workspaceArea == .work && store.hasIssues
+        let showingIssues = mode == "issues" && store.hasIssues
         VStack(spacing: 0) {
+            if store.hasIssues {
+                HStack(spacing: 4) {
+                    sidebarButton("Files", symbol: "folder", selected: !showingIssues) { mode = "files" }
+                    sidebarButton("Issues", symbol: "checklist", selected: showingIssues) { mode = "issues" }
+                }
+                .padding(6)
+                Divider().background(VSDark.border)
+            }
             if showingIssues {
                 if let slug = openFeature, store.feature(slug) != nil {
                     FeatureNavigatorView(store: store, onBack: { openFeature = nil })
@@ -35,6 +43,10 @@ private struct LeftPanelContent: View {
                     IssuesListView(store: store, batch: workspaceManager.bugBatch) { slug in
                         store.activeSlug = slug
                         openFeature = slug
+                        workspaceManager.showFeatureContext(slug)
+                        if let feature = store.feature(slug) {
+                            workspaceManager.openFile(feature.overviewURL)
+                        }
                     }
                 }
                 // The basket stays in view while features are opened and closed (REQ-001).
@@ -44,6 +56,20 @@ private struct LeftPanelContent: View {
             }
         }
         .background(VSDark.bgSidebar)
+    }
+
+    private func sidebarButton(_ title: String, symbol: String, selected: Bool,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .uiFont(size: 11, weight: selected ? .semibold : .regular)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
+                .background(selected ? VSDark.bgActive : Color.clear)
+                .cornerRadius(5)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show \(title) sidebar")
     }
 }
 
@@ -148,7 +174,10 @@ struct IssuesListView: View {
     }
 
     private func bugButton(_ bug: BugReport) -> some View {
-        Button(action: { workspaceManager.openFile(bug.url) }) {
+        Button(action: {
+            workspaceManager.showFeatureContext(nil)
+            workspaceManager.openFile(bug.url)
+        }) {
             HStack(spacing: 5) {
                 Image(systemName: "ladybug").uiFont(size: 9)
                     .foregroundColor(["critical", "high"].contains(bug.severity) ? VSDark.red : VSDark.orange).frame(width: 12)
