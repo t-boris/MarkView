@@ -9,6 +9,7 @@ final class WhisperClient {}
     var session: TerminalSession!
     var window: NSWindow!
     var launched = false
+    var readySize: (cols: Int, rows: Int)?
     var checks = 0
     var failures = 0
 
@@ -20,7 +21,8 @@ final class WhisperClient {}
     func pause(_ ms: UInt64 = 150) async { try? await Task.sleep(nanoseconds: ms * 1_000_000) }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         session.userContentController(controller, didReceive: message)
-        if (message.body as? [String: Any])?["type"] as? String == "ready", !launched {
+        if let body = message.body as? [String: Any], body["type"] as? String == "ready", !launched {
+            readySize = (body["cols"] as? Int ?? 0, body["rows"] as? Int ?? 0)
             launched = true
             Task { await run() }
         }
@@ -28,6 +30,11 @@ final class WhisperClient {}
     func run() async {
         do {
             await pause(1500)
+            // Simulate xterm cell metrics arriving after the initial fit and the
+            // first ResizeObserver callback. No native resize should be needed.
+            let initialFit = try await js("testFit.proposeDimensions()") as! [String: Int]
+            check(readySize?.cols == initialFit["cols"] && readySize?.rows == initialFit["rows"],
+                  "initial ready waits for valid cell metrics and reports the fitted grid")
             for width in [300, 500, 699, 941, 1200, 2400, 3440] {
                 window.setContentSize(NSSize(width: width, height: 480))
                 await pause(250)
@@ -60,12 +67,14 @@ final class WhisperClient {}
                             return {left: host.left, right: innerWidth - host.right,
                                 screenRight: screen.right, lastRight: last.right,
                                 rowRight: row.getBoundingClientRect().right,
-                                hostRight: host.right};
+                                hostRight: host.right, screenBottom: screen.bottom, hostBottom: host.bottom};
                         })()
                         """) as! [String: Double]
                     check(metrics["left"] == 8 && metrics["right"] == 4, "\(width)px: page insets, alt=\(alternate)")
                     check(metrics["lastRight"]! <= metrics["rowRight"]! && metrics["lastRight"]! <= metrics["hostRight"]!,
                           "\(width)px: final TUI cell fully visible, alt=\(alternate), metrics=\(metrics)")
+                    check(metrics["screenBottom"]! <= metrics["hostBottom"]!,
+                          "\(width)px: bottom TUI row fits, alt=\(alternate), metrics=\(metrics)")
                 }
                 _ = try await js("mvReset()")
             }
@@ -97,6 +106,15 @@ final class WhisperClient {}
             Object.defineProperty(window, 'MVTerm', { configurable: true, set(v) {
                 const Original = v.Terminal;
                 v.Terminal = class extends Original { constructor(o) { super(o); window.testTerm = this; } };
+                const OriginalFit = v.FitAddon;
+                let attempts = 0;
+                v.FitAddon = class extends OriginalFit {
+                    constructor() { super(); window.testFit = this; }
+                    proposeDimensions() {
+                        if (++attempts <= 2) return undefined;
+                        return super.proposeDimensions();
+                    }
+                };
                 Object.defineProperty(window, 'MVTerm', { value: v, writable: true, configurable: true });
             }});
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
