@@ -31,6 +31,7 @@
 		E12290185390351605194991 /* FeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17997508774002452137485 /* FeatureStore.swift */; };
 		E13141936367417093244259 /* FeatureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16484821693680626118454 /* FeatureModels.swift */; };
 		B2E0C7A1D4F3968778695B04 /* IssueListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0C7A1D4F3968778695B03 /* IssueListing.swift */; };
+		E6B2D4F8A1C3968778695E02 /* HandoffPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B2D4F8A1C3968778695E01 /* HandoffPrompt.swift */; };
 		D5A1C3E7F9B2968778695D04 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A1C3E7F9B2968778695D03 /* IssueSyncRun.swift */; };
 		D5A1C3E7F9B2968778695D02 /* IssueSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A1C3E7F9B2968778695D01 /* IssueSync.swift */; };
 		B2E0C7A1D4F3968778695B06 /* WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */; };
@@ -166,6 +167,7 @@
 		E17997508774002452137485 /* FeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStore.swift; sourceTree = "<group>"; };
 		E16484821693680626118454 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
 		B2E0C7A1D4F3968778695B03 /* IssueListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueListing.swift; sourceTree = "<group>"; };
+		E6B2D4F8A1C3968778695E01 /* HandoffPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffPrompt.swift; sourceTree = "<group>"; };
 		D5A1C3E7F9B2968778695D03 /* IssueSyncRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSyncRun.swift; sourceTree = "<group>"; };
 		D5A1C3E7F9B2968778695D01 /* IssueSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSync.swift; sourceTree = "<group>"; };
 		B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTitle.swift; sourceTree = "<group>"; };
@@ -287,6 +289,7 @@
 				E17997508774002452137485 /* FeatureStore.swift */,
 				E16484821693680626118454 /* FeatureModels.swift */,
 				B2E0C7A1D4F3968778695B03 /* IssueListing.swift */,
+				E6B2D4F8A1C3968778695E01 /* HandoffPrompt.swift */,
 				D5A1C3E7F9B2968778695D03 /* IssueSyncRun.swift */,
 				D5A1C3E7F9B2968778695D01 /* IssueSync.swift */,
 				B2E0C7A1D4F3968778695B05 /* WindowTitle.swift */,
@@ -575,6 +578,7 @@
 				E12290185390351605194991 /* FeatureStore.swift in Sources */,
 				E13141936367417093244259 /* FeatureModels.swift in Sources */,
 				B2E0C7A1D4F3968778695B04 /* IssueListing.swift in Sources */,
+				E6B2D4F8A1C3968778695E02 /* HandoffPrompt.swift in Sources */,
 				D5A1C3E7F9B2968778695D04 /* IssueSyncRun.swift in Sources */,
 				D5A1C3E7F9B2968778695D02 /* IssueSync.swift in Sources */,
 				B2E0C7A1D4F3968778695B06 /* WindowTitle.swift in Sources */,
@@ -643,7 +647,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.26.0;
+				CURRENT_PROJECT_VERSION = 2.26.1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -658,7 +662,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.26.0;
+				MARKETING_VERSION = 2.26.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -722,7 +726,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 2.26.0;
+				CURRENT_PROJECT_VERSION = 2.26.1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -743,7 +747,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.26.0;
+				MARKETING_VERSION = 2.26.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

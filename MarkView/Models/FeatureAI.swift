@@ -354,6 +354,9 @@ final class FeatureAssistant: ObservableObject {
             store.updateFeature(slug) { front, _ in front.set("questions_left", "0") }
             return
         }
+        // A question is still waiting for its answer: the Explore stage shows it; a new one
+        // would repeat it (BUG-011).
+        guard !feature.list(.question).contains(where: { $0.status == "open" }) else { return }
 
         let asked = feature.list(.question).map { "- \($0.id) [\($0.status)] \($0.title)" }.joined(separator: "\n")
         let prompt = context(feature) + """
@@ -470,9 +473,9 @@ final class FeatureAssistant: ObservableObject {
         preparing.insert("answer:" + id)
         defer { preparing.remove("answer:" + id) }
         guard let feature = store.feature(slug), let question = feature.object(id) else { return }
-        // A new project asks its open questions first; a new one only when none is left, so the
-        // AI cannot ask again what is already open.
-        let next = next && !(projectDiscovery && feature.list(.question).contains { $0.status == "open" && $0.id != id })
+        // Open questions are asked first (the intake's, or ones passed over); a new one only when
+        // none is left, so the AI cannot ask again what is already open (BUG-011).
+        let next = next && !feature.list(.question).contains { $0.status == "open" && $0.id != id }
         let options = (question.front["options"]?.list ?? []).map { "- \($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
         let asked = delegated ? """
 
