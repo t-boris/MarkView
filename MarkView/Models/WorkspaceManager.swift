@@ -3562,10 +3562,7 @@ class WorkspaceManager: ObservableObject {
     /// it as a `/goal`, the others as a plain instruction.
     /// The feature is recorded as "implementation started" with the CLI that got it.
     func implementWithAI(_ url: URL) {
-        let path = workspaceRelativePath(url)
-        let instruction = "implement \(path) — ask any question if you are in doubt"
-        let prompt = AIAssistantPreferences.backend == .claude ? "/goal \(instruction)"
-            : "Implement what \(path) specifies. Read it first; ask any question if you are in doubt before changing code."
+        let prompt = HandoffPrompt.feature(workspaceRelativePath(url), claude: AIAssistantPreferences.backend == .claude)
         guard let session = sendToAssistant(prompt, submit: true) else { return }
         let target = url.standardizedFileURL.path
         guard let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
@@ -3580,10 +3577,7 @@ class WorkspaceManager: ObservableObject {
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     func fixBugWithAI(_ url: URL) {
         features.updateBug(url) { front, _ in front.set("status", "fixing") }
-        let path = workspaceRelativePath(url)
-        let prompt = AIAssistantPreferences.backend == .claude
-            ? "/goal fix the bug described in \(path): reproduce it first, find the root cause, fix it and verify the fix — ask any question if you are in doubt"
-            : "Fix the bug described in \(path). Read it first, reproduce the problem, find the root cause, fix it and verify the fix; ask any question if you are in doubt before changing code."
+        let prompt = HandoffPrompt.bug(workspaceRelativePath(url), claude: AIAssistantPreferences.backend == .claude)
         sendToAssistant(prompt, submit: true)
     }
 

@@ -73,7 +73,7 @@ enum BatchFixPrompt {
         }
         let paths = bugs.map(\.path).joined(separator: ", ")
         let steps = [
-            "Read every report first. Paths are relative to the workspace root.",
+            "Read every report first. Paths are relative to the workspace root. " + HandoffPrompt.bugRecords,
             "Before changing anything, run git status and choose a short descriptive branch name for this batch (e.g. fix/<topic>). "
                 + "The status edits to the reports listed above (their status is now fixing) and MarkView's own .dde/ folder are expected "
                 + "and do not count as uncommitted changes; leave them out of every commit. "

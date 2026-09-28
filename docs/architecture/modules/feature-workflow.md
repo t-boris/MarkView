@@ -203,8 +203,8 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | Editor selection menu (JS `featureAction('…')`, `Resources/Editor/index.html:1480+`) → `WebViewBridge` `featureAction` message (`Bridge/WebViewBridge.swift:319-323`) → `EditorView` delegate (`Views/EditorView.swift:844-846`) → `WorkspaceManager.runFeatureAction` (`WorkspaceManager.swift:3307-3317`) | `assistant.perform(action, selection:document:question:feature:)`. The action name is validated with `FeatureAction(rawValue:)` |
 | Toolbar "New" menu (`Views/ContentView.swift:113`), issue and PR menus (`WorkspaceManager.startIntake`, `:3227-3259`) | Set `workspaceManager.intake` and present `IntakeSheet` (`ContentView.swift:170`) |
 | `IntakeSheet.submit` → `WorkspaceManager.intakeFinished` | Opens the result, switches the left panel to Issues and the right panel to the Feature tab (`WorkspaceManager.swift:3287-3304`) |
-| `BuildStageView` "Implement with AI" → `WorkspaceManager.implementWithAI` | Sends `/goal implement <path>` to the Terminal assistant, then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`WorkspaceManager.swift`) |
-| `BugPanelView` "Fix with AI" → `WorkspaceManager.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends a fix prompt (`WorkspaceManager.swift:3277-3284`) |
+| `BuildStageView` "Implement with AI" → `WorkspaceManager.implementWithAI` | Sends `HandoffPrompt.feature` (`/goal implement <path>` for Claude Code): read the whole folder, recorded answers (answered questions, accepted decisions, resolved findings, discussion.md) are binding and not asked again, new answers are written back (BUG-011), then `features.markImplementing` (status `ready/resolving/review/draft/exploring` → `implementing`, BUG-008) and `features.recordImplementationStarted` (`WorkspaceManager.swift`) |
+| `BugPanelView` "Fix with AI" → `WorkspaceManager.fixBugWithAI` | Sets the bug status to `fixing` with `updateBug` and sends `HandoffPrompt.bug` (answered report questions and `## Clarifications` are binding; new answers go to `## Clarifications`) (`WorkspaceManager.swift:3277-3284`) |
 | `TOCView` | Shows `FeaturePanelView` when `hasIssues` (`Views/TOCView.swift:26-31`) |
 | `LifecycleViews` | Read `store.features` and `lifecycleEvents` (`Views/LifecycleViews.swift:22,106,206`) |
 | `ArchitectureStore` | Reuses `FeatureAssistant.nextNumbered("RES", …)` and `FeatureStore.today` for saved X-Ray answers (`ArchitectureStore.swift:1465,1481`) |
@@ -283,6 +283,10 @@ flowchart TD
 
 - `exploreNext` (`FeatureAI.swift:330-365`) moves the feature from `idea` to `exploring`.
 - `answer` (`:452-518`) asks for the next question in the same AI call, so each answer costs one call (`:490-495`).
+- Open questions come first (BUG-011): while any question is still open (the intake's Q-001…, or one passed over),
+  `answer` asks for no new question and `exploreNext` returns without an AI call; the stage shows the next open
+  question. Before this, discovery generated questions that duplicated the intake's still-open ones, and the
+  originals came back last, so the owner answered the same question twice (sometimes differently).
 - `applyRequirementChanges` (`:522-547`) ignores IDs that are not live requirements, and creates at most 2 new requirements.
 - `makeRequirement` writes `approved` once the feature is past Explore, else `draft` (`:287`).
 - A question card also offers "Suggest another approach" (`moreOptions`, `:689-708`), "Show pros/cons" (`prosAndCons`, `:711-739`) and "Research this".

@@ -8,5 +8,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/BugBasketTests.swift "$out/main.swift"
-swiftc -O -o "$out/bug-basket-tests" MarkView/Models/BugBasket.swift MarkView/Models/IssueListing.swift "$out/main.swift"
+swiftc -O -o "$out/bug-basket-tests" MarkView/Models/BugBasket.swift MarkView/Models/HandoffPrompt.swift MarkView/Models/IssueListing.swift "$out/main.swift"
 "$out/bug-basket-tests"

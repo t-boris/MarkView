@@ -434,3 +434,13 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: before implementing (or skipping) a feature, grep the code for its behaviour; when two specs share an
   issue, pick one canonical spec and archive the other in the same PR. Dry-run anything that mutates GitHub
   against the real repository (lookups only) before the first live run, and show the owner what it would change.
+
+## A guard fixed for one entry point must be checked for all of them (BUG-011, 2026-09-27)
+- "Implementation agent repeats answered questions" was blamed on the handoff prompt. Six headless runs (Claude,
+  Codex) of the old prompt on a fixture used every recorded answer; 24 real transcripts showed 4 repeats in total.
+  The real repeats came from guided discovery: after the intake's open questions, `answer(next: true)` generated
+  new questions that duplicated them (13 specs, e.g. new-research Q-001 = Q-004 with different answers). 2.24.0 had
+  already fixed exactly this, but only for new projects (`projectDiscovery &&`).
+- Rule: when a report names a suspect, measure it (headless runs on a fixture, real transcripts, the spec files'
+  order in discussion.md) before fixing it. When a fix is scoped to one flow, grep for the sibling flows that
+  share the mechanism and ask whether the scope is intended.

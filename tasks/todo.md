@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Done 51: BUG-011 Implementation agent repeats answered questions (2026-09-27, issue #52, branch fix/bug-011-repeated-questions, 2.26.1)
+
+- [x] Measured the suspected handoff prompt: 6 headless runs (Claude, Codex) on a fixture + 24 real transcripts → minor cause
+- [x] Root cause: discovery generated questions while intake questions were open (13 specs with duplicate pairs);
+      2.24.0 guard was project-only
+- [x] Fix: open questions first in `answer` and `exploreNext`; `HandoffPrompt` (binding records, write-back) for
+      Implement / Fix / batch Fix
+- [x] Verified: tests, Debug build, test copy intake → answer flow, headless runs with the new prompt (write-back and re-run)
+
 ## Done 50: Sync documented status to GitHub issues (2026-09-27, issue #36, branch feat/issue-status-sync, 2.26.0)
 
 Spec: `docs/features/sync-documented-status-to-github-issues/` (REQ-001…004, DEC-001…010).
