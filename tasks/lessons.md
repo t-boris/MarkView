@@ -1,5 +1,15 @@
 # Lessons
 
+## 2026-09-28 — Normalize cached outlines when building diagram nodes
+
+**Context:** BUG-014. X-Ray stored full local and AI outlines, then rendered every named part and
+group even when it contained only one or two items. A prompt change would only affect future AI
+answers, leaving cached outlines and locally built declarations with the same extra clicks.
+
+**Rule:** Enforce presentation thresholds at the shared node builder for every outline source.
+Preserve item IDs and source positions when removing a container, and check both sparse and useful
+branches with a deterministic fixture.
+
 ## 2026-09-26 — Write to a PTY: EAGAIN means "later", not "stop"
 
 **Context:** BUG-002. `TerminalSession.write()` wrote to a non-blocking PTY master and stopped at the
@@ -453,4 +463,3 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   `layoutstop`, with a timeout.
 - A screenshot's scatter was not the folder the report's suspect pointed at (a Go folder with no inner links packs
   fine); sweeping every large box across projects found the branch that scatters and proved the fix everywhere.
-
