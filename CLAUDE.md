@@ -60,9 +60,10 @@ overrides them.
   the branch and open a pull request into `main` with `gh pr create`. Use one
   pull request per feature or bug. Describe the changes, the version, and a test
   plan.
-- Changes reach `main` only by merging their pull request (`gh pr merge --merge
-  --delete-branch`), and only when Boris asks for that merge. Never run a local
-  `git merge` into `main` and never push to `main`.
+- After local verification and required PR checks pass, merge the pull request
+  (`gh pr merge --merge --delete-branch`) as part of completing the task. Do not
+  wait for a separate merge request unless Boris asked to leave the PR open.
+  Never run a local `git merge` into `main` and never push to `main` directly.
 - Work is not in `main` until its pull request is merged. When you report a
   feature or bug as finished, include the pull request link and say whether it
   is merged.
@@ -109,3 +110,13 @@ swiftc check under `tools/tests/` (e.g. `tools/tests/lifecycle-tests.sh` for the
 lifecycle duration rules in `Models/LifecycleAnalytics.swift`). Use the relevant
 fixtures and perform a focused manual check for behavior that compilation does
 not cover.
+
+## Completion
+
+For every app-changing feature or bug fix, finish the full workflow: verify the
+change, merge its PR, then create a local Release build and signed DMG installer
+from the merged `origin/main` commit. Use a separate clean worktree when the main
+working tree has unrelated changes. Run `./release.sh` there; it produces
+`build/release/MarkView.app` and `build/MarkView-<version>.dmg`. Verify the app
+version, code signature, and DMG, and report their local paths with the merged PR
+link. A docs-only change still goes through a PR but needs no app build or DMG.
