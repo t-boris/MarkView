@@ -2,7 +2,7 @@
 type: feature
 id: feature-2
 title: Цветовая идентификация проектов
-status: implementing
+status: verified
 owner: Boris Tsekinovsky
 created: 2026-09-28
 provenance: Created from the feature intake
