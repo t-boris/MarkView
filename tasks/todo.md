@@ -1762,3 +1762,6 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] Repair the native terminal layout harness after AppFontScale was added, and check the bottom row as well as the rightmost cell.
 - [x] Confirm the regression fails on the original page and passes with the fix.
 - [x] Debug app build; in an isolated 2.25.3 app, a new shell reports its fitted 33×31 grid and draws a full-width line inside the panel.
+- [x] Merge PR #48; linked GitHub issue #47 is closed as completed.
+- [x] Build and verify the signed Release 2.25.3 app and DMG; install and launch the app locally.
+- [x] Update the BUG-010 report status to `fixed` and record the root cause and verification.
