@@ -70,7 +70,7 @@ shasum -a 256 "$DMG"
 echo "✓ $DMG"
 
 if [ "$PUBLISH" = 1 ]; then
-    echo "▸ Publishing release v$VERSION…"
+    echo "▸ Publishing release v${VERSION}…"
     gh release create "v$VERSION" "$DMG" --target "$(git rev-parse HEAD)" --latest \
         --title "MarkView $VERSION" \
         --notes "Signed installer (Developer ID) built from \`main\` at $(git rev-parse --short HEAD).
