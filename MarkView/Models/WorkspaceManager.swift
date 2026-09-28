@@ -320,12 +320,12 @@ class WorkspaceManager: ObservableObject {
     @Published var showFileTree: Bool = true {
         didSet { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") }
     }
-    @Published var showTOC: Bool = true {
-        didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC") }
+    @Published var showTOC: Bool = false {
+        didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC.v3") }
     }
     @Published var compactLayout = false
-    @Published var compactNavigationPresented = false
-    @Published var compactContextPresented = false
+    @Published var showCenter = true
+    @Published var terminalVisible = true
     @Published var handoffResume: HandoffResume?
     @Published var showGlobalSearch = false
     struct SelectionActionState: Identifiable {
@@ -355,13 +355,20 @@ class WorkspaceManager: ObservableObject {
     func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
 
     func toggleNavigation() {
-        if compactLayout { compactNavigationPresented.toggle() }
-        else { showFileTree.toggle() }
+        guard !showFileTree || showCenter || terminalVisible else { return }
+        showFileTree.toggle()
+    }
+
+    func toggleCenter() {
+        guard !showCenter || showFileTree || terminalVisible else { return }
+        showCenter.toggle()
     }
 
     func toggleContext() {
-        if compactLayout { compactContextPresented.toggle() }
-        else { showTOC.toggle() }
+        guard let tab = activeTab, case .file = tab.kind,
+              ["md", "markdown"].contains(tab.url.pathExtension.lowercased()) else { return }
+        showTOC.toggle()
+        terminalVisible = true
     }
 
     @Published var semanticDatabase: SemanticDatabase?
@@ -468,8 +475,8 @@ class WorkspaceManager: ObservableObject {
         if ud.object(forKey: "layout.showFileTree") != nil {
             showFileTree = ud.bool(forKey: "layout.showFileTree")
         }
-        if ud.object(forKey: "layout.showTOC") != nil {
-            showTOC = ud.bool(forKey: "layout.showTOC")
+        if ud.object(forKey: "layout.showTOC.v3") != nil {
+            showTOC = ud.bool(forKey: "layout.showTOC.v3")
         }
 
         loadRecentFiles()
@@ -845,7 +852,9 @@ class WorkspaceManager: ObservableObject {
             workSection: layout.workSection.rawValue,
             navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
             feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
-            showFiles: showFileTree, showNavigator: showTOC)
+            showFiles: showFileTree, showNavigator: showTOC,
+            contentsVisible: showTOC, terminalVisible: terminalVisible,
+            showCenter: showCenter)
         return state
     }
 
@@ -906,14 +915,18 @@ class WorkspaceManager: ObservableObject {
         activeTabIndex = selected ?? (openTabs.isEmpty ? -1 : 0)
         if let panels = state.panels {
             layout.workspaceArea = panels.workspaceArea.flatMap(WorkspaceArea.init) ?? .files
-            layout.workSection = panels.workSection.flatMap(WorkSection.init) ?? .features
+            let restoredWorkSection = panels.workSection.flatMap(WorkSection.init) ?? .features
+            layout.workSection = restoredWorkSection == .terminal ? .features : restoredWorkSection
             layout.navigatorTab = TOCView.Tab(rawValue: panels.navigator) ?? .contents
             layout.leftPanel = panels.left == "issues" ? "issues" : "files"
             layout.issuesFeature = panels.feature
             layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
             layout.featureStage = FeatureStage(rawValue: panels.stage) ?? .explore
             showFileTree = panels.showFiles
-            showTOC = panels.showNavigator
+            showTOC = panels.contentsVisible ?? false
+            showCenter = panels.showCenter ?? true
+            terminalVisible = panels.terminalVisible ?? panels.showNavigator
+            if !showFileTree && !showCenter && !terminalVisible { showCenter = true }
         }
     }
 
@@ -3342,11 +3355,20 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Show the right panel on its Terminal tab (the AI terminals).
+    /// Show the terminal in the right column without changing other columns.
     func showAIConsole() {
-        layout.workspaceArea = .work
-        layout.workSection = .terminal
-        layout.navigatorTab = .terminal
+        showTOC = false
+        terminalVisible = true
+    }
+
+    func toggleAIConsole() {
+        if terminalVisible && !showTOC {
+            guard showFileTree || showCenter else { return }
+            terminalVisible = false
+        } else {
+            showTOC = false
+            terminalVisible = true
+        }
     }
 
     func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {

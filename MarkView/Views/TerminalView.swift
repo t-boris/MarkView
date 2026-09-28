@@ -112,8 +112,8 @@ struct TerminalStopButton: View {
     }
 }
 
-/// AI panel → Terminal: several terminals side by side (Claude Code, Codex or a plain
-/// shell), with buttons that hand a ready-made prompt to the assistant.
+/// Shared terminal area: session tabs for assistant CLIs or a plain shell,
+/// with buttons that hand a ready-made prompt to the assistant.
 struct AITerminalPanel: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
@@ -121,7 +121,7 @@ struct AITerminalPanel: View {
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
-    @AppStorage("layout.terminalPromptsExpanded") private var promptsExpanded = true
+    @AppStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -149,6 +149,7 @@ struct AITerminalPanel: View {
                 placeholder
             }
         }
+        .background(VSDark.bg)
         .onAppear { workspaceManager.ensureAITerminal() }
         // At launch the last folder reopens after the panel appeared.
         .onChange(of: workspaceManager.aiWorkspaceRoot) { _ in workspaceManager.ensureAITerminal() }
@@ -194,7 +195,7 @@ struct AITerminalPanel: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("New terminal: Claude Code, Codex or a plain shell")
+        .help("New terminal: Claude Code, Codex, Cline, Copilot, or shell")
     }
 
     private var placeholder: some View {

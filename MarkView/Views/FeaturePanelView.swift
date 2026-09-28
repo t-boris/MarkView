@@ -396,6 +396,7 @@ struct ExploreStageView: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @State private var showUnderstandingDetails = false
 
 
     /// The question guided discovery asks now: its newest open question, else any open one.
@@ -414,41 +415,51 @@ struct ExploreStageView: View {
                     Text("· \(feature.discoveryAnswered) answered · \(feature.activeRequirements.count) requirements")
                         .uiFont(size: 10).foregroundColor(VSDark.textDim)
                     Spacer()
+                    Button {
+                        showUnderstandingDetails.toggle()
+                    } label: {
+                        Label(showUnderstandingDetails ? "Hide details" : "Details",
+                              systemImage: showUnderstandingDetails ? "chevron.up" : "chevron.down")
+                            .uiFont(size: 10)
+                    }
+                    .buttonStyle(.plain)
                 }
-                if !feature.isUnderstood {
-                    Text("Still to clarify: " + feature.openDimensions.joined(separator: ", "))
-                        .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(spacing: 8) {
-                    ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
-                        HStack(spacing: 2) {
-                            Text(symbol(state)).uiFont(size: 9, weight: .bold, design: .monospaced).foregroundColor(color(state))
-                            Text(state).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                if showUnderstandingDetails {
+                    if !feature.isUnderstood {
+                        Text("Still to clarify: " + feature.openDimensions.joined(separator: ", "))
+                            .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 8) {
+                        ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
+                            HStack(spacing: 2) {
+                                Text(symbol(state)).uiFont(size: 9, weight: .bold, design: .monospaced).foregroundColor(color(state))
+                                Text(state).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            }
                         }
                     }
-                }
-                ForEach(feature.understanding, id: \.dimension) { item in
-                    let note = feature.understandingNote(item.dimension)
-                    HStack(alignment: .top, spacing: 5) {
-                        Menu {
-                            ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
-                                Button((state == item.state ? "✓ " : "") + state) { store.setUnderstanding(feature.slug, [item.dimension: state]) }
+                    ForEach(feature.understanding, id: \.dimension) { item in
+                        let note = feature.understandingNote(item.dimension)
+                        HStack(alignment: .top, spacing: 5) {
+                            Menu {
+                                ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
+                                    Button((state == item.state ? "✓ " : "") + state) { store.setUnderstanding(feature.slug, [item.dimension: state]) }
+                                }
+                            } label: {
+                                Text(symbol(item.state)).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(color(item.state))
                             }
-                        } label: {
-                            Text(symbol(item.state)).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(color(item.state))
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .help("\(item.dimension): \(item.state) — click to change")
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 4) {
+                                    Text(item.dimension).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
+                                    Text(item.state).uiFont(size: 9).foregroundColor(color(item.state))
+                                }
+                                if !note.isEmpty {
+                                    Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer(minLength: 0)
                         }
-                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                        .help("\(item.dimension): \(item.state) — click to change")
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 4) {
-                                Text(item.dimension).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
-                                Text(item.state).uiFont(size: 9).foregroundColor(color(item.state))
-                            }
-                            if !note.isEmpty {
-                                Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -485,7 +496,7 @@ struct ExploreStageView: View {
             }
             if !feature.isUnderstood && !assistant.isRunning("decide:" + feature.slug) {
                 HStack(alignment: .top, spacing: 6) {
-                    Text("Enough questions? AI makes the remaining decisions itself (as proposed, to check in Review), finishes discovery and approves the requirements.")
+                    Text("AI decides unresolved questions for review.")
                         .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest and finish", icon: "flag.checkered") {

@@ -42,7 +42,7 @@ final class PanelLayout: ObservableObject {
     @Published var workSection: WorkSection {
         didSet { remember(workSection.rawValue, Self.workSectionKey) }
     }
-    /// Right panel: Contents, Search, Git, Terminal or Feature.
+    /// Legacy right-panel selection kept for compatibility with saved layouts.
     @Published var navigatorTab: TOCView.Tab {
         didSet { remember(navigatorTab.rawValue, TOCView.Tab.storageKey) }
     }

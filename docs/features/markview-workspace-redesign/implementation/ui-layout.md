@@ -1,26 +1,26 @@
 # Workspace interface layout
 
-This layout applies DEC-001, DEC-014, DEC-015, and DEC-021. It is a build target, not a prototype gate.
+This layout applies DEC-001, DEC-014, DEC-021, DEC-023, and DEC-027. It is a build target, not a prototype gate.
 
 ## Window shell
 
-- Keep the project title, clickable color icon, and thin color band in the window frame. The project name remains readable independently of color.
-- Use a compact three-destination workspace switcher in the toolbar: Files (`folder`), Project Map (`viewfinder`), Work (`checklist`). Show icon and short label while space allows; collapse to icon with tooltip and accessibility label at constrained widths.
-- Put shared Search, assistant/model, New, theme, and an overflow menu on the toolbar. The overflow and menu bar expose every toolbar action. Preserve the existing File and View menu commands and shortcuts.
+- Put a full-width header above every content column. Keep the padded project title, clickable color icon, and thin color band in the window frame. The project name remains readable independently of color.
+- Use a compact three-destination workspace switcher in the header: Files (`folder`), Project Map (`viewfinder`), Work (`checklist`). Give every icon a tooltip and accessibility label.
+- Put independent navigation, center-content, and labelled Terminal toggles, shared Search, assistant/model, New, theme, and an overflow menu in the header. Show the Contents control only for Markdown files. The overflow and menu bar expose every header action. Preserve the existing File and View menu commands and shortcuts.
 - Use native materials and system label colors for window chrome. Share a small set of surface, spacing, typography, border, focus, and status tokens with the bundled editor. Project color marks identity only; task and handoff status include text.
 
 ## Files
 
 ```text
-wide:    [file navigation] | [tabs + document/image/editor] | [Contents/context]
-compact: [navigation toggle] [tabs + document/image/editor] [context toggle]
-terminal: [full-width terminal tab or bottom area with explicit editor switch]
+all shown: [file navigation] | [tabs + document/image/editor] | [assistant terminal]
+two shown: any two columns, each full height
+one shown: any one column fills the content area below the header
 ```
 
 - The document is the visual focus, with a comfortable reading measure and fewer persistent editor controls. Show common style, insert, mode, save, and search actions; selection-specific actions appear at selection. Existing formatting actions remain in menus and retain their shortcuts.
 - Keep local folder filtering in file navigation. The shared Search control opens project-wide results with scope labels.
 - Keep tabs and editor content alive while visiting the other workspaces, including scroll position and unsaved drafts.
-- At constrained width, the inspector and navigation become explicit popovers/sheets. The editor or terminal gets the available width; switching is visible and terminal fitting follows every visible resize.
+- The right column shows Terminal by default. Contents is an optional Markdown heading view in the same column. All columns are docked below the header and independently toggled; none floats over another. At least one remains visible. The terminal is reachable through the labelled header control and `⌘3`, grows when adjacent columns close, and refits on every visible resize.
 
 ## Project Map
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The right panel: table of contents, workspace search, Git and the AI terminals.
+/// Document Contents panel. Legacy tabs remain for saved layouts and secondary routes.
 struct TOCView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     /// This window's panel tabs (BUG-004: not @AppStorage, which every window observes).

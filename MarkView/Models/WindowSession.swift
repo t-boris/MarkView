@@ -22,6 +22,9 @@ struct WorkspacePanelState: Codable {
     var stage: String
     var showFiles: Bool
     var showNavigator: Bool
+    var contentsVisible: Bool? = nil
+    var terminalVisible: Bool? = nil
+    var showCenter: Bool? = nil
 }
 
 struct WorkspaceDraft: Codable {

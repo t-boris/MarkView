@@ -78,6 +78,86 @@ private struct LeftPanelWidthKeeper: NSViewRepresentable {
     }
 }
 
+/// Restores the terminal column to a useful width after SwiftUI recreates the split view.
+/// The user can still drag the divider; that width becomes the next starting width.
+private enum RightPanelWidth {
+    static let key = "layout.rightPanelWidth"
+    static let range: ClosedRange<CGFloat> = 320...1200
+    static let standard: CGFloat = 500
+
+    static var saved: CGFloat {
+        let width = CGFloat(UserDefaults.standard.double(forKey: key))
+        return width > 0 ? min(max(width, range.lowerBound), range.upperBound) : standard
+    }
+
+    static func save(_ width: CGFloat) {
+        guard range.contains(width) else { return }
+        UserDefaults.standard.set(Double(width.rounded()), forKey: key)
+    }
+}
+
+private struct RightPanelWidthKeeper: NSViewRepresentable {
+    let centerVisible: Bool
+
+    func makeNSView(context: Context) -> KeeperView {
+        let view = KeeperView()
+        view.centerVisible = centerVisible
+        return view
+    }
+
+    func updateNSView(_ nsView: KeeperView, context: Context) {
+        let centerWasVisible = nsView.centerVisible
+        nsView.centerVisible = centerVisible
+        if centerVisible && !centerWasVisible { nsView.restoreWidth() }
+    }
+
+    final class KeeperView: NSView {
+        private var restored = false
+        var centerVisible = true
+        private var saveGeneration = 0
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil else { return }
+            restoreWidth()
+        }
+
+        func restoreWidth() {
+            restored = false
+            saveGeneration += 1
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.centerVisible, let split = self.enclosingSplitView,
+                      split.subviews.count >= 2 else { return }
+                let width = min(RightPanelWidth.saved, split.bounds.width / 2)
+                split.setPosition(split.bounds.width - width, ofDividerAt: split.subviews.count - 2)
+                self.restored = true
+            }
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            saveGeneration += 1
+            let generation = saveGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, self.saveGeneration == generation, self.restored,
+                      self.centerVisible, self.window != nil,
+                      (self.enclosingSplitView?.subviews.count ?? 0) >= 2,
+                      abs(self.frame.width - newSize.width) < 1 else { return }
+                RightPanelWidth.save(newSize.width)
+            }
+        }
+
+        private var enclosingSplitView: NSSplitView? {
+            var view = superview
+            while let current = view {
+                if let split = current as? NSSplitView { return split }
+                view = current.superview
+            }
+            return nil
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var themeManager: ThemeManager
     @Environment(\.appFontScale) private var appFontScale
@@ -101,128 +181,34 @@ struct ContentView: View {
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
-        GeometryReader { geometry in
-            let compact = geometry.size.width < 1280 * max(1, appFontScale)
-            Group {
-                if compact {
-                    workspaceCenter
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .popover(isPresented: $workspaceManager.compactNavigationPresented, arrowEdge: .leading) {
-                            navigationPane.frame(width: min(geometry.size.width - 20, 300 * appFontScale),
-                                                 height: max(400, geometry.size.height - 40))
-                        }
-                        .popover(isPresented: $workspaceManager.compactContextPresented, arrowEdge: .trailing) {
-                            contentsPane.frame(width: min(geometry.size.width - 20, 300 * appFontScale),
-                                               height: max(400, geometry.size.height - 40))
-                        }
-                } else {
-                    HSplitView {
-                        if workspaceManager.showFileTree {
-                            navigationPane
-                                .frame(minWidth: LeftPanelWidth.range.lowerBound,
-                                       idealWidth: LeftPanelWidth.standard,
-                                       maxWidth: LeftPanelWidth.range.upperBound)
-                                .background(LeftPanelWidthKeeper())
-                        }
-                        workspaceCenter.frame(minWidth: 400)
-                        if workspaceManager.layout.workspaceArea == .files && workspaceManager.showTOC && hasDocumentContents {
-                            contentsPane.frame(minWidth: 200, idealWidth: 260)
-                        }
-                    }
-                }
-            }
-            .onAppear { workspaceManager.compactLayout = compact }
-            .onChange(of: compact) { value in
-                workspaceManager.compactLayout = value
-                workspaceManager.compactNavigationPresented = false
-                workspaceManager.compactContextPresented = false
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        VStack(spacing: 0) {
+            workspaceHeader
             if let projectKey { ProjectColorBand(color: projectColors.color(forKey: projectKey)) }
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                if let workspaceFolderName {
-                    Text(workspaceFolderName)
-                        .uiFont(size: 12, weight: .semibold)
-                        .lineLimit(1)
-                        .help(workspaceFolderName)
-                        .accessibilityLabel("Project: \(workspaceFolderName)")
-                }
-            }
-            // Panels, side by side at the leading edge.
-            ToolbarItemGroup(placement: .navigation) {
-                Button(action: { workspaceManager.toggleNavigation() }) {
-                    Image(systemName: "sidebar.leading")
-                }
-                .help("Navigation (⌘1)")
-                .accessibilityLabel("Toggle navigation")
-
-                Button(action: { workspaceManager.toggleContext() }) {
-                    Image(systemName: "sidebar.trailing")
-                }
-                .help("Contents (⌘2)")
-                .accessibilityLabel("Toggle contents")
-
-                ForEach(WorkspaceArea.allCases) { area in
-                    Button(action: { activate(area) }) {
-                        Image(systemName: area.symbol)
-                            .foregroundColor(workspaceManager.layout.workspaceArea == area ? VSDark.blue : VSDark.textDim)
+            GeometryReader { geometry in
+                let compact = geometry.size.width < 1280 * max(1, appFontScale)
+                let terminalMinimum = min(500, max(300, geometry.size.width - 700))
+                HSplitView {
+                    if workspaceManager.showFileTree {
+                        navigationPane
+                            .frame(minWidth: compact ? 160 : LeftPanelWidth.range.lowerBound,
+                                   idealWidth: compact ? 190 : LeftPanelWidth.standard,
+                                   maxWidth: compact ? 240 : LeftPanelWidth.range.upperBound)
+                            .background { if !compact { LeftPanelWidthKeeper() } }
                     }
-                    .help(area.rawValue)
-                    .accessibilityLabel(area.rawValue)
-                }
-
-                // Last in the group, so it sits beside the window title.
-                if let projectKey {
-                    ProjectColorButton(store: projectColors, projectKey: projectKey)
-                }
-            }
-
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button(action: { workspaceManager.showGlobalSearch = true }) {
-                    Image(systemName: "magnifyingglass")
-                }
-                .help("Search project (⌘⇧K)")
-                .accessibilityLabel("Search project")
-
-                // X-Ray: the project's structure, logic, deployment and docs (the Architecture tab).
-                Button(action: { workspaceManager.openArchitecture() }) {
-                    Image(systemName: "viewfinder")
-                }
-                .help("X-Ray — the project's components, deployment and docs (⌘4)")
-                .disabled(workspaceManager.rootNode == nil)
-
-                // New feature / bug / "I need to understand" — the standard ways into the project.
-                Menu {
-                    ForEach(IntakeKind.allCases) { kind in
-                        Button(kind.title + "…") { workspaceManager.intake = IntakeRequest(kind: kind) }
+                    if workspaceManager.showCenter {
+                        workspaceCenter.frame(minWidth: 400, idealWidth: 500)
                     }
-                    if let url = workspaceManager.activeTab?.url, workspaceManager.activeTab?.isFileBacked == true {
-                        Section("From the open document (\(url.lastPathComponent))") {
-                            ForEach(IntakeKind.allCases) { kind in
-                                Button(kind.title + " from It…") { workspaceManager.startIntake(kind, fromDocument: url) }
-                            }
-                            Button("Implement It with AI") { workspaceManager.implementWithAI(url) }
-                        }
+                    if workspaceManager.terminalVisible {
+                        rightPane.frame(minWidth: terminalMinimum, idealWidth: max(500, terminalMinimum))
+                            .background(RightPanelWidthKeeper(centerVisible: workspaceManager.showCenter))
                     }
-                } label: {
-                    Image(systemName: "plus.square")
                 }
-                .menuIndicator(.hidden)
-                .help("New feature, new bug, or research something in the project")
-                .disabled(workspaceManager.rootNode == nil)
-
-                // Which assistant (and model) does every AI job: X-Ray, Explain, filters, AI terminal.
-                AssistantToolbarMenu(workspaceManager: workspaceManager)
-
-                AIToolsMenu(workspaceManager: workspaceManager)
-
-                Button(action: { themeManager.toggleTheme() }) {
-                    Image(systemName: themeManager.effectiveTheme == .dark ? "sun.max" : "moon")
+                .onAppear {
+                    workspaceManager.compactLayout = compact
                 }
-                .help("Light / dark theme")
+                .onChange(of: compact) { value in
+                    workspaceManager.compactLayout = value
+                }
             }
         }
         .onDrop(of: [UTType.fileURL], isTargeted: nil) { providers in
@@ -248,6 +234,7 @@ struct ContentView: View {
                 workspaceManager.layout.workSection = .git
                 workspaceManager.layout.workspaceArea = .work
             }
+            workspaceManager.showCenter = true
         }
         // NOTE: Do NOT use .onOpenURL — it causes SwiftUI to intercept
         // folder URLs, preventing application:open: from receiving them.
@@ -292,8 +279,6 @@ struct ContentView: View {
             }
         }
         .background(WindowAccessor(window: $hostWindow))
-        // "MarkView 2.18.0 — my-project" and the folder as the proxy icon, per window (issue #25).
-        .navigationTitle(WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName))
         .onChange(of: workspaceManager.rootNode?.url) { _ in updateWindowIdentity() }
         .task(id: workspaceManager.rootNode?.url) {
             await changeReview.open(workspaceManager.rootNode?.url)
@@ -335,15 +320,161 @@ struct ContentView: View {
         }
     }
 
+    private var workspaceHeader: some View {
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 1100 * max(1, appFontScale)
+            let controlWidth = 32 * min(1.5, max(1, appFontScale))
+            HStack(spacing: 6) {
+                headerButton("sidebar.leading", help: "Navigation (⌘1)", width: controlWidth) {
+                    workspaceManager.toggleNavigation()
+                }
+                headerButton("rectangle", help: "Workspace content", width: controlWidth,
+                             selected: workspaceManager.showCenter) {
+                    workspaceManager.toggleCenter()
+                }
+                headerDivider
+                ForEach(WorkspaceArea.allCases) { area in
+                    headerButton(area.symbol, help: area.rawValue, width: controlWidth,
+                                 selected: workspaceManager.layout.workspaceArea == area) {
+                        activate(area)
+                    }
+                }
+                Button { workspaceManager.toggleAIConsole() } label: {
+                    Label("Terminal", systemImage: "terminal")
+                        .uiFont(size: 12, weight: .semibold)
+                        .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.blue : VSDark.text)
+                        .padding(.horizontal, 9)
+                        .frame(height: controlWidth)
+                        .background(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.bgActive : Color.clear)
+                        .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                .help("Assistant terminal (⌘3): Claude Code, Codex, Cline, Copilot, or shell")
+                .accessibilityLabel("Terminal (⌘3)")
+                headerDivider
+                HStack(spacing: 6) {
+                    if let projectKey {
+                        ProjectColorButton(store: projectColors, projectKey: projectKey)
+                            .buttonStyle(.plain)
+                            .frame(width: 22 * min(1.5, max(1, appFontScale)))
+                    }
+                    Text(workspaceFolderName ?? "MarkView")
+                        .uiFont(size: 12, weight: .semibold)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(workspaceFolderName ?? "MarkView")
+                        .accessibilityLabel(workspaceFolderName.map { "Project: \($0)" } ?? "MarkView")
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .frame(width: compact ? min(230, geometry.size.width * 0.26) : min(300, geometry.size.width * 0.3),
+                       height: controlWidth, alignment: .leading)
+                .background(VSDark.bgActive)
+                .cornerRadius(7)
+                Spacer(minLength: 4)
+                if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
+                    headerButton("list.bullet.indent", help: "Document contents (⌘2)", width: controlWidth,
+                                 selected: workspaceManager.terminalVisible && workspaceManager.showTOC) {
+                        workspaceManager.toggleContext()
+                    }
+                }
+                headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
+                    workspaceManager.showGlobalSearch = true
+                }
+                newMenu.frame(width: controlWidth, height: controlWidth)
+                AssistantToolbarMenu(workspaceManager: workspaceManager, compact: compact)
+                    .frame(maxWidth: compact ? controlWidth : 230)
+                if compact {
+                    Menu {
+                        Button("Open X-Ray") { workspaceManager.openArchitecture() }
+                            .disabled(workspaceManager.rootNode == nil)
+                        AIToolsMenu(workspaceManager: workspaceManager)
+                        Button("Toggle Theme") { themeManager.toggleTheme() }
+                        Button("DDE Settings…") { DDESettingsWindow.show(workspace: workspaceManager) }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: controlWidth, height: controlWidth)
+                    }
+                    .menuIndicator(.hidden)
+                    .help("More window actions")
+                    .accessibilityLabel("More window actions")
+                } else {
+                    AIToolsMenu(workspaceManager: workspaceManager)
+                    headerButton(themeManager.effectiveTheme == .dark ? "sun.max" : "moon",
+                                 help: "Light / dark theme", width: controlWidth) {
+                        themeManager.toggleTheme()
+                    }
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: min(70, 44 * max(1, appFontScale)))
+        .background(VSDark.bgSidebar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var headerDivider: some View {
+        Rectangle()
+            .fill(VSDark.border)
+            .frame(width: 1, height: 22 * min(1.5, max(1, appFontScale)))
+            .padding(.horizontal, 3)
+    }
+
+    private func headerButton(_ symbol: String, help: String, width: CGFloat,
+                              selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .uiFont(size: 14)
+                .foregroundColor(selected ? VSDark.blue : VSDark.text)
+                .frame(width: width, height: width)
+                .background(selected ? VSDark.bgActive : Color.clear)
+                .cornerRadius(6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private var newMenu: some View {
+        Menu {
+            ForEach(IntakeKind.allCases) { kind in
+                Button(kind.title + "…") { workspaceManager.intake = IntakeRequest(kind: kind) }
+            }
+            if let url = workspaceManager.activeTab?.url, workspaceManager.activeTab?.isFileBacked == true {
+                Section("From the open document (\(url.lastPathComponent))") {
+                    ForEach(IntakeKind.allCases) { kind in
+                        Button(kind.title + " from It…") { workspaceManager.startIntake(kind, fromDocument: url) }
+                    }
+                    Button("Implement It with AI") { workspaceManager.implementWithAI(url) }
+                }
+            }
+        } label: {
+            Image(systemName: "plus.square")
+        }
+        .menuIndicator(.hidden)
+        .help("New feature, new bug, or research something in the project")
+        .accessibilityLabel("New project item")
+        .disabled(workspaceManager.rootNode == nil)
+    }
+
     @ViewBuilder
     private var navigationPane: some View {
         LeftPanelView()
             .environmentObject(workspaceManager)
     }
 
-    private var contentsPane: some View {
-        TOCView(layout: workspaceManager.layout, showTabs: false)
-            .environmentObject(workspaceManager)
+    private var rightPane: some View {
+        Group {
+            if workspaceManager.showTOC && hasDocumentContents {
+                TOCView(layout: workspaceManager.layout, showTabs: false)
+                    .environmentObject(workspaceManager)
+            } else {
+                ModuleExplorerView().environmentObject(workspaceManager)
+            }
+        }
     }
 
     private var hasDocumentContents: Bool {
@@ -407,7 +538,7 @@ struct ContentView: View {
     private var workCenter: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
-                ForEach(WorkSection.allCases) { section in
+                ForEach([WorkSection.features, .git]) { section in
                     Button {
                         workspaceManager.layout.workSection = section
                         if section == .git { showGitHubDetail = false }
@@ -464,8 +595,7 @@ struct ContentView: View {
     }
 
     private func activate(_ area: WorkspaceArea) {
-        workspaceManager.compactNavigationPresented = false
-        workspaceManager.compactContextPresented = false
+        workspaceManager.showCenter = true
         switch area {
         case .files:
             if let id = lastFilesTab,
@@ -493,6 +623,11 @@ struct ContentView: View {
     private func updateWindowIdentity() {
         let root = workspaceManager.rootNode?.url
         workspaceFolderName = root.map(WindowTitle.folderName(of:))
+        hostWindow?.title = WindowTitle.text(version: MarkViewApp.version, folderName: workspaceFolderName)
+        hostWindow?.titleVisibility = .hidden
+        hostWindow?.titlebarAppearsTransparent = true
+        hostWindow?.styleMask.insert(.fullSizeContentView)
+        hostWindow?.isMovableByWindowBackground = true
         hostWindow?.representedURL = root
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
         if let projectKey { projectColors.assignIfNeeded(key: projectKey) }
@@ -570,11 +705,15 @@ struct ContentView: View {
             if workspaceManager.rootNode != nil {
                 // A folder is open but no document yet.
                 HStack(spacing: 16) {
+                    Button { workspaceManager.showAIConsole() } label: {
+                        Label("Open Terminal", systemImage: "terminal")
+                    }
+                    .buttonStyle(.borderedProminent)
                     Button {
                         workspaceManager.intake = IntakeRequest(kind: .feature)
                         workspaceManager.layout.workspaceArea = .work
                     } label: { Label("New Feature…", systemImage: "plus") }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
                     Button(action: { workspaceManager.openArchitecture() }) {
                         Label("Open X-Ray", systemImage: "viewfinder")
                     }
@@ -711,6 +850,7 @@ private struct WindowAccessor: NSViewRepresentable {
 /// Edits the same settings as DDE Settings.
 struct AssistantToolbarMenu: View {
     let workspaceManager: WorkspaceManager
+    var compact = false
     @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
@@ -770,9 +910,12 @@ struct AssistantToolbarMenu: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Label(AIAssistantPreferences.summary(tool: tool, model: model.wrappedValue),
-                  systemImage: availability[tool] == false ? "exclamationmark.triangle" : "cpu")
-                .labelStyle(.titleAndIcon)
+            if compact {
+                Image(systemName: availability[tool] == false ? "exclamationmark.triangle" : "cpu")
+            } else {
+                Label(AIAssistantPreferences.summary(tool: tool, model: model.wrappedValue),
+                      systemImage: availability[tool] == false ? "exclamationmark.triangle" : "cpu")
+            }
         }
         .help(availability[tool] == false ? "Assistant unavailable. Set its CLI path in Settings." :
               "Assistant and model for every AI feature (X-Ray, Explain, filters, AI terminal)")

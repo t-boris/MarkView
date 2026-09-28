@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// The right panel's Terminal tab: the terminals where the
-/// assistants (claude, codex) run, with ready-made prompts. Contents, Search and Git are
-/// the other tabs of `TOCView`. (The type keeps its historical name from the
-/// removed Modules tab.)
+/// Shared assistant terminal surface. The type keeps its historical name from
+/// the removed Modules tab.
 struct ModuleExplorerView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
@@ -33,6 +31,5 @@ struct ModuleExplorerView: View {
 
             AITerminalPanel().environmentObject(workspaceManager)
         }
-        .frame(minWidth: 260, idealWidth: 340)
     }
 }
