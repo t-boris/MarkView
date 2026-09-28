@@ -427,3 +427,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: the terminal drops the launching tool's markers (`CLAUDECODE*`, `NO_COLOR`, `FORCE_COLOR`); the user's rc
   files set their own values again. Relaunch the app with `env -u NO_COLOR -u FORCE_COLOR open -a …`, never by
   running the binary from an agent shell. When output "suddenly" changes, check the running process's env first.
+
+## A spec's `implemented` status is a claim, not evidence (Issues Sync, 2026-09-27)
+- `sync-github-issues-with-feature-bug-status-from` was `status: implemented`, yet no Sync code existed anywhere;
+  a second spec for the same issue #36 had been written on top of it with conflicting decisions.
+- Rule: before implementing (or skipping) a feature, grep the code for its behaviour; when two specs share an
+  issue, pick one canonical spec and archive the other in the same PR. Dry-run anything that mutates GitHub
+  against the real repository (lookups only) before the first live run, and show the owner what it would change.

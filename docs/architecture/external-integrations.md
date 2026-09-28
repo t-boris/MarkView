@@ -40,7 +40,7 @@ redirects are refused, and refresh tokens are never used.
 | Tool | Used for | Notes |
 |---|---|---|
 | `git` (`/usr/bin/env git` in `GitClient`, `/usr/bin/git` in `GitHubClient`) | Status, diff, stage, commit, push/pull, blame, grep, `ls-files`, log metrics, PR fetch | `GitClient` has no timeout and doesn't suppress prompts |
-| `gh` | PRs, issues, labels, Actions runs, `api` REST/GraphQL, `auth login` via `.command` file | MarkView never stores a GitHub token. Gated by `settings.github.enabled`, except the terminal PR picker |
+| `gh` | PRs, issues (including Issues-list Sync closing issues as completed), labels, Actions runs, `api` REST/GraphQL, `auth login` via `.command` file | MarkView never stores a GitHub token. Gated by `settings.github.enabled`, except the terminal PR picker |
 
 Details: [git-github §A](./modules/git-github-terminal-lifecycle-usage.md).
 
