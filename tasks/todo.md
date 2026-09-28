@@ -15,7 +15,9 @@ Owner answers (2026-09-27): a bug counts as done at `fixed`/`closed`; explicit f
 - [x] I-4 Sync button in the Issues list: disabled with progress (n of m) while running, one run per project
 - [x] I-5 report under the Issues list header: summary by unique issue + unlinked count, item–issue rows with reasons
 - [x] Docs: spec status, duplicate spec archived; version bump (minor); Debug build; live check on this repo
-- [ ] Owner: after installing, press Sync in the Issues list; it should close #36 (both specs now done) and leave the rest unchanged
+- [x] Installed 2.26.0 locally (both windows restored); dry run on merged main: only #36 eligible, #52 (BUG-011) held
+      by its open bug, 36 unchanged; #36 closed as completed with the runner's `gh issue close --reason completed`
+- [ ] Owner: press Sync once in the installed app; expected "36 unchanged · 1 skipped" (#36 now already closed)
 
 Review: dry run against t-boris/MarkView (lookups only): 36 issues already closed → unchanged, #36 held only by
 this spec's own `implementing` status, no unlinked items. Test copy (own bundle ID): button, report rows, reasons,
