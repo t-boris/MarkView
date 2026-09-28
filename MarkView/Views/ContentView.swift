@@ -340,13 +340,16 @@ struct ContentView: View {
                     }
                 }
                 Button { workspaceManager.toggleAIConsole() } label: {
-                    Label("Terminal", systemImage: "terminal")
-                        .uiFont(size: 12, weight: .semibold)
-                        .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.blue : VSDark.text)
-                        .padding(.horizontal, 9)
-                        .frame(height: controlWidth)
-                        .background(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.bgActive : Color.clear)
-                        .cornerRadius(6)
+                    Group {
+                        if appFontScale >= 1.7 { Image(systemName: "terminal") }
+                        else { Label("Terminal", systemImage: "terminal") }
+                    }
+                    .uiFont(size: 12, weight: .semibold)
+                    .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.blue : VSDark.text)
+                    .padding(.horizontal, 9)
+                    .frame(height: controlWidth)
+                    .background(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.bgActive : Color.clear)
+                    .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
                 .help("Assistant terminal (⌘3): Claude Code, Codex, Cline, Copilot, or shell")
@@ -689,22 +692,18 @@ struct ContentView: View {
 
     private var welcomeView: some View {
         ScrollView {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             Image(systemName: "doc.richtext")
-                .uiFont(size: 48)
+                .uiFont(size: 36)
                 .foregroundColor(VSDark.blue)
 
-            Text("Make sense of your project.")
-                .uiFont(size: 24, weight: .light)
+            Text(workspaceManager.rootNode == nil ? "Open a Project" : "No File Open")
+                .uiFont(size: 20, weight: .semibold)
                 .foregroundColor(VSDark.textBright)
-
-            Text("Files · Project Map · Work")
-                .uiFont(size: 13)
-                .foregroundColor(VSDark.textDim)
 
             if workspaceManager.rootNode != nil {
                 // A folder is open but no document yet.
-                HStack(spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120 * min(appFontScale, 1.5)), spacing: 8)], spacing: 8) {
                     Button { workspaceManager.showAIConsole() } label: {
                         Label("Open Terminal", systemImage: "terminal")
                     }
@@ -723,14 +722,11 @@ struct ContentView: View {
                         .buttonStyle(.bordered)
                 }
                 .padding(.top, 8)
-                Text("Start a specification in Work. Resume a handoff in Files.")
-                    .uiFont(size: 11)
-                    .foregroundColor(VSDark.textDim)
                 HandoffStartList(store: workspaceManager.features)
                     .environmentObject(workspaceManager)
                     .frame(maxWidth: 700)
             } else {
-                HStack(spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120 * min(appFontScale, 1.5)), spacing: 8)], spacing: 8) {
                     Button("Open Folder...") { openFolder() }
                         .buttonStyle(.borderedProminent)
                         .tint(VSDark.blue)
