@@ -444,3 +444,13 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: when a report names a suspect, measure it (headless runs on a fixture, real transcripts, the spec files'
   order in discussion.md) before fixing it. When a fix is scoped to one flow, grep for the sibling flows that
   share the mechanism and ask whether the scope is intended.
+
+## Layout bugs: replay the stored graph headlessly and measure (BUG-012, 2026-09-28)
+- The X-Ray snapshot is in `<project>/.dde/state.db` (`arch_nodes`, `arch_edges`, per view). Cytoscape runs
+  headless in Node with `cytoscape-elk` and the vendored `elk.bundled.js` (give it `node_modules/elkjs/lib/`);
+  mirror `buildElements` (drawn nodes, representatives, sizes) and the `layout()` options, then measure fill
+  (node area / box area), overlaps and mean linked-node distance. ELK's worker keeps Node alive: exit after
+  `layoutstop`, with a timeout.
+- A screenshot's scatter was not the folder the report's suspect pointed at (a Go folder with no inner links packs
+  fine); sweeping every large box across projects found the branch that scatters and proved the fix everywhere.
+

@@ -712,8 +712,12 @@
                 // Every box is laid out on its own: children with few links between them (a
                 // notes folder, a list of files) are packed into a rectangle instead of one tall
                 // column; linked ones follow the flow of their links. The top level is packed to
-                // the window's shape.
+                // the window's shape. More than `flowLimit` children are packed even when linked:
+                // a flow of dozens of files that reference one another spreads them over a huge
+                // area (BUG-012: MarkView/Models, 73 files, filled 2% of its box; packed, 61%).
+                const flowLimit = 20;
                 function sparse(children) {
+                    if (children.length > flowLimit) return true;
                     const ids = new Set(children.map(function(n) { return n.id(); }));
                     const links = children.connectedEdges().filter(function(e) { return ids.has(e.source().id()) && ids.has(e.target().id()); }).length;
                     return links < 0.25 * children.length;

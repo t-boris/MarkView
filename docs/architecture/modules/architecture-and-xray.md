@@ -483,7 +483,9 @@ sequenceDiagram
     parallel edges are summed into one weight.
   - Box size comes from the label length; the Size overlay scales it up to 3.2×.
 - **Layout** (`:709-753`). ELK runs with `hierarchyHandling: SEPARATE_CHILDREN`:
-  - `rectpacking` for sparse groups (fewer links than a quarter of the nodes),
+  - `rectpacking` for sparse groups (fewer links than a quarter of the nodes) and for any box with more than 20
+    children (`flowLimit`, BUG-012: a layered flow of dozens of files that reference one another spread
+    MarkView/Models over 6338×3310 px, 2% filled),
   - otherwise `layered`, direction RIGHT, `LAYER_SWEEP`, model order kept.
 
   Positions carry over between renders. New nodes start at their parent and fade in
