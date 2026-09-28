@@ -238,6 +238,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         for key in environment.keys where key == "CLAUDECODE" || key.hasPrefix("CLAUDE_CODE_") {
             environment[key] = nil
         }
+        // Color switches of the tool shell MarkView may have been launched from (Claude Code sets
+        // NO_COLOR=1): inherited, every CLI in this color terminal prints black and white.
+        // A user's own setting comes back from their rc files.
+        environment["NO_COLOR"] = nil
+        environment["FORCE_COLOR"] = nil
         // Claude Code in these terminals always keeps its session transcripts (resume, history).
         environment["CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"] = "1"
         environment["TERM"] = "xterm-256color"

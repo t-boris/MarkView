@@ -419,3 +419,11 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: map HTTP status + the provider's machine-readable error code to a sentence, a next step and a short
   `(HTTP n · code)` tag; accept only identifier-shaped codes; never display or log the body. Get a real error body
   with a fake key (`curl … -H 'Authorization: Bearer sk-fake'`) and test the mapping against it.
+
+## A launch from an agent shell leaks its environment into the terminal (2026-09-27)
+- MarkView was relaunched with `nohup` from Claude Code's Bash, which sets `NO_COLOR=1`. `TerminalSession` copies
+  the app's environment into every shell, so Claude, Codex, git and ls in all terminals turned black and white.
+  No code had changed; `ps -E -ww -o command= -p <pid>` showed `NO_COLOR=1` on the app process.
+- Rule: the terminal drops the launching tool's markers (`CLAUDECODE*`, `NO_COLOR`, `FORCE_COLOR`); the user's rc
+  files set their own values again. Relaunch the app with `env -u NO_COLOR -u FORCE_COLOR open -a …`, never by
+  running the binary from an agent shell. When output "suddenly" changes, check the running process's env first.
