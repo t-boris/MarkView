@@ -146,7 +146,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
         fileWatcher?.resume()
 
         fileWatchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            self?.checkForFileTreeChanges()
+            Task { @MainActor in self?.checkForFileTreeChanges() }
         }
     }
 
@@ -323,6 +323,46 @@ class WorkspaceManager: ObservableObject {
     @Published var showTOC: Bool = true {
         didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC") }
     }
+    @Published var compactLayout = false
+    @Published var compactNavigationPresented = false
+    @Published var compactContextPresented = false
+    @Published var handoffResume: HandoffResume?
+    @Published var showGlobalSearch = false
+    struct SelectionActionState: Identifiable {
+        enum Phase { case running, completed, stopped, failed }
+        let id: UUID
+        let title: String
+        let scope: String
+        let assistant: String
+        let started: Date
+        var stage: String = "Starting"
+        var partial: String = ""
+        var phase: Phase = .running
+    }
+    @Published private(set) var selectionActions: [UUID: SelectionActionState] = [:]
+    private var selectionTasks: [UUID: Task<CLICompletion.Result, Error>] = [:]
+    private var stoppedSelectionActions: Set<UUID> = []
+
+    func stopSelectionAction(_ id: UUID) {
+        stoppedSelectionActions.insert(id)
+        selectionTasks[id]?.cancel()
+        if var state = selectionActions[id] {
+            state.stage = "Stopping…"
+            selectionActions[id] = state
+        }
+    }
+
+    func dismissSelectionAction(_ id: UUID) { selectionActions.removeValue(forKey: id) }
+
+    func toggleNavigation() {
+        if compactLayout { compactNavigationPresented.toggle() }
+        else { showFileTree.toggle() }
+    }
+
+    func toggleContext() {
+        if compactLayout { compactContextPresented.toggle() }
+        else { showTOC.toggle() }
+    }
 
     @Published var semanticDatabase: SemanticDatabase?
     @Published var incrementalCompiler: IncrementalCompiler?
@@ -446,6 +486,11 @@ class WorkspaceManager: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+        layout.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")
     }
 
@@ -465,9 +510,14 @@ class WorkspaceManager: ObservableObject {
 
     /// Folder reopened on the next launch; cleared by Close Folder.
     static let lastFolderKey = "workspace.lastFolder"
+    static let recentProjectsKey = "workspace.recentProjects"
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
+        var recent = UserDefaults.standard.stringArray(forKey: Self.recentProjectsKey) ?? []
+        recent.removeAll { $0 == url.standardizedFileURL.path }
+        recent.insert(url.standardizedFileURL.path, at: 0)
+        UserDefaults.standard.set(Array(recent.prefix(8)), forKey: Self.recentProjectsKey)
         rootOpenedAsFolder = true
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
@@ -690,6 +740,7 @@ class WorkspaceManager: ObservableObject {
     /// is never written to disk, so reading it back would corrupt the in-memory
     /// session. We still allow the tab to be activated by index match.
     func openOrRefreshFile(_ url: URL) {
+        layout.workspaceArea = .files
         if let index = tabsStore.firstIndex(of: url) {
             if !openTabs[index].isFileBacked {
                 tabsStore.activeTabIndex = index
@@ -719,6 +770,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Open a file in a new tab or switch to existing tab
     func openFile(_ url: URL) {
+        layout.workspaceArea = .files
         // Always init workspace for .md files if DB is missing or file is from different dir
         let isMD = url.pathExtension.lowercased() == "md"
         if isMD && !isFileInCurrentWorkspace(url) {
@@ -789,7 +841,9 @@ class WorkspaceManager: ObservableObject {
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
         }
-        state.panels = WorkspacePanelState(navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
+        state.panels = WorkspacePanelState(workspaceArea: layout.workspaceArea.rawValue,
+            workSection: layout.workSection.rawValue,
+            navigator: layout.navigatorTab.rawValue, left: layout.leftPanel,
             feature: layout.issuesFeature, git: layout.gitSection.rawValue, stage: layout.featureStage.rawValue,
             showFiles: showFileTree, showNavigator: showTOC)
         return state
@@ -851,6 +905,8 @@ class WorkspaceManager: ObservableObject {
         }
         activeTabIndex = selected ?? (openTabs.isEmpty ? -1 : 0)
         if let panels = state.panels {
+            layout.workspaceArea = panels.workspaceArea.flatMap(WorkspaceArea.init) ?? .files
+            layout.workSection = panels.workSection.flatMap(WorkSection.init) ?? .features
             layout.navigatorTab = TOCView.Tab(rawValue: panels.navigator) ?? .contents
             layout.leftPanel = panels.left == "issues" ? "issues" : "files"
             layout.issuesFeature = panels.feature
@@ -1151,11 +1207,13 @@ class WorkspaceManager: ObservableObject {
     /// Open (or switch to) the project's X-Ray. The first time the folder is scanned;
     /// later openings show the stored result.
     func openArchitecture() {
+        layout.workspaceArea = .projectMap
         openXRayTab(scope: "")
     }
 
     private func openXRayTab(scope: String) {
         guard let root = rootNode?.url, let context = xrayContext(scope) else { return }
+        layout.workspaceArea = .projectMap
         let isThisTab = { (tab: OpenTab) -> Bool in
             if case .architecture(let s) = tab.kind { return s == scope }
             return false
@@ -1812,7 +1870,7 @@ class WorkspaceManager: ObservableObject {
         let (systemPrompt, title): (String, String) = {
             switch action {
             case "translate_ru":
-                return ("You are a professional translator. Translate the user's text to Russian word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Перевод на русский")
+                return ("You are a professional translator. Translate the user's text to Russian word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to Russian")
             case "translate_en":
                 return ("You are a professional translator. Translate the user's text to English word-for-word. Do NOT summarize, do NOT shorten, do NOT skip anything. Translate every single sentence. Return ONLY the translated text in markdown format.", "Translation to English")
             case "explain":
@@ -1822,15 +1880,69 @@ class WorkspaceManager: ObservableObject {
             }
         }()
 
+        var request = CLICompletion.Request(prompt: text, systemPrompt: systemPrompt)
+        request.timeout = 120
+        let id = UUID()
+        let scope = activeTab.map { workspaceRelativePath($0.url) } ?? "Selected text"
+        let assistant = AIAssistantPreferences.summary(tool: request.tool,
+            model: request.model ?? AIAssistantPreferences.model(for: request.tool) ?? "")
+        selectionActions[id] = SelectionActionState(id: id, title: title,
+            scope: "\(scope) · selected text", assistant: assistant, started: Date())
+        let task = Task { [weak self] in
+            try await CLICompletion.run(request, onDelta: { [weak self] delta in
+                Task { @MainActor in
+                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
+                    state.partial += delta
+                    state.stage = "Writing answer"
+                    self?.selectionActions[id] = state
+                }
+            }, onActivity: { [weak self] activity in
+                Task { @MainActor in
+                    guard var state = self?.selectionActions[id], state.phase == .running else { return }
+                    switch activity {
+                    case .thinking: state.stage = "Thinking"
+                    case .writing, .answerDelta: state.stage = "Writing answer"
+                    case .read, .search, .run: state.stage = "Reading project context"
+                    case .webSearch, .webFetch: state.stage = "Reading web context"
+                    }
+                    self?.selectionActions[id] = state
+                }
+            })
+        }
+        selectionTasks[id] = task
+        defer {
+            selectionTasks.removeValue(forKey: id)
+            stoppedSelectionActions.remove(id)
+        }
         do {
-            var request = CLICompletion.Request(prompt: text, systemPrompt: systemPrompt)
-            request.timeout = 120
-            let result = try await CLICompletion.run(request)
+            let result = try await task.value
+            if stoppedSelectionActions.contains(id) {
+                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
+                completion(title, selectionActions[id]?.partial ?? "Stopped")
+                return
+            }
             result.record(in: semanticDatabase)
+            finishSelectionAction(id, phase: .completed, stage: "Completed")
             completion(title, result.text)
+        } catch is CancellationError {
+            finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
+            completion(title, selectionActions[id]?.partial ?? "Stopped")
         } catch {
+            if stoppedSelectionActions.contains(id) {
+                finishSelectionAction(id, phase: .stopped, stage: "Stopped · partial answer retained")
+                completion(title, selectionActions[id]?.partial ?? "Stopped")
+                return
+            }
+            finishSelectionAction(id, phase: .failed, stage: error.localizedDescription)
             completion(title, "Error: \(error.localizedDescription)")
         }
+    }
+
+    private func finishSelectionAction(_ id: UUID, phase: SelectionActionState.Phase, stage: String) {
+        guard var state = selectionActions[id] else { return }
+        state.phase = phase
+        state.stage = stage
+        selectionActions[id] = state
     }
 
     // MARK: - Document Translation
@@ -3232,8 +3344,41 @@ class WorkspaceManager: ObservableObject {
 
     /// Show the right panel on its Terminal tab (the AI terminals).
     func showAIConsole() {
-        showTOC = true
+        layout.workspaceArea = .work
+        layout.workSection = .terminal
         layout.navigatorTab = .terminal
+    }
+
+    func resumeHandoff(slug: String, title: String, linkedFiles: [String]) {
+        guard let root = features.root else { return }
+        Task {
+            let checked = await Task.detached { () -> (available: [URL], missing: [String]) in
+                let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
+                var available: [URL] = []
+                var missing: [String] = []
+                for path in linkedFiles {
+                    let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+                    guard !path.hasPrefix("/"), !parts.isEmpty,
+                          parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+                        missing.append(path)
+                        continue
+                    }
+                    let url = root.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
+                    guard url.path.hasPrefix(base),
+                          (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                        missing.append(path)
+                        continue
+                    }
+                    available.append(url)
+                }
+                return (available, missing)
+            }.value
+            guard features.root == root else { return }
+            handoffResume = HandoffResume(slug: slug, title: title,
+                                          linkedFiles: linkedFiles, missingFiles: checked.missing)
+            for url in checked.available { openFile(url) }
+            layout.workspaceArea = .files
+        }
     }
 
     // MARK: - Terminals
@@ -3544,6 +3689,23 @@ class WorkspaceManager: ObservableObject {
         return !openTabs[index].isModified
     }
 
+    /// A handoff is a disk snapshot; save all modified tabs in that feature first.
+    func saveBeforeHandoff(_ folder: URL) -> Bool {
+        let prefix = folder.standardizedFileURL.path + "/"
+        for index in openTabs.indices where openTabs[index].isFileBacked && openTabs[index].isModified &&
+            openTabs[index].url.standardizedFileURL.path.hasPrefix(prefix) {
+            let alert = NSAlert()
+            alert.messageText = "Save changes to \(openTabs[index].displayName) before handoff?"
+            alert.informativeText = "The handoff captures files as saved on disk."
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return false }
+            saveFile(at: index)
+            if openTabs[index].isModified { return false }
+        }
+        return true
+    }
+
     /// A research job rewrote `file` on disk: its tab shows the new text; a tab with unsaved
     /// edits gets the same change applied by `applyToEdited` so nothing typed is lost.
     func researchDocumentChanged(_ file: URL, content: String, applyToEdited: (String) -> String?) {
@@ -3692,6 +3854,8 @@ class WorkspaceManager: ObservableObject {
     /// Open (or switch to) the editor tab of a workflow run or an issue.
     func openGitHubTab(_ item: GitHubItem) {
         guard let root = rootNode?.url ?? gitHub.root else { return }
+        layout.workspaceArea = .work
+        layout.workSection = .git
         let url = root.appendingPathComponent(item.marker)
         if tabsStore.selectTab(matching: url) != nil { return }
         var tab = OpenTab(url: url, content: "", originalContent: "")

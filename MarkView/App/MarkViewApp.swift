@@ -283,18 +283,23 @@ struct MarkViewApp: App {
             CommandGroup(after: .toolbar) {
                 Divider()
 
+                Button("Search Project…") {
+                    activeWorkspace?.showGlobalSearch = true
+                }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+
                 Button("Toggle Theme") {
                     themeManager.toggleTheme()
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
 
                 Button("Toggle File Tree") {
-                    activeWorkspace?.showFileTree.toggle()
+                    activeWorkspace?.toggleNavigation()
                 }
                 .keyboardShortcut("1", modifiers: [.command])
 
                 Button("Toggle Table of Contents") {
-                    activeWorkspace?.showTOC.toggle()
+                    activeWorkspace?.toggleContext()
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 

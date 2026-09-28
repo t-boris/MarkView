@@ -72,6 +72,32 @@ final class FeatureAssistant: ObservableObject {
     @Published var results: [FeatureResult] = []
     @Published var error: String?
 
+    struct ActionState {
+        enum Phase { case running, completed, stopped, failed }
+        let key: String
+        let title: String
+        let scope: String
+        let assistant: String
+        let output: String
+        let started: Date
+        var stage: String
+        var partial: String = ""
+        var phase: Phase = .running
+    }
+    @Published private(set) var actions: [String: ActionState] = [:]
+    private var actionTasks: [String: Task<CLICompletion.Result, Error>] = [:]
+    private var stopRequested: Set<String> = []
+
+    func stopAction(_ key: String) {
+        stopRequested.insert(key)
+        if var state = actions[key] {
+            state.stage = "Stopping…"
+            actions[key] = state
+        }
+        actionTasks[key]?.cancel()
+    }
+    func dismissAction(_ key: String) { actions.removeValue(forKey: key) }
+
     /// Voice notes for sources; owned here so a recording survives switching panels.
     let voice = WhisperClient()
 
@@ -150,17 +176,98 @@ final class FeatureAssistant: ObservableObject {
         request.allowWeb = web
         request.effort = "low"
         request.timeout = timeout
+        let model = request.model ?? AIAssistantPreferences.model(for: request.tool) ?? "default model"
+        actions[key] = ActionState(key: key, title: Self.title(for: key),
+                                   scope: folder?.path ?? "Selected text",
+                                   assistant: "\(request.tool.displayName) · \(model)",
+                                   output: folder.map { "Work · \($0.lastPathComponent)" } ?? "Work result",
+                                   started: Date(), stage: "Starting")
+        let task = Task {
+            try await CLICompletion.run(request, onDelta: { [weak self] text in
+                onDelta?(text)
+                Task { @MainActor in
+                    guard var state = self?.actions[key], state.phase == .running else { return }
+                    state.partial += text
+                    state.stage = "Writing answer"
+                    self?.actions[key] = state
+                }
+            }, onActivity: { [weak self] activity in
+                Task { @MainActor in
+                    guard var state = self?.actions[key], state.phase == .running else { return }
+                    switch activity {
+                    case .read: state.stage = "Reading project files"
+                    case .search: state.stage = "Searching project"
+                    case .run: state.stage = "Inspecting project"
+                    case .webSearch: state.stage = "Searching the web"
+                    case .webFetch: state.stage = "Reading a web source"
+                    case .thinking: state.stage = "Thinking"
+                    case .writing, .answerDelta: state.stage = "Writing answer"
+                    }
+                    self?.actions[key] = state
+                }
+            })
+        }
+        actionTasks[key] = task
+        defer {
+            actionTasks.removeValue(forKey: key)
+            stopRequested.remove(key)
+        }
         do {
-            let result = try await CLICompletion.run(request, onDelta: onDelta)
+            let result = try await task.value
+            if stopRequested.contains(key) {
+                markStopped(key)
+                return nil
+            }
             guard store.root == folder else { return nil }
             result.record(in: database())
             error = nil
+            if var state = actions[key] {
+                state.phase = .completed
+                state.stage = "Completed"
+                actions[key] = state
+            }
             return result
         } catch is CancellationError {
+            markStopped(key)
             return nil
         } catch {
+            if stopRequested.contains(key) {
+                markStopped(key)
+                return nil
+            }
             self.error = error.localizedDescription
+            if var state = actions[key] {
+                state.phase = .failed
+                state.stage = error.localizedDescription
+                actions[key] = state
+            }
             return nil
+        }
+    }
+
+    private func markStopped(_ key: String) {
+        if var state = actions[key] {
+            state.phase = .stopped
+            state.stage = "Stopped · partial answer retained"
+            actions[key] = state
+        }
+    }
+
+    private static func title(for key: String) -> String {
+        let parts = key.split(separator: ":")
+        if parts.first == "action", parts.count > 1 {
+            return FeatureAction(rawValue: String(parts[1]))?.title ?? "Selected text"
+        }
+        switch parts.first {
+        case "explore": return "Ask next question"
+        case "answer": return "Process answer"
+        case "review": return "Review feature"
+        case "research": return "Research feature"
+        case "chat": return "Discuss feature"
+        case "decompose": return "Plan implementation"
+        case "consolidate": return "Consolidate requirements"
+        case "resolveopts": return "Resolve finding"
+        default: return parts.first.map { String($0).capitalized } ?? "AI action"
         }
     }
 
@@ -1113,7 +1220,7 @@ final class FeatureAssistant: ObservableObject {
             results.insert(item, at: 0)
             let resultID = item.id
             var streamed = ""
-            let result = await run("action:" + resultID.uuidString, prompt: prompt, schema: nil, onDelta: { text in
+            let result = await run("action:\(action.rawValue):" + resultID.uuidString, prompt: prompt, schema: nil, onDelta: { text in
                 Task { @MainActor in
                     streamed += text
                     self.updateResult(resultID) { $0.text = streamed }

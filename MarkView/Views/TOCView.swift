@@ -5,6 +5,7 @@ struct TOCView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     /// This window's panel tabs (BUG-004: not @AppStorage, which every window observes).
     @ObservedObject var layout: PanelLayout
+    var showTabs = true
 
     enum Tab: String, CaseIterable {
         case contents = "Contents"
@@ -17,8 +18,14 @@ struct TOCView: View {
     }
 
     var body: some View {
-        TOCTabs(store: workspaceManager.features, selectedTab: $layout.navigatorTab) {
-            tabContent
+        Group {
+            if showTabs {
+                TOCTabs(store: workspaceManager.features, selectedTab: $layout.navigatorTab) {
+                    tabContent
+                }
+            } else {
+                contentsList
+            }
         }
     }
 

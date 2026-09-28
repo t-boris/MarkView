@@ -150,7 +150,7 @@
             display: none; /* Hidden — compatibility only */
         }
 
-        /* WYSIWYG toolbar — always visible */
+        /* The editor keeps frequent actions visible and groups the rest. */
         .wysiwyg-toolbar {
             display: flex;
             align-items: center;
@@ -159,9 +159,10 @@
             border-bottom: 1px solid var(--border-color);
             gap: 1px;
             flex-shrink: 0;
+            min-height: calc(32px * var(--ui-scale, 1));
         }
         .wysiwyg-toolbar button {
-            width: 24px; height: 22px;
+            width: calc(26px * var(--ui-scale, 1)); height: calc(26px * var(--ui-scale, 1));
             border: none; border-radius: 3px;
             background: transparent; color: #b0b0b0;
             font-size: calc(12px * var(--ui-scale, 1)); cursor: pointer;
@@ -177,6 +178,33 @@
             user-select: none;
         }
         .wysiwyg-toolbar .mode-label:hover { color: #b0b0b0; }
+        .editor-more { position: relative; flex-shrink: 0; }
+        .editor-more summary {
+            list-style: none; width: calc(26px * var(--ui-scale, 1));
+            height: calc(26px * var(--ui-scale, 1)); display: grid; place-items: center;
+            border-radius: 5px; cursor: pointer; color: var(--text-primary);
+            font-size: calc(19px * var(--ui-scale, 1));
+        }
+        .editor-more summary::-webkit-details-marker { display: none; }
+        .editor-more summary:hover, .editor-more[open] summary { background: var(--bg-tertiary); }
+        .editor-more-menu {
+            position: absolute; z-index: 800; right: 0; top: 100%;
+            width: min(280px, calc(100vw - 16px)); max-height: min(440px, calc(100vh - 80px));
+            overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 3px; padding: 7px; background: var(--bg-secondary);
+            border: 1px solid var(--border-color); border-radius: 8px;
+            box-shadow: var(--shadow-lg);
+        }
+        .wysiwyg-toolbar .editor-more-menu button {
+            width: auto; height: auto; min-height: 28px; padding: 5px 7px;
+            justify-content: flex-start; gap: 6px; text-align: left;
+            font-size: calc(10px * var(--ui-scale, 1));
+        }
+        .editor-more-menu .menu-heading {
+            grid-column: 1 / -1; color: var(--text-secondary);
+            font-size: calc(10px * var(--ui-scale, 1));
+            padding: 6px 5px 2px;
+        }
 
         /* Canvas popup */
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -1334,31 +1362,37 @@
         <div class="wysiwyg-toolbar" id="wysiwyg-toolbar">
             <button onclick="fmtCmd('bold')" title="Bold (⌘B)"><b>B</b></button>
             <button onclick="fmtCmd('italic')" title="Italic (⌘I)"><i>I</i></button>
-            <button onclick="fmtCmd('strikeThrough')" title="Strikethrough"><s>S</s></button>
-            <button onclick="fmtCmd('code')" title="Inline code" style="font-family:monospace;font-size: calc(11px * var(--ui-scale, 1))">&lt;/&gt;</button>
             <div class="sep"></div>
             <button onclick="fmtBlock('H1')" title="Heading 1" style="font-weight:800;font-size: calc(14px * var(--ui-scale, 1))">H1</button>
             <button onclick="fmtBlock('H2')" title="Heading 2" style="font-weight:700;font-size: calc(12px * var(--ui-scale, 1))">H2</button>
-            <button onclick="fmtBlock('H3')" title="Heading 3" style="font-weight:600;font-size: calc(11px * var(--ui-scale, 1))">H3</button>
             <div class="sep"></div>
             <button onclick="fmtCmd('insertUnorderedList')" title="Bullet list">•&mdash;</button>
-            <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1.</button>
-            <button onclick="fmtCmd('formatBlock','blockquote')" title="Quote" style="font-size: calc(15px * var(--ui-scale, 1))">❝</button>
             <button onclick="fmtLink()" title="Insert link (⌘K)">🔗</button>
-            <button onclick="fmtImage()" title="Insert image">🖼</button>
-            <button onclick="fmtHR()" title="Horizontal rule">&mdash;</button>
-            <div class="sep"></div>
-            <button onclick="fmtCodeBlock()" title="Code block" style="font-family:monospace;font-size: calc(10px * var(--ui-scale, 1))">{ }</button>
-            <button onclick="fmtTable()" title="Insert table">▦</button>
-            <div class="sep"></div>
-            <button onclick="fmtMermaid()" title="Insert a Mermaid diagram" style="font-size: calc(12px * var(--ui-scale, 1))">◇</button>
             <div class="spacer"></div>
-            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_ru')" title="Translate selection to Russian" style="font-size: calc(10px * var(--ui-scale, 1))">RU</button>
-            <button onmousedown="event.preventDefault()" onclick="selectionAction('translate_en')" title="Translate selection to English" style="font-size: calc(10px * var(--ui-scale, 1))">EN</button>
-            <button onmousedown="event.preventDefault()" onclick="selectionAction('explain')" title="Explain selection" style="font-size: calc(10px * var(--ui-scale, 1))">?</button>
             <button onclick="saveFile()" title="Save (⌘S)" style="font-size: calc(11px * var(--ui-scale, 1))">💾</button>
-            <button onclick="refreshFile()" title="Reload file from disk (⌘R)" style="font-size: calc(12px * var(--ui-scale, 1))">↻</button>
-            <div class="sep"></div>
+            <details class="editor-more">
+                <summary title="More editor actions" aria-label="More editor actions" onmousedown="event.preventDefault()">⋯</summary>
+                <div class="editor-more-menu" onmousedown="event.preventDefault()">
+                    <span class="menu-heading">Formatting</span>
+                    <button onclick="fmtCmd('strikeThrough')" title="Strikethrough"><s>S</s> Strike</button>
+                    <button onclick="fmtCmd('code')" title="Inline code">&lt;/&gt; Code</button>
+                    <button onclick="fmtBlock('H3')" title="Heading 3">H3 Heading</button>
+                    <button onclick="fmtCmd('insertOrderedList')" title="Numbered list">1. List</button>
+                    <button onclick="fmtCmd('formatBlock','blockquote')" title="Quote">❝ Quote</button>
+                    <button onclick="fmtCodeBlock()" title="Code block">{ } Block</button>
+                    <span class="menu-heading">Insert</span>
+                    <button onclick="fmtImage()" title="Insert image">▧ Image</button>
+                    <button onclick="fmtHR()" title="Horizontal rule">— Rule</button>
+                    <button onclick="fmtTable()" title="Insert table">▦ Table</button>
+                    <button onclick="fmtMermaid()" title="Insert a Mermaid diagram">◇ Diagram</button>
+                    <span class="menu-heading">Document</span>
+                    <button onclick="refreshFile()" title="Reload file from disk (⌘R)">↻ Reload</button>
+                    <span class="menu-heading">Selection</span>
+                    <button onclick="selectionAction('translate_ru')" title="Translate selection to Russian">RU Translate</button>
+                    <button onclick="selectionAction('translate_en')" title="Translate selection to English">EN Translate</button>
+                    <button onclick="selectionAction('explain')" title="Explain selection">? Explain</button>
+                </div>
+            </details>
             <span class="mode-label" id="mode-toggle" onclick="toggleModeWrapper ? toggleModeWrapper() : toggleMode()" title="Switch mode (⌘⇧P)">Source ↗</span>
         </div>
 
@@ -1433,9 +1467,9 @@
                     <!-- Kept together: when the toolbar is narrow the group moves to the next line as a whole. -->
                     <div class="arch-actions">
                         <button class="arch-btn" id="arch-analyze" title="Describe modules and map deployment with the selected AI assistant">Analyze</button>
-                        <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)">Rescan</button>
-                        <button class="arch-btn" id="arch-fit" title="Fit to window">Fit</button>
-                        <button class="arch-btn" id="arch-details-toggle" title="Show or hide the details panel">Details</button>
+                        <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)" aria-label="Rescan">↻</button>
+                        <button class="arch-btn" id="arch-fit" title="Fit to window" aria-label="Fit to window">⛶</button>
+                        <button class="arch-btn" id="arch-details-toggle" title="Show or hide the details panel" aria-label="Toggle details">▤</button>
                     </div>
                 </div>
                 <div class="arch-progress" id="arch-progress" hidden>
@@ -1600,5 +1634,16 @@
     <script src="vendor/js/markview-diagram-viewer.js"></script>
     <script src="vendor/js/markview-d3-mermaid.js"></script>
     <script src="vendor/js/markview-init.js"></script>
+    <script>
+        (function() {
+            const more = document.querySelector('.editor-more');
+            more.querySelector('.editor-more-menu').addEventListener('click', function(event) {
+                if (event.target.closest('button')) more.open = false;
+            });
+            document.addEventListener('click', function(event) {
+                if (!more.contains(event.target)) more.open = false;
+            });
+        })();
+    </script>
 </body>
 </html>

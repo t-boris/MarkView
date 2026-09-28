@@ -27,6 +27,9 @@ wired into the macOS app. Do not treat an `EditorWeb` build as an app change.
 
 ## Working Rules
 
+- Communicate with Boris in Russian. Write all new and modified repository files,
+  including code comments and documentation, in English. Preserve existing
+  historical records when they are not being rewritten.
 - Read the relevant call path before editing and keep changes focused.
 - Preserve unrelated working-tree changes and never commit credentials or local
   workspace data.

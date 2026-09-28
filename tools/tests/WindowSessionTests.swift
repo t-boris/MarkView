@@ -25,7 +25,7 @@ import Foundation
                    .github(.issue(number: 33, repo: "owner/repo", title: "#33")),
                    .image(folder.appendingPathComponent("image.png")), .architecture("src"), .terminal(folder)],
             activeTabIndex: 1,
-            panels: WorkspacePanelState(navigator: "terminal", left: "issues", feature: "one", git: "changes", stage: "explore", showFiles: true, showNavigator: false),
+            panels: WorkspacePanelState(workspaceArea: "Work", workSection: "Git", navigator: "terminal", left: "issues", feature: "one", git: "changes", stage: "explore", showFiles: true, showNavigator: false),
             frame: CGRect(x: 300, y: 400, width: 1200, height: 800), minimized: true)
         let second = WorkspaceWindowState(id: UUID(), folder: folder)
         let archive = WindowSessionArchive(windows: [first, second])
@@ -37,6 +37,8 @@ import Foundation
         check(loaded.windows[0].activeTabIndex == 1, "active tab survives")
         check(loaded.windows[0].frame == first.frame && loaded.windows[0].minimized, "window placement survives")
         check(loaded.windows[0].panels?.feature == "one" && loaded.windows[0].panels?.showNavigator == false, "per-window panels survive")
+        check(loaded.windows[0].panels?.workspaceArea == "Work" && loaded.windows[0].panels?.workSection == "Git",
+              "workspace and Work section survive per window")
         check(loaded.windows[0].tabs.count == 5, "all supported tab kinds survive")
         if case .file(let restoredURL, let restoredDraft, let notes, let scroll) = loaded.windows[0].tabs[0] {
             check(restoredURL == file && notes && scroll == 123.5, "file view state survives")

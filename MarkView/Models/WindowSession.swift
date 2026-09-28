@@ -13,6 +13,8 @@ struct WorkspaceWindowState: Codable, Identifiable {
 }
 
 struct WorkspacePanelState: Codable {
+    var workspaceArea: String? = nil
+    var workSection: String? = nil
     var navigator: String
     var left: String
     var feature: String

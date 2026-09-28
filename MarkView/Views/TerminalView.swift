@@ -17,6 +17,7 @@ struct TerminalHostView: NSViewRepresentable {
     func updateNSView(_ container: NSView, context: Context) {
         if session.webView.superview !== container { attach(to: container) }
         session.setFontScale(fontScale)
+        DispatchQueue.main.async { session.refit() }
     }
 
     private func attach(to container: NSView) {
@@ -25,7 +26,10 @@ struct TerminalHostView: NSViewRepresentable {
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
-        DispatchQueue.main.async { session.applyTheme() }
+        DispatchQueue.main.async {
+            session.applyTheme()
+            session.refit()
+        }
     }
 }
 
@@ -97,6 +101,17 @@ struct TerminalRestartButton: View {
     }
 }
 
+struct TerminalStopButton: View {
+    @ObservedObject var session: TerminalSession
+
+    var body: some View {
+        if session.isRunning {
+            Button { session.terminate() } label: { Label("Stop", systemImage: "stop.fill") }
+                .help("End the terminal process. Files and remote actions are not rolled back.")
+        }
+    }
+}
+
 /// AI panel → Terminal: several terminals side by side (Claude Code, Codex or a plain
 /// shell), with buttons that hand a ready-made prompt to the assistant.
 struct AITerminalPanel: View {
@@ -112,6 +127,18 @@ struct AITerminalPanel: View {
         VStack(spacing: 0) {
             tabBar
             Divider().background(VSDark.border)
+            if let session = workspaceManager.aiTerminal {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.shield")
+                    Text("Unrestricted · \(session.title) · \(session.directory.path)")
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    Text("Changes: review below")
+                }
+                .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(VSDark.bgSidebar)
+            }
             if workspaceManager.aiWorkspaceRoot != nil || workspaceManager.rootNode != nil {
                 TerminalPromptBar(expanded: $promptsExpanded)
                 Divider().background(VSDark.border)
@@ -146,6 +173,7 @@ struct AITerminalPanel: View {
             }
             newTerminalMenu
             TerminalDictationButton(session: workspaceManager.aiTerminal)
+            if let session = workspaceManager.aiTerminal { TerminalStopButton(session: session) }
             TerminalRestartButton(help: "Start the shown terminal again (with the model chosen in the toolbar)") {
                 workspaceManager.restartAITerminal()
             }
@@ -369,6 +397,7 @@ struct TerminalTabView: View {
                     .lineLimit(1).truncationMode(.head)
                 Spacer()
                 TerminalDictationButton(session: session)
+                TerminalStopButton(session: session)
                 TerminalRestartButton(help: "End this shell and start a new one in the same folder") {
                     session.restart()
                 }
