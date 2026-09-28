@@ -53,6 +53,8 @@ final class FeatureStore: ObservableObject {
     private var lastLifecycleSync: Date?
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
+    /// Sync of documented status to GitHub issues and its last report (issue #36).
+    let issueSync = IssueSyncRun()
 
     var featuresFolder: URL? { root?.appendingPathComponent(Self.folderName, isDirectory: true) }
     var bugsFolder: URL? { root?.appendingPathComponent("docs/bugs", isDirectory: true) }
@@ -112,6 +114,7 @@ final class FeatureStore: ObservableObject {
         hasIssues = false
         fingerprint = ""
         lastError = nil
+        issueSync.clear()
     }
 
     /// Read every feature again (off the main thread).

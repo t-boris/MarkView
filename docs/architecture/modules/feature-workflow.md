@@ -67,6 +67,9 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | `MarkView/Models/FeatureIntake.swift` | `IntakeKind`, `IntakeRequest`; `FeatureAssistant` extension: `newFeature`, `newBug`, `answerBug`, `investigateBug`, bug section helpers, `nextNumbered` |
 | `MarkView/Models/ImportanceRater.swift` | X-Ray rating filters (not part of this workflow; see 3.6) |
 | `MarkView/Views/FeatureNavigatorView.swift` | `LeftPanelView` (Files/Issues switch), `IssuesListView`, `IssueLinks`, `FeatureNavigatorView`, `FeatureStatusMenu`, `ReadinessBar`, `FeatureStatusDot`, `IntakeSheet` |
+| `MarkView/Models/IssueSync.swift` | Sync to GitHub (issue #36), Foundation only: `IssueSyncItem`, `IssueSyncLinks` (explicit references), `IssueSyncPlan` (pairs, unique lookups, shared-issue rule), `IssueSyncRemote`, `IssueSyncReport`, `IssueSyncPreflight`; tested by `tools/tests/issue-sync-tests.sh` |
+| `MarkView/Models/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
+| `MarkView/Views/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
 | `MarkView/Views/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView`, `ResolveStageView`, `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
 | `MarkView/Models/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift:52-54,83-96`) |
 | `tools/importance-check.sh` | Live-CLI check of `ImportanceRater` against `Tests/Fixtures/importance` (currently broken, see 10) |
@@ -342,6 +345,22 @@ flowchart TD
 
   Afterwards it creates the epic issue if there is none, and moves the status from `ready/resolving/review/draft/exploring` to `implementing`. The button is disabled while approved requirements are not covered (`FeaturePanelView.swift:1285`).
 - "Implement with AI" is covered in section 4 and 5.8.
+
+### 5.5a Sync to GitHub (feature `sync-documented-status-to-github-issues`, issue #36)
+
+- The ↻ button in the Issues list header (shown only while the GitHub integration is on) starts a run at once,
+  with no preview. It is one-way: GitHub state is never read back and no Markdown file is written.
+- Preflight, before any change: `gh` installed, `gh auth status`, a GitHub `origin`, and `viewerPermission` of
+  triage or more. A failure ends the run with a message and nothing changed.
+- Links (`IssueSyncLinks`): only explicit ones — `issue`, `issues`, `github` in the overview or bug front matter,
+  each plan issue's `github` and the plan `epic` (`12`, `#12`, `owner/name#12`, full URLs), plus full
+  `github.com/…/issues/n` URLs in the overview, the feature's own documents and the bug body. "issue #n" in text is
+  not a link. Other repositories and pull request URLs are skipped; an item with no explicit reference is unlinked.
+- Done: features `implemented`/`verified`/`archived`, bugs `fixed`/`closed`. An open issue is closed with
+  `gh issue close --reason completed` only when every linked item is done; otherwise it is skipped with the
+  blocking items. Closed issues stay as they are (never reopened). Each issue is looked up and changed once.
+- The report (in memory until the next run or project change) counts unique issues and lists each item–issue
+  pair with its outcome and reason; per-issue failures do not stop the run. One run per project at a time.
 
 ### 5.6 Sources (ingest)
 

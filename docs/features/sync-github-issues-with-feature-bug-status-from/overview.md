@@ -2,7 +2,7 @@
 type: feature
 id: sync-github-issues-with-feature-bug-status-from
 title: Sync GitHub Issues with Feature/Bug status from the Issues tab
-status: implemented
+status: archived
 owner: Boris Tsekinovsky
 created: 2026-09-27
 provenance: Created from the feature intake
@@ -35,6 +35,8 @@ questions_left: 0
 ---
 
 # Sync GitHub Issues with Feature/Bug status from the Issues tab
+
+> Archived: replaced by `docs/features/sync-documented-status-to-github-issues/` (its DEC-004), which carries these decisions and is the implemented specification.
 
 ## Idea
 

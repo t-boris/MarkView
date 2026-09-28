@@ -1,5 +1,27 @@
 # MarkView — Follow-up Tasks
 
+## Done 50: Sync documented status to GitHub issues (2026-09-27, issue #36, branch feat/issue-status-sync, 2.26.0)
+
+Spec: `docs/features/sync-documented-status-to-github-issues/` (REQ-001…004, DEC-001…010).
+Owner answers (2026-09-27): a bug counts as done at `fixed`/`closed`; explicit fields are overview/bug
+`issue`/`issues`/`github`, every plan issue's `github` and the plan `epic`; archive the duplicate spec
+`sync-github-issues-with-feature-bug-status-from`.
+
+- [x] I-1/I-2 `Models/IssueSync.swift` (Foundation only): parse explicit references, normalize to origin,
+      skip other repositories and PR links, unlinked vs rejected rows, shared-issue eligibility, report counts
+- [x] `tools/tests/issue-sync-tests.sh`
+- [x] I-3 `Models/IssueSyncRun.swift`: preflight (gh, auth, origin, triage+ permission), read items from disk off
+      the main thread, look up each unique issue, close eligible open issues `--reason completed`, continue on errors
+- [x] I-4 Sync button in the Issues list: disabled with progress (n of m) while running, one run per project
+- [x] I-5 report under the Issues list header: summary by unique issue + unlinked count, item–issue rows with reasons
+- [x] Docs: spec status, duplicate spec archived; version bump (minor); Debug build; live check on this repo
+- [ ] Owner: after installing, press Sync in the Issues list; it should close #36 (both specs now done) and leave the rest unchanged
+
+Review: dry run against t-boris/MarkView (lookups only): 36 issues already closed → unchanged, #36 held only by
+this spec's own `implementing` status, no unlinked items. Test copy (own bundle ID): button, report rows, reasons,
+unlinked disclosure, hidden with GitHub off; report sized to its rows. Known, not changed here: the Issues list
+badges still come from `Feature.issueReferences` (includes "#n" text mentions), so they can show more issues than Sync uses.
+
 ## Done 49: BUG-009 Raw JSON shown for transcription errors (2026-09-27, issue #41, branch fix/bug-009-transcription-errors, 2.25.2)
 
 - [x] Reproduced: fake key → HTTP 401 JSON body pasted verbatim into `WhisperClient.error` (first 300 chars)

@@ -82,9 +82,11 @@ struct IssuesListView: View {
                 TextField("Filter", text: $filter).textFieldStyle(.plain).uiFont(size: 11)
                 filterMenu
                 sortMenu
+                IssueSyncButton(sync: store.issueSync, start: startSync)
             }
             .padding(.horizontal, 8).padding(.vertical, 4)
             if !store.issueFilter.isDefault { activeFilterSummary }
+            IssueSyncReportView(sync: store.issueSync)
             Divider().background(VSDark.border)
             if filtering, features.isEmpty, bugs.isEmpty {
                 noMatches
@@ -250,6 +252,12 @@ struct IssuesListView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 16)
+    }
+
+    /// Every listed feature and bug, whatever the filter shows (issue #36).
+    private func startSync() {
+        guard let root = store.root else { return }
+        store.issueSync.start(root: root, features: store.features.map(\.folder), bugs: store.bugs.map(\.url))
     }
 
     private func matches(_ text: String) -> Bool {
