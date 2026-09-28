@@ -1,5 +1,12 @@
 # MarkView — Follow-up Tasks
 
+## Done 55: BUG-014 Sparse X-Ray outline levels (2026-09-28, issue #67, 3.1.1)
+
+- [x] Reproduced local `Declarations → Functions` and AI-shaped `Part → Helpers/Functions` with fewer than four items.
+- [x] Flatten sparse or redundant part and group nodes at render time, including cached outlines; keep every item and source line.
+- [x] Ask the long-code outline prompt for useful four-item parts and groups.
+- [x] Verify the standalone regression check and Debug build.
+
 ## Done 54: Workspace tabs, version, and Feature discussion dictation (2026-09-28, 3.1.0)
 
 - [x] Mark workspace redesign verified after merged PR #65 and documented QA; update Issue #63.

@@ -450,8 +450,11 @@ same clusters) is answered from `.dde/cache/xray/<hash>.json` without calling th
    anchors are computed so a click can find the item in the rendered document
    (`XRayContent.swift:246-281`).
 4. `withContents` appends up to 20,000 `collection`, `group` and `entity` nodes under the
-   Logical file boxes **in the payload only**. They are never persisted in the DB
-   (`ArchitectureStore.swift:1018-1037`).
+   Logical file boxes **in the payload only**. A part needs at least four items and another
+   part to earn a collection level; a type group needs at least four items and another group
+   in that part. Smaller or redundant levels are skipped even for cached outlines, and
+   their items attach to the next useful parent. The nodes are never persisted in the DB
+   (`ArchitectureStore.swift:1018-1037`, `XRayContent.swift`).
 
 ### 5.5 Render in the web view
 

@@ -206,9 +206,18 @@ enum XRayContent {
 
     static func codeSystemPrompt(languageLine: String) -> String {
         """
-        You split a long source file logically, for a diagram that drills down from the file to         every function in it. Divide the file into its logical PARTS (3-12): areas of         responsibility a reader would name ("Terminal sessions", "Prompt buttons", "Persistence"),         not just "types" and "functions". Within each part, group its elements by TYPE — the role         they play (e.g. "Model", "Public API", "Event handlers", "Rendering", "Helpers",         "Networking"); use a single group with an empty name when a part is small. List EVERY type,         function, method and notable property of the part — never sample: its name as written in         the code, the 1-based line where it starts (lines are numbered), and what it does in at         most 12 words. Put each element in exactly one part, in file order. Return each PART as \
-        one collection (name = the part, summary = what it is responsible for) whose groups are the \
-        element types; never a single collection named after the file.
+        You split a long source file logically for a diagram that drills down from the file to \
+        every function in it. Identify areas of responsibility a reader would name ("Terminal \
+        sessions", "Prompt buttons", "Persistence"), not just "types" and "functions". Make a \
+        separate PART only when it contains at least four elements; otherwise combine it with a \
+        related part. Within each part, group elements by their role (e.g. "Model", "Public API", \
+        "Event handlers", "Rendering", "Helpers", "Networking") only when a group contains at \
+        least four elements. Use one group with an empty name for an unsplit part. One part is fine \
+        when the file has too few elements to split usefully. List EVERY type, function, method \
+        and notable property — never sample: its name as written in the code, the 1-based line \
+        where it starts (lines are numbered), and what it does in at most 12 words. Put each \
+        element in exactly one part, in file order. Return each PART as one collection (name = \
+        the part, summary = what it is responsible for) whose groups are the element roles.
         \(languageLine)
         """
     }
@@ -282,26 +291,29 @@ enum XRayContent {
 
     // MARK: - Diagram nodes
 
-    /// Nodes below the file box `fileId`: collection → type → item. A collection with one
-    /// unnamed type holds its items directly.
+    /// Nodes below the file box `fileId`. Sparse parts and type groups are skipped in
+    /// the diagram, including for cached outlines, while every item keeps its stable ID.
     static func nodes(for outline: Outline, path: String, fileId: String) -> [ArchNode] {
         var nodes: [ArchNode] = []
         let base = "l:e:" + path + "#"
         for (ci, collection) in outline.collections.enumerated() {
             let collectionId = base + "\(ci)"
-            nodes.append(ArchNode(id: collectionId, parent: fileId, kind: "collection", name: collection.name,
-                                  path: path, files: collection.groups.reduce(0) { $0 + $1.items.count },
-                                  summary: collection.summary))
-            let flat = collection.groups.count == 1 && collection.groups[0].name.isEmpty
+            let itemCount = collection.groups.reduce(0) { $0 + $1.items.count }
+            let showCollection = outline.collections.count > 1 && itemCount >= 4
+            if showCollection {
+                nodes.append(ArchNode(id: collectionId, parent: fileId, kind: "collection", name: collection.name,
+                                      path: path, files: itemCount, summary: collection.summary))
+            }
+            let collectionParent = showCollection ? collectionId : fileId
             for (gi, group) in collection.groups.enumerated() {
                 let groupId = collectionId + ".\(gi)"
-                var itemParent = collectionId
-                if !flat {
-                    nodes.append(ArchNode(id: groupId, parent: collectionId, kind: "group",
+                let showGroup = collection.groups.count > 1 && !group.name.isEmpty && group.items.count >= 4
+                if showGroup {
+                    nodes.append(ArchNode(id: groupId, parent: collectionParent, kind: "group",
                                           name: group.name.isEmpty ? "Other" : group.name,
                                           path: path, files: group.items.count))
-                    itemParent = groupId
                 }
+                let itemParent = showGroup ? groupId : collectionParent
                 for (ii, item) in group.items.enumerated() {
                     var node = ArchNode(id: groupId + ".\(ii)", parent: itemParent, kind: "entity", name: item.name,
                                         path: path, summary: item.summary)
