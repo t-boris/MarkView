@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## Done 53: Project color identification (2026-09-28, issue #60, branch feat/project-color-identity, 2.27.0)
+
+Spec: `docs/features/feature-2/` (REQ-001/002, DEC-001…013). Owner answers during implementation
+(2026-09-28): a single file's parent folder is not a project folder until restored as one (DEC-012);
+a 3 pt band in the project color below the toolbar for Mission Control (DEC-013).
+
+- [x] I-1 `Models/ProjectColor.swift`: 8-color palette, key = symlink-resolved standardized path,
+      FNV-1a automatic color, `ProjectColorStore` (UserDefaults `project.colors`), `tools/tests/project-color-tests.sh`
+- [x] I-2 `Views/ProjectColorViews.swift`: clickable icon beside the title (proxy icon untouched), palette popover
+- [x] I-3 band below the toolbar; 25% thumbnail proxy shows band and dot (real Mission Control not triggered)
+- [x] I-4 shared store: two windows of one folder change together; Close Folder hides the cue; restore keeps colors
+- [x] Verified: tests, Debug build, isolated test copy (bundle id `.colortest`) driven through Accessibility
+
 ## Done 52: BUG-012 X-Ray Logical view scatters a large folder (2026-09-28, issue #58, branch fix/bug-012-xray-scatter, 2.26.2)
 
 - [x] Reproduced headlessly from `.dde/state.db` with the bundled Cytoscape + ELK: MarkView/Models 2% fill
