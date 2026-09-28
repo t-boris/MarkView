@@ -52,8 +52,9 @@ jobs:
       - name: Create Release
         run: |
           gh release create latest \
+            --prerelease --latest=false \
             --title "MarkView — ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.sha }})" \
-            --notes "Automatic build from \`main\` branch.
+            --notes "Automatic unsigned build from \`main\` branch. The signed installer (DMG) is the release marked Latest.
 
           **Commit:** ${{ github.sha }}
           **Date:** ${{ steps.meta.outputs.date }}
@@ -62,7 +63,6 @@ jobs:
           1. Download \`MarkView.zip\` below
           2. Unzip and drag \`MarkView.app\` to \`/Applications\`
           3. On first launch: right-click → Open (to bypass Gatekeeper)" \
-            --latest \
             MarkView.zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
