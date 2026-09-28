@@ -216,6 +216,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         webView.evaluateJavaScript("window.mvSetFontScale && window.mvSetFontScale(\(Double(fontScale)))")
     }
 
+    func refit() {
+        guard pageReady else { return }
+        webView.evaluateJavaScript("window.mvRefit && window.mvRefit()")
+    }
+
     func focus() {
         webView.window?.makeFirstResponder(webView)
         webView.evaluateJavaScript("window.mvFocus && window.mvFocus()")
@@ -346,6 +351,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
         childPID = 0
         isRunning = false
+        exitCode = 130
+        if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }
     }
 
     // MARK: - Input and output

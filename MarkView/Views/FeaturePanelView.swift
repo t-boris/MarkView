@@ -40,6 +40,7 @@ struct FeaturePanelView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         errors
+                        actionProgress
                         BugPanelView(store: store, bug: bug)
                     }
                     .padding(10)
@@ -51,6 +52,7 @@ struct FeaturePanelView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         errors
+                        actionProgress
                         if let located = openObject, located.feature.slug == feature.slug, let object = located.object {
                             ObjectContextView(store: store, feature: feature, object: object)
                         }
@@ -72,7 +74,7 @@ struct FeaturePanelView: View {
                 }
                 DiscussionInput(store: store, feature: feature)
             } else {
-                panelEmpty("No features yet. Use ⊞ → New Feature, or open one in the left panel (Issues).")
+                panelEmpty("Create a feature with +, or choose one from navigation.")
             }
         }
         .background(VSDark.bgSidebar)
@@ -82,6 +84,49 @@ struct FeaturePanelView: View {
 
     private var openObject: (feature: Feature, object: FeatureObject?)? {
         workspaceManager.activeTab.flatMap { store.locate($0.url) }
+    }
+
+    @ViewBuilder private var actionProgress: some View {
+        ForEach(assistant.actions.values.sorted { $0.started > $1.started }, id: \.key) { action in
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Image(systemName: action.phase == .running ? "sparkle" :
+                          action.phase == .completed ? "checkmark.circle" : "exclamationmark.circle")
+                        .foregroundColor(action.phase == .failed ? VSDark.red : VSDark.blue)
+                    Text(action.title)
+                        .uiFont(size: 11, weight: .semibold)
+                    Spacer()
+                    if action.phase == .running {
+                        TimelineView(.periodic(from: action.started, by: 1)) { context in
+                            Text("\(Int(context.date.timeIntervalSince(action.started)))s")
+                                .uiFont(size: 10, design: .monospaced)
+                        }
+                        Button("Stop") { assistant.stopAction(action.key) }
+                    } else {
+                        Button { assistant.dismissAction(action.key) } label: { Image(systemName: "xmark") }
+                            .help("Dismiss action status")
+                    }
+                }
+                Text("\(action.scope) · \(action.assistant) → \(action.output)")
+                    .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(2)
+                Text(action.stage).uiFont(size: 10)
+                    .foregroundColor(action.phase == .failed ? VSDark.red : VSDark.textDim)
+                if action.phase == .running { ProgressView().controlSize(.mini) }
+                if action.phase == .stopped || action.phase == .failed, !action.partial.isEmpty {
+                    Text(action.partial.prefix(600)).uiFont(size: 10)
+                        .lineLimit(6).textSelection(.enabled)
+                    Text("Incomplete output").uiFont(size: 9).foregroundColor(VSDark.orange)
+                }
+                if action.phase == .stopped || action.phase == .failed {
+                    Text("Run this action again from its original control to retry.")
+                        .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                }
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(VSDark.bgActive)
+            .cornerRadius(6)
+        }
     }
 
     private var openBug: BugReport? {
@@ -351,6 +396,7 @@ struct ExploreStageView: View {
     @ObservedObject var store: FeatureStore
     let feature: Feature
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @State private var showUnderstandingDetails = false
 
 
     /// The question guided discovery asks now: its newest open question, else any open one.
@@ -369,41 +415,51 @@ struct ExploreStageView: View {
                     Text("· \(feature.discoveryAnswered) answered · \(feature.activeRequirements.count) requirements")
                         .uiFont(size: 10).foregroundColor(VSDark.textDim)
                     Spacer()
+                    Button {
+                        showUnderstandingDetails.toggle()
+                    } label: {
+                        Label(showUnderstandingDetails ? "Hide details" : "Details",
+                              systemImage: showUnderstandingDetails ? "chevron.up" : "chevron.down")
+                            .uiFont(size: 10)
+                    }
+                    .buttonStyle(.plain)
                 }
-                if !feature.isUnderstood {
-                    Text("Still to clarify: " + feature.openDimensions.joined(separator: ", "))
-                        .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(spacing: 8) {
-                    ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
-                        HStack(spacing: 2) {
-                            Text(symbol(state)).uiFont(size: 9, weight: .bold, design: .monospaced).foregroundColor(color(state))
-                            Text(state).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                if showUnderstandingDetails {
+                    if !feature.isUnderstood {
+                        Text("Still to clarify: " + feature.openDimensions.joined(separator: ", "))
+                            .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 8) {
+                        ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
+                            HStack(spacing: 2) {
+                                Text(symbol(state)).uiFont(size: 9, weight: .bold, design: .monospaced).foregroundColor(color(state))
+                                Text(state).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            }
                         }
                     }
-                }
-                ForEach(feature.understanding, id: \.dimension) { item in
-                    let note = feature.understandingNote(item.dimension)
-                    HStack(alignment: .top, spacing: 5) {
-                        Menu {
-                            ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
-                                Button((state == item.state ? "✓ " : "") + state) { store.setUnderstanding(feature.slug, [item.dimension: state]) }
+                    ForEach(feature.understanding, id: \.dimension) { item in
+                        let note = feature.understandingNote(item.dimension)
+                        HStack(alignment: .top, spacing: 5) {
+                            Menu {
+                                ForEach(FeatureVocabulary.understandingStates, id: \.self) { state in
+                                    Button((state == item.state ? "✓ " : "") + state) { store.setUnderstanding(feature.slug, [item.dimension: state]) }
+                                }
+                            } label: {
+                                Text(symbol(item.state)).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(color(item.state))
                             }
-                        } label: {
-                            Text(symbol(item.state)).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(color(item.state))
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .help("\(item.dimension): \(item.state) — click to change")
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 4) {
+                                    Text(item.dimension).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
+                                    Text(item.state).uiFont(size: 9).foregroundColor(color(item.state))
+                                }
+                                if !note.isEmpty {
+                                    Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer(minLength: 0)
                         }
-                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                        .help("\(item.dimension): \(item.state) — click to change")
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 4) {
-                                Text(item.dimension).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
-                                Text(item.state).uiFont(size: 9).foregroundColor(color(item.state))
-                            }
-                            if !note.isEmpty {
-                                Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -440,7 +496,7 @@ struct ExploreStageView: View {
             }
             if !feature.isUnderstood && !assistant.isRunning("decide:" + feature.slug) {
                 HStack(alignment: .top, spacing: 6) {
-                    Text("Enough questions? AI makes the remaining decisions itself (as proposed, to check in Review), finishes discovery and approves the requirements.")
+                    Text("AI decides unresolved questions for review.")
                         .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     SmallButton(title: "Decide the rest and finish", icon: "flag.checkered") {

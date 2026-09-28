@@ -71,7 +71,6 @@ final class ArchitectureStore: ObservableObject {
     /// Signature of the deployment config files in the latest scan.
     private var pendingDeploymentSignature: String?
     /// Run the AI analysis once the scan started by `open` finishes, if never analysed.
-    private var analyzeAfterScan = false
     /// Node ids with an on-demand description in flight.
     private var describing: Set<String> = []
     /// What each file is made of (`XRayContent`), by project-relative path; drawn under
@@ -273,7 +272,6 @@ final class ArchitectureStore: ObservableObject {
             snapshot = stored
             revision += 1
         }
-        analyzeAfterScan = true
         scan(root: root, db: db)
         refreshPRSources(root: root)
     }
@@ -346,16 +344,11 @@ final class ArchitectureStore: ObservableObject {
             next = Self.applyLogical(next)
             commit(next, db: db)
             setStatus(nil)
-            // Release before chaining: analyze() refuses to start while busy.
+            // Local structure is available without an assistant. AI enrichment
+            // starts only from the visible Analyze action.
             busy = false
-            // Opening the Architecture for the first time runs the AI analysis.
-            if analyzeAfterScan && (next.enrichedAt == nil || Self.needsRegrouping(next) || next.language != Self.graphLanguage) {
-                analyzeAfterScan = false
-                analyze(root: root, db: db)
-            } else {
-                // Contents: stored outlines at once, then new or changed files.
-                outlineContents(root: root, db: db)
-            }
+            // Contents: stored outlines at once, then new or changed files.
+            outlineContents(root: root, db: db)
         }
     }
 

@@ -17,6 +17,7 @@ struct TerminalHostView: NSViewRepresentable {
     func updateNSView(_ container: NSView, context: Context) {
         if session.webView.superview !== container { attach(to: container) }
         session.setFontScale(fontScale)
+        DispatchQueue.main.async { session.refit() }
     }
 
     private func attach(to container: NSView) {
@@ -25,7 +26,10 @@ struct TerminalHostView: NSViewRepresentable {
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
-        DispatchQueue.main.async { session.applyTheme() }
+        DispatchQueue.main.async {
+            session.applyTheme()
+            session.refit()
+        }
     }
 }
 
@@ -82,11 +86,15 @@ private struct SessionDictationButton: View {
 /// "Restart" in a terminal header: ends the session (and whatever runs in it) and starts anew.
 struct TerminalRestartButton: View {
     let help: String
+    var compact = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Label("Restart", systemImage: "arrow.clockwise")
+            Group {
+                if compact { Image(systemName: "arrow.clockwise") }
+                else { Label("Restart", systemImage: "arrow.clockwise") }
+            }
                 .uiFont(size: 10, weight: .medium)
                 .foregroundColor(VSDark.text)
                 .padding(.horizontal, 7).padding(.vertical, 2)
@@ -94,34 +102,71 @@ struct TerminalRestartButton: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel("Restart terminal")
     }
 }
 
-/// AI panel → Terminal: several terminals side by side (Claude Code, Codex or a plain
-/// shell), with buttons that hand a ready-made prompt to the assistant.
+struct TerminalStopButton: View {
+    @ObservedObject var session: TerminalSession
+    var compact = false
+
+    var body: some View {
+        if session.isRunning {
+            Button { session.terminate() } label: {
+                if compact { Image(systemName: "stop.fill") }
+                else { Label("Stop", systemImage: "stop.fill") }
+            }
+                .help("End the terminal process. Files and remote actions are not rolled back.")
+                .accessibilityLabel("Stop terminal")
+        }
+    }
+}
+
+/// Shared terminal area: session tabs for assistant CLIs or a plain shell,
+/// with buttons that hand a ready-made prompt to the assistant.
 struct AITerminalPanel: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
+    @Environment(\.appFontScale) private var fontScale
     @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
-    @AppStorage("layout.terminalPromptsExpanded") private var promptsExpanded = true
+    @AppStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-            Divider().background(VSDark.border)
-            if workspaceManager.aiWorkspaceRoot != nil || workspaceManager.rootNode != nil {
-                TerminalPromptBar(expanded: $promptsExpanded)
+        GeometryReader { geometry in
+            let compact = geometry.size.width < 420 * max(1, fontScale)
+            VStack(spacing: 0) {
+                tabBar(compact: compact)
                 Divider().background(VSDark.border)
+                if let session = workspaceManager.aiTerminal {
+                    HStack(spacing: 7) {
+                        Image(systemName: "exclamationmark.shield")
+                        Text(compact ? "Unrestricted · \(session.title)" :
+                             "Unrestricted · \(session.title) · \(session.directory.path)")
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(session.directory.path)
+                        Spacer(minLength: 0)
+                        if !compact { Text("Changes: review below") }
+                    }
+                    .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(VSDark.bgSidebar)
+                }
+                if workspaceManager.aiWorkspaceRoot != nil || workspaceManager.rootNode != nil {
+                    TerminalPromptBar(expanded: $promptsExpanded)
+                    Divider().background(VSDark.border)
+                }
+                if let session = workspaceManager.aiTerminal {
+                    TerminalHostView(session: session).id(session.id)
+                } else {
+                    placeholder
+                }
             }
-            if let session = workspaceManager.aiTerminal {
-                TerminalHostView(session: session).id(session.id)
-            } else {
-                placeholder
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(VSDark.bg)
         .onAppear { workspaceManager.ensureAITerminal() }
         // At launch the last folder reopens after the panel appeared.
         .onChange(of: workspaceManager.aiWorkspaceRoot) { _ in workspaceManager.ensureAITerminal() }
@@ -132,12 +177,13 @@ struct AITerminalPanel: View {
         .onChange(of: copilotModel) { _ in workspaceManager.aiModelChanged() }
     }
 
-    private var tabBar: some View {
+    private func tabBar(compact: Bool) -> some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(workspaceManager.aiTerminals) { session in
                         TerminalPanelTab(session: session,
+                                         compact: compact,
                                          isActive: session.id == workspaceManager.aiTerminal?.id,
                                          select: { workspaceManager.activeAITerminalID = session.id },
                                          close: { workspaceManager.closeAITerminal(session.id) })
@@ -146,7 +192,8 @@ struct AITerminalPanel: View {
             }
             newTerminalMenu
             TerminalDictationButton(session: workspaceManager.aiTerminal)
-            TerminalRestartButton(help: "Start the shown terminal again (with the model chosen in the toolbar)") {
+            if let session = workspaceManager.aiTerminal { TerminalStopButton(session: session, compact: compact) }
+            TerminalRestartButton(help: "Start the shown terminal again (with the model chosen in the toolbar)", compact: compact) {
                 workspaceManager.restartAITerminal()
             }
             .disabled(workspaceManager.aiTerminal == nil)
@@ -166,7 +213,7 @@ struct AITerminalPanel: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("New terminal: Claude Code, Codex or a plain shell")
+        .help("New terminal: Claude Code, Codex, Cline, Copilot, or shell")
     }
 
     private var placeholder: some View {
@@ -175,8 +222,11 @@ struct AITerminalPanel: View {
             Image(systemName: "terminal").uiFont(size: 26).foregroundColor(VSDark.textDim)
             if workspaceManager.aiWorkspaceRoot == nil && workspaceManager.rootNode == nil {
                 Text("Open a folder to start a terminal").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
             } else {
-                HStack(spacing: 8) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100 * min(fontScale, 1.5)))], spacing: 8) {
                     ForEach(TerminalProfile.allCases) { profile in
                         Button { workspaceManager.openAITerminal(profile) } label: {
                             Label(profile.title, systemImage: profile.icon).uiFont(size: 11)
@@ -193,6 +243,7 @@ struct AITerminalPanel: View {
 /// One terminal in the AI panel's tab bar.
 private struct TerminalPanelTab: View {
     @ObservedObject var session: TerminalSession
+    let compact: Bool
     let isActive: Bool
     let select: () -> Void
     let close: () -> Void
@@ -200,8 +251,11 @@ private struct TerminalPanelTab: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: session.profile.icon).uiFont(size: 9)
-            Text(session.title).uiFont(size: 10, weight: isActive ? .semibold : .regular).lineLimit(1)
+            Image(systemName: session.profile.icon).uiFont(size: 9).help(session.title)
+            Text(compact && session.profile == .claude ? "Claude" : session.title)
+                .uiFont(size: 10, weight: isActive ? .semibold : .regular)
+                .lineLimit(1)
+                .help(session.title)
             if !session.isRunning {
                 Circle().fill(VSDark.textDim).frame(width: 5, height: 5).help("Exited")
             }
@@ -369,6 +423,7 @@ struct TerminalTabView: View {
                     .lineLimit(1).truncationMode(.head)
                 Spacer()
                 TerminalDictationButton(session: session)
+                TerminalStopButton(session: session)
                 TerminalRestartButton(help: "End this shell and start a new one in the same folder") {
                     session.restart()
                 }

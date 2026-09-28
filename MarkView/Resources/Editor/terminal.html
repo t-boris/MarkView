@@ -168,6 +168,7 @@
             post({ type: 'ready', cols: term.cols, rows: term.rows });
         }
     }
+    window.mvRefit = refit;
     new ResizeObserver(refit).observe(host);
     term.onData(function(data) { post({ type: 'input', data: data }); });
     // Shift+Enter: a new line in the prompt, not "send" — a line feed (Ctrl+J), which

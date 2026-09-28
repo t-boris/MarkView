@@ -13,6 +13,8 @@ struct WorkspaceWindowState: Codable, Identifiable {
 }
 
 struct WorkspacePanelState: Codable {
+    var workspaceArea: String? = nil
+    var workSection: String? = nil
     var navigator: String
     var left: String
     var feature: String
@@ -20,6 +22,9 @@ struct WorkspacePanelState: Codable {
     var stage: String
     var showFiles: Bool
     var showNavigator: Bool
+    var contentsVisible: Bool? = nil
+    var terminalVisible: Bool? = nil
+    var showCenter: Bool? = nil
 }
 
 struct WorkspaceDraft: Codable {

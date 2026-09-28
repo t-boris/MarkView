@@ -2161,10 +2161,24 @@
                 if (save) { try { localStorage.setItem('markview-xray-details-hidden', hidden ? '1' : ''); } catch (e) {} }
                 if (cy) cy.resize();
             }
-            let detailsHidden = false;
-            try { detailsHidden = localStorage.getItem('markview-xray-details-hidden') === '1'; } catch (e) {}
+            const compactDetails = function() {
+                const scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+                return window.innerWidth < 1100 || scale >= 1.5;
+            };
+            let detailsUserChoice = false;
+            let detailsHidden = compactDetails();
+            try {
+                const saved = localStorage.getItem('markview-xray-details-hidden');
+                if (saved !== null) { detailsHidden = saved === '1'; detailsUserChoice = true; }
+            } catch (e) {}
             setDetailsHidden(detailsHidden, false);
-            el.detailsToggle.addEventListener('click', function() { setDetailsHidden(!el.details.hidden, true); });
+            el.detailsToggle.addEventListener('click', function() {
+                detailsUserChoice = true;
+                setDetailsHidden(!el.details.hidden, true);
+            });
+            window.addEventListener('resize', function() {
+                if (!detailsUserChoice) setDetailsHidden(compactDetails(), false);
+            });
 
             el.tempFilter.addEventListener('submit', function(e) {
                 e.preventDefault();

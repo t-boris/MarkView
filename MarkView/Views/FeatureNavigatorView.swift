@@ -26,17 +26,9 @@ private struct LeftPanelContent: View {
     }
 
     var body: some View {
+        let showingIssues = layout.workspaceArea == .work && store.hasIssues
         VStack(spacing: 0) {
-            if store.hasIssues {
-                HStack(spacing: 0) {
-                    VSDarkTabButton(title: "Files", isSelected: mode != "issues") { mode = "files" }
-                    VSDarkTabButton(title: "Issues", isSelected: mode == "issues") { mode = "issues" }
-                }
-                .padding(.horizontal, 4).padding(.vertical, 3)
-                .background(VSDark.bg)
-                Divider().background(VSDark.border)
-            }
-            if mode == "issues", store.hasIssues {
+            if showingIssues {
                 if let slug = openFeature, store.feature(slug) != nil {
                     FeatureNavigatorView(store: store, onBack: { openFeature = nil })
                 } else {

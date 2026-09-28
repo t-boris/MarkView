@@ -1,12 +1,48 @@
 import Foundation
 
+enum WorkspaceArea: String, CaseIterable, Identifiable {
+    case files = "Files"
+    case projectMap = "Project Map"
+    case work = "Work"
+
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .files: return "folder"
+        case .projectMap: return "viewfinder"
+        case .work: return "checklist"
+        }
+    }
+}
+
+enum WorkSection: String, CaseIterable, Identifiable {
+    case features = "Tasks"
+    case git = "Git"
+    case terminal = "Terminal"
+
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .features: return "checklist"
+        case .git: return "arrow.triangle.branch"
+        case .terminal: return "terminal"
+        }
+    }
+}
+
 /// The tab or section each panel of one window shows. Every window owns one through its
 /// WorkspaceManager, so switching a tab in one window leaves the others alone (BUG-004).
 /// A change is written to UserDefaults only as the starting value for the next window and for
 /// relaunch; no view observes those keys (as @AppStorage would, in every window at once).
 @MainActor
 final class PanelLayout: ObservableObject {
-    /// Right panel: Contents, Search, Git, Terminal or Feature.
+    @Published var workspaceArea: WorkspaceArea {
+        didSet { remember(workspaceArea.rawValue, Self.workspaceAreaKey) }
+    }
+    @Published var workSection: WorkSection {
+        didSet { remember(workSection.rawValue, Self.workSectionKey) }
+    }
+    /// Legacy right-panel selection kept for compatibility with saved layouts.
     @Published var navigatorTab: TOCView.Tab {
         didSet { remember(navigatorTab.rawValue, TOCView.Tab.storageKey) }
     }
@@ -28,6 +64,8 @@ final class PanelLayout: ObservableObject {
     }
 
     static let leftPanelKey = "layout.leftPanel"
+    static let workspaceAreaKey = "layout.workspaceArea"
+    static let workSectionKey = "layout.workSection"
     static let issuesFeatureKey = "layout.issuesFeature"
     static let gitSectionKey = "layout.gitSection"
 
@@ -35,6 +73,8 @@ final class PanelLayout: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        workspaceArea = defaults.string(forKey: Self.workspaceAreaKey).flatMap(WorkspaceArea.init) ?? .files
+        workSection = defaults.string(forKey: Self.workSectionKey).flatMap(WorkSection.init) ?? .features
         navigatorTab = defaults.string(forKey: TOCView.Tab.storageKey).flatMap(TOCView.Tab.init) ?? .contents
         leftPanel = defaults.string(forKey: Self.leftPanelKey) ?? "files"
         issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""
