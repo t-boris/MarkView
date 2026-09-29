@@ -348,7 +348,7 @@ final class ArchitectureStore: ObservableObject {
             // starts only from the visible Analyze action.
             busy = false
             // Contents: stored outlines at once, then new or changed files.
-            outlineContents(root: root, db: db)
+            outlineContents(root: root)
         }
     }
 
@@ -449,8 +449,9 @@ final class ArchitectureStore: ObservableObject {
                 next.language = Self.graphLanguage
                 commit(next, db: db)
 
-                beginStep(4, "Reading contents", started: started)
-                await buildOutlines(root: root, db: db)
+                beginStep(4, "Indexing file contents", started: started)
+                await outlineTask?.value
+                await buildOutlines(root: root)
             } catch is CancellationError {
                 // Keep the structure found so far (shown live, not yet saved).
                 if let found = snapshot, found.components.map(\.id) != next.components.map(\.id) { commit(found, db: db) }
@@ -633,7 +634,7 @@ final class ArchitectureStore: ObservableObject {
     /// One assistant call through the X-Ray settings (fast model, low effort, no tools),
     /// answered from `.dde/cache/xray` when the same input was analysed before.
     private func xrayCall(_ request: CLICompletion.Request, root: URL, db: SemanticDatabase?,
-                          call: Int, fresh: Bool = false) async throws -> [String: Any] {
+                          call: Int, fresh: Bool = false, trackProgress: Bool = true) async throws -> [String: Any] {
         var request = request
         request.model = AIAssistantPreferences.xrayModel(for: request.tool)
         request.effort = "low"
@@ -647,7 +648,8 @@ final class ArchitectureStore: ObservableObject {
            let cached = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             return cached
         }
-        let result = try await CLICompletion.run(request, onActivity: activityHandler(root: root, call: call))
+        let result = try await CLICompletion.run(
+            request, onActivity: trackProgress ? activityHandler(root: root, call: call) : nil)
         result.record(in: db)
         let object = result.structured as? [String: Any] ?? [:]
         if !object.isEmpty, let data = try? JSONSerialization.data(withJSONObject: object) {
@@ -1049,88 +1051,74 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// Files of the Logical view with their language and size.
-    private var contentFiles: [(path: String, language: String?, lines: Int)] {
+    private var contentFiles: [(path: String, language: String?)] {
         (snapshot?.view("logical")?.nodes ?? []).compactMap { node in
             guard node.kind == "file", let path = node.path else { return nil }
-            return (path, node.language, node.loc)
+            return (path, node.language)
         }
     }
 
-    /// Load stored outlines, then outline new or changed files (background; the
-    /// assistant only for up to `XRayContent.filesPerAnalysis` files).
-    func outlineContents(root: URL, db: SemanticDatabase?) {
+    /// Load stored outlines, then build local outlines for new or changed files.
+    func outlineContents(root: URL) {
         outlineTask?.cancel()
-        outlineTask = Task { await buildOutlines(root: root, db: db) }
+        outlineTask = Task { await buildOutlines(root: root) }
     }
 
-    /// Outline the files that have no current outline: short code locally, documents and
-    /// long code with the assistant (longest first, a few calls side by side).
-    private func buildOutlines(root: URL, db: SemanticDatabase?) async {
+    /// Use a fast local pass for every file without a reusable outline. Deeper AI
+    /// outlines are requested from an individual file's details panel.
+    private func buildOutlines(root: URL) async {
         let files = contentFiles
         guard !files.isEmpty else { return }
         let language = ActionOutputLanguage.current
         let stored = await Task.detached(priority: .utility) { XRayContent.loadFresh(root: root, paths: files.map(\.path)) }.value
+        guard !Task.isCancelled else { return }
         outlines = stored.filter { $0.value.source != "ai" || $0.value.language == language }
         revision += 1
 
         let missing = files.filter { outlines[$0.path] == nil }
-        let local = missing.filter { !XRayContent.needsAssistant(language: $0.language, lines: $0.lines) }
-        let assisted = missing.filter { XRayContent.needsAssistant(language: $0.language, lines: $0.lines) }
-            .sorted { $0.lines > $1.lines }
-            .prefix(XRayContent.filesPerAnalysis)
-
-        // Declarations of short code: local, fast.
+        if progress?.step == 4 {
+            progress?.current = "Building local file outlines"
+            progress?.total = min(missing.count, 5000)
+            progress?.unit = "files"
+        }
         let found = await Task.detached(priority: .utility) { () -> [String: XRayContent.Outline] in
             var result: [String: XRayContent.Outline] = [:]
-            for file in local.prefix(5000) {
+            for file in missing.prefix(5000) {
+                guard !Task.isCancelled else { break }
                 let url = root.appendingPathComponent(file.path)
                 guard let signature = XRayContent.signature(of: url),
                       let text = try? String(contentsOf: url, encoding: .utf8),
-                      let outline = XRayContent.codeOutline(text: text, language: file.language, signature: signature) else { continue }
+                      let outline = XRayContent.localOutline(text: text, language: file.language, signature: signature) else { continue }
                 XRayContent.save(outline, root: root, path: file.path)
                 result[file.path] = outline
             }
             return result
         }.value
-        outlines.merge(found) { _, new in new }
+        guard !Task.isCancelled else { return }
+        outlines.merge(found) { old, new in old.source == "ai" ? old : new }
+        if progress?.step == 4 { progress?.done = min(missing.count, 5000) }
         revision += 1
-
-        guard !assisted.isEmpty, !Task.isCancelled else { return }
-        setProgressScope("\(assisted.count) files")
-        var queue = Array(assisted)
-        await withTaskGroup(of: Void.self) { group in
-            var running = 0
-            var call = 100
-            while !queue.isEmpty || running > 0 {
-                while running < XRayContent.parallelCalls, !queue.isEmpty, !Task.isCancelled {
-                    let file = queue.removeFirst()
-                    running += 1
-                    call += 1
-                    let index = call
-                    group.addTask { await self.outlineWithAssistant(file.path, language: file.language, root: root, db: db, call: index) }
-                }
-                guard running > 0 else { break }
-                await group.next()
-                running -= 1
-            }
-        }
     }
 
-    /// Outline one file with the assistant (details panel, or during the analysis).
+    /// Deepen one file's local outline with the configured X-Ray assistant.
     func outlineFile(path: String, root: URL, db: SemanticDatabase?) {
         guard !outlining.contains(path) else { return }
         let language = contentFiles.first { $0.path == path }?.language
-        Task { await outlineWithAssistant(path, language: language, root: root, db: db, call: 99) }
+        if error?.hasPrefix("Could not outline ") == true { error = nil }
+        outlining.insert(path)
+        revision += 1
+        Task { await outlineWithAssistant(path, language: language, root: root, db: db) }
     }
 
-    private func outlineWithAssistant(_ path: String, language: String?, root: URL, db: SemanticDatabase?, call: Int) async {
+    private func outlineWithAssistant(_ path: String, language: String?, root: URL, db: SemanticDatabase?) async {
+        defer { outlining.remove(path); revision += 1 }
         let url = root.appendingPathComponent(path)
         guard let signature = XRayContent.signature(of: url),
               let text = await Task.detached(priority: .utility, operation: { try? String(contentsOf: url, encoding: .utf8) }).value
-        else { return }
-        outlining.insert(path)
-        revision += 1
-        defer { outlining.remove(path); revision += 1 }
+        else {
+            self.error = "Could not read \((path as NSString).lastPathComponent)."
+            return
+        }
         let outputLanguage = ActionOutputLanguage.current
         let languageLine = XRayContent.languageLine(summaries: outputLanguage == ActionOutputLanguage.documentLanguage
                                                     ? "the language of the file" : outputLanguage)
@@ -1138,11 +1126,13 @@ final class ArchitectureStore: ObservableObject {
             prompt: XRayContent.numbered(text, name: path),
             systemPrompt: XRayContent.isDocument(language)
                 ? XRayContent.documentSystemPrompt(languageLine: languageLine)
-                : XRayContent.codeSystemPrompt(languageLine: languageLine),
+                : language == "html"
+                    ? XRayContent.htmlSystemPrompt(languageLine: languageLine)
+                    : XRayContent.codeSystemPrompt(languageLine: languageLine),
             jsonSchema: XRayContent.documentSchema)
-        request.timeout = 300
+        request.timeout = 60
         do {
-            let object = try await xrayCall(request, root: root, db: db, call: call)
+            let object = try await xrayCall(request, root: root, db: db, call: 99, trackProgress: false)
             let outline = XRayContent.assistantOutline(from: object, text: text, signature: signature, language: outputLanguage)
             guard !outline.collections.isEmpty else { return }
             outlines[path] = outline
@@ -1150,7 +1140,7 @@ final class ArchitectureStore: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
-            self.error = "Could not read \((path as NSString).lastPathComponent): \(error.localizedDescription)"
+            self.error = XRayContent.outlineFailureMessage(path: path, error: error)
         }
     }
 

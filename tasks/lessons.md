@@ -1,5 +1,16 @@
 # Lessons
 
+## 2026-09-29 — Optional AI detail must not hold up a structural analysis
+
+**Context:** BUG-015. A file without a successful cached outline was selected again on
+every analysis. Long HTML went to a per-file AI request with a 300-second limit, even
+though the project structure was already available. Timeout was mislabelled as a read
+failure after the file had loaded.
+
+**Rule:** Build a useful local outline first and cache it by file signature. Let an
+explicit action request deeper AI detail with a bounded wait; preserve the local
+result if that request fails. Distinguish file I/O errors from assistant errors.
+
 ## 2026-09-28 — Normalize cached outlines when building diagram nodes
 
 **Context:** BUG-014. X-Ray stored full local and AI outlines, then rendered every named part and

@@ -92,4 +92,47 @@ let untypedNodes = XRayContent.nodes(for: untyped, path: "Mixed.swift", fileId: 
 check("unnamed group does not become Other", !untypedNodes.contains { $0.kind == "group" && $0.name == "Other" })
 check("useful named group remains under file", untypedNodes.first { $0.name == "Public API" }?.parent == "file")
 
+// BUG-015: the shipping index.html used to enter the 300-second AI queue on every
+// analysis without a successful outline cache, despite its useful local structure.
+let html = try String(contentsOfFile: "MarkView/Resources/Editor/index.html", encoding: .utf8)
+let htmlOutline = XRayContent.localOutline(text: html, language: "html", signature: "fixture")
+let htmlItems = htmlOutline?.collections.flatMap(\.groups).flatMap(\.items) ?? []
+check("shipping index.html has local regions", htmlOutline?.source == "structure" && htmlItems.count >= 10)
+check("HTML regions retain exact lines", htmlItems.contains { $0.name == "arch-container" && $0.line == 1430 })
+let simpleHTML = "<html>\n<h1>Overview</h1>\n<section>Text</section>\n<h2>Details</h2>\n</html>"
+let headingItems = XRayContent.localOutline(text: simpleHTML, language: "html", signature: "fixture")?
+    .collections.flatMap(\.groups).flatMap(\.items) ?? []
+check("HTML without IDs uses headings", headingItems.map(\.name) == ["Overview", "Details"])
+let longSwift = Array(repeating: "// filler", count: 250).joined(separator: "\n") + "\nfunc one() {}\nfunc two() {}"
+check("long code has a local outline",
+      XRayContent.localOutline(text: longSwift, language: "swift", signature: "fixture")?.source == "structure")
+let markdown = "# Title\n\n~~~swift\n# Not a heading\n~~~\n\n## First\nText\n## Second\n"
+let markdownItems = XRayContent.localOutline(text: markdown, language: "markdown", signature: "fixture")?
+    .collections.flatMap(\.groups).flatMap(\.items) ?? []
+check("Markdown headings are outlined locally without code fences",
+      markdownItems.map(\.name) == ["Title", "First", "Second"] &&
+      markdownItems.map(\.line) == [1, 7, 9])
+
+let root = FileManager.default.temporaryDirectory.appendingPathComponent("xray-content-tests-" + UUID().uuidString)
+try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: root) }
+let file = root.appendingPathComponent("index.html")
+try html.write(to: file, atomically: true, encoding: .utf8)
+let signature = XRayContent.signature(of: file)!
+let cached = XRayContent.localOutline(text: html, language: "html", signature: signature)!
+XRayContent.save(cached, root: root, path: "index.html")
+check("unchanged file reuses saved outline",
+      XRayContent.loadFresh(root: root, paths: ["index.html"])["index.html"]?.signature == signature)
+try (html + "\n").write(to: file, atomically: true, encoding: .utf8)
+check("changed file invalidates saved outline",
+      XRayContent.loadFresh(root: root, paths: ["index.html"]).isEmpty)
+
+struct TestTimeout: LocalizedError {
+    var errorDescription: String? { "Codex did not finish within 60 s." }
+}
+let message = XRayContent.outlineFailureMessage(path: "src/index.html", error: TestTimeout())
+check("AI timeout is identified as outlining rather than reading",
+      message.contains("Could not outline index.html") && message.contains("60 s") &&
+      !message.contains("Could not read"))
+
 if failures > 0 { exit(1) }
