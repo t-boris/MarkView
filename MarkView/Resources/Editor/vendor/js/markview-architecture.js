@@ -58,6 +58,7 @@
                 root: null,         // root folder of the X-Ray shown (project or one of its folders)
                 progress: null,     // live analysis progress (setArchitectureProgress)
                 operations: null,   // project-root operations only; folder X-Rays receive none
+                operationQuery: '', operationsShowAll: false, operationSearchFocused: false,
             };
             let cy = null;
             let libs = null;
@@ -1151,9 +1152,11 @@
                         return currentNodeIDs.has(n.id) ? n.id === node.id : n.name === node.name;
                     });
                 }) : [];
-                function row(operation, highlighted) {
+                function row(operation, highlighted, parent) {
                     const wrapper = document.createElement('div');
                     wrapper.className = 'arch-operation' + (highlighted ? ' related' : '');
+                    wrapper.dataset.search = [operation.label, operation.environment || '', operation.kind,
+                        operation.target || '', operation.command].join(' ').toLowerCase();
                     const heading = document.createElement('strong');
                     heading.textContent = operation.label + (operation.environment ? ' · ' + operation.environment : '')
                         + ' · ' + operation.kind;
@@ -1208,20 +1211,62 @@
                         actions.appendChild(adopt);
                     }
                     wrapper.appendChild(actions);
-                    d.appendChild(wrapper);
+                    (parent || d).appendChild(wrapper);
                 }
                 if (related.length) {
                     const h = document.createElement('h5'); h.textContent = 'Related to ' + node.name; d.appendChild(h);
                     related.forEach(function(o) { row(o, true); });
                 }
-                const remaining = all.filter(function(o) { return related.indexOf(o) < 0; });
-                ['deploy', 'install', 'build', 'clean', 'restart', 'other'].forEach(function(kind) {
-                    const group = remaining.filter(function(o) { return o.kind === kind; });
-                    if (!group.length) return;
-                    const heading = document.createElement('h5'); heading.textContent = kind[0].toUpperCase() + kind.slice(1);
-                    d.appendChild(heading);
-                    group.forEach(function(o) { row(o, false); });
-                });
+                // A few main operations up front (ranked by ProjectOperation.primary); the rest by search.
+                const main = (state.primary || []).map(function(id) {
+                    return all.find(function(o) { return o.id === id; });
+                }).filter(function(o) { return o && related.indexOf(o) < 0; });
+                if (main.length) {
+                    const h = document.createElement('h5'); h.textContent = 'Main operations'; d.appendChild(h);
+                    main.forEach(function(o) { row(o, false); });
+                }
+                const kinds = ['deploy', 'install', 'build', 'restart', 'clean', 'other'];
+                const rest = all.filter(function(o) { return related.indexOf(o) < 0 && main.indexOf(o) < 0; })
+                    .sort(function(a, b) {
+                        return (kinds.indexOf(a.kind) - kinds.indexOf(b.kind)) || a.label.localeCompare(b.label);
+                    });
+                if (rest.length) {
+                    const h = document.createElement('h5'); h.textContent = 'All operations (' + rest.length + ')'; d.appendChild(h);
+                    const search = document.createElement('input');
+                    search.type = 'search'; search.placeholder = 'Search operations'; search.style.width = '100%';
+                    search.value = ui.operationQuery || '';
+                    d.appendChild(search);
+                    const list = document.createElement('div');
+                    rest.forEach(function(o) { row(o, false, list); });
+                    const none = document.createElement('p'); none.className = 'arch-muted'; none.textContent = 'No matching operation.';
+                    const toggle = linkButton('', function() { ui.operationsShowAll = !ui.operationsShowAll; apply(); }, 'arch-action');
+                    function apply() {
+                        const query = search.value.trim().toLowerCase();
+                        ui.operationQuery = search.value;
+                        let shown = 0;
+                        Array.prototype.forEach.call(list.children, function(r) {
+                            r.hidden = query ? r.dataset.search.indexOf(query) < 0 : !ui.operationsShowAll;
+                            if (!r.hidden) shown += 1;
+                        });
+                        none.hidden = !query || shown > 0;
+                        toggle.hidden = !!query;
+                        toggle.textContent = ui.operationsShowAll ? 'Hide the list' : 'Show all ' + rest.length;
+                    }
+                    search.addEventListener('input', apply);
+                    // The panel re-renders on updates: keep typing in the new field.
+                    search.addEventListener('focus', function() { ui.operationSearchFocused = true; });
+                    search.addEventListener('blur', function() {
+                        setTimeout(function() { if (search.isConnected) ui.operationSearchFocused = false; });
+                    });
+                    d.appendChild(toggle);
+                    d.appendChild(list);
+                    d.appendChild(none);
+                    apply();
+                    if (ui.operationSearchFocused) {
+                        search.focus();
+                        search.setSelectionRange(search.value.length, search.value.length);
+                    }
+                }
                 const addOperation = linkButton('Add operation', function() { post('operationAdd'); }, 'arch-action');
                 addOperation.disabled = !!state.readOnly;
                 d.appendChild(addOperation);

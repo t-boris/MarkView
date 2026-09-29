@@ -227,3 +227,29 @@ enum ProjectOperationsFile {
         throw ProjectOperationError.invalid("\(file.path) changed repeatedly while saving. Review the file and try again.")
     }
 }
+
+extension ProjectOperation {
+    /// Operations shown up front; the rest are found by search.
+    static let primaryLimit = 5
+    /// Kinds in the order they matter for a primary slot.
+    static let primaryKindOrder = ["deploy", "install", "build", "restart", "clean", "other"]
+
+    /// The few operations worth a button: running ones first, then the most recently started,
+    /// then by kind (`primaryKindOrder`) and label. Pure, so tools/tests can check it alone.
+    static func primary(_ operations: [ProjectOperation], running: Set<String>,
+                        lastStarted: [String: Date], limit: Int = primaryLimit) -> [ProjectOperation] {
+        func kindRank(_ operation: ProjectOperation) -> Int {
+            primaryKindOrder.firstIndex(of: operation.kind) ?? primaryKindOrder.count
+        }
+        let sorted = operations.sorted { a, b in
+            let aRunning = running.contains(a.id), bRunning = running.contains(b.id)
+            if aRunning != bRunning { return aRunning }
+            let aStarted = lastStarted[a.id] ?? .distantPast, bStarted = lastStarted[b.id] ?? .distantPast
+            if aStarted != bStarted { return aStarted > bStarted }
+            let aKind = kindRank(a), bKind = kindRank(b)
+            if aKind != bKind { return aKind < bKind }
+            return a.label.localizedCaseInsensitiveCompare(b.label) == .orderedAscending
+        }
+        return Array(sorted.prefix(limit))
+    }
+}

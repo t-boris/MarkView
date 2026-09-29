@@ -249,6 +249,9 @@ enum ProjectOperationDiscoveryService {
             The web may be used only in the web phase; local project and referenced folders have already been examined first.
             """, jsonSchema: schema)
         request.timeout = web ? 300 : 600
+        // The X-Ray model at low effort: a compact answer in seconds instead of minutes.
+        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.effort = "low"
         request.allowWeb = web
         request.readableFolder = nil
         return request

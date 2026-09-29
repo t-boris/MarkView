@@ -250,6 +250,11 @@ final class ProjectOperationsStore: ObservableObject {
 
     var operations: [ProjectOperation] { fileError == nil ? document.operations.filter { !$0.deleted } : [] }
     var deployOperations: [ProjectOperation] { operations.filter { $0.kind == "deploy" } }
+    /// The operations shown up front (`ProjectOperation.primary`); the rest are found by search.
+    var primaryOperations: [ProjectOperation] {
+        let running = Set(runs.filter { $0.value.isActive }.keys)
+        return ProjectOperation.primary(operations, running: running, lastStarted: lastRuns.mapValues(\.started))
+    }
     var readOnly: Bool { document.version > 1 }
 
     func state(id: String) -> String? { runs[id]?.state ?? lastRuns[id]?.state }
@@ -271,6 +276,7 @@ final class ProjectOperationsStore: ObservableObject {
         }
         struct Payload: Encodable {
             var operations: [ProjectOperation]
+            var primary: [String]
             var states: [String: State]
             var unavailable: [String: String]
             var error: String?
@@ -293,7 +299,8 @@ final class ProjectOperationsStore: ObservableObject {
         for operation in operations {
             unavailable[operation.id] = unavailability(for: operation)
         }
-        let payload = Payload(operations: operations, states: states, unavailable: unavailable,
+        let payload = Payload(operations: operations, primary: primaryOperations.map(\.id),
+                              states: states, unavailable: unavailable,
                               error: fileError, hasFile: hasFile, discoveryPhase: discoveryPhase,
                               discoveryReport: discoveryReport, sourcesChanged: sourcesChanged, message: message,
                               readOnly: readOnly)

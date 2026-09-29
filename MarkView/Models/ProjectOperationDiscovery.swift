@@ -21,15 +21,27 @@ enum ProjectOperationDiscovery {
         func prompt(limit: Int = 180_000) -> String {
             var remaining = limit
             var chunks: [String] = []
-            for file in files {
+            // Build definitions first, so the overall limit never drops them.
+            let ordered = files.filter { ProjectOperationDiscovery.isBuildDefinition($0.location) }
+                + files.filter { !ProjectOperationDiscovery.isBuildDefinition($0.location) }
+            for file in ordered {
                 let header = "\n[FILE \(file.location)]\n"
                 if remaining < header.utf8.count + 100 { break }
-                let excerpt = String(file.text.prefix(min(remaining - header.utf8.count, 12_000)))
+                let cap = ProjectOperationDiscovery.isBuildDefinition(file.location) ? 40_000 : 12_000
+                let excerpt = String(file.text.prefix(min(remaining - header.utf8.count, cap)))
                 chunks.append(header + excerpt)
                 remaining -= header.utf8.count + excerpt.utf8.count
             }
             return chunks.joined(separator: "\n")
         }
+    }
+
+    /// Files that define targets (Makefile, justfile, package.json, workflows): excerpts of other
+    /// files are clipped sooner, since a cut-off target list left operations undetermined.
+    static func isBuildDefinition(_ location: String) -> Bool {
+        let name = (location as NSString).lastPathComponent.lowercased()
+        return ["makefile", "justfile", "package.json", "taskfile.yml", "taskfile.yaml", "procfile"].contains(name)
+            || location.contains(".github/workflows/")
     }
 
     private static let deniedNames: Set<String> = [
