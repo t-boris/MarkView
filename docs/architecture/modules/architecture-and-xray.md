@@ -43,8 +43,9 @@ The subsystem owns:
   edges, the pull-request overlay (diff, AI review, architectural analysis, chat, GitHub
   actions), persistence and the JSON payload for the web view.
 - **File contents** (`XRayContent`). It records what a file is made of (collections, then
-  types, then items with line numbers). Short code is outlined locally from its
-  declarations. Documents and long code go to the assistant.
+  types, then items with line numbers). Every scan uses cached outlines or a fast local
+  pass (code declarations, Markdown headings, HTML regions and headings). A deeper assistant outline
+  is requested from a file's details panel.
 - **The ⚡ search prompt and parser** (`XRaySearch`).
 - **The web renderer** (`markview-architecture.js`). It uses Cytoscape.js and ELK, draws
   the views, expands and collapses nodes, lifts edges, colours overlays and renders the
@@ -211,10 +212,9 @@ Main methods:
 
   It then runs Louvain. The fine level is the first level with 70 or fewer communities
   (`maxClusters`). The coarse level is the last level with at least 3 communities.
-- **`XRayContent`** (`XRayContent.swift`) has these limits: 60 assistant files per analysis,
-  a long-code threshold of 250 lines, at most 20,000 drawn content nodes, 4 parallel calls
-  and prompts of at most 2500 lines (`:45-53`). A local outline needs at least two
-  declarations (`:149-150`).
+- **`XRayContent`** (`XRayContent.swift`) draws at most 20,000 content nodes and sends
+  at most 2500 lines for an explicitly requested AI outline. Local code, Markdown and
+  HTML outlines need at least two items.
 - **`XRaySearch.places`** (`XRaySearch.swift:139-167`) accepts only paths inside `root`,
   clamps line ranges to the file and removes duplicates.
 
@@ -385,7 +385,7 @@ flowchart TD
     I --> J
     J --> K["Step 3: Mapping deployment<br/>await deployment, insert view"]
     K --> L[enrichedAt, language, commit]
-    L --> M["Step 4: Reading contents<br/>buildOutlines"]
+    L --> M["Step 4: Indexing file contents<br/>buildOutlines (local)"]
 ```
 
 1. **Structure** (`ArchitectureStore.swift:412-422`). The plan and the clusters are
@@ -435,17 +435,18 @@ same clusters) is answered from `.dde/cache/xray/<hash>.json` without calling th
 
 ### 5.4 File contents (collections, types, items)
 
-`buildOutlines` (`ArchitectureStore.swift:1056-1105`):
+`buildOutlines` (`ArchitectureStore.swift`):
 
 1. It loads stored outlines whose `signature` (size plus mtime in ms) still matches
    (`XRayContent.swift:66-93`). AI outlines written for another output language are
    dropped (`:1061`).
-2. It picks the files still missing:
-   - Code under 250 lines is outlined locally from declaration regexes, detached, up to
-     5000 files (`:1071-1084`).
-   - Documents and code of 250 lines or more go to the assistant: longest first, the first
-     60, 4 in flight (`:1086-1104`).
-3. The assistant prompt numbers the file's lines (`XRayContent.numbered`) and asks for
+2. It outlines up to 5000 missing files locally on a detached task: declarations for
+   supported code files of any length, headings for Markdown, and identified HTML
+   regions or headings. This does not start a per-file AI call, including on repeat analysis.
+3. The file details panel can request a deeper AI outline. The selected X-Ray model
+   runs at low effort with a 60-second limit; separate file requests can run concurrently.
+   A timeout leaves the local outline intact and is reported as an outline failure.
+   The assistant prompt numbers the file's lines (`XRayContent.numbered`) and asks for
    collections, groups and items, each with a 1-based line. Lines are clamped, and markdown
    anchors are computed so a click can find the item in the rendered document
    (`XRayContent.swift:246-281`).
@@ -508,7 +509,7 @@ sequenceDiagram
   - the AI summary; a node without one posts `describe` once (`:1133-1143`),
   - the rating and its reason,
   - a component picker (`setComponent`) and tags,
-  - an open/reveal link, and "Break down contents" (`outlineFile`),
+  - an open/reveal link, and "Deepen with AI" (`outlineFile`),
   - connection counts,
   - Health metrics, documentation coverage and PR changes.
 
@@ -725,7 +726,8 @@ The temporary ⚡ filter (`ImportanceRater.temporaryFilter`), `searchSymbols`,
 - **Parallel AI calls.**
   - Naming: a `withThrowingTaskGroup` whose child tasks are `@MainActor`. Each awaits
     `CLICompletion.run`, so the CLIs run in parallel.
-  - Outlines: a hand-rolled window of `parallelCalls = 4` (`:1089-1104`).
+  - File outlining: explicit requests for different files run in independent tasks;
+    automatic outlines are local and need no assistant calls.
   - CLI activity callbacks arrive on the reader queue and are re-dispatched with
     `Task { @MainActor }` (`:470-497`).
 - **Coalescing.** Streamed text bumps `revision` at most every 300 ms (edges, chat,
@@ -941,7 +943,7 @@ The `arch` routing in `WebViewBridge` needs no change.
     - deployment config files, up to 40,000 characters (Dockerfiles, workflows,
       `.xcconfig`, `.tf`, `Info.plist`),
     - untracked files in local PR diffs (up to 200 files of 512 KB),
-    - whole documents, up to 2500 lines, for outlines.
+    - documents or code, up to 2500 lines, only for explicitly requested deep outlines.
 
     These can hold secrets that `.gitignore` does not exclude. There is no redaction.
 17. **One huge file.** `ArchitectureStore.swift` is 3136 lines and mixes the X-Ray with the

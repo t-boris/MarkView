@@ -1204,11 +1204,11 @@
                             : node.kind === 'entity' ? entityTarget(node) : { path: node.path });
                     }, 'arch-path' + (openable ? '' : ' arch-reveal')));
                 }
-                // What the file is made of: read it (again) with the assistant.
+                // Local contents are available immediately; request a deeper AI outline.
                 if (ui.view === 'logical' && node.kind === 'file' && node.path) {
                     const reading = (ui.payload.outlining || []).indexOf(node.path) >= 0;
                     const hasContents = (idx.children.get(node.id) || []).length > 0;
-                    const button = linkButton(reading ? 'Reading contents…' : hasContents ? 'Read contents again' : 'Break down contents',
+                    const button = linkButton(reading ? 'Outlining with AI…' : hasContents ? 'Deepen with AI' : 'Outline with AI',
                         function() { if (!reading) post('outlineFile', { path: node.path }); }, 'arch-action');
                     if (reading) button.disabled = true;
                     d.appendChild(button);

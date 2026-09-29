@@ -5,8 +5,8 @@ import Foundation
 /// like things it holds (issues, requirements, decisions, endpoints; types and functions
 /// in code), each split into types, down to the single item and the line it starts on.
 ///
-/// Documents and long code files are read by the assistant (one call per file, cached by
-/// content) and split logically; short code is outlined locally from its declarations. Outlines are kept per file under
+/// Files get a fast local outline during a scan. A deeper assistant outline is made
+/// only when requested for a file. Outlines are kept per file under
 /// `.dde/cache/xray-content/` and dropped when the file changes.
 enum XRayContent {
     struct Item: Codable, Hashable {
@@ -40,27 +40,14 @@ enum XRayContent {
         var language: String?
     }
 
-    /// Files the assistant reads per analysis, longest first; the rest on request
-    /// (details panel).
-    static let filesPerAnalysis = 60
-    /// Code files from this many lines are split logically by the assistant.
-    static let longCodeLines = 250
     /// Most content nodes sent to the diagram at once.
     static let maxDrawnNodes = 20_000
-    /// Parallel document calls.
-    static let parallelCalls = 4
     /// Longest document text sent, in lines.
     static let maxLines = 2500
 
     // MARK: - Files
 
     static func isDocument(_ language: String?) -> Bool { language == "markdown" }
-
-    /// Whether the assistant splits this file (documents, long code) rather than the
-    /// local declaration outline.
-    static func needsAssistant(language: String?, lines: Int) -> Bool {
-        isDocument(language) || lines >= longCodeLines
-    }
 
     /// Size and modification date: cheap to check, changes with every edit.
     static func signature(of file: URL) -> String? {
@@ -154,6 +141,78 @@ enum XRayContent {
         return Outline(signature: signature, collections: [collection], source: "structure")
     }
 
+    /// Fast first pass for every supported file. Cached assistant outlines take
+    /// precedence in the store; this only fills files without a reusable outline.
+    static func localOutline(text: String, language: String?, signature: String) -> Outline? {
+        if isDocument(language) { return markdownOutline(text: text, signature: signature) }
+        if language == "html" { return htmlOutline(text: text, signature: signature) }
+        return codeOutline(text: text, language: language, signature: signature)
+    }
+
+    private static func markdownOutline(text: String, signature: String) -> Outline? {
+        var items: [Item] = []
+        var fence: Character?
+        for (index, line) in text.editorLines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let marker = trimmed.first, marker == "`" || marker == "~",
+               trimmed.prefix(3).allSatisfy({ $0 == marker }), trimmed.count >= 3 {
+                if fence == nil { fence = marker } else if fence == marker { fence = nil }
+                continue
+            }
+            guard fence == nil else { continue }
+            let hashes = trimmed.prefix(while: { $0 == "#" }).count
+            guard (1...6).contains(hashes), trimmed.dropFirst(hashes).first == " " else { continue }
+            let name = trimmed.dropFirst(hashes).trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: #"\s+#+\s*$"#, with: "", options: .regularExpression)
+            guard !name.isEmpty else { continue }
+            items.append(Item(name: name, line: index + 1, summary: nil, anchor: anchor(String(line))))
+            if items.count == 300 { break }
+        }
+        guard items.count >= 2 else { return nil }
+        return Outline(signature: signature,
+                       collections: [Collection(name: "Sections", summary: nil,
+                                                groups: [Group(name: "", items: items)])],
+                       source: "structure")
+    }
+
+    private static let htmlRegion = try! NSRegularExpression(
+        pattern: #"<(main|section|article|nav|aside|header|footer|div)\b[^>]*\bid\s*=\s*["']([^"']+)["']"#,
+        options: .caseInsensitive)
+    private static let htmlHeading = try! NSRegularExpression(
+        pattern: #"<h[1-6]\b[^>]*>\s*([^<]+)"#, options: .caseInsensitive)
+
+    private static func htmlOutline(text: String, signature: String) -> Outline? {
+        var items: [Item] = []
+        for (index, line) in text.editorLines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("<") else { continue }
+            let range = NSRange(trimmed.startIndex..., in: trimmed)
+            if let match = htmlRegion.firstMatch(in: trimmed, range: range),
+               let idRange = Range(match.range(at: 2), in: trimmed),
+               let tagRange = Range(match.range(at: 1), in: trimmed) {
+                items.append(Item(name: String(trimmed[idRange]), line: index + 1,
+                                  summary: String(trimmed[tagRange]).lowercased(), anchor: nil))
+            } else if let match = htmlHeading.firstMatch(in: trimmed, range: range),
+                      let nameRange = Range(match.range(at: 1), in: trimmed) {
+                let name = trimmed[nameRange].trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty {
+                    items.append(Item(name: name, line: index + 1, summary: "heading", anchor: nil))
+                }
+            }
+            if items.count == 300 { break }
+        }
+        guard items.count >= 2 else { return nil }
+        return Outline(signature: signature,
+                       collections: [Collection(name: "Regions", summary: nil,
+                                                groups: [Group(name: "", items: items)])],
+                       source: "structure")
+    }
+
+    static func outlineFailureMessage(path: String, error: Error) -> String {
+        "Could not outline \((path as NSString).lastPathComponent): \(error.localizedDescription) "
+            + "The file remains available. Use its AI outline button to retry."
+    }
+
     // MARK: - Documents: the assistant
 
     static let documentSchema: [String: Any] = [
@@ -218,6 +277,18 @@ enum XRayContent {
         where it starts (lines are numbered), and what it does in at most 12 words. Put each \
         element in exactly one part, in file order. Return each PART as one collection (name = \
         the part, summary = what it is responsible for) whose groups are the element roles.
+        \(languageLine)
+        """
+    }
+
+    static func htmlSystemPrompt(languageLine: String) -> String {
+        """
+        Map the meaningful UI regions of this HTML file for a navigable diagram. Group related
+        regions by responsibility only when the groups help navigation. Include significant
+        elements with IDs, semantic sections, headings and script behavior, but skip repetitive
+        styling wrappers. Use each element's ID or heading as its name when available. Give its
+        1-based source line and a summary of at most 12 words. Put each item in one collection
+        and list items in file order. Return collections, groups and items in the given schema.
         \(languageLine)
         """
     }

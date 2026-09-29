@@ -1,5 +1,12 @@
 # MarkView — Follow-up Tasks
 
+## Done 56: BUG-015 Fast X-Ray file outlining (2026-09-29, issue #69, 3.2.0)
+
+- [x] Reproduced the automatic 300-second AI path for the shipping 1,649-line index.html and an uncached long code file.
+- [x] Reuse valid cached outlines; build missing code, Markdown and HTML outlines locally on scans and repeat analysis.
+- [x] Keep deeper AI outlines on demand with the configured X-Ray model, low effort, concurrent per-file tasks, a 60-second limit, and accurate failure wording.
+- [x] Verify real index.html regions, long-code and Markdown fixtures, cache reuse/invalidation, timeout text, and Debug build.
+
 ## Done 55: BUG-014 Sparse X-Ray outline levels (2026-09-28, issue #67, 3.1.1)
 
 - [x] Reproduced local `Declarations → Functions` and AI-shaped `Part → Helpers/Functions` with fewer than four items.
