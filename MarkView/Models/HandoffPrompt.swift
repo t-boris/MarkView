@@ -18,11 +18,18 @@ enum HandoffPrompt {
         + "## Clarifications are binding: use them and do not ask them again. Ask only about what the report leaves open, "
         + "and add every new answer from me to its ## Clarifications before you finish."
 
-    /// Implement with AI: Claude Code gets a one-line `/goal`, the other assistants an instruction.
-    static func feature(_ path: String, claude: Bool) -> String {
-        claude
-            ? "/goal implement \(path) — read the whole folder first. \(featureRecords)"
-            : "Implement what \(path) specifies. Read the whole folder first. \(featureRecords)"
+    enum GoalBackend: String {
+        case claude, codex, cline, copilot
+    }
+
+    /// Establish a goal using the command or task model of the receiving assistant.
+    static func feature(_ path: String, backend: GoalBackend) -> String {
+        let objective = "Implement what \(path) specifies. Read the whole folder first. Verify the implementation against the specification. \(featureRecords)"
+        switch backend {
+        case .claude, .codex: return "/goal \(objective)"
+        case .copilot: return "/autopilot \(objective)"
+        case .cline: return "Goal for this Cline task: \(objective) Continue until the implementation is verified."
+        }
     }
 
     /// Fix with AI for one bug report.
