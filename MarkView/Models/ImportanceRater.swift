@@ -183,12 +183,12 @@ enum ImportanceRater {
     /// A rating call: one pass over the given items — no file access, the fast model at
     /// low effort, short reasons — so an answer takes seconds, not minutes.
     static func request(subject: Subject, filter: Filter = importance, context: String, items: [Item],
-                        language: String? = nil) -> CLICompletion.Request {
+                        language: String? = nil, project: URL?) -> CLICompletion.Request {
         let languageLine = language.map { "\n\nWrite the reasons in \($0). Keep the level values exactly as specified." } ?? ""
-        var request = CLICompletion.Request(prompt: prompt(context: context, items: items),
+        var request = CLICompletion.Request(project: project, prompt: prompt(context: context, items: items),
                                             systemPrompt: systemPrompt(for: subject, filter: filter) + languageLine,
                                             jsonSchema: schema(filter))
-        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.model = request.xrayModel
         request.effort = "low"
         request.timeout = 240
         return request

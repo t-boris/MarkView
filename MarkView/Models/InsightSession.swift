@@ -429,7 +429,7 @@ final class InsightSession: ObservableObject, Identifiable {
         let nodeIdLocal = curId
         do {
             let result = try await CLICompletion.run(
-                CLICompletion.Request(prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
+                CLICompletion.Request(project: folderURL, prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
                                       readableFolder: prompts.needsFolderAccess ? folderURL : nil),
                 onDelta: { [weak self] chunk in
                     Task { @MainActor [weak self] in
@@ -1264,7 +1264,8 @@ final class InsightSession: ObservableObject, Identifiable {
                         try Task.checkCancellation()
                         // Stream. onDelta hops back to MainActor for state mutation.
                         let result = try await CLICompletion.run(
-                            CLICompletion.Request(prompt: userMessage, systemPrompt: systemPrompt, readableFolder: readableFolder),
+                            CLICompletion.Request(project: self.folderURL, prompt: userMessage, systemPrompt: systemPrompt,
+                                                  readableFolder: readableFolder),
                             onDelta: { [weak self] chunk in
                                 Task { @MainActor [weak self] in
                                     guard let self else { return }

@@ -181,7 +181,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
 
         do {
             let result = try await CLICompletion.run(
-                CLICompletion.Request(prompt: userMessage, systemPrompt: systemPrompt))
+                CLICompletion.Request(project: folderURL, prompt: userMessage, systemPrompt: systemPrompt))
             result.record(in: db)
             let token = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
@@ -424,6 +424,7 @@ The iframe will call mermaid.run() with securityLevel="loose" + htmlLabels=true 
         // CLI / transport errors propagate so InsightSession surfaces them with a retry; the
         // fallback skeleton below is only for schema violations in a successful answer.
         var request = CLICompletion.Request(
+            project: folderURL,
             prompt: userMessage,
             systemPrompt: systemPrompt
                 + "\n\nProduce the visual structure (skeleton) of an insight node from the supplied .md files.",

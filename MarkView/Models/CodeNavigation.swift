@@ -324,6 +324,7 @@ final class CodeNavigationStore {
             "Q: \(turn["q"] ?? "")\nA: \(turn["a"] ?? "")"
         }.joined(separator: "\n\n")
         var request = CLICompletion.Request(
+            project: root,
             prompt: """
             File: \(path), lines \(start)-\(end)\(language.map { " (\($0))" } ?? "")
             ```

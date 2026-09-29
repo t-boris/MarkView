@@ -67,7 +67,7 @@ enum ProjectOperationDiscoveryService {
         try Task.checkCancellation()
         var candidates = local.operations.map { ($0, false) }
         var unknowns = local.notDetermined
-        let tool = AIAssistantPreferences.backend
+        let tool = AIAssistantPreferences.backend(project: root)
         let canSearchWeb = tool == .claude || tool == .codex
         var webSearched = false
         if canSearchWeb && !unknowns.isEmpty {
@@ -241,7 +241,7 @@ enum ProjectOperationDiscoveryService {
             Project files followed by referenced external folders:
             \(inputs.prompt())
             """
-        var request = CLICompletion.Request(prompt: prompt, systemPrompt: """
+        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: """
             Return only the requested JSON. Discovery is read-only. Never execute project commands or modify files.
             A source location must be an exact [FILE] path supplied above, or an HTTPS URL you consulted during web research.
             Put a one-based line number when available, otherwise 0. Use empty strings for absent environment, target or id.
@@ -250,7 +250,7 @@ enum ProjectOperationDiscoveryService {
             """, jsonSchema: schema)
         request.timeout = web ? 300 : 600
         // The X-Ray model at low effort: a compact answer in seconds instead of minutes.
-        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.model = request.xrayModel
         request.effort = "low"
         request.allowWeb = web
         request.readableFolder = nil

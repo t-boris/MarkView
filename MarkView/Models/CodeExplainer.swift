@@ -175,10 +175,11 @@ final class CodeExplainStore: ObservableObject {
             defer { working.remove(path); activity[path] = nil; liveAnswers[path] = nil; revision += 1 }
             // One pass over the file itself: no tools, the fast model at low effort.
             var request = CLICompletion.Request(
+                project: root,
                 prompt: "File: \(path) (\(lines.count) lines)\n\n\(numbered)\(clipped)",
                 systemPrompt: task + " Be concise: 2-3 sentences per section.\n\n" + ActionOutputLanguage.explanationLine(),
                 jsonSchema: Self.schema)
-            request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+            request.model = request.xrayModel
             request.effort = "low"
             request.timeout = 600
             let contentHash = ContentHash.of(content)
@@ -261,7 +262,7 @@ final class CodeExplainStore: ObservableObject {
             // A topic filter: sections get a provisional level from a keyword search at once,
             // then the AI confirms them (Importance comes with the explanation itself).
             if filter.id != ImportanceRater.importance.id,
-               let terms = try? await FilterSearch.terms(for: filter, cache: directory.appendingPathComponent("terms")) {
+               let terms = try? await FilterSearch.terms(for: filter, cache: directory.appendingPathComponent("terms"), project: root) {
                 var scores: [String: Double] = [:]
                 var hits: [String: [String]] = [:]
                 for (section, text) in zip(explanation.sections, texts) {
@@ -284,7 +285,7 @@ final class CodeExplainStore: ObservableObject {
             }
             let request = ImportanceRater.request(subject: .code, filter: filter, context: "File: \(path)\n\(explanation.summary)",
                                                   items: items,
-                                                  language: Self.reasonLanguage)
+                                                  language: Self.reasonLanguage, project: root)
             do {
                 let result = try await CLICompletion.run(request)
                 result.record(in: db)

@@ -127,11 +127,9 @@ struct TerminalStopButton: View {
 struct AITerminalPanel: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Environment(\.appFontScale) private var fontScale
-    @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
-    @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
+    /// This window's project choice when last seen ("tool|model"): the terminal follows only its own
+    /// project's changes, never another window's (BUG-021).
+    @State private var seenChoice: (tool: String, model: String)?
     @AppStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
 
     var body: some View {
@@ -167,14 +165,28 @@ struct AITerminalPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(VSDark.bg)
-        .onAppear { workspaceManager.ensureAITerminal() }
+        .onAppear {
+            workspaceManager.ensureAITerminal()
+            seenChoice = currentChoice()
+        }
         // At launch the last folder reopens after the panel appeared.
-        .onChange(of: workspaceManager.aiWorkspaceRoot) { _ in workspaceManager.ensureAITerminal() }
-        .onChange(of: backend) { _ in workspaceManager.aiBackendChanged() }
-        .onChange(of: claudeModel) { _ in workspaceManager.aiModelChanged() }
-        .onChange(of: codexModel) { _ in workspaceManager.aiModelChanged() }
-        .onChange(of: clineModel) { _ in workspaceManager.aiModelChanged() }
-        .onChange(of: copilotModel) { _ in workspaceManager.aiModelChanged() }
+        .onChange(of: workspaceManager.aiWorkspaceRoot) { _ in
+            workspaceManager.ensureAITerminal()
+            seenChoice = currentChoice()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let now = currentChoice()
+            defer { seenChoice = now }
+            guard let seen = seenChoice else { return }
+            if now.tool != seen.tool { workspaceManager.aiBackendChanged() }
+            else if now.model != seen.model { workspaceManager.aiModelChanged() }
+        }
+    }
+
+    private func currentChoice() -> (tool: String, model: String) {
+        let project = workspaceManager.aiProject
+        let tool = AIAssistantPreferences.backend(project: project)
+        return (tool.rawValue, AIAssistantPreferences.model(for: tool, project: project) ?? "")
     }
 
     private func tabBar(compact: Bool) -> some View {

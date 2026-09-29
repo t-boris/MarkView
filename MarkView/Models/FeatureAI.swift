@@ -171,12 +171,12 @@ final class FeatureAssistant: ObservableObject {
         // The answer belongs to this folder: dropped if another folder was opened meanwhile.
         let folder = store.root
         let system = projectDiscovery ? Self.system + "\n\n" + Self.projectDiscoveryNote : Self.system
-        var request = CLICompletion.Request(prompt: prompt, systemPrompt: system, jsonSchema: schema,
-                                            readableFolder: store.root)
+        var request = CLICompletion.Request(project: store.root, prompt: prompt, systemPrompt: system,
+                                            jsonSchema: schema, readableFolder: store.root)
         request.allowWeb = web
         request.effort = "low"
         request.timeout = timeout
-        let model = request.model ?? AIAssistantPreferences.model(for: request.tool) ?? "default model"
+        let model = request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "default model"
         actions[key] = ActionState(key: key, title: Self.title(for: key),
                                    scope: folder?.path ?? "Selected text",
                                    assistant: "\(request.tool.displayName) · \(model)",

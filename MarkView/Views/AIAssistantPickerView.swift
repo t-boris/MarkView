@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - Assistant Picker
 
-/// Chooses the CLI and model for AI requests (DDE Settings); edits `AIAssistantPreferences`,
-/// the same settings as the toolbar's assistant menu.
+/// Chooses the default CLI and model (DDE Settings) for projects without their own choice; a
+/// project's toolbar menus override them for that project only (BUG-021).
 struct AIAssistantPickerView: View {
     @AppStorage(AIAssistantPreferences.backendKey) private var backendRaw = CLITool.claude.rawValue
     @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""

@@ -503,13 +503,14 @@ final class GitHubRunModel: ObservableObject {
         Task {
             await loadFailedLogs()
             var request = CLICompletion.Request(
+                project: store?.root,
                 prompt: failureText(),
                 systemPrompt: """
                 You are a senior engineer reading a failed GitHub Actions run. Say in a few sentences what failed \
                 and the most likely cause, quoting the decisive log line; then what to change to fix it (files, \
                 commands, workflow settings). Plain text, short paragraphs or bullets, no headings.
                 """ + "\n\n" + ActionOutputLanguage.explanationLine())
-            request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+            request.model = request.xrayModel
             request.effort = "low"
             request.timeout = 300
             var streamed = ""
