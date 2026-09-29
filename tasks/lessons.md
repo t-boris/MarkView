@@ -474,3 +474,18 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   `layoutstop`, with a timeout.
 - A screenshot's scatter was not the folder the report's suspect pointed at (a Go folder with no inner links packs
   fine); sweeping every large box across projects found the branch that scatters and proved the fix everywhere.
+
+## Keeping one installed copy: check Gatekeeper first (2026-09-29)
+- Releases up to 3.4.2 were Developer ID signed but not notarized (`NOTARY_PROFILE` was unset). A copy
+  installed from a browser-downloaded DMG carries `com.apple.quarantine`, and `spctl` rejects it as
+  "Unnotarized Developer ID". Local builds have no quarantine, so they masked this.
+- Rule: before deleting other copies of the app, run `spctl -a -vvv -t exec` on the copy that stays and check
+  `xattr` for quarantine. Since PR #76, `release.sh` notarizes with the `markview-notary` keychain profile.
+
+## AI answers: an empty answer is a failure, not a result (BUG-020, 2026-09-29)
+- Codex once answered X-Ray's deployment request with `{"nodes":[],"edges":[]}`. It was stored as the map,
+  its config signature was saved, and the answer cache kept it, so every later Analyze reused the emptiness.
+- Rule: when an AI step's result gates future runs (signatures, caches), validate the answer's substance
+  (e.g. at least one node) before caching or storing it; on failure keep the previous result and say so.
+- Live-check an X-Ray fix on an APFS clone (`cp -cR`) of the affected project with a QA copy of the Debug
+  build (own bundle id); do not click through it while Boris is using the machine.
