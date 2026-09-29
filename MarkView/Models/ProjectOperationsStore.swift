@@ -563,84 +563,96 @@ final class ProjectOperationsStore: ObservableObject {
         guard !id.isEmpty, id.count <= 100, id.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil else { return }
         guard runs[id]?.isActive != true else { openPanel(id: id); return }
         let root = self.root
-        Task {
-            let snapshot: ProjectOperation
-            do {
-                let latest = try await Task.detached { try ProjectOperationsFile.read(root: root) }.value
-                guard let found = latest.operations.first(where: { $0.id == id && !$0.deleted }) else {
-                    message = "Operation \(id) is no longer in the operations file."
-                    return
-                }
-                snapshot = found
-            } catch { fileError = error.localizedDescription; return }
-            let cwd = Self.resolve(snapshot.cwd, root: root)
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: cwd.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-                message = "Working directory is unavailable: \(cwd.path)"
+        Task { await confirmAndRun(id: id, root: root) }
+    }
+
+    /// Reads the operation fresh from disk, asks for confirmation and starts it. A method of its own
+    /// (not a `Task` closure) keeps type-checking cheap for older compilers (Xcode 16 in CI).
+    private func confirmAndRun(id: String, root: URL) async {
+        let snapshot: ProjectOperation
+        do {
+            let latest = try await Task.detached { try ProjectOperationsFile.read(root: root) }.value
+            guard let found = latest.operations.first(where: { $0.id == id && !$0.deleted }) else {
+                message = "Operation \(id) is no longer in the operations file."
                 return
             }
-            guard runs[id]?.isActive != true else { openPanel(id: id); return }
-            let previous = lastRuns[id]
-            let changed = previous?.command != snapshot.command || previous?.cwd != snapshot.cwd
-            let alert = NSAlert()
-            alert.messageText = "Run \(snapshot.label)?"
-            var details = "Command:\n\(snapshot.command)\n\nWorking directory:\n\(cwd.path)"
-            if let env = snapshot.environment { details = "Environment: \(env)\n\n" + details }
-            if changed {
-                details += "\n\nNew or changed since your last run on this machine."
-                if let previous { details += "\nPrevious command: \(previous.command)\nPrevious directory: \(previous.cwd)" }
-            }
-            if snapshot.origin == "user" {
-                details += "\n\nUser-added operation."
-            } else if snapshot.isEdited {
-                details += "\n\nUser-edited operation. Discovery confidence does not apply to this command."
-                if !snapshot.provenance.isEmpty {
-                    details += "\nOriginally discovered from: " + snapshot.provenance.map(\.location).joined(separator: ", ")
-                }
-            } else {
-                details += "\n\nDiscovery confidence: " + (snapshot.confidence ?? "unknown")
-                if !snapshot.provenance.isEmpty {
-                    details += "\nSource: " + snapshot.provenance.map {
-                        $0.location + ($0.line.map { ":\($0)" } ?? "") + " (" + $0.kind + ")"
-                    }.joined(separator: ", ")
-                }
-            }
-            if snapshot.hasExternalOrigin && (previous == nil || previous?.command != snapshot.command) && !snapshot.isEdited {
-                details += "\n\nExternal source: " + snapshot.provenance.map(\.location).joined(separator: ", ")
-            }
-            if snapshot.remoteTrigger { details += "\n\nThis only starts a remote run; MarkView does not track its result." }
-            if !snapshot.prerequisites.isEmpty { details += "\n\nPrerequisites: " + snapshot.prerequisites.joined(separator: "; ") }
-            alert.informativeText = details
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Run")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
-            guard runs[id]?.isActive != true else { openPanel(id: id); return }
-            let run = ProjectOperationRun(snapshot: snapshot, directory: cwd)
-            suppressNotifications = false
-            runs[id] = run
-            selectedRunID = id
-            panelVisible = true
-            revision += 1
-            let history = ProjectOperationLastRun(id: id, label: snapshot.label, environment: snapshot.environment,
-                command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
-            lastRuns[id] = history
-            Task.detached { try? ProjectOperationHistory.save(history, root: root) }
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-            run.session.onExit = { [weak self, weak run] code in
-                guard let self, let run else { return }
-                run.finish(exitCode: code)
-                self.recordCompletion(run)
-            }
-            run.session.onLaunchFailure = { [weak self, weak run] reason in
-                guard let self, let run else { return }
-                run.state = "failed"
-                run.ended = Date()
-                self.message = "Could not start \(run.snapshot.label): \(reason)"
-                self.recordCompletion(run)
-            }
-            _ = run.session.webView
-            run.session.start()
+            snapshot = found
+        } catch { fileError = error.localizedDescription; return }
+        let cwd = Self.resolve(snapshot.cwd, root: root)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: cwd.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            message = "Working directory is unavailable: \(cwd.path)"
+            return
         }
+        guard runs[id]?.isActive != true else { openPanel(id: id); return }
+        let previous = lastRuns[id]
+        let alert = NSAlert()
+        alert.messageText = "Run \(snapshot.label)?"
+        alert.informativeText = Self.confirmationDetails(snapshot: snapshot, cwd: cwd, previous: previous)
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Run")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        guard runs[id]?.isActive != true else { openPanel(id: id); return }
+        let run = ProjectOperationRun(snapshot: snapshot, directory: cwd)
+        suppressNotifications = false
+        runs[id] = run
+        selectedRunID = id
+        panelVisible = true
+        revision += 1
+        let history = ProjectOperationLastRun(id: id, label: snapshot.label, environment: snapshot.environment,
+            command: snapshot.command, cwd: snapshot.cwd, started: run.started, ended: nil, state: "running", exitCode: nil)
+        lastRuns[id] = history
+        Task.detached { try? ProjectOperationHistory.save(history, root: root) }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        run.session.onExit = { [weak self, weak run] code in
+            guard let self, let run else { return }
+            run.finish(exitCode: code)
+            self.recordCompletion(run)
+        }
+        run.session.onLaunchFailure = { [weak self, weak run] reason in
+            guard let self, let run else { return }
+            run.state = "failed"
+            run.ended = Date()
+            self.message = "Could not start \(run.snapshot.label): \(reason)"
+            self.recordCompletion(run)
+        }
+        _ = run.session.webView
+        run.session.start()
+    }
+
+    /// The confirmation text: command, directory, changes since the last run, provenance.
+    private static func confirmationDetails(snapshot: ProjectOperation, cwd: URL,
+                                            previous: ProjectOperationLastRun?) -> String {
+        let changed: Bool = previous?.command != snapshot.command || previous?.cwd != snapshot.cwd
+        var details: String = "Command:\n\(snapshot.command)\n\nWorking directory:\n\(cwd.path)"
+        if let env = snapshot.environment { details = "Environment: \(env)\n\n" + details }
+        if changed {
+            details += "\n\nNew or changed since your last run on this machine."
+            if let previous { details += "\nPrevious command: \(previous.command)\nPrevious directory: \(previous.cwd)" }
+        }
+        let locations: String = snapshot.provenance.map(\.location).joined(separator: ", ")
+        if snapshot.origin == "user" {
+            details += "\n\nUser-added operation."
+        } else if snapshot.isEdited {
+            details += "\n\nUser-edited operation. Discovery confidence does not apply to this command."
+            if !snapshot.provenance.isEmpty { details += "\nOriginally discovered from: " + locations }
+        } else {
+            details += "\n\nDiscovery confidence: " + (snapshot.confidence ?? "unknown")
+            if !snapshot.provenance.isEmpty {
+                let sources: [String] = snapshot.provenance.map { source in
+                    let line: String = source.line.map { ":\($0)" } ?? ""
+                    return "\(source.location)\(line) (\(source.kind))"
+                }
+                details += "\nSource: " + sources.joined(separator: ", ")
+            }
+        }
+        let commandChanged: Bool = previous == nil || previous?.command != snapshot.command
+        if snapshot.hasExternalOrigin && commandChanged && !snapshot.isEdited {
+            details += "\n\nExternal source: " + locations
+        }
+        if snapshot.remoteTrigger { details += "\n\nThis only starts a remote run; MarkView does not track its result." }
+        if !snapshot.prerequisites.isEmpty { details += "\n\nPrerequisites: " + snapshot.prerequisites.joined(separator: "; ") }
+        return details
     }
 
     private func recordCompletion(_ run: ProjectOperationRun) {
@@ -657,8 +669,8 @@ final class ProjectOperationsStore: ObservableObject {
         content.title = root.lastPathComponent + " · " + run.snapshot.label
         let environment = run.snapshot.environment.map { " (\($0))" } ?? ""
         let code = run.state == "failed" ? " (exit \(run.exitCode ?? -1))" : ""
-        content.body = run.snapshot.label + environment + ": " + run.state + code
-            + (run.state == "dispatched" ? " · Remote run is not tracked" : "")
+        let untracked: String = run.state == "dispatched" ? " · Remote run is not tracked" : ""
+        content.body = "\(run.snapshot.label)\(environment): \(run.state)\(code)\(untracked)"
         content.userInfo = ["projectOperationRoot": root.path, "projectOperationID": run.id]
         UNUserNotificationCenter.current().add(UNNotificationRequest(
             identifier: "project-operation-\(UUID().uuidString)", content: content, trigger: nil))
