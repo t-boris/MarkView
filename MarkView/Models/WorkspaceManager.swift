@@ -460,6 +460,9 @@ class WorkspaceManager: ObservableObject {
 
     /// The open project folder, the one that gets a project color; nil for a single file's folder.
     var projectFolder: URL? { rootOpenedAsFolder ? rootNode?.url : nil }
+    /// The project whose assistant, model and X-Ray model this window uses (BUG-021);
+    /// nil for a single file, which uses the defaults.
+    var aiProject: URL? { projectFolder }
 
     var openTabs: [OpenTab] {
         get { tabsStore.openTabs }
@@ -1214,6 +1217,7 @@ class WorkspaceManager: ObservableObject {
         if scope.isEmpty || scope == TabKind.pullRequestScope { return architecture }
         if let store = folderXRays[scope] { return store }
         let store = ArchitectureStore()
+        store.projectRoot = rootNode?.url
         if let root = rootNode?.url {
             // Kept in the project's .dde, never inside the folder itself.
             let key = String(ContentHash.of(scope).prefix(24))
@@ -1975,12 +1979,12 @@ class WorkspaceManager: ObservableObject {
             }
         }()
 
-        var request = CLICompletion.Request(prompt: text, systemPrompt: systemPrompt)
+        var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
         request.timeout = 120
         let id = UUID()
         let scope = activeTab.map { workspaceRelativePath($0.url) } ?? "Selected text"
         let assistant = AIAssistantPreferences.summary(tool: request.tool,
-            model: request.model ?? AIAssistantPreferences.model(for: request.tool) ?? "")
+            model: request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "")
         selectionActions[id] = SelectionActionState(id: id, title: title,
             scope: "\(scope) · selected text", assistant: assistant, started: Date())
         let task = Task { [weak self] in
@@ -2092,8 +2096,8 @@ class WorkspaceManager: ObservableObject {
         // The assistant chosen in DDE Settings / the toolbar; fixed for the
         // whole document. A missing CLI is reported up front rather than as a
         // document full of untranslated sections.
-        let tool = AIAssistantPreferences.backend
-        let engine = TranslationEngine(tool: tool, model: AIAssistantPreferences.model(for: tool))
+        let tool = AIAssistantPreferences.backend(project: aiProject)
+        let engine = TranslationEngine(tool: tool, model: AIAssistantPreferences.model(for: tool, project: aiProject))
         guard CLIToolLocator.resolve(tool) != nil else {
             NSLog("[DDE] Translation aborted: \(tool.binaryName) not found")
             return "\(tool.displayName) was not found. Set its path in DDE Settings → AI CLI Tools."
@@ -2221,7 +2225,7 @@ class WorkspaceManager: ObservableObject {
                 """
         }
 
-        var request = CLICompletion.Request(prompt: text, systemPrompt: systemPrompt)
+        var request = CLICompletion.Request(project: aiProject, prompt: text, systemPrompt: systemPrompt)
         request.tool = engine.tool
         request.model = engine.model
         request.timeout = 240
@@ -2472,7 +2476,7 @@ class WorkspaceManager: ObservableObject {
 
         // 2. The selected assistant CLI must be installed, and the workspace engines
         //    (GraphRAG) initialised.
-        let tool = AIAssistantPreferences.backend
+        let tool = AIAssistantPreferences.backend(project: aiProject)
         guard CLIToolLocator.resolve(tool) != nil else {
             let alert = NSAlert()
             alert.messageText = "\(tool.displayName) not found"
@@ -3501,7 +3505,7 @@ class WorkspaceManager: ObservableObject {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(AIAssistantPreferences.model(for: tool))
+        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(AIAssistantPreferences.model(for: tool, project: aiProject))
                    + tool.fullAccessArgs).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
@@ -3528,7 +3532,7 @@ class WorkspaceManager: ObservableObject {
             base = "\(profile.title) \(counter)"
             counter += 1
         }
-        guard let tool = profile.tool, let model = AIAssistantPreferences.model(for: tool), !model.isEmpty else { return base }
+        guard let tool = profile.tool, let model = AIAssistantPreferences.model(for: tool, project: aiProject), !model.isEmpty else { return base }
         return base + " · " + model
     }
 
@@ -3553,7 +3557,7 @@ class WorkspaceManager: ObservableObject {
     func ensureAITerminal() -> TerminalSession? {
         if let session = aiTerminal { return session }
         restoreAITerminals()
-        return aiTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend))
+        return aiTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject)))
     }
 
     // MARK: AI terminals across launches (BUG-005)
@@ -3600,7 +3604,7 @@ class WorkspaceManager: ObservableObject {
     /// The toolbar's assistant changed: show a terminal running it — an open one, or the
     /// shown assistant terminal restarted with it, or a new one next to a plain shell.
     func aiBackendChanged() {
-        let profile = TerminalProfile(AIAssistantPreferences.backend)
+        let profile = TerminalProfile(AIAssistantPreferences.backend(project: aiProject))
         if let existing = aiTerminals.first(where: { $0.profile == profile }) {
             activeAITerminalID = existing.id
             return
@@ -3641,7 +3645,7 @@ class WorkspaceManager: ObservableObject {
     func sendToAssistant(submit: Bool = true, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
         showAIConsole()
         restoreAITerminals()
-        guard let session = assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend)) else { return nil }
+        guard let session = assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject))) else { return nil }
         activeAITerminalID = session.id
         guard let prompt = promptFor(session) else { return nil }
         session.pasteWhenReady(prompt, submit: submit)
@@ -3652,7 +3656,7 @@ class WorkspaceManager: ObservableObject {
     /// backend, else any assistant; nil when none is open (`sendToAssistant` then opens one).
     var assistantTerminal: TerminalSession? {
         if let shown = aiTerminal, shown.profile != .shell { return shown }
-        return aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend) })
+        return aiTerminals.first(where: { $0.profile == TerminalProfile(AIAssistantPreferences.backend(project: aiProject)) })
             ?? aiTerminals.first(where: { $0.profile != .shell })
     }
 
@@ -3862,7 +3866,7 @@ class WorkspaceManager: ObservableObject {
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     func fixBugWithAI(_ url: URL) {
         features.updateBug(url) { front, _ in front.set("status", "fixing") }
-        let prompt = HandoffPrompt.bug(workspaceRelativePath(url), claude: AIAssistantPreferences.backend == .claude)
+        let prompt = HandoffPrompt.bug(workspaceRelativePath(url), claude: AIAssistantPreferences.backend(project: aiProject) == .claude)
         sendToAssistant(prompt, submit: true)
     }
 
@@ -3876,7 +3880,7 @@ class WorkspaceManager: ObservableObject {
         for bug in bugs {
             features.updateBug(root.appendingPathComponent(bug.path)) { front, _ in front.set("status", "fixing") }
         }
-        let prompt = BatchFixPrompt.make(bugs, claude: AIAssistantPreferences.backend == .claude)
+        let prompt = BatchFixPrompt.make(bugs, claude: AIAssistantPreferences.backend(project: aiProject) == .claude)
         guard sendToAssistant(prompt, submit: true) != nil else { return }
         bugBatch.clear()
     }

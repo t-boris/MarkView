@@ -11,6 +11,9 @@ import Foundation
 enum CLICompletion {
 
     struct Request {
+        /// The project the request works for: its assistant and models answer it (BUG-021).
+        /// nil only outside any project; then the defaults apply.
+        let project: URL?
         var prompt: String
         var systemPrompt: String? = nil
         /// JSON Schema the answer must match; the parsed object is `Result.structured`.
@@ -18,14 +21,22 @@ enum CLICompletion {
         /// Folder the CLI may read with its own tools. nil = no file access at all.
         var readableFolder: URL? = nil
         var timeout: TimeInterval = 180
-        var tool: CLITool = AIAssistantPreferences.backend
-        /// nil = the model selected for `tool` in preferences (or the CLI default).
+        /// Set only to force a CLI (translation); otherwise `tool` is the project's assistant.
+        var toolOverride: CLITool? = nil
+        /// nil = the model selected for `tool` for the project (or the CLI default).
         var model: String? = nil
         /// Reasoning effort ("low", "medium", "high"); nil = the CLI's configured default.
         /// Low roughly halves the time of large structured answers.
         var effort: String? = nil
         /// Web search and fetching for research (Claude WebSearch/WebFetch, Codex --search).
         var allowWeb = false
+
+        var tool: CLITool {
+            get { toolOverride ?? AIAssistantPreferences.backend(project: project) }
+            set { toolOverride = newValue }
+        }
+        /// The project's X-Ray model for this request's CLI.
+        var xrayModel: String? { AIAssistantPreferences.xrayModel(for: tool, project: project) }
     }
 
     struct Result {
@@ -100,7 +111,7 @@ enum CLICompletion {
                 ?? "Searched: \(CLIToolLocator.searchDirectories().joined(separator: ", "))."
             throw Failure.toolNotFound(tool, hint)
         }
-        let model = request.model ?? AIAssistantPreferences.model(for: tool)
+        let model = request.model ?? AIAssistantPreferences.model(for: tool, project: request.project)
         let workDir = request.readableFolder ?? scratchDirectory()
         if tool.usesACP {
             return try await ACPAssistant.run(request, tool: tool, toolPath: toolPath, model: model, workDir: workDir,

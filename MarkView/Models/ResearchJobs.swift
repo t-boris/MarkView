@@ -219,7 +219,7 @@ final class ResearchJobs: ObservableObject {
         if ResearchSettings.isWebDisabled(root) {
             return (false, nil, "Web search: disabled for this repository, so the research is repository-only.")
         }
-        let tool = AIAssistantPreferences.backend
+        let tool = AIAssistantPreferences.backend(project: root)
         if tool.usesACP {
             return (false, "web search unavailable (\(tool.displayName) has no web access), so the findings are repository-only", nil)
         }
@@ -325,7 +325,8 @@ final class JobHandle {
     /// Runs the agent over `root` with the research system prompt. Cancel, errors and the
     /// timeout end it early; the text streamed so far is kept (DEC-004, DEC-012).
     func run(prompt: String, root: URL, web: Bool) async -> JobOutcome {
-        var request = CLICompletion.Request(prompt: prompt, systemPrompt: ResearchPrompt.system(web: web), readableFolder: root)
+        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: ResearchPrompt.system(web: web),
+                                            readableFolder: root)
         request.allowWeb = web
         let minutes = ResearchSettings.timeoutMinutes
         request.timeout = TimeInterval(minutes * 60)

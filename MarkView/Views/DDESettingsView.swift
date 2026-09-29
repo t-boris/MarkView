@@ -85,7 +85,7 @@ struct DDESettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Assistant & model").uiFont(.caption, weight: .bold)
-                        Text("Runs every AI feature: X-Ray, Explain, selection actions, translation, diagrams, Recursive Insight, and the AI terminal. Also switchable from the toolbar.")
+                        Text("Defaults for projects that have not chosen their own. Each project picks its assistant, model and X-Ray model from its window's toolbar; those apply to its X-Ray, Explain, selection actions, translation, diagrams, Recursive Insight and AI terminal.")
                             .uiFont(size: 9).foregroundColor(.secondary)
                         AIAssistantPickerView()
                         HStack {

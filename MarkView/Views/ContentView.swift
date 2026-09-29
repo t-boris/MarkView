@@ -417,7 +417,7 @@ struct ContentView: View {
                 newMenu.frame(width: controlWidth, height: controlWidth)
                 AssistantToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 230)
-                XRayModelToolbarMenu(compact: compact)
+                XRayModelToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 170)
                 if let operations = workspaceManager.projectOperations {
                     ProjectDeployButton(store: operations)
@@ -813,31 +813,30 @@ private struct WindowAccessor: NSViewRepresentable {
         .environmentObject(WorkspaceManager())
 }
 
-/// Toolbar menu choosing the assistant CLI and its model. The model for X-Ray and the other
-/// structured answers is chosen apart, in `XRayModelToolbarMenu`. Edits the same settings as DDE Settings.
+/// Toolbar menu choosing the assistant CLI and its model for this window's project (BUG-021);
+/// other projects keep theirs. The X-Ray model is chosen apart, in `XRayModelToolbarMenu`.
+/// A window showing a single file edits the defaults, as DDE Settings does.
 struct AssistantToolbarMenu: View {
     let workspaceManager: WorkspaceManager
     var compact = false
-    @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
-    @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
     /// Model lists per tool; Codex's is read from disk, so off the main thread.
     @State private var options: [CLITool: [AIModelOption]] = [:]
     @State private var availability: [CLITool: Bool] = [:]
+    /// Bumped when any choice changes, so the menu shows the stored values.
+    @State private var refresh = 0
 
-    private var tool: CLITool { CLITool(rawValue: backend) ?? .claude }
+    private var choice: AssistantChoice { AssistantChoice(project: workspaceManager.aiProject) }
+    private var tool: CLITool { choice.tool }
+    private var backend: Binding<String> {
+        Binding(get: { choice.tool.rawValue }, set: { choice.setTool($0) })
+    }
     private var model: Binding<String> {
-        switch tool {
-        case .claude: return $claudeModel
-        case .codex: return $codexModel
-        case .cline: return $clineModel
-        case .copilot: return $copilotModel
-        }
+        let tool = tool
+        return Binding(get: { choice.model(for: tool) }, set: { choice.setModel($0, for: tool) })
     }
 
     var body: some View {
+        let _ = refresh
         Menu {
             if availability[tool] == false {
                 Text("Assistant unavailable. Set its CLI path in Settings.")
@@ -848,7 +847,7 @@ struct AssistantToolbarMenu: View {
                 }
                 Divider()
             }
-            Picker("Assistant", selection: $backend) {
+            Picker("Assistant", selection: backend) {
                 ForEach(CLITool.allCases, id: \.rawValue) { Text($0.displayName).tag($0.rawValue) }
             }
             .pickerStyle(.inline)
@@ -867,8 +866,10 @@ struct AssistantToolbarMenu: View {
             }
         }
         .help(availability[tool] == false ? "Assistant unavailable. Set its CLI path in Settings." :
-              "Assistant and its model for the AI terminal, features and research; X-Ray has its own model")
-        .task(id: backend) {
+              (workspaceManager.aiProject == nil ? "Default assistant and model" : "Assistant and model for this project")
+              + " — the AI terminal, features and research; X-Ray has its own model")
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
+        .task(id: tool) {
             let current = tool
             availability[current] = await CLIToolLocator.resolveThorough(current) != nil
             guard options[current] == nil else { return }
@@ -899,25 +900,20 @@ extension AssistantToolbarMenu {
 /// filters and explanations write large structured answers, where a fast model matters more than
 /// raw capability. The fast default is marked as recommended.
 struct XRayModelToolbarMenu: View {
+    let workspaceManager: WorkspaceManager
     var compact = false
-    @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .claude)) private var claudeModel = AIAssistantPreferences.defaultXRayModel(for: .claude)
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .codex)) private var codexModel = AIAssistantPreferences.defaultXRayModel(for: .codex)
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .cline)) private var clineModel = AIAssistantPreferences.defaultXRayModel(for: .cline)
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .copilot)) private var copilotModel = AIAssistantPreferences.defaultXRayModel(for: .copilot)
     @State private var options: [CLITool: [AIModelOption]] = [:]
+    @State private var refresh = 0
 
-    private var tool: CLITool { CLITool(rawValue: backend) ?? .claude }
+    private var choice: AssistantChoice { AssistantChoice(project: workspaceManager.aiProject) }
+    private var tool: CLITool { choice.tool }
     private var model: Binding<String> {
-        switch tool {
-        case .claude: return $claudeModel
-        case .codex: return $codexModel
-        case .cline: return $clineModel
-        case .copilot: return $copilotModel
-        }
+        let tool = tool
+        return Binding(get: { choice.xrayModel(for: tool) }, set: { choice.setXRayModel($0, for: tool) })
     }
 
     var body: some View {
+        let _ = refresh
         let recommended = AIAssistantPreferences.defaultXRayModel(for: tool)
         let listed = (options[tool] ?? []).filter { !$0.id.isEmpty }
         Menu {
@@ -940,8 +936,10 @@ struct XRayModelToolbarMenu: View {
                       systemImage: "viewfinder")
             }
         }
-        .help("Model for X-Ray, operations discovery, filters and explanations; a fast one is recommended")
-        .task(id: backend) {
+        .help((workspaceManager.aiProject == nil ? "Default model" : "This project's model")
+              + " for X-Ray, operations discovery, filters and explanations; a fast one is recommended")
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
+        .task(id: tool) {
             let current = tool
             guard options[current] == nil else { return }
             options[current] = await AssistantToolbarMenu.loadOptions(for: current)

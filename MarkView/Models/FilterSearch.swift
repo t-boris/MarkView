@@ -16,7 +16,7 @@ enum FilterSearch {
 
     /// Search terms for `filter` — words, identifier fragments and synonyms, in the
     /// languages the project may use. Cached in `cache` by criterion.
-    static func terms(for filter: ImportanceRater.Filter, cache: URL?) async throws -> [String] {
+    static func terms(for filter: ImportanceRater.Filter, cache: URL?, project: URL?) async throws -> [String] {
         let key = SHA256.hash(data: Data(("terms\u{1}" + filter.criterion.lowercased()).utf8))
             .map { String(format: "%02x", $0) }.joined().prefix(24)
         let file = cache?.appendingPathComponent("terms-\(key).json")
@@ -24,6 +24,7 @@ enum FilterSearch {
             return cached
         }
         var request = CLICompletion.Request(
+            project: project,
             prompt: "Criterion: \(filter.criterion)",
             systemPrompt: """
             You turn a topic into search terms for finding the parts of a project (code, docs, notes) that \
@@ -34,7 +35,7 @@ enum FilterSearch {
             jsonSchema: ["type": "object",
                          "properties": ["terms": ["type": "array", "items": ["type": "string"]]],
                          "required": ["terms"]])
-        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.model = request.xrayModel
         request.effort = "low"
         request.timeout = 90
         let result = try await CLICompletion.run(request)

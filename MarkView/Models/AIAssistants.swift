@@ -101,23 +101,97 @@ struct AIModelOption: Identifiable, Hashable, Sendable {
     let detail: String
 }
 
-/// Which CLI answers AI Console requests and which model it runs.
+/// One project's own assistant choice (BUG-021). A missing value means the default; models are
+/// keyed by tool, so switching assistants keeps each one's model. Stored in local settings under
+/// the project's key (`ProjectColor.projectKey`), never in the project folder.
+struct ProjectAIChoice: Codable, Equatable {
+    static let defaultsKey = "project.ai"
+    /// Posted when a project's choice changes; `object` is the project key.
+    static let didChange = Notification.Name("ProjectAIChoiceDidChange")
+
+    var backend: String?
+    var models: [String: String] = [:]
+    var xrayModels: [String: String] = [:]
+
+    static func key(_ project: URL) -> String { ProjectColor.projectKey(for: project) }
+
+    static func load(_ project: URL?) -> ProjectAIChoice? {
+        guard let project,
+              let data = UserDefaults.standard.dictionary(forKey: defaultsKey)?[key(project)] as? Data else { return nil }
+        return try? JSONDecoder().decode(ProjectAIChoice.self, from: data)
+    }
+
+    /// Applies `change` to `project`'s choice (starting from none) and tells every window.
+    static func update(_ project: URL, _ change: (inout ProjectAIChoice) -> Void) {
+        var choice = load(project) ?? ProjectAIChoice()
+        change(&choice)
+        var all = UserDefaults.standard.dictionary(forKey: defaultsKey) ?? [:]
+        all[key(project)] = try? JSONEncoder().encode(choice)
+        UserDefaults.standard.set(all, forKey: defaultsKey)
+        NotificationCenter.default.post(name: didChange, object: key(project))
+    }
+}
+
+/// A window's view of the assistant choice for the menus: its project's own values when it shows a
+/// project, else the defaults (a single file). Stored strings: "" = the CLI default model, or for
+/// X-Ray, the assistant's model.
+struct AssistantChoice {
+    let project: URL?
+
+    var tool: CLITool { AIAssistantPreferences.backend(project: project) }
+
+    func setTool(_ raw: String) {
+        if let project { ProjectAIChoice.update(project) { $0.backend = raw } }
+        else { UserDefaults.standard.set(raw, forKey: AIAssistantPreferences.backendKey) }
+    }
+
+    func model(for tool: CLITool) -> String {
+        ProjectAIChoice.load(project)?.models[tool.rawValue] ?? AIAssistantPreferences.defaultModelSetting(for: tool)
+    }
+
+    func setModel(_ id: String, for tool: CLITool) {
+        if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = id } }
+        else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.modelKey(for: tool)) }
+    }
+
+    func xrayModel(for tool: CLITool) -> String {
+        ProjectAIChoice.load(project)?.xrayModels[tool.rawValue] ?? AIAssistantPreferences.defaultXRayModelSetting(for: tool)
+    }
+
+    func setXRayModel(_ id: String, for tool: CLITool) {
+        if let project { ProjectAIChoice.update(project) { $0.xrayModels[tool.rawValue] = id } }
+        else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.xrayModelKey(for: tool)) }
+    }
+}
+
+/// Which CLI answers AI requests, which model it runs, and which model X-Ray uses.
 ///
-/// Stored in UserDefaults so DDE Settings and the console's quick switch edit the
-/// same values; views bind to the keys with `@AppStorage`, and the engine reads
-/// them at send time.
+/// Each project has its own choice (BUG-021), set from its windows' toolbar menus and kept in
+/// `ProjectAIChoice`; what a project has not chosen comes from the defaults, which DDE Settings
+/// edits under the keys below. Every read names its project, so no window changes another.
 enum AIAssistantPreferences {
     static let backendKey = "settings.ai.backend"
 
     static func modelKey(for tool: CLITool) -> String { "settings.cli.\(tool.rawValue)Model" }
 
-    static var backend: CLITool {
+    /// The default assistant, for projects without a choice of their own.
+    static var defaultBackend: CLITool {
         CLITool(rawValue: UserDefaults.standard.string(forKey: backendKey) ?? "") ?? .claude
     }
 
-    /// The selected model, or nil to let the CLI use its own default.
-    static func model(for tool: CLITool) -> String? {
-        let value = (UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? "")
+    /// The assistant for `project`: its own choice, else the default.
+    static func backend(project: URL?) -> CLITool {
+        ProjectAIChoice.load(project)?.backend.flatMap(CLITool.init(rawValue:)) ?? defaultBackend
+    }
+
+    /// The default model for `tool` as stored ("" = the CLI's own default).
+    static func defaultModelSetting(for tool: CLITool) -> String {
+        UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? ""
+    }
+
+    /// The model `tool` runs for `project`, or nil to let the CLI use its own default.
+    static func model(for tool: CLITool, project: URL?) -> String? {
+        let value = (ProjectAIChoice.load(project)?.models[tool.rawValue] ?? defaultModelSetting(for: tool))
             .trimmingCharacters(in: .whitespaces)
         return value.isEmpty ? nil : value
     }
@@ -134,11 +208,16 @@ enum AIAssistantPreferences {
         case .cline, .copilot: return ""
         }
     }
-    /// The X-Ray model for `tool`; "" means the assistant's general model.
-    static func xrayModel(for tool: CLITool) -> String? {
-        let value = UserDefaults.standard.string(forKey: xrayModelKey(for: tool)) ?? defaultXRayModel(for: tool)
+    /// The default X-Ray model for `tool` as stored ("" = the assistant's model).
+    static func defaultXRayModelSetting(for tool: CLITool) -> String {
+        UserDefaults.standard.string(forKey: xrayModelKey(for: tool)) ?? defaultXRayModel(for: tool)
+    }
+
+    /// The X-Ray model `tool` runs for `project`; "" falls back to the assistant's model.
+    static func xrayModel(for tool: CLITool, project: URL?) -> String? {
+        let value = ProjectAIChoice.load(project)?.xrayModels[tool.rawValue] ?? defaultXRayModelSetting(for: tool)
         let trimmed = value.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? model(for: tool) : trimmed
+        return trimmed.isEmpty ? model(for: tool, project: project) : trimmed
     }
 
     /// Short label for the active selection, e.g. "Claude Code · opus".

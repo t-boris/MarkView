@@ -648,7 +648,7 @@ final class FeatureStore: ObservableObject {
         guard let project = lifecycleProject else { return }
         recordSpecReadyIfMissing(slug)
         let actor = lifecycleActor, started = Date()
-        let fallback = AIAssistantPreferences.model(for: tool) ?? AIAssistantPreferences.configuredModel(for: tool)
+        let fallback = AIAssistantPreferences.model(for: tool, project: root) ?? AIAssistantPreferences.configuredModel(for: tool)
         Task.detached(priority: .userInitiated) {
             let model = Self.answeredModel(tool, directory: directory, since: runningSince) ?? fallback ?? tool.displayName
             await MainActor.run {

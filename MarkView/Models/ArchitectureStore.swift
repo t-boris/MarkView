@@ -43,6 +43,10 @@ final class ArchitectureStore: ObservableObject {
     var cacheDirectory: URL?
     /// Root folder of this X-Ray (the project or one of its folders), for the web view.
     private(set) var rootPath: String?
+    /// The project a folder X-Ray belongs to; its assistant choice answers (BUG-021).
+    var projectRoot: URL?
+    /// The project whose assistant, model and X-Ray model this X-Ray uses.
+    var project: URL? { projectRoot ?? rootPath.map { URL(fileURLWithPath: $0, isDirectory: true) } }
     /// Answer characters per parallel AI call, summed into `progress.answerChars`.
     private var answerByCall: [Int: Int] = [:]
 
@@ -476,10 +480,10 @@ final class ArchitectureStore: ObservableObject {
 
     private func beginStep(_ step: Int, _ title: String, started: Date) {
         setStatus(title + "…")
-        let tool = AIAssistantPreferences.backend
+        let tool = AIAssistantPreferences.backend(project: project)
         progress = AnalysisProgress(step: step, steps: 4, title: title, scope: nil,
                                     startedAt: started, stepStartedAt: Date(),
-                                    assistant: AIAssistantPreferences.summary(tool: tool, model: AIAssistantPreferences.xrayModel(for: tool) ?? ""))
+                                    assistant: AIAssistantPreferences.summary(tool: tool, model: AIAssistantPreferences.xrayModel(for: tool, project: project) ?? ""))
     }
 
     private func setProgressScope(_ scope: String) {
@@ -582,6 +586,7 @@ final class ArchitectureStore: ObservableObject {
             "required": ["nodes", "edges"],
         ]
         var request = CLICompletion.Request(
+            project: project,
             prompt: """
             \(plan.overview)
 
@@ -660,7 +665,7 @@ final class ArchitectureStore: ObservableObject {
                           call: Int, fresh: Bool = false, trackProgress: Bool = true,
                           accept: (([String: Any]) -> Bool)? = nil) async throws -> [String: Any] {
         var request = request
-        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.model = request.xrayModel
         request.effort = "low"
         let key = [request.tool.rawValue, request.model ?? "", request.systemPrompt ?? "", request.prompt,
                    (try? JSONSerialization.data(withJSONObject: request.jsonSchema ?? [:], options: .sortedKeys))
@@ -787,7 +792,7 @@ final class ArchitectureStore: ObservableObject {
             for (index, chunk) in chunks.enumerated() {
                 let prompt = plan.overview + "\n\nClusters:\n" + chunk.map { Self.clusterLine($0, plan: plan) }.joined(separator: "\n")
                 group.addTask { @MainActor in
-                    var request = CLICompletion.Request(prompt: prompt, systemPrompt: system, jsonSchema: schema)
+                    var request = CLICompletion.Request(project: self.project, prompt: prompt, systemPrompt: system, jsonSchema: schema)
                     request.timeout = 240
                     return try await self.xrayCall(request, root: root, db: db, call: index)
                 }
@@ -813,6 +818,7 @@ final class ArchitectureStore: ObservableObject {
             return "- \(cluster.id) (group \(cluster.group); name in \(Self.nameLanguage(cluster, plan: plan))): \(item?["name"] as? String ?? cluster.id) — \(item?["purpose"] as? String ?? "")"
         }
         var request = CLICompletion.Request(
+            project: project,
             prompt: plan.overview + "\n\nComponents:\n" + lines.joined(separator: "\n"),
             systemPrompt: """
             You are a software architect. Group these components into 3-8 SUBSYSTEMS by responsibility (every \
@@ -1153,6 +1159,7 @@ final class ArchitectureStore: ObservableObject {
         let languageLine = XRayContent.languageLine(summaries: outputLanguage == ActionOutputLanguage.documentLanguage
                                                     ? "the language of the file" : outputLanguage)
         var request = CLICompletion.Request(
+            project: project,
             prompt: XRayContent.numbered(text, name: path),
             systemPrompt: XRayContent.isDocument(language)
                 ? XRayContent.documentSystemPrompt(languageLine: languageLine)
@@ -1262,7 +1269,7 @@ final class ArchitectureStore: ObservableObject {
             defer { rating.remove(key); if status == progress { setStatus(nil) } }
             let request = ImportanceRater.request(subject: isDocs ? .documentation : .code, filter: filter,
                                                   context: context, items: items,
-                                                  language: Self.reasonLanguage)
+                                                  language: Self.reasonLanguage, project: project)
             do {
                 let result = try await CLICompletion.run(request)
                 result.record(in: db)
@@ -1303,7 +1310,7 @@ final class ArchitectureStore: ObservableObject {
         Task {
             defer { rating.remove("search|" + filterId); if status?.hasPrefix("Finding") == true || status?.hasPrefix("Checking") == true { setStatus(nil) } }
             do {
-                let terms = try await FilterSearch.terms(for: filter, cache: cache)
+                let terms = try await FilterSearch.terms(for: filter, cache: cache, project: project)
                 let found = await Task.detached(priority: .userInitiated) { () -> ([String: FilterSearch.Match], [String: FilterSearch.Match]) in
                     let byFile = FilterSearch.scoreFiles(files, root: root, terms: terms)
                     var bySection: [String: FilterSearch.Match] = [:]
@@ -1345,7 +1352,7 @@ final class ArchitectureStore: ObservableObject {
                     }
                 }.value
                 let request = ImportanceRater.request(subject: .code, filter: filter, context: context, items: items,
-                                                      language: Self.reasonLanguage)
+                                                      language: Self.reasonLanguage, project: project)
                 let keys = Set(items.map(\.key))
                 let result = try await CLICompletion.run(request, onActivity: { [weak self] activity in
                     guard case .answerDelta(let text) = activity else { return }
@@ -1613,7 +1620,7 @@ final class ArchitectureStore: ObservableObject {
                     hints = await Task.detached(priority: .userInitiated) { XRaySearch.symbolHints(symbol, root: root) }.value
                     table["p:" + symbol.path] = .init(level: "strong", reason: "Defines \(symbol.name)", provisional: true)
                 } else {
-                    let terms = try await FilterSearch.terms(for: filter, cache: cache)
+                    let terms = try await FilterSearch.terms(for: filter, cache: cache, project: project)
                     let found = await Task.detached(priority: .userInitiated) { FilterSearch.scoreFiles(files, root: root, terms: terms) }.value
                     let levels = FilterSearch.levels(found.mapValues(\.score))
                     for (path, level) in levels where level == "strong" {
@@ -1800,6 +1807,7 @@ final class ArchitectureStore: ObservableObject {
             edgeNotes[key]?.evidence = evidence
             revision += 1
             var request = CLICompletion.Request(
+                project: project,
                 prompt: """
                 Link in the X-Ray (\(viewId) view): \(describe(a))  →  \(describe(b))
                 Kind: \(kind)\(label.map { " (\($0))" } ?? "")
@@ -1818,7 +1826,7 @@ final class ArchitectureStore: ObservableObject {
                 bullets, no headings.
                 """ + "\n\n" + ActionOutputLanguage.explanationLine(),
                 readableFolder: root)
-            request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+            request.model = request.xrayModel
             request.effort = "low"
             request.timeout = 300
             var streamed = ""
@@ -1975,6 +1983,7 @@ final class ArchitectureStore: ObservableObject {
             defer { describing.remove(nodeId); revision += 1 }
             let children = view.nodes.filter { $0.parent == nodeId }.prefix(30).map(\.name).joined(separator: ", ")
             var request = CLICompletion.Request(
+                project: project,
                 prompt: node.kind == "file"
                     ? "Describe the file \(path)."
                     : "Describe the folder \(path). It contains: \(children).",
@@ -2778,6 +2787,7 @@ final class ArchitectureStore: ObservableObject {
         prompt += "\nDiff (new-file line numbers on the left):\n" + Self.numberedDiff(diff)
         let outputLanguage = ActionOutputLanguage.current
         var request = CLICompletion.Request(
+            project: project,
             prompt: prompt,
             systemPrompt: """
             You explain one file's part of a code change (a pull request) to a reviewer who is looking \
@@ -2874,13 +2884,14 @@ final class ArchitectureStore: ObservableObject {
         let diff = path.flatMap { prFileDiffs[$0] }.map { "Diff of \(path!):\n" + $0 } ?? prDiffText
         let clipped = diff.count > 120_000 ? String(diff.prefix(120_000)) + "\n[diff truncated]" : diff
         var request = CLICompletion.Request(
+            project: project,
             prompt: context + "\n```diff\n" + clipped + "\n```\n\nQuestion: " + question,
             systemPrompt: """
             You are a senior engineer and architect answering a reviewer's question about a pull request. Answer \
             directly and concretely from the diff: name files, functions and lines; say when the diff does not \
             show enough to be sure. Short paragraphs or a few bullets; plain text, no headings.
             """ + "\n\n" + ActionOutputLanguage.explanationLine())
-        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.model = request.xrayModel
         request.effort = "low"
         request.timeout = 300
         let source = overlay.source.id
@@ -2990,6 +3001,7 @@ final class ArchitectureStore: ObservableObject {
                 "required": ["summary", "verdict", "impact", "risks", "checks"],
             ]
             var request = CLICompletion.Request(
+                project: project,
                 prompt: """
                 System: \(current?.systemName ?? root.lastPathComponent) — \(current?.systemPurpose ?? "")
                 Change: \(source.title)
@@ -3092,6 +3104,7 @@ final class ArchitectureStore: ObservableObject {
                 "required": ["summary", "files"],
             ]
             var request = CLICompletion.Request(
+                project: project,
                 prompt: "Change: \(source.title)\n\n```diff\n\(clipped)\n```",
                 systemPrompt: """
                 You are a senior engineer reviewing a code change. For every changed file judge whether the change \
@@ -3100,7 +3113,7 @@ final class ArchitectureStore: ObservableObject {
                 new file. Work only from the diff. Do not report style nits; keep messages short.
                 """ + "\n\n" + Self.graphLanguageLine,
                 jsonSchema: schema)
-            request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+            request.model = request.xrayModel
             request.effort = "low"
             request.timeout = 600
             do {
@@ -3260,13 +3273,14 @@ final class ArchitectureStore: ObservableObject {
         let diff = prFileDiffs[path] ?? ""
         let clipped = diff.count > 60_000 ? String(diff.prefix(60_000)) + "\n[diff truncated]" : diff
         var request = CLICompletion.Request(
+            project: project,
             prompt: "Change: \(overlay.source.title)\nFinding in \(path) line \(finding.line) (\(finding.severity)): \(finding.message)\n\n```diff\n\(clipped)\n```",
             systemPrompt: """
             You are a senior engineer explaining one code review finding to the author. Say concretely why it is \
             (or is not) a problem, what input or situation triggers it, and the smallest fix, quoting the code. \
             Short paragraphs or bullets; plain text, no headings.
             """ + "\n\n" + ActionOutputLanguage.explanationLine())
-        request.model = AIAssistantPreferences.xrayModel(for: request.tool)
+        request.model = request.xrayModel
         request.effort = "low"
         request.timeout = 300
         let source = overlay.source.id
