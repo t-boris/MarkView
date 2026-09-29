@@ -417,6 +417,8 @@ struct ContentView: View {
                 newMenu.frame(width: controlWidth, height: controlWidth)
                 AssistantToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 230)
+                XRayModelToolbarMenu(compact: compact)
+                    .frame(maxWidth: compact ? controlWidth : 170)
                 if let operations = workspaceManager.projectOperations {
                     ProjectDeployButton(store: operations)
                 }
@@ -811,8 +813,8 @@ private struct WindowAccessor: NSViewRepresentable {
         .environmentObject(WorkspaceManager())
 }
 
-/// Toolbar menu choosing the assistant CLI and its model for all AI features.
-/// Edits the same settings as DDE Settings.
+/// Toolbar menu choosing the assistant CLI and its model. The model for X-Ray and the other
+/// structured answers is chosen apart, in `XRayModelToolbarMenu`. Edits the same settings as DDE Settings.
 struct AssistantToolbarMenu: View {
     let workspaceManager: WorkspaceManager
     var compact = false
@@ -821,10 +823,6 @@ struct AssistantToolbarMenu: View {
     @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
     @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .claude)) private var xrayClaudeModel = AIAssistantPreferences.defaultXRayModel(for: .claude)
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .codex)) private var xrayCodexModel = AIAssistantPreferences.defaultXRayModel(for: .codex)
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .cline)) private var xrayClineModel = AIAssistantPreferences.defaultXRayModel(for: .cline)
-    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .copilot)) private var xrayCopilotModel = AIAssistantPreferences.defaultXRayModel(for: .copilot)
     /// Model lists per tool; Codex's is read from disk, so off the main thread.
     @State private var options: [CLITool: [AIModelOption]] = [:]
     @State private var availability: [CLITool: Bool] = [:]
@@ -836,14 +834,6 @@ struct AssistantToolbarMenu: View {
         case .codex: return $codexModel
         case .cline: return $clineModel
         case .copilot: return $copilotModel
-        }
-    }
-    private var xrayModel: Binding<String> {
-        switch tool {
-        case .claude: return $xrayClaudeModel
-        case .codex: return $xrayCodexModel
-        case .cline: return $xrayClineModel
-        case .copilot: return $xrayCopilotModel
         }
     }
 
@@ -868,12 +858,6 @@ struct AssistantToolbarMenu: View {
                 }
             }
             .pickerStyle(.inline)
-            // X-Ray answers are large; a fast model keeps a full analysis near a minute.
-            Picker("X-Ray model", selection: xrayModel) {
-                Text("Same as above").tag("")
-                ForEach((options[tool] ?? []).filter { !$0.id.isEmpty }) { Text($0.name).tag($0.id) }
-            }
-            .pickerStyle(.inline)
         } label: {
             if compact {
                 Image(systemName: availability[tool] == false ? "exclamationmark.triangle" : "cpu")
@@ -883,22 +867,84 @@ struct AssistantToolbarMenu: View {
             }
         }
         .help(availability[tool] == false ? "Assistant unavailable. Set its CLI path in Settings." :
-              "Assistant and model for every AI feature (X-Ray, Explain, filters, AI terminal)")
+              "Assistant and its model for the AI terminal, features and research; X-Ray has its own model")
         .task(id: backend) {
             let current = tool
             availability[current] = await CLIToolLocator.resolveThorough(current) != nil
             guard options[current] == nil else { return }
-            var loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: current) }.value
-            // ACP assistants list the account's models only over ACP: fetch them the first time.
-            if current.usesACP, loaded.count <= 1, let path = CLIToolLocator.resolve(current),
-               let models = try? await ACPAssistant.refreshModels(current, toolPath: path) {
-                loaded = [loaded.first].compactMap { $0 } + models
-            }
+            let loaded = await Self.loadOptions(for: current)
             // Keep a model saved earlier selectable, but say that the CLI does not list it
             // (Codex rejects models its catalog dropped or the account cannot use).
             let id = model.wrappedValue
             options[current] = loaded.contains { $0.id == id } ? loaded
                 : loaded + [AIModelOption(id: id, name: "\(id) — not in \(current.displayName)'s list", detail: "")]
+        }
+    }
+}
+
+extension AssistantToolbarMenu {
+    /// The models `tool` offers. ACP assistants list the account's models only over ACP:
+    /// they are fetched the first time.
+    static func loadOptions(for tool: CLITool) async -> [AIModelOption] {
+        var loaded = await Task.detached { AIAssistantPreferences.modelOptions(for: tool) }.value
+        if tool.usesACP, loaded.count <= 1, let path = CLIToolLocator.resolve(tool),
+           let models = try? await ACPAssistant.refreshModels(tool, toolPath: path) {
+            loaded = [loaded.first].compactMap { $0 } + models
+        }
+        return loaded
+    }
+}
+
+/// Toolbar menu for the X-Ray model, apart from the assistant's model: X-Ray, operations discovery,
+/// filters and explanations write large structured answers, where a fast model matters more than
+/// raw capability. The fast default is marked as recommended.
+struct XRayModelToolbarMenu: View {
+    var compact = false
+    @AppStorage(AIAssistantPreferences.backendKey) private var backend = CLITool.claude.rawValue
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .claude)) private var claudeModel = AIAssistantPreferences.defaultXRayModel(for: .claude)
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .codex)) private var codexModel = AIAssistantPreferences.defaultXRayModel(for: .codex)
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .cline)) private var clineModel = AIAssistantPreferences.defaultXRayModel(for: .cline)
+    @AppStorage(AIAssistantPreferences.xrayModelKey(for: .copilot)) private var copilotModel = AIAssistantPreferences.defaultXRayModel(for: .copilot)
+    @State private var options: [CLITool: [AIModelOption]] = [:]
+
+    private var tool: CLITool { CLITool(rawValue: backend) ?? .claude }
+    private var model: Binding<String> {
+        switch tool {
+        case .claude: return $claudeModel
+        case .codex: return $codexModel
+        case .cline: return $clineModel
+        case .copilot: return $copilotModel
+        }
+    }
+
+    var body: some View {
+        let recommended = AIAssistantPreferences.defaultXRayModel(for: tool)
+        let listed = (options[tool] ?? []).filter { !$0.id.isEmpty }
+        Menu {
+            Picker("X-Ray model", selection: model) {
+                Text("Same as the assistant's model").tag("")
+                ForEach(listed) { option in
+                    Text(option.id == recommended ? "\(option.name) (Recommended)" : option.name).tag(option.id)
+                }
+                if !model.wrappedValue.isEmpty, !listed.contains(where: { $0.id == model.wrappedValue }) {
+                    Text(model.wrappedValue).tag(model.wrappedValue)
+                }
+            }
+            .pickerStyle(.inline)
+            Text("Used by X-Ray, operations discovery, filters and explanations.")
+        } label: {
+            if compact {
+                Image(systemName: "viewfinder")
+            } else {
+                Label("X-Ray · " + (model.wrappedValue.isEmpty ? "assistant's model" : model.wrappedValue),
+                      systemImage: "viewfinder")
+            }
+        }
+        .help("Model for X-Ray, operations discovery, filters and explanations; a fast one is recommended")
+        .task(id: backend) {
+            let current = tool
+            guard options[current] == nil else { return }
+            options[current] = await AssistantToolbarMenu.loadOptions(for: current)
         }
     }
 }
