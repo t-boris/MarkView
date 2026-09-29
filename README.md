@@ -80,6 +80,21 @@ Press **⌘4**, or right-click any folder and choose **X-Ray**.
   accept copied images with **⌘V**, showing removable attachment thumbnails.
 - **Speed:** results are cached by input, so a re-analysis only redoes what changed.
 
+**Project operations:** In a project X-Ray, open **Deployment** and its details panel,
+then choose **Discover operations**. MarkView examines project procedures and bounded
+references to external folders; unresolved procedures may be researched on the web
+by a supported assistant. Commands sourced outside the project remain proposals until
+you accept each one. Add or edit operations in the details panel. The shared list lives
+in `.markview/operations.json`; a source change shows a hint to re-discover and does
+not replace your edits. A **Deploy** control appears in the project toolbar and every
+project X-Ray view when deploy operations exist. Every run shows the exact command and
+working directory for confirmation, then opens a terminal-style output panel where
+you can answer prompts or cancel. Commands run through your login shell, so shell
+startup files and aliases or functions available to a noninteractive login shell can
+affect execution. Review the command and its source before running it. An exit code
+of zero for a remote workflow trigger means the request was dispatched; MarkView does
+not monitor the remote result.
+
 ---
 
 ## AI terminals

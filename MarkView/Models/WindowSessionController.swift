@@ -12,6 +12,7 @@ final class WindowSessionController {
         weak var workspace: WorkspaceManager?
         var restoring = true
         var subscriptions = Set<AnyCancellable>()
+        var closeDelegate: ProjectOperationWindowCloseDelegate?
         init(window: NSWindow, workspace: WorkspaceManager) {
             self.window = window
             self.workspace = workspace
@@ -73,6 +74,9 @@ final class WindowSessionController {
         if !order.contains(id) { order.append(id) }
         let entry = Entry(window: window, workspace: workspace)
         entries[id] = entry
+        let closeDelegate = ProjectOperationWindowCloseDelegate(previous: window.delegate, workspace: workspace)
+        entry.closeDelegate = closeDelegate
+        window.delegate = closeDelegate
         // Native restoration otherwise races us and creates extra empty windows.
         window.isRestorable = false
         window.appearance = NSAppearance(named: .darkAqua)
@@ -177,5 +181,53 @@ final class WindowSessionController {
         let origin = NSPoint(x: min(max(frame.minX, visible.minX), visible.maxX - size.width),
                              y: min(max(frame.minY, visible.minY), visible.maxY - size.height))
         window.setFrame(NSRect(origin: origin, size: size), display: true)
+    }
+}
+
+/// Intercepts the close button while a project's subprocesses are alive, while
+/// forwarding all other window delegate messages to SwiftUI's original delegate.
+@MainActor
+private final class ProjectOperationWindowCloseDelegate: NSObject, NSWindowDelegate {
+    var previous: NSWindowDelegate?
+    weak var workspace: WorkspaceManager?
+    private var closeAfterStop = false
+
+    init(previous: NSWindowDelegate?, workspace: WorkspaceManager) {
+        self.previous = previous
+        self.workspace = workspace
+    }
+
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || previous?.responds(to: selector) == true
+    }
+
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        previous?.responds(to: selector) == true ? previous : super.forwardingTarget(for: selector)
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        let originalAllows = previous?.windowShouldClose?(sender) ?? true
+        guard originalAllows else { return false }
+        guard !closeAfterStop, let store = workspace?.projectOperations else { return true }
+        let active = store.runs.values.filter(\.isActive)
+        guard !active.isEmpty else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Stop running project operations before closing this window?"
+        alert.informativeText = active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }
+            .joined(separator: "\n")
+        alert.addButton(withTitle: "Keep working")
+        alert.addButton(withTitle: "Stop operations and close")
+        guard alert.runModal() == .alertSecondButtonReturn else { return false }
+        store.cancelForClose()
+        Task { [weak self, weak sender] in
+            while store.runs.values.contains(where: \.isActive) {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            guard let self, let sender else { return }
+            self.closeAfterStop = true
+            sender.performClose(nil)
+            self.closeAfterStop = false
+        }
+        return false
     }
 }

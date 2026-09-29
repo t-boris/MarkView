@@ -64,6 +64,11 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Typed instead of `startupCommand` on the first start only: continues the assistant's
     /// previous session after a relaunch (BUG-005). Restarts run `startupCommand`.
     private var resumeCommand: String?
+    /// A project operation executes this exact string as one argument to the login shell.
+    /// It is never typed into an ordinary terminal tab.
+    let operationCommand: String?
+    var onExit: ((Int32) -> Void)?
+    var onLaunchFailure: ((String) -> Void)?
     /// What it runs; a shell for terminals opened in folders.
     @Published private(set) var profile: TerminalProfile
     /// Tab title in the AI panel ("Claude Code", "Codex 2").
@@ -85,10 +90,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Everything typed or pasted goes through it: complete and in order even when the PTY is full.
     private var input: PTYWriter?
     private var childPID: pid_t = 0
+    private var operationStartedOnce = false
     private var readSource: DispatchSourceRead?
     private var exitSource: DispatchSourceProcess?
     private var pageReady = false
     private var pendingOutput = Data()
+    private var outputDropped = false
+    private var outputEvaluationsInFlight = 0
+    private var exitMarkerPending: Int32?
     private var flushScheduled = false
     private var startupSent = false
     /// When the shell started (for `pasteWhenReady`); nil before the page asked for it.
@@ -101,16 +110,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var lastOutputAt: Date?
     private var pendingPastes: [(text: String, submit: Bool, queued: Date)] = []
     private var pasteTimer: Timer?
-    private var size = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
+    private var size = winsize(ws_row: 30, ws_col: 120, ws_xpixel: 0, ws_ypixel: 0)
     /// Interface text scale for the terminal glyphs; the host view keeps it current.
     private var fontScale = AppFontScale.storedFactor
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
-         resumeCommand: String? = nil, title: String? = nil) {
+         resumeCommand: String? = nil, title: String? = nil, operationCommand: String? = nil) {
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
         self.resumeCommand = resumeCommand
+        self.operationCommand = operationCommand
         self.title = title ?? profile.title
         super.init()
     }
@@ -125,7 +135,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         configuration.userContentController.add(WeakMessageHandler(self), name: "terminal")
         // The first fit already uses the current scale, so the PTY starts with the final grid.
         configuration.userContentController.addUserScript(WKUserScript(
-            source: "window.mvFontScale = \(Double(fontScale));",
+            source: "window.mvFontScale = \(Double(fontScale)); window.mvOperation = \(operationCommand != nil);",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: configuration)
         if let page = Self.pageURL {
@@ -139,13 +149,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
             case "ready":
+                if operationCommand != nil { trace("ready pending=\(pendingOutput.count)") }
                 pageReady = true
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
                 applyTheme()
                 applyFontScale()
-                if masterFD < 0 { start() } else { flush() }
+                if masterFD < 0 && (operationCommand == nil || !operationStartedOnce) { start() }
+                else { flush() }
+                if outputDropped { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
             case "input":
-                if let text = body["data"] as? String { write(text) }
+                if isRunning, let text = body["data"] as? String { write(text) }
             case "resize":
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
             case "pasteFiles":
@@ -217,7 +230,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     func refit() {
-        guard pageReady else { return }
+        // The page may finish loading while its web view is still offscreen. Refitting
+        // after attachment must also bootstrap the first `ready` message.
         webView.evaluateJavaScript("window.mvRefit && window.mvRefit()")
     }
 
@@ -231,6 +245,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Start the user's login shell in `directory` on a new PTY.
     func start() {
         guard masterFD < 0 else { return }
+        if operationCommand != nil {
+            guard !operationStartedOnce else { return }
+            operationStartedOnce = true
+        }
         exitCode = nil
         startupSent = false
         startupSentAt = nil
@@ -257,7 +275,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
         // Everything the child needs is prepared before fork: after fork only
         // async-signal-safe calls (chdir, execve, _exit) are allowed.
-        let argv: [UnsafeMutablePointer<CChar>?] = [strdup(shell), strdup("-l"), nil]
+        let argv: [UnsafeMutablePointer<CChar>?] = operationCommand.map {
+            [strdup(shell), strdup("-l"), strdup("-c"), strdup($0), nil]
+        } ?? [strdup(shell), strdup("-l"), nil]
         let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
         let directoryPath = strdup(directory.path)
         let shellPath = strdup(shell)
@@ -271,12 +291,14 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         var windowSize = size
         let pid = forkpty(&master, nil, nil, &windowSize)
         if pid == 0 {
-            _ = chdir(directoryPath!)
+            guard chdir(directoryPath!) == 0 else { _exit(126) }
             _ = execve(shellPath!, argv, envp)
             _exit(127)
         }
         guard pid > 0 else {
-            deliver(Data("\r\nCould not start a terminal: \(String(cString: strerror(errno)))\r\n".utf8))
+            let reason = String(cString: strerror(errno))
+            deliver(Data("\r\nCould not start a process: \(reason)\r\n".utf8))
+            onLaunchFailure?(reason)
             return
         }
         masterFD = master
@@ -308,6 +330,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private func processExited(status: Int32) {
+        // The exit event can precede the last PTY read event. Drain it before closing.
+        if masterFD >= 0 {
+            var buffer = [UInt8](repeating: 0, count: 65536)
+            while true {
+                let count = Darwin.read(masterFD, &buffer, buffer.count)
+                if count <= 0 { break }
+                deliver(Data(buffer[0..<count]))
+            }
+        }
         readSource?.cancel(); readSource = nil
         exitSource?.cancel(); exitSource = nil
         input?.cancel(); input = nil
@@ -315,7 +346,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         childPID = 0
         isRunning = false
         exitCode = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
-        webView.evaluateJavaScript("window.mvExited && window.mvExited(\(exitCode ?? 0))")
+        exitMarkerPending = exitCode ?? 127
+        flush()
+        finishOutputDisplayIfReady()
+        onExit?(exitCode ?? 127)
+    }
+
+    /// Signal the whole foreground operation group, including non-detached children.
+    func signalProcessGroup(_ signal: Int32) {
+        guard operationCommand != nil, childPID > 0 else { return }
+        let foreground = masterFD >= 0 ? tcgetpgrp(masterFD) : 0
+        if foreground > 0 && foreground != childPID { _ = kill(-foreground, signal) }
+        _ = kill(-childPID, signal)
+        _ = kill(childPID, signal)
     }
 
     /// Start again (same folder; optionally a new startup command). The terminal is fully
@@ -338,6 +381,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         resumeCommand = nil
         terminate()
         pendingOutput.removeAll()
+        outputDropped = false
+        exitMarkerPending = nil
         webView.evaluateJavaScript("window.mvReset && window.mvReset()")
         start()
     }
@@ -457,7 +502,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Output to the page, batched per frame; the startup command goes in once the
     /// shell has printed its prompt.
     private func deliver(_ data: Data) {
+        if operationCommand != nil { trace("deliver bytes=\(data.count) ready=\(pageReady)") }
         pendingOutput.append(data)
+        if operationCommand != nil && pendingOutput.count > 16_000_000 {
+            pendingOutput.removeFirst(pendingOutput.count - 8_000_000)
+            outputDropped = true
+            if pageReady { webView.evaluateJavaScript("window.mvDropped && window.mvDropped()") }
+        }
         lastOutputAt = Date()
         if !startupSent, let command = resumeCommand ?? startupCommand, !command.isEmpty {
             startupSent = true
@@ -473,11 +524,49 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private func flush() {
+        if operationCommand != nil { trace("flush bytes=\(pendingOutput.count) ready=\(pageReady)") }
         flushScheduled = false
-        guard pageReady, !pendingOutput.isEmpty else { return }
-        let chunk = pendingOutput.base64EncodedString()
-        pendingOutput.removeAll(keepingCapacity: true)
-        webView.evaluateJavaScript("window.mvWrite('\(chunk)')")
+        guard pageReady, !pendingOutput.isEmpty else {
+            finishOutputDisplayIfReady()
+            return
+        }
+        let count = min(pendingOutput.count, 32_768)
+        let chunk = pendingOutput.prefix(count).base64EncodedString()
+        pendingOutput.removeFirst(count)
+        outputEvaluationsInFlight += 1
+        webView.evaluateJavaScript("window.mvWrite('\(chunk)')") { [weak self] _, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if self.operationCommand != nil { self.trace("write error=\(String(describing: error))") }
+                self.outputEvaluationsInFlight -= 1
+                self.finishOutputDisplayIfReady()
+            }
+        }
+        if !pendingOutput.isEmpty {
+            flushScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in self?.flush() }
+        }
+    }
+
+    private func finishOutputDisplayIfReady() {
+        guard pageReady, pendingOutput.isEmpty, outputEvaluationsInFlight == 0,
+              let code = exitMarkerPending else { return }
+        exitMarkerPending = nil
+        webView.evaluateJavaScript("window.mvExited && window.mvExited(\(code))") { [weak self] _, error in
+            if let self, self.operationCommand != nil { self.trace("exit error=\(String(describing: error))") }
+        }
+    }
+
+    private func trace(_ message: String) {
+        let url = URL(fileURLWithPath: "/tmp/markview-ops-debug.log")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            try? handle.seekToEnd()
+            try? handle.write(contentsOf: Data((message + "\n").utf8))
+            try? handle.close()
+        }
     }
 }
 

@@ -406,6 +406,11 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.setArchitectureProgress && window.setArchitectureProgress(\(json))")
     }
 
+    /// Project operations are updated independently of the much larger X-Ray snapshot.
+    func setProjectOperations(_ json: String, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.setProjectOperations && window.setProjectOperations(\(json))")
+    }
+
     /// Show source code read-only in the code viewer (markview-code.js).
     func loadCodeContent(_ content: String, language: String, fileName: String, into webView: WKWebView) {
         guard let data = try? JSONSerialization.data(withJSONObject: [content, language, fileName]),

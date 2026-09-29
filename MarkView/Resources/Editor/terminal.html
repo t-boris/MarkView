@@ -11,6 +11,8 @@
     :root { --bg: #1e1e1e; }
     :root.light { --bg: #ffffff; }
     #term { position: absolute; inset: 6px 4px 4px 8px; }
+    #truncated { position: absolute; z-index: 2; top: 0; left: 0; right: 0; padding: 3px 8px;
+        background: #67431b; color: #fff; font: 11px system-ui; }
     .xterm .xterm-viewport { background-color: transparent !important; }
     /* WebKit rounds inline glyph advances differently from xterm's row width.
        Allow a cell of paint room in FitAddon's existing right-side gutter,
@@ -20,6 +22,7 @@
 </head>
 <body>
 <div id="term"></div>
+<div id="truncated" hidden>Earlier output was dropped from the 10,000-line scrollback.</div>
 <script src="vendor/js/xterm.bundle.js"></script>
 <script>
 (function() {
@@ -132,6 +135,8 @@
     }});
 
     const host = document.getElementById('term');
+    const truncated = document.getElementById('truncated');
+    let outputLines = 0;
     let size = { cols: 0, rows: 0 };
     let ready = false;
     let fitRetryScheduled = false;
@@ -170,12 +175,13 @@
     }
     window.mvRefit = refit;
     new ResizeObserver(refit).observe(host);
-    term.onData(function(data) { post({ type: 'input', data: data }); });
+    let readOnly = false;
+    term.onData(function(data) { if (!readOnly) post({ type: 'input', data: data }); });
     // Shift+Enter: a new line in the prompt, not "send" — a line feed (Ctrl+J), which
     // Claude Code and Codex take as a newline.
     term.attachCustomKeyEventHandler(function(e) {
         if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            if (e.type === 'keydown') post({ type: 'input', data: '\n' });
+            if (e.type === 'keydown' && !readOnly) post({ type: 'input', data: '\n' });
             return false;
         }
         return true;
@@ -189,11 +195,15 @@
         e.stopPropagation();
         post({ type: 'pasteFiles' });
     }, true);
-    term.onBinary(function(data) { post({ type: 'input', data: data }); });
+    term.onBinary(function(data) { if (!readOnly) post({ type: 'input', data: data }); });
 
     /** Output from the process, base64 (raw bytes: may split UTF-8 sequences). */
     window.mvWrite = function(b64) {
         const bin = atob(b64);
+        if (window.mvOperation) {
+            for (let i = 0; i < bin.length; i++) if (bin.charCodeAt(i) === 10) outputLines++;
+            if (outputLines > 10000) truncated.hidden = false;
+        }
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         term.write(bytes);
@@ -213,12 +223,17 @@
     /** Full reset before a new process: clears the screen and every mode the previous
         program may have left on (mouse tracking, alternate screen, bracketed paste…). */
     window.mvReset = function() {
+        outputLines = 0;
+        truncated.hidden = true;
         pendingLinks.forEach(pending => pending.callback(undefined));
         pendingLinks.clear();
         leaveLink();
         commandClick = false;
+        readOnly = false;
+        term.options.disableStdin = false;
         term.reset();
     };
+    window.mvDropped = function() { truncated.hidden = false; };
     /** Whether the terminal reports the mouse to the program (diagnostics and tests). */
     window.mvMouseMode = function() { return term.modes.mouseTrackingMode; };
     /** The visible screen as text (diagnostics and tests). */
@@ -229,7 +244,10 @@
     };
     window.mvSize = function() { return term.cols + 'x' + term.rows; };
     window.mvExited = function(code) {
-        term.write('\r\n\x1b[2m[process exited' + (code ? ' with code ' + code : '') + ' — Restart to start again]\x1b[0m\r\n');
+        readOnly = true;
+        term.options.disableStdin = true;
+        term.write('\r\n\x1b[2m[process exited' + (code ? ' with code ' + code : '')
+            + (window.mvOperation ? ']' : ' — Restart to start again]') + '\x1b[0m\r\n');
     };
 
     refit();

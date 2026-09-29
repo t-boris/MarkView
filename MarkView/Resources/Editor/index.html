@@ -1155,6 +1155,10 @@
         .arch-toolbar .arch-spacer { flex: 1; }
         .arch-toolbar .arch-actions { display: flex; flex-wrap: nowrap; gap: 6px; margin-left: auto; }
         .arch-toolbar .arch-actions .arch-btn { white-space: nowrap; }
+        .arch-operation { border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; margin: 7px 0; overflow-wrap: anywhere; }
+        .arch-operation.related { border-color: var(--accent-primary); background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
+        .arch-operation code { display: block; white-space: pre-wrap; margin: 6px 0; user-select: text; }
+        .arch-operation-actions { display: flex; gap: 6px; margin-top: 6px; }
         .arch-check { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
         .arch-rank { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: calc(11px * var(--ui-scale, 1)); }
         .arch-rank button { text-align: left; border: 0; background: none; color: var(--accent-color, #569cd6); cursor: pointer; padding: 1px 0; font: calc(11px * var(--ui-scale, 1)) "SF Mono", Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1466,6 +1470,8 @@
                     <span id="arch-status"></span>
                     <!-- Kept together: when the toolbar is narrow the group moves to the next line as a whole. -->
                     <div class="arch-actions">
+                        <button class="arch-btn" id="arch-deploy" hidden title="Run a discovered deployment operation">Deploy</button>
+                        <select id="arch-deploy-picker" hidden aria-label="Choose deployment operation"></select>
                         <button class="arch-btn" id="arch-analyze" title="Describe modules and map deployment with the selected AI assistant">Analyze</button>
                         <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)" aria-label="Rescan">↻</button>
                         <button class="arch-btn" id="arch-fit" title="Fit to window" aria-label="Fit to window">⛶</button>
