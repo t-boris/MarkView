@@ -1,5 +1,5 @@
-// Checks project colors (MarkView/Models/ProjectColor.swift) against feature-2 DEC-008, DEC-009
-// and DEC-010: palette, project key, stable automatic color, persistence and overrides.
+// Checks project colors (MarkView/Models/ProjectColor.swift) against feature-2 DEC-008, DEC-009,
+// DEC-010 and DEC-014: palette, project key, name-based automatic color, chosen colors.
 import Foundation
 
 var failures = 0
@@ -28,13 +28,19 @@ check("dot segments are standardized", ProjectColor.projectKey(for: real.appendi
 check("trailing slash is the same project", ProjectColor.projectKey(for: URL(fileURLWithPath: real.path + "/")), key)
 check("same name, other path is another project", String(ProjectColor.projectKey(for: other) == key), "false")
 
-// Automatic color: a fixed value per key, identical in every process (not Swift's seeded hash).
+// Automatic color (DEC-014): a fixed value per folder name, ignoring case, identical in every
+// process (not Swift's seeded hash).
 check("stable across calls", ProjectColor.automatic(forKey: key).id, ProjectColor.automatic(forKey: key).id)
-check("known key, known color", ProjectColor.automatic(forKey: "/Users/boris/github.com/MarkView").id,
-      ProjectColor.palette[Int(fnv("/Users/boris/github.com/MarkView") % 8)].id)
-// Pinned: changing the hash or the palette order would recolor every saved-less project.
-check("pinned color 1", ProjectColor.automatic(forKey: "/Users/boris/github.com/MarkView").id, "red")
-check("pinned color 2", ProjectColor.automatic(forKey: "/tmp/a").id, "pink")
+check("same name, other path, same color", ProjectColor.automatic(forKey: ProjectColor.projectKey(for: other)).id,
+      ProjectColor.automatic(forKey: key).id)
+check("worktree clone of the same name", ProjectColor.automatic(forKey: "/private/tmp/broker-fabric").id,
+      ProjectColor.automatic(forKey: "/Users/boris/github.com/broker-fabric").id)
+check("case is ignored", ProjectColor.automatic(forKey: "/a/MarkView").id, ProjectColor.automatic(forKey: "/b/markview").id)
+check("known name, known color", ProjectColor.automatic(forKey: "/Users/boris/github.com/MarkView").id,
+      ProjectColor.palette[Int(fnv("markview") % 8)].id)
+// Pinned: changing the hash or the palette order would recolor every project without a choice.
+check("pinned color 1", ProjectColor.automatic(forKey: "/Users/boris/github.com/MarkView").id, "orange")
+check("pinned color 2", ProjectColor.automatic(forKey: "/Users/boris/github.com/broker-fabric").id, "yellow")
 let spread = Set((0..<200).map { ProjectColor.automatic(forKey: "/projects/p\($0)").id })
 check("uses the whole palette", String(spread.count), "8")
 func fnv(_ s: String) -> UInt64 {
@@ -43,27 +49,32 @@ func fnv(_ s: String) -> UInt64 {
     return h
 }
 
-// Store: persistence, overrides, and one shared value for every window.
+// Store: only chosen colors persist; one shared value for every window.
 let suite = "ProjectColorTests-\(UUID().uuidString)"
 let defaults = UserDefaults(suiteName: suite)!
 defer { defaults.removePersistentDomain(forName: suite) }
 MainActor.assumeIsolated {
+    // Colors saved before DEC-014 (automatic and chosen alike) are dropped once.
+    defaults.set([key: "teal"], forKey: ProjectColorStore.defaultsKey)
+    let migrated = ProjectColorStore(defaults: defaults)
+    check("old saved colors are dropped", String(migrated.assignments.isEmpty), "true")
+    check("migration runs once", String(defaults.bool(forKey: ProjectColorStore.byNameMigrationKey)), "true")
+
     let store = ProjectColorStore(defaults: defaults)
     check("reading does not persist", String(store.assignments.isEmpty), "true")
-    check("unassigned shows the automatic color", store.color(forKey: key).id, ProjectColor.automatic(forKey: key).id)
-    store.assignIfNeeded(key: key)
-    check("first show persists the automatic color", store.assignments[key] ?? "", ProjectColor.automatic(forKey: key).id)
+    check("no choice shows the automatic color", store.color(forKey: key).id, ProjectColor.automatic(forKey: key).id)
     let chosen = ProjectColor.palette.first { $0 != store.color(forKey: key) }!
     store.set(chosen, forKey: key)
-    store.assignIfNeeded(key: key)
-    check("a choice survives assignIfNeeded", store.color(forKey: key).id, chosen.id)
+    check("a choice is saved", store.assignments[key] ?? "", chosen.id)
+    check("a choice stays with its folder", store.color(forKey: ProjectColor.projectKey(for: other)).id,
+          ProjectColor.automatic(forKey: key).id)
     let relaunched = ProjectColorStore(defaults: defaults)
     check("choice survives a relaunch", relaunched.color(forKey: key).id, chosen.id)
+    relaunched.set(ProjectColor.automatic(forKey: key), forKey: key)
+    check("choosing the automatic color clears the choice", String(relaunched.assignments[key] == nil), "true")
     defaults.set([key: "no-such-color"], forKey: ProjectColorStore.defaultsKey)
     let damaged = ProjectColorStore(defaults: defaults)
     check("unknown stored id falls back to automatic", damaged.color(forKey: key).id, ProjectColor.automatic(forKey: key).id)
-    damaged.assignIfNeeded(key: key)
-    check("unknown stored id is repaired", damaged.assignments[key] ?? "", ProjectColor.automatic(forKey: key).id)
 }
 
 print(failures == 0 ? "All project color checks passed" : "\(failures) check(s) failed")

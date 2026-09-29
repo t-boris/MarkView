@@ -31,17 +31,18 @@ struct ProjectColor: Equatable, Identifiable {
 
     static func withID(_ id: String) -> ProjectColor? { palette.first { $0.id == id } }
 
-    /// A project is its folder's standardized path after resolving symbolic links (DEC-008):
-    /// same-named folders stay different projects; a moved or renamed folder is a new one.
+    /// A project is its folder's standardized path after resolving symbolic links (DEC-008);
+    /// a color chosen by hand belongs to that folder.
     static func projectKey(for folder: URL) -> String {
         folder.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
-    /// The automatic color: a stable hash (FNV-1a 64 over the key's UTF-8, unlike `hashValue`,
-    /// which changes every launch) into the palette. Different projects may share a color.
+    /// The automatic color follows the folder name, ignoring case (DEC-014): clones, worktrees and
+    /// moved copies of a project share it. A stable hash (FNV-1a 64 over the name's UTF-8, unlike
+    /// `hashValue`, which changes every launch) into the palette. Different names may share a color.
     static func automatic(forKey key: String) -> ProjectColor {
         var hash: UInt64 = 0xcbf29ce484222325
-        for byte in key.utf8 {
+        for byte in (key as NSString).lastPathComponent.lowercased().utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x100000001b3
         }
@@ -55,30 +56,33 @@ struct ProjectColor: Equatable, Identifiable {
 final class ProjectColorStore: ObservableObject {
     static let shared = ProjectColorStore()
     static let defaultsKey = "project.colors"
+    /// Set once the path-hashed colors saved before DEC-014 were dropped.
+    static let byNameMigrationKey = "project.colors.byFolderName"
 
-    /// Project key → palette id, for automatic assignments and user choices alike.
+    /// Project key → palette id, for colors chosen by hand only; the automatic color is never saved.
     @Published private(set) var assignments: [String: String]
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        if !defaults.bool(forKey: Self.byNameMigrationKey) {
+            // Saved colors did not tell automatic from chosen ones: every project follows its name once.
+            defaults.removeObject(forKey: Self.defaultsKey)
+            defaults.set(true, forKey: Self.byNameMigrationKey)
+        }
         assignments = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
     }
 
-    /// The saved color, else the automatic one. Reading never writes, so views may call it.
+    /// The chosen color, else the automatic one.
     func color(forKey key: String) -> ProjectColor {
         assignments[key].flatMap(ProjectColor.withID) ?? ProjectColor.automatic(forKey: key)
     }
 
-    /// Saves the automatic color the first time a project is shown, so it stays fixed (DEC-009).
-    func assignIfNeeded(key: String) {
-        guard assignments[key].flatMap(ProjectColor.withID) == nil else { return }
-        set(ProjectColor.automatic(forKey: key), forKey: key)
-    }
-
+    /// Choosing the automatic color clears the choice, so the folder follows its name again.
     func set(_ color: ProjectColor, forKey key: String) {
-        guard assignments[key] != color.id else { return }
-        assignments[key] = color.id
+        let choice = color == ProjectColor.automatic(forKey: key) ? nil : color.id
+        guard assignments[key] != choice else { return }
+        assignments[key] = choice
         defaults.set(assignments, forKey: Self.defaultsKey)
     }
 }

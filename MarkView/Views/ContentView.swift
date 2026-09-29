@@ -584,7 +584,6 @@ struct ContentView: View {
         hostWindow?.isMovableByWindowBackground = true
         hostWindow?.representedURL = root
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
-        if let projectKey { projectColors.assignIfNeeded(key: projectKey) }
     }
 
     private func attachWindowSession() {
