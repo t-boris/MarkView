@@ -5,12 +5,13 @@ import Foundation
 /// "I need to understand …" is answered by the X-Ray's ⚡ search instead of a document; "New Research"
 /// answers an open analytical question with a saved report in docs/research/ (ResearchJobs).
 enum IntakeKind: String, Identifiable, CaseIterable {
-    case feature, bug, understand, research
+    case feature, quickFeature, bug, understand, research
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .feature: return "New Feature"
+        case .quickFeature: return "Quick Feature"
         case .bug: return "New Bug"
         case .understand: return "I Need to Understand"
         case .research: return "New Research"
@@ -20,6 +21,7 @@ enum IntakeKind: String, Identifiable, CaseIterable {
     var prompt: String {
         switch self {
         case .feature: return "Describe the feature as you know it — what, why, for whom, ideas, constraints, links, anything. Drop files and screenshots too."
+        case .quickFeature: return "Describe the small feature. The AI will make a one-page specification you can discuss and refine."
         case .bug: return "What goes wrong? Where, when, what you expected, what happened instead, error messages, logs, screenshots."
         case .understand: return "Ask what a project part is, why it exists, how it works, or where it came from. X-Ray opens with an explained answer and clickable evidence from code, documents and history."
         case .research: return "Ask an open analytical question: how to replace one app with another, what would make the product more widely used, which features are missing, a review of a document. The AI studies the repository (and the web when useful) and saves a research report with findings, recommendations and sources that you can deepen later."
@@ -50,6 +52,57 @@ extension FeatureAssistant {
     }
 
     // MARK: New Feature
+
+    /// A single overview with no generated requirements or question rounds. It remains a normal
+    /// feature folder so discussion and the implementation handoff use the existing lifecycle.
+    func newQuickFeature(from dump: String, attachments: [URL], linkedIssue: Int? = nil) async -> IntakeOutcome? {
+        guard store.root != nil else { return nil }
+        let prompt = """
+        ## Quick feature request
+
+        \(dump.prefix(40_000))
+
+        Attachments: \(attachments.map(\.lastPathComponent).joined(separator: ", "))
+
+        Task: read relevant project documentation and code (read-only), then draft a concise,
+        single-page feature specification. Give a short title, the idea, the problem, scope,
+        analysis of the existing behavior, and acceptance criteria. State uncertainty explicitly.
+        Do not start a question workflow; the user can refine this in discussion.
+        Write the specification in English.
+        """
+        let schema: [String: Any] = ["type": "object", "properties": [
+            "title": ["type": "string"], "idea": ["type": "string"], "problem": ["type": "string"],
+            "scope": ["type": "string"], "analysis": ["type": "string"],
+            "acceptance_criteria": ["type": "array", "items": ["type": "string"]]
+        ], "required": ["title", "idea", "problem", "scope", "analysis", "acceptance_criteria"]]
+        guard let object = await structured("intake:quick-feature", prompt: prompt, schema: schema),
+              let slug = store.createFeature(title: object["title"] as? String ?? "Quick feature",
+                                             idea: object["idea"] as? String ?? dump) else { return nil }
+        let problem = object["problem"] as? String ?? ""
+        let scope = object["scope"] as? String ?? ""
+        let analysis = object["analysis"] as? String ?? ""
+        let criteria = (object["acceptance_criteria"] as? [String] ?? []).map { "- [ ] \($0)" }.joined(separator: "\n")
+        store.updateFeature(slug) { front, body in
+            front.set("provenance", "Created from the quick feature intake")
+            front.set("status", "ready")
+            front.set("intake", "quick")
+            body = "# \(object["title"] as? String ?? "Quick feature")\n\n## Idea\n\n\(object["idea"] as? String ?? dump)\n\n## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n\n## Analysis\n\n\(analysis)\n\n## Acceptance Criteria\n\n\(criteria)\n"
+        }
+        _ = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
+        for url in attachments { await ingest(.file(url), into: slug) }
+        var issueRef = linkedIssue.map { "#\($0)" }
+        if let linkedIssue {
+            store.updateFeature(slug) { front, _ in front.set("issue", "#\(linkedIssue)") }
+        } else if let client = gitHubClient(), let feature = store.feature(slug) {
+            let body = "\(dump)\n\n_Specification: `\(store.relativePath(feature.overviewURL))`_"
+            if let url = await Self.createIssue(client, title: "Feature: \(feature.title)", body: body, label: "enhancement"),
+               let number = url.split(separator: "/").last {
+                issueRef = "#\(number)"
+                store.updateFeature(slug) { front, _ in front.set("issue", "#\(number)") }
+            }
+        }
+        return IntakeOutcome(file: store.feature(slug)?.overviewURL, feature: slug, issue: issueRef)
+    }
 
     /// Build a feature from everything the user wrote: overview, understanding, first
     /// requirements and questions, the material as a source; then its GitHub issue.
@@ -257,17 +310,103 @@ extension FeatureAssistant {
     /// Answered or skipped questions after which a bug asks nothing more.
     static let bugQuestionLimit = 8
     /// Sections the investigation keeps as they are; everything else is rewritten by the AI.
-    private static let keptBugSections = ["Attachments", "Clarifications", "Original description"]
+    private static let keptBugSections = ["Attachments", "Clarifications", "Discussion", "Original description"]
+
+    /// Copy follow-up files beside the report before the AI sees them. The report links are
+    /// durable; clipboard cache files and the original file locations need not survive.
+    private func saveBugAttachments(_ urls: [URL], for report: URL) async -> [String]? {
+        guard !urls.isEmpty else { return [] }
+        guard let root = store.root, let bug = store.bug(at: report) else { return nil }
+        let folder = root.appendingPathComponent("docs/bugs/assets", isDirectory: true)
+        do {
+            let names = try await Task.detached(priority: .userInitiated) { () -> [String] in
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                return try urls.map { source in
+                    guard source.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
+                    let name = "\(bug.key)-\(UUID().uuidString.prefix(8))-\(source.lastPathComponent)"
+                    try FileManager.default.copyItem(at: source, to: folder.appendingPathComponent(name))
+                    return name
+                }
+            }.value
+            let lines = names.map { name -> String in
+                let path = "assets/\(name)"
+                let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+                return "- [\(name)](\(escaped))"
+            }
+            guard store.updateBug(report, { _, body in
+                var sections = Self.bugSections(body)
+                let entry = lines.joined(separator: "\n")
+                if let index = sections.firstIndex(where: { $0.heading == "Attachments" }) {
+                    sections[index].text += "\n" + entry
+                } else {
+                    let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
+                    sections.insert(("Attachments", entry), at: at)
+                }
+                body = Self.joinBugSections(sections)
+            }) else { return nil }
+            return names
+        } catch {
+            self.error = "Could not attach the file: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Persist both sides of the conversation in the report, which survives reopening.
+    private func appendBugDiscussion(_ url: URL, speaker: String, message: String, ready: Bool? = nil) {
+        store.updateBug(url) { front, body in
+            if let ready { front.set("ready_to_fix", ready ? "true" : nil) }
+            var sections = Self.bugSections(body)
+            let entry = "### \(speaker) · \(FeatureStore.today)\n\n\(message)"
+            if let index = sections.firstIndex(where: { $0.heading == "Discussion" }) {
+                sections[index].text += "\n\n" + entry
+            } else {
+                let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
+                sections.insert(("Discussion", entry), at: at)
+            }
+            body = Self.joinBugSections(sections)
+        }
+    }
+
+    func discussBug(_ url: URL, message: String, attachments: [URL] = []) async {
+        guard let bug = BugReport.load(url) else { return }
+        let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty || !attachments.isEmpty else { return }
+        guard let names = await saveBugAttachments(attachments, for: url) else { return }
+        let recorded = message.isEmpty ? "Attached: " + names.joined(separator: ", ") : message
+        appendBugDiscussion(url, speaker: store.defaultOwner.isEmpty ? "User" : store.defaultOwner,
+                            message: recorded, ready: false)
+        guard let report = try? String(contentsOf: url, encoding: .utf8) else { return }
+        let prompt = """
+        ## Bug report `\(store.relativePath(url))`
+
+        \(FrontMatter.split(report).1.prefix(40_000))
+
+        Task: reply to the user's latest discussion message, rechecking the report against the
+        project's code, documents and attached images (read-only). Say what changed in your understanding.
+        Propose readiness only if the report has enough information to hand to development.
+        The user must confirm that handoff; do not change the bug's status yourself.
+        """
+        let schema: [String: Any] = ["type": "object", "properties": [
+            "reply": ["type": "string"], "ready_to_fix": ["type": "boolean"]
+        ], "required": ["reply", "ready_to_fix"]]
+        guard let object = await structured("discuss:bug:" + bug.key, prompt: prompt, schema: schema) else { return }
+        let reply = object["reply"] as? String ?? ""
+        appendBugDiscussion(url, speaker: "AI", message: reply,
+                            ready: object["ready_to_fix"] as? Bool == true)
+        await investigateBug(url)
+    }
 
     /// Record the user's answer to a bug question (kept even when the AI call fails), then
     /// investigate again. An empty answer means the user does not know.
-    func answerBug(_ url: URL, question id: String, answer: String) async {
-        let known = !answer.isEmpty
+    func answerBug(_ url: URL, question id: String, answer: String, attachments: [URL] = []) async {
+        guard let names = await saveBugAttachments(attachments, for: url) else { return }
+        let recorded = answer + (names.isEmpty ? "" : "\nAttachments: " + names.joined(separator: ", "))
+        let known = !recorded.isEmpty
         let written = store.updateBug(url) { front, body in
             var questions = (front["questions"]?.list ?? []).compactMap(BugQuestion.init)
             guard let index = questions.firstIndex(where: { $0.id == id }) else { return }
             questions[index].status = known ? "answered" : "skipped"
-            questions[index].answer = known ? answer : "The user does not know."
+            questions[index].answer = known ? recorded : "The user does not know."
             front["questions"] = .list(questions.map(\.yaml))
             let entry = "**\(id)** \(questions[index].text)\n→ \(questions[index].answer)"
             var sections = Self.bugSections(body)
@@ -296,8 +435,8 @@ extension FeatureAssistant {
         \(body.prefix(40_000))
         \(open.isEmpty ? "" : "\n## Questions already asked and still open (do not ask them again)\n\n" + open.map { "- \($0.id): \($0.text)" }.joined(separator: "\n"))
 
-        Task: investigate this bug again, taking the clarifications into account. Read the project's code and \
-        documentation (read-only) where it helps. Rewrite the report: summary, steps to reproduce, expected and \
+        Task: investigate this bug again, taking the clarifications into account. Read the project's code, \
+        documentation and attached images (read-only) where it helps. Rewrite the report: summary, steps to reproduce, expected and \
         actual behaviour, severity (critical = data loss / security / outage; high = main flow broken; medium; \
         low), environment, the suspected code (files with the reason), likely causes, and what information is \
         still missing to reproduce it or to locate the cause. In `settled`, list the ids of open questions the \
@@ -421,7 +560,7 @@ extension FeatureAssistant {
 
     /// A report's "## " sections in order; the text before the first one has the heading "".
     /// "Original description" runs to the end: the user's own text may contain headings.
-    static func bugSections(_ body: String) -> [(heading: String, text: String)] {
+    nonisolated static func bugSections(_ body: String) -> [(heading: String, text: String)] {
         var sections: [(heading: String, text: String)] = [("", "")]
         for line in body.components(separatedBy: "\n") {
             if line.hasPrefix("## "), sections.last?.heading != "Original description" {

@@ -221,11 +221,9 @@ final class FeatureAssistant: ObservableObject {
             guard store.root == folder else { return nil }
             result.record(in: database())
             error = nil
-            if var state = actions[key] {
-                state.phase = .completed
-                state.stage = "Completed"
-                actions[key] = state
-            }
+            // Successful work is available in its document or result. Keep only failed and
+            // stopped cards so their error or partial output remains readable in Tasks.
+            actions.removeValue(forKey: key)
             return result
         } catch is CancellationError {
             markStopped(key)
@@ -264,6 +262,7 @@ final class FeatureAssistant: ObservableObject {
         case "review": return "Review feature"
         case "research": return "Research feature"
         case "chat": return "Discuss feature"
+        case "discuss": return "Discuss bug"
         case "decompose": return "Plan implementation"
         case "consolidate": return "Consolidate requirements"
         case "resolveopts": return "Resolve finding"

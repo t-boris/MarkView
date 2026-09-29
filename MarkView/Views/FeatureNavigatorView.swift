@@ -674,7 +674,7 @@ struct IntakeSheet: View {
             if kind == .research, let root = workspaceManager.rootNode?.url {
                 ResearchIntakeOptions(root: root, targets: $targets, outputPath: $outputPath, outputPathEdited: $outputPathEdited)
             }
-            if kind == .feature || kind == .bug, workspaceManager.gitHub.isAvailable {
+            if kind == .feature || kind == .quickFeature || kind == .bug, workspaceManager.gitHub.isAvailable {
                 HStack(spacing: 8) {
                     Button("From GitHub Issue…") {
                         picking = true
@@ -829,6 +829,7 @@ struct IntakeSheet: View {
     private var icon: String {
         switch kind {
         case .feature: return "sparkles"
+        case .quickFeature: return "bolt"
         case .bug: return "ladybug"
         case .understand: return "magnifyingglass"
         case .research: return "books.vertical"
@@ -839,6 +840,7 @@ struct IntakeSheet: View {
         let github = workspaceManager.gitHub.isAvailable
         switch kind {
         case .feature: return "Creates docs/features/<name>/ (overview, first requirements and questions, your text as a source)" + (github ? " and a GitHub issue." : ". Turn on the GitHub integration to also file an issue.")
+        case .quickFeature: return "Creates a one-page feature specification with analysis and discussion, without question rounds" + (github ? " and a GitHub issue." : ".")
         case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.") + " What is still missing is asked in the Feature tab."
         case .understand: return "The answer opens at the top of the X-Ray right panel, with What, Why, How and Origin sections. Sources reveal the evidence in X-Ray or open it. Save as research keeps the answer in docs/research; nothing is saved automatically."
         case .research: return "Runs in the background (progress and Cancel under the editor) and opens the report when it is done. Findings are labelled project fact, external fact, AI inference or open assumption, with file paths and URLs. Attachments are copied to docs/research/assets/."
@@ -893,6 +895,7 @@ struct IntakeSheet: View {
             let outcome: FeatureAssistant.IntakeOutcome?
             switch kind {
             case .feature: outcome = await assistant.newFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
+            case .quickFeature: outcome = await assistant.newQuickFeature(from: input, attachments: attachments, linkedIssue: linkedIssue)
             case .bug: outcome = await assistant.newBug(from: input, attachments: attachments, linkedIssue: linkedIssue,
                                                         commentOnIssue: commentOnIssue)
             case .understand, .research: outcome = nil

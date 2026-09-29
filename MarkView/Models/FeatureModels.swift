@@ -534,6 +534,8 @@ struct BugReport: Identifiable, Hashable {
     var hasStatus = true
     /// Front matter `feature:` when the report names the feature it belongs to; usually empty.
     var feature = ""
+    var discussion = ""
+    var readyToFix = false
 
     var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
     var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
@@ -553,7 +555,9 @@ struct BugReport: Identifiable, Hashable {
                          questions: (front["questions"]?.list ?? []).compactMap(BugQuestion.init),
                          updated: front.string("updated"), created: front.string("created"),
                          modified: fileModificationDate(url), hasStatus: !front.string("status").isEmpty,
-                         feature: front.string("feature"))
+                         feature: front.string("feature"),
+                         discussion: FeatureAssistant.bugSections(body).first { $0.heading == "Discussion" }?.text ?? "",
+                         readyToFix: front.string("ready_to_fix") == "true")
     }
 }
 

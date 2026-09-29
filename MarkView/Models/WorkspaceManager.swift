@@ -3566,10 +3566,17 @@ class WorkspaceManager: ObservableObject {
     /// Returns the terminal session the prompt went to.
     @discardableResult
     func sendToAssistant(_ prompt: String, submit: Bool = true) -> TerminalSession? {
+        sendToAssistant(submit: submit) { _ in prompt }
+    }
+
+    /// Build a backend-specific prompt only after choosing the actual receiving terminal.
+    @discardableResult
+    func sendToAssistant(submit: Bool = true, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
         showAIConsole()
         restoreAITerminals()
         guard let session = assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend)) else { return nil }
         activeAITerminalID = session.id
+        guard let prompt = promptFor(session) else { return nil }
         session.pasteWhenReady(prompt, submit: submit)
         return session
     }
@@ -3684,7 +3691,7 @@ class WorkspaceManager: ObservableObject {
         let path = workspaceRelativePath(url)
         let lead: String
         switch kind {
-        case .feature: lead = "Build a feature from the document \(path) (attached)."
+        case .feature, .quickFeature: lead = "Build a feature from the document \(path) (attached)."
         case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
         case .understand: lead = "What implements \(path) in this project, and how do the documented parts work in the code?"
         case .research: lead = "Review \(path): "
@@ -3767,12 +3774,14 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Hand a document to the AI to implement (the assistant in the Terminal tab): Claude Code gets
-    /// it as a `/goal`, the others as a plain instruction.
+    /// Hand a document to the AI to implement, establishing a goal in the receiving assistant.
     /// The feature is recorded as "implementation started" with the CLI that got it.
     func implementWithAI(_ url: URL) {
-        let prompt = HandoffPrompt.feature(workspaceRelativePath(url), claude: AIAssistantPreferences.backend == .claude)
-        guard let session = sendToAssistant(prompt, submit: true) else { return }
+        let path = workspaceRelativePath(url)
+        guard let session = sendToAssistant(submit: true, promptFor: { session in
+            guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
+            return HandoffPrompt.feature(path, backend: backend)
+        }) else { return }
         let target = url.standardizedFileURL.path
         guard let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
             ?? features.locate(url)?.feature.slug else { return }
@@ -3811,7 +3820,7 @@ class WorkspaceManager: ObservableObject {
             features.activeSlug = slug
             layout.leftPanel = "issues"
             layout.issuesFeature = slug
-            layout.featureStage = .explore
+            layout.featureStage = kind == .quickFeature ? .build : .explore
             showTOC = true
             showFileTree = true
             layout.navigatorTab = .feature

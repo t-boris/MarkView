@@ -45,6 +45,7 @@ struct FeaturePanelView: View {
                     }
                     .padding(10)
                 }
+                BugDiscussionInput(bug: bug)
             } else if let feature = store.active {
                 header(feature)
                 Divider().background(VSDark.border)
@@ -702,11 +703,24 @@ struct BugPanelView: View {
                         .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 FlowButtons {
+                    if bug.readyToFix && bug.status == "open" {
+                        SmallButton(title: "Confirm handoff", icon: "checkmark.circle", prominent: true) {
+                            workspaceManager.fixBugWithAI(bug.url)
+                        }
+                        .help("Confirm the AI's readiness proposal and hand this bug to implementation")
+                    }
                     SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { workspaceManager.fixBugWithAI(bug.url) }
                         .help("The report goes to the assistant in the Terminal tab: reproduce, find the root cause, fix, verify. Status becomes Fixing.")
                     SmallButton(title: "Investigate", icon: "magnifyingglass") { Task { await assistant.investigateBug(bug.url) } }
                         .disabled(busy)
                         .help("The AI reads the code again with the answers so far, rewrites the report and asks what is still missing")
+                }
+            }
+            if !bug.discussion.isEmpty {
+                PanelSection(title: "Discussion") {
+                    Text(markdown(bug.discussion)).uiFont(size: 10)
+                        .foregroundColor(VSDark.text).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if !bug.answeredQuestions.isEmpty {
@@ -730,6 +744,83 @@ struct BugPanelView: View {
     }
 }
 
+struct BugDiscussionInput: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
+    let bug: BugReport
+    @State private var text = ""
+    @State private var attachments: [URL] = []
+    @State private var focused = false
+    @State private var failed: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            IntakeTextEditor(text: $text, focused: $focused, attach: { add($0) }, failed: { failed = $0 })
+                .frame(height: 72)
+            BugAttachmentControls(attachments: $attachments, failed: $failed)
+            HStack {
+                Text("Discuss this bug; paste a screenshot with ⌘V")
+                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Spacer()
+                if assistant.isRunning("discuss:bug:" + bug.key) {
+                    ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
+                } else {
+                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(VSDark.blue) }
+                        .buttonStyle(.plain)
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
+                }
+            }
+            if let failed { Text(failed).uiFont(size: 10).foregroundColor(.red) }
+        }
+        .padding(8).background(VSDark.bgInput)
+        .onChange(of: bug.url) { _ in text = ""; attachments = []; failed = nil }
+    }
+
+    private func add(_ urls: [URL]) { attachments += urls.filter { !attachments.contains($0) } }
+
+    private func send() {
+        let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty || !attachments.isEmpty else { return }
+        let files = attachments
+        text = ""
+        attachments = []
+        Task { await assistant.discussBug(bug.url, message: message, attachments: files) }
+    }
+}
+
+struct BugAttachmentControls: View {
+    @Binding var attachments: [URL]
+    @Binding var failed: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Add Files…") {
+                let panel = NSOpenPanel()
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = false
+                if panel.runModal() == .OK {
+                    attachments += panel.urls.filter { !attachments.contains($0) }
+                }
+            }
+            .uiFont(size: 10)
+            if !attachments.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 5) {
+                        ForEach(attachments, id: \.self) { url in
+                            HStack(spacing: 3) {
+                                IntakeAttachmentThumbnail(url: url)
+                                Text(url.lastPathComponent).uiFont(size: 10).lineLimit(1)
+                                Button { attachments.removeAll { $0 == url } } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// An open question about a bug: choose an option, answer in your own words, or "I don't know".
 struct BugQuestionCard: View {
     @EnvironmentObject private var assistant: FeatureAssistant
@@ -737,6 +828,9 @@ struct BugQuestionCard: View {
     let question: BugQuestion
     let busy: Bool
     @State private var answer = ""
+    @State private var attachments: [URL] = []
+    @State private var focused = false
+    @State private var failed: String?
 
     var body: some View {
         card {
@@ -759,26 +853,28 @@ struct BugQuestionCard: View {
                     }
                     SmallButton(title: "I don't know") { send("") }
                 }
-                HStack(spacing: 4) {
-                    TextField("Answer in your own words…", text: $answer)
-                        .textFieldStyle(.plain).uiFont(size: 10)
-                        .padding(4).background(VSDark.bgInput).cornerRadius(3)
-                        .onSubmit(submit)
-                    SmallButton(title: "Answer", action: submit)
-                }
+                IntakeTextEditor(text: $answer, focused: $focused,
+                                 attach: { urls in attachments += urls.filter { !attachments.contains($0) } },
+                                 failed: { failed = $0 })
+                    .frame(height: 64)
+                BugAttachmentControls(attachments: $attachments, failed: $failed)
+                if let failed { Text(failed).uiFont(size: 10).foregroundColor(.red) }
+                SmallButton(title: "Answer", action: submit)
             }
         }
     }
 
     private func submit() {
         let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !attachments.isEmpty else { return }
         answer = ""
         send(text)
     }
 
     private func send(_ text: String) {
-        Task { await assistant.answerBug(bug.url, question: question.id, answer: text) }
+        let files = attachments
+        attachments = []
+        Task { await assistant.answerBug(bug.url, question: question.id, answer: text, attachments: files) }
     }
 }
 
