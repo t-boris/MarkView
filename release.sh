@@ -6,9 +6,10 @@
 #   ./release.sh --publish    ...and publish it as GitHub release v<version>, marked Latest
 #                             (only from a clean checkout of origin/main; flags can be combined)
 #
-# Set NOTARY_PROFILE to a `xcrun notarytool store-credentials` profile to notarize and
-# staple the DMG as well (without it, first launch needs "Open Anyway" in
-# System Settings → Privacy & Security).
+# The DMG is notarized and stapled with the `xcrun notarytool store-credentials` keychain
+# profile in NOTARY_PROFILE (default: markview-notary). NOTARY_PROFILE= skips notarization for
+# a local build; --publish always requires it, because Gatekeeper rejects an unnotarized
+# download.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -25,6 +26,19 @@ done
 VERSION=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"?MARKETING_VERSION"?: *"?([0-9.]+)"?.*/\1/')
 IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep -m1 "Developer ID Application" | sed -E 's/.*"(.*)"/\1/')}
 [ -n "$IDENTITY" ] || { echo "No Developer ID Application identity found (set SIGN_IDENTITY)"; exit 1; }
+
+# Check the notary credentials before spending a build.
+NOTARY_PROFILE=${NOTARY_PROFILE-markview-notary}
+if [ -n "$NOTARY_PROFILE" ]; then
+    xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || {
+        echo "Notary profile '$NOTARY_PROFILE' is missing or invalid; create it with"
+        echo "  xcrun notarytool store-credentials $NOTARY_PROFILE --key <AuthKey.p8> --key-id <id> --issuer <uuid>"
+        echo "or set NOTARY_PROFILE= to build without notarization (not allowed with --publish)"
+        exit 1
+    }
+elif [ "$PUBLISH" = 1 ]; then
+    echo "--publish needs notarization (NOTARY_PROFILE is empty)"; exit 1
+fi
 
 # A published installer must be exactly the merged main commit: check before spending a build.
 if [ "$PUBLISH" = 1 ]; then
@@ -61,10 +75,19 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "MarkView $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" -quiet
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"
 
-if [ -n "${NOTARY_PROFILE:-}" ]; then
+if [ -n "$NOTARY_PROFILE" ]; then
     echo "▸ Notarizing…"
-    xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+    SUBMIT=$(xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait 2>&1) || true
+    echo "$SUBMIT"
+    if ! grep -q "status: Accepted" <<<"$SUBMIT"; then
+        ID=$(awk '/^ *id:/{print $2; exit}' <<<"$SUBMIT")
+        [ -n "$ID" ] && xcrun notarytool log "$ID" --keychain-profile "$NOTARY_PROFILE" || true
+        echo "Notarization was not accepted"; exit 1
+    fi
     xcrun stapler staple "$DMG"
+    spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+else
+    echo "▸ Skipping notarization (NOTARY_PROFILE is empty); first launch will need Open Anyway"
 fi
 shasum -a 256 "$DMG"
 echo "✓ $DMG"
@@ -73,10 +96,9 @@ if [ "$PUBLISH" = 1 ]; then
     echo "▸ Publishing release v${VERSION}…"
     gh release create "v$VERSION" "$DMG" --target "$(git rev-parse HEAD)" --latest \
         --title "MarkView $VERSION" \
-        --notes "Signed installer (Developer ID) built from \`main\` at $(git rev-parse --short HEAD).
+        --notes "Signed and notarized installer (Developer ID) built from \`main\` at $(git rev-parse --short HEAD).
 
-1. Open \`MarkView-$VERSION.dmg\` and drag MarkView to Applications.
-2. The DMG is not notarized: on first launch use System Settings → Privacy & Security → Open Anyway."
+Open \`MarkView-$VERSION.dmg\` and drag MarkView to Applications."
     echo "✓ $(gh release view "v$VERSION" --json url -q .url)"
 fi
 if [ "$INSTALL" = 1 ]; then

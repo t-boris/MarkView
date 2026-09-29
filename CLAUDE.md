@@ -121,9 +121,11 @@ change, merge its PR, then create a local Release build and signed DMG installer
 from the merged `origin/main` commit. Use a separate clean worktree when the main
 working tree has unrelated changes. Run `./release.sh --publish` there; it produces
 `build/release/MarkView.app` and `build/MarkView-<version>.dmg` and publishes the
-signed DMG as GitHub release `v<version>` (marked Latest; it refuses anything but a
-clean checkout of `origin/main` and an unused version). Wait for the `Build & Release`
-run of the merge commit to succeed; its unsigned zip is only the `latest` pre-release.
-Verify the app version, code signature, and DMG, and report the release URL and local
-paths with the merged PR link. A docs-only change still goes through a PR but needs no
+signed, notarized and stapled DMG as GitHub release `v<version>` (marked Latest; it
+refuses anything but a clean checkout of `origin/main` and an unused version).
+Notarization uses the `markview-notary` keychain profile (`NOTARY_PROFILE` overrides
+it). Wait for the `Build & Release` run of the merge commit to succeed; its unsigned zip
+is only the `latest` pre-release. Verify the app version, code signature, and that
+`spctl` accepts the DMG as notarized, and report the release URL and local paths with
+the merged PR link. A docs-only change still goes through a PR but needs no
 app build or DMG.
