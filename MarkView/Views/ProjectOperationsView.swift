@@ -55,12 +55,21 @@ struct ProjectDeployButton: View {
         return Button {
             action(operation)
         } label: {
-            Text((store.state(id: operation.id).map { $0.capitalized + " · " } ?? "") + operation.label
-                + (operation.confidence == "low" && !operation.isEdited ? " · Low confidence" : "")
-                + (store.state(id: operation.id) == "dispatched" ? " · Remote run is not tracked" : ""))
+            Text(title(for: operation))
         }
         .disabled(store.unavailability(for: operation) != nil && !running)
         .help(store.unavailability(for: operation) ?? operation.command)
+    }
+
+    /// "State · Label · notes", built in steps so older compilers type-check it quickly.
+    private func title(for operation: ProjectOperation) -> String {
+        let state: String? = store.state(id: operation.id)
+        var parts: [String] = []
+        if let state { parts.append(state.capitalized) }
+        parts.append(operation.label)
+        if operation.confidence == "low" && !operation.isEdited { parts.append("Low confidence") }
+        if state == "dispatched" { parts.append("Remote run is not tracked") }
+        return parts.joined(separator: " · ")
     }
 
     private func action(_ operation: ProjectOperation) {
@@ -71,6 +80,11 @@ struct ProjectDeployButton: View {
 
 struct ProjectOperationConsole: View {
     @ObservedObject var store: ProjectOperationsStore
+
+    private static func runTitle(label: String, environment: String?, state: String) -> String {
+        let suffix: String = environment.map { " (\($0))" } ?? ""
+        return "\(label)\(suffix) · \(state)"
+    }
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -90,9 +104,8 @@ struct ProjectOperationConsole: View {
                                 Button {
                                     store.selectedRunID = id
                                 } label: {
-                                    Text(run.snapshot.label
-                                        + (run.snapshot.environment.map { " (\($0))" } ?? "")
-                                        + " · " + run.state)
+                                    Text(Self.runTitle(label: run.snapshot.label,
+                                                       environment: run.snapshot.environment, state: run.state))
                                 }
                                 .buttonStyle(.bordered)
                             }
@@ -107,7 +120,7 @@ struct ProjectOperationConsole: View {
                     .id(run.id)
             } else if let id = store.selectedRunID, let last = store.lastRuns[id] {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(last.label + (last.environment.map { " (\($0))" } ?? "")).font(.headline)
+                    Text("\(last.label)\(last.environment.map { " (\($0))" } ?? "")").font(.headline)
                     Text("Last run: " + last.state.capitalized)
                     if let code = last.exitCode { Text("Exit code: \(code)") }
                     if let ended = last.ended { Text("Ended: \(ended.formatted())") }
