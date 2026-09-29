@@ -312,6 +312,45 @@ extension FeatureAssistant {
     /// Sections the investigation keeps as they are; everything else is rewritten by the AI.
     private static let keptBugSections = ["Attachments", "Clarifications", "Discussion", "Original description"]
 
+    /// Copy follow-up files beside the report before the AI sees them. The report links are
+    /// durable; clipboard cache files and the original file locations need not survive.
+    private func saveBugAttachments(_ urls: [URL], for report: URL) async -> [String]? {
+        guard !urls.isEmpty else { return [] }
+        guard let root = store.root, let bug = store.bug(at: report) else { return nil }
+        let folder = root.appendingPathComponent("docs/bugs/assets", isDirectory: true)
+        do {
+            let names = try await Task.detached(priority: .userInitiated) { () -> [String] in
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                return try urls.map { source in
+                    guard source.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
+                    let name = "\(bug.key)-\(UUID().uuidString.prefix(8))-\(source.lastPathComponent)"
+                    try FileManager.default.copyItem(at: source, to: folder.appendingPathComponent(name))
+                    return name
+                }
+            }.value
+            let lines = names.map { name -> String in
+                let path = "assets/\(name)"
+                let escaped = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+                return "- [\(name)](\(escaped))"
+            }
+            guard store.updateBug(report, { _, body in
+                var sections = Self.bugSections(body)
+                let entry = lines.joined(separator: "\n")
+                if let index = sections.firstIndex(where: { $0.heading == "Attachments" }) {
+                    sections[index].text += "\n" + entry
+                } else {
+                    let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
+                    sections.insert(("Attachments", entry), at: at)
+                }
+                body = Self.joinBugSections(sections)
+            }) else { return nil }
+            return names
+        } catch {
+            self.error = "Could not attach the file: \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// Persist both sides of the conversation in the report, which survives reopening.
     private func appendBugDiscussion(_ url: URL, speaker: String, message: String, ready: Bool? = nil) {
         store.updateBug(url) { front, body in
@@ -328,12 +367,14 @@ extension FeatureAssistant {
         }
     }
 
-    func discussBug(_ url: URL, message: String) async {
+    func discussBug(_ url: URL, message: String, attachments: [URL] = []) async {
         guard let bug = BugReport.load(url) else { return }
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else { return }
+        guard !message.isEmpty || !attachments.isEmpty else { return }
+        guard let names = await saveBugAttachments(attachments, for: url) else { return }
+        let recorded = message.isEmpty ? "Attached: " + names.joined(separator: ", ") : message
         appendBugDiscussion(url, speaker: store.defaultOwner.isEmpty ? "User" : store.defaultOwner,
-                            message: message, ready: false)
+                            message: recorded, ready: false)
         guard let report = try? String(contentsOf: url, encoding: .utf8) else { return }
         let prompt = """
         ## Bug report `\(store.relativePath(url))`
@@ -341,7 +382,7 @@ extension FeatureAssistant {
         \(FrontMatter.split(report).1.prefix(40_000))
 
         Task: reply to the user's latest discussion message, rechecking the report against the
-        project's code and documents (read-only). Say what changed in your understanding.
+        project's code, documents and attached images (read-only). Say what changed in your understanding.
         Propose readiness only if the report has enough information to hand to development.
         The user must confirm that handoff; do not change the bug's status yourself.
         """
@@ -357,13 +398,15 @@ extension FeatureAssistant {
 
     /// Record the user's answer to a bug question (kept even when the AI call fails), then
     /// investigate again. An empty answer means the user does not know.
-    func answerBug(_ url: URL, question id: String, answer: String) async {
-        let known = !answer.isEmpty
+    func answerBug(_ url: URL, question id: String, answer: String, attachments: [URL] = []) async {
+        guard let names = await saveBugAttachments(attachments, for: url) else { return }
+        let recorded = answer + (names.isEmpty ? "" : "\nAttachments: " + names.joined(separator: ", "))
+        let known = !recorded.isEmpty
         let written = store.updateBug(url) { front, body in
             var questions = (front["questions"]?.list ?? []).compactMap(BugQuestion.init)
             guard let index = questions.firstIndex(where: { $0.id == id }) else { return }
             questions[index].status = known ? "answered" : "skipped"
-            questions[index].answer = known ? answer : "The user does not know."
+            questions[index].answer = known ? recorded : "The user does not know."
             front["questions"] = .list(questions.map(\.yaml))
             let entry = "**\(id)** \(questions[index].text)\n→ \(questions[index].answer)"
             var sections = Self.bugSections(body)
@@ -392,8 +435,8 @@ extension FeatureAssistant {
         \(body.prefix(40_000))
         \(open.isEmpty ? "" : "\n## Questions already asked and still open (do not ask them again)\n\n" + open.map { "- \($0.id): \($0.text)" }.joined(separator: "\n"))
 
-        Task: investigate this bug again, taking the clarifications into account. Read the project's code and \
-        documentation (read-only) where it helps. Rewrite the report: summary, steps to reproduce, expected and \
+        Task: investigate this bug again, taking the clarifications into account. Read the project's code, \
+        documentation and attached images (read-only) where it helps. Rewrite the report: summary, steps to reproduce, expected and \
         actual behaviour, severity (critical = data loss / security / outage; high = main flow broken; medium; \
         low), environment, the suspected code (files with the reason), likely causes, and what information is \
         still missing to reproduce it or to locate the cause. In `settled`, list the ids of open questions the \
