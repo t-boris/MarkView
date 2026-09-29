@@ -55,6 +55,10 @@ flowchart LR
 - Validate every bridge payload at the Swift handler (type, containment, allowlist). Never trust JS
   ([editor §9](./modules/editor-and-bridge.md#9-error-handling-edge-cases-payload-validation)).
 - Pass subprocess arguments as arrays, drain pipes, and never shell-interpolate user or repo strings.
+  Project operations are the explicit exception: after a native confirmation of the exact
+  command, MarkView passes that complete string as one argument to the user's login shell
+  (`$SHELL -l -c <command>`) on a dedicated PTY. MarkView does not substitute or compose
+  repository text into the command. All other subprocess call sites retain the array rule.
 - Never log credentials, request headers or document contents (CLAUDE.md).
 - Keep AI calls read-only unless the user explicitly starts an agent terminal.
 - Load no new web dependency from a CDN; vendor it through `tools/web-vendor`.

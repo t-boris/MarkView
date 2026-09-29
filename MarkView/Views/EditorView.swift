@@ -96,6 +96,7 @@ struct EditorView: NSViewRepresentable {
         private var architectureCancellable: AnyCancellable?
         /// Which X-Ray the subscription above follows ("" = the project's).
         private var architectureScope = ""
+        private var architectureOperationsRoot: String?
         /// Pushes margin notes for the file in the code viewer.
         private var codeNotesCancellable: AnyCancellable?
         /// id (uuidString) of the insight session the coordinator is currently subscribed
@@ -399,8 +400,10 @@ struct EditorView: NSViewRepresentable {
             currentCodeURL = nil
             lastLoadedContent = ""   // a file opened afterwards must reload into the editor
             let store = parent.workspaceManager.xrayStore(for: scope)
-            if architectureCancellable == nil || architectureScope != scope {
+            let operations = scope.isEmpty ? parent.workspaceManager.projectOperations : nil
+            if architectureCancellable == nil || architectureScope != scope || architectureOperationsRoot != operations?.root.path {
                 architectureScope = scope
+                architectureOperationsRoot = operations?.root.path
                 let content = store.$revision
                     .receive(on: DispatchQueue.main)
                     .sink { [weak self, weak webView, weak store] _ in
@@ -415,9 +418,18 @@ struct EditorView: NSViewRepresentable {
                         guard let self, let webView, let store else { return }
                         self.bridge.setArchitectureProgress(store.progressJSON(), in: webView)
                     }
-                architectureCancellable = AnyCancellable { content.cancel(); progress.cancel() }
+                let operationChanges = operations?.$revision
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self, weak webView, weak operations] _ in
+                        guard let self, let webView, let operations else { return }
+                        self.bridge.setProjectOperations(operations.payloadJSON(), in: webView)
+                    }
+                architectureCancellable = AnyCancellable {
+                    content.cancel(); progress.cancel(); operationChanges?.cancel()
+                }
             } else {
                 bridge.showArchitecture(store.payloadJSON(mode: scope == TabKind.pullRequestScope ? "pr" : nil), in: webView)
+                if let operations { bridge.setProjectOperations(operations.payloadJSON(), in: webView) }
             }
         }
 

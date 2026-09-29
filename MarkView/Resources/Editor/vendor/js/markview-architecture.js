@@ -37,6 +37,8 @@
                 detailsToggle: document.getElementById('arch-details-toggle'),
                 stop: document.getElementById('arch-stop'),
                 empty: document.getElementById('arch-empty'),
+                deploy: document.getElementById('arch-deploy'),
+                deployPicker: document.getElementById('arch-deploy-picker'),
             };
 
             const ui = {
@@ -55,6 +57,7 @@
                 viewChosen: false,  // the user picked a view (no automatic fallback to Structure)
                 root: null,         // root folder of the X-Ray shown (project or one of its folders)
                 progress: null,     // live analysis progress (setArchitectureProgress)
+                operations: null,   // project-root operations only; folder X-Rays receive none
             };
             let cy = null;
             let libs = null;
@@ -1066,6 +1069,209 @@
                 return b;
             }
 
+            function visibleOperations() {
+                return ui.operations && Array.isArray(ui.operations.operations) ? ui.operations.operations : [];
+            }
+
+            function operationState(operation) {
+                return (ui.operations && ui.operations.states || {})[operation.id] || {};
+            }
+
+            function isOperationRunning(operation) {
+                return ['running', 'cancelling'].indexOf(operationState(operation).state) >= 0;
+            }
+
+            function renderDeployButton() {
+                const operations = visibleOperations().filter(function(o) { return o.kind === 'deploy'; });
+                el.deploy.hidden = !operations.length;
+                el.deploy.disabled = !!(ui.operations && ui.operations.readOnly);
+                el.deployPicker.hidden = true;
+                if (!operations.length) return;
+                const running = operations.some(isOperationRunning);
+                const singleState = operations.length === 1 ? operationState(operations[0]).state : null;
+                el.deploy.textContent = running ? 'Deploy · Running'
+                    : singleState ? 'Deploy · ' + singleState[0].toUpperCase() + singleState.slice(1) : 'Deploy';
+                el.deployPicker.textContent = '';
+                const placeholder = document.createElement('option');
+                placeholder.textContent = 'Choose deployment…'; placeholder.value = '';
+                el.deployPicker.appendChild(placeholder);
+                const unnamed = operations.filter(function(o) { return !(o.environment || '').trim(); });
+                const groups = [];
+                operations.forEach(function(o) {
+                    const name = (o.environment || '').trim();
+                    if (name && !groups.some(function(g) { return g.toLowerCase() === name.toLowerCase(); })) groups.push(name);
+                });
+                function option(parent, o) {
+                    const item = document.createElement('option');
+                    item.value = o.id;
+                    item.disabled = !!((ui.operations.unavailable || {})[o.id]) && !isOperationRunning(o);
+                    const outcome = operationState(o).state;
+                    item.textContent = (outcome ? outcome[0].toUpperCase() + outcome.slice(1) + ' · ' : '') + o.label
+                        + (o.confidence === 'low' && o.origin !== 'user' && o.discovered && o.command === o.discovered.command ? ' · Low confidence' : '')
+                        + (outcome === 'dispatched' ? ' · Remote run is not tracked' : '');
+                    parent.appendChild(item);
+                }
+                unnamed.sort(function(a, b) { return a.label.localeCompare(b.label); }).forEach(function(o) { option(el.deployPicker, o); });
+                groups.forEach(function(name) {
+                    const members = operations.filter(function(o) { return (o.environment || '').trim().toLowerCase() === name.toLowerCase(); });
+                    const group = document.createElement('optgroup'); group.label = name + (members.some(isOperationRunning) ? ' · Running' : '');
+                    members
+                        .sort(function(a, b) { return a.label.localeCompare(b.label); })
+                        .forEach(function(o) { option(group, o); });
+                    el.deployPicker.appendChild(group);
+                });
+            }
+
+            function renderOperations(d, node) {
+                if (ui.view !== 'deployment' || !ui.operations) return;
+                const state = ui.operations;
+                const title = document.createElement('h5'); title.textContent = 'Project operations'; d.appendChild(title);
+                if (state.error) {
+                    const error = document.createElement('p'); error.className = 'arch-error';
+                    error.textContent = state.error; d.appendChild(error); return;
+                }
+                if (state.message) {
+                    const message = document.createElement('p'); message.className = 'arch-muted';
+                    message.textContent = state.message; d.appendChild(message);
+                }
+                if (state.readOnly) {
+                    const warning = document.createElement('p'); warning.className = 'arch-error';
+                    warning.textContent = 'This operations file uses a newer schema version. Update MarkView to edit or run operations.';
+                    d.appendChild(warning);
+                }
+                const all = visibleOperations();
+                if (!all.length) {
+                    const p = document.createElement('p'); p.className = 'arch-muted';
+                    p.textContent = 'No runnable procedure is known for this project.';
+                    d.appendChild(p);
+                }
+                const currentNodeIDs = new Set((currentView() && currentView().nodes || []).map(function(n) { return n.id; }));
+                const related = node ? all.filter(function(o) {
+                    return (o.nodes || []).some(function(n) {
+                        return currentNodeIDs.has(n.id) ? n.id === node.id : n.name === node.name;
+                    });
+                }) : [];
+                function row(operation, highlighted) {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'arch-operation' + (highlighted ? ' related' : '');
+                    const heading = document.createElement('strong');
+                    heading.textContent = operation.label + (operation.environment ? ' · ' + operation.environment : '')
+                        + ' · ' + operation.kind;
+                    wrapper.appendChild(heading);
+                    const status = operationState(operation);
+                    const badges = document.createElement('div'); badges.className = 'arch-badges';
+                    const edited = operation.origin === 'user' || (operation.discovered &&
+                        (operation.command !== operation.discovered.command || operation.cwd !== operation.discovered.cwd));
+                    const marks = [edited ? (operation.origin === 'user' ? 'User-added' : 'User-edited') : operation.confidence,
+                        status.state, operation.remoteTrigger ? 'Remote trigger' : null,
+                        operation.cwd.indexOf('..') === 0 || operation.cwd.indexOf('~') === 0 || operation.cwd.indexOf('/') === 0 ? 'Outside project' : null];
+                    marks.filter(Boolean).forEach(function(mark) {
+                        const badge = document.createElement('span'); badge.textContent = mark; badges.appendChild(badge);
+                    });
+                    wrapper.appendChild(badges);
+                    if (status.state === 'dispatched') {
+                        const remote = document.createElement('p'); remote.className = 'arch-muted';
+                        remote.textContent = 'Remote run is not tracked.'; wrapper.appendChild(remote);
+                    }
+                    const command = document.createElement('code'); command.textContent = operation.command;
+                    wrapper.appendChild(command);
+                    addRow(wrapper, 'Directory', operation.cwd);
+                    (operation.provenance || []).forEach(function(source) {
+                        addRow(wrapper, 'Source', source.location + (source.line ? ':' + source.line : '') + ' · ' + source.kind);
+                    });
+                    (operation.prerequisites || []).forEach(function(item) { addRow(wrapper, 'Prerequisite', item); });
+                    if (edited && operation.discovered &&
+                        (operation.command !== operation.discovered.command || operation.cwd !== operation.discovered.cwd)) {
+                        addRow(wrapper, 'Discovery suggests', operation.discovered.command + ' · ' + operation.discovered.cwd);
+                    }
+                    if (status.definitionNotice) addRow(wrapper, 'Changed', status.definitionNotice);
+                    const unavailable = (state.unavailable || {})[operation.id];
+                    if (unavailable) addRow(wrapper, 'Unavailable', unavailable);
+                    const actions = document.createElement('div'); actions.className = 'arch-operation-actions';
+                    const run = linkButton(isOperationRunning(operation) ? 'Open output' : 'Run', function() {
+                        post(isOperationRunning(operation) ? 'operationOpen' : 'operationRun', { id: operation.id });
+                    }, 'arch-action');
+                    run.disabled = !!unavailable && !isOperationRunning(operation);
+                    actions.appendChild(run);
+                    if (status.state && !isOperationRunning(operation)) {
+                        actions.appendChild(linkButton('Last run', function() {
+                            post('operationOpen', { id: operation.id });
+                        }, 'arch-action'));
+                    }
+                    const edit = linkButton('Edit', function() { post('operationEdit', { id: operation.id }); }, 'arch-action');
+                    edit.disabled = !!state.readOnly;
+                    actions.appendChild(edit);
+                    if (edited && operation.discovered &&
+                        (operation.command !== operation.discovered.command || operation.cwd !== operation.discovered.cwd)) {
+                        const adopt = linkButton('Adopt discovered', function() { post('operationAdopt', { id: operation.id }); }, 'arch-action');
+                        adopt.disabled = !!state.readOnly;
+                        actions.appendChild(adopt);
+                    }
+                    wrapper.appendChild(actions);
+                    d.appendChild(wrapper);
+                }
+                if (related.length) {
+                    const h = document.createElement('h5'); h.textContent = 'Related to ' + node.name; d.appendChild(h);
+                    related.forEach(function(o) { row(o, true); });
+                }
+                const remaining = all.filter(function(o) { return related.indexOf(o) < 0; });
+                ['deploy', 'install', 'build', 'clean', 'restart', 'other'].forEach(function(kind) {
+                    const group = remaining.filter(function(o) { return o.kind === kind; });
+                    if (!group.length) return;
+                    const heading = document.createElement('h5'); heading.textContent = kind[0].toUpperCase() + kind.slice(1);
+                    d.appendChild(heading);
+                    group.forEach(function(o) { row(o, false); });
+                });
+                const addOperation = linkButton('Add operation', function() { post('operationAdd'); }, 'arch-action');
+                addOperation.disabled = !!state.readOnly;
+                d.appendChild(addOperation);
+                if (state.sourcesChanged) {
+                    const hint = document.createElement('p'); hint.className = 'arch-muted';
+                    hint.textContent = 'Sources changed since the last discovery. The operations remain available.';
+                    d.appendChild(hint);
+                }
+                if (state.discoveryPhase) {
+                    const progress = document.createElement('p'); progress.className = 'arch-muted';
+                    progress.textContent = 'Discovering operations · ' + state.discoveryPhase + '…';
+                    d.appendChild(progress);
+                    d.appendChild(linkButton('Cancel discovery', function() { post('operationCancelDiscovery'); }, 'arch-action'));
+                } else {
+                    const discover = linkButton(state.hasFile ? 'Re-discover' : 'Discover operations',
+                        function() { post('operationDiscover'); }, 'arch-action');
+                    discover.disabled = !!state.readOnly;
+                    d.appendChild(discover);
+                }
+                const report = state.discoveryReport;
+                if (report) {
+                    const heading = document.createElement('h5'); heading.textContent = 'Discovery report'; d.appendChild(heading);
+                    const message = document.createElement('p'); message.textContent = report.message; d.appendChild(message);
+                    (report.externalFolders || []).forEach(function(path) { addRow(d, 'External folder read', path); });
+                    (report.rejectedReferences || []).forEach(function(path) { addRow(d, 'Reference skipped', path); });
+                    (report.webSources || []).forEach(function(url) { addRow(d, 'Web source', url); });
+                    if (!report.webSearched) addRow(d, 'Web', 'Not searched');
+                    (report.proposals || []).forEach(function(operation, index) {
+                        const box = document.createElement('div'); box.className = 'arch-operation related';
+                        const name = document.createElement('strong'); name.textContent = operation.label + ' · Proposal from outside the project';
+                        box.appendChild(name);
+                        const command = document.createElement('code'); command.textContent = operation.command; box.appendChild(command);
+                        addRow(box, 'Confidence', operation.confidence);
+                        (operation.provenance || []).forEach(function(source) { addRow(box, 'Source', source.location); });
+                        box.appendChild(linkButton('Accept', function() { post('operationAcceptProposal', { index: index }); }, 'arch-action'));
+                        box.appendChild(linkButton('Reject', function() { post('operationRejectProposal', { index: index }); }, 'arch-action'));
+                        d.appendChild(box);
+                    });
+                    (report.notDetermined || []).forEach(function(item, index) {
+                        const box = document.createElement('div'); box.className = 'arch-operation';
+                        const name = document.createElement('strong'); name.textContent = item.label + ' · Not determined'; box.appendChild(name);
+                        addRow(box, 'Reason', item.reason);
+                        addRow(box, 'Investigated', item.investigated);
+                        box.appendChild(linkButton('Add command', function() { post('operationAddUnknown', { index: index }); }, 'arch-action'));
+                        d.appendChild(box);
+                    });
+                    d.appendChild(linkButton('Dismiss report', function() { post('operationDismissReport'); }, 'arch-action'));
+                }
+            }
+
             function renderDetails() {
                 const d = el.details;
                 const oldAnswerBody = d.querySelector('.arch-understanding-body');
@@ -1082,7 +1288,11 @@
                 }
                 const view = currentView();
                 const snap = ui.payload && ui.payload.snapshot;
-                if (!view || !snap) return;
+                if (!view || !snap) {
+                    // Operations exist independently of an AI-built deployment map.
+                    if (ui.view === 'deployment') renderOperations(d, null);
+                    return;
+                }
                 const idx = indexView(view);
                 const node = ui.selected ? idx.byId.get(ui.selected) : null;
 
@@ -1129,6 +1339,7 @@
                         p.textContent = 'The deployment view is mapped by AI from the project’s build and deploy files. Click Analyze.';
                         d.appendChild(p);
                     }
+                    renderOperations(d, null);
                     const p = document.createElement('p'); p.className = 'arch-muted';
                     p.textContent = 'Select a box for details. Double-click to zoom in; use the path above to zoom out.';
                     d.appendChild(p);
@@ -1136,6 +1347,7 @@
                 }
 
                 const h = document.createElement('h4'); h.textContent = node.name; d.appendChild(h);
+                if (ui.view === 'deployment') renderOperations(d, node);
                 const badges = document.createElement('div'); badges.className = 'arch-badges';
                 [node.kind === 'moduleRef' ? 'module' : node.kind, node.role, node.language, node.tech].forEach(function(b) {
                     if (!b) return;
@@ -1953,6 +2165,7 @@
                     : 'AI review of every changed file';
                 el.analyze.disabled = !!p.busy || !p.snapshot;
                 el.rescan.disabled = !!p.busy;
+                renderDeployButton();
                 // The progress bar shows the analysis; the status line covers everything else.
                 const statusText = p.error || (ui.progress ? '' : p.status) || '';
                 el.status.textContent = statusText;
@@ -2000,6 +2213,7 @@
             /** Another X-Ray (the project's or a folder's) in the same web view: start fresh. */
             function resetForRoot(root) {
                 ui.root = root;
+                ui.operations = null;
                 Object.keys(ui.expanded).forEach(function(k) { ui.expanded[k].clear(); });
                 Object.keys(ui.focus).forEach(function(k) { ui.focus[k] = null; });
                 ui.selected = null;
@@ -2066,6 +2280,23 @@
                     ui.graphKey = null;
                     window.showArchitecture(ui.payload);
                 });
+            });
+            el.deploy.addEventListener('click', function() {
+                const deploys = visibleOperations().filter(function(o) { return o.kind === 'deploy'; });
+                if (deploys.length === 1) {
+                    const operation = deploys[0];
+                    post(isOperationRunning(operation) ? 'operationOpen' : 'operationRun', { id: operation.id });
+                } else if (deploys.length > 1) {
+                    el.deployPicker.hidden = !el.deployPicker.hidden;
+                    if (!el.deployPicker.hidden) el.deployPicker.focus();
+                }
+            });
+            el.deployPicker.addEventListener('change', function() {
+                const operation = visibleOperations().find(function(o) { return o.id === el.deployPicker.value; });
+                if (!operation) return;
+                post(isOperationRunning(operation) ? 'operationOpen' : 'operationRun', { id: operation.id });
+                el.deployPicker.value = '';
+                el.deployPicker.hidden = true;
             });
             el.overlay.addEventListener('change', function() {
                 if (el.overlay.value === '__new__') { el.overlay.value = ui.overlay; renderNewFilterForm(); return; }
@@ -2148,6 +2379,12 @@
                 renderProgress();
                 renderToolbar();
                 if (stepChanged) renderEmpty();
+            };
+
+            window.setProjectOperations = function(value) {
+                ui.operations = value || null;
+                renderDeployButton();
+                renderDetails();
             };
 
             el.stop.addEventListener('click', function() { el.stop.disabled = true; post('cancelAnalysis'); setTimeout(function() { el.stop.disabled = false; }, 1500); });

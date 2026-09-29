@@ -414,6 +414,8 @@ class WorkspaceManager: ObservableObject {
     private var openFileDates: [URL: Date] = [:]
     /// Project architecture (Architecture tab).
     let architecture = ArchitectureStore()
+    /// Team-shared operation definitions and the process registry for this workspace root.
+    @Published private(set) var projectOperations: ProjectOperationsStore?
     /// AI margin notes for code files (code viewer → Explain).
     let codeExplain = CodeExplainStore()
     /// Go to definition / find usages, jump history and AI answers about selected code.
@@ -532,6 +534,7 @@ class WorkspaceManager: ObservableObject {
     static let recentProjectsKey = "workspace.recentProjects"
 
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
+        projectOperations = ProjectOperationsStore.forRoot(url)
         UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
         var recent = UserDefaults.standard.stringArray(forKey: Self.recentProjectsKey) ?? []
         recent.removeAll { $0 == url.standardizedFileURL.path }
@@ -1334,6 +1337,49 @@ class WorkspaceManager: ObservableObject {
         let architecture = xrayStore(for: scope)
         let semanticDatabase = db
         switch action {
+        case "operationRun":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let id = payload["id"] as? String else { return }
+            projectOperations?.run(id: id)
+        case "operationOpen":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let id = payload["id"] as? String else { return }
+            projectOperations?.openPanel(id: id)
+        case "operationEdit":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let id = payload["id"] as? String else { return }
+            projectOperations?.edit(id: id)
+        case "operationAdd":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
+            projectOperations?.edit(id: nil)
+        case "operationAdopt":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let id = payload["id"] as? String else { return }
+            projectOperations?.adoptDiscovered(id: id)
+        case "operationDiscover":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
+            let nodes = architecture.snapshot?.view("deployment")?.nodes
+                .filter { $0.kind != "root" && $0.kind != "moduleRef" }
+                .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
+            projectOperations?.discover(nodes: nodes)
+        case "operationCancelDiscovery":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
+            projectOperations?.cancelDiscovery()
+        case "operationDismissReport":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty else { return }
+            projectOperations?.dismissDiscoveryReport()
+        case "operationAcceptProposal":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let index = payload["index"] as? Int else { return }
+            projectOperations?.acceptProposal(index: index)
+        case "operationRejectProposal":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let index = payload["index"] as? Int else { return }
+            projectOperations?.rejectProposal(index: index)
+        case "operationAddUnknown":
+            guard case .architecture(let scope) = activeTab?.kind, scope.isEmpty,
+                  let index = payload["index"] as? Int else { return }
+            projectOperations?.addUnknown(index: index)
         case "openFile":
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
             let url = root.appendingPathComponent(path).standardizedFileURL
@@ -1631,6 +1677,26 @@ class WorkspaceManager: ObservableObject {
     /// or unsaved changes could not be written.
     @discardableResult
     func closeFolder() -> Bool {
+        if let operations = projectOperations {
+            let active = operations.runs.values.filter(\.isActive)
+            if !active.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "Stop running project operations before closing?"
+                alert.informativeText = active.map { $0.snapshot.label + ($0.snapshot.environment.map { " (\($0))" } ?? "") }
+                    .joined(separator: "\n")
+                alert.addButton(withTitle: "Keep working")
+                alert.addButton(withTitle: "Stop operations and close")
+                guard alert.runModal() == .alertSecondButtonReturn else { return false }
+                operations.cancelForClose()
+                Task { [weak self] in
+                    while operations.runs.values.contains(where: \.isActive) {
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                    }
+                    _ = self?.closeFolder()
+                }
+                return false
+            }
+        }
         let unsaved = openTabs.indices.filter { openTabs[$0].isModified }
         if !unsaved.isEmpty {
             let alert = NSAlert()
@@ -1677,6 +1743,7 @@ class WorkspaceManager: ObservableObject {
         releaseWorkspaceEngines()
         architecture.reset()
         folderXRays = [:]
+        projectOperations = nil
         codeNav.reset()
         isCodeProject = false
         gitClient.reset()

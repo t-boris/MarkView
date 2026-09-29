@@ -75,6 +75,10 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in
             do {
+                guard await ProjectOperationsStore.stopAllBeforeQuit() else {
+                    sender.reply(toApplicationShouldTerminate: false)
+                    return
+                }
                 try await WindowSessionController.shared.saveBeforeTermination()
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {

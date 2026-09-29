@@ -268,6 +268,21 @@ struct ContentView: View {
                 .environmentObject(workspaceManager)
                 .environmentObject(themeManager)
         }
+        .sheet(isPresented: Binding(
+            get: { workspaceManager.projectOperations?.panelVisible ?? false },
+            set: { workspaceManager.projectOperations?.panelVisible = $0 })) {
+            if let store = workspaceManager.projectOperations { ProjectOperationConsole(store: store) }
+        }
+        .sheet(item: Binding(
+            get: { workspaceManager.projectOperations?.editRequest },
+            set: { workspaceManager.projectOperations?.editRequest = $0 })) { request in
+            if let store = workspaceManager.projectOperations {
+                let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
+                    .filter { $0.kind != "root" && $0.kind != "moduleRef" }
+                    .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
+                ProjectOperationEditor(store: store, request: request, deploymentNodes: nodes)
+            }
+        }
         .sheet(item: $workspaceManager.intake) { request in
             IntakeSheet(request: request, workspaceManager: workspaceManager)
         }
@@ -402,6 +417,9 @@ struct ContentView: View {
                 newMenu.frame(width: controlWidth, height: controlWidth)
                 AssistantToolbarMenu(workspaceManager: workspaceManager, compact: compact)
                     .frame(maxWidth: compact ? controlWidth : 230)
+                if let operations = workspaceManager.projectOperations {
+                    ProjectDeployButton(store: operations)
+                }
                 if compact {
                     Menu {
                         Button("Open X-Ray") { workspaceManager.openArchitecture() }
@@ -584,6 +602,7 @@ struct ContentView: View {
         hostWindow?.isMovableByWindowBackground = true
         hostWindow?.representedURL = root
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
+        workspaceManager.projectOperations?.window = hostWindow
     }
 
     private func attachWindowSession() {
