@@ -3684,7 +3684,7 @@ class WorkspaceManager: ObservableObject {
         let path = workspaceRelativePath(url)
         let lead: String
         switch kind {
-        case .feature: lead = "Build a feature from the document \(path) (attached)."
+        case .feature, .quickFeature: lead = "Build a feature from the document \(path) (attached)."
         case .bug: lead = "The document \(path) (attached) describes a problem to analyze as a bug."
         case .understand: lead = "What implements \(path) in this project, and how do the documented parts work in the code?"
         case .research: lead = "Review \(path): "
@@ -3811,7 +3811,7 @@ class WorkspaceManager: ObservableObject {
             features.activeSlug = slug
             layout.leftPanel = "issues"
             layout.issuesFeature = slug
-            layout.featureStage = .explore
+            layout.featureStage = kind == .quickFeature ? .build : .explore
             showTOC = true
             showFileTree = true
             layout.navigatorTab = .feature

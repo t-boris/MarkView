@@ -45,6 +45,7 @@ struct FeaturePanelView: View {
                     }
                     .padding(10)
                 }
+                BugDiscussionInput(bug: bug)
             } else if let feature = store.active {
                 header(feature)
                 Divider().background(VSDark.border)
@@ -702,11 +703,24 @@ struct BugPanelView: View {
                         .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 FlowButtons {
+                    if bug.readyToFix && bug.status == "open" {
+                        SmallButton(title: "Confirm handoff", icon: "checkmark.circle", prominent: true) {
+                            workspaceManager.fixBugWithAI(bug.url)
+                        }
+                        .help("Confirm the AI's readiness proposal and hand this bug to implementation")
+                    }
                     SmallButton(title: "Fix with AI", icon: "hammer", prominent: true) { workspaceManager.fixBugWithAI(bug.url) }
                         .help("The report goes to the assistant in the Terminal tab: reproduce, find the root cause, fix, verify. Status becomes Fixing.")
                     SmallButton(title: "Investigate", icon: "magnifyingglass") { Task { await assistant.investigateBug(bug.url) } }
                         .disabled(busy)
                         .help("The AI reads the code again with the answers so far, rewrites the report and asks what is still missing")
+                }
+            }
+            if !bug.discussion.isEmpty {
+                PanelSection(title: "Discussion") {
+                    Text(markdown(bug.discussion)).uiFont(size: 10)
+                        .foregroundColor(VSDark.text).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if !bug.answeredQuestions.isEmpty {
@@ -727,6 +741,35 @@ struct BugPanelView: View {
                 }
             }
         }
+    }
+}
+
+struct BugDiscussionInput: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
+    let bug: BugReport
+    @State private var text = ""
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            TextField("Discuss this bug…", text: $text, axis: .vertical)
+                .textFieldStyle(.plain).uiFont(size: 11).lineLimit(1...5)
+                .onSubmit(send)
+            if assistant.isRunning("discuss:bug:" + bug.key) {
+                ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
+            } else {
+                Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(VSDark.blue) }
+                    .buttonStyle(.plain).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(8).background(VSDark.bgInput)
+        .onChange(of: bug.url) { _ in text = "" }
+    }
+
+    private func send() {
+        let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        text = ""
+        Task { await assistant.discussBug(bug.url, message: message) }
     }
 }
 

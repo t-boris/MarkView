@@ -264,6 +264,7 @@ final class FeatureAssistant: ObservableObject {
         case "review": return "Review feature"
         case "research": return "Research feature"
         case "chat": return "Discuss feature"
+        case "discuss": return "Discuss bug"
         case "decompose": return "Plan implementation"
         case "consolidate": return "Consolidate requirements"
         case "resolveopts": return "Resolve finding"
