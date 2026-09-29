@@ -440,14 +440,21 @@ final class ArchitectureStore: ObservableObject {
                 commit(next, db: db)
 
                 beginStep(3, "Mapping deployment", started: started)
-                if let view = try await deployment {
-                    next.views.removeAll { $0.id == "deployment" }
-                    next.views.insert(view, at: next.views.firstIndex { $0.id == "docs" } ?? next.views.count)
-                    next.deploymentSignature = pendingDeploymentSignature ?? next.deploymentSignature
+                var deploymentError: String?
+                do {
+                    if let view = try await deployment {
+                        next.views.removeAll { $0.id == "deployment" }
+                        next.views.insert(view, at: next.views.firstIndex { $0.id == "docs" } ?? next.views.count)
+                        next.deploymentSignature = pendingDeploymentSignature ?? next.deploymentSignature
+                    }
+                } catch let empty as EmptyDeploymentMap {
+                    // Keep the previous map and its signature, so the next Analyze maps again.
+                    deploymentError = empty.localizedDescription
                 }
                 next.enrichedAt = Date()
                 next.language = Self.graphLanguage
                 commit(next, db: db)
+                if let deploymentError { self.error = deploymentError }
 
                 beginStep(4, "Indexing file contents", started: started)
                 await outlineTask?.value
@@ -517,12 +524,22 @@ final class ArchitectureStore: ObservableObject {
         return (try? encoder.encode(progress)).map { String(decoding: $0, as: UTF8.self) } ?? "null"
     }
 
+    /// The assistant mapped no deployment nodes, even when asked twice.
+    struct EmptyDeploymentMap: LocalizedError {
+        var errorDescription: String? {
+            "The assistant returned an empty deployment map; the previous map was kept. Click Analyze to try again."
+        }
+    }
+
     /// The Deployment view, or nil when the build/deploy config files did not change
     /// since the last mapping. The config files are inlined; the assistant reads nothing.
+    /// Throws `EmptyDeploymentMap` rather than returning a view with no nodes.
     private func mapDeployment(in snapshot: ArchitectureSnapshot, plan: XRayDigest.Plan, root: URL,
                                db: SemanticDatabase?) async throws -> ArchView? {
         guard let modules = snapshot.view("modules") else { return nil }
-        if snapshot.view("deployment") != nil, let signature = pendingDeploymentSignature ?? snapshot.deploymentSignature,
+        // A stored map with only its root (an empty answer before BUG-020) counts as missing.
+        if snapshot.view("deployment")?.nodes.contains(where: { $0.kind != "root" }) == true,
+           let signature = pendingDeploymentSignature ?? snapshot.deploymentSignature,
            signature == snapshot.deploymentSignature {
             return nil
         }
@@ -583,11 +600,15 @@ final class ArchitectureStore: ObservableObject {
             """ + "\n\n" + Self.graphLanguageLine,
             jsonSchema: schema)
         request.timeout = 300
-        let object = try await xrayCall(request, root: root, db: db, call: 100)
+        let nodeIds = { (object: [String: Any]) in
+            Set((object["nodes"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String })
+        }
+        let object = try await xrayCall(request, root: root, db: db, call: 100, accept: { !nodeIds($0).isEmpty })
+        let ids = nodeIds(object)
+        guard !ids.isEmpty else { throw EmptyDeploymentMap() }
         let rawNodes = object["nodes"] as? [[String: Any]] ?? []
         let rawEdges = object["edges"] as? [[String: Any]] ?? []
         let moduleById = Dictionary(modules.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let ids = Set(rawNodes.compactMap { $0["id"] as? String })
 
         var nodes = [ArchNode(id: "p:", parent: nil, kind: "root", name: root.lastPathComponent)]
         for raw in rawNodes {
@@ -633,8 +654,11 @@ final class ArchitectureStore: ObservableObject {
 
     /// One assistant call through the X-Ray settings (fast model, low effort, no tools),
     /// answered from `.dde/cache/xray` when the same input was analysed before.
+    /// An answer `accept` rejects is neither cached nor taken from the cache, and is asked
+    /// once more; the last answer is returned either way, for the caller to judge.
     private func xrayCall(_ request: CLICompletion.Request, root: URL, db: SemanticDatabase?,
-                          call: Int, fresh: Bool = false, trackProgress: Bool = true) async throws -> [String: Any] {
+                          call: Int, fresh: Bool = false, trackProgress: Bool = true,
+                          accept: (([String: Any]) -> Bool)? = nil) async throws -> [String: Any] {
         var request = request
         request.model = AIAssistantPreferences.xrayModel(for: request.tool)
         request.effort = "low"
@@ -644,17 +668,23 @@ final class ArchitectureStore: ObservableObject {
         let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined().prefix(32)
         let cache = answerCache(root)
         let file = cache.appendingPathComponent(hash + ".json")
+        let usable = { (object: [String: Any]) in !object.isEmpty && (accept?(object) ?? true) }
         if !fresh, let data = try? Data(contentsOf: file),
-           let cached = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+           let cached = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], usable(cached) {
             return cached
         }
-        let result = try await CLICompletion.run(
-            request, onActivity: trackProgress ? activityHandler(root: root, call: call) : nil)
-        result.record(in: db)
-        let object = result.structured as? [String: Any] ?? [:]
-        if !object.isEmpty, let data = try? JSONSerialization.data(withJSONObject: object) {
-            try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
+        var object: [String: Any] = [:]
+        for _ in 0..<(accept == nil ? 1 : 2) {
+            let result = try await CLICompletion.run(
+                request, onActivity: trackProgress ? activityHandler(root: root, call: call) : nil)
+            result.record(in: db)
+            object = result.structured as? [String: Any] ?? [:]
+            guard usable(object) else { continue }
+            if let data = try? JSONSerialization.data(withJSONObject: object) {
+                try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+                try? data.write(to: file, options: .atomic)
+            }
+            break
         }
         return object
     }
