@@ -19,8 +19,20 @@ struct FileTreeView: View {
         currentDirectory ?? workspaceManager.rootNode?.url
     }
 
+    /// A row of the list: a file or folder, or a folder linked to the project (Task 59), shown
+    /// after the project's own folders at the root.
+    private struct Entry {
+        let url: URL
+        let isDir: Bool
+        let modDate: Date?
+        var linked: LinkedFolder? = nil
+    }
+
+    /// The project root, or the linked folder's root, that the browsed directory belongs to.
+    private var browseRoot: URL? { browseURL.flatMap { workspaceManager.containerRoot(for: $0) } }
+
     /// List files and folders in the current directory
-    private var directoryContents: [(url: URL, isDir: Bool, modDate: Date?)] {
+    private var directoryContents: [Entry] {
         _ = listVersion
         guard let dir = browseURL else { return [] }
         let fm = FileManager.default
@@ -30,7 +42,7 @@ struct FileTreeView: View {
 
         guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return [] }
 
-        let items: [(url: URL, isDir: Bool, modDate: Date?)] = contents.compactMap { itemURL in
+        let items: [Entry] = contents.compactMap { itemURL in
             let name = itemURL.lastPathComponent
             // Dot files and folders are shown (.claude, .github, .gitignore…), except the
             // repository's and MarkView's own and Finder's.
@@ -38,11 +50,11 @@ struct FileTreeView: View {
             let vals = try? itemURL.resourceValues(forKeys: Set(keys))
             let isDir = vals?.isDirectory ?? false
             guard isDir || FileType.isOpenable(itemURL) else { return nil }
-            return (itemURL, isDir, vals?.contentModificationDate)
+            return Entry(url: itemURL, isDir: isDir, modDate: vals?.contentModificationDate)
         }
 
         let asc = sort.ascending
-        return items.sorted { a, b in
+        var sorted = items.sorted { a, b in
             if a.isDir && !b.isDir { return true }
             if !a.isDir && b.isDir { return false }
             switch sort.field {
@@ -56,19 +68,30 @@ struct FileTreeView: View {
                 return asc ? cmp : !cmp
             }
         }
+        // At the project root, its linked folders follow the project's own folders.
+        if dir.standardizedFileURL.path == workspaceManager.rootNode?.url.standardizedFileURL.path {
+            let linked = workspaceManager.linkedFolders.map { folder -> Entry in
+                let date = try? folder.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                return Entry(url: folder.url, isDir: true, modDate: date, linked: folder)
+            }
+            let firstFile = sorted.firstIndex { !$0.isDir } ?? sorted.count
+            sorted.insert(contentsOf: linked, at: firstFile)
+        }
+        return sorted
     }
 
     /// Filtered contents based on search
-    private var filteredContents: [(url: URL, isDir: Bool, modDate: Date?)] {
+    private var filteredContents: [Entry] {
         if searchText.isEmpty { return directoryContents }
         let q = searchText.lowercased()
         return directoryContents.filter { $0.url.lastPathComponent.lowercased().contains(q) }
     }
 
-    /// Breadcrumb path components from root to current directory
+    /// Breadcrumb path components from the root to the current directory. Inside a linked
+    /// folder the project root comes first, then the linked folder's own path.
     private var breadcrumbs: [URL] {
-        guard let root = workspaceManager.rootNode?.url,
-              let current = browseURL else { return [] }
+        guard let projectRoot = workspaceManager.rootNode?.url,
+              let root = browseRoot, let current = browseURL else { return [] }
         var crumbs: [URL] = []
         var url = current
         while url.path.hasPrefix(root.path) {
@@ -76,7 +99,22 @@ struct FileTreeView: View {
             if url.path == root.path { break }
             url = url.deletingLastPathComponent()
         }
+        if root.standardizedFileURL.path != projectRoot.standardizedFileURL.path { crumbs.insert(projectRoot, at: 0) }
         return crumbs
+    }
+
+    /// The folder ".." goes to: the parent, or the project root from a linked folder's root.
+    private func parent(of current: URL) -> URL? {
+        guard let projectRoot = workspaceManager.rootNode?.url else { return nil }
+        if current.standardizedFileURL.path == projectRoot.standardizedFileURL.path { return nil }
+        if workspaceManager.linkedFolders.contains(where: { $0.path == LinkedFolders.key(current) }) { return projectRoot }
+        return current.deletingLastPathComponent()
+    }
+
+    /// Browse `url`; the project root is browsed as "no current directory".
+    private func browse(_ url: URL) {
+        if let projectRoot = workspaceManager.rootNode?.url,
+           url.standardizedFileURL.path == projectRoot.standardizedFileURL.path { currentDirectory = nil } else { currentDirectory = url }
     }
 
     var body: some View {
@@ -114,7 +152,7 @@ struct FileTreeView: View {
                                     .uiFont(size: 7, weight: .semibold)
                                     .foregroundColor(VSDark.textDim)
                             }
-                            Button(action: { currentDirectory = crumb }) {
+                            Button(action: { browse(crumb) }) {
                                 Text(crumb.lastPathComponent)
                                     .uiFont(size: 10, weight: crumb == browseURL ? .semibold : .regular)
                                     .foregroundColor(crumb == browseURL ? VSDark.text : VSDark.blue)
@@ -215,9 +253,7 @@ struct FileTreeView: View {
             // File list
             if browseURL != nil {
                 // Back button (if not at root)
-                if let root = workspaceManager.rootNode?.url,
-                   let current = browseURL,
-                   current.path != root.path {
+                if let current = browseURL, let up = parent(of: current) {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.left")
                             .uiFont(size: 10, weight: .semibold)
@@ -229,12 +265,10 @@ struct FileTreeView: View {
                     }
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        currentDirectory = current.deletingLastPathComponent()
-                    }
-                    .background(dropTarget == current.deletingLastPathComponent() ? VSDark.blue.opacity(0.25) : VSDark.bgSidebar)
-                    .onDrop(of: [.fileURL], isTargeted: dropBinding(current.deletingLastPathComponent())) { providers in
-                        drop(providers, into: current.deletingLastPathComponent())
+                    .onTapGesture { browse(up) }
+                    .background(dropTarget == up ? VSDark.blue.opacity(0.25) : VSDark.bgSidebar)
+                    .onDrop(of: [.fileURL], isTargeted: dropBinding(up)) { providers in
+                        drop(providers, into: up)
                     }
                     Divider().background(VSDark.border).opacity(0.5)
                 }
@@ -243,7 +277,7 @@ struct FileTreeView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filteredContents, id: \.url) { item in
                             if item.isDir {
-                                folderRow(item.url, date: item.modDate)
+                                folderRow(item.url, date: item.modDate, linked: item.linked)
                             } else {
                                 fileRow(item.url, date: item.modDate)
                             }
@@ -263,6 +297,8 @@ struct FileTreeView: View {
                         if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: here, ignored: true) } }
                         Button("New Folder...") { createNewFolder(in: here) }
                         Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
+                        Divider()
+                        Button("Link Folder…") { workspaceManager.chooseFoldersToLink() }
                     }
                 }
                 .background(VSDark.bgSidebar)
@@ -311,6 +347,10 @@ struct FileTreeView: View {
             searchText = ""
             revealedURL = nil
         }
+        .onChange(of: workspaceManager.linkedFolders) { _ in
+            // An unlinked folder cannot stay browsed.
+            if let current = currentDirectory, workspaceManager.containerRoot(for: current) == nil { currentDirectory = nil }
+        }
         // The tree may have been hidden when the reveal was asked for.
         .onAppear { reveal(with: proxy) }
         .onChange(of: workspaceManager.fileTreeRevealRequest) { _ in reveal(with: proxy) }
@@ -322,21 +362,23 @@ struct FileTreeView: View {
     /// nearest existing folder.
     private func reveal(with proxy: ScrollViewProxy) {
         guard let request = workspaceManager.fileTreeRevealRequest,
-              let root = workspaceManager.rootNode?.url.standardizedFileURL else { return }
+              let projectRoot = workspaceManager.rootNode?.url.standardizedFileURL else { return }
         workspaceManager.fileTreeRevealRequest = nil
         var target = request.standardizedFileURL
-        guard target.path == root.path || target.path.hasPrefix(root.path + "/") else { return }
+        // The project, or the linked folder, the item is in (Task 59).
+        guard let root = workspaceManager.containerRoot(for: target)?.standardizedFileURL else { return }
         while target.path != root.path,
               !FileManager.default.fileExists(atPath: target.path) || Self.hiddenNames.contains(target.lastPathComponent) {
             target = target.deletingLastPathComponent()
         }
-        guard target.path != root.path else {
+        guard target.path != projectRoot.path else {
             currentDirectory = nil
             revealedURL = nil
             return
         }
-        let folder = target.deletingLastPathComponent()
-        currentDirectory = folder.path == root.path ? nil : folder
+        // A linked folder's root is a row of the project root.
+        let folder = target.path == root.path ? projectRoot : target.deletingLastPathComponent()
+        currentDirectory = folder.path == projectRoot.path ? nil : folder
         searchText = ""
         revealedURL = target
         // After the list of the new folder is laid out.
@@ -386,15 +428,23 @@ struct FileTreeView: View {
             .help(date.map { DateFormatter.localizedString(from: $0, dateStyle: .medium, timeStyle: .short) } ?? "")
     }
 
-    private func folderRow(_ url: URL, date: Date?) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
+    /// A folder row; `linked` marks a folder linked to the project (Task 59): shown with its
+    /// location, unlinked from its menu, outside the project's own X-Ray, git and exclusions.
+    private func folderRow(_ url: URL, date: Date?, linked: LinkedFolder? = nil) -> some View {
+        let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        return HStack(spacing: 6) {
+            Image(systemName: linked == nil ? "folder.fill" : "folder.fill.badge.gearshape")
                 .uiFont(size: 11)
                 .foregroundColor(url.lastPathComponent.hasPrefix(".") ? VSDark.textDim : VSDark.yellow)
-            Text(url.lastPathComponent)
+            Text(linked?.name ?? url.lastPathComponent)
                 .uiFont(size: 11)
                 .foregroundColor(VSDark.text)
                 .lineLimit(1)
+            if let linked {
+                Image(systemName: "link").uiFont(size: 8).foregroundColor(VSDark.cyan)
+                Text(linked.url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.head)
+            }
             Spacer()
             dateLabel(date)
             Image(systemName: "chevron.right")
@@ -403,6 +453,7 @@ struct FileTreeView: View {
         }
         .padding(.horizontal, 8).padding(.vertical, 3)
         .contentShape(Rectangle())
+        .help(linked.map { "Linked folder: \($0.path)" } ?? "")
         .onTapGesture { currentDirectory = url }
         .onDrag { dragItem(url) }
         .background(dropTarget == url ? VSDark.blue.opacity(0.25)
@@ -410,25 +461,30 @@ struct FileTreeView: View {
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
         .opacity(workspaceManager.isExcluded(url) ? 0.4 : 1.0)
         .contextMenu {
-            if workspaceManager.isExcluded(url) {
-                Button("Include Folder") {
-                    if let root = workspaceManager.rootNode?.url {
-                        let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                        workspaceManager.includeFolder(rel)
+            if let linked {
+                Button("Unlink Folder") { workspaceManager.unlinkFolder(linked.id) }
+                Divider()
+            } else if inProject {
+                if workspaceManager.isExcluded(url) {
+                    Button("Include Folder") {
+                        if let root = workspaceManager.rootNode?.url {
+                            let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
+                            workspaceManager.includeFolder(rel)
+                        }
                     }
+                } else {
+                    Button("Exclude Folder") { workspaceManager.excludeFolder(url) }
                 }
-            } else {
-                Button("Exclude Folder") { workspaceManager.excludeFolder(url) }
+                Divider()
+                Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+                Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
+                Divider()
             }
-            Divider()
-            Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
-            Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
-            Divider()
             Button("New File...") { createNewFile(in: url) }
             if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: url, ignored: true) } }
             Button("New Folder...") { createNewFolder(in: url) }
             Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: url) }
-            if git.isGitRepo {
+            if git.isGitRepo && inProject {
                 Divider()
                 Button("Stage All in Folder") { stageAllInFolder(url) }
                 Button("Add to .gitignore") { addToGitignore(url, isDirectory: true) }
@@ -442,7 +498,8 @@ struct FileTreeView: View {
     }
 
     private func fileRow(_ url: URL, date: Date?) -> some View {
-        let gitStatus = fileGitStatus(url)
+        let inProject = workspaceManager.linkedFolder(containing: url) == nil
+        let gitStatus = inProject ? fileGitStatus(url) : nil
         let (icon, color) = fileIcon(for: url)
         return HStack(spacing: 4) {
             Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
@@ -471,8 +528,8 @@ struct FileTreeView: View {
                 Button("Discard Changes") { workspaceManager.gitClient.discardChanges(gs.file) }
                 Divider()
             }
-            if git.isGitRepo { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
-            Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+            if git.isGitRepo && inProject { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
+            if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
             Menu("New from This Document") {
                 ForEach(IntakeKind.allCases) { kind in
                     Button(kind.title + "…") { workspaceManager.startIntake(kind, fromDocument: url) }
@@ -599,7 +656,8 @@ struct FileTreeView: View {
     /// as in Finder), copied when they come from elsewhere (e.g. Finder).
     private func drop(_ providers: [NSItemProvider], into folder: URL) -> Bool {
         let copyRequested = NSEvent.modifierFlags.contains(.option)
-        let root = workspaceManager.rootNode?.url.standardizedFileURL.path ?? ""
+        let roots = ([workspaceManager.rootNode?.url] + workspaceManager.linkedFolders.map(\.url))
+            .compactMap { $0?.standardizedFileURL.path }
         var urls: [URL] = []
         let group = DispatchGroup()
         for provider in providers where provider.canLoadObject(ofClass: URL.self) {
@@ -613,7 +671,7 @@ struct FileTreeView: View {
         }
         group.notify(queue: .main) {
             guard !urls.isEmpty else { return }
-            let inside = urls.allSatisfy { !root.isEmpty && $0.standardizedFileURL.path.hasPrefix(root + "/") }
+            let inside = urls.allSatisfy { url in roots.contains { url.standardizedFileURL.path.hasPrefix($0 + "/") } }
             let errors = workspaceManager.transfer(urls, into: folder, copy: copyRequested || !inside)
             listVersion += 1
             dropTarget = nil

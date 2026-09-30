@@ -16,6 +16,30 @@ struct ProjectSearchResult: Identifiable {
     var id: String { "\(scope.rawValue):\(path ?? title):\(line ?? 0)" }
 }
 
+/// A folder the search index walks: the project (empty prefix) or a linked folder, whose
+/// paths are shown and stored as `@linked/<name>/…` (Task 59).
+struct ProjectSearchRoot: Equatable {
+    let prefix: String
+    let url: URL
+
+    static func project(_ url: URL) -> ProjectSearchRoot { ProjectSearchRoot(prefix: "", url: url) }
+    static func linked(_ folder: LinkedFolder) -> ProjectSearchRoot {
+        ProjectSearchRoot(prefix: LinkedFolders.documentIdPrefix + folder.name + "/", url: folder.url)
+    }
+
+    /// The roots of a workspace: the project, then its linked folders.
+    static func all(project: URL, linked: [LinkedFolder]) -> [ProjectSearchRoot] {
+        [.project(project)] + linked.map(ProjectSearchRoot.linked)
+    }
+
+    /// The file a result path names, when it is under one of `roots`.
+    static func url(for path: String, in roots: [ProjectSearchRoot]) -> URL? {
+        let root = roots.filter { !$0.prefix.isEmpty && path.hasPrefix($0.prefix) }.first ?? roots.first { $0.prefix.isEmpty }
+        guard let root else { return nil }
+        return root.url.appendingPathComponent(String(path.dropFirst(root.prefix.count)))
+    }
+}
+
 /// A private, memory-only index of supported UTF-8 project text. Rebuilding it
 /// on search open and Refresh makes external edits and deletions visible without
 /// persisting document contents in a new database.
@@ -47,19 +71,31 @@ actor ProjectSearchIndex {
     static let maximumTextBytes = 2_097_152
 
     func rebuild(root: URL, progress: @Sendable (Int) -> Void) throws {
+        try rebuild(roots: [.project(root)], progress: progress)
+    }
+
+    /// Walk every root in turn: the project, then its linked folders.
+    func rebuild(roots: [ProjectSearchRoot], progress: @Sendable (Int) -> Void) throws {
         documents = []
         indexedAt = nil
+        var next: [Document] = []
+        var count = 0
+        for searchRoot in roots {
+            try walk(searchRoot, into: &next, count: &count, progress: progress)
+        }
+        documents = next.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        indexedAt = Date()
+        progress(count)
+    }
+
+    private func walk(_ searchRoot: ProjectSearchRoot, into next: inout [Document], count: inout Int,
+                      progress: @Sendable (Int) -> Void) throws {
+        let root = searchRoot.url
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: [
             .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey
-        ]) else {
-            documents = []
-            indexedAt = Date()
-            return
-        }
+        ]) else { return }
         let prefix = root.standardizedFileURL.path + "/"
-        var next: [Document] = []
-        var count = 0
         while let url = enumerator.nextObject() as? URL {
             try Task<Never, Never>.checkCancellation()
             guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey,
@@ -76,7 +112,7 @@ actor ProjectSearchIndex {
                   !Self.excludedFileNames.contains(name),
                   !Self.excludedExtensions.contains(url.pathExtension.lowercased()),
                   url.standardizedFileURL.path.hasPrefix(prefix) else { continue }
-            let path = String(url.standardizedFileURL.path.dropFirst(prefix.count))
+            let path = searchRoot.prefix + String(url.standardizedFileURL.path.dropFirst(prefix.count))
             let allowedText = Self.textExtensions.contains(url.pathExtension.lowercased()) || Self.textNames.contains(name)
             let content: String?
             if allowedText, (values.fileSize ?? 0) <= Self.maximumTextBytes {
@@ -88,9 +124,6 @@ actor ProjectSearchIndex {
             count += 1
             if count.isMultiple(of: 50) { progress(count) }
         }
-        documents = next.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-        indexedAt = Date()
-        progress(count)
     }
 
     func search(_ query: String) -> [ProjectSearchResult] {

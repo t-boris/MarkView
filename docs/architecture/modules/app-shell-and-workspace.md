@@ -247,6 +247,25 @@ flowchart TD
     H -->|exit| J[refreshSemanticViews]
 ```
 
+### 5.2a Linked folders (Task 59)
+
+- `LinkedFolders` (`Models/LinkedFolders.swift`) keeps, per project, the folders attached as aliases: local
+  settings under `project.linkedFolders[<project key>]` (JSON `[LinkedFolder]`: canonical path, unique name,
+  date), never a file in the project. A folder can be linked when it exists, is not the project, not inside
+  it, does not contain it, and is not nested with another linked folder either way.
+- `WorkspaceManager.linkedFolders` is loaded with the folder and cleared on close; `linkFolders` /
+  `unlinkFolder` save the list and re-run the structural index; `chooseFoldersToLink()` is "Link Folder…"
+  (File menu, the tree's empty-space menu). `isFileInCurrentWorkspace` counts a file in a linked folder as
+  the project's (it does not become a single-file workspace); `containerRoot(for:)` gives the root a path
+  belongs to.
+- Document ids of files in a linked folder are `@linked/<name>/<path>` (`LinkedFolders.documentId`,
+  `WorkspaceManager.docId`, `fileURL(forDocumentId:)`); the `--dde-index` child reads the same settings and
+  walks the linked folders after the project; Search Project (`ProjectSearchRoot`) shows and resolves the same
+  prefix. Claude completions and the AI terminal get `--add-dir` for each linked folder.
+- The file tree lists linked folders after the project's own folders at the root (link mark, location),
+  browses into them (breadcrumbs start at the project root; ".." at a linked root returns to the project),
+  and offers Unlink Folder; git, X-Ray, exclusions and research stay project-only.
+
 ### 5.3 Open file
 
 `openFile(url)` (`:701-723`):
@@ -310,6 +329,7 @@ flowchart TD
 | `layout.showFileTree`, `layout.showTOC` | Bool | `WorkspaceManager.swift:319-324,410-415` |
 | `fileTree.sortField` (`"Name"`/`"Date Modified"`), `fileTree.sortAscending` | String, Bool | `WorkspaceManager.swift:13-14,28-34` |
 | `excludedFolders.<rootFolderName>` | [String] relative paths | `WorkspaceManager.swift:50,104` |
+| `project.linkedFolders` | [project key: Data (JSON `[LinkedFolder]`)] | `LinkedFolders.load/save` (`Models/LinkedFolders.swift`) |
 | `layout.navigatorTab` | `TOCView.Tab` raw (`Contents`…`Feature`) | `PanelLayout.navigatorTab`; set by `TOCView`, `showAIConsole`, `intakeFinished`, `runFeatureAction` |
 | `layout.leftPanel` (`files`/`issues`), `layout.issuesFeature` | String | `PanelLayout.leftPanel` / `.issuesFeature`; `FeatureNavigatorView.swift`, `intakeFinished` |
 | `feature.stage` (`FeatureStage.storageKey`) | String | `PanelLayout.featureStage`; `FeaturePanelView`, `intakeFinished` |

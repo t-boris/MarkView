@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## Task 59: Linked folders — search and browse other folders from a project (2026-09-30, branch feat/linked-folders, 3.11.0)
+
+Boris: when a project is open, attach other folders that are searched and browsed together with it;
+the project's own elements (features, bugs, metadata) stay in the opened folder; the others are aliases.
+
+Assumptions: links are local settings of the project (UserDefaults keyed by the project path, like the
+AI choice and colour), not a file in the project; X-Ray stays on the project folder; Git status, GitHub
+and features cover the project folder only; creating files inside a linked folder from the tree is allowed.
+
+- [x] `Models/LinkedFolders.swift`: record, validation (exists, not the project, not nested either way,
+      not linked twice), unique names, document ids `@linked/<name>/<path>` and their resolution, store.
+- [x] WorkspaceManager: `linkedFolders`, link/unlink with a folder panel, membership (a file in a
+      linked folder stays in the project), document ids and their resolution, `--add-dir` for the AI terminal.
+- [x] Search Project and the structural index (FTS, TOC search) cover linked folders; results open.
+- [x] File tree: linked folders listed at the project root with a link mark, browsing, breadcrumbs,
+      "..", reveal, drop, context menu (unlink), "Link Folder…" in the tree and the File menu.
+- [x] AI completions (Claude) read linked folders through `--add-dir`.
+- [x] `tools/tests/linked-folders-tests.sh`; Debug build; version bump; PR.
+
 ## Task 58: Adaptive discovery — fewer, better intake questions (2026-09-30, branch feat/adaptive-discovery, 3.10.0)
 
 Review of New Feature / Quick Feature / New Project found five causes of redundant questions and slow

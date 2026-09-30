@@ -195,6 +195,7 @@
 		F28AF769263218ADD75A290F /* ProjectOperationDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D31981A7FD238AE190DF1A6 /* ProjectOperationDiscovery.swift */; };
 		F324179022E7E9D377890F80 /* ProjectColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8F968A66CC85F478E65280 /* ProjectColor.swift */; };
 		F420E9EEED8296CC65C60219 /* markview-code.js in Resources */ = {isa = PBXBuildFile; fileRef = 3A6FFAB86BF5B4D5D9533CB1 /* markview-code.js */; };
+		F43E5960AFAD3590DE4669AA /* LinkedFolders.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */; };
 		F4E8E20ACAFF5B15F70E79AC /* AppFontScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B5A603D8B6885145771D0A /* AppFontScale.swift */; };
 		F5E36DB6F4BA9C780508F211 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */; };
 		F71AD30EA5690CB0BA397664 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = B22463A74DBAA149985AFD0B /* README.md */; };
@@ -334,6 +335,7 @@
 		A66DC7A48AA84F40186F8857 /* MarkView.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkView.entitlements; sourceTree = "<group>"; };
 		A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
 		AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
+		AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolders.swift; sourceTree = "<group>"; };
 		ACC3096F5958199C147B4B2C /* GraphCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCreatorSheet.swift; sourceTree = "<group>"; };
 		ADA371AF8ACDEABE2F93D359 /* markview-canvas.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "markview-canvas.css"; sourceTree = "<group>"; };
 		AF17AE946068A72B32FC239E /* TOCView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOCView.swift; sourceTree = "<group>"; };
@@ -516,6 +518,7 @@
 				EFA67A244B26B28A49C3526B /* LifecycleAnalytics.swift */,
 				27FA2CF8DFE2C2FCD41F014E /* LifecycleCapture.swift */,
 				197F4C2EF46FC7511320B6D3 /* LifecycleLog.swift */,
+				AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */,
 				9C2274FA0138402D44C1B4ED /* NewProject.swift */,
 				C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */,
 				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
@@ -965,6 +968,7 @@
 				95182A9BC37C26ACF35BBB29 /* LifecycleCapture.swift in Sources */,
 				25F0A2B11D9EF5406F4B6397 /* LifecycleLog.swift in Sources */,
 				8BC37EBFFA5F8FABED2F7777 /* LifecycleViews.swift in Sources */,
+				F43E5960AFAD3590DE4669AA /* LinkedFolders.swift in Sources */,
 				AF237C9EA109027D03F491B9 /* MarkViewApp.swift in Sources */,
 				90435070C0824AA9934C5531 /* MatrixTheme.swift in Sources */,
 				FB66FDB4BCB4FC386A679B71 /* ModuleExplorerView.swift in Sources */,
@@ -1057,7 +1061,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3.10.0;
+				CURRENT_PROJECT_VERSION = 3.11.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1072,7 +1076,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 3.10.0;
+				MARKETING_VERSION = 3.11.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1136,7 +1140,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3.10.0;
+				CURRENT_PROJECT_VERSION = 3.11.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1157,7 +1161,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 3.10.0;
+				MARKETING_VERSION = 3.11.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
