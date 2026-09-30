@@ -5,6 +5,10 @@ import Foundation
 class GitClient: ObservableObject {
     @Published var isGitRepo = false
     @Published var branch = ""
+    /// Local branches, most recently committed first.
+    @Published var localBranches: [String] = []
+    /// Remote branches ("origin/x") with no local branch of the same name, most recent first.
+    @Published var remoteBranches: [String] = []
     @Published var changedFiles: [GitFileStatus] = []
     @Published var commitLog: [GitCommit] = []
     @Published var isOperating = false
@@ -60,6 +64,8 @@ class GitClient: ObservableObject {
         workingDirectory = nil
         isGitRepo = false
         branch = ""
+        localBranches = []
+        remoteBranches = []
         changedFiles = []
         commitLog = []
         lastError = nil
@@ -89,6 +95,7 @@ class GitClient: ObservableObject {
         // Branch
         branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         onBranch?(branch)
+        await loadBranches(in: dir)
 
         // Status — porcelain format: "XY filename" where X=index, Y=worktree
         let statusOutput = await run("git", "status", "--porcelain", in: dir) ?? ""
@@ -187,6 +194,65 @@ class GitClient: ObservableObject {
     func discardChanges(_ file: String) {
         guard let dir = workingDirectory else { return }
         Task { _ = await run("git", "checkout", "--", file, in: dir); await refresh() }
+    }
+
+    // MARK: - Branches
+
+    private func loadBranches(in dir: URL) async {
+        let output = await run("git", "for-each-ref", "--sort=-committerdate", "--format=%(refname)",
+                               "refs/heads", "refs/remotes", in: dir) ?? ""
+        var local: [String] = [], remote: [String] = []
+        for ref in output.components(separatedBy: "\n") {
+            if ref.hasPrefix("refs/heads/") {
+                local.append(String(ref.dropFirst("refs/heads/".count)))
+            } else if ref.hasPrefix("refs/remotes/"), !ref.hasSuffix("/HEAD") {
+                remote.append(String(ref.dropFirst("refs/remotes/".count)))
+            }
+        }
+        localBranches = local
+        // A remote branch that already has a local one is reached through the local one.
+        remoteBranches = remote.filter { name in
+            guard let slash = name.firstIndex(of: "/") else { return false }
+            return !local.contains(String(name[name.index(after: slash)...]))
+        }
+    }
+
+    /// Check out a branch; a remote branch ("origin/x") gets a local tracking branch.
+    /// Git refuses when uncommitted changes would be overwritten. Returns an error to show.
+    func switchBranch(_ name: String) async -> String? {
+        let args = remoteBranches.contains(name) ? ["switch", "--track", name] : ["switch", name]
+        return await branchOperation(args, failure: "Could not switch to \(name)")
+    }
+
+    /// Create a branch from `base` (the current commit when nil) and check it out.
+    /// A new branch does not track its base, so the first push sets its own upstream.
+    func createBranch(_ name: String, from base: String?) async -> String? {
+        guard let dir = workingDirectory else { return "No folder open." }
+        let check = await GitHubClient.execute(["check-ref-format", "--branch", name], in: dir, git: true)
+        guard check.status == 0 else { return "“\(name)” is not a valid branch name." }
+        var args = ["switch", "--no-track", "-c", name]
+        if let base { args.append(base) }
+        return await branchOperation(args, failure: "Could not create \(name)")
+    }
+
+    private func branchOperation(_ args: [String], failure: String) async -> String? {
+        guard let dir = workingDirectory else { return "No folder open." }
+        isOperating = true
+        lastError = nil
+        let result = await GitHubClient.execute(args, in: dir, git: true)
+        isOperating = false
+        await refresh()
+        guard result.status != 0 else { return nil }
+        let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return detail.isEmpty ? failure + "." : failure + ": " + String(detail.prefix(300))
+    }
+
+    /// A quick check while typing a new branch name; `git check-ref-format` decides on create.
+    static func isPlausibleBranchName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix("-") && !name.hasPrefix("/") && !name.hasSuffix("/")
+            && !name.hasSuffix(".") && !name.hasSuffix(".lock") && !name.contains("..")
+            && !name.contains("@{") && !name.contains("//")
+            && !name.contains(where: { $0.isWhitespace || "~^:?*[\\".contains($0) || $0.asciiValue.map { $0 < 32 || $0 == 127 } == true })
     }
 
     // MARK: - Init repo

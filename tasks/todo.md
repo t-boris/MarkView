@@ -1,5 +1,13 @@
 # MarkView — Follow-up Tasks
 
+## Done 57: Branch menu — choose, switch and create branches without AI (2026-09-30, 3.9.0)
+
+- [x] The branch name in the file tree header and the Git tab is a menu: local branches (most recent first), remote-only branches, New Branch….
+- [x] Switching a remote branch creates a local tracking branch; git refuses and the error is shown when uncommitted changes would be overwritten.
+- [x] New Branch validates the name, starts from the current commit or a chosen branch, does not track its base, and checks the branch out.
+- [x] After a switch the file tree and unmodified open tabs reload from disk.
+- [x] Verified: Debug build, git semantics in a scratch repo, isolated test copy (bundle id `.branchtest`) — remote switch, create with validation, conflict alert, switch back.
+
 ## Done 56: BUG-015 Fast X-Ray file outlining (2026-09-29, issue #69, 3.2.0)
 
 - [x] Reproduced the automatic 300-second AI path for the shipping 1,649-line index.html and an uncached long code file.

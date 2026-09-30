@@ -4012,6 +4012,26 @@ class WorkspaceManager: ObservableObject {
         return error
     }
 
+    /// Check out a branch from the branch menu. Returns an error to show.
+    func switchBranch(_ name: String) async -> String? {
+        let error = await gitClient.switchBranch(name)
+        branchChanged()
+        return error
+    }
+
+    /// Create a branch from the branch menu and check it out. Returns an error to show.
+    func createBranch(_ name: String, from base: String?) async -> String? {
+        let error = await gitClient.createBranch(name, from: base)
+        branchChanged()
+        return error
+    }
+
+    /// The working copy now holds another branch's files: show them in the tree and open tabs.
+    private func branchChanged() {
+        refreshFileTree()
+        reloadChangedOpenFiles(all: true)
+    }
+
     /// The branch a pull request comes from, when it is the one checked out.
     private func isCheckedOut(_ number: Int) async -> Bool {
         guard let client = gitHub.client, let pr = try? await client.pullRequest(number) else { return false }
@@ -4106,14 +4126,19 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    private func reloadChangedOpenFiles() {
+    /// `all` reloads every unmodified tab whose file differs, not only files newer than last seen
+    /// (a branch switch can restore older modification dates).
+    private func reloadChangedOpenFiles(all: Bool = false) {
         var changed = false
         for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
             let url = openTabs[index].url
             guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
             defer { openFileDates[url] = date }
-            guard let seen = openFileDates[url], date > seen,
-                  let content = try? String(contentsOf: url, encoding: .utf8), content != openTabs[index].originalContent else { continue }
+            if !all {
+                guard let seen = openFileDates[url], date > seen else { continue }
+            }
+            guard let content = try? String(contentsOf: url, encoding: .utf8),
+                  content != openTabs[index].originalContent else { continue }
             tabsStore.updateTab(at: index) { tab in
                 tab.content = content
                 tab.originalContent = content
