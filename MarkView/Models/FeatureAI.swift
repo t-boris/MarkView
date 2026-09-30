@@ -679,9 +679,9 @@ final class FeatureAssistant: ObservableObject {
 
         \(block)
         Task: turn these answers into specification, keeping the specification small. Record a decision \
-        only when an answer chose between real alternatives the specification must remember — one \
-        decision may settle several questions (list them in `answers`); a plain clarification needs no \
-        decision. First UPDATE the existing requirements the answers refine (requirement_updates: their \
+        only when an answer chose between real alternatives the specification must remember: one decision \
+        per real choice (it settles several questions only when they are facets of the same choice; list \
+        them in `answers`); a plain clarification needs no decision. First UPDATE the existing requirements the answers refine (requirement_updates: their \
         id, the new statement and acceptance criteria); create new requirements (0–3) only for what no \
         existing requirement covers. Never create a requirement that restates or splits an existing one. \
         \(toChoose.isEmpty ? "" : "In `chosen` give your answer for \(toChoose.joined(separator: ", ")) (one or two sentences each, in the conversation language). ")\
