@@ -87,7 +87,7 @@ struct GitView: View {
     private var branchHeader: some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.branch").uiFont(size: 10).foregroundColor(VSDark.blue)
-            Text(git.branch).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+            GitBranchMenu(git: git, workspaceManager: workspaceManager)
             if gitHub.isAvailable {
                 GitHubBranchStatus(gitHub: gitHub) {
                     gitHub.runBranch = git.branch
@@ -309,4 +309,100 @@ struct GitView: View {
         let url = root.appendingPathComponent(relativePath)
         workspaceManager.openFile(url)
     }
+}
+
+// MARK: - Branch Menu
+
+/// The current branch as a menu: switch to a local or remote branch, or create a new one.
+struct GitBranchMenu: View {
+    @ObservedObject var git: GitClient
+    let workspaceManager: WorkspaceManager
+    var fontSize: CGFloat = 11
+    @State private var creating = false
+    @State private var error: String?
+
+    var body: some View {
+        Menu {
+            Section("Switch to") {
+                ForEach(git.localBranches, id: \.self) { name in
+                    Button((name == git.branch ? "✓ " : "") + name) { run { await workspaceManager.switchBranch(name) } }
+                        .disabled(name == git.branch)
+                }
+            }
+            if !git.remoteBranches.isEmpty {
+                Menu("Remote Branches") {
+                    ForEach(git.remoteBranches, id: \.self) { name in
+                        Button(name) { run { await workspaceManager.switchBranch(name) } }
+                    }
+                }
+            }
+            Divider()
+            Button("New Branch…") { creating = true }
+        } label: {
+            HStack(spacing: 3) {
+                Text(git.branch).uiFont(size: fontSize, weight: .semibold)
+                Image(systemName: "chevron.down").uiFont(size: fontSize - 3, weight: .semibold)
+            }
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .disabled(git.isOperating)
+        .help("Switch or create a branch. Uncommitted changes move along unless the switch would overwrite them.")
+        .popover(isPresented: $creating, arrowEdge: .bottom) {
+            GitNewBranchForm(git: git) { name, base in
+                creating = false
+                run { await workspaceManager.createBranch(name, from: base) }
+            }
+        }
+        .alert("Branch", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(error ?? "")
+        }
+    }
+
+    private func run(_ operation: @escaping () async -> String?) {
+        Task { error = await operation() }
+    }
+}
+
+/// Name and starting point of a new branch; the branch is checked out once created.
+private struct GitNewBranchForm: View {
+    @ObservedObject var git: GitClient
+    let create: (_ name: String, _ base: String?) -> Void
+    @State private var name = ""
+    /// Empty means the current commit.
+    @State private var base = ""
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
+    private var exists: Bool { git.localBranches.contains(trimmed) }
+    private var canCreate: Bool { GitClient.isPlausibleBranchName(trimmed) && !exists }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("New Branch").uiFont(.headline)
+            TextField("feat/my-change", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { if canCreate { submit() } }
+            if exists {
+                Text("A branch with this name already exists.").uiFont(.caption).foregroundColor(.secondary)
+            } else if !trimmed.isEmpty && !canCreate {
+                Text("Not a valid branch name.").uiFont(.caption).foregroundColor(.secondary)
+            }
+            Picker("From", selection: $base) {
+                Text("Current (\(git.branch))").tag("")
+                ForEach(git.localBranches.filter { $0 != git.branch }, id: \.self) { Text($0).tag($0) }
+                ForEach(git.remoteBranches, id: \.self) { Text($0).tag($0) }
+            }
+            HStack {
+                Spacer()
+                Button("Create and Switch", action: submit)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canCreate)
+            }
+        }
+        .padding(14)
+        .frame(width: 300)
+    }
+
+    private func submit() { create(trimmed, base.isEmpty ? nil : base) }
 }

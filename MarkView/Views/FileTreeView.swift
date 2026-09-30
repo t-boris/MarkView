@@ -87,7 +87,7 @@ struct FileTreeView: View {
             if git.isGitRepo {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(VSDark.blue)
-                    Text(git.branch).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                    GitBranchMenu(git: git, workspaceManager: workspaceManager, fontSize: 10)
                     Spacer()
                     if git.isOperating { ProgressView().scaleEffect(0.3) }
                     Button(action: { Task { await git.pull() } }) {
