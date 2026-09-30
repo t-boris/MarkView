@@ -6,11 +6,14 @@ import Foundation
 class StructuralIndexer: @unchecked Sendable {
     let db: SemanticDatabase
     let rootURL: URL
+    /// Folders linked to the project (Task 59): their Markdown is indexed under `@linked/<name>/…` ids.
+    let linkedFolders: [LinkedFolder]
     var progress: (@Sendable (String) -> Void)?
 
-    init(db: SemanticDatabase, rootURL: URL) {
+    init(db: SemanticDatabase, rootURL: URL, linkedFolders: [LinkedFolder] = []) {
         self.db = db
         self.rootURL = rootURL
+        self.linkedFolders = linkedFolders
     }
 
     // MARK: - Full Index
@@ -99,22 +102,37 @@ class StructuralIndexer: @unchecked Sendable {
     private func scanTree(storedMeta: [String: (hash: String, mtime: Int?)]) async -> ScanResult {
         let rootName = rootURL.lastPathComponent
         let rootURLCapture = rootURL
+        let linked = linkedFolders
 
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async { [self] in
                 let fm = FileManager.default
-                guard let enumerator = fm.enumerator(at: rootURLCapture,
-                    includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
-                    options: [.skipsHiddenFiles]) else {
+                // The project first, then every linked folder that still exists.
+                let roots = [rootURLCapture] + linked.map(\.url).filter { fm.fileExists(atPath: $0.path) }
+                let enumerators = roots.compactMap {
+                    fm.enumerator(at: $0, includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                                  options: [.skipsHiddenFiles])
+                }
+                guard !enumerators.isEmpty else {
                     continuation.resume(returning: ScanResult(modules: [], changedDocs: [], seenDocIds: []))
                     return
+                }
+                var enumeratorIndex = 0
+                func nextURL() -> URL? {
+                    while enumeratorIndex < enumerators.count {
+                        if let url = enumerators[enumeratorIndex].nextObject() as? URL { return url }
+                        enumeratorIndex += 1
+                    }
+                    return nil
                 }
 
                 // Cheap pre-count of .md files (no reads) so footer progress can show N/M.
                 var totalMd = 0
-                if let counter = fm.enumerator(at: rootURLCapture, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-                    while let u = counter.nextObject() as? URL {
-                        if u.pathExtension.lowercased() == "md", !u.path.contains("/.dde/") { totalMd += 1 }
+                for root in roots {
+                    if let counter = fm.enumerator(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                        while let u = counter.nextObject() as? URL {
+                            if u.pathExtension.lowercased() == "md", !u.path.contains("/.dde/") { totalMd += 1 }
+                        }
                     }
                 }
 
@@ -124,13 +142,14 @@ class StructuralIndexer: @unchecked Sendable {
                 var seenDocIds: Set<String> = []
                 var fileCount = 0
 
-                while let url = enumerator.nextObject() as? URL {
+                while let url = nextURL() {
                     guard url.pathExtension.lowercased() == "md", !url.path.contains("/.dde/") else { continue }
 
                     // Everything below is derived from docId (the workspace-relative
-                    // path) with pure "/" string ops — no absolute-path matching, so
-                    // Unicode/symlink normalization can't desync the module tree.
-                    let docId = SemanticDatabase.documentId(for: url, root: rootURLCapture)
+                    // path, or "@linked/<name>/…" in a linked folder) with pure "/" string
+                    // ops — no absolute-path matching, so Unicode/symlink normalization
+                    // can't desync the module tree.
+                    let docId = LinkedFolders.documentId(for: url, root: rootURLCapture, linked: linked)
                     let relDir = (docId as NSString).deletingLastPathComponent  // "" == workspace root
                     relDirMdCount[relDir, default: 0] += 1
                     // Register relDir and every ancestor so intermediate dirs (that

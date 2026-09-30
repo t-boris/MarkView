@@ -11,14 +11,17 @@ final class SharedSearchModel: ObservableObject {
     @Published var error: String?
 
     private let index = ProjectSearchIndex()
+    /// The roots of the last rebuild: results are resolved against them.
+    private(set) var roots: [ProjectSearchRoot] = []
 
-    func rebuild(root: URL?) async {
-        guard let root else { results = []; return }
+    func rebuild(root: URL?, linked: [LinkedFolder] = []) async {
+        guard let root else { results = []; roots = []; return }
         indexing = true
         scanned = 0
         error = nil
+        roots = ProjectSearchRoot.all(project: root, linked: linked)
         do {
-            try await index.rebuild(root: root) { [weak self] count in
+            try await index.rebuild(roots: roots) { [weak self] count in
                 Task { @MainActor in self?.scanned = count }
             }
             indexedAt = await index.indexedAt
@@ -57,7 +60,7 @@ struct SharedSearchView: View {
                     .focused($searchFocused)
                     .onChange(of: model.query) { _ in Task { await model.search() } }
                 if model.indexing { ProgressView().controlSize(.small) }
-                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url) } } label: {
+                Button { Task { await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders) } } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Refresh project search index")
@@ -119,8 +122,8 @@ struct SharedSearchView: View {
             .background(VSDark.bg)
         }
         .frame(minWidth: 620, minHeight: 420)
-        .task(id: workspaceManager.rootNode?.url) {
-            await model.rebuild(root: workspaceManager.rootNode?.url)
+        .task(id: workspaceManager.searchRootsKey) {
+            await model.rebuild(root: workspaceManager.rootNode?.url, linked: workspaceManager.linkedFolders)
         }
         .onAppear { searchFocused = true }
     }
@@ -159,17 +162,20 @@ struct SharedSearchView: View {
     }
 
     private func open(_ result: ProjectSearchResult) {
-        guard let root = workspaceManager.rootNode?.url, let path = result.path else { return }
+        guard let root = workspaceManager.rootNode?.url, let path = result.path,
+              let url = ProjectSearchRoot.url(for: path, in: model.roots) else { return }
+        let roots = model.roots
+        let linked = workspaceManager.linkedFolders
         Task {
-            let url = root.appendingPathComponent(path)
+            // The result must still be under a root of the search (the project or a linked folder).
             let valid = await Task.detached { () -> Bool in
-                let base = root.resolvingSymlinksInPath().standardizedFileURL.path + "/"
                 let resolved = url.resolvingSymlinksInPath().standardizedFileURL
-                return resolved.path.hasPrefix(base) && FileManager.default.fileExists(atPath: resolved.path)
+                let bases = roots.map { $0.url.resolvingSymlinksInPath().standardizedFileURL.path + "/" }
+                return bases.contains { resolved.path.hasPrefix($0) } && FileManager.default.fileExists(atPath: resolved.path)
             }.value
             guard valid else {
                 model.error = "This result is missing or no longer inside the project. Refreshing search."
-                await model.rebuild(root: root)
+                await model.rebuild(root: root, linked: linked)
                 return
             }
             workspaceManager.openFile(url)

@@ -170,7 +170,9 @@ enum DDEIndexerRunner {
             do {
                 let db = try SemanticDatabase(workspacePath: url)
                 try db.ensureProject(id: url.lastPathComponent, name: url.lastPathComponent, rootPath: url.path)
-                let indexer = StructuralIndexer(db: db, rootURL: url)
+                let linked = LinkedFolders.load(project: url)
+                if !linked.isEmpty { err("linked folders: " + linked.map(\.name).joined(separator: ", ")) }
+                let indexer = StructuralIndexer(db: db, rootURL: url, linkedFolders: linked)
                 indexer.progress = { msg in err(msg) }
                 await indexer.indexAll()
                 err("done")
@@ -253,6 +255,13 @@ struct MarkViewApp: App {
 
                 Button("Close Folder") {
                     activeWorkspace?.closeFolder()
+                }
+                .disabled(activeWorkspaceHasFolder != true)
+
+                Divider()
+
+                Button("Link Folder…") {
+                    activeWorkspace?.chooseFoldersToLink()
                 }
                 .disabled(activeWorkspaceHasFolder != true)
 

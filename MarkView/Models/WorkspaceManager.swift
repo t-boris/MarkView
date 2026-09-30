@@ -464,6 +464,85 @@ class WorkspaceManager: ObservableObject {
     /// nil for a single file, which uses the defaults.
     var aiProject: URL? { projectFolder }
 
+    // MARK: - Linked folders (Task 59)
+
+    /// Folders attached to the open project as aliases: browsed, searched, indexed and readable by
+    /// the AI together with it; the project's own elements stay in the project folder.
+    @Published private(set) var linkedFolders: [LinkedFolder] = []
+
+    /// Changes whenever the searchable roots change (the project or its linked folders).
+    var searchRootsKey: String { ([rootNode?.url.path ?? ""] + linkedFolders.map(\.path)).joined(separator: "\n") }
+
+    func loadLinkedFolders() {
+        linkedFolders = LinkedFolders.load(project: projectFolder).filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Link `urls` to the open project. Returns the reasons for the ones that could not be linked.
+    @discardableResult
+    func linkFolders(_ urls: [URL]) -> [String] {
+        guard let project = projectFolder else { return ["Open a project folder first."] }
+        var errors: [String] = []
+        var added = false
+        for url in urls {
+            switch LinkedFolders.link(url, to: project, existing: linkedFolders) {
+            case .success(let folder):
+                linkedFolders.append(folder)
+                added = true
+            case .failure(let error):
+                errors.append(error.message)
+            }
+        }
+        if added { linkedFoldersChanged(project) }
+        return errors
+    }
+
+    func unlinkFolder(_ id: String) {
+        guard let project = projectFolder, linkedFolders.contains(where: { $0.id == id }) else { return }
+        linkedFolders.removeAll { $0.id == id }
+        linkedFoldersChanged(project)
+    }
+
+    /// The folder panel of "Link Folder…" (File menu, file tree).
+    func chooseFoldersToLink() {
+        guard projectFolder != nil else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose folders to link to this project. They are browsed and searched with it; the project's own files stay where they are."
+        panel.prompt = "Link"
+        guard panel.runModal() == .OK else { return }
+        let errors = linkFolders(panel.urls)
+        if !errors.isEmpty {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = errors.count == 1 ? "The folder was not linked." : "Some folders were not linked."
+            alert.informativeText = errors.joined(separator: "\n")
+            alert.runModal()
+        }
+    }
+
+    /// The linked folder that contains `url`, if any.
+    func linkedFolder(containing url: URL) -> LinkedFolder? {
+        LinkedFolders.folder(containing: url, in: linkedFolders)
+    }
+
+    /// The root `url` belongs to: the project folder, or the linked folder containing it.
+    func containerRoot(for url: URL) -> URL? {
+        if let root = rootNode?.url {
+            let path = url.standardizedFileURL.path
+            let rootPath = root.standardizedFileURL.path
+            if path == rootPath || path.hasPrefix(rootPath + "/") { return root }
+        }
+        return linkedFolder(containing: url)?.url
+    }
+
+    /// Persist the list, then index the linked folders (the search index follows `searchRootsKey`).
+    private func linkedFoldersChanged(_ project: URL) {
+        LinkedFolders.save(linkedFolders, project: project)
+        if let root = rootNode?.url, semanticDatabase != nil { runStructuralIndex(at: root) }
+    }
+
     var openTabs: [OpenTab] {
         get { tabsStore.openTabs }
         set { tabsStore.openTabs = newValue }
@@ -564,6 +643,7 @@ class WorkspaceManager: ObservableObject {
             }.value
             self.fileTreeStore.setRootNode(node)
             self.fileTreeStore.loadExcludedFolders()
+            self.loadLinkedFolders()
             Self.debugLog("Tree loaded: \(node.children?.count ?? 0) children")
 
             indexingProgress = "Setting up workspace..."
@@ -790,7 +870,18 @@ class WorkspaceManager: ObservableObject {
     /// different folders never collide. See `SemanticDatabase.documentId(for:root:)`.
     func docId(for url: URL) -> String {
         let root = rootNode?.url ?? url.deletingLastPathComponent()
-        return SemanticDatabase.documentId(for: url, root: root)
+        return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
+    }
+
+    /// The file a document id of this workspace names: a path inside the project, or
+    /// `@linked/<name>/…` inside a linked folder (Task 59); nil when it is neither on disk.
+    func fileURL(forDocumentId id: String) -> URL? {
+        if let linked = LinkedFolders.resolve(documentId: id, in: linkedFolders) {
+            return FileManager.default.fileExists(atPath: linked.path) ? linked : nil
+        }
+        guard let root = rootNode?.url else { return nil }
+        let direct = root.appendingPathComponent(id)
+        return FileManager.default.fileExists(atPath: direct.path) ? direct : nil
     }
 
     /// Open a file in a new tab or switch to existing tab
@@ -1033,6 +1124,9 @@ class WorkspaceManager: ObservableObject {
         let path = url.standardizedFileURL.path
         if let root = rootNode?.url.standardizedFileURL.path, path.hasPrefix(root + "/") {
             return String(path.dropFirst(root.count + 1))
+        }
+        if linkedFolder(containing: url) != nil, let root = rootNode?.url {
+            return LinkedFolders.documentId(for: url, root: root, linked: linkedFolders)
         }
         return path
     }
@@ -1664,7 +1758,9 @@ class WorkspaceManager: ObservableObject {
         if architecture.prRelativePath(for: url) != nil { return true }
         let filePath = url.standardizedFileURL.path
         let rootPath = root.url.standardizedFileURL.path
-        return filePath.hasPrefix(rootPath + "/")
+        if filePath.hasPrefix(rootPath + "/") { return true }
+        // A file in a linked folder belongs to the project (Task 59).
+        return linkedFolder(containing: url) != nil
     }
 
     /// Drop the database and every engine bound to the current workspace.
@@ -1744,6 +1840,7 @@ class WorkspaceManager: ObservableObject {
 
         tabsStore.reset()
         fileTreeStore.reset()
+        linkedFolders = []
         releaseWorkspaceEngines()
         architecture.reset()
         folderXRays = [:]
@@ -3505,8 +3602,9 @@ class WorkspaceManager: ObservableObject {
         guard let tool = profile.tool else { return nil }
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(AIAssistantPreferences.model(for: tool, project: aiProject))
-                   + tool.fullAccessArgs).joined(separator: " ")
+                   + tool.fullAccessArgs + linked).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
         case .codex, .cline, .copilot: return run
@@ -4337,10 +4435,7 @@ class WorkspaceManager: ObservableObject {
               let fallbackDocumentId,
               !fallbackDocumentId.isEmpty else { return nil }
 
-        let directURL = rootURL.appendingPathComponent(fallbackDocumentId)
-        if fm.fileExists(atPath: directURL.path) {
-            return directURL
-        }
+        if let resolved = fileURL(forDocumentId: fallbackDocumentId) { return resolved }
 
         guard let enumerator = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
             return nil

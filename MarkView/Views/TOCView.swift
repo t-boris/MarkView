@@ -180,7 +180,7 @@ struct WorkspaceSearchView: View {
 
     private func openSearchResult(_ result: SemanticDatabase.SearchResult) {
         guard let root = workspaceManager.rootNode,
-              let url = findFile(result.documentId, in: root.url) else { return }
+              let url = workspaceManager.fileURL(forDocumentId: result.documentId) ?? findFile(result.documentId, in: root.url) else { return }
         workspaceManager.openFile(url)
         // Extract search term from snippet for scroll
         let searchTerm = searchQuery.prefix(40).replacingOccurrences(of: "'", with: "\\'")
