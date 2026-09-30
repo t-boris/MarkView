@@ -108,9 +108,13 @@ extension FeatureAssistant {
                                                     "facts": ["type": "array", "items": factSchema]],
                                      "required": ["role", "summary", "facts"]]
         guard let object = await structured("ingest:" + id, prompt: prompt, schema: schema) else { return }
+        // The user's own words (the intake text, a voice note) state facts nobody needs to accept;
+        // material from elsewhere stays pending until the user accepts it.
+        let own = ["intake", "voice"].contains(source.front.string("origin"))
         let facts = (object["facts"] as? [[String: Any]] ?? []).map { f -> YAMLValue in
-            .map([("text", .string(f["text"] as? String ?? "")), ("certainty", .string(f["certainty"] as? String ?? "likely")),
-                  ("status", .string("pending"))])
+            let certainty = f["certainty"] as? String ?? "likely"
+            return .map([("text", .string(f["text"] as? String ?? "")), ("certainty", .string(certainty)),
+                         ("status", .string(own && certainty == "stated" ? "accepted" : "pending"))])
         }
         store.update(id, in: slug) { front, body in
             front.set("role", object["role"] as? String ?? "")

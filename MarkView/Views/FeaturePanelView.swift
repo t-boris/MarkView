@@ -413,6 +413,33 @@ struct DiscussionInput: View {
 
 // MARK: - Explore (spec §6–7, §9–10)
 
+/// An answer prepared on the Explore screen, before the round is applied: an option ("A. …"),
+/// the user's own words, or "let the AI decide".
+enum PendingAnswer: Equatable {
+    case option(String)
+    case text(String)
+    case ai
+
+    /// What the round sends for a question.
+    func questionAnswer(for id: String) -> FeatureAssistant.QuestionAnswer {
+        switch self {
+        case .option(let text), .text(let text): return .init(id: id, answer: text)
+        case .ai: return .init(id: id, answer: "", delegated: true)
+        }
+    }
+
+    /// The AI's recommendation as the preselected answer: its option, or the answer itself.
+    @MainActor static func recommended(for question: FeatureObject) -> PendingAnswer? {
+        let recommended = question.front.string("recommended")
+        guard !recommended.isEmpty else { return nil }
+        let options = question.front["options"]?.list ?? []
+        if options.contains(where: { ($0["label"]?.string ?? "").caseInsensitiveCompare(recommended) == .orderedSame }) {
+            return .option(FeatureAssistant.recommendedAnswer(question))
+        }
+        return .text(recommended)
+    }
+}
+
 struct ExploreStageView: View {
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
@@ -420,21 +447,18 @@ struct ExploreStageView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var showUnderstandingDetails = false
 
-
-    /// The question guided discovery asks now: its newest open question, else any open one.
-    private var current: FeatureObject? {
-        let open = feature.list(.question).filter { $0.status == "open" }
-        return open.last { $0.front.string("origin") == "explore" } ?? open.first
-    }
+    private var open: [FeatureObject] { feature.openQuestions }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             PanelSection(title: "Feature understanding") {
-                let understood = feature.understanding.count - feature.openDimensions.count
                 HStack(spacing: 6) {
-                    Text("\(understood) of \(feature.understanding.count) understood").uiFont(size: 10, weight: .semibold)
+                    Text(open.isEmpty ? (feature.isUnderstood ? "Discovery done" : "No open question")
+                         : "\(open.count) open question\(open.count == 1 ? "" : "s")")
+                        .uiFont(size: 10, weight: .semibold)
                         .foregroundColor(feature.isUnderstood ? VSDark.green : VSDark.text)
-                    Text("· \(feature.discoveryAnswered) answered · \(feature.activeRequirements.count) requirements")
+                    Text("· \(feature.discoveryAnswered) answered · \(feature.activeRequirements.count) requirements"
+                         + expectation)
                         .uiFont(size: 10).foregroundColor(VSDark.textDim)
                     Spacer()
                     Button {
@@ -447,8 +471,10 @@ struct ExploreStageView: View {
                     .buttonStyle(.plain)
                 }
                 if showUnderstandingDetails {
-                    if !feature.isUnderstood {
-                        Text("Still to clarify: " + feature.openDimensions.joined(separator: ", "))
+                    Text("The AI's assessment of what the specification covers; it does not decide the questions.")
+                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    if !feature.openDimensions.isEmpty {
+                        Text("Rated partial or unknown: " + feature.openDimensions.joined(separator: ", "))
                             .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
                     }
                     HStack(spacing: 8) {
@@ -485,33 +511,37 @@ struct ExploreStageView: View {
                     }
                 }
             }
-            if feature.isUnderstood && current == nil {
+            if feature.isUnderstood && open.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 5) {
                         Image(systemName: "checkmark.seal.fill").foregroundColor(VSDark.green)
                         Text("Feature understood").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
                     }
-                    Text("Every dimension is known or not applicable, so discovery is done. Leaving Explore approves the requirements. Next: review the specification. To reopen discovery, mark a dimension partial or unknown.")
+                    Text("Every question is settled and the AI expects no further one, so discovery is done. Leaving Explore approves the requirements. Next: review the specification.")
                         .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
-                    SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
-                        store.finishExplore(feature.slug)
-                        workspaceManager.layout.featureStage = .review
+                    FlowButtons {
+                        SmallButton(title: "Go to Review", icon: "arrow.right", prominent: true) {
+                            store.finishExplore(feature.slug)
+                            workspaceManager.layout.featureStage = .review
+                        }
+                        SmallButton(title: "Ask more questions", icon: "sparkles") {
+                            Task { await assistant.exploreNext(feature.slug) }
+                        }
                     }
                 }
                 .padding(8).background(VSDark.green.opacity(0.08)).cornerRadius(5)
             } else if assistant.isRunning("decide:" + feature.slug) {
                 Working(text: "AI is deciding the remaining questions and finishing discovery…")
             } else if assistant.isRunning("explore:" + feature.slug) {
-                Working(text: "Looking at what is still missing…")
-            } else if let question = current {
-                // One card per question: its "answer sent" state never carries over to the next one.
-                QuestionCard(store: store, feature: feature, question: question).id(question.id)
+                Working(text: "Looking at what is still unclear…")
+            } else if !open.isEmpty {
+                QuestionRound(store: store, feature: feature, questions: open)
             } else {
                 HStack {
                     Text(feature.list(.question).isEmpty ? "Start guided discovery." : "No open question.")
                         .uiFont(size: 10).foregroundColor(VSDark.textDim)
                     Spacer()
-                    SmallButton(title: "Ask next question", icon: "sparkles", prominent: true) {
+                    SmallButton(title: "Ask more questions", icon: "sparkles", prominent: true) {
                         Task { await assistant.exploreNext(feature.slug) }
                     }
                 }
@@ -530,6 +560,13 @@ struct ExploreStageView: View {
         }
     }
 
+    /// "· AI expects ~2 more" while discovery is running.
+    private var expectation: String {
+        guard let left = feature.questionsLeft, left > 0, !feature.isUnderstood else { return "" }
+        let more = max(0, left - open.count)
+        return more > 0 ? " · AI expects ~\(more) more" : ""
+    }
+
     private func symbol(_ state: String) -> String {
         switch state { case "known": return "✓"; case "partial": return "~"; case "n/a": return "–"; default: return "?" }
     }
@@ -539,20 +576,73 @@ struct ExploreStageView: View {
     }
 }
 
-/// A question with its options and the discovery actions (spec §7, §15).
+/// The open questions of a round on one screen: each card with the recommended answer
+/// preselected, and one button that applies every answer in a single AI call (spec §7).
+struct QuestionRound: View {
+    @EnvironmentObject private var assistant: FeatureAssistant
+    @ObservedObject var store: FeatureStore
+    let feature: Feature
+    let questions: [FeatureObject]
+    /// Answers changed by the user; a question not here keeps the AI's recommendation.
+    @State private var chosen: [String: PendingAnswer?] = [:]
+
+    private var applying: Bool { assistant.isRunning("answer:" + feature.slug) }
+
+    private func answer(for question: FeatureObject) -> PendingAnswer? {
+        if let changed = chosen[question.id] { return changed }
+        return PendingAnswer.recommended(for: question)
+    }
+
+    private var answers: [FeatureAssistant.QuestionAnswer] {
+        questions.compactMap { question in answer(for: question)?.questionAnswer(for: question.id) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(questions, id: \.id) { question in
+                QuestionCard(store: store, feature: feature, question: question,
+                             selection: Binding(get: { answer(for: question) }, set: { chosen[question.id] = $0 }),
+                             busy: applying)
+                    .id(question.id)
+            }
+            if applying {
+                Working(text: "Applying \(answers.count) answer\(answers.count == 1 ? "" : "s") — updating the specification and preparing the next questions…")
+            } else {
+                HStack(alignment: .top, spacing: 6) {
+                    Text(questions.count == 1 ? "The recommended answer is preselected; change it or answer in your own words."
+                         : "Recommended answers are preselected; change any of them, then apply the round.")
+                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    SmallButton(title: answers.count == 1 ? "Apply answer" : "Apply \(answers.count) answers",
+                                icon: "checkmark", prominent: true) {
+                        let round = answers
+                        chosen = [:]
+                        Task { await assistant.answerBatch(feature.slug, answers: round) }
+                    }
+                    .disabled(answers.isEmpty)
+                    .opacity(answers.isEmpty ? 0.5 : 1)
+                }
+            }
+        }
+    }
+}
+
+/// A question with its options, the AI's recommendation and the discovery actions (spec §7, §15).
+/// The answer is chosen here and applied by the round.
 struct QuestionCard: View {
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
     let question: FeatureObject
+    @Binding var selection: PendingAnswer?
+    /// The round is being applied: the answer is shown, nothing can change.
+    var busy = false
     @EnvironmentObject var workspaceManager: WorkspaceManager
-    @State private var answer = ""
+    @State private var own = ""
     @State private var showDetails = false
-    /// The answer just given: shown at once, until the specification is updated.
-    @State private var sent: String?
 
-    private var busy: Bool {
-        ["answer:", "options:", "pros:"].contains { assistant.isRunning($0 + question.id) }
+    private var working: Bool {
+        busy || ["options:", "pros:"].contains { assistant.isRunning($0 + question.id) }
             || assistant.isRunning("research:" + feature.slug) || assistant.isRunning("decide:" + feature.slug)
     }
 
@@ -576,77 +666,106 @@ struct QuestionCard: View {
             if !why.isEmpty {
                 Text(why).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
             }
+            let recommended = question.front.string("recommended")
+            let recommendedWhy = question.front.string("recommended_why")
+            if !recommended.isEmpty {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "wand.and.stars").uiFont(size: 9).foregroundColor(VSDark.cyan)
+                    Text("AI recommends \(recommended)" + (recommendedWhy.isEmpty ? "" : " — \(recommendedWhy)"))
+                        .uiFont(size: 10).foregroundColor(VSDark.cyan).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             let options = question.front["options"]?.list ?? []
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                 let label = option["label"]?.string ?? ""
                 let text = option["text"]?.string ?? ""
+                let value = PendingAnswer.option("\(label). \(text)")
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .top, spacing: 5) {
+                    choice(selected: selection == value, enabled: !working) {
+                        selection = value
+                        own = ""
+                    } label: {
                         Text(label).uiFont(size: 10, weight: .bold, design: .monospaced).foregroundColor(VSDark.blue)
                         Text(text).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        if label.caseInsensitiveCompare(recommended) == .orderedSame {
+                            Text("recommended").uiFont(size: 8, weight: .semibold).foregroundColor(VSDark.cyan)
+                        }
                     }
                     if showDetails {
-                        ForEach(option["pros"]?.strings ?? [], id: \.self) { Text("+ " + $0).uiFont(size: 9).foregroundColor(VSDark.green) }
-                        ForEach(option["cons"]?.strings ?? [], id: \.self) { Text("− " + $0).uiFont(size: 9).foregroundColor(VSDark.orange) }
+                        ForEach(option["pros"]?.strings ?? [], id: \.self) { Text("+ " + $0).uiFont(size: 9).foregroundColor(VSDark.green).padding(.leading, 18) }
+                        ForEach(option["cons"]?.strings ?? [], id: \.self) { Text("− " + $0).uiFont(size: 9).foregroundColor(VSDark.orange).padding(.leading, 18) }
                     }
                 }
             }
-            if let sent, question.status == "open" {
-                HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").uiFont(size: 10).foregroundColor(VSDark.green)
-                    Text(sent).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
-                }
-                if busy {
-                    Working(text: "Answer taken — updating the specification and preparing the next question…")
-                } else {
-                    // Finished without updating (an error is shown above): allow another try.
-                    SmallButton(title: "Try again") { self.sent = nil }
-                }
-            } else if busy {
+            choice(selected: isOwn, enabled: !working, tappable: false) {
+                if !isOwn { selection = own.isEmpty ? nil : .text(own) }
+            } label: {
+                TextField(options.isEmpty ? "Your answer…" : "Or answer in your own words…", text: $own)
+                    .textFieldStyle(.plain).uiFont(size: 10)
+                    .padding(4).background(VSDark.bgInput).cornerRadius(3)
+                    .disabled(working)
+                    .onChange(of: own) { text in
+                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { selection = .text(trimmed) } else if isOwn { selection = nil }
+                    }
+            }
+            choice(selected: selection == .ai, enabled: !working) {
+                selection = .ai
+                own = ""
+            } label: {
+                Text("Let the AI decide").uiFont(size: 10).foregroundColor(VSDark.text)
+                Text(recommended.isEmpty ? "— its decision is recorded as proposed, to check in Review"
+                     : "— takes the recommendation as a proposed decision, to check in Review")
+                    .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+            if working && !busy {
                 Working(text: "Working on \(question.id)…")
-            } else {
+            } else if !busy {
                 FlowButtons {
-                    ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-                        let label = option["label"]?.string ?? ""
-                        SmallButton(title: "Choose \(label)", prominent: true) {
-                            let text = option["text"]?.string ?? ""
-                            sent = "\(label). \(text)"
-                            Task { await assistant.answer(feature.slug, question: question.id, answer: "\(label). \(text)") }
-                        }
-                    }
-                    SmallButton(title: "Decide for me", icon: "wand.and.stars") {
-                        sent = "AI is choosing the best answer…"
-                        Task { await assistant.answer(feature.slug, question: question.id, answer: "", delegated: true) }
-                    }
-                    .help("AI chooses the best answer itself; the decision is recorded as proposed, to check in Review")
                     SmallButton(title: "Suggest another approach") { Task { await assistant.moreOptions(feature.slug, question: question.id) } }
                     SmallButton(title: "Research this", icon: "globe") {
                         Task { await assistant.research(feature.slug, topic: question.title, for: question.id) }
                     }
-                    SmallButton(title: showDetails ? "Hide pros/cons" : "Show pros/cons") {
-                        let hasPros = options.contains { !($0["pros"]?.strings ?? []).isEmpty }
-                        showDetails.toggle()
-                        if showDetails && !hasPros { Task { await assistant.prosAndCons(feature.slug, question: question.id) } }
+                    if !options.isEmpty {
+                        SmallButton(title: showDetails ? "Hide pros/cons" : "Show pros/cons") {
+                            let hasPros = options.contains { !($0["pros"]?.strings ?? []).isEmpty }
+                            showDetails.toggle()
+                            if showDetails && !hasPros { Task { await assistant.prosAndCons(feature.slug, question: question.id) } }
+                        }
                     }
                     SmallButton(title: "Skip for now") { Task { await assistant.skip(feature.slug, question: question.id) } }
                 }
-                HStack(spacing: 4) {
-                    TextField("Or answer in your own words…", text: $answer)
-                        .textFieldStyle(.plain).uiFont(size: 10)
-                        .padding(4).background(VSDark.bgInput).cornerRadius(3)
-                        .onSubmit(submit)
-                    SmallButton(title: "Answer", action: submit)
-                }
             }
+        }
+        .onAppear {
+            // An open-ended recommendation is the prefilled answer, editable.
+            if case .text(let text)? = selection, own.isEmpty { own = text }
         }
     }
 
-    private func submit() {
-        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        answer = ""
-        sent = text
-        Task { await assistant.answer(feature.slug, question: question.id, answer: text) }
+    private var isOwn: Bool {
+        if case .text? = selection { return true }
+        return false
+    }
+
+    /// A selectable row: a radio mark and the row's content. `tappable`: the content itself selects
+    /// the row too (not for a row holding a text field, which needs its clicks).
+    private func choice<Label: View>(selected: Bool, enabled: Bool, tappable: Bool = true, action: @escaping () -> Void,
+                                     @ViewBuilder label: () -> Label) -> some View {
+        HStack(alignment: .top, spacing: 5) {
+            Button(action: action) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .uiFont(size: 11).foregroundColor(selected ? VSDark.blue : VSDark.textDim)
+            }
+            .buttonStyle(.plain).disabled(!enabled)
+            if tappable {
+                HStack(alignment: .top, spacing: 5) { label() }
+                    .contentShape(Rectangle())
+                    .onTapGesture { if enabled { action() } }
+            } else {
+                HStack(alignment: .top, spacing: 5) { label() }
+            }
+        }
     }
 }
 
@@ -1336,7 +1455,7 @@ struct ResolveStageView: View {
                 summary("Open assumptions", assumptions.count, VSDark.yellow)
                 summary("Research gaps", gaps.count, VSDark.textDim)
             }
-            ForEach(blocking) { QuestionCard(store: store, feature: feature, question: $0) }
+            if !blocking.isEmpty { QuestionRound(store: store, feature: feature, questions: blocking) }
             ForEach(conflicts) { FindingCard(store: store, feature: feature, finding: $0) }
             ForEach(important) { FindingCard(store: store, feature: feature, finding: $0) }
             ForEach(proposed) { decision in
@@ -1383,7 +1502,7 @@ struct ResolveStageView: View {
                     }
                 }
             }
-            ForEach(otherQuestions) { QuestionCard(store: store, feature: feature, question: $0) }
+            if !otherQuestions.isEmpty { QuestionRound(store: store, feature: feature, questions: otherQuestions) }
         }
     }
 
@@ -1636,7 +1755,7 @@ struct ObjectContextView: View {
             }
         }
         if object.kind == .finding { ResolutionOptions(store: store, feature: feature, finding: object) }
-        if object.kind == .question && object.status == "open" { QuestionCard(store: store, feature: feature, question: object).id(object.id) }
+        if object.kind == .question && object.status == "open" { QuestionRound(store: store, feature: feature, questions: [object]).id(object.id) }
         if ["review:" + feature.slug, "criteria:" + object.id, "research:" + feature.slug].contains(where: assistant.isRunning) {
             Working(text: "Working…")
         }

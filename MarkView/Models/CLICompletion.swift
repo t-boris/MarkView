@@ -30,6 +30,8 @@ enum CLICompletion {
         var effort: String? = nil
         /// Web search and fetching for research (Claude WebSearch/WebFetch, Codex --search).
         var allowWeb = false
+        /// What this call is for, as written to the AI call log (e.g. "explore:<slug>").
+        var label = ""
 
         var tool: CLITool {
             get { toolOverride ?? AIAssistantPreferences.backend(project: project) }
@@ -105,13 +107,37 @@ enum CLICompletion {
     static func run(_ request: Request,
                     onDelta: (@Sendable (String) -> Void)? = nil,
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
+        let started = Date()
         let tool = request.tool
+        let model = request.model ?? AIAssistantPreferences.model(for: tool, project: request.project)
+        func log(_ result: Result?, outcome: String) {
+            AICallLog.record(AICallLog.Entry(timestamp: started, project: request.readableFolder?.path ?? "",
+                                             label: request.label, tool: tool.rawValue, model: model ?? "",
+                                             effort: request.effort ?? "", seconds: Date().timeIntervalSince(started),
+                                             inputTokens: result?.inputTokens ?? 0, outputTokens: result?.outputTokens ?? 0,
+                                             costUSD: result?.costUSD, outcome: outcome))
+        }
+        do {
+            let result = try await execute(request, tool: tool, model: model, onDelta: onDelta, onActivity: onActivity)
+            log(result, outcome: "ok")
+            return result
+        } catch is CancellationError {
+            log(nil, outcome: "cancelled")
+            throw CancellationError()
+        } catch {
+            if case Failure.timedOut = error { log(nil, outcome: "timeout") } else { log(nil, outcome: "failed") }
+            throw error
+        }
+    }
+
+    private static func execute(_ request: Request, tool: CLITool, model: String?,
+                                onDelta: (@Sendable (String) -> Void)?,
+                                onActivity: (@Sendable (Activity) -> Void)?) async throws -> Result {
         guard let toolPath = CLIToolLocator.resolve(tool) else {
             let hint = CLIToolLocator.override(for: tool).map { "The configured path does not exist: \($0)." }
                 ?? "Searched: \(CLIToolLocator.searchDirectories().joined(separator: ", "))."
             throw Failure.toolNotFound(tool, hint)
         }
-        let model = request.model ?? AIAssistantPreferences.model(for: tool, project: request.project)
         let workDir = request.readableFolder ?? scratchDirectory()
         if tool.usesACP {
             return try await ACPAssistant.run(request, tool: tool, toolPath: toolPath, model: model, workDir: workDir,

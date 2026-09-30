@@ -1,5 +1,34 @@
 # MarkView — Follow-up Tasks
 
+## Task 58: Adaptive discovery — fewer, better intake questions (2026-09-30, branch feat/adaptive-discovery, 3.10.0)
+
+Review of New Feature / Quick Feature / New Project found five causes of redundant questions and slow
+rounds: a fixed 11-dimension checklist drives the questions; the original request leaves the context
+after intake; answers are not visible to later calls; the AI asks what the code already answers; one
+question per cold, low-effort CLI call.
+
+- [x] Honest context: original request, answered questions with their answers and the discussion in every
+      explore/answer call; facts of the user's own intake text accepted at once; intake questions carry `dimension`.
+- [x] Adaptive map: intake lists the decisions the product owner must make for this feature (questions with
+      options and a recommended answer); readiness = no open question and the AI expects none; the 11 dimensions
+      stay as an informational assessment, not as the gate.
+- [x] Batch: discovery asks 0–3 independent questions per call; the user answers them on one screen (recommended
+      answers preselected) and one call applies them all and prepares the next batch.
+- [x] Code check and effort: the AI must check the project before asking; intake records existing behaviour;
+      intake and discovery calls run at medium effort.
+- [x] Fewer decisions: a decision only when an answer chose between real alternatives; AI-resolved findings that
+      are implementation details close without a decision.
+- [x] Instrumentation: every CLI call logged (label, tool, model, effort, seconds, tokens, cost) to
+      Application Support/MarkView/ai-calls.jsonl.
+- [x] Verify: Debug build, headless prompt check on a real fixture, version bump, PR.
+
+Review: `tools/tests/feature-discovery-tests.sh` (13 checks) passes. Headless runs of the new intake prompt
+through `claude -p --json-schema` at medium effort on the repository as it was before the two features
+(commit f3e3c06): the voice-input request got 3 questions with recommendations and no question about the
+engine or the language (both found in `WhisperClient.swift`, 129 s, $1.28); the font-size request got 4
+questions with recommendations, the editor slider found in the code and asked about once (170 s, $1.85).
+Before: 5 and 6 rounds of one question, ~3 min each, with duplicated questions.
+
 ## Done 57: Branch menu — choose, switch and create branches without AI (2026-09-30, 3.9.0)
 
 - [x] The branch name in the file tree header and the Git tab is a menu: local branches (most recent first), remote-only branches, New Branch….

@@ -267,9 +267,15 @@ struct Feature: Identifiable {
     static let beforeImplementation: Set<String> = ["ready", "resolving", "review", "draft", "exploring"]
     /// Discovery (Explore) is over: requirements written from now on are approved.
     var isPastExplore: Bool { !["idea", "exploring", "draft"].contains(status) }
-    /// Every dimension is understood, or the questions asked are all answered or deferred.
+    /// Discovery is over, or the questions asked are all answered or deferred.
     var discoveryDone: Bool {
-        isUnderstood || (!list(.question).isEmpty && !list(.question).contains { $0.status == "open" })
+        isUnderstood || (!list(.question).isEmpty && openQuestions.isEmpty)
+    }
+
+    /// Questions waiting for an answer: what blocks the specification first, then in order.
+    var openQuestions: [FeatureObject] {
+        let open = list(.question).filter { $0.status == "open" }
+        return open.filter(\.isBlocking) + open.filter { !$0.isBlocking }
     }
 
     var understanding: [(dimension: String, state: String)] {
@@ -327,13 +333,17 @@ struct Feature: Identifiable {
         list(.question).filter { $0.front.string("origin") == "explore" && ($0.status == "answered" || $0.status == "deferred") }.count
     }
 
-    /// Dimensions still to clarify (unknown or partial). Discovery asks only about these.
+    /// Dimensions the AI still rates unknown or partial: an assessment shown to the user, never
+    /// by itself a reason to ask (the questions come from the feature's own open decisions).
     var openDimensions: [String] {
         understanding.filter { $0.state == "unknown" || $0.state == "partial" }.map(\.dimension)
     }
 
-    /// The feature is understood: every dimension known or not applicable — discovery ends.
-    var isUnderstood: Bool { openDimensions.isEmpty }
+    /// Discovery is done: nothing is waiting for an answer and the AI expects no further question
+    /// (`questions_left` 0). A feature assessed known in every dimension before this rule counts too.
+    var isUnderstood: Bool {
+        openQuestions.isEmpty && (questionsLeft == 0 || openDimensions.isEmpty)
+    }
 
     var epic: Int? { planFront.string("epic").isEmpty ? nil : Int(planFront.string("epic")) }
     var planIssues: [PlannedIssue] { (planFront["issues"]?.list ?? []).map(PlannedIssue.init) }
@@ -412,10 +422,12 @@ struct Feature: Identifiable {
         let seriousFindings = list(.finding).filter { ["blocker", "high"].contains($0.front.string("severity")) }
         let contradictions = list(.finding).filter { $0.front.string("category") == "contradiction" }
         let decisions = list(.decision).filter { $0.status != "rejected" && $0.status != "superseded" }
-        let known = understanding.filter { $0.state == "known" || $0.state == "n/a" }
+        let asked = list(.question)
         let covered = Set(planIssues.flatMap(\.requirements))
         var conditions = [
-            ReadinessCondition(name: "Feature understood", done: known.count, total: understanding.count),
+            // Discovery: every question asked is settled and the AI expects no further one.
+            ReadinessCondition(name: "Feature understood", done: asked.filter(\.isClosed).count + (isUnderstood ? 1 : 0),
+                               total: asked.count + 1),
             ReadinessCondition(name: "Requirements approved", done: approved.count, total: max(requirements.count, 1)),
             ReadinessCondition(name: "Acceptance criteria defined",
                                done: requirements.filter { !$0.acceptanceCriteria.isEmpty }.count, total: max(requirements.count, 1)),

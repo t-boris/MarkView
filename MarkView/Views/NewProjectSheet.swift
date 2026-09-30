@@ -293,13 +293,6 @@ private struct ClarifyContent: View {
     @ObservedObject var assistant: FeatureAssistant
     let feature: Feature
 
-    /// The question asked now: what blocks the brief first (DEC-016), then the newest discovery
-    /// question, else any open one.
-    private var current: FeatureObject? {
-        let open = feature.list(.question).filter { $0.status == "open" }
-        return open.first { $0.isBlocking } ?? open.last { $0.front.string("origin") == "explore" } ?? open.first
-    }
-
     private var slug: String { feature.slug }
 
     var body: some View {
@@ -313,18 +306,25 @@ private struct ClarifyContent: View {
                     Working(text: "AI is deciding the remaining questions…")
                 } else if assistant.isRunning("explore:" + slug) {
                     Working(text: "Looking at what is still unclear…")
-                } else if let question = current {
-                    QuestionCard(store: store, feature: feature, question: question).id(question.id)
+                } else if !feature.openQuestions.isEmpty {
+                    // What blocks the brief comes first (DEC-016); the round answers all at once.
+                    QuestionRound(store: store, feature: feature, questions: feature.openQuestions)
                 } else if !feature.isUnderstood {
                     HStack {
                         Text("No open question.").uiFont(size: 10).foregroundColor(VSDark.textDim)
                         Spacer()
-                        SmallButton(title: "Ask next question", icon: "sparkles", prominent: true) {
+                        SmallButton(title: "Ask more questions", icon: "sparkles", prominent: true) {
                             Task { await assistant.exploreNext(slug) }
                         }
                     }
                 } else {
-                    Text("The project is clear enough to confirm.").uiFont(size: 10).foregroundColor(VSDark.green)
+                    HStack {
+                        Text("The project is clear enough to confirm.").uiFont(size: 10).foregroundColor(VSDark.green)
+                        Spacer()
+                        SmallButton(title: "Ask more questions", icon: "sparkles") {
+                            Task { await assistant.exploreNext(slug) }
+                        }
+                    }
                 }
                 confirmation
             }

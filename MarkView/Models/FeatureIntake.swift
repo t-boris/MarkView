@@ -64,29 +64,36 @@ extension FeatureAssistant {
 
         Attachments: \(attachments.map(\.lastPathComponent).joined(separator: ", "))
 
-        Task: read relevant project documentation and code (read-only), then draft a concise,
-        single-page feature specification. Give a short title, the idea, the problem, scope,
-        analysis of the existing behavior, and acceptance criteria. State uncertainty explicitly.
-        Do not start a question workflow; the user can refine this in discussion.
+        Task: read the relevant project documentation and code (read-only), then draft a concise, \
+        single-page feature specification. Give a short title, the idea, the problem, the scope, an \
+        analysis of the existing behaviour (what the project already does here, with file paths), and \
+        acceptance criteria. Where the request leaves a choice open, make the assumption an experienced \
+        product owner would and list it in `assumptions` (one line each) instead of asking; the user \
+        corrects what is wrong in the discussion. Do not start a question workflow. \
         Write the specification in English.
         """
         let schema: [String: Any] = ["type": "object", "properties": [
             "title": ["type": "string"], "idea": ["type": "string"], "problem": ["type": "string"],
             "scope": ["type": "string"], "analysis": ["type": "string"],
+            "assumptions": ["type": "array", "items": ["type": "string"]],
             "acceptance_criteria": ["type": "array", "items": ["type": "string"]]
-        ], "required": ["title", "idea", "problem", "scope", "analysis", "acceptance_criteria"]]
-        guard let object = await structured("intake:quick-feature", prompt: prompt, schema: schema),
+        ], "required": ["title", "idea", "problem", "scope", "analysis", "assumptions", "acceptance_criteria"]]
+        guard let object = await structured("intake:quick-feature", prompt: prompt, schema: schema, effort: "medium"),
               let slug = store.createFeature(title: object["title"] as? String ?? "Quick feature",
                                              idea: object["idea"] as? String ?? dump) else { return nil }
         let problem = object["problem"] as? String ?? ""
         let scope = object["scope"] as? String ?? ""
         let analysis = object["analysis"] as? String ?? ""
         let criteria = (object["acceptance_criteria"] as? [String] ?? []).map { "- [ ] \($0)" }.joined(separator: "\n")
+        let assumptions = (object["assumptions"] as? [String] ?? []).map { "- \($0)" }.joined(separator: "\n")
         store.updateFeature(slug) { front, body in
             front.set("provenance", "Created from the quick feature intake")
             front.set("status", "ready")
             front.set("intake", "quick")
-            body = "# \(object["title"] as? String ?? "Quick feature")\n\n## Idea\n\n\(object["idea"] as? String ?? dump)\n\n## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n\n## Analysis\n\n\(analysis)\n\n## Acceptance Criteria\n\n\(criteria)\n"
+            front.set("questions_left", "0")
+            body = "# \(object["title"] as? String ?? "Quick feature")\n\n## Idea\n\n\(object["idea"] as? String ?? dump)\n\n## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n\n## Analysis\n\n\(analysis)\n"
+            if !assumptions.isEmpty { body += "\n## Assumptions\n\nMade by the AI where the request left a choice open; correct them in the discussion.\n\n\(assumptions)\n" }
+            body += "\n## Acceptance Criteria\n\n\(criteria)\n"
         }
         _ = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
         for url in attachments { await ingest(.file(url), into: slug) }
@@ -119,9 +126,10 @@ extension FeatureAssistant {
 
         Task: turn this into the start of the project's specification. Nothing exists yet — no folder, \
         no code. Give: a short project title (its name); the idea restated clearly as the project's goal; \
-        the problem it solves; the scope of a first version (in / out); how well each understanding \
-        dimension is known from this material; the requirements it already states or clearly implies \
-        (0–6, each with acceptance criteria); and the 1–3 most important open questions with options.
+        the problem it solves; the scope of a first version (in / out); the requirements it already states \
+        or clearly implies (0–6, each with acceptance criteria); and the decisions the user must still make \
+        before the brief is clear (its goal, who it is for, the core workflow, what the first version must \
+        do), each as a question; `existing` stays empty (nothing exists yet). \(Self.intakeQuestionRule)
         """ : """
         ## Everything the user wrote about a new feature
 
@@ -130,49 +138,60 @@ extension FeatureAssistant {
         Attachments: \(attachmentNames.isEmpty ? "none" : attachmentNames)
 
         Task: turn this into the start of a feature specification. Read the project's documentation and code \
-        (read-only) where it helps you understand what exists. Give: a short feature title; the idea restated \
-        clearly; the problem; the scope (in / out); how well each understanding dimension is known from this \
-        material; the requirements it already states or clearly implies (0–6, each with acceptance criteria); \
-        and the 1–3 most important open questions with options.
+        (read-only) to learn what exists around this feature: current behaviour, conventions, similar features. \
+        Give: a short feature title; the idea restated clearly; the problem; the scope (in / out); `existing`: \
+        the project facts that matter for this feature (what it already does, where — with file paths), so \
+        nobody asks about them; the requirements the request already states or clearly implies (0–6, each with \
+        acceptance criteria); and the decisions the product owner must still make for THIS feature, each as \
+        a question. \(Self.intakeQuestionRule)
         """
-        let questionSchema: [String: Any] = ["type": "object",
-            "properties": ["text": ["type": "string"], "why": ["type": "string"],
-                           "q_type": ["type": "string", "enum": FeatureVocabulary.questionTypes],
-                           "blocking": ["type": "boolean"],
-                           "options": ["type": "array", "items": ["type": "object",
-                               "properties": ["label": ["type": "string"], "text": ["type": "string"],
-                                              "pros": ["type": "array", "items": ["type": "string"]],
-                                              "cons": ["type": "array", "items": ["type": "string"]]],
-                               "required": ["label", "text", "pros", "cons"]]]],
-            "required": ["text", "why", "q_type", "blocking", "options"]]
         let requirement: [String: Any] = ["type": "object",
             "properties": ["title": ["type": "string"], "statement": ["type": "string"],
                            "req_type": ["type": "string", "enum": FeatureVocabulary.requirementTypes],
                            "acceptance_criteria": ["type": "array", "items": ["type": "string"]]],
             "required": ["title", "statement", "req_type", "acceptance_criteria"]]
+        let fact: [String: Any] = ["type": "object",
+            "properties": ["text": ["type": "string"], "path": ["type": "string"]],
+            "required": ["text", "path"]]
         let schema: [String: Any] = ["type": "object",
             "properties": ["title": ["type": "string"], "idea": ["type": "string"], "problem": ["type": "string"],
                            "scope": ["type": "string"],
+                           "existing": ["type": "array", "items": fact],
                            "understanding": ["type": "array", "items": ["type": "object",
                                "properties": ["dimension": ["type": "string", "enum": FeatureVocabulary.understanding],
-                                              "state": ["type": "string", "enum": FeatureVocabulary.understandingStates]],
-                               "required": ["dimension", "state"]]],
+                                              "state": ["type": "string", "enum": FeatureVocabulary.understandingStates],
+                                              "note": ["type": "string"]],
+                               "required": ["dimension", "state", "note"]]],
                            "requirements": ["type": "array", "items": requirement],
-                           "questions": ["type": "array", "items": questionSchema]],
-            "required": ["title", "idea", "problem", "scope", "understanding", "requirements", "questions"]]
-        guard let object = await structured("intake:feature", prompt: prompt, schema: schema),
+                           "questions": ["type": "array", "items": Self.questionSchema],
+                           "questions_left": ["type": "integer"]],
+            "required": ["title", "idea", "problem", "scope", "existing", "understanding", "requirements", "questions", "questions_left"]]
+        guard let object = await structured("intake:feature", prompt: prompt, schema: schema, effort: "medium"),
               let slug = store.createFeature(title: object["title"] as? String ?? "New feature", idea: object["idea"] as? String ?? dump)
         else { return nil }
         let problem = object["problem"] as? String ?? ""
         let scope = object["scope"] as? String ?? ""
+        let existing = (object["existing"] as? [[String: Any]] ?? []).compactMap { fact -> String? in
+            guard let text = fact["text"] as? String, !text.isEmpty else { return nil }
+            let path = fact["path"] as? String ?? ""
+            return "- \(text)" + (path.isEmpty ? "" : " (`\(path)`)")
+        }.joined(separator: "\n")
         store.updateFeature(slug) { front, body in
             front.set("provenance", self.projectDiscovery ? "Created from the new-project intake" : "Created from the feature intake")
-            body = body.replacingOccurrences(of: "## Problem\n\n## Scope\n", with: "## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n")
+            var sections = "## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n"
+            if !existing.isEmpty { sections += "\n## Existing behaviour\n\n\(existing)\n" }
+            body = body.replacingOccurrences(of: "## Problem\n\n## Scope\n", with: sections)
         }
-        let states = (object["understanding"] as? [[String: Any]] ?? []).reduce(into: [String: String]()) {
+        let assessment = object["understanding"] as? [[String: Any]] ?? []
+        let states = assessment.reduce(into: [String: String]()) {
             if let d = $1["dimension"] as? String, let s = $1["state"] as? String { $0[d] = s }
         }
         store.setUnderstanding(slug, states)
+        let notes = assessment.compactMap { item -> (String, YAMLValue)? in
+            guard let d = item["dimension"] as? String, let n = item["note"] as? String, !n.isEmpty else { return nil }
+            return (d, .string(n))
+        }
+        if !notes.isEmpty { store.updateFeature(slug) { front, _ in front["understanding_notes"] = .map(notes) } }
         // The raw material stays as the feature's first source.
         let intake = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
         for r in object["requirements"] as? [[String: Any]] ?? [] {
@@ -183,20 +202,11 @@ extension FeatureAssistant {
                          body: "## Statement\n\n\(r["statement"] as? String ?? "")\n\n## Acceptance Criteria\n\n\(criteria)\n",
                          provenance: "Extracted from the feature intake")
         }
-        for q in object["questions"] as? [[String: Any]] ?? [] {
-            let text = q["text"] as? String ?? ""
-            let options = (q["options"] as? [[String: Any]] ?? []).map { o -> YAMLValue in
-                .map([("label", .string(o["label"] as? String ?? "")), ("text", .string(o["text"] as? String ?? "")),
-                      ("pros", .list((o["pros"] as? [String] ?? []).map { .string($0) })),
-                      ("cons", .list((o["cons"] as? [String] ?? []).map { .string($0) }))])
-            }
-            store.create(.question, in: slug, title: String(text.prefix(140)),
-                         fields: [("q_type", .string(q["q_type"] as? String ?? "clarification")),
-                                  ("priority", .string(q["blocking"] as? Bool == true ? "blocking" : "normal")),
-                                  ("origin", .string("explore")), ("blocking", .list([])), ("options", .list(options))],
-                         body: "## Question\n\n\(text)\n\n## Why it matters\n\n\(q["why"] as? String ?? "")\n",
-                         provenance: "Generated by AI (feature intake)")
-        }
+        let asked = (object["questions"] as? [[String: Any]] ?? []).prefix(Self.intakeQuestionLimit)
+            .compactMap { makeQuestion($0, in: slug, provenance: "Generated by AI (feature intake)") }
+        // The AI's estimate of the questions needed in all; never below the ones just asked.
+        let left = max(object["questions_left"] as? Int ?? 0, asked.count)
+        store.updateFeature(slug) { front, _ in front.set("questions_left", String(left)) }
         for url in attachments { await ingest(.file(url), into: slug) }
         // Its GitHub issue: the one it came from, or a new one when the integration is on.
         var issueRef: String?
@@ -218,6 +228,25 @@ extension FeatureAssistant {
         }
         return IntakeOutcome(file: store.feature(slug)?.overviewURL, feature: slug, issue: issueRef)
     }
+
+    /// How many questions the intake may ask at once.
+    static let intakeQuestionLimit = 6
+
+    /// The intake's questions: what discovery asks, in one round of up to `intakeQuestionLimit`.
+    private static let intakeQuestionRule = """
+    Questions: only what the request does not settle and the project cannot answer — never what the user \
+    already wrote, never implementation details (formats, schemas, file layouts, naming, internal APIs), \
+    never edge cases the review covers; the fewest needed, at most \(intakeQuestionLimit), independent of \
+    each other, the most important first. Each question: 2–4 concrete options (labelled A, B, C…) with short \
+    pros and cons unless it is open-ended (then no options); `recommended`: the option you would choose for \
+    this feature and project (its label, or the answer itself when open-ended) and `recommended_why` in one \
+    line; `blocking` true when requirements cannot be written without the answer; `dimension`: the \
+    understanding dimension it clarifies most. `questions_left`: your honest estimate of how many questions \
+    are needed in all before a first implementation-ready specification, including these. `understanding`: \
+    rate every dimension (known / partial / unknown / n/a) with a short note as a summary for the user; a \
+    dimension that does not apply to this feature is n/a, and a partial or unknown one is not by itself a \
+    reason to ask.
+    """
 
     /// Create an issue with a label, or without it when the repository has no such label.
     private static func createIssue(_ client: GitHubClient, title: String, body: String, label: String) async -> String? {

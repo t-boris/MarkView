@@ -237,12 +237,12 @@ sequenceDiagram
     participant S as FeatureStore
     participant G as GitHubClient
     U->>A: newFeature(dump, attachments, linkedIssue)
-    A->>C: structured("intake:feature") title/idea/problem/scope/understanding/requirements[0-6]/questions[1-3]
+    A->>C: structured("intake:feature", effort medium) title/idea/problem/scope/existing/understanding/requirements[0-6]/questions[0-6]/questions_left
     C-->>A: JSON
     A->>S: createFeature(title, idea) -> overview.md (status exploring), lifecycle ideaCreated
-    A->>S: updateFeature (Problem/Scope, provenance), setUnderstanding
-    A->>A: ingest(.text "Original request", kind intake) -> SRC-001 + extractFacts (2nd AI call)
-    A->>S: create REQ-nnn (status draft), Q-nnn (origin explore)
+    A->>S: updateFeature (Problem/Scope/Existing behaviour, provenance), setUnderstanding + notes
+    A->>A: ingest(.text "Original request", kind intake) -> SRC-001 + extractFacts (2nd AI call; stated facts accepted)
+    A->>S: create REQ-nnn (status draft), Q-nnn (origin explore, dimension, recommended); questions_left
     A->>A: ingest(.file) per attachment (1 AI call each)
     alt linkedIssue
         A->>S: overview issue: "#n"
@@ -262,39 +262,47 @@ If the first AI call fails, nothing is written and the sheet shows `assistant.er
 
 ```mermaid
 flowchart TD
-    A[ExploreStageView: current = newest open Q with origin explore] -->|none| B[Ask next question -> exploreNext]
-    B --> C{isUnderstood?}
-    C -->|yes| D[questions_left = 0; nothing asked]
-    C -->|no| E[AI: understanding + has_question + question + questions_left + suggestions]
-    E --> F[applyDiscovery: setUnderstanding, understanding_notes, questions_left]
-    F --> G{still open dims and has_question and dimension open?}
-    G -->|yes| H[create Q-nnn origin explore, options, priority blocking/normal]
-    G -->|no| D
-    A -->|Choose option / own answer| I[answer]
-    A -->|Decide for me| J[answer delegated=true]
+    A[ExploreStageView: QuestionRound = every open Q, blocking first] -->|none open| B[Ask more questions -> exploreNext]
+    B --> C{open question?}
+    C -->|yes| D[nothing asked: the round is shown]
+    C -->|no| E[AI effort medium: understanding + questions 0-3 + questions_left + suggestions]
+    E --> F[applyDiscovery: notes, create Q-nnn via makeQuestion, questions_left = max estimate, count]
+    A -->|Apply answers: options, own words, or Let the AI decide| I[answerBatch]
     A -->|Skip for now| K[status deferred, exploreNext]
-    I --> L[AI: has_decision, decision, requirement_updates, requirements 0-2, understanding, next question]
-    J --> L
-    L --> M[DEC-nnn accepted, or proposed if delegated]
-    M --> N[applyRequirementChanges: update REQs in place, create at most 2]
-    N --> O[Q: status answered, answer, resolved_by, produces; discussion.md entry]
+    I --> L[AI effort medium: decisions with answers[], requirement_updates, requirements 0-3, chosen, understanding, next round]
+    L --> M[DEC-nnn accepted, or proposed when every question it settles was delegated]
+    M --> N[applyRequirementChanges: update REQs in place, create at most 3]
+    N --> O[each Q: status answered, answer, resolved_by, produces; discussion.md entry]
     O --> F
 ```
 
-- `exploreNext` (`FeatureAI.swift:330-365`) moves the feature from `idea` to `exploring`.
-- `answer` (`:452-518`) asks for the next question in the same AI call, so each answer costs one call (`:490-495`).
-- Open questions come first (BUG-011): while any question is still open (the intake's Q-001…, or one passed over),
-  `answer` asks for no new question and `exploreNext` returns without an AI call; the stage shows the next open
-  question. Before this, discovery generated questions that duplicated the intake's still-open ones, and the
-  originals came back last, so the owner answered the same question twice (sometimes differently).
-- `applyRequirementChanges` (`:522-547`) ignores IDs that are not live requirements, and creates at most 2 new requirements.
-- `makeRequirement` writes `approved` once the feature is past Explore, else `draft` (`:287`).
-- A question card also offers "Suggest another approach" (`moreOptions`, `:689-708`), "Show pros/cons" (`prosAndCons`, `:711-739`) and "Research this".
-- **Decide the rest and finish** (`decideRest`, `:552-620`):
+- The questions are the feature's own open decisions: the intake lists them (`FeatureIntake.swift`, up to
+  `intakeQuestionLimit` = 6) and each discovery round adds at most `questionsPerRound` = 3, with options, a
+  `recommended` answer and `recommended_why`. Discovery is done (`Feature.isUnderstood`) when no question is open
+  and the AI's `questions_left` is 0; the 11 understanding dimensions are an assessment shown in the Details
+  toggle and never by themselves a reason to ask (a feature rated known in every dimension before this rule
+  still counts as understood).
+- `context()` (`FeatureAI.swift`) carries the user's own words (sources with origin `intake`/`voice`, up to 10k
+  characters), every answered question with its answer, the open questions' recommendations and the last 6k of
+  `discussion.md`; the discovery instruction requires the AI to check the request, the recorded answers and the
+  project's code before asking, so a settled point is not asked again.
+- `makeQuestion` refuses an empty text and a question already asked with the same wording.
+- `QuestionRound` (`FeaturePanelView.swift`) preselects each recommendation; "Apply answers" sends the whole
+  round to `answerBatch` in one AI call, which also asks the next round when nothing else is open (BUG-011).
+  "Let the AI decide" takes the recommendation (or, without one, the AI's `chosen` answer) as a proposed
+  decision. The same round is used by the Resolve stage, `ObjectContextView` and the New Project sheet.
+- A decision is recorded only when an answer chose between real alternatives (one decision may settle several
+  questions, listed in `answers`); a plain clarification only updates requirements.
+- `applyRequirementChanges` ignores IDs that are not live requirements, and creates at most 3 new requirements.
+- `makeRequirement` writes `approved` once the feature is past Explore, else `draft`.
+- A question card also offers "Suggest another approach" (`moreOptions`), "Show pros/cons" (`prosAndCons`) and "Research this".
+- **Decide the rest and finish** (`decideRest`):
   - The AI makes up to 8 proposed decisions. Each lists the open questions it `answers`, plus requirement updates and new requirements.
   - Answered questions get `answered_by: ai`. The remaining open questions are set to `deferred`.
   - Every dimension still open is forced to `known`, `questions_left` is set to 0, and `finishExplore` runs.
   - Timeout 900 s.
+- Every CLI call is appended to `Application Support/MarkView/ai-calls.jsonl` (`AICallLog`: label, tool, model,
+  effort, seconds, tokens, cost, outcome) to measure the workflows.
 
 ### 5.3 Review, resolve, clean up
 
@@ -307,7 +315,7 @@ flowchart TD
 - **Acceptance criteria** (`:844-867`) adds only the criteria that are new.
 - **Resolve a finding**:
   - `resolutionOptions` (`:872-895`) sets `status: discussing`, `resolution_question` and `options[{label,text,consequence}]`.
-  - `resolve` (`:900-928`) calls `closeFinding` (`:1049-1064`). That creates a decision (accepted, or proposed when delegated), sets the finding to `resolved` with `resolved_by`, appends a `## Resolution`, and adds the decision to every referenced requirement's `decisions`.
+  - `resolve` calls `closeFinding`. That creates a decision (accepted, or proposed when delegated), sets the finding to `resolved` with `resolved_by`, appends a `## Resolution`, and adds the decision to every referenced requirement's `decisions`. A delegated resolution ("Decide for me", "Decide all for me") records a decision only when `needs_decision` is true — a product choice the specification must remember; an implementation detail or wording fix closes the finding with its resolution text alone.
 - **Decide all for me** (`decideAllFindings`, `:932-977`) works in chunks of 8 findings. It skips findings closed meanwhile, updates `decideProgress`, and stops at the first failed chunk.
 - **Consolidate** (`:624-681`):
   - Offered in the UI above 30 active requirements (`FeaturePanelView.swift:948`).
@@ -684,9 +692,9 @@ The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected
 
 ### 6.3 Understanding and readiness
 
-- There are 11 dimensions: Problem, Target Users, Primary Workflow, Permissions, Failure Scenarios, Data Model, Notifications, Security, Analytics, Dependencies, Acceptance Criteria (`FeatureModels.swift:86-88`). A missing dimension reads as `unknown`.
-- Readiness conditions (`FeatureModels.swift:403-427`):
-  - Feature understood
+- There are 11 dimensions: Problem, Target Users, Primary Workflow, Permissions, Failure Scenarios, Data Model, Notifications, Security, Analytics, Dependencies, Acceptance Criteria (`FeatureModels.swift`). A missing dimension reads as `unknown`. They are the AI's assessment for the user; discovery ends on questions, not on dimensions (`Feature.isUnderstood`: no open question and `questions_left` 0, or every dimension known/n/a).
+- Readiness conditions (`FeatureModels.swift`):
+  - Feature understood (questions settled, and the AI expects no further one)
   - Requirements approved
   - Acceptance criteria defined
   - Blocking questions resolved
@@ -821,7 +829,7 @@ Settings read indirectly: `actions.outputLanguage` (conversation language), `AIA
 | Structured / hand-written feature | Has `overview.md` made by the app / only loose `.md` documents (`isStructured`) |
 | Object | One REQ, Q, DEC, F, R or SRC file |
 | Understanding dimension | One of 11 aspects rated known, partial, unknown or n/a |
-| Guided discovery (Explore) | AI loop asking one question at a time about open dimensions |
+| Guided discovery (Explore) | AI rounds of up to 3 questions with recommended answers, applied together in one call |
 | Delegated ("Decide for me") | The AI chooses the answer or resolution; the decision is recorded as `proposed` |
 | Readiness | Mean of the measurable readiness conditions, 0–100 |
 | Finding | Review problem with category and severity; resolved by a decision |
