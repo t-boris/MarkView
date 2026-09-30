@@ -55,6 +55,7 @@
 		415531DA77449F4A0EFBA98F /* ProjectChangeReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F34A3A95ECF49AFECC200E /* ProjectChangeReviewView.swift */; };
 		436C087D720363F0E8146706 /* AIAssistants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F98342E7F3820A62C4E015 /* AIAssistants.swift */; };
 		4516FE66FBDB4C4DBB73DEF6 /* GitHubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABB6A927274482AD06DBCC /* GitHubClient.swift */; };
+		45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4700050C38EAE4C47A81DF3 /* AICallLog.swift */; };
 		4653E1E251EE19AD4A58F97E /* prism-java.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 0C4D3C742B40A8271FF18684 /* prism-java.min.js */; };
 		47B282BD306263A5DE536089 /* ACPAssistant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC1F9BA32F5B57727E0D268 /* ACPAssistant.swift */; };
 		489C63B8947F6F9CCDF0C9F6 /* prism-cpp.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 6B9EFCB313A4B742B3C5A1D0 /* prism-cpp.min.js */; };
@@ -400,6 +401,7 @@
 		F0746BDFCEB6533D5705C4BC /* DiagnosticsBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsBarView.swift; sourceTree = "<group>"; };
 		F21E96FB5400057E1B7290BB /* MarkViewDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkViewDebug.entitlements; sourceTree = "<group>"; };
 		F43C1666D920639C5EE347C0 /* prism-diff-highlight.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "prism-diff-highlight.css"; sourceTree = "<group>"; };
+		F4700050C38EAE4C47A81DF3 /* AICallLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICallLog.swift; sourceTree = "<group>"; };
 		F4755545E00CAA90E990A42E /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
 		F4B5A603D8B6885145771D0A /* AppFontScale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFontScale.swift; sourceTree = "<group>"; };
 		F5052FB2920AFA8A801BF1A3 /* KaTeX_Fraktur-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Bold.woff2"; sourceTree = "<group>"; };
@@ -472,6 +474,7 @@
 				BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */,
 				2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */,
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
+				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
 				1A772D24F7564B57E808520A /* AIPrompts.swift */,
 				F4B5A603D8B6885145771D0A /* AppFontScale.swift */,
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
@@ -899,6 +902,7 @@
 				47B282BD306263A5DE536089 /* ACPAssistant.swift in Sources */,
 				D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */,
 				436C087D720363F0E8146706 /* AIAssistants.swift in Sources */,
+				45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */,
 				3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */,
 				05330764F69306E4CE65E7E6 /* AgentUsage.swift in Sources */,
 				7A3B0C6CF75D5CA3691C22CE /* AgentUsageLogs.swift in Sources */,
@@ -1053,7 +1057,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3.9.0;
+				CURRENT_PROJECT_VERSION = 3.10.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1068,7 +1072,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 3.9.0;
+				MARKETING_VERSION = 3.10.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1132,7 +1136,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 3.9.0;
+				CURRENT_PROJECT_VERSION = 3.10.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1153,7 +1157,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 3.9.0;
+				MARKETING_VERSION = 3.10.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

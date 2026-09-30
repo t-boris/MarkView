@@ -1,5 +1,20 @@
 # Lessons
 
+## 2026-09-30 — A stateless AI loop needs the answers in its context, not a checklist
+
+**Context:** Review of New Feature / New Project discovery. Every AI call was a cold CLI run; the
+context carried the AI's own paraphrase of the idea, questions by title only, and a fixed list of 11
+understanding dimensions that had to reach "known". Real specs showed the same question asked twice
+(Q-001 ≈ Q-004), a contradiction the AI created from its two answers, questions the code already
+answered, and about 3 minutes per question round.
+
+**Rule:** In a loop of stateless calls, put the primary sources (the user's own words, every recorded
+answer, the transcript) into every call's context, and let the questions come from the feature's own
+open decisions rather than from a generic checklist. Ask in rounds with a recommended answer per
+question, so the owner confirms instead of dictating. Log each call (label, seconds, tokens) so the
+loop can be measured before and after a change. Cheap calls at low effort are not cheap when they
+multiply into ten rounds.
+
 ## 2026-09-29 — Optional AI detail must not hold up a structural analysis
 
 **Context:** BUG-015. A file without a successful cached outline was selected again on

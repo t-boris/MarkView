@@ -160,7 +160,9 @@ final class FeatureAssistant: ObservableObject {
     is the language of the user's idea (the Original request source).
     """
 
-    private func run(_ key: String, prompt: String, schema: [String: Any]?, web: Bool = false,
+    /// `effort`: "low" for the many small calls; "medium" where the answer shapes the specification
+    /// (intake, discovery rounds) — a few slower calls instead of many shallow ones.
+    private func run(_ key: String, prompt: String, schema: [String: Any]?, web: Bool = false, effort: String = "low",
                      timeout: TimeInterval = 400, onDelta: (@Sendable (String) -> Void)? = nil) async -> CLICompletion.Result? {
         guard !running.contains(key) else {
             error = "That is already running — wait for it to finish."
@@ -174,8 +176,9 @@ final class FeatureAssistant: ObservableObject {
         var request = CLICompletion.Request(project: store.root, prompt: prompt, systemPrompt: system,
                                             jsonSchema: schema, readableFolder: store.root)
         request.allowWeb = web
-        request.effort = "low"
+        request.effort = effort
         request.timeout = timeout
+        request.label = key
         let model = request.model ?? AIAssistantPreferences.model(for: request.tool, project: request.project) ?? "default model"
         actions[key] = ActionState(key: key, title: Self.title(for: key),
                                    scope: folder?.path ?? "Selected text",
@@ -257,8 +260,8 @@ final class FeatureAssistant: ObservableObject {
             return FeatureAction(rawValue: String(parts[1]))?.title ?? "Selected text"
         }
         switch parts.first {
-        case "explore": return "Ask next question"
-        case "answer": return "Process answer"
+        case "explore": return "Ask questions"
+        case "answer": return "Process answers"
         case "review": return "Review feature"
         case "research": return "Research feature"
         case "chat": return "Discuss feature"
@@ -271,21 +274,35 @@ final class FeatureAssistant: ObservableObject {
     }
 
     /// A structured answer (the JSON object), or nil when it failed (see `error`).
-    func structured(_ key: String, prompt: String, schema: [String: Any], web: Bool = false,
+    func structured(_ key: String, prompt: String, schema: [String: Any], web: Bool = false, effort: String = "low",
                     timeout: TimeInterval = 400) async -> [String: Any]? {
-        await run(key, prompt: prompt, schema: schema, web: web, timeout: timeout)?.structured as? [String: Any]
+        await run(key, prompt: prompt, schema: schema, web: web, effort: effort, timeout: timeout)?.structured as? [String: Any]
     }
 
     // MARK: - Context (spec §31)
 
-    /// The feature as the AI needs it for an operation on `focus`: overview, understanding,
-    /// the focused objects in full with their linked objects, a digest of the rest, accepted
-    /// facts, and related project documentation.
-    func context(_ feature: Feature, focus: [String] = [], query: String = "", budget: Int = 45_000) -> String {
+    /// The feature as the AI needs it for an operation on `focus`: overview, the user's own words,
+    /// understanding, the focused objects in full with their linked objects, a digest of the rest
+    /// (answered questions with their answers), accepted facts, the discussion, and related
+    /// project documentation.
+    func context(_ feature: Feature, focus: [String] = [], query: String = "", budget: Int = 45_000,
+                 discussion: Bool = true) -> String {
         var out = "# Feature: \(feature.title) (\(feature.slug)) — status \(feature.status)\n\n"
         out += feature.overviewBody.prefix(6_000) + "\n\n"
+        // What the user wrote, verbatim: later calls work from the request, not from its paraphrase.
+        let original = feature.list(.source).filter { ["intake", "voice"].contains($0.front.string("origin")) }
+        if !original.isEmpty {
+            out += "## Original request (the user's own words)\n\n"
+            var left = 10_000
+            for source in original where left > 0 {
+                let text = String(source.section("Content").prefix(left))
+                guard !text.isEmpty else { continue }
+                left -= text.count
+                out += "### \(source.id) \(source.title)\n\n\(text)\n\n"
+            }
+        }
         // A feature's own documents (hand-written specs: requirements.md, design.md, …).
-        var documentBudget = 30_000
+        var documentBudget = 20_000
         for document in feature.documents where documentBudget > 0 {
             guard let text = try? String(contentsOf: document, encoding: .utf8) else { continue }
             let part = String(text.prefix(min(12_000, documentBudget)))
@@ -320,6 +337,12 @@ final class FeatureAssistant: ObservableObject {
                 var line = "- \(object.id) [\(object.status)] \(object.title)"
                 if kind == .decision, !object.section("Decision").isEmpty { line += " — " + object.section("Decision").prefix(200) }
                 if kind == .requirement { line += " — " + object.section("Statement").prefix(200) }
+                // An answered question carries its answer: what was settled is never asked again.
+                if kind == .question {
+                    let answer = object.front.string("answer")
+                    if object.status == "answered", !answer.isEmpty { line += " — answer: " + answer.prefix(300) }
+                    if object.status == "open", !object.front.string("recommended").isEmpty { line += " — recommended: " + object.front.string("recommended").prefix(120) }
+                }
                 out += line + "\n"
             }
             out += "\n"
@@ -330,6 +353,11 @@ final class FeatureAssistant: ObservableObject {
                 .compactMap { $0["text"]?.string.map { "- \($0) (\(source.id))" } }
         }
         if !facts.isEmpty { out += "## Accepted facts\n" + facts.joined(separator: "\n") + "\n\n" }
+        // The conversation so far (answers and chat): the AI's memory between stateless calls.
+        if discussion {
+            let transcript = store.discussion(feature.slug, limit: 6_000)
+            if !transcript.isEmpty { out += "## Discussion so far\n\(transcript)\n\n" }
+        }
         // Related project documentation (search index).
         let related = relatedDocuments(query.isEmpty ? feature.title : query)
         if !related.isEmpty { out += "## Related project documentation\n" + related + "\n" }
@@ -448,21 +476,21 @@ final class FeatureAssistant: ObservableObject {
 
     // MARK: - Explore: guided discovery (spec §6–7)
 
-    /// Update the understanding model and ask the most useful next question (a Q file with
-    /// options). Nothing is asked when the feature is well understood.
+    /// Ask the next round of questions (0–3 Q files with options and a recommended answer) and
+    /// update the understanding notes. Nothing is asked while a question is still open or when
+    /// discovery is done.
     func exploreNext(_ slug: String) async {
         preparing.insert("explore:" + slug)
         defer { preparing.remove("explore:" + slug) }
         guard let feature = store.feature(slug) else { return }
-        // Understood (every dimension known / n/a): nothing to ask. Marking a dimension partial
-        // or unknown by hand opens discovery again.
-        guard !feature.isUnderstood else {
-            store.updateFeature(slug) { front, _ in front.set("questions_left", "0") }
-            return
-        }
         // A question is still waiting for its answer: the Explore stage shows it; a new one
         // would repeat it (BUG-011).
-        guard !feature.list(.question).contains(where: { $0.status == "open" }) else { return }
+        guard feature.openQuestions.isEmpty else { return }
+        // Done (nothing open, the AI expects no more): nothing to ask. "Ask more questions" or a
+        // dimension marked partial or unknown by hand opens discovery again.
+        if feature.isUnderstood, feature.questionsLeft == 0 {
+            store.updateFeature(slug) { front, _ in front.set("questions_left", "1") }
+        }
 
         let asked = feature.list(.question).map { "- \($0.id) [\($0.status)] \($0.title)" }.joined(separator: "\n")
         let prompt = context(feature) + """
@@ -474,12 +502,11 @@ final class FeatureAssistant: ObservableObject {
         """
         let schema = Self.object([
             "understanding": Self.understandingSchema,
-            "has_question": ["type": "boolean"],
-            "question": Self.questionSchema,
+            "questions": Self.array(Self.questionSchema),
             "questions_left": ["type": "integer"],
             "suggestions": Self.strings,
         ])
-        guard let result = await run("explore:" + slug, prompt: prompt, schema: schema),
+        guard let result = await run("explore:" + slug, prompt: prompt, schema: schema, effort: "medium"),
               let object = result.structured as? [String: Any] else { return }
         applyDiscovery(object, to: slug)
         if feature.status == "idea" { store.updateFeature(slug) { front, _ in front.set("status", "exploring") } }
@@ -490,33 +517,42 @@ final class FeatureAssistant: ObservableObject {
         }
     }
 
-    private static let questionSchema: [String: Any] = [
+    /// A question as discovery and the intake ask it: the text, why it matters, the dimension it
+    /// clarifies, 2–4 options, and the answer the AI recommends (an option's label, or the answer
+    /// itself for an open-ended question) with its reason.
+    static let questionSchema: [String: Any] = [
         "type": "object",
         "properties": ["text": ["type": "string"], "why": ["type": "string"],
                        "dimension": ["type": "string", "enum": FeatureVocabulary.understanding],
                        "q_type": ["type": "string", "enum": FeatureVocabulary.questionTypes],
-                       "blocking": ["type": "boolean"], "options": ["type": "array", "items": optionSchema]],
-        "required": ["text", "why", "dimension", "q_type", "blocking", "options"],
+                       "blocking": ["type": "boolean"], "options": ["type": "array", "items": optionSchema],
+                       "recommended": ["type": "string"], "recommended_why": ["type": "string"]],
+        "required": ["text", "why", "dimension", "q_type", "blocking", "options", "recommended", "recommended_why"],
     ]
 
-    private static let discoveryInstruction = """
-    Assess how well each understanding dimension is specified (known / partial / unknown / n/a). A \
-    dimension is known when every decision the product owner must make about it is made; partial when \
-    such a decision is still missing; unknown when nothing is decided. Implementation details (formats, \
-    schemas, file layouts, naming, internal APIs) and edge cases for the review never make a dimension \
-    partial — the implementer and the review handle them. n/a when the dimension does not apply. Then, \
-    if some dimension is unknown or partial, choose the ONE next question that clarifies such a dimension \
-    (name it in `dimension`), the one with the highest impact that has not been asked. \
-    Offer 2–4 concrete options (label them A, B, C…) with short pros and cons, unless the question is \
-    open-ended (then no options). Mark it blocking when requirements cannot be written without it. Set \
-    has_question false only when the feature is ready to be specified. questions_left: your honest \
-    estimate of how many more questions are needed before a first implementation-ready specification \
-    (0 when ready) — ask only what really changes the specification.
+    /// How many questions one round may ask.
+    static let questionsPerRound = 3
+
+    static let discoveryInstruction = """
+    Decide what still has to be asked. First establish what is already settled: by the original request \
+    (the user's own words), the recorded answers and decisions, the requirements, and the project itself — \
+    read its documents and code for existing behaviour, conventions and similar features. Nothing settled is \
+    asked again, and what the project already does is stated as a fact, never asked. A question is worth \
+    asking only when the product owner's answer changes the specification and cannot be found out otherwise. \
+    Implementation details (formats, schemas, file layouts, naming, internal APIs) and the edge cases the \
+    review covers are never asked; the implementer decides them. Ask the fewest questions needed — at most \
+    \(questionsPerRound) in this round, independent of each other, the most important first; an empty list \
+    when the specification can be written now. Each question: 2–4 concrete options (labelled A, B, C…) with \
+    short pros and cons, unless it is open-ended (then no options); `recommended`: the option you would \
+    choose for this feature and project (its label, or the answer itself when open-ended) and \
+    `recommended_why` in one line; `blocking` true when requirements cannot be written without the answer; \
+    `dimension`: the understanding dimension it clarifies most. `questions_left`: your honest estimate of \
+    how many questions are still needed in all, including the ones asked now (0 when none). \
     Scope: stay inside the feature's idea and scope as written in its overview. Never grow the feature — \
-    a question whose answer would add capabilities beyond the idea is out of scope. Do not ask about \
-    implementation details the implementer decides (formats, schemas, file layouts, naming, internal \
-    APIs); ask only what the product owner must decide. When the remaining unknowns are implementation \
-    details or edge cases the review will cover, set has_question false.
+    a question whose answer would add capabilities beyond the idea is out of scope. \
+    `understanding`: rate every dimension (known / partial / unknown / n/a) with a short note of what is \
+    known or missing, as a summary for the user; a partial or unknown dimension is not by itself a reason \
+    to ask — many do not apply to a small feature.
     """
 
     /// States and notes of the understanding dimensions from an answer.
@@ -542,113 +578,188 @@ final class FeatureAssistant: ObservableObject {
         }
     }
 
-    /// Understanding, the next question and the estimate of questions left, from a discovery answer.
-    private func applyDiscovery(_ object: [String: Any], to slug: String) {
+    /// Understanding, the next round of questions and the estimate of questions left, from a
+    /// discovery answer. Returns the questions created.
+    @discardableResult
+    private func applyDiscovery(_ object: [String: Any], to slug: String) -> [FeatureObject] {
         applyUnderstanding(object, to: slug)
-        if let left = object["questions_left"] as? Int {
-            store.updateFeature(slug) { front, _ in front.set("questions_left", String(max(0, left))) }
-        }
-        // Completeness decides: once every dimension is known or n/a, discovery ends.
-        guard let feature = store.feature(slug), !feature.isUnderstood else {
-            store.updateFeature(slug) { front, _ in front.set("questions_left", "0") }
-            return
-        }
-        guard object["has_question"] as? Bool == true, let q = object["question"] as? [String: Any] else { return }
-        let text = q["text"] as? String ?? ""
-        let dimension = q["dimension"] as? String ?? ""
-        // A question only for a dimension still open (a known one needs no more questions).
-        guard !text.isEmpty, dimension.isEmpty || feature.openDimensions.contains(dimension) else { return }
+        let asked = (object["questions"] as? [[String: Any]] ?? []).prefix(Self.questionsPerRound)
+            .compactMap { makeQuestion($0, in: slug, provenance: "Generated by AI (guided discovery)") }
+        // The estimate never says "none" while questions were just asked.
+        let left = max(object["questions_left"] as? Int ?? 0, asked.count)
+        store.updateFeature(slug) { front, _ in front.set("questions_left", String(max(0, left))) }
+        return asked
+    }
+
+    /// A question file from an AI question. Nothing is created for an empty text or one already
+    /// asked (same wording) — the AI cannot repeat a question by accident.
+    @discardableResult
+    func makeQuestion(_ q: [String: Any], in slug: String, provenance: String) -> FeatureObject? {
+        let text = (q["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = String(text.prefix(140))
+        guard !text.isEmpty, let feature = store.feature(slug),
+              !feature.list(.question).contains(where: { $0.title.lowercased() == title.lowercased() }) else { return nil }
         let optionList = q["options"] as? [[String: Any]] ?? []
+        let recommended = (q["recommended"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let recommendedWhy = (q["recommended_why"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         var body = "## Question\n\n\(text)\n\n## Why it matters\n\n\(q["why"] as? String ?? "")\n"
         if !optionList.isEmpty {
             body += "\n## Options\n\n" + optionList.map { "- **\($0["label"] as? String ?? "")**: \($0["text"] as? String ?? "")" }.joined(separator: "\n") + "\n"
         }
-        store.create(.question, in: slug, title: String(text.prefix(140)),
-                     fields: [("q_type", .string(q["q_type"] as? String ?? "clarification")),
-                              ("priority", .string(q["blocking"] as? Bool == true ? "blocking" : "normal")),
-                              ("origin", .string("explore")), ("dimension", .string(dimension)), ("blocking", .list([])),
-                              ("options", options(optionList))],
-                     body: body, provenance: "Generated by AI (guided discovery)")
+        if !recommended.isEmpty {
+            body += "\n## Recommended\n\n\(recommended)" + (recommendedWhy.isEmpty ? "" : " — \(recommendedWhy)") + "\n"
+        }
+        var fields: [(String, YAMLValue)] = [
+            ("q_type", .string(q["q_type"] as? String ?? "clarification")),
+            ("priority", .string(q["blocking"] as? Bool == true ? "blocking" : "normal")),
+            ("origin", .string("explore")), ("dimension", .string(q["dimension"] as? String ?? "")),
+            ("blocking", .list([])), ("options", options(optionList)),
+        ]
+        if !recommended.isEmpty {
+            fields.append(("recommended", .string(recommended)))
+            fields.append(("recommended_why", .string(recommendedWhy)))
+        }
+        return store.create(.question, in: slug, title: title, fields: fields, body: body, provenance: provenance)
     }
 
-    /// The user answered a question (chose an option or wrote an answer): record it, turn it into
-    /// a decision and candidate requirements, update the understanding, and ask the next question.
-    /// `delegated`: "Decide for me" — the AI chooses the answer itself; its decision is recorded as
-    /// proposed (the user accepts or overrides it in Review).
+    /// One answer of a round: the user's choice or own words, or "let the AI decide".
+    struct QuestionAnswer {
+        var id: String
+        var answer: String
+        var delegated = false
+    }
+
+    /// The user answered one question. See `answerBatch`.
     func answer(_ slug: String, question id: String, answer: String, next: Bool = true, delegated: Bool = false) async {
-        preparing.insert("answer:" + id)
-        defer { preparing.remove("answer:" + id) }
-        guard let feature = store.feature(slug), let question = feature.object(id) else { return }
-        // Open questions are asked first (the intake's, or ones passed over); a new one only when
+        await answerBatch(slug, answers: [QuestionAnswer(id: id, answer: answer, delegated: delegated)], next: next)
+    }
+
+    /// The user answered a round of questions (chose options, wrote answers, or let the AI decide
+    /// some): one AI call records the answers, turns them into decisions where a real choice was made
+    /// and into requirement changes, updates the understanding, and asks the next round.
+    /// A delegated question with a recommended answer takes that answer; without one the AI chooses.
+    /// Decisions from delegated answers are proposed (the user accepts or overrides them in Review).
+    func answerBatch(_ slug: String, answers: [QuestionAnswer], next: Bool = true) async {
+        let key = "answer:" + slug
+        preparing.insert(key)
+        defer { preparing.remove(key) }
+        guard let feature = store.feature(slug) else { return }
+        let items = answers.compactMap { a -> (given: QuestionAnswer, question: FeatureObject)? in
+            guard let q = feature.object(a.id), q.kind == .question, q.status == "open" else { return nil }
+            return (a, q)
+        }
+        guard !items.isEmpty else { return }
+        let answeredIDs = Set(items.map(\.question.id))
+        // Open questions are asked first (the intake's, or ones passed over); a new round only when
         // none is left, so the AI cannot ask again what is already open (BUG-011).
-        let next = next && !feature.list(.question).contains { $0.status == "open" && $0.id != id }
-        let options = (question.front["options"]?.list ?? []).map { "- \($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
-        let asked = delegated ? """
+        let next = next && !feature.list(.question).contains { $0.status == "open" && !answeredIDs.contains($0.id) }
+        // The delegated answers the AI must still choose (no recommendation recorded).
+        var toChoose: [String] = []
+        var block = ""
+        for (given, question) in items {
+            let options = (question.front["options"]?.list ?? []).map { "- \($0["label"]?.string ?? ""): \($0["text"]?.string ?? "")" }
+            let recommended = question.front.string("recommended")
+            block += "### \(question.id): \(question.section("Question").isEmpty ? question.title : question.section("Question"))\n"
+            if !options.isEmpty { block += "Options:\n" + options.joined(separator: "\n") + "\n" }
+            if given.delegated {
+                if recommended.isEmpty {
+                    toChoose.append(question.id)
+                    block += "Answer: the user asked you to decide this yourself — choose as an experienced product owner would (one of the options or a better one) and state it in `chosen`.\n"
+                } else {
+                    block += "Answer (the user accepted your recommendation): \(Self.recommendedAnswer(question))\n"
+                }
+            } else {
+                block += "Answer: \(given.answer)\n"
+            }
+            block += "\n"
+        }
+        let prompt = context(feature, focus: items.map(\.question.id)) + """
 
-        ## The user asked you to decide \(id) yourself
-        Question: \(question.section("Question").isEmpty ? question.title : question.section("Question"))
-        \(options.isEmpty ? "" : "Options:\n" + options.joined(separator: "\n"))
+        ## The user answered \(items.count == 1 ? "a question" : "\(items.count) questions")
 
-        Task: choose the best answer for this feature as an experienced product owner would — one of the \
-        options or a better one — and state it in `chosen` (one or two sentences, in the conversation \
-        language). Record it as a decision (has_decision true) with the alternatives and the reason, then \
-        turn it into specification, keeping the specification small.
-        """ : """
-
-        ## The user answered \(id)
-        Question: \(question.title)
-        Answer: \(answer)
-
-        Task: turn this answer into specification, keeping the specification small. If it settles a \
-        choice, write the decision (with the alternatives that were considered).
+        \(block)
+        Task: turn these answers into specification, keeping the specification small. Record a decision \
+        only when an answer chose between real alternatives the specification must remember: one decision \
+        per real choice (it settles several questions only when they are facets of the same choice; list \
+        them in `answers`); a plain clarification needs no decision. First UPDATE the existing requirements the answers refine (requirement_updates: their \
+        id, the new statement and acceptance criteria); create new requirements (0–3) only for what no \
+        existing requirement covers. Never create a requirement that restates or splits an existing one. \
+        \(toChoose.isEmpty ? "" : "In `chosen` give your answer for \(toChoose.joined(separator: ", ")) (one or two sentences each, in the conversation language). ")\
+        \(next ? "Then, with these answers taken into account: " + Self.discoveryInstruction : "Update the understanding dimensions the answers change.")
         """
-        let prompt = context(feature, focus: [id]) + asked + """
-         First UPDATE the existing \
-        requirements this answer refines (requirement_updates: their id, the new statement and acceptance \
-        criteria); create new requirements (0–2) only for what no existing requirement covers. Never create \
-        a requirement that restates or splits an existing one. \(next ? "Then, with this answer taken into account: " + Self.discoveryInstruction : "Update the understanding dimensions it changes.")
-        """
+        var decisionItem = Self.decisionSchema["properties"] as? [String: Any] ?? [:]
+        decisionItem["answers"] = Self.strings
         var properties: [String: Any] = [
-            "has_decision": ["type": "boolean"],
-            "decision": Self.decisionSchema,
+            "decisions": Self.array(Self.object(decisionItem)),
             "requirements": Self.array(Self.requirementSchema),
             "requirement_updates": Self.array(Self.object(["id": Self.string, "statement": Self.string,
                                                            "acceptance_criteria": Self.strings])),
             "understanding": Self.understandingSchema,
         ]
         if next {
-            // The next question comes in the same answer: one AI call per answer instead of two.
-            properties["has_question"] = ["type": "boolean"]
-            properties["question"] = Self.questionSchema
+            // The next round comes in the same answer: one AI call per round instead of two.
+            properties["questions"] = Self.array(Self.questionSchema)
             properties["questions_left"] = ["type": "integer"]
         }
-        if delegated { properties["chosen"] = Self.string }
-        let schema = Self.object(properties)
-        guard let result = await run("answer:" + id, prompt: prompt, schema: schema),
+        if !toChoose.isEmpty { properties["chosen"] = Self.array(Self.object(["id": Self.string, "answer": Self.string])) }
+        guard let result = await run(key, prompt: prompt, schema: Self.object(properties), effort: "medium"),
               let object = result.structured as? [String: Any] else { return }
-        let answer = delegated ? "AI: " + (object["chosen"] as? String ?? "") : answer
-        var decisionID: String?
-        if object["has_decision"] as? Bool == true || delegated, let d = object["decision"] as? [String: Any] {
-            decisionID = makeDecision(d, in: slug, status: delegated ? "proposed" : "accepted", sources: [id],
-                                      provenance: delegated ? "Chosen by AI (\(id))" : "Generated from discussion (\(id))")?.id
+
+        let chosen = (object["chosen"] as? [[String: Any]] ?? []).reduce(into: [String: String]()) {
+            if let id = $1["id"] as? String, let answer = $1["answer"] as? String { $0[id] = answer }
         }
-        let produced = applyRequirementChanges(object, in: slug, source: id, decision: decisionID)
-        if let decisionID { store.update(decisionID, in: slug) { front, _ in front.set("produces", list: produced) } }
-        store.update(id, in: slug) { front, body in
-            front.set("status", "answered")
-            front.set("answer", answer)
-            if delegated { front.set("answered_by", "ai") }
-            if let decisionID { front.set("resolved_by", decisionID) }
-            front.set("produces", list: produced)
-            body += "\n## Answer\n\n\(answer)\n"
+        var answerText: [String: String] = [:]
+        for (given, question) in items {
+            answerText[question.id] = given.delegated
+                ? "AI: " + (chosen[question.id] ?? Self.recommendedAnswer(question))
+                : given.answer
         }
-        store.appendDiscussion(slug, speaker: "Answer to \(id)", text: "\(question.title)\n\n\(answer)")
+        let delegatedIDs = Set(items.filter(\.given.delegated).map(\.question.id))
+        // Decisions: each covers the questions it lists (all of the round when it lists none).
+        var resolvedBy: [String: String] = [:]
+        var made: [String] = []
+        for d in (object["decisions"] as? [[String: Any]] ?? []).prefix(items.count) {
+            let listed = (d["answers"] as? [String] ?? []).filter { answeredIDs.contains($0) && resolvedBy[$0] == nil }
+            let sources = listed.isEmpty ? items.map(\.question.id).filter { resolvedBy[$0] == nil } : listed
+            guard !sources.isEmpty else { continue }
+            let delegated = sources.allSatisfy(delegatedIDs.contains)
+            guard let decision = makeDecision(d, in: slug, status: delegated ? "proposed" : "accepted", sources: sources,
+                                              provenance: (delegated ? "Chosen by AI (" : "Generated from discussion (") + sources.joined(separator: ", ") + ")")
+            else { continue }
+            for id in sources { resolvedBy[id] = decision.id }
+            made.append(decision.id)
+        }
+        let produced = applyRequirementChanges(object, in: slug, sources: items.map(\.question.id), decisions: made)
+        for decisionID in made { store.update(decisionID, in: slug) { front, _ in front.set("produces", list: produced) } }
+        for (given, question) in items {
+            let answer = answerText[question.id] ?? given.answer
+            store.update(question.id, in: slug) { front, body in
+                front.set("status", "answered")
+                front.set("answer", answer)
+                if given.delegated { front.set("answered_by", "ai") }
+                if let decisionID = resolvedBy[question.id] { front.set("resolved_by", decisionID) }
+                front.set("produces", list: produced)
+                body += "\n## Answer\n\n\(answer)\n"
+            }
+            store.appendDiscussion(slug, speaker: "Answer to \(question.id)", text: "\(question.title)\n\n\(answer)")
+        }
         if next { applyDiscovery(object, to: slug) } else { applyUnderstanding(object, to: slug) }
     }
 
-    /// `requirement_updates` (refinements in place) and new `requirements` (at most 2) of an AI answer.
-    /// Returns the requirement ids touched.
-    private func applyRequirementChanges(_ object: [String: Any], in slug: String, source id: String, decision decisionID: String?) -> [String] {
+    /// The recommended answer of a question as text: the recommended option ("A. …"), or the
+    /// recommendation itself when it names no option.
+    static func recommendedAnswer(_ question: FeatureObject) -> String {
+        let recommended = question.front.string("recommended")
+        let options = question.front["options"]?.list ?? []
+        if let option = options.first(where: { ($0["label"]?.string ?? "").caseInsensitiveCompare(recommended) == .orderedSame }) {
+            return "\(option["label"]?.string ?? ""). \(option["text"]?.string ?? "")"
+        }
+        return recommended
+    }
+
+    /// `requirement_updates` (refinements in place) and new `requirements` (at most 3) of an AI answer,
+    /// linked to the questions (`sources`) and decisions they come from. Returns the requirement ids touched.
+    private func applyRequirementChanges(_ object: [String: Any], in slug: String, sources: [String], decisions: [String]) -> [String] {
         var produced: [String] = []
         // Refinements of existing requirements, in place.
         for update in object["requirement_updates"] as? [[String: Any]] ?? [] {
@@ -660,15 +771,15 @@ final class FeatureAssistant: ObservableObject {
                 if !statement.isEmpty || !criteria.isEmpty {
                     body = "## Statement\n\n\(statement.isEmpty ? existing.section("Statement") : statement)\n\n## Acceptance Criteria\n\n\(criteria.isEmpty ? existing.section("Acceptance Criteria") : criteria)\n"
                 }
-                front.set("sources", list: Array(Set(front.strings("sources") + [id])).sorted())
-                if let decisionID { front.set("decisions", list: Array(Set(front.strings("decisions") + [decisionID])).sorted()) }
+                front.set("sources", list: Array(Set(front.strings("sources") + sources)).sorted())
+                if !decisions.isEmpty { front.set("decisions", list: Array(Set(front.strings("decisions") + decisions)).sorted()) }
             }
             produced.append(rid)
         }
-        for r in (object["requirements"] as? [[String: Any]] ?? []).prefix(2) {
-            if let req = makeRequirement(r, in: slug, sources: [id] + (decisionID.flatMap { $0 == id ? nil : [$0] } ?? []),
-                                         decisions: decisionID.map { [$0] } ?? [],
-                                         provenance: "Derived from \(decisionID ?? id)") {
+        let origin = decisions.first ?? sources.first ?? "discussion"
+        for r in (object["requirements"] as? [[String: Any]] ?? []).prefix(3) {
+            if let req = makeRequirement(r, in: slug, sources: Array(Set(sources + decisions)).sorted(), decisions: decisions,
+                                         provenance: "Derived from \(origin)") {
                 produced.append(req.id)
             }
         }
@@ -718,7 +829,7 @@ final class FeatureAssistant: ObservableObject {
             let answers = (item["answers"] as? [String] ?? []).filter { openIDs.contains($0) && !answered.contains($0) }
             guard let decision = makeDecision(item, in: slug, status: "proposed", sources: answers,
                                               provenance: "Decided by AI (discovery finished)") else { continue }
-            let produced = applyRequirementChanges(item, in: slug, source: decision.id, decision: decision.id)
+            let produced = applyRequirementChanges(item, in: slug, sources: answers, decisions: [decision.id])
             store.update(decision.id, in: slug) { front, _ in front.set("produces", list: produced) }
             for qid in answers {
                 store.update(qid, in: slug) { front, body in
@@ -1037,9 +1148,8 @@ final class FeatureAssistant: ObservableObject {
         \(options.isEmpty ? "" : "Ways proposed so far: " + options.joined(separator: " | "))
 
         Task: the team asked you to decide this yourself. Choose the best resolution for this feature as \
-        an experienced product owner would — one of the proposed ways or a better one — state it in \
-        `chosen` (one or two sentences), and record it as a decision (context, alternatives, decision, \
-        reason, consequences).
+        an experienced product owner would — one of the proposed ways or a better one — and state it in \
+        `chosen` (one or two sentences). \(Self.findingDecisionRule)
         """ : """
         \(id): \(finding.title)
         The team chose: \(choice)
@@ -1048,13 +1158,25 @@ final class FeatureAssistant: ObservableObject {
         Task: record this as a decision (context, alternatives, decision, reason, consequences).
         """
         var properties: [String: Any] = ["decision": Self.decisionSchema]
-        if delegated { properties["chosen"] = Self.string }
+        if delegated {
+            properties["chosen"] = Self.string
+            properties["needs_decision"] = ["type": "boolean"]
+        }
         guard let object = await structured("resolve:" + id, prompt: context(feature, focus: [id]) + "\n" + task,
-                                            schema: Self.object(properties)),
-              let d = object["decision"] as? [String: Any] else { return }
-        closeFinding(finding, in: slug, decision: d, choice: delegated ? "AI: " + (object["chosen"] as? String ?? "") : choice,
+                                            schema: Self.object(properties)) else { return }
+        let decision = delegated && object["needs_decision"] as? Bool == false ? nil : object["decision"] as? [String: Any]
+        closeFinding(finding, in: slug, decision: decision, choice: delegated ? "AI: " + (object["chosen"] as? String ?? "") : choice,
                      delegated: delegated)
     }
+
+    /// When an AI resolution of a finding is worth a decision file, and when the finding is
+    /// simply closed with its resolution text.
+    private static let findingDecisionRule = """
+    Record it as a decision (context, alternatives, decision, reason, consequences; needs_decision true) only \
+    when the resolution is a product choice the specification must remember. A finding settled by an \
+    implementation detail the implementer decides anyway, a wording fix, or something an existing \
+    requirement or decision already covers is closed with its resolution text alone (needs_decision false).
+    """
 
     /// "Decide all for me": the AI resolves every open finding itself, a few per call; the decisions
     /// are proposed. `decideProgress` tells the view how far it got.
@@ -1066,7 +1188,8 @@ final class FeatureAssistant: ObservableObject {
         let open = feature.list(.finding).filter { !$0.isClosed }
         var done = 0
         decideProgress[slug] = (0, open.count)
-        let item = Self.object(["id": Self.string, "chosen": Self.string, "decision": Self.decisionSchema])
+        let item = Self.object(["id": Self.string, "chosen": Self.string, "needs_decision": ["type": "boolean"],
+                                "decision": Self.decisionSchema])
         for start in stride(from: 0, to: open.count, by: 8) {
             guard let current = store.feature(slug) else { return }
             // Findings closed meanwhile (by hand or another action) are skipped.
@@ -1085,14 +1208,14 @@ final class FeatureAssistant: ObservableObject {
 
             Task: the team asked you to resolve these findings yourself. For each one choose the best \
             resolution for this feature as an experienced product owner would — a proposed way or a better \
-            one, consistent with the other resolutions — state it in `chosen` (one or two sentences) and \
-            record it as a decision. One entry per finding, with its id.
+            one, consistent with the other resolutions — and state it in `chosen` (one or two sentences). \
+            \(Self.findingDecisionRule) One entry per finding, with its id.
             """
             if let object = await structured(key, prompt: prompt, schema: Self.object(["resolutions": Self.array(item)]), timeout: 900) {
                 for entry in object["resolutions"] as? [[String: Any]] ?? [] {
-                    guard let fid = entry["id"] as? String, let finding = chunk.first(where: { $0.id == fid }),
-                          let d = entry["decision"] as? [String: Any] else { continue }
-                    closeFinding(finding, in: slug, decision: d, choice: "AI: " + (entry["chosen"] as? String ?? ""), delegated: true)
+                    guard let fid = entry["id"] as? String, let finding = chunk.first(where: { $0.id == fid }) else { continue }
+                    let decision = entry["needs_decision"] as? Bool == false ? nil : entry["decision"] as? [String: Any]
+                    closeFinding(finding, in: slug, decision: decision, choice: "AI: " + (entry["chosen"] as? String ?? ""), delegated: true)
                 }
             } else {
                 return
@@ -1174,17 +1297,22 @@ final class FeatureAssistant: ObservableObject {
         return (outdatedDecisions.count, outdatedFindings.count)
     }
 
-    /// A finding resolved by a decision: the decision, the finding closed, its requirements linked.
-    private func closeFinding(_ finding: FeatureObject, in slug: String, decision d: [String: Any], choice: String, delegated: Bool) {
+    /// A finding resolved: closed with its resolution and, when the resolution is a product choice
+    /// (`d` given), the decision that records it, linked to the finding's requirements.
+    private func closeFinding(_ finding: FeatureObject, in slug: String, decision d: [String: Any]?, choice: String, delegated: Bool) {
         let id = finding.id
-        guard let decision = makeDecision(d, in: slug, status: delegated ? "proposed" : "accepted", sources: [id],
-                                          provenance: delegated ? "Chosen by AI (\(id))" : "Resolved \(id)") else { return }
+        let decision = d.flatMap {
+            makeDecision($0, in: slug, status: delegated ? "proposed" : "accepted", sources: [id],
+                         provenance: delegated ? "Chosen by AI (\(id))" : "Resolved \(id)")
+        }
+        if d != nil, decision == nil { return }
         store.update(id, in: slug) { front, body in
             front.set("status", "resolved")
-            front.set("resolved_by", decision.id)
+            if let decision { front.set("resolved_by", decision.id) }
             if delegated { front.set("answered_by", "ai") }
-            body += "\n## Resolution\n\n\(choice) — see \(decision.id).\n"
+            body += "\n## Resolution\n\n\(choice)" + (decision.map { " — see \($0.id)." } ?? "") + "\n"
         }
+        guard let decision else { return }
         for target in finding.front.strings("refs") where FeatureObjectKind.of(id: target) == .requirement {
             store.update(target, in: slug) { front, _ in
                 front.set("decisions", list: Array(Set(front.strings("decisions") + [decision.id])).sorted())
@@ -1306,9 +1434,6 @@ final class FeatureAssistant: ObservableObject {
         var item = FeatureResult(title: "Discussion", text: "", pending: true, feature: slug)
         results.insert(item, at: 0)
         let prompt = context(feature, query: message) + """
-
-        ## Discussion so far
-        \(store.discussion(slug))
 
         ## New message
         \(message)
