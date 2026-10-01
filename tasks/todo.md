@@ -13,7 +13,8 @@ Boris, in the Book: "Оверлай не работает", "Не определ
       the Book with a reason; a status line says what colours the Book (Importance, AI filters, Freshness, Size).
 - [x] Boxes: the whole description (up to 240 chars) in smaller type (8.5 px) with the height following the
       wrapped text; width up to 340 px.
-- [ ] PR, merge, release.
+- [x] PR #96 merged (9d5d51f); release v3.14.0 published (`build/MarkView-3.14.0.dmg`); reinstalled on
+      Boris's request.
 
 ## Follow-up: Recursive Insight per folder or file (Boris, 2026-09-30)
 
