@@ -534,3 +534,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   of the fixture under `tools/tests/`; and run every harness touching a changed module before committing.
 - The Book X-Ray builder was checked by replaying it over this repository's `docs/` (821 chapters in 0.7 s)
   before any UI existed — the same "run it over the real data" rule as BUG-017.
+
+## The first picture decides whether a map is readable (Book X-Ray, 2026-09-30)
+- The Book opened with every part expanded and all AI-found links drawn: 43 chapters in 8.5 px type under
+  233 dashed arrows. Boris: "вообще не понятно, о чём книга" — although every box carried its text.
+- Rule: size the default view to what a reader can take in (a handful of containers with their blurbs), draw
+  the dense AI-inferred relations only around the selected box, and check the result on a real folder of the
+  user's size before shipping, not on a 5-document fixture.
