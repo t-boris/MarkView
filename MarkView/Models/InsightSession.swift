@@ -1707,6 +1707,38 @@ final class InsightSession: ObservableObject, Identifiable {
         #lb .lb-bar button { background: #f4f4f4; color: #1e1e1e; border: 1px solid #d0d0d0; border-radius: 4px; padding: 6px 12px; font-size: 14px; cursor: pointer; font-family: inherit; min-width: 36px; }
         #lb .lb-bar button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
         #lb .lb-bar .lb-pct { display: inline-flex; align-items: center; padding: 0 6px; font-size: 13px; color: #666; min-width: 50px; justify-content: center; }
+        /* The exported site follows the system theme. */
+        @media (prefers-color-scheme: dark) {
+        html, body { background: #1e1e1e; color: #d4d4d4; }
+        h1, h2, h3, h4, th, .crumb-active, .timeline time, section.insight-section h2,
+        section[data-section-type="hero"] .section-body h1, .cards-grid .card h3, .cards-grid > article h3 { color: #d4d4d4; }
+        section[data-section-type="hero"] .section-body h1 + p { color: #a0a0a0; }
+        a, .crumb { color: #4a9eff; }
+        .crumb:hover { background: #2d2d30; }
+        .crumb-sep { color: #808080; }
+        header.insight-breadcrumbs, section.insight-section { border-color: #3c3c3c; }
+        .section-body th, .section-body td { border-color: #3c3c3c; }
+        .section-body th { background: #2d2d30; }
+        .section-body tbody tr:nth-child(odd) td { background: #232323; }
+        .cards-grid .card, .cards-grid > article { background: #252526; border-color: #3c3c3c; }
+        .cards-grid .card .meta, .cards-grid > article .meta { color: #9a9a9a; }
+        .callout { background: #252526; border-left-color: #6b7280; }
+        .callout.callout-info { background: #1b2838; }
+        .callout.callout-warn { background: #2d2614; }
+        .callout.callout-danger { background: #2e1a1a; }
+        .callout.callout-tip { background: #16281f; }
+        .timeline { border-left-color: #3c3c3c; }
+        .deep-dive, .dd-btn, .iframe-footer button, #lb .lb-bar button { background: #2d2d30; color: #d4d4d4; border-color: #3c3c3c; }
+        .deep-dive:hover, .dd-btn:hover { background: #3c3c3c; border-color: #5a5a5a; }
+        .iframe-footer { background: #252526; border-top-color: #3c3c3c; }
+        .iframe-footer input#iframe-input-topic, .iframe-footer select { background: #1e1e1e; color: #d4d4d4; border-color: #3c3c3c; }
+        pre { background: #252526; color: #d4d4d4; }
+        .inferred { color: #e2a93b; border-bottom-color: #e2a93b; }
+        .skeleton-loader { background: linear-gradient(90deg, #2d2d30 25%, #3c3c3c 50%, #2d2d30 75%); background-size: 200% 100%; }
+        #lb .lb-content, #lb .lb-bar { background: #252526; }
+        #lb .lb-bar .lb-pct { color: #a0a0a0; }
+        .insight-progress-banner { color: #4a9eff; }
+        }
         """
 
         // Bootstrap script — initialises mermaid + chart, wires lightbox click-to-zoom.
@@ -1715,7 +1747,8 @@ final class InsightSession: ObservableObject, Identifiable {
         (function() {
             try {
                 if (typeof mermaid !== 'undefined') {
-                    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true } });
+                    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true },
+                                         theme: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
                     var mNodes = document.querySelectorAll('.mermaid, pre code.language-mermaid, pre.mermaid');
                     for (var i = 0; i < mNodes.length; i++) {
                         var n = mNodes[i];
