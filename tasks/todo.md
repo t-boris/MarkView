@@ -1896,3 +1896,10 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] Merge PR #48; linked GitHub issue #47 is closed as completed.
 - [x] Build and verify the signed Release 2.25.3 app and DMG; install and launch the app locally.
 - [x] Update the BUG-010 report status to `fixed` and record the root cause and verification.
+
+## BUG-017 — Issues list order within a day (2026-09-30, 3.11.1)
+- [x] Reproduce with this repository's bug reports: no `updated`, day-only `created`, seven bugs on 2026-09-29 listed alphabetically by title.
+- [x] Replace the title tie-breaker with id order (numeric-aware) in the direction of the dates; priority ties keep date descending, then newest id.
+- [x] DEC-016 amends DEC-011; REQ-002 gains the equal-dates criterion.
+- [x] `tools/tests/issue-listing-tests.sh`: same-day bugs both directions, titles ignored, priority tie. Debug build.
+- [x] PR merged, Release 3.11.1 built, signed, notarized and published.

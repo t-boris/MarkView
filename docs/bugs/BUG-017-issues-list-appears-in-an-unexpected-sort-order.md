@@ -2,7 +2,8 @@
 type: bug
 id: BUG-017
 title: Issues list appears in an unexpected sort order
-status: open
+status: fixed
+branch: fix/bug-017-same-day-issue-order
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-09-29
@@ -37,7 +38,15 @@ issue: "#71"
 
 ## Summary
 
-The reported discrepancy is narrowed to Date → Newest First in the left sidebar Issues panel. Code review confirms the documented date fallback and separate sorting of Features and Bugs, but does not identify an incorrect comparison or establish a reproducible failure.
+With Date → Newest First, the bugs filed on one day were listed alphabetically by title instead of in the order they were filed. Front matter dates name a day, so a day's items tie, and the tie-breaker was the title. Equal dates are now ordered by id, newest first.
+
+## Reproduction and root cause
+
+Reproduced with this repository's own `docs/bugs`: no report carries `updated`, every `created` is a date without a time, and BUG-015 to BUG-021 were all filed on 2026-09-29. Their effective dates are equal, so the comparator fell through to the title tie-breaker of DEC-011 and showed “Add bug discussion…” (BUG-016), “Cannot attach…” (BUG-018), “Completed AI progress…” (BUG-019), “Issues list…” (BUG-017), … — an alphabetical order unrelated to filing order. The same happens for every day with more than one bug.
+
+## Resolution
+
+`IssueSort.sorted` breaks equal dates by id with numeric comparison (“BUG-21” after “BUG-9”), newest id first under Newest First and oldest id first under Oldest First; priority ties keep date descending and then the newest id (DEC-016, amending DEC-011). The title no longer takes part. `tools/tests/issue-listing-tests.sh` covers a day's bugs in both directions, a title that would have reordered them, and a priority tie; all checks pass, and the Debug build passes.
 
 ## Steps to reproduce
 
@@ -88,5 +97,7 @@ MarkView native macOS app (macOS 13+), left sidebar Issues panel, Date → Newes
 Почини сортинг в issues, там явно не работает подать, потому что я вижу, что порядок совершенно другой, в отличие от того, как я это делал.
 
 ## AI fix attempt
+
+2026-09-30 · `fix/bug-017-same-day-issue-order`: Reproduced with the repository's own bug reports (same-day `created` dates tie, title tie-breaker scrambles the day), replaced the title tie-breaker with id order in the direction of the dates, and added regression checks. See “Reproduction and root cause” and “Resolution”.
 
 2026-09-29 · `fix/issue-workflows`: The Date → Newest First comparator and its existing regression checks match the documented `updated` → `created` → file modification time rule. No displayed issue pair, expected order, or workspace path was provided, so the reported discrepancy could not be reproduced or traced to a root cause. No code change or commit was made for BUG-017.
