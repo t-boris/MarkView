@@ -9,7 +9,22 @@ the open folder's root (AI Tools menu).
       (root page titled after it, its own cache identity); the cache stays in the open folder's cache.
 - [x] `InsightSession` takes `project` (the open folder's assistant choice answers for sub-folders) and `title`.
 - [x] File tree: "Recursive Insight" on project and linked folders, "Recursive Insight on This File" on `.md` files.
-- [x] Debug build; PR; release; install.
+- [x] Debug build; PR #102 merged; shipped in 3.17.1 (3.17.0 was not published separately).
+
+## Tasks 67–70: ask everywhere, Insight from the Book, dark Insight, readable overview (2026-09-30)
+
+Boris, live-testing: "задать вопрос по книге нельзя… ответа нет" (the ⚡ box outside the Book ran the
+highlight-only search); "Добавь кнопку Recursive Insight в панель книги"; "если тема тёмная, оставляй её
+тёмной"; "Вообще не понятно о чем книга" (43 chapters and 233 related links drawn at once).
+
+- [x] 3.17.1 (PR #103): the ⚡ box asks a question with an answer (what, why, how, origin, sources) in every view.
+- [x] 3.18.0 (PR #104): "Recursive Insight of the book / this part / this chapter" in the Book panel
+      (bridge action `recursiveInsight`).
+- [x] 3.18.1 (PR #105): the Insight page follows the app theme (data-theme at build, dark overrides, Mermaid
+      dark, theme toggle pushed into the iframe); the exported site follows the system theme.
+- [x] 3.19.0 (PR #106): a book over 20 chapters opens on its parts with blurbs; `related` links drawn only for
+      the selected box (`showRelated`, live, no relayout); ranking names sections with their chapter.
+- [x] All released (signed, notarized; DMGs in `build/`) and installed on Boris's request.
 
 ## Tasks 63–65: short container titles, Book colours, Move to Trash (2026-09-30, 3.14.1 / 3.15.0 / 3.16.0)
 
