@@ -1,5 +1,31 @@
 # MarkView — Follow-up Tasks
 
+## Task 60: Book X-Ray for document folders (2026-09-30, branch feat/book-xray, 3.12.0)
+
+Boris: the documents X-Ray should work like a book made from all the folders — chapters, sections,
+cross-references; drill down to a section and open it; a section says what it is so everything is
+visible at once; large documents (any text format) break down further into components inside the
+X-Ray before opening; the goal is to understand what you need as fast as possible.
+
+Decisions (asked, 2026-09-30): deterministic skeleton (folders → parts, documents → chapters,
+headings → sections), AI writes annotations; annotations for all sections at Analyze, cached by
+content; explicit links resolved to the section plus AI "related" links; folders only.
+
+- [x] `Models/BookBuilder.swift`: formats (md, txt, rst, adoc, org), headings, GitHub slugs, chapters
+      with nested sections and ranges, links (inline, reference, wiki, xref, RST) resolved to the
+      section, reading order, nodes and `links` edges; `WikiLinkResolver` shared with the editor.
+- [x] `Models/BookAnnotator.swift`: chapter prompt/schema, windows, validation, apply (summaries,
+      importance, `related` edges, AI sections for headless documents, items via `XRayContent.nodes`),
+      parts/book call. `ArchitectureStore.annotateBook` (Analyze step 4), `describeBook`.
+- [x] Model/DB: `ArchNode.endLine`; `arch_nodes.line/end_line/anchor`; `ORDER BY rowid`.
+- [x] Scanner: text documents, Book view via `BookBuilder`; store: carry-over on rescan, section ranges
+      in ratings/filters/search, book hints for ⚡ search.
+- [x] Web view: Book button, annotation line in labels, auto-open parts, dashed `related` edges,
+      open at line, panel (overview, lineage, cross-references, Describe buttons).
+- [x] `tools/tests/book-xray-tests.sh` (builder + annotator); replay over `docs/` (821 chapters,
+      3556 sections, 191/195 links resolved, 0.7 s); Debug build.
+- [ ] Docs (module reference, feature spec), PR, merge, release.
+
 ## BUG-022: DDE Settings changes the assistant for every project (2026-09-30, branch fix/bug-022-settings-assistant-per-window, 3.11.2)
 
 Boris: "Раздели определение агента по окнам. Когда в одном проекте меняешь модель — она не должна

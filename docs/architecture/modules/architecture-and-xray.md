@@ -27,7 +27,8 @@ The subsystem owns:
 
 - **Scanning without AI** (`ArchitectureScanner`). It lists the project's files, resolves
   imports and type references into file-level edges, reads declared external packages from
-  manifests, builds the Docs view (links, H1/H2 sections), computes per-file metrics
+  manifests, builds the Book view through `BookBuilder` (parts, chapters, nested sections,
+  links resolved to the section), computes per-file metrics
   (LOC, McCabe complexity per function, commits and bug-fix commits from git, tests, lcov or
   Cobertura line coverage) and documentation coverage, and lists deployment config files.
   See `MarkView/Models/ArchitectureScanner.swift:44-112`.
@@ -85,7 +86,10 @@ It does **not** own:
 | Path | Role |
 |---|---|
 | `MarkView/Models/ArchitectureModel.swift` | Codable data model: `ArchNode`, `ArchEdge`, `ArchView`, `CoverageEntry`, `FileMetrics`, `LogicalAssignment`, `LogicalComponent`, `ArchitectureSnapshot` |
-| `MarkView/Models/ArchitectureScanner.swift` | Deterministic scan: file listing, git history, import resolution (`ImportResolver`), Modules and Docs views, coverage, metrics, diff dependency changes |
+| `MarkView/Models/ArchitectureScanner.swift` | Deterministic scan: file listing, git history, import resolution (`ImportResolver`), Modules and Book views, coverage, metrics, diff dependency changes |
+| `MarkView/Models/BookBuilder.swift` | The Book's skeleton without AI: text-document formats and their headings, GitHub slugs, chapters with nested sections and line ranges, link extraction (Markdown, reference, wiki, AsciiDoc, RST) and resolution to the section, reading order, nodes and `links` edges |
+| `MarkView/Models/BookAnnotator.swift` | The Book's AI step as pure functions: the chapter prompt and schema, windows for long chapters, answer validation, applying summaries, importance, `related` edges, AI sections for headless documents and items; the parts/book call |
+| `MarkView/Models/WikiLinkResolver.swift` | Obsidian's choice among same-named notes (own folder, shortest path, alphabetical); used by the editor's wiki-link click and the Book |
 | `MarkView/Models/ArchitectureStore.swift` | `@MainActor` state and orchestration: scan, the 4-step AI analysis, Logical view derivation, contents, ratings, filters, ⚡ search, edge notes, PR overlay, persistence, web payload |
 | `MarkView/Models/XRayDigest.swift` | Unit folder plan and project overview for prompts; `completedObjects` and related parsers for streamed JSON |
 | `MarkView/Models/XRayCluster.swift` | Louvain clustering of unit folders into clusters (components) and groups (provisional subsystems) |
@@ -133,7 +137,7 @@ Node id prefixes, which the JS relies on:
 |---|---|---|
 | `m:` / `m:<path>` | Structure root / folder or file | `ArchitectureScanner.swift:296,311,322` |
 | `x:` / `x:<pkg>` | External group / package | `ArchitectureScanner.swift:400-402` |
-| `d:` / `d:<dir>/` / `d:<doc>` / `d:<doc>#L<n>` | Docs root / folder / document / section | `ArchitectureScanner.swift:492-545` |
+| `d:` / `d:<dir>/` / `d:<doc>` / `d:<doc>#<slug>` / `d:<doc>#<slug>/<c>.<g>.<i>` | Book / part / chapter / section (GitHub heading slug, `-1`, `-2` for duplicates; nested through `parent`) / item under a section | `BookBuilder.swift` (`build`, `chapter`), `XRayContent.nodes(idBase:)` |
 | `l:` / `l:c:<comp>` / `l:f:<path>` / `l:d:<comp>\|<folder>` / `l:c:_other` | Logical root / component / file / folder group / Unassigned | `ArchitectureStore.swift:946-977` |
 | `l:e:<path>#<c>.<g>.<i>` | Content collection / group / item | `XRayContent.swift:287-315` |
 | `p:` / `p:<id>` / `p:<id>\|<moduleId>` | Deployment root / node / module running in it | `ArchitectureStore.swift:579-592` |
@@ -157,9 +161,12 @@ Rating keys: `p:<path>`, `c:<componentId>`, `dep:<deploymentId>` or a Docs secti
   - Adds type-reference edges for Swift, Java, Kotlin, Scala, C#, Dart and ObjC: a type
     declared in exactly one file gets an edge from every file that names it (`:380-397`).
   - Draws an external package only if a manifest declares it (`:361-365`, `:429-478`).
-- `buildDocsView` (`:490-588`) reads documents in parallel with
-  `DispatchQueue.concurrentPerform`. It extracts markdown links and path-like tokens that
-  mention source files or folders.
+- `buildDocsView` reads every text document (`BookBuilder.isTextDocument`: Markdown,
+  `.txt`, `.rst`, `.adoc`, `.org`) in parallel with `DispatchQueue.concurrentPerform`,
+  turning each into a `BookBuilder.Chapter` (title, nested sections with line ranges, links)
+  and the set into the Book view with `BookBuilder.build`. It keeps the path-like tokens and
+  links that mention source files for documentation coverage. Only Markdown also joins the
+  Structure and Logical views.
 - `computeCoverage` (`:620-665`) gives each file `none`, `fresh` or `stale`. A folder
   mention counts only when the folder holds 25 or fewer source files.
 - `functionComplexity` (`:698-746`) matches functions with per-language regexes, finds
@@ -368,7 +375,7 @@ It does not carry the Deployment view's freshness forward: the view is kept as i
   `l:c:_other` (`:346-351`)
 - the stored `language` differs from `graphLanguage`
 
-### 5.2 AI analysis: build and name the graph (4 steps)
+### 5.2 AI analysis: build and name the graph (5 steps)
 
 ```mermaid
 flowchart TD
@@ -385,7 +392,8 @@ flowchart TD
     I --> J
     J --> K["Step 3: Mapping deployment<br/>await deployment, insert view"]
     K --> L[enrichedAt, language, commit]
-    L --> M["Step 4: Indexing file contents<br/>buildOutlines (local)"]
+    L --> M["Step 4: Annotating the book<br/>one call per chapter, 4 in flight (xrayCall)"]
+    M --> N["Step 5: Indexing file contents<br/>buildOutlines (local)"]
 ```
 
 1. **Structure** (`ArchitectureStore.swift:412-422`). The plan and the clusters are
@@ -409,7 +417,11 @@ flowchart TD
      `calls` edges.
    - It is skipped when the deployment config signature has not changed and a Deployment
      view exists (`:512-515`).
-4. **Contents** (§5.4).
+4. **Book** (§5.11). One call per chapter whose content signature, output language or
+   prompt version changed since it was annotated (`annotateBook`), windows of at most 2500
+   lines for long chapters, four calls in flight, at most 150 calls per Analyze; then one
+   call per 35 parts for the parts' blurbs and the book summary. Answers land one by one.
+5. **Contents** (§5.4).
 
 Cancelling (`cancelAnalysis`, where the JS Stop button posts `cancelAnalysis`) cancels
 `analysisTask`. The structure found so far is committed if it differs (`:442-444`).
@@ -417,6 +429,44 @@ Cancelling (`cancelAnalysis`, where the JS Stop button posts `cancelAnalysis`) c
 **Answer cache.** `xrayCall` hashes the complete request. Unchanged input (for example the
 same clusters) is answered from `.dde/cache/xray/<hash>.json` without calling the AI
 (`:628-637`).
+
+### 5.11 The Book: documents as parts, chapters and sections
+
+The Book view (`docs`, button "Book") is the X-Ray of a project's or folder's text documents.
+
+- **Skeleton, no AI** (`BookBuilder`, in the scan). Folders are parts (`dir`), documents are
+  chapters (`doc`; the title H1 names it when it is the only H1), headings H1–H6 are sections
+  (`section`) nested by level through `parent`, each with `line`, `endLine` (to the next
+  heading of the same or a higher level) and `anchor`. Ids use GitHub heading slugs so a
+  heading keeps its id when it moves, and `file.md#anchor` links resolve by string equality.
+  At most 300 sections per chapter (deepest levels dropped first; links to a dropped heading
+  land on its nearest kept ancestor). Reading order: README/index first, then natural sort.
+  Links in the text — inline, reference-style, wiki (`[[Doc#Heading|alias]]`), AsciiDoc
+  `xref:`, RST `<path>`_ — become `links` edges from the innermost section containing the
+  link to the section (or chapter) they name; self, ancestor and descendant links are dropped,
+  repeats add weight. Wiki names resolve with `WikiLinkResolver` (own folder, shortest path).
+- **Annotations** (`BookAnnotator`, Analyze step 4 or "Describe this chapter" /
+  "Describe remaining chapters" → bridge action `describeBook`). Per chapter the AI returns
+  the chapter summary and importance, a summary, importance and `refs` per section, and for
+  large chapters (> 300 lines or > 12 sections) or documents without headings the items each
+  section is made of (`items` → `XRayContent.nodes(idBase:)` under the section) and, for
+  headless documents, the sections themselves. `refs` become `related` edges (dashed in the
+  web view, the reason in `label`). Importance goes into `ratings["importance"]` under
+  `p:<path>` and section ids, so the Importance overlay colours the book. The chapter's
+  `summarySignature` is `<content SHA>|<language>|<prompt version>`; `xrayCall` caches the
+  answers, and `scan` carries annotations, items and `related` edges of unchanged chapters
+  into the rescanned view (`carryBookAnnotations`), section summaries by id for changed ones.
+- **Web view.** Parts open by default (top-level parts only above 60 chapters), chapters
+  closed. Labels show the title and the first sentence of the annotation; a chapter is the
+  aggregation boundary like a file. Double-click opens a chapter's sections, then a section's
+  sub-sections and items; a leaf section or item opens the document at its line (`openFile`
+  with `line` and `find`). The panel shows the lineage ("In: part › chapter"), the summary,
+  the line range, and the cross-references both ways from the view's own edges (closed
+  targets included), each a button that focuses the target.
+- **Search.** `bookSections(in:)` gives every section with its range; ⚡ filters, "I Need to
+  Understand" and the keyword scoring rate nested sections by their ranges (`searchTable`),
+  and the ⚡ search prompt gets up to 15 annotated sections whose title or summary mention the
+  question (`bookHints`).
 
 ### 5.3 Logical view derivation (deterministic)
 
@@ -641,7 +691,7 @@ cannot be written, it falls back to `~/Library/Application Support/MarkView/<fol
 
 | Table | Columns | Content |
 |---|---|---|
-| `arch_nodes` | `view, id` (PK), `parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json` | Nodes of every stored view (`logical`, `modules`, `deployment`, `docs`) |
+| `arch_nodes` | `view, id` (PK), `parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json, line, end_line, anchor` | Nodes of every stored view (`logical`, `modules`, `deployment`, `docs`); read back `ORDER BY rowid`, so the Book keeps its reading order |
 | `arch_edges` | `view, source, target, kind` (PK), `weight, label` | Edges |
 | `arch_coverage` | `node_id` PK, `status`, `docs_json` | `CoverageEntry` by `m:<path>` |
 | `arch_metrics` | `node_id` PK, `json` | `FileMetrics` JSON |

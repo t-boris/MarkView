@@ -330,7 +330,7 @@ final class ArchitectureStore: ObservableObject {
             }
             var views = [modules]
             if let deployment = previous?.view("deployment") { views.append(deployment) }
-            views.append(result.docs)
+            views.append(Self.carryBookAnnotations(from: previous?.view("docs"), into: result.docs))
             var next = ArchitectureSnapshot(views: views, coverage: result.coverage, metrics: result.metrics,
                                             coverageReport: result.coverageReport,
                                             deploymentSignature: previous?.deploymentSignature,
@@ -341,7 +341,9 @@ final class ArchitectureStore: ObservableObject {
                                             logicalSignature: previous?.logicalSignature,
                                             language: previous?.language,
                                             logicalDraft: previous?.logicalDraft ?? false,
-                                            ratings: (previous?.ratings ?? [:]).mapValues { Self.keepCurrentRatings($0, modules: modules) },
+                                            ratings: (previous?.ratings ?? [:]).mapValues {
+                                                Self.keepBookRatings(Self.keepCurrentRatings($0, modules: modules), docs: result.docs)
+                                            },
                                             deploymentHints: result.deploymentHints, scannedAt: Date(),
                                             enrichedAt: previous?.enrichedAt, gitHead: result.gitHead)
             pendingDeploymentSignature = result.deploymentSignature
@@ -460,7 +462,10 @@ final class ArchitectureStore: ObservableObject {
                 commit(next, db: db)
                 if let deploymentError { self.error = deploymentError }
 
-                beginStep(4, "Indexing file contents", started: started)
+                beginStep(4, "Annotating the book", started: started)
+                try await annotateBook(root: root, db: db, only: nil)
+
+                beginStep(5, "Indexing file contents", started: started)
                 await outlineTask?.value
                 await buildOutlines(root: root)
             } catch is CancellationError {
@@ -478,10 +483,10 @@ final class ArchitectureStore: ObservableObject {
         analysisTask?.cancel()
     }
 
-    private func beginStep(_ step: Int, _ title: String, started: Date) {
+    private func beginStep(_ step: Int, _ title: String, started: Date, steps: Int = 5) {
         setStatus(title + "…")
         let tool = AIAssistantPreferences.backend(project: project)
-        progress = AnalysisProgress(step: step, steps: 4, title: title, scope: nil,
+        progress = AnalysisProgress(step: step, steps: steps, title: title, scope: nil,
                                     startedAt: started, stepStartedAt: Date(),
                                     assistant: AIAssistantPreferences.summary(tool: tool, model: AIAssistantPreferences.xrayModel(for: tool, project: project) ?? ""))
     }
@@ -1112,7 +1117,7 @@ final class ArchitectureStore: ObservableObject {
         revision += 1
 
         let missing = files.filter { outlines[$0.path] == nil }
-        if progress?.step == 4 {
+        if progress?.step == 5 {
             progress?.current = "Building local file outlines"
             progress?.total = min(missing.count, 5000)
             progress?.unit = "files"
@@ -1132,7 +1137,7 @@ final class ArchitectureStore: ObservableObject {
         }.value
         guard !Task.isCancelled else { return }
         outlines.merge(found) { old, new in old.source == "ai" ? old : new }
-        if progress?.step == 4 { progress?.done = min(missing.count, 5000) }
+        if progress?.step == 5 { progress?.done = min(missing.count, 5000) }
         revision += 1
     }
 
@@ -1243,9 +1248,9 @@ final class ArchitectureStore: ObservableObject {
                 items.append(.init(key: "p:" + path, label: node.name,
                                    detail: "Document \(path), \(node.loc) lines\n" + String(body.prefix(700))))
             case "section":
-                guard let path = node.path, let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { continue }
+                guard let path = node.path, let line = node.line else { continue }
                 items.append(.init(key: node.id, label: node.name,
-                                   detail: ImportanceRater.sectionText(text(of: path), fromLine: line)))
+                                   detail: ImportanceRater.sectionText(text(of: path), fromLine: line, toLine: node.endLine ?? Int.max)))
             default:
                 continue
             }
@@ -1301,8 +1306,8 @@ final class ArchitectureStore: ObservableObject {
             return
         }
         let files = current.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
-        let sections = (current.view("docs")?.nodes ?? []).filter { $0.kind == "section" && $0.path != nil }
-            .map { (id: $0.id, name: $0.name, path: $0.path!) }
+        let sections = Self.bookSections(in: current)
+        let names = Dictionary((current.view("docs")?.nodes ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
         let label = "Finding “\(filter.criterion)”…"
         setStatus(label)
         let cache = answerCache(root)
@@ -1318,8 +1323,8 @@ final class ArchitectureStore: ObservableObject {
                     for section in sections {
                         let text = texts[section.path] ?? ((try? String(contentsOf: root.appendingPathComponent(section.path), encoding: .utf8)) ?? "")
                         texts[section.path] = text
-                        guard let line = Int(section.id.split(separator: "#").last?.dropFirst() ?? "") else { continue }
-                        bySection[section.id] = FilterSearch.score(name: section.name, text: ImportanceRater.sectionText(text, fromLine: line, limit: 6000), terms: terms)
+                        bySection[section.id] = FilterSearch.score(name: names[section.id] ?? "",
+                            text: ImportanceRater.sectionText(text, fromLine: section.line, toLine: section.end, limit: 6000), terms: terms)
                     }
                     return (byFile, bySection)
                 }.value
@@ -1415,11 +1420,7 @@ final class ArchitectureStore: ObservableObject {
         liveSearch[id] = nil
         revision += 1
         let current = snapshot
-        let sections = (current?.view("docs")?.nodes ?? []).compactMap { node -> (id: String, path: String, line: Int)? in
-            guard node.kind == "section", let path = node.path,
-                  let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { return nil }
-            return (node.id, path, line)
-        }
+        let sections = Self.bookSections(in: current)
         let files = Array(Set((current?.view("modules")?.nodes.compactMap(\.path) ?? [])
                              + (current?.view("docs")?.nodes.compactMap(\.path) ?? [])))
         understandingTasks[id] = Task {
@@ -1601,12 +1602,10 @@ final class ArchitectureStore: ObservableObject {
     /// other file stays uncoloured. Places stream in as the AI writes them.
     private func aiSearch(filter: ImportanceRater.Filter, snapshot current: ArchitectureSnapshot, root: URL, db: SemanticDatabase?) {
         let filterId = filter.id
-        let files = current.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? []
-        let sections = (current.view("docs")?.nodes ?? []).filter { $0.kind == "section" && $0.path != nil }
-            .compactMap { node -> (id: String, path: String, line: Int)? in
-                guard let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { return nil }
-                return (node.id, node.path!, line)
-            }
+        // Code files and every chapter of the Book (text documents beyond Markdown included).
+        let files = Array(Set((current.view("modules")?.nodes.filter { $0.kind == "file" }.compactMap(\.path) ?? [])
+                             + (current.view("docs")?.nodes.filter { $0.kind == "doc" }.compactMap(\.path) ?? [])))
+        let sections = Self.bookSections(in: current)
         let symbol = searchSymbols[filter.criterion]
         setStatus(symbol != nil ? "Finding everything related to \(symbol!.name)…" : "Searching “\(filter.criterion)”…")
         let cache = answerCache(root)
@@ -1614,7 +1613,7 @@ final class ArchitectureStore: ObservableObject {
             defer { rating.remove("search|" + filterId); if status?.hasPrefix("Search") == true || status?.hasPrefix("Finding") == true || status?.hasPrefix("AI") == true { setStatus(nil) } }
             do {
                 // 1. Candidates in seconds: keyword hits, or where the element is defined and used.
-                let hints: [String]
+                var hints: [String]
                 var table: [String: ImportanceRater.Rating] = [:]
                 if let symbol {
                     hints = await Task.detached(priority: .userInitiated) { XRaySearch.symbolHints(symbol, root: root) }.value
@@ -1631,6 +1630,7 @@ final class ArchitectureStore: ObservableObject {
                         .prefix(30)
                         .map { "- \($0.key) (mentions \($0.value.hits.prefix(4).joined(separator: ", ")))" }
                 }
+                hints += Self.bookHints(for: filter.criterion, in: current)
                 guard var next = snapshot else { return }
                 next.ratings[filterId] = table
                 commit(next, db: db)
@@ -1874,7 +1874,7 @@ final class ArchitectureStore: ObservableObject {
     private var liveSearchPending: Set<String> = []
 
     private func receiveSearch(_ activity: CLICompletion.Activity, filterId: String, root: URL,
-                               sections: [(id: String, path: String, line: Int)]) {
+                               sections: [BookSection]) {
         switch activity {
         case .read(let path):
             let base = root.standardizedFileURL.path + "/"
@@ -1908,19 +1908,18 @@ final class ArchitectureStore: ObservableObject {
 
     /// Ratings from the search's places: "strong" for every file with a place (and every
     /// document section a place falls in), "none" for nothing else — unrated means uncoloured.
-    nonisolated private static func searchTable(_ places: [XRaySearch.Place], sections: [(id: String, path: String, line: Int)],
+    nonisolated private static func searchTable(_ places: [XRaySearch.Place], sections: [BookSection],
                                                 confirmed: Bool) -> [String: ImportanceRater.Rating] {
         var table: [String: ImportanceRater.Rating] = [:]
         let byPath = Dictionary(grouping: places, by: \.path)
         for (path, found) in byPath {
             table["p:" + path] = .init(level: "strong", reason: XRaySearch.reason(for: found), provisional: !confirmed)
         }
+        // Every section whose lines a place touches: nested sections and their parents alike.
         let sectionsByPath = Dictionary(grouping: sections, by: \.path)
         for (path, found) in byPath {
-            let ordered = (sectionsByPath[path] ?? []).sorted { $0.line < $1.line }
-            for (i, section) in ordered.enumerated() {
-                let end = i + 1 < ordered.count ? ordered[i + 1].line - 1 : Int.max
-                let inside = found.filter { $0.start <= end && $0.end >= section.line }
+            for section in sectionsByPath[path] ?? [] {
+                let inside = found.filter { $0.start <= section.end && $0.end >= section.line }
                 if !inside.isEmpty {
                     table[section.id] = .init(level: "strong", reason: XRaySearch.reason(for: inside), provisional: !confirmed)
                 }
@@ -3373,11 +3372,7 @@ final class ArchitectureStore: ObservableObject {
     /// outside their persisted snapshots, and project it onto the current graph.
     private func withUnderstandingEvidence(_ value: ArchitectureSnapshot) -> ArchitectureSnapshot {
         var next = value
-        let sections = (value.view("docs")?.nodes ?? []).compactMap { node -> (id: String, path: String, line: Int)? in
-            guard node.kind == "section", let path = node.path,
-                  let line = Int(node.id.split(separator: "#").last?.dropFirst() ?? "") else { return nil }
-            return (node.id, path, line)
-        }
+        let sections = Self.bookSections(in: value)
         for (id, ratings) in understandingRatings {
             var table = ratings
             if let answer = searchAnswers[id] {
@@ -3440,5 +3435,224 @@ final class ArchitectureStore: ObservableObject {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+    }
+
+    // MARK: - Book
+
+    /// A Book section with the lines it spans.
+    typealias BookSection = (id: String, path: String, line: Int, end: Int)
+
+    nonisolated static func bookSections(in snapshot: ArchitectureSnapshot?) -> [BookSection] {
+        (snapshot?.view("docs")?.nodes ?? []).compactMap { node in
+            guard node.kind == "section", let path = node.path, let line = node.line else { return nil }
+            return (node.id, path, line, node.endLine ?? Int.max)
+        }
+    }
+
+    /// Annotated Book sections whose title or summary mention the question's words: where the
+    /// ⚡ search should read first, as `- path:start-end "title" — summary` lines (at most 15).
+    nonisolated static func bookHints(for criterion: String, in snapshot: ArchitectureSnapshot) -> [String] {
+        let words = Set(criterion.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count > 2 })
+        guard !words.isEmpty, let book = snapshot.view("docs") else { return [] }
+        return book.nodes.compactMap { node -> (Int, String)? in
+            guard node.kind == "section", let path = node.path, let line = node.line,
+                  let summary = node.summary, !summary.isEmpty else { return nil }
+            let text = (node.name + " " + summary).lowercased()
+            let score = words.filter { text.contains($0) }.count
+            guard score > 0 else { return nil }
+            return (score, "- \(path):\(line)-\(node.endLine ?? line) \"\(node.name)\" — \(summary.prefix(140))")
+        }.sorted { $0.0 > $1.0 }.prefix(15).map(\.1)
+    }
+
+    /// Ratings keyed by Book node ids survive only while the node exists (a renamed heading, or
+    /// a section id of the form the Docs view used before the Book, lapses).
+    nonisolated static func keepBookRatings(_ ratings: [String: ImportanceRater.Rating], docs: ArchView)
+        -> [String: ImportanceRater.Rating] {
+        let ids = Set(docs.nodes.map(\.id))
+        return ratings.filter { key, _ in !key.hasPrefix("d:") || ids.contains(key) }
+    }
+
+    /// The AI's work on the previous Book carried into a rescanned one, so a reopened or rescanned
+    /// book is never blank: part and book summaries by id; for an unchanged chapter (same content
+    /// signature) its summary, section summaries, items and related links; for a changed chapter
+    /// the section summaries by id only — its `summarySignature` differs, so Analyze redoes it.
+    nonisolated static func carryBookAnnotations(from previous: ArchView?, into docs: ArchView) -> ArchView {
+        guard let previous else { return docs }
+        var next = docs
+        let before = Dictionary(previous.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let ids = Set(next.nodes.map(\.id))
+        var unchanged: Set<String> = []     // chapter paths
+        for i in next.nodes.indices {
+            guard let old = before[next.nodes[i].id] else { continue }
+            switch next.nodes[i].kind {
+            case "root", "dir", "section":
+                next.nodes[i].summary = old.summary
+            case "doc":
+                guard old.signature == next.nodes[i].signature else { continue }
+                next.nodes[i].summary = old.summary
+                next.nodes[i].summarySignature = old.summarySignature
+                if let path = next.nodes[i].path { unchanged.insert(path) }
+            default:
+                continue
+            }
+        }
+        // Items of unchanged chapters, when the section they hang under still exists.
+        var carried: [ArchNode] = []
+        for node in previous.nodes where ["collection", "group", "entity"].contains(node.kind) {
+            guard let path = node.path, unchanged.contains(path) else { continue }
+            carried.append(node)
+        }
+        let carriedIds = Set(carried.map(\.id))
+        let known = ids.union(carriedIds)
+        next.nodes += carried.filter { $0.parent.map { known.contains($0) } ?? false }
+        let present = Set(next.nodes.map(\.id))
+        let chapterOf = Dictionary(next.nodes.compactMap { node in node.path.map { (node.id, $0) } }, uniquingKeysWith: { a, _ in a })
+        for edge in previous.edges where edge.kind == "related" {
+            guard present.contains(edge.source), present.contains(edge.target),
+                  let path = chapterOf[edge.source], unchanged.contains(path) else { continue }
+            next.edges.append(edge)
+        }
+        return next
+    }
+
+    /// Chapters annotated in one Analyze; the rest wait for "Describe remaining chapters".
+    private static let maxBookCalls = 150
+    private static let bookConcurrency = 4
+
+    /// Step 4 of Analyze (and "Describe this chapter"): the AI writes what every chapter and
+    /// section says, finds related sections and, for large chapters, lists the items they are
+    /// made of. One call per chapter (windows for very long ones), answers applied as they land.
+    /// `only` limits the work to one chapter path; nil annotates every chapter whose text or
+    /// language changed since it was last annotated.
+    private func annotateBook(root: URL, db: SemanticDatabase?, only: String?) async throws {
+        guard let current = snapshot, let view = current.view("docs") else { return }
+        let language = ActionOutputLanguage.current
+        let book = BookAnnotator.Book(view: view, language: language)
+        var pending = book.chapters.filter { chapter in
+            only.map { chapter.path == $0 } ?? !chapter.isCurrent
+        }
+        guard !pending.isEmpty else { return }
+        // Front matter first, then the most linked-to, then the largest.
+        var inDegree: [String: Int] = [:]
+        for edge in view.edges where edge.kind == "links" { inDegree[String(edge.target.prefix { $0 != "#" }), default: 0] += edge.weight }
+        pending.sort { a, b in
+            if a.isFrontMatter != b.isFrontMatter { return a.isFrontMatter }
+            let ia = inDegree[a.id] ?? 0, ib = inDegree[b.id] ?? 0
+            if ia != ib { return ia > ib }
+            return a.lines > b.lines
+        }
+        var jobs: [BookAnnotator.Job] = []
+        for chapter in pending {
+            for window in BookAnnotator.windows(for: chapter) {
+                guard jobs.count < Self.maxBookCalls else { break }
+                jobs.append(BookAnnotator.Job(chapter: chapter, window: window))
+            }
+        }
+        let chapterIds = Set(jobs.map(\.chapter.id))
+        progress?.total = chapterIds.count
+        progress?.done = 0
+        progress?.unit = "chapters"
+        progress?.scope = only == nil ? "\(book.chapters.count) chapters" : nil
+        describing.formUnion(chapterIds)
+        revision += 1
+        defer { describing.subtract(chapterIds) }
+
+        var remaining = Dictionary(grouping: jobs, by: { $0.chapter.id }).mapValues(\.count)
+        var landed = 0
+        var work = view
+        var ratings = current.ratings[ImportanceRater.importance.id] ?? [:]
+        func publish(save: Bool) {
+            guard var next = snapshot, let index = next.views.firstIndex(where: { $0.id == "docs" }) else { return }
+            next.views[index] = work
+            next.ratings[ImportanceRater.importance.id] = ratings
+            if save { commit(next, db: db) } else { snapshot = next; revision += 1 }
+        }
+
+        try await withThrowingTaskGroup(of: (Int, [String: Any]?, [String]).self) { group in
+            var nextJob = 0
+            func start(_ i: Int) {
+                let job = jobs[i]
+                group.addTask { @MainActor in
+                    let lines = await Task.detached(priority: .userInitiated) { () -> [String] in
+                        ((try? String(contentsOf: root.appendingPathComponent(job.chapter.path), encoding: .utf8)) ?? "")
+                            .editorLines.map(String.init)
+                    }.value
+                    guard !lines.isEmpty else { return (i, nil, []) }
+                    let built = BookAnnotator.request(job: job, book: book, lines: lines)
+                    var request = CLICompletion.Request(project: self.project, prompt: built.prompt,
+                                                        systemPrompt: built.system, jsonSchema: built.schema)
+                    request.timeout = job.chapter.isLarge ? 240 : 120
+                    request.label = "xray-book:" + job.chapter.path
+                    do {
+                        let answer = try await self.xrayCall(request, root: root, db: db, call: 100 + i,
+                                                             accept: { BookAnnotator.isUsable($0, job: job) })
+                        return (i, BookAnnotator.isUsable(answer, job: job) ? answer : nil, lines)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        self.error = "Could not annotate \((job.chapter.path as NSString).lastPathComponent): \(error.localizedDescription)"
+                        return (i, nil, lines)
+                    }
+                }
+            }
+            while nextJob < min(Self.bookConcurrency, jobs.count) { start(nextJob); nextJob += 1 }
+            for try await (i, answer, lines) in group {
+                try Task.checkCancellation()
+                if nextJob < jobs.count { start(nextJob); nextJob += 1 }
+                let job = jobs[i]
+                if let answer {
+                    let result = BookAnnotator.apply(answer, job: job, to: work, lines: lines)
+                    work = result.view
+                    for (key, level) in result.importance where ratings[key] == nil || ratings[key]?.provisional == true {
+                        ratings[key] = .init(level: level, reason: "", signature: nil, provisional: nil)
+                    }
+                } else if job.window.index == 0 {
+                    self.error = self.error ?? "Could not annotate \((job.chapter.path as NSString).lastPathComponent): the assistant gave no usable answer."
+                }
+                remaining[job.chapter.id, default: 1] -= 1
+                if remaining[job.chapter.id] == 0 {
+                    describing.remove(job.chapter.id)
+                    landed += 1
+                    progress?.done = landed
+                    progress?.current = "Annotated \(landed) of \(chapterIds.count) chapters"
+                }
+                publish(save: landed % 5 == 0)
+            }
+        }
+
+        // The parts and the book itself, from the chapter summaries.
+        if only == nil || jobs.count > 0 {
+            progress?.current = "Describing the parts"
+            let parts = BookAnnotator.partsRequests(view: work, language: language)
+            for (index, built) in parts.enumerated() {
+                try Task.checkCancellation()
+                var request = CLICompletion.Request(project: project, prompt: built.prompt, systemPrompt: built.system, jsonSchema: built.schema)
+                request.timeout = 180
+                request.label = "xray-book:parts"
+                if let answer = try? await xrayCall(request, root: root, db: db, call: 90 + index) {
+                    work = BookAnnotator.applyParts(answer, to: work)
+                }
+            }
+        }
+        publish(save: true)
+    }
+
+    /// "Describe this chapter" / "Describe remaining chapters" from the Book view's panel.
+    func describeBook(path: String?, root: URL, db: SemanticDatabase?) {
+        guard !busy, snapshot?.view("docs") != nil else { return }
+        busy = true
+        error = nil
+        let started = Date()
+        analysisTask = Task {
+            defer { busy = false; progress = nil; analysisTask = nil; answerByCall = [:] }
+            beginStep(1, "Annotating the book", started: started, steps: 1)
+            do {
+                try await annotateBook(root: root, db: db, only: path)
+            } catch is CancellationError {
+            } catch {
+                self.error = "Annotating the book failed: \(error.localizedDescription)"
+            }
+            setStatus(nil)
+        }
     }
 }

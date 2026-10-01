@@ -49,13 +49,18 @@ struct ArchitectureScanner {
 
         // Source files for the Modules view.
         var sources: [(path: String, language: String)] = []
-        var docs: [String] = []
+        var docs: [String] = []       // Markdown: the Structure and Logical views and the Book
+        var textDocs: [String] = []   // other text documents (.txt, .rst, .adoc, .org): the Book only
         var hints: [String] = []
         for path in allFiles {
             let url = root.appendingPathComponent(path)
             let name = url.lastPathComponent
             if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
                 docs.append(path)
+                continue
+            }
+            if BookBuilder.isTextDocument(path) {
+                textDocs.append(path)
                 continue
             }
             if Self.isDeploymentHint(path) { hints.append(path) }
@@ -74,9 +79,9 @@ struct ArchitectureScanner {
         // Documents are project content too (a notes vault is mostly markdown): they join
         // the Structure and Logical views. Metrics that only mean something for code
         // (complexity, tests, doc coverage) still use `sources` alone.
-        for (index, doc) in docs.enumerated() {
+        for (index, doc) in (docs + textDocs).enumerated() {
             contents[doc] = read(doc)
-            if index % 50 == 0 { onProgress?("Reading documents", index, docs.count) }
+            if index % 50 == 0 { onProgress?("Reading documents", index, docs.count + textDocs.count) }
         }
         onProgress?("Building the structure", 0, 0)
 
@@ -86,20 +91,28 @@ struct ArchitectureScanner {
         let declaredDeps = declaredDependencies(manifests: manifests).filter { !topLevel.contains($0.lowercased()) }
         var modules = buildModulesView(sources: sources + docs.map { ($0, "markdown") }, contents: contents,
                                        manifests: manifests, declaredDeps: declaredDeps)
-        let (docsView, docRefs) = buildDocsView(docs: docs, sourcePaths: Set(sources.map(\.path)), contents: contents)
-        // Links between documents are their dependencies.
+        let (docsView, docRefs) = buildDocsView(docs: docs + textDocs, sourcePaths: Set(sources.map(\.path)), contents: contents)
+        // Links between documents are their dependencies (section links count for their documents).
         let docSet = Set(docs)
+        var docLinks: [String: Int] = [:]
+        var docLinkOrder: [String] = []
         for edge in docsView.edges where edge.kind == "links" {
-            let from = String(edge.source.dropFirst(2)), to = String(edge.target.dropFirst(2))
+            let from = String(edge.source.dropFirst(2).prefix { $0 != "#" }), to = String(edge.target.dropFirst(2).prefix { $0 != "#" })
             guard docSet.contains(from), docSet.contains(to), from != to else { continue }
-            modules.edges.append(ArchEdge(source: "m:" + from, target: "m:" + to, kind: "links", weight: edge.weight))
+            let key = from + "→" + to
+            if docLinks[key] == nil { docLinkOrder.append(key) }
+            docLinks[key, default: 0] += edge.weight
+        }
+        for key in docLinkOrder {
+            let parts = key.components(separatedBy: "→")
+            modules.edges.append(ArchEdge(source: "m:" + parts[0], target: "m:" + parts[1], kind: "links", weight: docLinks[key] ?? 1))
         }
         let coverage = computeCoverage(sources: sources.map(\.path), docRefs: docRefs, times: git.times)
         let report = lineCoverageReport(sourcePaths: Set(sources.map(\.path)))
         onProgress?("Measuring complexity", 0, sources.count)
         var metrics = computeMetrics(sources: sources, contents: contents, modules: modules, git: git, lineCoverage: report.coverage)
-        // Documents get history facts too, so Freshness also colours the Docs view.
-        for doc in docs {
+        // Documents get history facts too, so Freshness also colours the Book view.
+        for doc in docs + textDocs {
             metrics["m:" + doc] = FileMetrics(loc: contents[doc].map { $0.editorLines.count } ?? 0, complexity: 0, commits: git.commits[doc] ?? 0, bugfixes: 0, isTest: false,
                                               tested: false, testFiles: [], lineCoverage: nil,
                                               lastChanged: git.times[doc] ?? modificationTime(doc))
@@ -487,22 +500,9 @@ struct ArchitectureScanner {
 
     // MARK: - Docs view and coverage
 
+    /// The Book view (`BookBuilder`) plus what each document says about the code, for coverage.
     private func buildDocsView(docs: [String], sourcePaths: Set<String>, contents: [String: String])
         -> (ArchView, [String: Set<String>]) {
-        var nodes: [ArchNode] = [ArchNode(id: "d:", parent: nil, kind: "root", name: "Documentation", path: "")]
-        var dirIds: Set<String> = ["d:"]
-        func ensureDir(_ dir: String) -> String {
-            if dir.isEmpty { return "d:" }
-            let id = "d:" + dir + "/"
-            if !dirIds.contains(id) {
-                let parent = ensureDir((dir as NSString).deletingLastPathComponent)
-                nodes.append(ArchNode(id: id, parent: parent, kind: "dir", name: (dir as NSString).lastPathComponent, path: dir))
-                dirIds.insert(id)
-            }
-            return id
-        }
-
-        let docSet = Set(docs)
         var sourceBasenames: [String: [String]] = [:]
         for path in sourcePaths { sourceBasenames[(path as NSString).lastPathComponent, default: []].append(path) }
         let sourceDirs = Set(sourcePaths.flatMap { path -> [String] in
@@ -512,52 +512,32 @@ struct ArchitectureScanner {
             return dirs
         })
 
-        let link = try! NSRegularExpression(pattern: #"\]\(([^)#\s]+)(?:#[^)]*)?\)"#)
         // Anchored at the start of a token, so matching does not restart inside every word.
         let pathToken = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_\-./])(?:[A-Za-z0-9_\-.]*[A-Za-z0-9_\-]/[A-Za-z0-9_\-./]+|[A-Za-z0-9_\-]+\.[A-Za-z0-9]{1,6})"#)
-        var edges: [String: ArchEdge] = [:]
         var refs: [String: Set<String>] = [:]   // doc path → referenced source files/dirs ("f:" / "d:" prefixed)
 
         // Reading each document is independent: do it on every core, assemble in order.
-        struct DocFacts { var lines = 0; var sections: [(line: Int, title: String)] = []; var links: [String] = []; var tokens: [String] = [] }
+        struct DocFacts { var chapter: BookBuilder.Chapter?; var tokens: [String] = [] }
         let sortedDocs = docs.sorted()
         var facts = [DocFacts](repeating: DocFacts(), count: sortedDocs.count)
         facts.withUnsafeMutableBufferPointer { results in
             DispatchQueue.concurrentPerform(iterations: sortedDocs.count) { i in
                 let text = contents[sortedDocs[i]] ?? read(sortedDocs[i])
-                results[i] = DocFacts(lines: text.editorLines.count, sections: Self.sections(of: text),
-                                      links: Self.matches(link, in: text),
+                results[i] = DocFacts(chapter: BookBuilder.chapter(path: sortedDocs[i], text: text),
                                       tokens: sourcePaths.isEmpty ? [] : Self.matches(pathToken, in: text, group: 0))
             }
         }
+        // The book: parts, chapters, nested sections and the links between them.
+        let book = BookBuilder.build(chapters: facts.compactMap(\.chapter), rootName: root.lastPathComponent)
 
+        // What each document says about the code: links to source files and path-like mentions.
         for (index, doc) in sortedDocs.enumerated() {
-            let fact = facts[index]
-            let lines = fact.lines
-            nodes.append(ArchNode(id: "d:" + doc, parent: ensureDir((doc as NSString).deletingLastPathComponent),
-                                  kind: "doc", name: (doc as NSString).lastPathComponent, path: doc, loc: lines, files: 1))
-            // H1/H2 sections, so zooming into a document shows its outline.
-            let sections = fact.sections
-            if sections.count > 1 {
-                for (index, section) in sections.enumerated() {
-                    let end = index + 1 < sections.count ? sections[index + 1].line - 1 : lines
-                    nodes.append(ArchNode(id: "d:\(doc)#L\(section.line)", parent: "d:" + doc, kind: "section",
-                                          name: section.title, path: doc, loc: max(1, end - section.line + 1)))
-                }
-            }
             let base = (doc as NSString).deletingLastPathComponent
-
-            for target in fact.links where !target.contains("://") {
-                let resolved = Self.normalize(base.isEmpty ? target : base + "/" + target)
-                if docSet.contains(resolved) {
-                    let key = doc + "→" + resolved
-                    if edges[key] == nil { edges[key] = ArchEdge(source: "d:" + doc, target: "d:" + resolved, kind: "links") }
-                    else { edges[key]!.weight += 1 }
-                } else if sourcePaths.contains(resolved) {
-                    refs[doc, default: []].insert("f:" + resolved)
-                }
+            for link in facts[index].chapter?.links ?? [] where !link.wiki && !link.target.isEmpty {
+                let resolved = BookBuilder.normalize(base.isEmpty ? link.target : base + "/" + link.target)
+                if sourcePaths.contains(resolved) { refs[doc, default: []].insert("f:" + resolved) }
             }
-            for raw in fact.tokens {
+            for raw in facts[index].tokens {
                 var token = raw.trimmingCharacters(in: CharacterSet(charactersIn: "./"))
                 if token.hasPrefix("./") { token.removeFirst(2) }
                 if sourcePaths.contains(token) {
@@ -569,50 +549,11 @@ struct ArchitectureScanner {
                 }
             }
         }
-        // Folder sizes for the Docs view.
-        var counts: [String: (Int, Int)] = [:]
-        let parentOf = Dictionary(nodes.map { ($0.id, $0.parent) }, uniquingKeysWith: { a, _ in a })
-        for node in nodes where node.kind == "doc" {
-            var parent = node.parent
-            while let p = parent {
-                counts[p, default: (0, 0)].0 += 1
-                counts[p, default: (0, 0)].1 += node.loc
-                parent = parentOf[p] ?? nil
-            }
-        }
-        for i in nodes.indices where nodes[i].kind == "dir" || nodes[i].kind == "root" {
-            nodes[i].files = counts[nodes[i].id]?.0 ?? 0
-            nodes[i].loc = counts[nodes[i].id]?.1 ?? 0
-        }
-        return (ArchView(id: "docs", nodes: nodes, edges: Array(edges.values)), refs)
-    }
-
-    /// Level-1 and level-2 headings outside code fences, with 1-based line numbers.
-    static func sections(of text: String) -> [(line: Int, title: String)] {
-        var result: [(Int, String)] = []
-        var inFence = false
-        for (index, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("```") || line.hasPrefix("~~~") { inFence.toggle(); continue }
-            guard !inFence, line.hasPrefix("#") else { continue }
-            let level = line.prefix(while: { $0 == "#" }).count
-            guard level <= 2, line.dropFirst(level).first == " " else { continue }
-            let title = line.dropFirst(level).trimmingCharacters(in: .whitespaces)
-            if !title.isEmpty { result.append((index + 1, title)) }
-        }
-        return result
+        return (ArchView(id: "docs", nodes: book.nodes, edges: book.edges), refs)
     }
 
     /// Resolve `a/./b/../c` without touching the file system.
-    static func normalize(_ path: String) -> String {
-        var parts: [Substring] = []
-        for part in path.split(separator: "/") {
-            if part == "." || part.isEmpty { continue }
-            if part == ".." { if !parts.isEmpty { parts.removeLast() }; continue }
-            parts.append(part)
-        }
-        return parts.joined(separator: "/")
-    }
+    static func normalize(_ path: String) -> String { BookBuilder.normalize(path) }
 
     /// none: no document mentions the file or a folder containing it.
     /// fresh: a mentioning document changed at or after the file's last commit.

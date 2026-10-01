@@ -614,6 +614,8 @@ class SemanticDatabase {
         // Databases created before these columns existed keep their table; add them.
         try addMissingColumns("arch_nodes", [
             ("signature", "TEXT"), ("summary_signature", "TEXT"), ("component", "TEXT"), ("tags_json", "TEXT"),
+            // Book view: where a section or item is in its document.
+            ("line", "INTEGER"), ("end_line", "INTEGER"), ("anchor", "TEXT"),
         ])
         try execute("""
             CREATE TABLE IF NOT EXISTS arch_edges (
@@ -734,13 +736,14 @@ class SemanticDatabase {
     private func insertArchView(_ view: ArchView) throws {
         for node in view.nodes {
             try execute("""
-                INSERT OR REPLACE INTO arch_nodes (view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO arch_nodes (view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json, line, end_line, anchor)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, params: [.text(view.id), .text(node.id), .textOrNull(node.parent), .text(node.kind), .text(node.name),
                           .textOrNull(node.path), .textOrNull(node.language), .int(node.loc), .int(node.files),
                           .textOrNull(node.summary), .textOrNull(node.role), .textOrNull(node.tech),
                           .textOrNull(node.signature), .textOrNull(node.summarySignature), .textOrNull(node.component),
-                          .textOrNull(node.tags.flatMap { try? String(decoding: JSONEncoder().encode($0), as: UTF8.self) })])
+                          .textOrNull(node.tags.flatMap { try? String(decoding: JSONEncoder().encode($0), as: UTF8.self) }),
+                          .intOrNull(node.line), .intOrNull(node.endLine), .textOrNull(node.anchor)])
         }
         for edge in view.edges {
             try execute("""
@@ -782,14 +785,19 @@ class SemanticDatabase {
 
         var nodesByView: [String: [ArchNode]] = [:]
         stmt = nil
-        if sqlite3_prepare_v2(db, "SELECT view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json FROM arch_nodes", -1, &stmt, nil) == SQLITE_OK {
+        // In insertion order: the Book view's parts and chapters are stored in reading order.
+        if sqlite3_prepare_v2(db, "SELECT view, id, parent_id, kind, name, path, language, loc, files, summary, role, tech, signature, summary_signature, component, tags_json, line, end_line, anchor FROM arch_nodes ORDER BY rowid", -1, &stmt, nil) == SQLITE_OK {
+            func int(_ column: Int32) -> Int? {
+                sqlite3_column_type(stmt, column) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, column))
+            }
             while sqlite3_step(stmt) == SQLITE_ROW {
                 let node = ArchNode(id: text(stmt, 1) ?? "", parent: text(stmt, 2), kind: text(stmt, 3) ?? "",
                                     name: text(stmt, 4) ?? "", path: text(stmt, 5), language: text(stmt, 6),
                                     loc: Int(sqlite3_column_int64(stmt, 7)), files: Int(sqlite3_column_int64(stmt, 8)),
                                     summary: text(stmt, 9), role: text(stmt, 10), tech: text(stmt, 11),
                                     signature: text(stmt, 12), summarySignature: text(stmt, 13), component: text(stmt, 14),
-                                    tags: (text(stmt, 15)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) })
+                                    tags: (text(stmt, 15)?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([String].self, from: $0) },
+                                    line: int(16), endLine: int(17), anchor: text(stmt, 18))
                 nodesByView[text(stmt, 0) ?? "", default: []].append(node)
             }
         }
@@ -1335,6 +1343,7 @@ class SemanticDatabase {
         case text(String)
         case textOrNull(String?)
         case int(Int)
+        case intOrNull(Int?)
         case real(Double)
     }
 
@@ -1365,6 +1374,8 @@ class SemanticDatabase {
                 }
             case .int(let n):
                 sqlite3_bind_int64(stmt, idx, Int64(n))
+            case .intOrNull(let n):
+                if let n { sqlite3_bind_int64(stmt, idx, Int64(n)) } else { sqlite3_bind_null(stmt, idx) }
             case .real(let d):
                 sqlite3_bind_double(stmt, idx, d)
             }

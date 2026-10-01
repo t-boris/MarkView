@@ -1510,6 +1510,9 @@ class WorkspaceManager: ObservableObject {
             architecture.scan(root: root, db: semanticDatabase)
         case "analyze":
             architecture.analyze(root: root, db: semanticDatabase)
+        case "describeBook":
+            // Book view: "Describe this chapter" (path) or "Describe remaining chapters" (no path).
+            architecture.describeBook(path: payload["path"] as? String, root: root, db: semanticDatabase)
         case "cancelAnalysis":
             architecture.cancelAnalysis()
         case "tempFilter":
@@ -1700,12 +1703,8 @@ class WorkspaceManager: ObservableObject {
                     if name == ".git" || name == ".dde" || name == "node_modules" { enumerator?.skipDescendants(); continue }
                     if name.lowercased() == wanted { matches.append(url.standardizedFileURL) }
                 }
-                return matches.min { a, b in
-                    let aHere = a.deletingLastPathComponent().path == currentFolder
-                    let bHere = b.deletingLastPathComponent().path == currentFolder
-                    if aHere != bHere { return aHere }
-                    return a.pathComponents.count < b.pathComponents.count
-                }
+                return WikiLinkResolver.choose(candidates: matches.map(\.path), from: currentFolder)
+                    .map { URL(fileURLWithPath: $0) }
             }.value
             guard let found else {
                 NSSound.beep()

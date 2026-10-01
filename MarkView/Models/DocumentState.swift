@@ -118,7 +118,8 @@ enum FileType: String {
         add("ocaml", "ml", "mli")
         add("fsharp", "fs", "fsx", "fsi")
         add("crystal", "cr")
-        add("", "txt", "log", "csv", "tsv", "graphql", "gql", "tf", "hcl", "lock", "gitignore")
+        // Text documents of the Book X-Ray open read-only here too (rst, adoc, org, text).
+        add("", "txt", "text", "rst", "adoc", "asciidoc", "org", "log", "csv", "tsv", "graphql", "gql", "tf", "hcl", "lock", "gitignore")
         return map
     }()
 }
