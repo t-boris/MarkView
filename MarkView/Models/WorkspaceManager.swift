@@ -2586,15 +2586,20 @@ class WorkspaceManager: ObservableObject {
     /// Mirrors the `translateDocument` pattern of "create a tab immediately, then
     /// stream into it" but routes through `InsightSession` rather than driving the
     /// API call directly here.
-    func startRecursiveInsight() {
+    /// Recursive Insight of the open folder, or — from the file tree — of one of its folders
+    /// (`target` a directory) or of a single document (`target` a Markdown file).
+    func startRecursiveInsight(at target: URL? = nil) {
         // 1. A folder must be open.
-        guard let folderURL = rootNode?.url else {
+        guard let rootURL = rootNode?.url else {
             let alert = NSAlert()
             alert.messageText = "No folder open"
             alert.informativeText = "Open a folder before starting Recursive Insight."
             alert.runModal()
             return
         }
+        let target = target?.standardizedFileURL ?? rootURL
+        let targetIsFile = (try? target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == false
+        let folderURL = targetIsFile ? target.deletingLastPathComponent() : target
 
         // 2. The selected assistant CLI must be installed, and the workspace engines
         //    (GraphRAG) initialised.
@@ -2614,8 +2619,8 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        // 3. Enumerate .md files (any number).
-        let mdFiles = scanMarkdownFiles(in: folderURL)
+        // 3. Enumerate .md files (any number), or the one document.
+        let mdFiles = targetIsFile ? [target] : scanMarkdownFiles(in: folderURL)
 
         // 4. Empty folder check.
         guard !mdFiles.isEmpty else {
@@ -2632,10 +2637,11 @@ class WorkspaceManager: ObservableObject {
         // for the duration of the insight tab. `closeTab`'s ordered cleanup
         // (Decision 11 §4) removes the directory via `cache.cleanup()` after
         // awaiting `session.cancel()`.
+        // The cache stays in the open folder's own cache, whichever sub-folder or file is analysed.
         let sessionId = UUID()
         let cache: InsightCache
         do {
-            cache = try InsightCache(workspaceURL: folderURL, sessionId: sessionId)
+            cache = try InsightCache(workspaceURL: rootURL, sessionId: sessionId)
         } catch {
             let alert = NSAlert()
             alert.messageText = "Cannot start Recursive Insight"
@@ -2648,7 +2654,9 @@ class WorkspaceManager: ObservableObject {
             folderURL: folderURL,
             mdFiles: mdFiles,
             graphRAG: graphRAG,
-            cache: cache
+            cache: cache,
+            project: aiProject,
+            title: targetIsFile ? target.deletingPathExtension().lastPathComponent : nil
         )
 
         // 6. Build placeholder URL (never written to disk — exists only so

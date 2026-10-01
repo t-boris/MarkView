@@ -477,7 +477,11 @@ struct FileTreeView: View {
                 }
                 Divider()
                 Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") }
+                Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Button { workspaceManager.startResearch(fromFolder: url) } label: { Label("New Research from This Folder…", systemImage: "books.vertical") }
+                Divider()
+            } else if linked != nil {
+                Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight", systemImage: "sparkles") }
                 Divider()
             }
             Button("New File...") { createNewFile(in: url) }
@@ -534,6 +538,9 @@ struct FileTreeView: View {
             }
             if git.isGitRepo && inProject { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
             if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
+            if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
+                Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
+            }
             Menu("New from This Document") {
                 ForEach(IntakeKind.allCases) { kind in
                     Button(kind.title + "…") { workspaceManager.startIntake(kind, fromDocument: url) }
