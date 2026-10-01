@@ -146,7 +146,7 @@ struct IssuesListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(feature.slug)
+        .help(feature.title + "\n" + feature.slug)
     }
 
     private func bugRow(_ bug: BugReport) -> some View {
@@ -192,7 +192,7 @@ struct IssuesListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
+        .help(bug.title + "\n\(bug.key) · \(bug.status)\(bug.severity.isEmpty ? "" : " · \(bug.severity)")")
     }
 
     /// Status, type and implementation toggles; highlighted while any is on (DEC-001, DEC-006).
@@ -421,6 +421,7 @@ struct FeatureNavigatorView: View {
                             Image(systemName: "doc.text").uiFont(size: 9).foregroundColor(VSDark.textDim)
                             Text(url.deletingPathExtension().lastPathComponent).uiFont(size: 11)
                                 .foregroundColor(isActive(url) ? VSDark.textBright : VSDark.text).lineLimit(1)
+                                .help(url.lastPathComponent)
                             Spacer(minLength: 0)
                         }
                         .padding(.leading, 28).padding(.trailing, 8).padding(.vertical, 2)
@@ -482,7 +483,7 @@ struct FeatureNavigatorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(object.id) · \(object.status)")
+                .help(object.title + "\n\(object.id) · \(object.status)")
             }
         }
     }
