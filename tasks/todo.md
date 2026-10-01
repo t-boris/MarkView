@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## Task 74: the left pane grows while there is room; full titles in tooltips (2026-09-30, 3.21.0)
+
+Boris: "Не ограничивай увеличение левой панели, пока есть место"; "для всех багов и функций: если
+полная надпись не помещается, тултип должен отображаться".
+
+- [x] `LeftPanelWidth`: no ceiling in the split view (`maxWidth: .infinity`; the centre's and terminal's
+      minimum widths stop it); the remembered width is bounded at 6000 instead of 800.
+- [x] Issues / features / basket / document rows: the tooltip carries the full title above the key, status
+      and path, so a cut title is read on hover.
+
 ## Task 73: answer sources outside the X-Ray folder; table of contents scroll (2026-09-30, 3.20.1)
 
 - [x] A folder X-Ray's answer may cite files anywhere in the project (3.19.1 let the agent read them), but

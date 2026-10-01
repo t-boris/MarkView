@@ -23,9 +23,11 @@ extension FocusedValues {
 }
 
 /// Width of the left pane (Files and Issues share it), remembered across launches.
+/// The left pane's width. It has no ceiling of its own: the split view lets it grow until the
+/// centre and the terminal are at their minimum widths; `range` only bounds what is remembered.
 enum LeftPanelWidth {
     static let key = "layout.leftPanelWidth"
-    static let range: ClosedRange<CGFloat> = 180...800
+    static let range: ClosedRange<CGFloat> = 180...6000
     static let standard: CGFloat = 220
 
     static var saved: CGFloat {
@@ -191,7 +193,7 @@ struct ContentView: View {
                         navigationPane
                             .frame(minWidth: compact ? 160 : LeftPanelWidth.range.lowerBound,
                                    idealWidth: compact ? 190 : LeftPanelWidth.standard,
-                                   maxWidth: compact ? 240 : LeftPanelWidth.range.upperBound)
+                                   maxWidth: compact ? 240 : .infinity)
                             .background { if !compact { LeftPanelWidthKeeper() } }
                     }
                     if workspaceManager.showCenter {

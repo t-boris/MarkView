@@ -91,7 +91,7 @@ struct BugBasketView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(fixing ? "\(bug.path) — already being fixed: left out of the batch" : bug.path)
+            .help(bug.title + "\n" + (fixing ? "\(bug.path) — already being fixed: left out of the batch" : bug.path))
             Button(action: { batch.remove(bug.path) }) {
                 Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
             }
@@ -136,7 +136,7 @@ struct BugBasketView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).help(suggestion.path)
+            .buttonStyle(.plain).help((bug?.title).map { $0 + "\n" } ?? "" + suggestion.path)
             Button(action: { batch.dismiss(suggestion) }) {
                 Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
             }
