@@ -263,6 +263,18 @@
                 ui.bookIndexFor = snap; ui.bookIndex = index;
                 return index;
             }
+            /** The text drawn under a node's name: its own description, else what the Book says
+             *  about the document or section it stands for. Whole, so a box tells what the thing
+             *  is; cut only when very long. */
+            function nodeDescription(node) {
+                if (!node || node.kind === 'change' || node.kind === 'changePart') return null;
+                const book = bookText(node);
+                const text = node.summary || (book && book.summary);
+                if (!text) return null;
+                let out = String(text).replace(/\s+/g, ' ').trim();
+                if (out.length > 240) out = out.slice(0, 239).replace(/\s+\S*$/, '') + '…';
+                return out || null;
+            }
             /** What the Book says about a node of another view: a document's chapter, or the
              *  section an outline item stands for. */
             function bookText(node) {
@@ -598,11 +610,8 @@
                 if (book && node.kind === 'file' && book.name && book.name !== node.name && book.name + '.md' !== node.name) {
                     label += '\n' + (book.name.length > 60 ? book.name.slice(0, 58) + '…' : book.name);
                 }
-                const described = node.summary || (book && book.summary);
-                if (described && node.kind !== 'change' && node.kind !== 'changePart') {
-                    const line = firstSentence(described, 72);
-                    if (line) label += '\n' + line;
-                }
+                const described = nodeDescription(node);
+                if (described) label += '\n' + described;
                 const impact = prImpact(node);
                 if (impact) label += '\nrisk: ' + impact.risk;
                 const meta = [];
@@ -668,13 +677,16 @@
                     const grow = ui.overlay === 'size' && overlayApplies() && node.loc
                         ? Math.min(3.2, Math.max(1, Math.sqrt(node.loc / Math.max(1, sizeBase(drawn))))) : 1;
                     const parent = node.parent != null && drawnIds.has(node.parent) && expanded.has(node.parent) ? node.parent : undefined;
-                    // Book labels carry an annotation line: wider boxes, as tall as the wrapped text.
-                    const w = Math.min(label.indexOf('\n') >= 0 ? 320 : 260, Math.max(70, longest * 6.6 + 22)) * grow;
-                    const rows = label.split('\n').reduce(function(a, l) { return a + Math.max(1, Math.ceil((l.length * 6.6) / Math.max(40, w - 24))); }, 0);
+                    // A described box is set in smaller type so its whole text fits: wider, and as
+                    // tall as the wrapped lines.
+                    const described = !!nodeDescription(node);
+                    const perChar = described ? 5.4 : 6.6;
+                    const w = Math.min(described ? 340 : 260, Math.max(70, longest * perChar + 22)) * grow;
+                    const rows = label.split('\n').reduce(function(a, l) { return a + Math.max(1, Math.ceil((l.length * perChar) / Math.max(40, w - 24))); }, 0);
                     elements.push({ group: 'nodes', data: {
                         id: node.id, parent: parent, label: label, kind: node.kind,
                         w: w, tw: Math.max(40, w - 14),
-                        h: (rows > 2 ? 14 + 12 * rows : rows > 1 ? 38 : 26) * grow,
+                        h: (rows > 2 ? 12 + (described ? 11 : 12) * rows : rows > 1 ? 38 : 26) * grow,
                         fill: (prImpact(node) ? { high: c.bad, medium: c.warn, low: c.ok }[prImpact(node).risk] : null)
                             || overlayColor(info, c) || (node.role ? roleColor[node.role] : null) || '',
                         dimmed: ui.overlay === 'pr' && info && !info.changed ? 1 : 0,
@@ -683,7 +695,7 @@
                         // "Only flagged": the top two levels of an AI filter, else anything not green/neutral.
                         flag: overlayFlag(info) ? 1 : 0,
                         expandable: kids.length && !isBox ? 1 : 0,
-                    }, classes: [node.kind, isBox ? 'box' : 'leaf', kids.length && !isBox ? 'expandable' : ''].join(' ') });
+                    }, classes: [node.kind, isBox ? 'box' : 'leaf', kids.length && !isBox ? 'expandable' : '', described ? 'described' : ''].join(' ') });
                 });
                 const agg = new Map();
                 const prEdges = ui.view !== 'pr' && overlayApplies() && ui.overlay === 'pr'
@@ -735,6 +747,8 @@
                     { selector: 'node.collection', style: { 'font-weight': 600, 'border-style': 'double', 'border-width': 3 } },
                     { selector: 'node.group', style: { 'font-size': 10, 'border-style': 'solid' } },
                     { selector: 'node.entity', style: { 'font-size': 9.5, 'border-style': 'dotted', 'text-max-width': 200 } },
+                    // Boxes that carry their description: smaller type, so the whole text is read in place.
+                    { selector: 'node.described', style: { 'font-size': 8.5, 'line-height': 1.2, 'text-max-width': 'data(tw)' } },
                     // What changed inside a file (PR X-Ray).
                     { selector: 'node.changePart', style: { 'font-size': 10, 'border-style': 'solid' } },
                     { selector: 'node.change', style: { 'font-size': 9.5, 'border-color': '#d29922', 'border-width': 1.5, 'text-max-width': 220 } },
@@ -1675,6 +1689,17 @@
                 const root = view.nodes.find(function(n) { return n.kind === 'root'; });
                 const h = document.createElement('h4'); h.textContent = root && root.name ? root.name : 'Book'; d.appendChild(h);
                 if (root && root.summary) { const p = document.createElement('p'); p.textContent = root.summary; d.appendChild(p); }
+                // Ask the book: the answer with its sources replaces this panel while it is open.
+                const form = document.createElement('form'); form.className = 'temp-filter arch-ask';
+                const input = document.createElement('input');
+                input.placeholder = 'Ask the book, e.g. how are releases published?';
+                input.style.width = '100%';
+                form.appendChild(input);
+                form.onsubmit = function(e) { e.preventDefault(); const text = input.value.trim(); if (text) askBook(text); };
+                d.appendChild(form);
+                const hint = document.createElement('p'); hint.className = 'arch-muted';
+                hint.textContent = 'A question gets an answer (what, why, how, where it comes from) with the sections it rests on; press Enter.';
+                d.appendChild(hint);
                 renderReport(d, view, idx);
                 const active = currentFilter();
                 if (active && active.id !== 'importance') {
@@ -2400,8 +2425,20 @@
                 }
                 renderFilterOptions();
                 el.views.forEach(function(b) { b.classList.toggle('on', b.getAttribute('data-arch-view') === ui.view); });
+                // Code metrics colour nothing in the Book: say so instead of offering them.
+                const codeOnly = { coverage: 1, tests: 1, bugs: 1, complexity: 1, pr: 1 };
+                Array.prototype.forEach.call(el.overlay.options, function(o) {
+                    if (!codeOnly[o.value]) return;
+                    o.disabled = isBook();
+                    o.title = isBook() ? 'About code; in the Book use Importance, an AI filter, Freshness or Size' : '';
+                });
                 el.overlay.value = ui.overlay;
                 el.overlay.disabled = ui.view === 'deployment' && !isSearch(currentFilter());
+                const ask = el.tempFilter.querySelector('input');
+                if (!ui.searchPlaceholder) ui.searchPlaceholder = ask.placeholder;
+                ask.placeholder = isBook() ? '⚡ Ask the book, e.g. how is a release published?' : ui.searchPlaceholder;
+                el.tempFilter.title = isBook() ? 'Ask a question about the documents: the answer (what, why, how, origin) with its sources appears on the right; the sections it rests on turn red'
+                    : 'AI search: the AI reads the project; what matters for it turns red, the rest stays uncoloured';
                 el.flagged.checked = ui.onlyFlagged;
                 el.flagged.parentElement.hidden = !overlayApplies() || ui.overlay === 'size';
                 el.hide.hidden = !codeViews[ui.view];
@@ -2440,7 +2477,8 @@
                 el.rescan.disabled = !!p.busy;
                 renderDeployButton();
                 // The progress bar shows the analysis; the status line covers everything else.
-                const statusText = p.error || (ui.progress ? '' : p.status) || '';
+                const codeOverlayInBook = isBook() && codeOnly[ui.overlay] ? 'This overlay is about code. In the Book use Importance, an AI filter, Freshness or Size.' : '';
+                const statusText = p.error || (ui.progress ? '' : p.status) || codeOverlayInBook || '';
                 el.status.textContent = statusText;
                 el.status.className = p.error ? 'arch-error' : (statusText ? 'arch-working' : '');
             }
@@ -2690,9 +2728,16 @@
                 if (!detailsUserChoice) setDetailsHidden(compactDetails(), false);
             });
 
+            function askBook(text) {
+                ui.pendingTemp = text;
+                ui.onlyFlagged = false;
+                setDetailsHidden(false, false);
+                post('askBook', { question: text });
+            }
             el.tempFilter.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const text = el.tempFilter.querySelector('input').value.trim();
+                if (text && isBook()) { askBook(text); return; }
                 ui.pendingTemp = text || null;
                 post('tempFilter', { criterion: text });
             });

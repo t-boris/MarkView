@@ -1,5 +1,25 @@
 # MarkView — Follow-up Tasks
 
+## Task 62: Ask the book, honest overlays, full text in boxes (2026-09-30, branch feat/book-ask, 3.14.0)
+
+Boris, in the Book: "Оверлай не работает", "Не определены цвета", "я хочу иметь возможность задать вопросы
+по книге!!!", "текст пиши помельче, чтобы больше попадало, и не 1 предложение, а AI-обработка элемента".
+
+- [x] Ask the book: the ⚡ box in the Book and a question field in its overview post `askBook`; the
+      answer comes from the "I need to understand" flow (what, why, how, origin, sources) over the X-Ray's
+      own root (project or folder), with the Book's annotated sections as hints; the sections it rests on
+      turn red.
+- [x] Overlays: code metrics (Documentation, Tests, Bug history, Complexity, Pull request) are disabled in
+      the Book with a reason; a status line says what colours the Book (Importance, AI filters, Freshness, Size).
+- [x] Boxes: the whole description (up to 240 chars) in smaller type (8.5 px) with the height following the
+      wrapped text; width up to 340 px.
+- [ ] PR, merge, release.
+
+## Follow-up: Recursive Insight per folder or file (Boris, 2026-09-30)
+
+"Кстати, Recursive Insight можно делать по folder или file." Not started: scope and entry points to be
+agreed (file-tree context menu? Book chapter panel?).
+
 ## Task 61: Text in every X-Ray box (2026-09-30, branch feat/book-leads, 3.13.0)
 
 Boris, after 3.12.0 (screenshot of the Logical view: "REQ-001.md · 28 lines" with bare "Statement" /

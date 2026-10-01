@@ -1486,7 +1486,9 @@ final class ArchitectureStore: ObservableObject {
                 guard understandingTokens[id] == token else { return }
                 let components = snapshot?.components ?? []
                 let nodes = snapshot?.view("deployment")?.nodes.filter { $0.kind != "root" && $0.kind != "moduleRef" } ?? []
-                let request = XRaySearch.understandingRequest(query: filter.criterion, hints: historyFiles.map { "- \($0.path):\($0.start)-\($0.end)" }, root: root,
+                let bookHints = snapshot.map { Self.bookHints(for: filter.criterion, in: $0) } ?? []
+                let request = XRaySearch.understandingRequest(query: filter.criterion,
+                    hints: historyFiles.map { "- \($0.path):\($0.start)-\($0.end)" } + bookHints, root: root,
                     context: context, components: components.map { "\($0.id) — \($0.name): \($0.purpose)" },
                     deployment: nodes.map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }, attachments: attachmentPaths)
                 let result = try await CLICompletion.run(request, onActivity: { activity in
