@@ -2032,6 +2032,22 @@ class WorkspaceManager: ObservableObject {
         tabsStore.removeTab(at: index)
     }
 
+    /// Close every tab showing `url` or something inside it — the item was moved to the Trash,
+    /// so nothing is saved: the user chose to let it go.
+    func closeTabs(under url: URL) {
+        let base = url.standardizedFileURL.path
+        for index in openTabs.indices.reversed() {
+            let tab = openTabs[index]
+            switch tab.kind {
+            case .file, .image:
+                let path = tab.url.standardizedFileURL.path
+                if path == base || path.hasPrefix(base + "/") { tabsStore.removeTab(at: index) }
+            default:
+                continue
+            }
+        }
+    }
+
     /// Close all tabs except the one at the given index
     func closeOtherTabs(except index: Int) {
         tabsStore.keepOnlyTab(at: index)

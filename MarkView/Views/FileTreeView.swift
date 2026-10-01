@@ -494,6 +494,10 @@ struct FileTreeView: View {
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
             Button("Open in Terminal.app") { openTerminal(at: url) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
+            if linked == nil {
+                Divider()
+                Button("Move to Trash", role: .destructive) { moveToTrash(url, isDirectory: true) }
+            }
         }
     }
 
@@ -543,10 +547,35 @@ struct FileTreeView: View {
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
             Button("Open in Terminal.app") { openTerminal(at: url.deletingLastPathComponent()) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
+            Divider()
+            Button("Move to Trash", role: .destructive) { moveToTrash(url, isDirectory: false) }
         }
     }
 
     // MARK: - Helpers
+
+    /// Move a file or folder to the macOS Trash after confirmation; its open tabs close without
+    /// saving, and the tree refreshes. Recoverable from the Trash, unlike a plain delete.
+    private func moveToTrash(_ url: URL, isDirectory: Bool) {
+        let name = url.lastPathComponent
+        let alert = NSAlert()
+        alert.messageText = "Move “\(name)” to the Trash?"
+        alert.informativeText = isDirectory
+            ? "The folder and everything in it move to the Trash. Open documents from it close without saving."
+            : "The file moves to the Trash. If it is open, its tab closes without saving."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        workspaceManager.closeTabs(under: url)
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            return showError("Couldn't move “\(name)” to the Trash: \(error.localizedDescription)")
+        }
+        listVersion += 1
+        workspaceManager.refreshFileTree()
+    }
 
     private func fileIcon(for url: URL) -> (String, Color) {
         switch FileType.from(url: url) {
