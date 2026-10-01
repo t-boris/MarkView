@@ -17,7 +17,12 @@ window stays bound to the workspace that opened it first.
       project in the title.
 - [x] `docs/bugs/BUG-022-*.md`; patch bump (3.11.2); Debug build; `project-ai-choice-tests.sh` (the harness
       now compiles `LinkedFolders.swift` and `AICallLog.swift`, which `CLICompletion` gained since 3.8.0).
-- [ ] PR; merge; release DMG from a clean worktree of the merged `origin/main`.
+- [x] PR #90 merged (94e7585); release v3.11.2 published from a clean worktree of `origin/main`
+      (signed, notarized, stapled; `spctl` accepts it); copy in `build/MarkView-3.11.2.dmg`.
+
+Review: the per-project storage and resolution from BUG-021 were correct; the leak was the second UI
+that edits the same state (Settings) plus a singleton window bound to its first caller. Not installed
+over the running app — Boris installs when he chooses.
 
 ## Task 59: Linked folders — search and browse other folders from a project (2026-09-30, branch feat/linked-folders, 3.11.0)
 
