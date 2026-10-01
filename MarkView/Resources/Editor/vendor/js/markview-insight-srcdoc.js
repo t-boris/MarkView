@@ -822,7 +822,6 @@
                 sectionsHTML +
                 '<div class="iframe-footer">' +
                 '<button id="iframe-btn-up" title="Up to parent">↑ Up</button>' +
-                '<select id="iframe-lang" title="Language for generated insight content (auto = match source files)"><option value="auto" selected>lang: auto</option><option value="en">English</option><option value="ru">Русский</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="zh">中文</option><option value="ja">日本語</option></select>' +
                 '<select id="iframe-explore-depth" title="Recursion depth for Explore-all"><option value="1" selected>depth 1</option><option value="2">depth 2</option><option value="3">depth 3</option></select>' +
                 '<button id="iframe-btn-explore-all" title="Generate deep-dive pages for EVERY 🤿 topic on this page. Depth>1 means recursively expand each child\'s topics too — cost grows fast.">🤿×N Explore all</button>' +
                 '<input id="iframe-input-topic" placeholder="Custom deep-dive topic (e.g. \'Compare auth approaches across the project\')…" />' +
