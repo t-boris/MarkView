@@ -1,5 +1,21 @@
 # MarkView — Follow-up Tasks
 
+## Tasks 63–65: short container titles, Book colours, Move to Trash (2026-09-30, 3.14.1 / 3.15.0 / 3.16.0)
+
+Boris, live-testing the Book: "Текст над квадратиками не делай длинным — срочно убери", "Нет цветов в book",
+"Я что не могу удалить файл?".
+
+- [x] 3.14.1 (`fix/short-box-titles`, PR #98): the description line is drawn on leaf boxes only; an opened
+      part, component or chapter keeps a short title above its children.
+- [x] 3.15.0 (`feat/book-default-colours`, PR #99): the folder X-Ray's JSON already held 192 section and 49
+      document importance ratings from the annotations, but the Book drew everything grey without an overlay
+      (Logical is coloured by roles). With no overlay the Book now colours chapters and sections by the AI's
+      importance (containers by the strongest inside), legend "Importance (AI)".
+- [x] 3.16.0 (`feat/move-to-trash`, PR #100): the file tree had no delete at all. Files and project folders
+      get "Move to Trash" (confirmation, `FileManager.trashItem`, open tabs closed without saving,
+      `WorkspaceManager.closeTabs(under:)`).
+- [x] All three released (signed, notarized; DMGs in `build/`) and installed on Boris's request.
+
 ## Task 62: Ask the book, honest overlays, full text in boxes (2026-09-30, branch feat/book-ask, 3.14.0)
 
 Boris, in the Book: "Оверлай не работает", "Не определены цвета", "я хочу иметь возможность задать вопросы
