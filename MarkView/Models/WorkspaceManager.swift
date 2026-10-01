@@ -1513,6 +1513,13 @@ class WorkspaceManager: ObservableObject {
         case "describeBook":
             // Book view: "Describe this chapter" (path) or "Describe remaining chapters" (no path).
             architecture.describeBook(path: payload["path"] as? String, root: root, db: semanticDatabase)
+        case "recursiveInsight":
+            // Book panel: the insight of a part (folder) or chapter (document) of this X-Ray.
+            let relative = payload["path"] as? String ?? ""
+            let target = relative.isEmpty ? root : root.appendingPathComponent(relative).standardizedFileURL
+            guard target.path == root.standardizedFileURL.path || target.path.hasPrefix(root.standardizedFileURL.path + "/"),
+                  FileManager.default.fileExists(atPath: target.path) else { return }
+            startRecursiveInsight(at: target)
         case "askBook":
             // A question about the book: answered like "I need to understand" (what, why, how,
             // origin, with sources), over this X-Ray's root — the project's or the folder's.
