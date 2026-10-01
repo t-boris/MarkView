@@ -2,7 +2,8 @@
 type: bug
 id: BUG-013
 title: Implement with AI does not establish an implementation `/goal`
-status: open
+status: fixed
+branch: fix/issue-workflows
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-09-28
@@ -94,6 +95,9 @@ MarkView native macOS app (macOS 13+, Swift 5.9). The report covers all configur
 
 **BQ-2** What happened after clicking “Implement with AI”?
 → The prompt appeared in the terminal without `/goal`.
+
+**Follow-up (2026-09-29)** How should Implement with AI establish a goal for assistants without `/goal` support?
+→ Create a goal using the method available to that assistant.
 
 ## Original description
 
