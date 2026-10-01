@@ -1625,6 +1625,7 @@
                     if (reading) button.disabled = true;
                     d.appendChild(button);
                 }
+                renderInsightButton(d, node);
                 addRow(d, ['collection', 'group'].indexOf(node.kind) >= 0 ? 'Items' : isBook() ? 'Chapters' : 'Files',
                        ['file', 'doc', 'entity', 'section'].indexOf(node.kind) >= 0 ? '' : (node.files ? String(node.files) : ''));
                 if (isBook() && ['doc', 'dir', 'root'].indexOf(node.kind) >= 0) {
@@ -1764,9 +1765,22 @@
                         d.appendChild(p);
                     }
                 }
+                const insight = linkButton('Recursive Insight of the book', function() { post('recursiveInsight', { path: '' }); }, 'arch-action');
+                insight.title = 'A layered narrative of all the documents, to read and dive into level by level';
+                d.appendChild(insight);
                 const p = document.createElement('p'); p.className = 'arch-muted';
                 p.textContent = 'Select a part, chapter or section for details. Double-click opens a chapter\'s sections; double-click a section to read it.';
                 d.appendChild(p);
+            }
+
+            /** Recursive Insight of a part (its folder) or a chapter (its document), from the panel. */
+            function renderInsightButton(d, node) {
+                if (!isBook() || node.path == null || (node.kind !== 'dir' && node.kind !== 'doc')) return;
+                const b = linkButton(node.kind === 'dir' ? 'Recursive Insight of this part' : 'Recursive Insight of this chapter',
+                    function() { post('recursiveInsight', { path: node.path }); }, 'arch-action');
+                b.title = node.kind === 'dir' ? 'A layered narrative of this folder\'s documents, to dive into level by level'
+                    : 'A layered narrative of this document, to dive into level by level';
+                d.appendChild(b);
             }
 
             /** "In: part › chapter › section" above a Book node's summary; each step focuses it. */
