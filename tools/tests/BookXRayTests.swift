@@ -228,6 +228,42 @@ let selfLink = BookBuilder.chapter(path: "s.md", text: "# S\n\n## A\n\n[up](#s) 
 let selfBook = BookBuilder.build(chapters: [selfLink], rootName: "x")
 check("self, ancestor and descendant links dropped", selfBook.edges.isEmpty)
 
+// MARK: Front matter and leads
+
+let req = """
+---
+type: requirement
+id: REQ-001
+title: Title includes workspace folder name
+status: approved
+---
+
+## Statement
+
+When a workspace folder is open, each window's title shall be **'MarkView <version> — <folder>'**,
+with the Finder display name of the root folder.
+
+## Acceptance Criteria
+
+- [x] With folder /x/my-project open, the title reads 'MarkView 1.4 — my-project'.
+- [x] The full path never appears.
+"""
+let reqChapter = BookBuilder.chapter(path: "requirements/REQ-001.md", text: req)
+check("front matter title names the chapter", reqChapter.title, "Title includes workspace folder name")
+check("chapter lead falls back to the first section's paragraph",
+      reqChapter.lead, "When a workspace folder is open, each window's title shall be 'MarkView <version> — <folder>', with the Finder display name of the root folder.")
+check("section lead strips list markers and checkboxes", reqChapter.sections[1].lead,
+      "With folder /x/my-project open, the title reads 'MarkView 1.4 — my-project'. The full path never appears.")
+check("leads become provisional summaries", BookBuilder.build(chapters: [reqChapter], rootName: "r").nodes.first { $0.kind == "doc" }?.summary == reqChapter.lead)
+let front = BookBuilder.frontMatter(["---", "title: \"Quoted\"", "summary: Short one.", "nested:", "  - a", "---", "body"])
+check("front matter fields and end", front.fields["title"] == "Quoted" && front.fields["summary"] == "Short one." && front.end == 6)
+check("summary field wins over the first paragraph", BookBuilder.chapter(path: "a.md", text: "---\nsummary: From front matter.\n---\n\nBody text here.\n").lead, "From front matter.")
+check("lead skips headings, fences and tables", BookBuilder.lead(["# T", "```", "code", "```", "| a | b |", "", "Real *text* [here](x).", "continues.", "", "next"], from: 1, to: 10), "Real text here. continues.")
+check("long lead is cut at a word", BookBuilder.lead([String(repeating: "word ", count: 60)], from: 1, to: 1)!.hasSuffix("…"))
+check("no lead in an empty range", BookBuilder.lead(["", "## x"], from: 1, to: 2) == nil)
+check("chapter lead from the opening paragraph", chapter.lead, "Overview paragraph.")
+check("section lead", chapter.sections[0].lead, "Text see scanner and other.")
+
 // MARK: Annotator
 
 let bookView = ArchView(id: "docs", nodes: book.nodes, edges: book.edges)

@@ -244,9 +244,33 @@
                 if (out.length > max) out = out.slice(0, max - 1).replace(/\s+\S*$/, '') + '…';
                 return out;
             }
-            /** Chapters of a Book node the user has not had described yet. */
+            /** Chapters the AI has not annotated yet (their texts are the documents' first paragraphs). */
             function undescribedChapters(view) {
-                return view.nodes.filter(function(n) { return n.kind === 'doc' && !n.summary; });
+                return view.nodes.filter(function(n) { return n.kind === 'doc' && !n.summarySignature; });
+            }
+            /** The Book's texts for documents drawn in other views: chapter by path, section by
+             *  path and start line (the Logical view's local outline lists the same headings). */
+            function bookIndex() {
+                const snap = ui.payload && ui.payload.snapshot;
+                if (!snap) return null;
+                if (ui.bookIndexFor === snap) return ui.bookIndex;
+                const book = snap.views.find(function(v) { return v.id === 'docs'; });
+                const index = { chapters: new Map(), sections: new Map() };
+                (book ? book.nodes : []).forEach(function(n) {
+                    if (n.kind === 'doc' && n.path) index.chapters.set(n.path, n);
+                    else if (n.kind === 'section' && n.path && n.line) index.sections.set(n.path + ':' + n.line, n);
+                });
+                ui.bookIndexFor = snap; ui.bookIndex = index;
+                return index;
+            }
+            /** What the Book says about a node of another view: a document's chapter, or the
+             *  section an outline item stands for. */
+            function bookText(node) {
+                if (isBook() || !node || !node.path) return null;
+                const index = bookIndex(); if (!index) return null;
+                if (node.kind === 'file' || node.kind === 'doc') return index.chapters.get(node.path) || null;
+                if (node.kind === 'entity' && node.line) return index.sections.get(node.path + ':' + node.line) || null;
+                return null;
             }
             function overlayApplies() {
                 if (ui.overlay === 'none') return false;
@@ -567,9 +591,16 @@
                 // Long names (dated notes, generated files) are cut; the details panel has them whole.
                 let label = node.name || node.id;
                 if (label.length > 40) label = label.slice(0, 38) + '…';
-                // The Book: what a part, chapter or section says, under its title.
-                if (isBook() && node.summary && ['dir', 'doc', 'section'].indexOf(node.kind) >= 0) {
-                    const line = firstSentence(node.summary, 72);
+                // Every described box says what it is, under its name: a component's purpose, a
+                // folder's or file's AI description, a chapter's or section's annotation. Documents
+                // and their sections drawn in other views borrow the Book's texts.
+                const book = bookText(node);
+                if (book && node.kind === 'file' && book.name && book.name !== node.name && book.name + '.md' !== node.name) {
+                    label += '\n' + (book.name.length > 60 ? book.name.slice(0, 58) + '…' : book.name);
+                }
+                const described = node.summary || (book && book.summary);
+                if (described && node.kind !== 'change' && node.kind !== 'changePart') {
+                    const line = firstSentence(described, 72);
                     if (line) label += '\n' + line;
                 }
                 const impact = prImpact(node);
@@ -638,7 +669,7 @@
                         ? Math.min(3.2, Math.max(1, Math.sqrt(node.loc / Math.max(1, sizeBase(drawn))))) : 1;
                     const parent = node.parent != null && drawnIds.has(node.parent) && expanded.has(node.parent) ? node.parent : undefined;
                     // Book labels carry an annotation line: wider boxes, as tall as the wrapped text.
-                    const w = Math.min(isBook() ? 320 : 260, Math.max(70, longest * 6.6 + 22)) * grow;
+                    const w = Math.min(label.indexOf('\n') >= 0 ? 320 : 260, Math.max(70, longest * 6.6 + 22)) * grow;
                     const rows = label.split('\n').reduce(function(a, l) { return a + Math.max(1, Math.ceil((l.length * 6.6) / Math.max(40, w - 24))); }, 0);
                     elements.push({ group: 'nodes', data: {
                         id: node.id, parent: parent, label: label, kind: node.kind,
@@ -1463,11 +1494,20 @@
                 d.appendChild(badges);
                 const describing = (ui.payload.describing || []).indexOf(node.id) >= 0;
                 if (isBook()) renderBookLineage(d, node, idx);
+                const borrowed = !node.summary && bookText(node);
                 if (node.summary) {
                     const p = document.createElement('p'); p.textContent = node.summary; d.appendChild(p);
+                } else if (borrowed && borrowed.summary) {
+                    if (borrowed.kind === 'doc' && borrowed.name !== node.name) { const t = document.createElement('p'); t.className = 'arch-muted'; t.textContent = borrowed.name; d.appendChild(t); }
+                    const p = document.createElement('p'); p.textContent = borrowed.summary; d.appendChild(p);
+                    if (borrowed.kind === 'doc' && !borrowed.summarySignature) {
+                        const n = document.createElement('p'); n.className = 'arch-muted';
+                        n.textContent = 'From the document\'s first paragraph; Analyze writes the AI\'s annotation.';
+                        d.appendChild(n);
+                    }
                 } else if (isBook() && ['doc', 'section'].indexOf(node.kind) >= 0) {
                     renderDescribeChapter(d, node, idx);
-                } else if (codeViews[ui.view] && ['dir', 'package', 'file'].indexOf(node.kind) >= 0) {
+                } else if (codeViews[ui.view] && ['dir', 'package', 'file'].indexOf(node.kind) >= 0 && !borrowed) {
                     // Describe on first selection; the answer is cached with the folder/file signature.
                     const p = document.createElement('p'); p.className = 'arch-muted';
                     p.textContent = describing || ui.describeRequested.has(node.id) ? 'Describing…' : '';
@@ -1692,7 +1732,7 @@
                 if (!chapter) return;
                 const describing = (ui.payload.describing || []).indexOf(chapter.id) >= 0;
                 const p = document.createElement('p'); p.className = 'arch-muted';
-                p.textContent = describing ? 'Describing…' : 'Not described yet.';
+                p.textContent = describing ? 'Describing…' : 'Not annotated by the AI yet.';
                 d.appendChild(p);
                 if (!describing) {
                     const b = linkButton(ui.payload.busy ? 'Busy…' : 'Describe this chapter', function() { post('describeBook', { path: chapter.path }); }, 'arch-action');

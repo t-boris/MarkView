@@ -445,7 +445,8 @@ enum BookAnnotator {
     /// the parts; none when no chapter has a summary yet.
     static func partsRequests(view: ArchView, language: String) -> [Built] {
         let chapters = view.nodes.filter { $0.kind == "doc" }
-        guard chapters.contains(where: { !($0.summary ?? "").isEmpty }) else { return [] }
+        // Only once the AI has annotated chapters; the scan's first-paragraph texts are not enough.
+        guard chapters.contains(where: { $0.summarySignature != nil && !($0.summary ?? "").isEmpty }) else { return [] }
         let title = view.nodes.first { $0.kind == "root" }?.name ?? "Book"
         let byParent = Dictionary(grouping: chapters, by: { $0.parent ?? "d:" })
         let parts = view.nodes.filter { $0.kind == "dir" || $0.kind == "root" }
