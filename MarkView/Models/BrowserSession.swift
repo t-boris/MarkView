@@ -156,6 +156,47 @@ final class BrowserSession: NSObject, ObservableObject {
         return view
     }
 
+    /// An Electron app's renderer shown as a web page: its preload APIs do not exist here, so
+    /// `window.electron`, `window.api` and similar become no-op stand-ins (each call warns once in
+    /// the page's console) instead of errors that stop the page.
+    func standInForElectron() {
+        guard !electronStandIns else { return }
+        electronStandIns = true
+        webView.configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.electronStandInScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    }
+
+    private var electronStandIns = false
+
+    static let electronStandInScript = #"""
+    (function () {
+      if (window.__markviewElectronStandIn) return;
+      window.__markviewElectronStandIn = true;
+      var warned = {};
+      function standIn(path) {
+        return new Proxy(function () {}, {
+          get: function (_, key) {
+            if (key === 'then') return undefined;
+            if (key === Symbol.iterator) return function* () {};
+            if (key === Symbol.toPrimitive) return function () { return ''; };
+            if (typeof key === 'symbol') return undefined;
+            return standIn(path + '.' + String(key));
+          },
+          apply: function () {
+            if (!warned[path]) {
+              warned[path] = true;
+              console.warn('[MarkView web preview] ' + path + '() needs Electron; it does nothing in the browser.');
+            }
+            return standIn(path + '()');
+          }
+        });
+      }
+      ['electron', 'api', 'ipcRenderer', 'electronAPI', 'bridge', 'desktop'].forEach(function (name) {
+        if (!(name in window)) window[name] = standIn('window.' + name);
+      });
+    })();
+    """#
+
     func load(_ url: URL) {
         loadError = nil
         preview = nil

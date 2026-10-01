@@ -62,6 +62,33 @@ let web = targets.first { $0.label == "web" }
 check("next app", web?.command == "npm run dev" && web?.ports.contains(3000) == true, "\(String(describing: web))")
 check("django app", targets.contains { $0.label == "server" && $0.command.contains("manage.py runserver") })
 
+// MARK: Electron apps run as web only
+
+WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: "/Applications/Mark View.app/Contents/Resources/Editor/vendor/js/markview-web-only.mjs")
+write("desk-ev/package.json", #"{"scripts":{"dev":"electron-vite dev","start":"electron-vite preview","typecheck:web":"tsc --noEmit"},"devDependencies":{"electron":"31","electron-vite":"2","vite":"5"}}"#)
+write("desk-ev/electron.vite.config.ts", "export default { renderer: { server: { port: 5300 } } }")
+write("desk-script/package.json", #"{"scripts":{"dev":"concurrently \"vite\" \"wait-on tcp:5173 && electron .\"","dev:renderer":"vite --port 4300"},"devDependencies":{"electron":"31","vite":"5"}}"#)
+write("desk-vpe/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"electron":"31","vite":"5","vite-plugin-electron":"0.28"}}"#)
+write("desk-vpe/vite.config.ts", "export default {}")
+write("desk-forge/package.json", #"{"scripts":{"start":"electron-forge start"},"devDependencies":{"electron":"31","@electron-forge/cli":"7"}}"#)
+write("desk-forge/vite.renderer.config.mts", "export default {}")
+write("desk-none/package.json", #"{"scripts":{"start":"electron ."},"devDependencies":{"electron":"31"}}"#)
+let electronTargets = WebAppPreview.targets(root: tmp)
+let ev = electronTargets.first { $0.label.hasPrefix("desk-ev") }
+check("electron-vite: renderer through the launcher, quoted", ev?.command == "node '/Applications/Mark View.app/Contents/Resources/Editor/vendor/js/markview-web-only.mjs' electron-vite" && ev?.isElectron == true && ev?.label == "desk-ev (web only)" && ev?.ports.first == 5300, "\(String(describing: ev))")
+let scripted = electronTargets.first { $0.label.hasPrefix("desk-script") }
+check("a web-only script is used as is", scripted?.command == "npm run dev:renderer" && scripted?.ports.first == 4300 && scripted?.isElectron == true, "\(String(describing: scripted))")
+let vpe = electronTargets.first { $0.label.hasPrefix("desk-vpe") }
+check("vite-plugin-electron: its Vite config without Electron", vpe?.command.hasSuffix("markview-web-only.mjs' vite vite.config.ts") == true, "\(String(describing: vpe))")
+let forge = electronTargets.first { $0.label.hasPrefix("desk-forge") }
+check("Forge: the renderer config", forge?.command.hasSuffix(" vite vite.renderer.config.mts") == true, "\(String(describing: forge))")
+check("Electron without a web part is not offered", !electronTargets.contains { $0.label.hasPrefix("desk-none") })
+check("Electron commands never run Electron", electronTargets.filter(\.isElectron).allSatisfy { !$0.command.contains("electron-vite dev") && !$0.command.contains("electron .") })
+check("web-only scripts", WebAppPreview.servesWebOnly("vite") && WebAppPreview.servesWebOnly("vite --port 3000") && WebAppPreview.servesWebOnly("cross-env NODE_ENV=development webpack serve --config x.js")
+      && !WebAppPreview.servesWebOnly("vite build") && !WebAppPreview.servesWebOnly("electron-vite dev") && !WebAppPreview.servesWebOnly("wait-on tcp:3000 && electron .")
+      && !WebAppPreview.servesWebOnly("tsc --noEmit -p tsconfig.web.json"))
+check("shell quoting", WebAppPreview.shellQuoted("dev:web") == "dev:web" && WebAppPreview.shellQuoted("it's") == "'it'\\''s'")
+
 // MARK: Web clip
 
 let folders = WebClip.suggestedFolders(root: tmp)

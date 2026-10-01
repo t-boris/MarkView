@@ -18,7 +18,7 @@ for name in ['sample.swift', 'spaced file.md', 'README.md', 'LICENSE', 'literal%
     (root / name).write_text('test fixture\n')
 PY
 swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/terminal-link-tests" \
-    MarkView/Models/AppFontScale.swift MarkView/Models/TerminalLink.swift MarkView/Models/TerminalSession.swift MarkView/Models/PTYWriter.swift "$out/FileType.swift" "$out/main.swift"
+    MarkView/Models/AppFontScale.swift MarkView/Models/TerminalLink.swift MarkView/Models/TerminalSession.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/PTYWriter.swift "$out/FileType.swift" "$out/main.swift"
 "$out/terminal-link-tests" "$PWD/MarkView/Resources/Editor/terminal.html" "$out/fixtures" "$@"
 
 cp tools/tests/EditorLineLinkTests.swift "$out/main.swift"

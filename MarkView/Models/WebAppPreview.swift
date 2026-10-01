@@ -11,6 +11,9 @@ struct WebAppTarget: Equatable {
     var command: String
     /// Ports named by the scripts or the config first, then the framework's default.
     var ports: [Int]
+    /// An Electron app run as a web page only: Electron is never started, and the browser tab
+    /// stands in for its preload APIs (`window.electron`, `window.api`, …).
+    var isElectron = false
 }
 
 /// Finds the project's web apps and their development servers (Preview Web App).
@@ -64,10 +67,18 @@ enum WebAppPreview {
     private static func nodeTarget(_ package: [String: Any], folder: URL, label: String,
                                    fileManager: FileManager) -> WebAppTarget? {
         let scripts = package["scripts"] as? [String: String] ?? [:]
-        guard let name = ["dev", "start", "serve", "develop", "preview"].first(where: { scripts[$0] != nil }),
-              let script = scripts[name] else { return nil }
         let dependencies = ((package["dependencies"] as? [String: Any]) ?? [:])
             .merging((package["devDependencies"] as? [String: Any]) ?? [:]) { first, _ in first }
+        let manager = packageManager(folder, fileManager)
+        if ["electron", "electron-vite", "@electron-forge/cli", "electron-builder", "vite-plugin-electron"].contains(where: { dependencies[$0] != nil }) {
+            // These Vite plugins start Electron from a plain `vite`, so no vite script is web only.
+            let pluginStartsElectron = ["vite-plugin-electron", "vite-electron-plugin", "vite-plugin-electron-builder"]
+                .contains { dependencies[$0] != nil }
+            return electronTarget(scripts: scripts, folder: folder, label: label, manager: manager,
+                                  viteStartsElectron: pluginStartsElectron, fileManager: fileManager)
+        }
+        guard let name = ["dev", "start", "serve", "develop", "preview"].first(where: { scripts[$0] != nil }),
+              let script = scripts[name] else { return nil }
         // A library or a CLI also has "start"; a web app names a web framework or server.
         let web = ["vite", "next", "react-scripts", "@angular/core", "@vue/cli-service", "nuxt", "astro",
                    "@sveltejs/kit", "svelte", "@remix-run/dev", "gatsby", "parcel", "webpack-dev-server",
@@ -76,22 +87,88 @@ enum WebAppPreview {
         let isWeb = web.contains { dependencies[$0] != nil }
             || ["vite", "next", "ng serve", "nuxt", "astro", "webpack", "parcel", "remix", "gatsby"].contains { script.contains($0) }
         guard isWeb else { return nil }
-        let exists = { (name: String) in fileManager.fileExists(atPath: folder.appendingPathComponent(name).path) }
-        let manager: String
-        if exists("pnpm-lock.yaml") { manager = "pnpm" }
-        else if exists("yarn.lock") { manager = "yarn" }
-        else if exists("bun.lockb") || exists("bun.lock") { manager = "bun" }
-        else { manager = "npm" }
-        let command = manager == "npm" && name == "start" ? "npm start" : "\(manager) run \(name)"
-        var ports = explicitPorts(in: script)
-        for config in ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts", "angular.json",
-                       "astro.config.mjs", "astro.config.ts", "nuxt.config.ts", "vue.config.js"] {
-            if let text = try? String(contentsOf: folder.appendingPathComponent(config), encoding: .utf8) {
-                ports += configPorts(in: text)
-            }
-        }
+        var ports = explicitPorts(in: script) + configPorts(folder: folder, files: webConfigFiles)
         ports += defaultPorts(script: script, dependencies: Set(dependencies.keys))
-        return WebAppTarget(folder: folder, label: label, command: command, ports: unique(ports))
+        return WebAppTarget(folder: folder, label: label, command: runCommand(name, manager: manager), ports: unique(ports))
+    }
+
+    private static let webConfigFiles = ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts", "angular.json",
+                                         "astro.config.mjs", "astro.config.ts", "nuxt.config.ts", "vue.config.js"]
+
+    // MARK: - Electron
+
+    /// Script names that usually serve an Electron app's renderer on its own, tried first.
+    static let webOnlyScriptNames = ["dev:web", "web", "dev:renderer", "renderer", "start:renderer", "dev:vite", "vite",
+                                     "start:web", "serve:web", "dev:browser", "browser"]
+
+    /// The web part of an Electron app: a script that serves it without Electron, else its Vite
+    /// renderer served by MarkView's launcher (electron-vite, Forge's renderer config, or a Vite
+    /// config with the Electron plugins left out). Nil when there is no web dev server to run.
+    private static func electronTarget(scripts: [String: String], folder: URL, label: String, manager: String,
+                                       viteStartsElectron: Bool, fileManager: FileManager) -> WebAppTarget? {
+        let label = label + " (web only)"
+        let names = webOnlyScriptNames.filter { scripts[$0] != nil } + scripts.keys.sorted().filter { !webOnlyScriptNames.contains($0) }
+        for name in names {
+            guard let script = scripts[name], servesWebOnly(script),
+                  !(viteStartsElectron && script.lowercased().contains("vite")) else { continue }
+            let ports = explicitPorts(in: script) + configPorts(folder: folder, files: webConfigFiles) + defaultPorts(script: script, dependencies: [])
+            return WebAppTarget(folder: folder, label: label, command: runCommand(name, manager: manager), ports: unique(ports), isElectron: true)
+        }
+        let existing = { (names: [String]) in names.first { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) } }
+        guard let launcher = webOnlyLauncher?.path else { return nil }
+        let node = "node " + shellQuoted(launcher)
+        if let config = existing(["electron.vite.config.ts", "electron.vite.config.mts", "electron.vite.config.js",
+                                  "electron.vite.config.mjs", "electron.vite.config.cjs"]) {
+            return WebAppTarget(folder: folder, label: label, command: node + " electron-vite",
+                                ports: unique(configPorts(folder: folder, files: [config]) + [5173, 5174]), isElectron: true)
+        }
+        if let config = existing(["vite.renderer.config.ts", "vite.renderer.config.mts", "vite.renderer.config.js", "vite.renderer.config.mjs"])
+            ?? existing(["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs"]) {
+            return WebAppTarget(folder: folder, label: label, command: node + " vite " + shellQuoted(config),
+                                ports: unique(configPorts(folder: folder, files: [config]) + [5173, 5174]), isElectron: true)
+        }
+        return nil
+    }
+
+    /// A script that runs a web dev server and nothing of Electron (`vite`, `next dev`, `webpack serve`…).
+    static func servesWebOnly(_ script: String) -> Bool {
+        let text = script.lowercased()
+        guard !text.contains("electron"), !text.contains("wait-on") else { return false }
+        let servers = [#"(^|[\s&;(])vite(\s+(--|dev\b|serve\b|preview\b)|\s*$|\s*&&|\s*;)"#, #"\bnext\s+dev\b"#,
+                       #"\breact-scripts\s+start\b"#, #"\bwebpack\s+serve\b"#, #"\bwebpack-dev-server\b"#, #"\bng\s+serve\b"#,
+                       #"\bvue-cli-service\s+serve\b"#, #"\bastro\s+dev\b"#, #"\bnuxt\s+dev\b"#, #"\bparcel\b(?!\s+build)"#]
+        return servers.contains { text.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    /// MarkView's renderer launcher (`vendor/js/markview-web-only.mjs`; overridable for tests).
+    static var webOnlyLauncher = Bundle.main.url(forResource: "markview-web-only", withExtension: "mjs",
+                                                 subdirectory: "Editor/vendor/js")
+
+    // MARK: - Commands
+
+    private static func packageManager(_ folder: URL, _ fileManager: FileManager) -> String {
+        let exists = { (name: String) in fileManager.fileExists(atPath: folder.appendingPathComponent(name).path) }
+        if exists("pnpm-lock.yaml") { return "pnpm" }
+        if exists("yarn.lock") { return "yarn" }
+        if exists("bun.lockb") || exists("bun.lock") { return "bun" }
+        return "npm"
+    }
+
+    private static func runCommand(_ script: String, manager: String) -> String {
+        manager == "npm" && script == "start" ? "npm start" : "\(manager) run \(shellQuoted(script))"
+    }
+
+    /// A word for the shell: plain when safe, else in single quotes.
+    static func shellQuoted(_ text: String) -> String {
+        if !text.isEmpty, text.allSatisfy({ $0.isLetter || $0.isNumber || "-_./:=@".contains($0) }) { return text }
+        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func configPorts(folder: URL, files: [String]) -> [Int] {
+        files.flatMap { name -> [Int] in
+            guard let text = try? String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8) else { return [] }
+            return configPorts(in: text)
+        }
     }
 
     /// `--port 4000`, `-p 4000`, `--port=4000`, `PORT=4000`.
