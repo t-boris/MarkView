@@ -280,17 +280,29 @@ final class InsightSession: ObservableObject, Identifiable {
 
     // MARK: - Init
 
+    /// `project`: the project whose assistant and model answer (the open folder), when the
+    /// insight runs on one of its sub-folders or files. `title`: the root page's title when it is
+    /// not the folder's name (a single document's insight is titled after the document).
     init(
         folderURL: URL,
         mdFiles: [URL],
         graphRAG: GraphRAG?,
-        cache: InsightCache
+        cache: InsightCache,
+        project: URL? = nil,
+        title: String? = nil
     ) {
         self.folderURL = folderURL
         self.mdFiles = mdFiles
         self.graphRAG = graphRAG
         self.cache = cache
+        self.project = project ?? folderURL
+        self.rootTitle = title ?? folderURL.lastPathComponent
     }
+
+    /// The project whose assistant choice answers (BUG-021); the folder itself outside a project.
+    let project: URL
+    /// Title of the root page.
+    let rootTitle: String
 
     /// v1-compat init — replaced by Task 7/8 once `WorkspaceManager.startRecursiveInsight`
     /// is updated to construct `InsightCache` and pass it explicitly. Builds a cache
@@ -345,12 +357,14 @@ final class InsightSession: ObservableObject, Identifiable {
         // produces the same root nodeId — and the persistent cache hit works
         // (otherwise every reopen would pick a fresh random UUID and the
         // cached snapshot/HTML would never be findable).
-        let deterministicRootId = InsightCache.deterministicRootUUID(forFolderPath: folderURL.path)
+        // A single document's insight has its own identity, apart from its folder's.
+        let identityPath = mdFiles.count == 1 ? mdFiles[0].path : folderURL.path
+        let deterministicRootId = InsightCache.deterministicRootUUID(forFolderPath: identityPath)
         let root = InsightNode(
             id: deterministicRootId,
             parentId: nil,
             level: 0,
-            title: folderURL.lastPathComponent,
+            title: rootTitle,
             scope: .folderRoot
         )
         rootNodeId = root.id
@@ -429,7 +443,7 @@ final class InsightSession: ObservableObject, Identifiable {
         let nodeIdLocal = curId
         do {
             let result = try await CLICompletion.run(
-                CLICompletion.Request(project: folderURL, prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
+                CLICompletion.Request(project: project, prompt: prompts.userMessage, systemPrompt: prompts.systemPrompt,
                                       readableFolder: prompts.needsFolderAccess ? folderURL : nil),
                 onDelta: { [weak self] chunk in
                     Task { @MainActor [weak self] in
@@ -1264,7 +1278,7 @@ final class InsightSession: ObservableObject, Identifiable {
                         try Task.checkCancellation()
                         // Stream. onDelta hops back to MainActor for state mutation.
                         let result = try await CLICompletion.run(
-                            CLICompletion.Request(project: self.folderURL, prompt: userMessage, systemPrompt: systemPrompt,
+                            CLICompletion.Request(project: self.project, prompt: userMessage, systemPrompt: systemPrompt,
                                                   readableFolder: readableFolder),
                             onDelta: { [weak self] chunk in
                                 Task { @MainActor [weak self] in

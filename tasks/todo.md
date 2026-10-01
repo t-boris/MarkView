@@ -1,5 +1,16 @@
 # MarkView — Follow-up Tasks
 
+## Task 66: Recursive Insight per folder or file (2026-09-30, branch feat/insight-per-folder, 3.17.0)
+
+Boris: "Я так и не понял, почему не могу создать рекурсивный сайт по папке." Recursive Insight ran only on
+the open folder's root (AI Tools menu).
+
+- [x] `startRecursiveInsight(at:)`: a folder → its Markdown files; a `.md` file → that document alone
+      (root page titled after it, its own cache identity); the cache stays in the open folder's cache.
+- [x] `InsightSession` takes `project` (the open folder's assistant choice answers for sub-folders) and `title`.
+- [x] File tree: "Recursive Insight" on project and linked folders, "Recursive Insight on This File" on `.md` files.
+- [x] Debug build; PR; release; install.
+
 ## Tasks 63–65: short container titles, Book colours, Move to Trash (2026-09-30, 3.14.1 / 3.15.0 / 3.16.0)
 
 Boris, live-testing the Book: "Текст над квадратиками не делай длинным — срочно убери", "Нет цветов в book",
@@ -31,11 +42,6 @@ Boris, in the Book: "Оверлай не работает", "Не определ
       wrapped text; width up to 340 px.
 - [x] PR #96 merged (9d5d51f); release v3.14.0 published (`build/MarkView-3.14.0.dmg`); reinstalled on
       Boris's request.
-
-## Follow-up: Recursive Insight per folder or file (Boris, 2026-09-30)
-
-"Кстати, Recursive Insight можно делать по folder или file." Not started: scope and entry points to be
-agreed (file-tree context menu? Book chapter panel?).
 
 ## Task 61: Text in every X-Ray box (2026-09-30, branch feat/book-leads, 3.13.0)
 
