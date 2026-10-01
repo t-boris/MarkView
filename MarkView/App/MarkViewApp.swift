@@ -445,36 +445,49 @@ struct MarkViewApp: App {
 }
 
 /// The single DDE Settings window, opened from the menu and from places that point to a fix
-/// there (a dictation field whose OpenAI key or model failed).
+/// there (a dictation field whose OpenAI key or model failed). It shows the settings of the
+/// window that opened it: the assistant choice there is that window's project's (BUG-022).
 @MainActor
 enum DDESettingsWindow {
     private static var window: NSWindow?
+    /// The workspace whose settings the window shows.
+    private static weak var shownWorkspace: WorkspaceManager?
 
     static func show(workspace: WorkspaceManager?) {
-        if let window {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
+        let window = self.window ?? makeWindow()
+        if let workspace, workspace !== shownWorkspace {
+            bind(window, to: workspace)
+        } else if shownWorkspace == nil {
+            // No window has focus (the menu with only the Settings window open): no project.
+            bind(window, to: WorkspaceManager())
         }
+        window.title = shownWorkspace?.projectFolder.map { "DDE Settings — \($0.lastPathComponent)" } ?? "DDE Settings"
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
+    private static func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "DDE Settings"
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.center()
-        let wm = workspace ?? WorkspaceManager()
+        self.window = window
+        return window
+    }
+
+    /// Show `workspace`'s settings: opened from another window, the content is rebuilt for it.
+    private static func bind(_ window: NSWindow, to workspace: WorkspaceManager) {
+        shownWorkspace = workspace
         window.contentView = NSHostingView(
             rootView: DDESettingsView()
-                .environmentObject(wm)
+                .environmentObject(workspace)
                 .appFontScaled()
         )
-        self.window = window
-        window.makeKeyAndOrderFront(nil)
     }
 }
 
