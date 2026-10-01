@@ -14,7 +14,8 @@ Boris, after 3.12.0 (screenshot of the Logical view: "REQ-001.md · 28 lines" wi
       purpose, folder/file descriptions, chapters, sections); documents and outline items in Logical /
       Structure borrow the Book's chapter and section texts by path and line; the panel shows them too.
 - [x] Harness: front matter, leads, HTML-tag stripping keeps `<version>`; replay over `docs/`.
-- [ ] PR, merge, release.
+- [x] PR #94 merged (a17e3b6); release v3.13.0 published (signed, notarized; `build/MarkView-3.13.0.dmg`);
+      reinstalled on Boris's request, CI green.
 
 ## Task 60: Book X-Ray for document folders (2026-09-30, branch feat/book-xray, 3.12.0)
 
