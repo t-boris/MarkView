@@ -312,7 +312,8 @@
                                 }
                             }
                             try {
-                                mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true } });
+                                mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', flowchart: { htmlLabels: true },
+                                                     theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default' });
                                 mermaid.run({ nodes: sec.querySelectorAll('.mermaid'), suppressErrors: true });
                             } catch (e) { /* per-block recover handled by mermaid */ }
                         } else if (type === 'chartJsChart' && typeof Chart !== 'undefined') {
@@ -769,10 +770,43 @@
             .iframe-footer button:hover { background: #2563eb; color: #fff; border-color: #2563eb; }
             pre { background: #f6f8fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: calc(12px * var(--ui-scale, 1)); }
             code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+            /* The app's dark theme: the page follows the parent's data-theme (set at build and on toggle). */
+            html[data-theme="dark"], html[data-theme="dark"] body { background: #1e1e1e; color: #d4d4d4; }
+            html[data-theme="dark"] h1, html[data-theme="dark"] h2, html[data-theme="dark"] h3, html[data-theme="dark"] h4, html[data-theme="dark"] th, html[data-theme="dark"] .crumb-active, html[data-theme="dark"] .timeline time, html[data-theme="dark"] section.insight-section h2,
+            html[data-theme="dark"] section[data-section-type="hero"] .section-body h1, html[data-theme="dark"] .cards-grid .card h3, html[data-theme="dark"] .cards-grid > article h3 { color: #d4d4d4; }
+            html[data-theme="dark"] section[data-section-type="hero"] .section-body h1 + p { color: #a0a0a0; }
+            html[data-theme="dark"] a, html[data-theme="dark"] .crumb { color: #4a9eff; }
+            html[data-theme="dark"] .crumb:hover { background: #2d2d30; }
+            html[data-theme="dark"] .crumb-sep { color: #808080; }
+            html[data-theme="dark"] header.insight-breadcrumbs, html[data-theme="dark"] section.insight-section { border-color: #3c3c3c; }
+            html[data-theme="dark"] .section-body th, html[data-theme="dark"] .section-body td { border-color: #3c3c3c; }
+            html[data-theme="dark"] .section-body th { background: #2d2d30; }
+            html[data-theme="dark"] .section-body tbody tr:nth-child(odd) td { background: #232323; }
+            html[data-theme="dark"] .cards-grid .card, html[data-theme="dark"] .cards-grid > article { background: #252526; border-color: #3c3c3c; }
+            html[data-theme="dark"] .cards-grid .card .meta, html[data-theme="dark"] .cards-grid > article .meta { color: #9a9a9a; }
+            html[data-theme="dark"] .callout { background: #252526; border-left-color: #6b7280; }
+            html[data-theme="dark"] .callout.callout-info { background: #1b2838; }
+            html[data-theme="dark"] .callout.callout-warn { background: #2d2614; }
+            html[data-theme="dark"] .callout.callout-danger { background: #2e1a1a; }
+            html[data-theme="dark"] .callout.callout-tip { background: #16281f; }
+            html[data-theme="dark"] .timeline { border-left-color: #3c3c3c; }
+            html[data-theme="dark"] .deep-dive, html[data-theme="dark"] .dd-btn, html[data-theme="dark"] .iframe-footer button, html[data-theme="dark"] #lb .lb-bar button { background: #2d2d30; color: #d4d4d4; border-color: #3c3c3c; }
+            html[data-theme="dark"] .deep-dive:hover, html[data-theme="dark"] .dd-btn:hover { background: #3c3c3c; border-color: #5a5a5a; }
+            html[data-theme="dark"] .iframe-footer { background: #252526; border-top-color: #3c3c3c; }
+            html[data-theme="dark"] .iframe-footer input#iframe-input-topic, html[data-theme="dark"] .iframe-footer select { background: #1e1e1e; color: #d4d4d4; border-color: #3c3c3c; }
+            html[data-theme="dark"] pre { background: #252526; color: #d4d4d4; }
+            html[data-theme="dark"] .inferred { color: #e2a93b; border-bottom-color: #e2a93b; }
+            html[data-theme="dark"] .skeleton-loader { background: linear-gradient(90deg, #2d2d30 25%, #3c3c3c 50%, #2d2d30 75%); background-size: 200% 100%; }
+            html[data-theme="dark"] #lb .lb-content, html[data-theme="dark"] #lb .lb-bar { background: #252526; }
+            html[data-theme="dark"] #lb .lb-bar .lb-pct { color: #a0a0a0; }
+            html[data-theme="dark"] .insight-progress-banner { color: #4a9eff; }
             `;
 
+            // The page is born in the app's current theme; applyTheme updates it on a toggle.
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+
             // Compose final document. Note: title/sectionsHTML already escaped.
-            return '<!DOCTYPE html><html><head>' +
+            return '<!DOCTYPE html><html data-theme="' + theme + '"><head>' +
                 '<meta http-equiv="Content-Security-Policy" content="' + escapeForHTMLAttribute(csp) + '">' +
                 '<meta charset="UTF-8">' +
                 '<title>' + title + '</title>' +

@@ -6,6 +6,11 @@
             state.theme = theme;
             document.documentElement.setAttribute('data-theme', theme);
             localStorage.setItem('markview-theme', theme);
+            // An open Recursive Insight page (same-origin iframe) follows the theme too.
+            try {
+                const insight = document.getElementById('insight-iframe');
+                if (insight && insight.contentDocument) insight.contentDocument.documentElement.setAttribute('data-theme', theme);
+            } catch (e) {}
 
             const isDark = theme === 'dark';
 
