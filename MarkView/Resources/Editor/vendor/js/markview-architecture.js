@@ -384,6 +384,26 @@
                 if (node.path != null && node.kind !== 'root') return 'p:' + node.path;
                 return null;
             }
+            /** The Book with no overlay chosen is coloured by importance all the same: the AI's
+             *  rating of a chapter or section (written while annotating), a container by the
+             *  strongest rating inside it. Null when nothing below is rated. */
+            function bookImportance(node, idx) {
+                if (!isBook() || ui.overlay !== 'none' || !node) return null;
+                const table = ((ui.payload.snapshot && ui.payload.snapshot.ratings) || {}).importance || {};
+                function own(n) { const key = importanceKey(n); const r = key ? table[key] : null; return r ? levelRank(IMPORTANCE, r.level) : -1; }
+                let best = own(node);
+                if (best < 0) {
+                    (function walk(id) {
+                        (idx.children.get(id) || []).forEach(function(k) {
+                            const r = own(idx.byId.get(k)); if (r > best) best = r;
+                            if (best < IMPORTANCE.levels.length - 1) walk(k);
+                        });
+                    })(node.id);
+                }
+                return best < 0 ? null : best;
+            }
+            function bookColor(rank, c) { return rank == null ? null : [c.mute, c.info, c.warn, c.bad][rank]; }
+
             function ratingOf(node) {
                 const filter = currentFilter(); if (!filter) return null;
                 const all = (ui.payload.snapshot && ui.payload.snapshot.ratings) || {};
@@ -689,7 +709,7 @@
                         w: w, tw: Math.max(40, w - 14),
                         h: (rows > 2 ? 12 + (described ? 11 : 12) * rows : rows > 1 ? 38 : 26) * grow,
                         fill: (prImpact(node) ? { high: c.bad, medium: c.warn, low: c.ok }[prImpact(node).risk] : null)
-                            || overlayColor(info, c) || (node.role ? roleColor[node.role] : null) || '',
+                            || overlayColor(info, c) || bookColor(bookImportance(node, idx), c) || (node.role ? roleColor[node.role] : null) || '',
                         dimmed: ui.overlay === 'pr' && info && !info.changed ? 1 : 0,
                         // Keyword match not yet confirmed by the AI: drawn dashed.
                         provisional: info && info.kind === 'ai' && info.provisional && info.level > 0 ? 1 : 0,
@@ -1117,6 +1137,21 @@
                     : filter && filter.id === 'importance' ? 'Rated by AI as you zoom in; a folder shows its strongest part'
                     : isSearch(filter) ? (ui.payload.status ? 'Dashed = keyword candidate while the AI reads the project' : 'Uncoloured = not related; a folder is red when something inside matters')
                     : filter ? 'Dashed = keyword match, solid = checked by AI; a folder shows its strongest part' : null;
+                // The Book without an overlay: colour = importance from the AI's annotations.
+                if (!scale && !filter && isBook() && cy && currentView()) {
+                    const idx = indexView(currentView());
+                    const rated = cy.nodes().some(function(n) { return bookImportance(idx.byId.get(n.id()), idx) != null; });
+                    if (rated) {
+                        const ramp = IMPORTANCE.levels.slice().reverse().map(function(level) {
+                            const rank = levelRank(IMPORTANCE, level); return [rank, level, bookColor(rank, c)];
+                        });
+                        el.legend.appendChild(scaleLegend({ title: 'Importance (AI)', stops: ramp }));
+                    } else {
+                        const span = document.createElement('span'); span.className = 'arch-muted';
+                        span.textContent = 'Colours come with Analyze: chapters and sections are rated by importance.';
+                        el.legend.appendChild(span);
+                    }
+                }
                 // The Book: links written in the text, and related sections the AI found.
                 if (!scale && !filter && isBook() && cy && cy.edges('[kind = "related"]').length) {
                     const span = document.createElement('span'); span.className = 'arch-muted';
