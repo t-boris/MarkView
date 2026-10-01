@@ -541,3 +541,18 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: size the default view to what a reader can take in (a handful of containers with their blurbs), draw
   the dense AI-inferred relations only around the selected box, and check the result on a real folder of the
   user's size before shipping, not on a 5-document fixture.
+
+## Scripted edits: never open a file for writing before reading it (2026-10-01)
+- A Python edit ended with `open(p,'w').write(open(p).read())`: `'w'` truncates before the read runs, so
+  `WorkspaceManager.swift` (4,500 lines) became empty. It was restored from `HEAD` and the edits replayed.
+- Rule: read into a variable, edit it, write once; one script per file, with `assert old in s` per replacement,
+  and check `git diff --stat` after any scripted edit of a large file.
+
+## Live checks without disturbing Boris: a QA copy driven through Accessibility (2026-10-01)
+- A QA copy (own bundle id and executable name, e.g. `MarkViewQA`) opened with `open -g -a <app> <folder>` stays
+  behind Boris's windows. Menu commands that target the focused window do nothing in a background app; press
+  the window's own controls via System Events (`perform action "AXPress"`, then `click menu item`).
+- Capture only that window: `screencapture -o -l<id>` with the id from `CGWindowListCopyWindowInfo` filtered by
+  owner and window title. A region capture grabbed whatever was on top (private data) — never use `-R` for this.
+- WebKit does not paint a page in an occluded window until something forces a redraw; a blank web area in such a
+  capture is not a bug by itself — confirm with a standalone WKWebView `takeSnapshot`.

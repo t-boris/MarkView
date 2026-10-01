@@ -412,6 +412,8 @@ class WorkspaceManager: ObservableObject {
     }
     /// Terminals opened in folders, shown as editor tabs (keyed by tab id).
     private var terminalTabs: [UUID: TerminalSession] = [:]
+    /// Dev server terminals started by Preview Web App, by app folder path.
+    private var previewTerminals: [String: UUID] = [:]
     private var openFilesWatcher: Timer?
     /// Last seen modification dates of open files (to reload what the assistant changed).
     private var openFileDates: [URL: Date] = [:]
@@ -968,6 +970,9 @@ class WorkspaceManager: ObservableObject {
             case .terminal(let terminalID):
                 guard let terminal = terminalTabs[terminalID] else { continue }
                 saved = .terminal(terminal.directory)
+            case .browser(let session):
+                guard let url = session.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { continue }
+                saved = .browser(url)
             case .insight: continue // in-memory jobs have their own export workflow
             }
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
@@ -1034,6 +1039,8 @@ class WorkspaceManager: ObservableObject {
                 if directory.isFileURL, (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
                     openTerminal(in: directory)
                 }
+            case .browser(let url):
+                if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { openBrowser(url, activate: false) }
             }
             if savedIndex == state.activeTabIndex, openTabs.count > before { selected = before }
         }
@@ -2002,6 +2009,11 @@ class WorkspaceManager: ObservableObject {
         // A terminal tab: end its shell; there is nothing to save.
         if case .terminal(let id) = tab.kind {
             closeTerminal(id)
+            tabsStore.removeTab(at: index)
+            return
+        }
+        if case .browser(let session) = tab.kind {
+            session.close()
             tabsStore.removeTab(at: index)
             return
         }
@@ -3702,6 +3714,7 @@ class WorkspaceManager: ObservableObject {
                                       resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
                                       title: terminalTitle(for: profile))
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
+        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         aiTerminals.append(session)
         activeAITerminalID = session.id
         startWatchingOpenFiles()
@@ -4244,16 +4257,168 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Open a terminal in `folder` as an editor tab.
-    func openTerminal(in folder: URL) {
-        let session = TerminalSession(directory: folder.standardizedFileURL)
+    /// Open a terminal in `folder` as an editor tab; `startupCommand` is typed once the shell is up.
+    @discardableResult
+    func openTerminal(in folder: URL, startupCommand: String? = nil, title: String? = nil,
+                      activate: Bool = true) -> TerminalSession {
+        let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title)
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
+        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
         terminalTabs[session.id] = session
-        tabsStore.appendTab(tab)
+        tabsStore.appendTab(tab, activate: activate)
         startWatchingOpenFiles()
+        return session
+    }
+
+    // MARK: - Browser and web app preview
+
+    /// Open a browser tab (an empty one for nil), next to the files.
+    @discardableResult
+    func openBrowser(_ url: URL?, activate: Bool = true) -> BrowserSession {
+        let session = BrowserSession(url: url)
+        session.onOpenInNewTab = { [weak self] url in self?.openBrowser(url) }
+        session.onSaveMarkdown = { [weak session] mode in session?.saveRequest = mode }
+        let base = rootNode?.url ?? FileManager.default.temporaryDirectory
+        var tab = OpenTab(url: base.appendingPathComponent(".markview-browser-" + session.id.uuidString),
+                          content: "", originalContent: "")
+        tab.kind = .browser(session)
+        if activate {
+            layout.workspaceArea = .files
+            showCenter = true
+        }
+        tabsStore.appendTab(tab, activate: activate)
+        return session
+    }
+
+    /// A page a terminal program opened: shown in this window's browser, reusing a tab rather than
+    /// adding one — the tab already on the same server, else the active, preview or first browser tab.
+    func openInAppBrowser(_ url: URL) {
+        let candidates: [(index: Int, session: BrowserSession)] = openTabs.indices.compactMap { index in
+            if case .browser(let session) = openTabs[index].kind { return (index, session) }
+            return nil
+        }
+        let sameServer = { (session: BrowserSession) in
+            session.url?.host == url.host && session.url?.port == url.port && session.url?.scheme == url.scheme
+        }
+        let chosen = candidates.first { sameServer($0.session) }
+            ?? candidates.first { $0.index == activeTabIndex }
+            ?? candidates.first { $0.session.isAppPreview }
+            ?? candidates.first
+        layout.workspaceArea = .files
+        showCenter = true
+        if let chosen {
+            activeTabIndex = chosen.index
+            chosen.session.load(url)
+        } else {
+            openBrowser(url)
+        }
+    }
+
+    /// Preview Web App: the project's web app in a browser tab. A development server that
+    /// already answers is shown at once; otherwise the app's dev script runs in a terminal
+    /// tab and the tab shows the server as soon as it prints its address or a port answers.
+    func previewWebApp() {
+        if let index = openTabs.firstIndex(where: { tab in
+            if case .browser(let session) = tab.kind { return session.isAppPreview }
+            return false
+        }), case .browser(let session) = openTabs[index].kind {
+            // One preview tab per window: bring it back and look again.
+            activeTabIndex = index
+            layout.workspaceArea = .files
+            showCenter = true
+            findWebApp(for: session)
+            return
+        }
+        let session = openBrowser(nil)
+        findWebApp(for: session)
+    }
+
+    private func findWebApp(for session: BrowserSession) {
+        session.isAppPreview = true
+        session.preview = .searching
+        session.startWebApp = { [weak self, weak session] target in
+            guard let self, let session else { return }
+            self.startWebApp(target, in: session)
+        }
+        session.showTerminal = { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.showPreviewTerminal(for: session)
+        }
+        guard let root = rootNode?.url else {
+            session.preview = .noApp
+            return
+        }
+        Task { @MainActor in
+            let targets = await Task.detached { WebAppPreview.targets(root: root) }.value
+            switch targets.count {
+            case 0:
+                if let url = await WebAppPreview.firstAnswering(WebAppPreview.commonPorts) {
+                    session.showPreview(url)
+                } else {
+                    session.preview = .noApp
+                }
+            case 1:
+                startWebApp(targets[0], in: session)
+            default:
+                session.preview = .choose(targets)
+            }
+        }
+    }
+
+    /// Show `target` in `session`: at once when its server answers, else after starting it.
+    func startWebApp(_ target: WebAppTarget, in session: BrowserSession) {
+        session.preview = .starting(target, started: false)
+        Task { @MainActor in
+            if let url = await WebAppPreview.firstAnswering(target.ports) {
+                session.showPreview(url)
+                return
+            }
+            let key = target.folder.standardizedFileURL.path
+            let terminal: TerminalSession
+            if let id = previewTerminals[key], let existing = terminalTabs[id] {
+                terminal = existing
+            } else {
+                terminal = openTerminal(in: target.folder, startupCommand: target.command,
+                                        title: "Dev server", activate: false)
+                previewTerminals[key] = terminal.id
+                // A terminal tab starts its shell when its page is shown; this one starts now and
+                // keeps the output until the tab is opened.
+                terminal.start()
+            }
+            session.previewTerminalID = terminal.id
+            session.preview = .starting(target, started: true)
+            let watch = DevServerWatch()
+            terminal.onOutput = { [weak watch] data in watch?.read(data) }
+            defer { terminal.onOutput = nil }
+            let deadline = Date().addingTimeInterval(180)
+            var round = 0
+            while Date() < deadline {
+                guard !session.isClosed, case .starting = session.preview else { return }
+                if let url = watch.url, await WebAppPreview.firstAnswering([url.port ?? 80], timeout: 1) != nil {
+                    session.showPreview(url)
+                    return
+                }
+                if round % 3 == 0, let url = await WebAppPreview.firstAnswering(target.ports) {
+                    session.showPreview(url)
+                    return
+                }
+                round += 1
+                try? await Task.sleep(nanoseconds: 700_000_000)
+            }
+            if case .starting = session.preview { session.preview = .timedOut(target) }
+        }
+    }
+
+    private func showPreviewTerminal(for session: BrowserSession) {
+        guard let id = session.previewTerminalID,
+              let index = openTabs.firstIndex(where: { tab in
+                  if case .terminal(let terminal) = tab.kind { return terminal == id }
+                  return false
+              }) else { return }
+        activeTabIndex = index
     }
 
     func terminalSession(_ id: UUID) -> TerminalSession? { terminalTabs[id] }
@@ -4261,6 +4426,7 @@ class WorkspaceManager: ObservableObject {
     /// A terminal tab was closed: end its shell.
     func closeTerminal(_ id: UUID) {
         terminalTabs.removeValue(forKey: id)?.terminate()
+        previewTerminals = previewTerminals.filter { $0.value != id }
     }
 
     private func stopAllTerminals() {

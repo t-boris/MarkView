@@ -38,6 +38,7 @@ enum WorkspaceTabState: Codable {
     case github(GitHubItem)
     case architecture(String)
     case terminal(URL)
+    case browser(URL)
 }
 
 struct WindowSessionArchive: Codable {

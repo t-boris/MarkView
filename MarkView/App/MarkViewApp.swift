@@ -326,6 +326,17 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("4", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
+
+                Button("Browser") {
+                    activeWorkspace?.openBrowser(nil)
+                }
+                .keyboardShortcut("5", modifiers: [.command])
+
+                Button("Preview Web App") {
+                    activeWorkspace?.previewWebApp()
+                }
+                .keyboardShortcut("6", modifiers: [.command])
+                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(after: .appSettings) {

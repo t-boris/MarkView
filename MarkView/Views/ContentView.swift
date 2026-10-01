@@ -179,6 +179,7 @@ struct ContentView: View {
     @State private var sessionAttached = false
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
+    @AppStorage(TerminalBrowserBridge.enabledKey) private var openTerminalLinksInApp = true
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -225,7 +226,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .terminal:
+            case .file, .image, .terminal, .browser:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -413,6 +414,7 @@ struct ContentView: View {
                         workspaceManager.toggleContext()
                     }
                 }
+                browserMenu.frame(width: controlWidth, height: controlWidth)
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
                     workspaceManager.showGlobalSearch = true
                 }
@@ -476,6 +478,22 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+    }
+
+    private var browserMenu: some View {
+        Menu {
+            Button("Preview Web App (⌘6)") { workspaceManager.previewWebApp() }
+                .disabled(workspaceManager.rootNode == nil)
+            Button("New Browser Tab (⌘5)") { workspaceManager.openBrowser(nil) }
+            Divider()
+            Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
+                .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
+        } label: {
+            Image(systemName: "globe")
+        }
+        .menuIndicator(.hidden)
+        .help("Preview the project's web app on localhost, or open a browser tab")
+        .accessibilityLabel("Browser and web app preview")
     }
 
     private var newMenu: some View {
@@ -551,6 +569,10 @@ struct ContentView: View {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url).id(activeTab.id)
+                    } else if case .browser(let session) = activeTab.kind {
+                        BrowserTabView(session: session)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
                             .environmentObject(workspaceManager)
@@ -578,7 +600,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .terminal: return true
+                case .file, .image, .terminal, .browser: return true
                 default: return false
                 }
             }) {
