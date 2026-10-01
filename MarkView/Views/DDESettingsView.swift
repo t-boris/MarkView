@@ -84,10 +84,17 @@ struct DDESettingsView: View {
             GroupBox("AI CLI Tools (Claude Code / Codex)") {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Assistant & model").uiFont(.caption, weight: .bold)
-                        Text("Defaults for projects that have not chosen their own. Each project picks its assistant, model and X-Ray model from its window's toolbar; those apply to its X-Ray, Explain, selection actions, translation, diagrams, Recursive Insight and AI terminal.")
+                        // The window's project, as its toolbar menu edits it; other projects keep
+                        // theirs (BUG-022). Without a project these are the defaults.
+                        let project = workspaceManager.aiProject
+                        Text(project.map { "Assistant & model for \($0.lastPathComponent)" } ?? "Default assistant & model")
+                            .uiFont(.caption, weight: .bold)
+                        Text(project == nil
+                             ? "No project is open in this window, so this sets the defaults for projects that have not chosen their own. Each project chooses its assistant, model and X-Ray model in its own window: here or in the toolbar."
+                             : "This project's choice, the same as its window's toolbar menu; other projects keep theirs. Applies to its X-Ray, Explain, selection actions, translation, diagrams, Recursive Insight and AI terminal. The X-Ray model is chosen in the toolbar.")
                             .uiFont(size: 9).foregroundColor(.secondary)
-                        AIAssistantPickerView()
+                            .fixedSize(horizontal: false, vertical: true)
+                        AIAssistantPickerView(project: project)
                         HStack {
                             Text("AI output language").uiFont(.caption)
                             Picker("", selection: $outputLanguage) {

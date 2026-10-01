@@ -512,3 +512,16 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: when the user says the order or result "is not what I did", run the code over the real data at hand
   (this repository's `docs/bugs` reproduced it in one pass) before asking for examples; and judge a tie-breaker
   by what the user would expect, not only by whether it is stable.
+
+## A "fixed" bug reported again: find the path the user actually used (BUG-022, 2026-09-30)
+- BUG-021 made the toolbar's assistant choice per project, and the code for that path was correct. Boris
+  reported the same symptom again. The stored settings showed it: `project.ai` held two projects' choices,
+  while the defaults (`settings.cli.*Model`) had been edited several times — he changed the model in DDE
+  Settings, whose picker still bound the default keys, and the single Settings window stayed bound to the
+  first window that opened it.
+- Rule: when a fixed bug comes back, do not re-verify the fixed path; list every UI that edits the same
+  state (grep the keys and the `@AppStorage` bindings) and read the stored data to see which one wrote it.
+  A shared singleton window must be rebound to the workspace that opens it, not to the first caller.
+- Standalone harnesses drift: `CLICompletion.swift` gained `LinkedFolders` and `AICallLog` after
+  `project-ai-choice-tests.sh` was written, so the harness no longer compiled. Run the relevant
+  `tools/tests/*.sh` before committing and add the new files or stubs to the script.

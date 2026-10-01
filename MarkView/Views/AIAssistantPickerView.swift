@@ -2,27 +2,30 @@ import SwiftUI
 
 // MARK: - Assistant Picker
 
-/// Chooses the default CLI and model (DDE Settings) for projects without their own choice; a
-/// project's toolbar menus override them for that project only (BUG-021).
+/// Chooses the assistant CLI and its model in DDE Settings for the window's project: the same
+/// choice as the project's toolbar menu, so other projects keep theirs (BUG-021, BUG-022). Without
+/// a project (a single file, the welcome screen) it edits the defaults, which projects that have not
+/// chosen their own follow.
 struct AIAssistantPickerView: View {
-    @AppStorage(AIAssistantPreferences.backendKey) private var backendRaw = CLITool.claude.rawValue
-    @AppStorage(AIAssistantPreferences.modelKey(for: .claude)) private var claudeModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .codex)) private var codexModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .cline)) private var clineModel = ""
-    @AppStorage(AIAssistantPreferences.modelKey(for: .copilot)) private var copilotModel = ""
+    /// The project whose choice is edited; nil edits the defaults.
+    let project: URL?
 
     @State private var options: [CLITool: [AIModelOption]] = [:]
     @State private var customModel = ""
+    /// Bumped when any choice changes (here, in the toolbar or in another window), so the picker
+    /// shows the stored values.
+    @State private var refresh = 0
 
-    private var backend: CLITool { CLITool(rawValue: backendRaw) ?? .claude }
+    private var choice: AssistantChoice { AssistantChoice(project: project) }
+    private var backend: CLITool { choice.tool }
+
+    private var backendRaw: Binding<String> {
+        Binding(get: { choice.tool.rawValue }, set: { choice.setTool($0) })
+    }
 
     private var selectedModel: Binding<String> {
-        switch backend {
-        case .claude: return $claudeModel
-        case .codex: return $codexModel
-        case .cline: return $clineModel
-        case .copilot: return $copilotModel
-        }
+        let tool = backend
+        return Binding(get: { choice.model(for: tool) }, set: { choice.setModel($0, for: tool) })
     }
 
     /// Catalog for the active CLI, plus the stored model when it was typed by hand.
@@ -34,8 +37,9 @@ struct AIAssistantPickerView: View {
     }
 
     var body: some View {
+        let _ = refresh
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Assistant", selection: $backendRaw) {
+            Picker("Assistant", selection: backendRaw) {
                 ForEach(CLITool.allCases, id: \.self) { tool in
                     Text(tool.displayName).tag(tool.rawValue)
                 }
@@ -68,6 +72,7 @@ struct AIAssistantPickerView: View {
                 .uiFont(size: 9).foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in refresh += 1 }
         .task { await loadOptions() }
     }
 

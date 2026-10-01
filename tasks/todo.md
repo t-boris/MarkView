@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## BUG-022: DDE Settings changes the assistant for every project (2026-09-30, branch fix/bug-022-settings-assistant-per-window, 3.11.2)
+
+Boris: "Раздели определение агента по окнам. Когда в одном проекте меняешь модель — она не должна
+меняться для остальных проектов." BUG-021 (3.8.0) made the toolbar menus per project, but the
+"Assistant & model" picker in DDE Settings still edits the global defaults, and the single Settings
+window stays bound to the workspace that opened it first.
+
+- [x] Evidence: installed 3.11.0 has the BUG-021 code; `project.ai` holds choices for only two
+      projects while the defaults (`settings.cli.claudeModel` etc.) were edited — the change went
+      through Settings, which every project without its own choice follows.
+- [x] `AIAssistantPickerView` edits the window's project through `AssistantChoice` (the defaults only
+      without a project), refreshing when any choice changes.
+- [x] `DDESettingsView` names the project it edits and passes `workspaceManager.aiProject`.
+- [x] `DDESettingsWindow.show(workspace:)` rebinds the window to the workspace that opens it, with the
+      project in the title.
+- [x] `docs/bugs/BUG-022-*.md`; patch bump (3.11.2); Debug build; `project-ai-choice-tests.sh` (the harness
+      now compiles `LinkedFolders.swift` and `AICallLog.swift`, which `CLICompletion` gained since 3.8.0).
+- [ ] PR; merge; release DMG from a clean worktree of the merged `origin/main`.
+
 ## Task 59: Linked folders — search and browse other folders from a project (2026-09-30, branch feat/linked-folders, 3.11.0)
 
 Boris: when a project is open, attach other folders that are searched and browsed together with it;
