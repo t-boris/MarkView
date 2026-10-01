@@ -1,5 +1,16 @@
 # MarkView — Follow-up Tasks
 
+## Task 73: answer sources outside the X-Ray folder; table of contents scroll (2026-09-30, 3.20.1)
+
+- [x] A folder X-Ray's answer may cite files anywhere in the project (3.19.1 let the agent read them), but
+      `UnderstandingAnswer.parse` threw "The cited file could not be read" for paths outside the folder — the
+      whole answer failed — and `openUnderstandingSource` / `openFile` resolved paths against the folder only.
+      Sources now resolve against the folder, else the project (kept absolute); opening accepts both.
+- [x] Boris: clicking a heading in a Markdown file's table of contents did not scroll. `scrollToHeading` used
+      only `getElementById` + `scrollIntoView`, which does nothing when the rendered element is hidden (source
+      view) or its id changed. It now scrolls the visible element, else reveals its `data-line` through
+      `documentGotoLine`, else finds the heading by text.
+
 ## Tasks 71–72: questions read the whole project; Insight in the chosen language (2026-09-30, 3.19.1 / 3.20.0)
 
 Boris: a question from a feature folder's Book about `docs/raw/…` got "the file could not be read";

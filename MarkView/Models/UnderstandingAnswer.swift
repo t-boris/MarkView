@@ -22,7 +22,8 @@ struct UnderstandingAnswer: Codable {
         var markdownLink: String? {
             if kind == .code || kind == .document {
                 let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-                return "../../\(encoded)#L\(start)-L\(end)"
+                // A file outside the X-Ray's folder (answered from a folder X-Ray) is kept absolute.
+                return (path.hasPrefix("/") ? "file://" + encoded : "../../" + encoded) + "#L\(start)-L\(end)"
             }
             if !url.isEmpty { return url }
             return nil
@@ -59,8 +60,10 @@ struct UnderstandingAnswer: Codable {
 
     /// Reject incomplete/location-only answers and unreachable evidence rather than
     /// presenting them as a successful answer. File reads run off the main actor.
+    /// `project`: the open folder when `root` is one of its sub-folders (a folder X-Ray); a cited
+    /// file outside `root` but inside the project is kept by its absolute path.
     static func parse(_ value: Any?, root: URL, components: Set<String>, deployment: Set<String>,
-                      commits: Set<String>, pullRequests: Set<String>) throws -> Self {
+                      commits: Set<String>, pullRequests: Set<String>, project: URL? = nil) throws -> Self {
         guard let value, JSONSerialization.isValidJSONObject(value),
               let data = try? JSONSerialization.data(withJSONObject: value),
               var answer = try? JSONDecoder().decode(Self.self, from: data) else {
@@ -75,11 +78,17 @@ struct UnderstandingAnswer: Codable {
             }
             switch source.kind {
             case .code, .document:
-                guard let path = relativePath(source.path, root: root),
-                      let text = try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8) else {
+                var resolved: (stored: String, url: URL)?
+                if let path = relativePath(source.path, root: root) {
+                    resolved = (path, root.appendingPathComponent(path))
+                } else if let project, let path = relativePath(source.path, root: project) {
+                    let url = project.appendingPathComponent(path).standardizedFileURL
+                    resolved = (url.path, url)
+                }
+                guard let resolved, let text = try? String(contentsOf: resolved.url, encoding: .utf8) else {
                     throw Failure.invalid("The cited file could not be read: \(source.path)")
                 }
-                source.path = path
+                source.path = resolved.stored
                 let count = max(1, text.components(separatedBy: "\n").count)
                 source.start = min(max(1, source.start), count)
                 source.end = min(max(source.start, source.end), count)
@@ -117,10 +126,11 @@ struct UnderstandingAnswer: Codable {
         return answer
     }
 
+    /// `path` relative to `root`, from a relative path or an absolute one inside `root`.
     static func relativePath(_ path: String, root: URL) -> String? {
         let base = root.standardizedFileURL
-        let file = base.appendingPathComponent(path).standardizedFileURL
-        guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains(".."),
+        let file = path.hasPrefix("/") ? URL(fileURLWithPath: path).standardizedFileURL : base.appendingPathComponent(path).standardizedFileURL
+        guard !path.isEmpty, !path.split(separator: "/").contains(".."),
               file.path.hasPrefix(base.path + "/"),
               file.resolvingSymlinksInPath().path.hasPrefix(base.resolvingSymlinksInPath().path + "/") else { return nil }
         return String(file.path.dropFirst(base.path.count + 1))
