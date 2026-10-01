@@ -504,3 +504,11 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   (e.g. at least one node) before caching or storing it; on failure keep the previous result and say so.
 - Live-check an X-Ray fix on an APFS clone (`cp -cR`) of the affected project with a QA copy of the Debug
   build (own bundle id); do not click through it while Boris is using the machine.
+
+## A bug without a repro pair: try the project's own data (BUG-017, 2026-09-30)
+- The first attempt reviewed the comparator against its spec, found them consistent, and stopped for lack of an
+  example. The spec itself was the bug: front matter dates name a day, so a day's issues tie, and the "deterministic"
+  title tie-breaker listed them alphabetically — nothing like the filing order the user expected.
+- Rule: when the user says the order or result "is not what I did", run the code over the real data at hand
+  (this repository's `docs/bugs` reproduced it in one pass) before asking for examples; and judge a tie-breaker
+  by what the user would expect, not only by whether it is stable.

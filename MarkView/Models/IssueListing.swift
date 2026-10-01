@@ -185,7 +185,7 @@ struct IssueSort: Equatable {
     }
 
     /// Items with no value for the field come last in both directions. Ties: priority by date
-    /// (newest first), then by title and id.
+    /// (newest first), then by id in the order of the dates (BUG-017).
     func sorted<Item>(_ items: [Item], facts: (Item) -> IssueFacts) -> [Item] {
         let keyed = items.map { item -> (item: Item, facts: IssueFacts, date: Date?, value: Double?) in
             let itemFacts = facts(item)
@@ -193,6 +193,7 @@ struct IssueSort: Equatable {
             let value = field == .date ? date?.timeIntervalSinceReferenceDate : Self.priorityRank(itemFacts).map(Double.init)
             return (item, itemFacts, date, value)
         }
+        let newestFirst = field == .date ? descending : true
         return keyed.sorted { a, b in
             switch (a.value, b.value) {
             case let (x?, y?) where x != y: return descending ? x > y : x < y
@@ -208,10 +209,16 @@ struct IssueSort: Equatable {
                 default: break
                 }
             }
-            let byTitle = a.facts.title.lowercased().compare(b.facts.title.lowercased())
-            if byTitle != .orderedSame { return byTitle == .orderedAscending }
-            return a.facts.id < b.facts.id
+            // Front matter dates name a day, so everything filed that day ties. Ids are given in
+            // filing order ("BUG-021" after "BUG-020"), so they keep the list in that order; a title
+            // tie-breaker shuffled a day's items alphabetically (BUG-017).
+            return Self.idsNewestFirst(a.facts.id, b.facts.id) == newestFirst
         }.map(\.item)
+    }
+
+    /// Whether `a` was filed after `b`: ids compare with their numbers ("BUG-21" after "BUG-9").
+    static func idsNewestFirst(_ a: String, _ b: String) -> Bool {
+        a.localizedStandardCompare(b) == .orderedDescending
     }
 
     /// `updated`, else `created`, else the file's modification time.

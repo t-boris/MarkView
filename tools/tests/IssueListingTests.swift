@@ -92,9 +92,13 @@ let dated = [feature("a", "", updated: "2026-03-01"), feature("b", "", created: 
              feature("c", "", modified: day("2026-04-01")), feature("none", "")]
 check("date desc (default)", ids(IssueSort().sorted(dated) { $0 }) == ["b", "c", "a", "none"])
 check("date asc, missing last", ids(IssueSort(field: .date, descending: false).sorted(dated) { $0 }) == ["a", "c", "b", "none"])
-let ties = [feature("z2", "", created: "2026-01-01", title: "beta"), feature("z1", "", created: "2026-01-01", title: "Alpha"),
-            feature("y", "", created: "2026-01-01", title: "alpha")]
-check("ties by title (case-insensitive), then id", ids(IssueSort().sorted(ties) { $0 }) == ["y", "z1", "z2"])
+// BUG-017: a day's bugs tie on `created`; they keep their filing order, not their titles' order.
+let sameDay = [bug("BUG-9", "", created: "2026-01-01", title: "Zeta"), bug("BUG-21", "", created: "2026-01-01", title: "Alpha"),
+               bug("BUG-10", "", created: "2026-01-01", modified: day("2026-02-01"), title: "Beta")]
+check("same day: newest id first", ids(IssueSort().sorted(sameDay) { $0 }) == ["BUG-21", "BUG-10", "BUG-9"])
+check("same day, oldest first: oldest id first", ids(IssueSort(field: .date, descending: false).sorted(sameDay) { $0 }) == ["BUG-9", "BUG-10", "BUG-21"])
+check("same day ties ignore titles", ids(IssueSort().sorted([feature("a", "", created: "2026-01-01", title: "zzz"),
+                                                            feature("b", "", created: "2026-01-01", title: "aaa")]) { $0 }) == ["b", "a"])
 
 // MARK: Priority (REQ-002, DEC-007)
 
@@ -111,6 +115,8 @@ check("priority asc reverses valued items", Array(asc.prefix(3)) == ["low", "hig
 check("empty priority last both ways", Set(desc.suffix(2)) == ["none", "unknown"] && Set(asc.suffix(2)) == ["none", "unknown"])
 let samePriority = [bug("old", "", severity: "high", created: "2026-01-01"), bug("new", "", severity: "high", created: "2026-06-01")]
 check("priority ties: newest first", ids(IssueSort(field: .priority, descending: false).sorted(samePriority) { $0 }) == ["new", "old"])
+let samePriorityDay = [bug("BUG-2", "", severity: "high", created: "2026-01-01"), bug("BUG-11", "", severity: "high", created: "2026-01-01")]
+check("priority and date ties: newest id first", ids(IssueSort(field: .priority, descending: false).sorted(samePriorityDay) { $0 }) == ["BUG-11", "BUG-2"])
 
 // MARK: Badge tone
 
