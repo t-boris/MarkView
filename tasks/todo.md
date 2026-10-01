@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## Task 75: remove a folder from Recent projects (2026-10-01, 3.22.0)
+
+Boris: "add ability to remove recent folder".
+
+- [x] `WorkspaceManager.recentProjects` is published (was read from UserDefaults inside the view, so it
+      never refreshed); `removeRecentProject(_:)` drops one path. The folder on disk is untouched.
+- [x] Start screen: each recent row shows a "×" on hover and a context menu (Open / Remove from Recent
+      Projects); the "Recent projects" heading hides when the list is empty.
+
 ## Task 74: the left pane grows while there is room; full titles in tooltips (2026-09-30, 3.21.0)
 
 Boris: "Не ограничивай увеличение левой панели, пока есть место"; "для всех багов и функций: если

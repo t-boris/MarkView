@@ -315,6 +315,9 @@ enum WorkspaceAITool: String {
 @MainActor
 class WorkspaceManager: ObservableObject {
     @Published var recentFiles: [URL] = []
+    /// Recently opened folders (standardized paths), most recent first.
+    @Published private(set) var recentProjects: [String] =
+        UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
     let layout = PanelLayout()
     @Published var showFileTree: Bool = true {
@@ -615,13 +618,23 @@ class WorkspaceManager: ObservableObject {
     static let lastFolderKey = "workspace.lastFolder"
     static let recentProjectsKey = "workspace.recentProjects"
 
+    /// Removes a folder from the recent projects list; the folder itself is untouched.
+    func removeRecentProject(_ path: String) {
+        setRecentProjects(recentProjects.filter { $0 != path })
+    }
+
+    private func setRecentProjects(_ paths: [String]) {
+        recentProjects = paths
+        UserDefaults.standard.set(paths, forKey: Self.recentProjectsKey)
+    }
+
     func openFolder(_ url: URL, completion: (() -> Void)? = nil) {
         projectOperations = ProjectOperationsStore.forRoot(url)
         UserDefaults.standard.set(url.standardizedFileURL.path, forKey: Self.lastFolderKey)
-        var recent = UserDefaults.standard.stringArray(forKey: Self.recentProjectsKey) ?? []
+        var recent = recentProjects
         recent.removeAll { $0 == url.standardizedFileURL.path }
         recent.insert(url.standardizedFileURL.path, at: 0)
-        UserDefaults.standard.set(Array(recent.prefix(8)), forKey: Self.recentProjectsKey)
+        setRecentProjects(Array(recent.prefix(8)))
         rootOpenedAsFolder = true
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()

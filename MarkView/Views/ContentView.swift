@@ -714,19 +714,19 @@ struct ContentView: View {
                     workspaceManager.newProject = NewProjectRequest(resume: id)
                 }
                 .padding(.top, 12)
+                if !workspaceManager.recentProjects.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Recent projects").uiFont(size: 13, weight: .semibold)
-                    ForEach(UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? [], id: \.self) { path in
-                        Button {
+                    ForEach(workspaceManager.recentProjects, id: \.self) { path in
+                        RecentProjectRow(path: path) {
                             workspaceManager.openFolder(URL(fileURLWithPath: path, isDirectory: true))
-                        } label: {
-                            Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "folder")
+                        } onRemove: {
+                            workspaceManager.removeRecentProject(path)
                         }
-                        .buttonStyle(.plain)
-                        .help(path)
                     }
                 }
                 .frame(maxWidth: 600, alignment: .leading)
+                }
             }
         }
         .padding(24)
@@ -795,6 +795,37 @@ struct ContentView: View {
 
 /// Captures the NSWindow hosting a SwiftUI view, so open-URL notifications can
 /// be filtered to the active window instead of racing across all instances.
+/// A recent folder on the start screen: click opens it; the hover "×" or the context menu
+/// removes it from the list.
+private struct RecentProjectRow: View {
+    let path: String
+    let onOpen: () -> Void
+    let onRemove: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: onOpen) {
+                Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "folder")
+            }
+            .buttonStyle(.plain)
+            .help(path)
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Remove from Recent Projects")
+            .opacity(hovering ? 1 : 0)
+        }
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Open") { onOpen() }
+            Button("Remove from Recent Projects") { onRemove() }
+        }
+    }
+}
+
 private struct WindowAccessor: NSViewRepresentable {
     @Binding var window: NSWindow?
 
