@@ -24,7 +24,13 @@ content; explicit links resolved to the section plus AI "related" links; folders
       open at line, panel (overview, lineage, cross-references, Describe buttons).
 - [x] `tools/tests/book-xray-tests.sh` (builder + annotator); replay over `docs/` (821 chapters,
       3556 sections, 191/195 links resolved, 0.7 s); Debug build.
-- [ ] Docs (module reference, feature spec), PR, merge, release.
+- [x] Docs (module reference §5.11, feature spec with DEC-001…004); PR #92 merged (573f348); release
+      v3.12.0 published (signed, notarized; copy in `build/MarkView-3.12.0.dmg`); installed on Boris's
+      request and relaunched with the windows restored.
+
+Review: the skeleton is pure and was replayed over the real `docs/` before any UI existed; the AI step
+only writes texts against fixed ids, so a bad answer can never change the map. Not yet checked live:
+the Book view in the running app (labels, default expansion, panel) — Boris sees it first.
 
 ## BUG-022: DDE Settings changes the assistant for every project (2026-09-30, branch fix/bug-022-settings-assistant-per-window, 3.11.2)
 
