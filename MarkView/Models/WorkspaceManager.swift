@@ -1513,6 +1513,16 @@ class WorkspaceManager: ObservableObject {
         case "describeBook":
             // Book view: "Describe this chapter" (path) or "Describe remaining chapters" (no path).
             architecture.describeBook(path: payload["path"] as? String, root: root, db: semanticDatabase)
+        case "askBook":
+            // A question about the book: answered like "I need to understand" (what, why, how,
+            // origin, with sources), over this X-Ray's root — the project's or the folder's.
+            let question = (payload["question"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !question.isEmpty else { return }
+            setTemporaryFilter(question)
+            if let filter = ImportanceRater.temporaryFilter {
+                architecture.understand(filter: filter, root: root, db: semanticDatabase)
+                architecture.activate(filterId: filter.id)
+            }
         case "cancelAnalysis":
             architecture.cancelAnalysis()
         case "tempFilter":
