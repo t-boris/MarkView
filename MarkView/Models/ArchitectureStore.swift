@@ -1531,9 +1531,11 @@ final class ArchitectureStore: ObservableObject {
                     snapshot = next
                     revision += 1
                 }
+                let projectURL = projectRoot
                 let parsed = try await Task.detached {
                     try UnderstandingAnswer.parse(object?["explanation"], root: root, components: Set(components.map(\.id)),
-                        deployment: Set(nodes.map { String($0.id.dropFirst(2)) }), commits: context.commits, pullRequests: context.pullRequests)
+                        deployment: Set(nodes.map { String($0.id.dropFirst(2)) }), commits: context.commits, pullRequests: context.pullRequests,
+                        project: projectURL)
                 }.value
                 guard understandingTokens[id] == token else { return }
                 // Typed citations are authoritative, even if the AI forgot a highlight/step.

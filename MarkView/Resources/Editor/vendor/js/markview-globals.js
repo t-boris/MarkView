@@ -12,11 +12,22 @@
             toggleMode();
         };
 
+        // The table of contents: scroll the shown heading into view. The rendered element is
+        // used when it is visible; in a source view its line is revealed instead; a heading whose
+        // id changed since the contents were listed is found by its text.
         window.scrollToHeading = function(id) {
             const heading = document.getElementById(id);
-            if (heading) {
-                heading.scrollIntoView({ behavior: 'smooth' });
+            if (heading && heading.offsetParent !== null) {
+                heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
             }
+            const line = heading && heading.getAttribute('data-line');
+            if (line && typeof window.documentGotoLine === 'function') {
+                window.documentGotoLine(parseInt(line, 10));
+                return;
+            }
+            const known = (state.headings || []).find(function(h) { return h.id === id; });
+            if (known && typeof window.scrollToHeadingText === 'function') window.scrollToHeadingText(known.text);
         };
 
         window.scrollToText = function(searchText) {

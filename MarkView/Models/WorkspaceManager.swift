@@ -1480,9 +1480,10 @@ class WorkspaceManager: ObservableObject {
             projectOperations?.addUnknown(index: index)
         case "openFile":
             guard let path = payload["path"] as? String, !path.isEmpty else { return }
-            let url = root.appendingPathComponent(path).standardizedFileURL
-            // Stay inside the open folder.
-            guard url.path.hasPrefix(root.standardizedFileURL.path + "/") else { return }
+            let url = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)).standardizedFileURL
+            // Stay inside the X-Ray's folder or, for a folder X-Ray's answer, the open project.
+            let projectPath = (rootNode?.url ?? root).standardizedFileURL.path
+            guard url.path.hasPrefix(root.standardizedFileURL.path + "/") || url.path.hasPrefix(projectPath + "/") else { return }
             // From the PR X-Ray: the viewer opens on the change ("Pull request" lens), showing
             // a fetched pull request's own version of the file (which may not exist here).
             // From the ⚡ search's answer: the viewer opens on the search's places in the file.
@@ -1644,8 +1645,12 @@ class WorkspaceManager: ObservableObject {
             guard let source = architecture.understandingSource(filterId: payload["filter"] as? String ?? "",
                                                                 sourceId: payload["source"] as? String ?? "") else { return }
             if source.kind == .document {
-                guard let path = UnderstandingAnswer.relativePath(source.path, root: root) else { return }
-                openFile(root.appendingPathComponent(path), line: source.start, endLine: source.end)
+                // Inside the X-Ray's folder, or (from a folder X-Ray) anywhere in the open project.
+                if let path = UnderstandingAnswer.relativePath(source.path, root: root) {
+                    openFile(root.appendingPathComponent(path), line: source.start, endLine: source.end)
+                } else if let projectURL = rootNode?.url, let path = UnderstandingAnswer.relativePath(source.path, root: projectURL) {
+                    openFile(projectURL.appendingPathComponent(path), line: source.start, endLine: source.end)
+                }
             } else if source.kind == .pr || source.kind == .commit {
                 if !source.url.isEmpty, UnderstandingAnswer.isGitHubURL(source.url, kind: source.kind, target: source.target),
                    let url = URL(string: source.url) {
