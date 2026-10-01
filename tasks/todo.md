@@ -1,5 +1,21 @@
 # MarkView — Follow-up Tasks
 
+## Task 61: Text in every X-Ray box (2026-09-30, branch feat/book-leads, 3.13.0)
+
+Boris, after 3.12.0 (screenshot of the Logical view: "REQ-001.md · 28 lines" with bare "Statement" /
+"Acceptance Criteria" boxes): "Я по X-Ray должен понимать, что это за документ — добавляй текст в
+прямоугольники. Вообще описывай прямоугольники."
+
+- [x] `BookBuilder`: chapter title from front matter `title:` when there is no sole H1; provisional
+      texts without AI — front matter `summary`/`description`, else the first paragraph of the document
+      (else of its first section) and of every section — stored as `summary` until the AI's annotation
+      (`summarySignature`) replaces it. Rescan keeps AI texts of unchanged chapters, fresh leads otherwise.
+- [x] Web view: every described box shows the first sentence under its name in every view (components'
+      purpose, folder/file descriptions, chapters, sections); documents and outline items in Logical /
+      Structure borrow the Book's chapter and section texts by path and line; the panel shows them too.
+- [x] Harness: front matter, leads, HTML-tag stripping keeps `<version>`; replay over `docs/`.
+- [ ] PR, merge, release.
+
 ## Task 60: Book X-Ray for document folders (2026-09-30, branch feat/book-xray, 3.12.0)
 
 Boris: the documents X-Ray should work like a book made from all the folders — chapters, sections,

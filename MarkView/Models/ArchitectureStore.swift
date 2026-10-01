@@ -3473,25 +3473,29 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// The AI's work on the previous Book carried into a rescanned one, so a reopened or rescanned
-    /// book is never blank: part and book summaries by id; for an unchanged chapter (same content
-    /// signature) its summary, section summaries, items and related links; for a changed chapter
-    /// the section summaries by id only — its `summarySignature` differs, so Analyze redoes it.
+    /// book keeps what was written: part and book summaries by id; for an unchanged chapter (same
+    /// content signature) its summary, section summaries, items and related links. A changed
+    /// chapter keeps the fresh scan's provisional texts (its first paragraphs) and, with a different
+    /// `summarySignature`, is annotated again by the next Analyze.
     nonisolated static func carryBookAnnotations(from previous: ArchView?, into docs: ArchView) -> ArchView {
         guard let previous else { return docs }
         var next = docs
         let before = Dictionary(previous.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let ids = Set(next.nodes.map(\.id))
         var unchanged: Set<String> = []     // chapter paths
+        for i in next.nodes.indices where next.nodes[i].kind == "doc" {
+            guard let old = before[next.nodes[i].id], old.signature == next.nodes[i].signature else { continue }
+            next.nodes[i].summary = old.summary ?? next.nodes[i].summary
+            next.nodes[i].summarySignature = old.summarySignature
+            if let path = next.nodes[i].path { unchanged.insert(path) }
+        }
         for i in next.nodes.indices {
-            guard let old = before[next.nodes[i].id] else { continue }
+            guard let old = before[next.nodes[i].id], let summary = old.summary, !summary.isEmpty else { continue }
             switch next.nodes[i].kind {
-            case "root", "dir", "section":
-                next.nodes[i].summary = old.summary
-            case "doc":
-                guard old.signature == next.nodes[i].signature else { continue }
-                next.nodes[i].summary = old.summary
-                next.nodes[i].summarySignature = old.summarySignature
-                if let path = next.nodes[i].path { unchanged.insert(path) }
+            case "root", "dir":
+                next.nodes[i].summary = summary
+            case "section":
+                if let path = next.nodes[i].path, unchanged.contains(path) { next.nodes[i].summary = summary }
             default:
                 continue
             }

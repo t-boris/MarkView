@@ -183,7 +183,8 @@ enum BookBuilder {
         var text = title
         text = text.replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
         text = text.replacingOccurrences(of: #"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]"#, with: "$1", options: .regularExpression)
-        text = text.replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        // HTML tags go; placeholders like `<version>` are text.
+        text = text.replacingOccurrences(of: #"</?(?:a|b|i|u|s|q|em|strong|code|kbd|sup|sub|span|div|p|br|hr|img|small|big|del|ins|mark|abbr|cite|dfn|var|samp|tt|font|center|details|summary|table|tr|td|th|thead|tbody|ul|ol|li|dl|dt|dd|h[1-6]|pre|blockquote|section|article|nav|header|footer|figure|figcaption|picture|source|video|audio|iframe|input|button|label|select|option|form)\b[^>]*>|<!--.*?-->"#, with: "", options: [.regularExpression, .caseInsensitive])
         text = text.replacingOccurrences(of: #"\s+#+\s*$"#, with: "", options: .regularExpression)
         text = text.replacingOccurrences(of: #"(^|\s)_+|_+(\s|$)"#, with: "$1$2", options: .regularExpression)
         text = text.filter { !"*`~".contains($0) }
@@ -226,6 +227,8 @@ enum BookBuilder {
         var start: Int
         var end: Int
         var anchor: String?
+        /// The section's first paragraph, as a provisional description until the AI writes one.
+        var lead: String?
 
         var loc: Int { max(1, end - start + 1) }
     }
@@ -247,6 +250,8 @@ enum BookBuilder {
         var hasHeadings: Bool
         /// The links the text makes, with their lines.
         var links: [Link] = []
+        /// The document's first paragraph (or its front matter summary): a provisional description.
+        var lead: String?
 
         /// The innermost section that contains `line`, or nil when none does.
         func section(containing line: Int) -> Section? {
@@ -263,7 +268,8 @@ enum BookBuilder {
     /// they span, and where each heading slug leads.
     static func chapter(path: String, text: String) -> Chapter {
         let format = Self.format(of: path) ?? .markdown
-        let lineCount = text.editorLines.count
+        let lines = text.editorLines.map(String.init)
+        let lineCount = lines.count
         let headings = Self.headings(of: text, format: format)
         let id = chapterId(path)
         let fileTitle = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -271,13 +277,16 @@ enum BookBuilder {
                               format: format, lines: lineCount, signature: String(ContentHash.of(text).prefix(24)),
                               sections: [], anchors: [:], hasHeadings: !headings.isEmpty)
         let slugs = uniqueSlugs(headings.map { slug($0.title) })
+        let front = format == .markdown ? frontMatter(lines) : (fields: [:], end: 0)
 
-        // A single leading H1 is the document's title, not a section.
+        // A single leading H1 is the document's title, not a section; else the front matter's title.
         var titleIndex: Int?
         if let first = headings.first, first.level == 1, headings.filter({ $0.level == 1 }).count == 1 {
             titleIndex = 0
             chapter.title = plainTitle(first.title)
             chapter.anchors[slugs[0]] = id
+        } else if let title = front.fields["title"], !title.isEmpty {
+            chapter.title = title
         }
 
         // Levels beyond the cap are dropped, deepest first.
@@ -304,13 +313,72 @@ enum BookBuilder {
             let sectionId = id + "#" + slugs[index]
             sections.append(Section(id: sectionId, parent: parent, title: plainTitle(heading.title), slug: slugs[index],
                                     level: heading.level, start: heading.line, end: max(heading.line, end),
-                                    anchor: anchorText(heading.title)))
+                                    anchor: anchorText(heading.title), lead: lead(lines, from: heading.line + 1, to: end)))
             chapter.anchors[slugs[index]] = sectionId
             stack.append((heading.level, sectionId))
         }
         chapter.sections = sections
         chapter.links = links(in: text, format: format)
+        // What the document says, before the AI: its front matter summary, else its first paragraph,
+        // else the first paragraph of its first section.
+        let firstSection = sections.first?.start ?? (lineCount + 1)
+        chapter.lead = front.fields["summary"] ?? front.fields["description"]
+            ?? lead(lines, from: front.end + 1, to: firstSection - 1)
+            ?? sections.first?.lead
         return chapter
+    }
+
+    /// `key: value` fields of a leading YAML front matter block and the 1-based line of its closing
+    /// `---` (0 when there is none). Values keep their text; quotes are dropped.
+    static func frontMatter(_ lines: [String]) -> (fields: [String: String], end: Int) {
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+              let close = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "---" }) else {
+            return ([:], 0)
+        }
+        var fields: [String: String] = [:]
+        for line in lines[1..<close] {
+            guard let colon = line.firstIndex(of: ":"), !line.hasPrefix(" "), !line.hasPrefix("\t") else { continue }
+            let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+            var value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, let first = value.first, first == "\"" || first == "'", value.last == first {
+                value = String(value.dropFirst().dropLast())
+            }
+            if !key.isEmpty, !value.isEmpty { fields[key] = value }
+        }
+        return (fields, close + 1)
+    }
+
+    /// The first paragraph of prose between `start` and `end` (1-based, inclusive): headings,
+    /// fences, tables, images and comments skipped, list markers and markup removed, cut at `limit`.
+    static func lead(_ lines: [String], from start: Int, to end: Int, limit: Int = 200) -> String? {
+        var paragraph: [String] = []
+        var fence: Character?
+        var index = max(1, start)
+        while index <= min(end, lines.count) {
+            let trimmed = lines[index - 1].trimmingCharacters(in: .whitespaces)
+            index += 1
+            if let marker = trimmed.first, marker == "`" || marker == "~",
+               trimmed.count >= 3, trimmed.prefix(3).allSatisfy({ $0 == marker }) {
+                if fence == nil { fence = marker } else if fence == marker { fence = nil }
+                if !paragraph.isEmpty { break }
+                continue
+            }
+            guard fence == nil else { continue }
+            if trimmed.isEmpty { if paragraph.isEmpty { continue } else { break } }
+            let skip = trimmed.hasPrefix("#") || trimmed.hasPrefix("|") || trimmed.hasPrefix("<!--") || trimmed.hasPrefix("![")
+                || trimmed.hasPrefix("<") || trimmed.allSatisfy({ "=-*_".contains($0) })
+            if skip { if paragraph.isEmpty { continue } else { break } }
+            var text = trimmed.replacingOccurrences(of: #"^(?:[-*+]|\d+[.)]|>)\s+(?:\[[ xX]\]\s+)?"#, with: "", options: .regularExpression)
+            text = plainTitle(text).trimmingCharacters(in: .whitespaces)
+            if !text.isEmpty { paragraph.append(text) }
+            if paragraph.joined(separator: " ").count >= limit { break }
+        }
+        let joined = paragraph.joined(separator: " ")
+        guard joined.count >= 3 else { return nil }
+        if joined.count <= limit { return joined }
+        var cut = String(joined.prefix(limit - 1))
+        if let space = cut.lastIndex(of: " "), cut.distance(from: cut.startIndex, to: space) > limit / 2 { cut = String(cut[..<space]) }
+        return cut + "…"
     }
 
     /// The heading as rendered, to find it in a preview (`scrollToText`).
@@ -544,11 +612,13 @@ enum BookBuilder {
             var node = ArchNode(id: chapter.id, parent: ensurePart(chapter.part), kind: "doc", name: chapter.title,
                                 path: chapter.path, language: chapter.format.rawValue, loc: chapter.lines, files: 1)
             node.signature = chapter.signature
+            node.summary = chapter.lead
             nodes.append(node)
             parentOf[chapter.id] = node.parent
             for section in chapter.sections {
                 var sectionNode = ArchNode(id: section.id, parent: section.parent, kind: "section", name: section.title,
                                            path: chapter.path, loc: section.loc)
+                sectionNode.summary = section.lead
                 sectionNode.line = section.start
                 sectionNode.endLine = section.end
                 sectionNode.anchor = section.anchor
