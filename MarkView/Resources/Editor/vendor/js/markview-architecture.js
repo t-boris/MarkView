@@ -725,6 +725,9 @@
                     if (!idx.byId.has(e.source) || !idx.byId.has(e.target)) return;
                     const s = representative(e.source, idx, expanded), t = representative(e.target, idx, expanded);
                     if (!s || !t || s === t || !drawnIds.has(s) || !drawnIds.has(t)) return;
+                    // Related sections the AI found are many; they are drawn for the selected box only
+                    // (`showRelated`), so the overview shows the authors' links and stays readable.
+                    if (e.kind === 'related') return;
                     const key = s + '→' + t + (e.kind === 'added' || e.kind === 'removed' ? '|' + e.kind : '');
                     const cur = agg.get(key);
                     if (cur) { cur.weight += e.weight || 1; }
@@ -905,6 +908,7 @@
                 cy.style(stylesheet());
                 cy.endBatch();
                 if (ui.selected && cy.getElementById(ui.selected).length) cy.getElementById(ui.selected).select();
+                showRelated(ui.selected);
                 layout(fitTo);
                 renderCrumbs();
                 renderLegend();
@@ -964,7 +968,32 @@
                 cy.on('dbltap', 'node', function(evt) { activate(evt.target.id()); });
             }
 
+            /** The Book draws the AI's related links only for the selected box: added here when a
+             *  box is selected, removed when the selection goes, without laying the graph out again. */
+            function showRelated(selectedId) {
+                if (!cy) return;
+                cy.remove(cy.edges('.related-live'));
+                if (!isBook() || !selectedId) return;
+                const view = currentView(); if (!view) return;
+                const idx = indexView(view);
+                const expanded = ui.expanded[ui.view];
+                const seen = new Set();
+                const added = [];
+                view.edges.forEach(function(e) {
+                    if (e.kind !== 'related' || !idx.byId.has(e.source) || !idx.byId.has(e.target)) return;
+                    const s = representative(e.source, idx, expanded), t = representative(e.target, idx, expanded);
+                    if (!s || !t || s === t || (s !== selectedId && t !== selectedId)) return;
+                    if (!cy.getElementById(s).length || !cy.getElementById(t).length) return;
+                    const key = s + '→' + t;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    added.push({ group: 'edges', data: { id: 'rl:' + key, source: s, target: t, weight: e.weight || 1, label: '', kind: 'related' }, classes: 'related-live' });
+                });
+                if (added.length) cy.add(added);
+            }
+
             function highlightNeighbourhood(node) {
+                showRelated(node ? node.id() : null);
                 cy.edges().removeClass('faded hot');
                 if (!node) return;
                 const connected = node.union(node.descendants()).connectedEdges();
@@ -982,10 +1011,11 @@
                     if (ui.userNavigated) return;
                     const book = snap.views.find(function(v) { return v.id === 'docs'; });
                     if (!book) return;
+                    // A small book shows its chapters at once; a larger one its parts, each with
+                    // its blurb — one double-click opens a part's chapters.
                     const chapters = book.nodes.filter(function(n) { return n.kind === 'doc'; }).length;
                     const parts = book.nodes.filter(function(n) { return n.kind === 'dir'; });
-                    (chapters <= 60 ? parts : parts.filter(function(n) { return n.parent === 'd:'; }))
-                        .forEach(function(n) { ui.expanded.docs.add(n.id); });
+                    if (chapters <= 20) parts.forEach(function(n) { ui.expanded.docs.add(n.id); });
                     return;
                 }
                 if (!ui.progress || ui.progress.steps < 2 || ui.view !== 'logical' || ui.userNavigated) return;
@@ -1153,9 +1183,9 @@
                     }
                 }
                 // The Book: links written in the text, and related sections the AI found.
-                if (!scale && !filter && isBook() && cy && cy.edges('[kind = "related"]').length) {
+                if (!scale && !filter && isBook() && currentView() && currentView().edges.some(function(e) { return e.kind === 'related'; })) {
                     const span = document.createElement('span'); span.className = 'arch-muted';
-                    span.textContent = 'Solid = link in the text · dashed = related (AI)';
+                    span.textContent = 'Solid = link in the text · dashed = related (AI), shown for the selected box';
                     el.legend.appendChild(span);
                 }
                 // No overlay: the colours are roles; list the ones on screen.
@@ -1867,7 +1897,12 @@
                     const r = ratingOf(n); return r ? [levelRank(currentFilter(), r.level), r.level] : null;
                 });
                 if (!score) return;
-                const ranked = leaves.map(function(n) { const sc = score(n); return sc ? { node: n, value: sc[0], label: sc[1] } : null; })
+                const chapterTitle = function(n) {
+                    if (n.kind !== 'section' || !n.path) return n.name;
+                    const chapter = view.nodes.find(function(c) { return c.kind === 'doc' && c.path === n.path; });
+                    return (chapter ? chapter.name + ' › ' : '') + n.name;
+                };
+                const ranked = leaves.map(function(n) { const sc = score(n); return sc ? { node: n, value: sc[0], label: sc[1], title: chapterTitle(n) } : null; })
                     .filter(Boolean).sort(function(a, b) { return b.value - a.value; }).slice(0, 15);
                 const titles = { complexity: 'Most complex functions', bugs: 'Bug hotspots', tests: 'Largest untested files',
                     coverage: 'Documentation gaps', freshness: 'Recently changed', size: 'Largest files' };
@@ -1884,7 +1919,7 @@
                 }
                 const grid = document.createElement('div'); grid.className = 'arch-rank';
                 ranked.forEach(function(r) {
-                    const b = document.createElement('button'); b.textContent = r.node.name; b.title = r.node.path || r.node.name;
+                    const b = document.createElement('button'); b.textContent = r.title || r.node.name; b.title = r.node.path || r.node.name;
                     b.onclick = function() { window.architectureFocus(r.node.id); };
                     const v = document.createElement('span'); v.textContent = r.label;
                     grid.appendChild(b); grid.appendChild(v);
