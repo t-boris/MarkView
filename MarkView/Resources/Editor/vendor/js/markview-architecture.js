@@ -599,7 +599,8 @@
                 return a.impact.find(function(i) { return i.component === id; }) || null;
             }
 
-            function nodeLabel(node, info) {
+            /** `isBox`: an opened container — its title sits above its children and stays short. */
+            function nodeLabel(node, info, isBox) {
                 // Long names (dated notes, generated files) are cut; the details panel has them whole.
                 let label = node.name || node.id;
                 if (label.length > 40) label = label.slice(0, 38) + '…';
@@ -610,7 +611,7 @@
                 if (book && node.kind === 'file' && book.name && book.name !== node.name && book.name + '.md' !== node.name) {
                     label += '\n' + (book.name.length > 60 ? book.name.slice(0, 58) + '…' : book.name);
                 }
-                const described = nodeDescription(node);
+                const described = isBox ? null : nodeDescription(node);
                 if (described) label += '\n' + described;
                 const impact = prImpact(node);
                 if (impact) label += '\nrisk: ' + impact.risk;
@@ -671,7 +672,7 @@
                     const kids = idx.children.get(node.id) || [];
                     const isBox = expanded.has(node.id) && kids.length > 0;
                     const info = overlayInfo(node, idx);
-                    const label = nodeLabel(node, info);
+                    const label = nodeLabel(node, info, isBox);
                     const longest = label.split('\n').reduce(function(m, l) { return Math.max(m, l.length); }, 0);
                     // Size overlay: area grows with lines of code.
                     const grow = ui.overlay === 'size' && overlayApplies() && node.loc
@@ -679,7 +680,7 @@
                     const parent = node.parent != null && drawnIds.has(node.parent) && expanded.has(node.parent) ? node.parent : undefined;
                     // A described box is set in smaller type so its whole text fits: wider, and as
                     // tall as the wrapped lines.
-                    const described = !!nodeDescription(node);
+                    const described = !isBox && !!nodeDescription(node);
                     const perChar = described ? 5.4 : 6.6;
                     const w = Math.min(described ? 340 : 260, Math.max(70, longest * perChar + 22)) * grow;
                     const rows = label.split('\n').reduce(function(a, l) { return a + Math.max(1, Math.ceil((l.length * perChar) / Math.max(40, w - 24))); }, 0);
