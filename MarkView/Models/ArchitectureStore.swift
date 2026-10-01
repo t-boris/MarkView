@@ -1412,6 +1412,13 @@ final class ArchitectureStore: ObservableObject {
             understandingInputAttachments[id] = attachments
         }
         let token = UUID()
+        // A folder X-Ray answers from its folder, but the question may name any file of the open
+        // project (Boris asked about docs/raw/… from a feature folder's X-Ray): the whole project is
+        // readable too, and the agent is told so.
+        let wholeProject: [URL] = (projectRoot?.standardizedFileURL).map { $0.path == root.standardizedFileURL.path ? [] : [$0] } ?? []
+        let wholeProjectNote: String? = wholeProject.first.map {
+            "\n\nThe working directory is one folder of the project \($0.path); the whole project is readable too (an additional directory). Read any file the question names, by its absolute path if given; paths in the answer may be absolute or relative to the working directory."
+        }
         let attachmentFolder = attachments?.isEmpty == false ? root.appendingPathComponent(".dde/understanding/" + token.uuidString) : nil
         if let attachmentFolder { understandingAttachmentFolders[id] = attachmentFolder }
         understandingTokens[id] = token
@@ -1463,7 +1470,10 @@ final class ArchitectureStore: ObservableObject {
                 revision += 1
                 var historyFiles: [XRaySearch.HistoryFile] = []
                 do {
-                    let scope = try await CLICompletion.run(XRaySearch.understandingScopeRequest(query: filter.criterion, root: root, attachments: attachmentPaths))
+                    var scopeRequest = XRaySearch.understandingScopeRequest(query: filter.criterion, root: root, attachments: attachmentPaths, project: project)
+                    scopeRequest.extraReadableFolders = wholeProject
+                    if let note = wholeProjectNote { scopeRequest.prompt += note }
+                    let scope = try await CLICompletion.run(scopeRequest)
                     guard understandingTokens[id] == token else { return }
                     scope.record(in: db)
                     historyFiles = await Task.detached { XRaySearch.historyFiles(scope.structured, root: root) }.value
@@ -1487,10 +1497,13 @@ final class ArchitectureStore: ObservableObject {
                 let components = snapshot?.components ?? []
                 let nodes = snapshot?.view("deployment")?.nodes.filter { $0.kind != "root" && $0.kind != "moduleRef" } ?? []
                 let bookHints = snapshot.map { Self.bookHints(for: filter.criterion, in: $0) } ?? []
-                let request = XRaySearch.understandingRequest(query: filter.criterion,
+                var request = XRaySearch.understandingRequest(query: filter.criterion,
                     hints: historyFiles.map { "- \($0.path):\($0.start)-\($0.end)" } + bookHints, root: root,
                     context: context, components: components.map { "\($0.id) — \($0.name): \($0.purpose)" },
-                    deployment: nodes.map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }, attachments: attachmentPaths)
+                    deployment: nodes.map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }, attachments: attachmentPaths,
+                    project: project)
+                request.extraReadableFolders = wholeProject
+                if let note = wholeProjectNote { request.prompt += note }
                 let result = try await CLICompletion.run(request, onActivity: { activity in
                     Task { @MainActor in
                         guard self.understandingTokens[id] == token, self.understandingAnswers[id]?.state == "loading" else { return }
@@ -1644,7 +1657,7 @@ final class ArchitectureStore: ObservableObject {
                     .filter { $0.kind != "root" && $0.kind != "moduleRef" }
                     .map { "\($0.id.dropFirst(2)) — \($0.name): \($0.summary ?? $0.kind)" }
                 let request = XRaySearch.request(query: filter.criterion, symbol: symbol, hints: hints, root: root,
-                                                 components: componentLines, deployment: deploymentLines)
+                                                 components: componentLines, deployment: deploymentLines, project: project)
                 let result = try await CLICompletion.run(request, onActivity: { activity in
                     Task { @MainActor in self.receiveSearch(activity, filterId: filterId, root: root, sections: sections) }
                 })
