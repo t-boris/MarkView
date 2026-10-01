@@ -318,7 +318,7 @@ struct EditorView: NSViewRepresentable {
             case .architecture(let scope):
                 routeArchitecture(scope: scope, webView: webView)
                 return
-            case .terminal, .image, .github:
+            case .terminal, .image, .github, .browser:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .file:

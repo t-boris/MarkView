@@ -68,6 +68,8 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// It is never typed into an ordinary terminal tab.
     let operationCommand: String?
     var onExit: ((Int32) -> Void)?
+    /// Everything the process prints, as it arrives (e.g. to find a dev server's address).
+    var onOutput: ((Data) -> Void)?
     var onLaunchFailure: ((String) -> Void)?
     /// What it runs; a shell for terminals opened in folders.
     @Published private(set) var profile: TerminalProfile
@@ -76,6 +78,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Supplied by the workspace for both AI-panel terminals and folder terminal tabs.
     var openFile: ((URL, Int?) -> Void)?
     var openExternalURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    /// Shows a web address in the browser tab of this terminal's window: links clicked here and
+    /// pages programs in it open (`TerminalBrowserBridge`). Nil keeps the default browser.
+    var openInAppBrowser: ((URL) -> Void)?
 
     @Published private(set) var isRunning = false
     @Published private(set) var exitCode: Int32?
@@ -202,7 +207,13 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
                 return TerminalLink.resolve(text, directory: cwd)
             }.value
             switch target {
-            case .web(let url): openExternalURL(url)
+            case .web(let url):
+                if let openInAppBrowser, TerminalBrowserBridge.isEnabled,
+                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    openInAppBrowser(url)
+                } else {
+                    openExternalURL(url)
+                }
             case .file(let url, let line):
                 if FileType.isOpenable(url), let openFile { openFile(url, line) }
                 else { openExternalURL(url) }
@@ -272,6 +283,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         environment["COLORTERM"] = "truecolor"
         environment["TERM_PROGRAM"] = "MarkView"
         if environment["LANG"] == nil { environment["LANG"] = "en_US.UTF-8" }
+        if openInAppBrowser != nil {
+            environment.merge(TerminalBrowserBridge.environment(for: self, shell: shell, inherited: environment)) { $1 }
+        }
 
         // Everything the child needs is prepared before fork: after fork only
         // async-signal-safe calls (chdir, execve, _exit) are allowed.
@@ -504,6 +518,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private func deliver(_ data: Data) {
         if operationCommand != nil { trace("deliver bytes=\(data.count) ready=\(pageReady)") }
         pendingOutput.append(data)
+        onOutput?(data)
         if operationCommand != nil && pendingOutput.count > 16_000_000 {
             pendingOutput.removeFirst(pendingOutput.count - 8_000_000)
             outputDropped = true

@@ -1,5 +1,39 @@
 # MarkView — Follow-up Tasks
 
+## Task 75: app preview inside MarkView — browser tab, localhost preview, save page as Markdown (2026-10-01)
+
+Boris: "сделай превью аппликации внутри Markview… открывал браузер localhost и показывал прямо в localhost как
+отдельный таб"; "браузер добавь тоже как дополнительный таб… текущий либо выбранный текст, либо вся страница,
+можно было её сохранить как Markdown в этом проекте (под ресерч или в других местах)". Order he set: (1) web /
+localhost + browser, (2) macOS app and UI component preview, (3) iOS.
+
+Stage 1 (`feat/browser-tab`, 3.23.0):
+- [x] `TabKind.browser(BrowserSession)`: a WKWebView tab in the centre (back / forward / reload, address field,
+      open in the default browser, downloads to ~/Downloads, `target=_blank` as new tabs); restored with the
+      window session (`WorkspaceTabState.browser(URL)`).
+- [x] Preview Web App (⌘6, globe menu): discovers the project's web apps (package.json dev script of a web
+      framework, Django, Rails, a static index.html; root and two levels down, a choice when several); a server
+      that answers is shown at once, otherwise the dev script runs in a background terminal tab (started at
+      once, output kept) and the first local URL it prints, or an answering port, opens in the tab.
+- [x] Save as Markdown (toolbar or the page's context menu): the selection or the page's main content, converted
+      in WebKit's client content world by `vendor/js/markview-page-markdown.js` (nav/footer/hidden dropped,
+      lists, tables, fenced code, absolute links); folder docs/research by default, other project folders, or
+      any folder inside the project; front matter `type: web-clip`, title, source, captured.
+- [x] Boris: "когда AI хочет открыть браузер, он делает это в приложении… не открывает реальный браузер".
+      `TerminalBrowserBridge`: MarkView terminals get `BROWSER` and an `open` wrapper first on `PATH` (zsh via
+      MarkView's `ZDOTDIR`, which sources the user's startup files and re-prepends after path_helper); requests
+      go through a per-process spool folder to the terminal's window, which reuses a browser tab (same server,
+      else active / preview / first). Clicked web links in terminals go there too. Toggle in the globe menu.
+- [x] `tools/tests/web-preview-tests.sh`: discovery, ports, output parsing, clips, address field, a real probe,
+      the zsh bridge with a path_helper-like rc, and the converter in a WKWebView. All harnesses pass.
+- [x] Live check on a QA copy (own bundle id, driven through AX without focusing it): preview started the dev
+      script and showed the page, `open` from the dev terminal loaded into the same tab, Save wrote
+      `docs/research/2026-10-01-qa-web-app.md`. Found and fixed: a background terminal never started its shell;
+      the sheet's file name was cleared when the field took focus.
+
+Stage 2 (macOS, next PR): build and run the project's macOS app and show it in a tab; preview of a selected
+SwiftUI / web component. Stage 3: the same for iOS (Simulator).
+
 ## Task 75: remove a folder from Recent projects (2026-10-01, 3.22.0)
 
 Boris: "add ability to remove recent folder".

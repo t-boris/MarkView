@@ -121,6 +121,9 @@ Swift owns.
   open a terminal in an editor tab.
 - **Live reload:** open files reload by themselves when an assistant changes them on
   disk.
+- **Pages open in MarkView:** a page that Claude Code, Codex, `vite --open` or `gh browse`
+  opens from these terminals, and a web link you click in them, shows in the window's
+  browser tab instead of your default browser (toggle in the 🌐 menu).
 - **AI Tools menu** (✨ in the toolbar):
   - *Diagrams:* System Architecture, Data Flow, Pipeline, Deployment, Sequence,
     Entity-Relationship.
@@ -140,6 +143,15 @@ Swift owns.
 - Obsidian-style `[[wikilinks]]`, and `file.ts#L40-L60` links that jump to lines.
 - Select text and press **RU / EN / ?** to translate or explain it. With nothing
   selected, RU and EN translate the whole document into a new tab.
+
+**Browser and app preview** (🌐 in the toolbar)
+- **Preview Web App (⌘6)** finds the project's web app (a `package.json` dev script of
+  Vite, Next, Angular, Astro and others, Django, Rails), starts its dev server in a
+  terminal tab when nothing answers yet, and shows `localhost` in a tab in the centre.
+- **Browser (⌘5)** opens any address or `localhost:5173` in a tab.
+- **Save as Markdown** (toolbar or right-click): the selected text or the whole page
+  becomes a Markdown document in `docs/research` or another folder of the project, with
+  its title, source URL and date in the front matter.
 
 **Recursive Insight** turns a folder of notes into a browsable summary site. You can
 dive deeper into any topic or explore all of them at depth 1–3, and export it as a ZIP.

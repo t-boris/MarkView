@@ -70,6 +70,7 @@ struct TabBarView: View {
         case .architecture(let scope): return scope == TabKind.pullRequestScope ? "arrow.triangle.pull" : "viewfinder"
         case .insight: return "sparkles"
         case .image: return "photo"
+        case .browser: return "globe"
         case .github(let item):
             if case .run = item { return "gearshape.2" }
             return "smallcircle.filled.circle"
@@ -91,7 +92,10 @@ struct TabBarView: View {
                     .frame(width: 6, height: 6)
             }
 
-            Text(tab.displayName)
+            Group {
+                if case .browser(let session) = tab.kind { BrowserTabTitle(session: session) }
+                else { Text(tab.displayName) }
+            }
                 .uiFont(size: 11)
                 .foregroundColor(isActive ? VSDark.textBright : VSDark.textDim)
                 .lineLimit(1)

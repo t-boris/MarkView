@@ -151,6 +151,8 @@ enum TabKind {
     case image
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
     case github(GitHubItem)
+    /// A web page (a local development server or any site), shown by `BrowserTabView`.
+    case browser(BrowserSession)
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
@@ -207,6 +209,8 @@ struct OpenTab: Identifiable {
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
         if case .github(let item) = kind { return item.title }
+        // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
+        if case .browser = kind { return "Browser" }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }
             return scope.isEmpty ? "X-Ray" : "X-Ray: " + (scope as NSString).lastPathComponent
