@@ -48,6 +48,9 @@ Electron (`feat/electron-web-preview`, 3.24.0): Boris: "если у нас ес�
 - [x] Harness: discovery of each Electron layout, web-only script rules, quoting. Manual: electron-vite and
       vite-plugin-electron projects installed with `ELECTRON_SKIP_BINARY_DOWNLOAD=1` (any Electron start would
       fail loudly) served their renderers; QA copy previewed the electron-vite app in the tab, no Electron process.
+- [x] Harness drift fixed: 3.23.0's `TerminalBrowserBridge` was missing from the terminal-layout / terminal-link
+      compile lists (they were run before the bridge existed); workspace-redesign failed on main since
+      `ProjectSearch` started reading linked folders. All `tools/tests/*.sh` pass.
 
 ## Task 75: remove a folder from Recent projects (2026-10-01, 3.22.0)
 
