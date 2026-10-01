@@ -2470,11 +2470,11 @@
                 });
                 el.overlay.value = ui.overlay;
                 el.overlay.disabled = ui.view === 'deployment' && !isSearch(currentFilter());
+                // The ⚡ box asks a question in every view: the answer with its sources appears on
+                // the right, and what it rests on turns red.
                 const ask = el.tempFilter.querySelector('input');
-                if (!ui.searchPlaceholder) ui.searchPlaceholder = ask.placeholder;
-                ask.placeholder = isBook() ? '⚡ Ask the book, e.g. how is a release published?' : ui.searchPlaceholder;
-                el.tempFilter.title = isBook() ? 'Ask a question about the documents: the answer (what, why, how, origin) with its sources appears on the right; the sections it rests on turn red'
-                    : 'AI search: the AI reads the project; what matters for it turns red, the rest stays uncoloured';
+                ask.placeholder = isBook() ? '⚡ Ask the book, e.g. how is a release published?' : '⚡ Ask the project, e.g. how is a plant identified?';
+                el.tempFilter.title = 'Ask a question: the answer (what, why, how, where it comes from) with its sources appears on the right; the documents, sections and files it rests on turn red';
                 el.flagged.checked = ui.onlyFlagged;
                 el.flagged.parentElement.hidden = !overlayApplies() || ui.overlay === 'size';
                 el.hide.hidden = !codeViews[ui.view];
@@ -2773,9 +2773,9 @@
             el.tempFilter.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const text = el.tempFilter.querySelector('input').value.trim();
-                if (text && isBook()) { askBook(text); return; }
-                ui.pendingTemp = text || null;
-                post('tempFilter', { criterion: text });
+                if (text) { askBook(text); return; }
+                ui.pendingTemp = null;
+                post('tempFilter', { criterion: '' });
             });
             el.tempFilter.querySelector('button').addEventListener('click', function() {
                 el.tempFilter.querySelector('input').value = '';
