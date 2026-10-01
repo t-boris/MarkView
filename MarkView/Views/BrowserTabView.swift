@@ -206,6 +206,10 @@ struct BrowserTabView: View {
                  ? "`\(target.command)` runs in a terminal tab. The app opens here as soon as the server answers."
                  : "Looking for a running server on port \(target.ports.map(String.init).joined(separator: ", ")).")
                 .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+            if target.isElectron {
+                Text("An Electron app: only its web part runs here, Electron itself is not started.")
+                    .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
+            }
             if started { Button("Show Terminal") { session.showTerminal?() } }
         case .timedOut(let target):
             Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(VSDark.orange)
@@ -219,7 +223,7 @@ struct BrowserTabView: View {
         case .noApp:
             Image(systemName: "globe").uiFont(size: 26).foregroundColor(VSDark.textDim)
             Text("No web app found in this project").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
-            Text("No package.json dev script, Django or Rails app, and nothing answers on the usual ports.\nType the address of your server above, e.g. localhost:3000.")
+            Text("No package.json dev script, Electron renderer, Django or Rails app, and nothing answers on the usual ports.\nType the address of your server above, e.g. localhost:3000.")
                 .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
         }
     }

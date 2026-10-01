@@ -148,6 +148,9 @@ Swift owns.
 - **Preview Web App (⌘6)** finds the project's web app (a `package.json` dev script of
   Vite, Next, Angular, Astro and others, Django, Rails), starts its dev server in a
   terminal tab when nothing answers yet, and shows `localhost` in a tab in the centre.
+  An Electron app is previewed as a web page only: MarkView serves its renderer with the
+  project's Vite (electron-vite, Forge, vite-plugin-electron) without starting Electron,
+  and stands in for its preload APIs so the page still renders.
 - **Browser (⌘5)** opens any address or `localhost:5173` in a tab.
 - **Save as Markdown** (toolbar or right-click): the selected text or the whole page
   becomes a Markdown document in `docs/research` or another folder of the project, with

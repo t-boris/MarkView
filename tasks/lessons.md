@@ -556,3 +556,11 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   owner and window title. A region capture grabbed whatever was on top (private data) — never use `-R` for this.
 - WebKit does not paint a page in an occluded window until something forces a redraw; a blank web area in such a
   capture is not a bug by itself — confirm with a standalone WKWebView `takeSnapshot`.
+
+## Proving "never starts X": make X impossible to start (2026-10-01)
+- electron-vite's `dev --rendererOnly` reads like "renderer only", but its source still calls `startElectron`.
+  `vite-plugin-electron/simple` returns a promise of plugins, so a name filter over the plain array missed it and
+  Vite rebuilt main and tried to launch Electron.
+- Rule: read the tool's source for flags that promise "only X"; test with Electron's binary absent
+  (`ELECTRON_SKIP_BINARY_DOWNLOAD=1`) so any start fails loudly, and flatten nested arrays *and promises* when
+  filtering Vite plugins.

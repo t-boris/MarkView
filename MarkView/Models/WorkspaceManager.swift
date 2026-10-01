@@ -4371,6 +4371,7 @@ class WorkspaceManager: ObservableObject {
     /// Show `target` in `session`: at once when its server answers, else after starting it.
     func startWebApp(_ target: WebAppTarget, in session: BrowserSession) {
         session.preview = .starting(target, started: false)
+        if target.isElectron { session.standInForElectron() }
         Task { @MainActor in
             if let url = await WebAppPreview.firstAnswering(target.ports) {
                 session.showPreview(url)

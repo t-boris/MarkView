@@ -31,8 +31,23 @@ Stage 1 (`feat/browser-tab`, 3.23.0):
       `docs/research/2026-10-01-qa-web-app.md`. Found and fixed: a background terminal never started its shell;
       the sheet's file name was cleared when the field took focus.
 
-Stage 2 (macOS, next PR): build and run the project's macOS app and show it in a tab; preview of a selected
-SwiftUI / web component. Stage 3: the same for iOS (Simulator).
+Stage 2 / 3 (macOS app, SwiftUI components, iOS): dropped by Boris on 2026-10-01 ("Оставь только Web") after a
+working draft (build + ScreenCaptureKit mirror, swiftc-rendered `#Preview`); parked on the local branch
+`feat/macos-app-preview`, not merged.
+
+Electron (`feat/electron-web-preview`, 3.24.0): Boris: "если у нас есть электронный приклад, то ты должен научиться
+запускать чисто Web".
+- [x] An Electron project (electron, electron-vite, Forge, electron-builder, vite-plugin-electron) is previewed as web
+      only, never starting Electron: a script that serves the renderer alone (`dev:renderer`, `dev:web`, plain
+      `vite`… without electron / wait-on; not plain vite when a Vite plugin starts Electron), else MarkView's
+      `vendor/js/markview-web-only.mjs` serves the renderer with the project's own Vite — electron-vite's
+      `resolveConfig().renderer` (its `--rendererOnly` still launches Electron), Forge's `vite.renderer.config.*`,
+      or `vite.config.*` with Electron plugins (also inside promises) left out.
+- [x] The browser tab stands in for the preload APIs (`window.electron`, `window.api`, …: no-op proxies that warn
+      once) — the electron-vite template renders blank without them and fully with them.
+- [x] Harness: discovery of each Electron layout, web-only script rules, quoting. Manual: electron-vite and
+      vite-plugin-electron projects installed with `ELECTRON_SKIP_BINARY_DOWNLOAD=1` (any Electron start would
+      fail loudly) served their renderers; QA copy previewed the electron-vite app in the tab, no Electron process.
 
 ## Task 75: remove a folder from Recent projects (2026-10-01, 3.22.0)
 
