@@ -20,6 +20,9 @@ enum CLICompletion {
         var jsonSchema: [String: Any]? = nil
         /// Folder the CLI may read with its own tools. nil = no file access at all.
         var readableFolder: URL? = nil
+        /// Further folders the CLI may read (a folder X-Ray's whole project); paths in the answer
+        /// stay relative to `readableFolder`.
+        var extraReadableFolders: [URL] = []
         var timeout: TimeInterval = 180
         /// Set only to force a CLI (translation); otherwise `tool` is the project's assistant.
         var toolOverride: CLITool? = nil
@@ -158,9 +161,9 @@ enum CLICompletion {
             // Headless runs cannot ask for permission: web tools must be pre-approved, or the
             // CLI refuses every search (and fetches outside its built-in allowlist).
             if request.allowWeb { arguments += ["--allowedTools", "WebSearch,WebFetch"] }
-            // The project's linked folders (Task 59) are readable too.
+            // The project's linked folders (Task 59) and any further folders are readable too.
             if let folder = request.readableFolder {
-                arguments += tool.additionalFolderArgs(LinkedFolders.load(project: folder).map(\.url)
+                arguments += tool.additionalFolderArgs((LinkedFolders.load(project: folder).map(\.url) + request.extraReadableFolders)
                     .filter { FileManager.default.fileExists(atPath: $0.path) })
             }
             arguments += tool.modelArgs(model)

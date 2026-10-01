@@ -45,8 +45,10 @@ enum ACPAssistant {
                     onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) async throws -> CLICompletion.Result {
         let profile = profile(tool, effort: request.effort)
         let root = request.readableFolder?.standardizedFileURL
+        let roots = [root].compactMap { $0 } + request.extraReadableFolders.map(\.standardizedFileURL)
         let connection = ACPConnection(tool: tool, executable: toolPath, arguments: profile.arguments, workDir: workDir)
-        // Reads inside the project and searches; nothing when the request may not see files.
+        // Reads inside the project (and the further readable folders) and searches; nothing when
+        // the request may not see files.
         connection.permit = { kind, input in
             guard let root else { return false }
             switch kind {
@@ -60,7 +62,7 @@ enum ACPAssistant {
                 return paths.allSatisfy { path in
                     let url = path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path)
                     let full = url.standardizedFileURL.path
-                    return full == root.path || full.hasPrefix(root.path + "/")
+                    return roots.contains { full == $0.path || full.hasPrefix($0.path + "/") }
                 }
             default:
                 return false
