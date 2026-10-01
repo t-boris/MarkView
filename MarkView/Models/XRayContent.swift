@@ -364,9 +364,11 @@ enum XRayContent {
 
     /// Nodes below the file box `fileId`. Sparse parts and type groups are skipped in
     /// the diagram, including for cached outlines, while every item keeps its stable ID.
-    static func nodes(for outline: Outline, path: String, fileId: String) -> [ArchNode] {
+    /// `idBase` prefixes the ids (the Logical view's `l:e:<path>#` unless given, e.g. a Book
+    /// section's own id for the items under it).
+    static func nodes(for outline: Outline, path: String, fileId: String, idBase: String? = nil) -> [ArchNode] {
         var nodes: [ArchNode] = []
-        let base = "l:e:" + path + "#"
+        let base = idBase ?? ("l:e:" + path + "#")
         for (ci, collection) in outline.collections.enumerated() {
             let collectionId = base + "\(ci)"
             let itemCount = collection.groups.reduce(0) { $0 + $1.items.count }

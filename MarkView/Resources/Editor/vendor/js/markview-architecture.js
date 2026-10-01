@@ -217,9 +217,10 @@
 
             function descendantsFiles(id, idx, out) {
                 const kids = idx.children.get(id) || [];
-                // A file is a leaf here: its contents and changes are drawn under it but belong to it.
+                // A file (or a Book chapter) is a leaf here: its contents and changes are drawn
+                // under it but belong to it.
                 const node = idx.byId.get(id);
-                if (!kids.length || (node && node.kind === 'file')) { out.push(id); return out; }
+                if (!kids.length || (node && (node.kind === 'file' || node.kind === 'doc'))) { out.push(id); return out; }
                 kids.forEach(function(k) { descendantsFiles(k, idx, out); });
                 return out;
             }
@@ -229,6 +230,24 @@
             /** Metrics, coverage and changes are keyed by the Structure-view id of a file. */
             function fileKey(node) { return node && node.path != null ? 'm:' + node.path : null; }
             const codeViews = { modules: 1, logical: 1, pr: 1 };
+            /** The Book view: the documents as parts, chapters and sections. */
+            function isBook() { return ui.view === 'docs'; }
+            const bookKinds = { root: 'book', dir: 'part', doc: 'chapter', entity: 'item' };
+            function kindLabel(node) {
+                if (isBook() && bookKinds[node.kind]) return bookKinds[node.kind];
+                return node.kind === 'moduleRef' ? 'module' : node.kind;
+            }
+            /** The first sentence of a summary, cut to `max` characters, for a node label. */
+            function firstSentence(text, max) {
+                const m = /^[\s\S]*?[.!?](?=\s|$)/.exec(text || '');
+                let out = (m ? m[0] : text || '').replace(/\s+/g, ' ').trim();
+                if (out.length > max) out = out.slice(0, max - 1).replace(/\s+\S*$/, '') + '…';
+                return out;
+            }
+            /** Chapters of a Book node the user has not had described yet. */
+            function undescribedChapters(view) {
+                return view.nodes.filter(function(n) { return n.kind === 'doc' && !n.summary; });
+            }
             function overlayApplies() {
                 if (ui.overlay === 'none') return false;
                 // The ⚡ search also marks deployment nodes.
@@ -389,7 +408,7 @@
                 // Contents and changes inside a file show the file's colour.
                 if (['collection', 'group', 'entity', 'change', 'changePart'].indexOf(node.kind) >= 0) {
                     let file = node;
-                    while (file && file.kind !== 'file') file = file.parent != null ? idx.byId.get(file.parent) : null;
+                    while (file && file.kind !== 'file' && file.kind !== 'doc') file = file.parent != null ? idx.byId.get(file.parent) : null;
                     if (file) node = file;
                 }
                 const filter = currentFilter();
@@ -548,6 +567,11 @@
                 // Long names (dated notes, generated files) are cut; the details panel has them whole.
                 let label = node.name || node.id;
                 if (label.length > 40) label = label.slice(0, 38) + '…';
+                // The Book: what a part, chapter or section says, under its title.
+                if (isBook() && node.summary && ['dir', 'doc', 'section'].indexOf(node.kind) >= 0) {
+                    const line = firstSentence(node.summary, 72);
+                    if (line) label += '\n' + line;
+                }
                 const impact = prImpact(node);
                 if (impact) label += '\nrisk: ' + impact.risk;
                 const meta = [];
@@ -559,9 +583,9 @@
                 } else if (node.kind === 'collection' || node.kind === 'group') {
                     if (node.files) meta.push(formatCount(node.files) + (node.files === 1 ? ' item' : ' items'));
                 } else if (node.kind !== 'file' && node.kind !== 'doc' && node.kind !== 'entity' && node.files) {
-                    meta.push(formatCount(node.files) + ' files');
+                    meta.push(formatCount(node.files) + (isBook() && node.kind !== 'section' ? ' chapters' : ' files'));
                 }
-                if (node.loc) meta.push(formatCount(node.loc) + ' lines');
+                if (node.loc && !(isBook() && node.kind === 'section')) meta.push(formatCount(node.loc) + ' lines');
                 if (node.tech) meta.push(node.tech);
                 if (info && info.kind === 'coverage' && info.total > 1) {
                     meta.push(Math.round(info.ratio * 100) + '% documented' + (info.stale ? ' · ' + info.stale + ' outdated' : ''));
@@ -613,10 +637,13 @@
                     const grow = ui.overlay === 'size' && overlayApplies() && node.loc
                         ? Math.min(3.2, Math.max(1, Math.sqrt(node.loc / Math.max(1, sizeBase(drawn))))) : 1;
                     const parent = node.parent != null && drawnIds.has(node.parent) && expanded.has(node.parent) ? node.parent : undefined;
+                    // Book labels carry an annotation line: wider boxes, as tall as the wrapped text.
+                    const w = Math.min(isBook() ? 320 : 260, Math.max(70, longest * 6.6 + 22)) * grow;
+                    const rows = label.split('\n').reduce(function(a, l) { return a + Math.max(1, Math.ceil((l.length * 6.6) / Math.max(40, w - 24))); }, 0);
                     elements.push({ group: 'nodes', data: {
                         id: node.id, parent: parent, label: label, kind: node.kind,
-                        w: Math.min(260, Math.max(70, longest * 6.6 + 22)) * grow,
-                        h: (label.indexOf('\n') >= 0 ? 38 : 26) * grow,
+                        w: w, tw: Math.max(40, w - 14),
+                        h: (rows > 2 ? 14 + 12 * rows : rows > 1 ? 38 : 26) * grow,
                         fill: (prImpact(node) ? { high: c.bad, medium: c.warn, low: c.ok }[prImpact(node).risk] : null)
                             || overlayColor(info, c) || (node.role ? roleColor[node.role] : null) || '',
                         dimmed: ui.overlay === 'pr' && info && !info.changed ? 1 : 0,
@@ -666,7 +693,7 @@
                         'background-color': c.node, 'border-width': 1, 'border-color': c.line,
                         'label': 'data(label)', 'color': c.text, 'font-size': 10.5,
                         'font-family': '-apple-system, "SF Pro Text", sans-serif',
-                        'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 250,
+                        'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap', 'text-max-width': 'data(tw)',
                         'line-height': 1.3 } },
                     { selector: 'node[fill != ""]', style: { 'border-color': 'data(fill)', 'border-width': 2,
                         'background-color': 'data(fill)', 'background-opacity': 0.14 } },
@@ -705,6 +732,8 @@
                     { selector: 'edge[kind = "added"]', style: { 'line-color': c.ok, 'target-arrow-color': c.ok, 'width': 2.5, 'opacity': 1 } },
                     { selector: 'edge[kind = "removed"]', style: { 'line-color': c.bad, 'target-arrow-color': c.bad, 'width': 2.5, 'line-style': 'dashed', 'opacity': 1 } },
                     { selector: 'node[provisional = 1]', style: { 'border-style': 'dashed' } },
+                    // Related sections the AI found in the Book: dashed, muted, their reason in the panel.
+                    { selector: 'edge[kind = "related"]', style: { 'line-style': 'dashed', 'line-color': c.mute, 'target-arrow-color': c.mute, 'label': '', 'opacity': 0.7 } },
                     { selector: 'edge.hot', style: { 'line-color': c.accent, 'target-arrow-color': c.accent, 'opacity': 1 } },
                 ];
             }
@@ -769,14 +798,20 @@
                     return;
                 }
                 const missing = snap && !snap.views.some(function(v) { return v.id === ui.view; });
+                const bookView = isBook() && !missing && currentView();
+                if (bookView && !bookView.nodes.some(function(n) { return n.kind === 'doc'; })) {
+                    el.empty.hidden = false;
+                    el.empty.textContent = 'No text documents in this folder.';
+                    return;
+                }
                 el.empty.hidden = !missing;
                 if (!missing) return;
                 const step = { logical: 2, deployment: 3 }[ui.view];
-                const name = { logical: 'Logical components', deployment: 'The deployment map', docs: 'Documentation' }[ui.view] || 'This view';
+                const name = { logical: 'Logical components', deployment: 'The deployment map', docs: 'The book' }[ui.view] || 'This view';
                 const p = ui.progress;
                 el.empty.textContent = p && step
                     ? name + ' will appear after step ' + step + ' of ' + p.steps + (p.step < step ? '.' : ' (running now).')
-                        + ' Structure and Docs are available meanwhile.'
+                        + ' Structure and the Book are available meanwhile.'
                     : step ? name + ' is built by the AI analysis. Press Analyze to create it.'
                     : name + ' is empty. Press Rescan.';
             }
@@ -854,7 +889,7 @@
                                         kind: e.data('kind') || 'uses', label: e.data('label') || '' };
                     cy.edges().removeClass('faded hot'); cy.edges().not(e).addClass('faded'); e.addClass('hot');
                     renderDetails();
-                    post('explainEdge', { view: ui.view, source: ui.selectedEdge.source, target: ui.selectedEdge.target,
+                    if (ui.selectedEdge.kind !== 'related') post('explainEdge', { view: ui.view, source: ui.selectedEdge.source, target: ui.selectedEdge.target,
                                           kind: ui.selectedEdge.kind, label: ui.selectedEdge.label || undefined });
                 });
                 cy.on('tap', function(evt) {
@@ -875,6 +910,18 @@
             /** While the analysis builds the Logical view, open the subsystems that have parts,
              *  so the structure is seen growing — until the user opens or closes something. */
             function autoExpand(snap) {
+                // The Book: every part open, so all chapter blurbs are on one screen (top-level
+                // parts only for a big book); chapters stay closed until opened.
+                if (isBook()) {
+                    if (ui.userNavigated) return;
+                    const book = snap.views.find(function(v) { return v.id === 'docs'; });
+                    if (!book) return;
+                    const chapters = book.nodes.filter(function(n) { return n.kind === 'doc'; }).length;
+                    const parts = book.nodes.filter(function(n) { return n.kind === 'dir'; });
+                    (chapters <= 60 ? parts : parts.filter(function(n) { return n.parent === 'd:'; }))
+                        .forEach(function(n) { ui.expanded.docs.add(n.id); });
+                    return;
+                }
                 if (!ui.progress || ui.progress.steps < 2 || ui.view !== 'logical' || ui.userNavigated) return;
                 const view = snap.views.find(function(v) { return v.id === 'logical'; });
                 if (!view) return;
@@ -899,7 +946,7 @@
                     ui.selected = id;
                     render(expanded.has(id) ? id : null);
                 } else if (node.kind === 'section') {
-                    post('openFile', { path: node.path, find: node.name });
+                    post('openFile', sectionTarget(node));
                 } else if (node.kind === 'entity') {
                     post('openFile', entityTarget(node));
                 } else if (node.path && (node.kind === 'file' || node.kind === 'doc' || node.kind === 'moduleRef')) {
@@ -914,6 +961,13 @@
                 const f = pr && pr.files.find(function(x) { return x.path === path; });
                 const first = f && !f.deleted && f.ranges && f.ranges[0];
                 post('openFile', first ? { path: path, line: first[0], endLine: first[1] } : { path: path });
+            }
+
+            /** Where a Book section starts: its line, and its heading to find in a preview. */
+            function sectionTarget(node) {
+                const target = { path: node.path, find: node.anchor || node.name };
+                if (node.line) target.line = node.line;
+                return target;
             }
 
             /** Where an item of a file's contents is: its line (code) and its text (markdown). */
@@ -944,7 +998,7 @@
                 while (cur) { if (!isTransparent(cur)) chain.unshift(cur); cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
                 const top = document.createElement('button');
                 top.className = 'arch-crumb';
-                top.textContent = ({ logical: 'Logical', modules: 'Modules', deployment: 'Deployment', docs: 'Documentation', pr: 'Pull request' })[ui.view];
+                top.textContent = ({ logical: 'Logical', modules: 'Modules', deployment: 'Deployment', docs: 'Book', pr: 'Pull request' })[ui.view];
                 // The top level: the details panel goes back to the view's overview (the PR panel
                 // in the PR X-Ray) — nothing stays selected.
                 top.onclick = function() {
@@ -1017,6 +1071,12 @@
                     : filter && filter.id === 'importance' ? 'Rated by AI as you zoom in; a folder shows its strongest part'
                     : isSearch(filter) ? (ui.payload.status ? 'Dashed = keyword candidate while the AI reads the project' : 'Uncoloured = not related; a folder is red when something inside matters')
                     : filter ? 'Dashed = keyword match, solid = checked by AI; a folder shows its strongest part' : null;
+                // The Book: links written in the text, and related sections the AI found.
+                if (!scale && !filter && isBook() && cy && cy.edges('[kind = "related"]').length) {
+                    const span = document.createElement('span'); span.className = 'arch-muted';
+                    span.textContent = 'Solid = link in the text · dashed = related (AI)';
+                    el.legend.appendChild(span);
+                }
                 // No overlay: the colours are roles; list the ones on screen.
                 if (!scale && !filter && !(overlayApplies() && ui.overlay !== 'none') && cy) {
                     const present = new Set(cy.nodes().map(function(n) {
@@ -1356,6 +1416,7 @@
                     renderPRFile(d, node.path);
                     return;
                 }
+                if (!node && isBook()) { renderBookOverview(d, view, idx, snap); return; }
                 if (!node) {
                     const h = document.createElement('h4'); h.textContent = ui.view === 'logical' && snap.systemName ? snap.systemName : 'Overview';
                     d.appendChild(h);
@@ -1394,14 +1455,18 @@
                 const h = document.createElement('h4'); h.textContent = node.name; d.appendChild(h);
                 if (ui.view === 'deployment') renderOperations(d, node);
                 const badges = document.createElement('div'); badges.className = 'arch-badges';
-                [node.kind === 'moduleRef' ? 'module' : node.kind, node.role, node.language, node.tech].forEach(function(b) {
+                const lineBadge = isBook() && node.line ? 'lines ' + node.line + (node.endLine && node.endLine !== node.line ? '–' + node.endLine : '') : null;
+                [kindLabel(node), node.role, isBook() && node.kind === 'section' ? null : node.language, node.tech, lineBadge].forEach(function(b) {
                     if (!b) return;
                     const s = document.createElement('span'); s.textContent = b; badges.appendChild(s);
                 });
                 d.appendChild(badges);
                 const describing = (ui.payload.describing || []).indexOf(node.id) >= 0;
+                if (isBook()) renderBookLineage(d, node, idx);
                 if (node.summary) {
                     const p = document.createElement('p'); p.textContent = node.summary; d.appendChild(p);
+                } else if (isBook() && ['doc', 'section'].indexOf(node.kind) >= 0) {
+                    renderDescribeChapter(d, node, idx);
                 } else if (codeViews[ui.view] && ['dir', 'package', 'file'].indexOf(node.kind) >= 0) {
                     // Describe on first selection; the answer is cached with the folder/file signature.
                     const p = document.createElement('p'); p.className = 'arch-muted';
@@ -1453,11 +1518,11 @@
                 }
                 if (node.path != null && node.path !== '') {
                     const openable = ['file', 'doc', 'section', 'entity'].indexOf(node.kind) >= 0;
-                    const title = node.kind === 'section' ? node.path + ' › ' + node.name
+                    const title = node.kind === 'section' ? node.path + (node.line ? ':' + node.line + (node.endLine && node.endLine !== node.line ? '–' + node.endLine : '') : '') + ' › ' + node.name
                         : node.kind === 'entity' ? node.path + (node.line ? ':' + node.line : '')
                         : node.path;
                     d.appendChild(linkButton(title, function() {
-                        post('openFile', node.kind === 'section' ? { path: node.path, find: node.name }
+                        post('openFile', node.kind === 'section' ? sectionTarget(node)
                             : node.kind === 'entity' ? entityTarget(node) : { path: node.path });
                     }, 'arch-path' + (openable ? '' : ' arch-reveal')));
                 }
@@ -1470,8 +1535,12 @@
                     if (reading) button.disabled = true;
                     d.appendChild(button);
                 }
-                addRow(d, ['collection', 'group'].indexOf(node.kind) >= 0 ? 'Items' : 'Files',
-                       ['file', 'doc', 'entity'].indexOf(node.kind) >= 0 ? '' : (node.files ? String(node.files) : ''));
+                addRow(d, ['collection', 'group'].indexOf(node.kind) >= 0 ? 'Items' : isBook() ? 'Chapters' : 'Files',
+                       ['file', 'doc', 'entity', 'section'].indexOf(node.kind) >= 0 ? '' : (node.files ? String(node.files) : ''));
+                if (isBook() && ['doc', 'dir', 'root'].indexOf(node.kind) >= 0) {
+                    const sections = view.nodes.filter(function(n) { return n.kind === 'section' && (node.kind === 'doc' ? n.path === node.path : isUnder(n, node.id, idx)); }).length;
+                    addRow(d, 'Sections', sections ? String(sections) : '');
+                }
                 addRow(d, 'Lines', node.loc ? String(node.loc) : '');
 
                 const kids = idx.children.get(node.id) || [];
@@ -1480,8 +1549,9 @@
                     d.appendChild(linkButton(expanded ? 'Zoom out of this' : 'Zoom into this', function() { activate(node.id); }, 'arch-action'));
                 }
 
+                if (isBook()) { renderBookRefs(d, node, idx, view); }
                 // Connections of the drawn node.
-                if (cy && cy.getElementById(node.id).length) {
+                else if (cy && cy.getElementById(node.id).length) {
                     const drawn = cy.getElementById(node.id);
                     const outs = drawn.union(drawn.descendants()).outgoers('edge').filter(function(e) { return !e.target().same(drawn) && !drawn.descendants().contains(e.target()); });
                     const ins = drawn.union(drawn.descendants()).incomers('edge').filter(function(e) { return !e.source().same(drawn) && !drawn.descendants().contains(e.source()); });
@@ -1552,6 +1622,118 @@
                 }
             }
 
+            // --------------------------------------------------------------- the Book's panel
+
+            function isUnder(node, ancestorId, idx) {
+                let cur = node.parent != null ? idx.byId.get(node.parent) : null;
+                while (cur) { if (cur.id === ancestorId) return true; cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
+                return false;
+            }
+
+            /** Nothing selected in the Book: what the book is, its size, and how much is annotated. */
+            function renderBookOverview(d, view, idx, snap) {
+                const root = view.nodes.find(function(n) { return n.kind === 'root'; });
+                const h = document.createElement('h4'); h.textContent = root && root.name ? root.name : 'Book'; d.appendChild(h);
+                if (root && root.summary) { const p = document.createElement('p'); p.textContent = root.summary; d.appendChild(p); }
+                renderReport(d, view, idx);
+                const active = currentFilter();
+                if (active && active.id !== 'importance') {
+                    d.appendChild(linkButton('Delete filter "' + active.name + '"', function() {
+                        post('deleteFilter', { id: active.id }); ui.overlay = 'none';
+                    }, 'arch-action'));
+                }
+                const count = function(kind) { return view.nodes.filter(function(n) { return n.kind === kind; }).length; };
+                const chapters = count('doc');
+                addRow(d, 'Parts', count('dir') ? String(count('dir')) : '');
+                addRow(d, 'Chapters', chapters ? String(chapters) : '');
+                addRow(d, 'Sections', count('section') ? String(count('section')) : '');
+                const links = view.edges.filter(function(e) { return e.kind === 'links'; }).length;
+                const related = view.edges.filter(function(e) { return e.kind === 'related'; }).length;
+                addRow(d, 'Cross-references', links || related ? links + ' in the text' + (related ? ', ' + related + ' related (AI)' : '') : '');
+                addRow(d, 'Scanned', snap.scannedAt ? new Date(snap.scannedAt).toLocaleString() : '');
+                const left = undescribedChapters(view).length;
+                if (chapters) addRow(d, 'AI annotations', (chapters - left) + ' of ' + chapters + ' chapters');
+                if (left) {
+                    const b = linkButton(ui.payload.busy ? 'Annotating…' : 'Describe remaining chapters (' + left + ')', function() { post('describeBook', {}); }, 'arch-action');
+                    if (ui.payload.busy) b.disabled = true;
+                    d.appendChild(b);
+                    if (!snap.enrichedAt && !ui.payload.busy) {
+                        const p = document.createElement('p'); p.className = 'arch-muted';
+                        p.textContent = 'Analyze annotates every chapter and section: what each says, how important it is, and what else to read.';
+                        d.appendChild(p);
+                    }
+                }
+                const p = document.createElement('p'); p.className = 'arch-muted';
+                p.textContent = 'Select a part, chapter or section for details. Double-click opens a chapter\'s sections; double-click a section to read it.';
+                d.appendChild(p);
+            }
+
+            /** "In: part › chapter › section" above a Book node's summary; each step focuses it. */
+            function renderBookLineage(d, node, idx) {
+                const chain = [];
+                let cur = node.parent != null ? idx.byId.get(node.parent) : null;
+                while (cur && cur.kind !== 'root') { chain.unshift(cur); cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
+                if (!chain.length) return;
+                const row = document.createElement('div'); row.className = 'arch-badges';
+                const label = document.createElement('span'); label.textContent = 'In:'; row.appendChild(label);
+                chain.forEach(function(step, i) {
+                    if (i) { const sep = document.createElement('span'); sep.textContent = '›'; row.appendChild(sep); }
+                    const b = linkButton(step.name, function() { window.architectureFocus(step.id, 'docs'); }, 'arch-link');
+                    b.title = kindLabel(step) + (step.path ? ' · ' + step.path : '');
+                    row.appendChild(b);
+                });
+                d.appendChild(row);
+            }
+
+            /** A chapter (or a section of one) without annotations yet: describe it now. */
+            function renderDescribeChapter(d, node, idx) {
+                let chapter = node;
+                while (chapter && chapter.kind !== 'doc') chapter = chapter.parent != null ? idx.byId.get(chapter.parent) : null;
+                if (!chapter) return;
+                const describing = (ui.payload.describing || []).indexOf(chapter.id) >= 0;
+                const p = document.createElement('p'); p.className = 'arch-muted';
+                p.textContent = describing ? 'Describing…' : 'Not described yet.';
+                d.appendChild(p);
+                if (!describing) {
+                    const b = linkButton(ui.payload.busy ? 'Busy…' : 'Describe this chapter', function() { post('describeBook', { path: chapter.path }); }, 'arch-action');
+                    if (ui.payload.busy) b.disabled = true;
+                    d.appendChild(b);
+                }
+            }
+
+            /** Cross-references of a Book node and everything inside it, both ways, from the
+             *  view's own edges (so targets inside closed boxes are listed too). */
+            function renderBookRefs(d, node, idx, view) {
+                const inside = new Set([node.id]);
+                (function walk(id) { (idx.children.get(id) || []).forEach(function(k) { inside.add(k); walk(k); }); })(node.id);
+                const out = [], inn = [];
+                view.edges.forEach(function(e) {
+                    if (e.kind !== 'links' && e.kind !== 'related') return;
+                    const s = inside.has(e.source), t = inside.has(e.target);
+                    if (s && !t) out.push(e); else if (t && !s) inn.push(e);
+                });
+                function list(title, edges, otherOf) {
+                    if (!edges.length) return;
+                    const sec = document.createElement('h5'); sec.textContent = title + ' (' + edges.length + ')'; d.appendChild(sec);
+                    const seen = new Set();
+                    edges.forEach(function(e) {
+                        const other = idx.byId.get(otherOf(e));
+                        if (!other || seen.size >= 20) return;
+                        const key = other.id + '|' + e.kind;
+                        if (seen.has(key)) return;
+                        seen.add(key);
+                        let text = other.name;
+                        if (other.kind !== 'doc' && other.path) text += ' (' + other.path.split('/').pop() + ')';
+                        if (e.kind === 'related') text += ' — related (AI)' + (e.label ? ': ' + e.label : '');
+                        const b = linkButton(text, function() { window.architectureFocus(other.id, 'docs'); }, 'arch-path');
+                        b.title = (other.path || other.name) + (e.kind === 'related' ? ' · found by the AI' : ' · linked in the text');
+                        d.appendChild(b);
+                    });
+                }
+                list('Refers to', out, function(e) { return e.target; });
+                list('Referred to by', inn, function(e) { return e.source; });
+            }
+
             /** The overlay as an analysis: the worst / most important items, ranked. */
             function renderReport(d, view, idx) {
                 if (!overlayApplies() || ui.overlay === 'pr') return;
@@ -1609,8 +1791,14 @@
                     if (!n) return;
                     d.appendChild(linkButton((n === a ? 'From: ' : 'To: ') + n.name, function() { ui.selectedEdge = null; ui.selected = n.id; render(n.id); }, 'arch-path'));
                 });
-                const note = (ui.payload.edgeNotes || {})[edge.view + '|' + edge.source + '|' + edge.target];
                 const sec = document.createElement('h5'); sec.textContent = 'Why this link exists'; d.appendChild(sec);
+                if (edge.kind === 'related') {
+                    const why = document.createElement('p'); why.className = 'arch-answer';
+                    why.textContent = (edge.label ? edge.label + ' ' : '') + '(related content found by the AI while annotating the book)';
+                    d.appendChild(why);
+                    return;
+                }
+                const note = (ui.payload.edgeNotes || {})[edge.view + '|' + edge.source + '|' + edge.target];
                 const p = document.createElement('p'); p.className = 'arch-answer';
                 p.textContent = note && note.text ? note.text : 'The AI is reading the code behind this link\u2026';
                 d.appendChild(p);

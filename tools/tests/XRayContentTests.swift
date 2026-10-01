@@ -98,7 +98,9 @@ let html = try String(contentsOfFile: "MarkView/Resources/Editor/index.html", en
 let htmlOutline = XRayContent.localOutline(text: html, language: "html", signature: "fixture")
 let htmlItems = htmlOutline?.collections.flatMap(\.groups).flatMap(\.items) ?? []
 check("shipping index.html has local regions", htmlOutline?.source == "structure" && htmlItems.count >= 10)
-check("HTML regions retain exact lines", htmlItems.contains { $0.name == "arch-container" && $0.line == 1430 })
+// The expected line is read from the file: index.html grows above the region over time.
+let archContainerLine = (html.editorLines.firstIndex { $0.contains("id=\"arch-container\"") } ?? -2) + 1
+check("HTML regions retain exact lines", htmlItems.contains { $0.name == "arch-container" && $0.line == archContainerLine })
 let simpleHTML = "<html>\n<h1>Overview</h1>\n<section>Text</section>\n<h2>Details</h2>\n</html>"
 let headingItems = XRayContent.localOutline(text: simpleHTML, language: "html", signature: "fixture")?
     .collections.flatMap(\.groups).flatMap(\.items) ?? []

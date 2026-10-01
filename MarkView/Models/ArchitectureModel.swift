@@ -27,9 +27,11 @@ struct ArchNode: Codable, Hashable {
     var component: String?
     /// Signals such as entry, ui, api, tests, config, build, docs, generated.
     var tags: [String]?
-    /// Contents of a file (`XRayContent`): the line an item starts on, and its text as
-    /// rendered, to find it in a markdown document. Not stored in the database.
+    /// Where in its file a node is: the line an item or section starts on, the last line a
+    /// section spans (Book view), and the start line's text as rendered, to find it in a
+    /// markdown preview.
     var line: Int?
+    var endLine: Int?
     var anchor: String?
 }
 

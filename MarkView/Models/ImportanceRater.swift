@@ -208,6 +208,15 @@ enum ImportanceRater {
 
     /// Text of a markdown section: from `line` (1-based, the heading) to the next
     /// heading of level 1–2, clipped to `limit` characters.
+    /// The text of a section with known bounds (Book view): lines `line` to `end`, cut at `limit`.
+    static func sectionText(_ document: String, fromLine line: Int, toLine end: Int, limit: Int = 1800) -> String {
+        let lines = document.editorLines
+        guard line >= 1, line <= lines.count else { return "" }
+        let last = max(line, min(end, lines.count))
+        let text = lines[(line - 1)..<last].joined(separator: "\n")
+        return text.count > limit ? String(text.prefix(limit)) + " …" : text
+    }
+
     static func sectionText(_ document: String, fromLine line: Int, limit: Int = 1800) -> String {
         let lines = document.editorLines
         guard line >= 1, line <= lines.count else { return "" }

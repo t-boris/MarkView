@@ -525,3 +525,12 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Standalone harnesses drift: `CLICompletion.swift` gained `LinkedFolders` and `AICallLog` after
   `project-ai-choice-tests.sh` was written, so the harness no longer compiled. Run the relevant
   `tools/tests/*.sh` before committing and add the new files or stubs to the script.
+
+## Harness checks must not pin facts that drift with unrelated edits (2026-09-30)
+- `xray-content-tests.sh` asserted that `arch-container` sits on line 1430 of `index.html`; four unrelated
+  edits later it was on 1434 and the check failed on `main` for everyone. Nobody noticed because the harness
+  is run only when its module changes.
+- Rule: derive such expectations from the fixture at run time (find the line in the file) or pin a copy
+  of the fixture under `tools/tests/`; and run every harness touching a changed module before committing.
+- The Book X-Ray builder was checked by replaying it over this repository's `docs/` (821 chapters in 0.7 s)
+  before any UI existed — the same "run it over the real data" rule as BUG-017.
