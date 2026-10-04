@@ -3,7 +3,9 @@ import Foundation
 
 /// Web addresses that programs in MarkView's terminals open (Claude Code, Codex, `vite --open`,
 /// `gh browse`, Python's webbrowser, …) go to the browser tab of the terminal's window instead
-/// of the default browser.
+/// of the default browser. Files they open (`open notes.md`, `file://…`) open in MarkView too:
+/// documents MarkView reads in its editor or image viewer, HTML pages in the browser tab;
+/// anything else (folders, apps, PDFs, …) in the app macOS chooses.
 ///
 /// The terminal's environment carries `BROWSER` and, first on `PATH`, an `open` wrapper; both
 /// drop a request file into a spool folder of this app process, which MarkView watches. Login
@@ -131,58 +133,91 @@ enum TerminalBrowserBridge {
         }
     }
 
-    /// The terminal id and the web address of a request; nil for anything else.
+    /// The terminal id and the address of a request — a web address, or a file (`file://…` or an
+    /// absolute path) as a standardized file URL; nil for anything else.
     nonisolated static func parse(_ text: String) -> (terminal: UUID?, url: URL)? {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map {
             $0.trimmingCharacters(in: .whitespaces)
         }
-        guard lines.count >= 2, lines[1].count <= 8_192, let url = URL(string: lines[1]),
-              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host != nil else { return nil }
-        return (UUID(uuidString: lines[0]), url)
+        guard lines.count >= 2, !lines[1].isEmpty, lines[1].count <= 8_192 else { return nil }
+        let terminal = UUID(uuidString: lines[0])
+        if lines[1].hasPrefix("/") { return (terminal, URL(fileURLWithPath: lines[1]).standardizedFileURL) }
+        guard let url = URL(string: lines[1]), let scheme = url.scheme?.lowercased() else { return nil }
+        if scheme == "file" {
+            guard url.path.hasPrefix("/") else { return nil }
+            return (terminal, URL(fileURLWithPath: url.path).standardizedFileURL)
+        }
+        guard ["http", "https"].contains(scheme), url.host != nil else { return nil }
+        return (terminal, url)
+    }
+
+    /// Where a file opened from a terminal is shown.
+    enum FileDestination: Equatable { case browserTab, editor, system }
+
+    nonisolated static func destination(of file: URL) -> FileDestination {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return .system
+        }
+        if ["html", "htm", "xhtml"].contains(file.pathExtension.lowercased()) { return .browserTab }
+        return FileType.isOpenable(file) ? .editor : .system
     }
 
     private static func route(_ url: URL, from terminal: UUID?) {
-        if let terminal, let session = sessions[terminal]?.session, let open = session.openInAppBrowser {
-            open(url)
-        } else if let session = sessions.values.compactMap(\.session).first(where: { $0.openInAppBrowser != nil }) {
-            // A terminal that has closed meanwhile: any window of this app.
-            session.openInAppBrowser?(url)
-        } else {
+        // The terminal's own window, or — the terminal has closed meanwhile — any window of this app.
+        let session = terminal.flatMap { sessions[$0]?.session }.flatMap { $0.openInAppBrowser != nil ? $0 : nil }
+            ?? sessions.values.compactMap(\.session).first { $0.openInAppBrowser != nil }
+        guard let session else {
             NSWorkspace.shared.open(url)
+            return
+        }
+        guard url.isFileURL else {
+            session.openInAppBrowser?(url)
+            return
+        }
+        switch destination(of: url) {
+        case .browserTab: session.openInAppBrowser?(url)
+        case .editor:
+            if let openFile = session.openFile { openFile(url, nil) } else { NSWorkspace.shared.open(url) }
+        case .system: NSWorkspace.shared.open(url)
         }
     }
 
     // MARK: - Scripts
 
     enum Scripts {
-        /// `BROWSER=markview-browser URL…` (one or more addresses).
+        /// `BROWSER=markview-browser URL…` (one or more web addresses, `file://` URLs or paths;
+        /// a relative path is taken from the current directory).
         static let browser = """
         #!/bin/sh
-        # MarkView: web addresses opened from a MarkView terminal go to MarkView's browser tab.
+        # MarkView: web addresses and files opened from a MarkView terminal go to MarkView.
         [ -n "$MARKVIEW_BROWSER_SPOOL" ] && [ -d "$MARKVIEW_BROWSER_SPOOL" ] || exec /usr/bin/open "$@"
         status=0
-        for url in "$@"; do
-          case "$url" in
-            http://*|https://*)
-              tmp="$MARKVIEW_BROWSER_SPOOL/.$$-$(date +%s)-$RANDOM.tmp"
-              printf '%s\\n%s\\n' "$MARKVIEW_TERMINAL_ID" "$url" > "$tmp" && mv "$tmp" "${tmp%.tmp}.url" || status=1
+        for arg in "$@"; do
+          case "$arg" in
+            http://*|https://*|file://*|/*) target="$arg" ;;
+            *)
+              if [ -e "$arg" ]; then target="$PWD/$arg"; else /usr/bin/open "$arg" || status=1; continue; fi
               ;;
-            *) /usr/bin/open "$url" || status=1 ;;
           esac
+          tmp="$MARKVIEW_BROWSER_SPOOL/.$$-$(date +%s)-$RANDOM.tmp"
+          printf '%s\\n%s\\n' "$MARKVIEW_TERMINAL_ID" "$target" > "$tmp" && mv "$tmp" "${tmp%.tmp}.url" || status=1
         done
         exit $status
         """
 
-        /// `open URL` without options goes to MarkView; anything else is macOS `open` as usual.
+        /// `open URL…` or `open FILE…` without options goes to MarkView; anything else (options,
+        /// folders, apps, missing paths) is macOS `open` as usual.
         static let open = """
         #!/bin/sh
-        # MarkView: `open https://…` from a MarkView terminal shows the page in MarkView's browser tab.
-        # Every other use (files, apps, options) is passed to /usr/bin/open unchanged.
+        # MarkView: `open https://…` or `open notes.md` from a MarkView terminal shows it in MarkView.
+        # Every other use (options, folders, apps, missing paths) is passed to /usr/bin/open unchanged.
         [ $# -gt 0 ] || exec /usr/bin/open
         for arg in "$@"; do
           case "$arg" in
-            http://*|https://*) ;;
-            *) exec /usr/bin/open "$@" ;;
+            http://*|https://*|file://*) ;;
+            -*) exec /usr/bin/open "$@" ;;
+            *) [ -f "$arg" ] || exec /usr/bin/open "$@" ;;
           esac
         done
         exec "$(dirname "$0")/markview-browser" "$@"

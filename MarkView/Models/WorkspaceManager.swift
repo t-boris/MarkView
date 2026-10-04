@@ -902,9 +902,12 @@ class WorkspaceManager: ObservableObject {
     /// Open a file in a new tab or switch to existing tab
     func openFile(_ url: URL) {
         layout.workspaceArea = .files
-        // Always init workspace for .md files if DB is missing or file is from different dir
+        // Always init workspace for .md files if DB is missing or file is from different dir —
+        // unless a project folder is open: a Markdown file from elsewhere (an agent's report in
+        // /tmp, a terminal link) opens as a tab and must not replace the project's search
+        // database, git client and AI root.
         let isMD = url.pathExtension.lowercased() == "md"
-        if isMD && !isFileInCurrentWorkspace(url) {
+        if isMD && !rootOpenedAsFolder && !isFileInCurrentWorkspace(url) {
             initSingleFileWorkspace(fileURL: url)
         }
         if let feature = features.locate(url)?.feature {

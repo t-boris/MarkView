@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## Task 79: files opened from terminals open in MarkView (2026-10-04, 4.3.0)
+
+Boris: "сделайте так, чтобы в MarkView открывался не только браузер, а если ссылка указывает на файл, он
+открывался непосредственно в нашей структуре."
+
+- [x] `open FILE…` / `file://…` / `$BROWSER path` from a MarkView terminal → spool request with the absolute path.
+- [x] Routing: HTML → browser tab (`loadFileURL`), editor/image files → tab, anything else → macOS as before.
+- [x] Found on the way: an outside `.md` opened in a project window turned it into a single-file workspace
+      (search DB, git, AI root replaced); with a project folder open it now opens as a plain tab.
+- [x] `tools/tests/web-preview-tests.sh` (parse, destination, `open notes.md` from zsh); all harnesses; Debug
+      build; QA copy: a request for `/…/outside/agent-report.md` opened a tab with the window still on the
+      project; `file://…/page.html` rendered in the browser tab.
+
 ## Task 78: select several files and feature objects; delete, move, rename; re-explore after removals (2026-10-04)
 
 Boris: "не могу выбрать несколько файлов, удалить… из Decision возможность удалить их… при удалении decisions

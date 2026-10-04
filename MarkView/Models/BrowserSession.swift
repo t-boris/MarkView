@@ -201,7 +201,12 @@ final class BrowserSession: NSObject, ObservableObject {
         loadError = nil
         preview = nil
         self.url = url
-        webView.load(URLRequest(url: url))
+        // A local page (opened from a terminal) may read the files next to it.
+        if url.isFileURL {
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            webView.load(URLRequest(url: url))
+        }
     }
 
     /// The previewed app answers at `url`: leave the waiting state and show it.

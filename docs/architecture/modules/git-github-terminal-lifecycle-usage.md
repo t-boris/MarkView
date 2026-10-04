@@ -304,12 +304,23 @@ dedicated `WKWebView` (`Models/TerminalSession.swift:52-57`). Used in two places
 It also resolves and activates links (URLs, OSC 8 hyperlinks, local paths with `:line`) and
 turns non-text pastes (Finder files, screenshots) into escaped paths.
 
+Programs in the terminal open pages and files in MarkView (`Models/TerminalBrowserBridge.swift`):
+the shell gets `BROWSER=markview-browser` and an `open` wrapper first on `PATH`; both drop a request
+(`<terminal id>\n<address>`) into the app process's spool folder. Web addresses go to the window's
+browser tab. Files (`open notes.md`, `file://…`, absolute paths; relative paths resolved against the
+shell's directory) open by `TerminalBrowserBridge.destination`: HTML in the browser tab
+(`BrowserSession.load` uses `loadFileURL` with read access to its folder), documents the editor or image
+viewer reads as tabs, everything else — folders, apps, PDFs, missing paths, any `open -…` with options —
+in macOS as before. A Markdown file from outside an open project folder opens as a plain tab; it no longer
+turns the window into a single-file workspace (`WorkspaceManager.openFile`). Off in the globe menu.
+
 ### B.2 Files
 
 | File | Role |
 |---|---|
 | `Models/TerminalSession.swift` | `TerminalProfile`, `TerminalSession` (PTY, web view, bridge, paste queue), `WeakMessageHandler` |
 | `Models/TerminalLink.swift` | Pure link resolution and PTY cwd lookup (`proc_pidinfo`) |
+| `Models/TerminalBrowserBridge.swift` | `BROWSER` / `open` wrappers, spool watcher, routing of web addresses and files |
 | `Views/TerminalView.swift` | `TerminalHostView`, dictation/restart buttons, `AITerminalPanel`, prompt bar, PR picker, `TerminalTabView` |
 | `Resources/Editor/terminal.html` | xterm.js page and JS side of the bridge |
 | `Resources/Editor/vendor/js/xterm.bundle.js`, `vendor/css/xterm.css` | Bundled `@xterm/xterm` 6.0.0 + fit 0.11.0 + web-links 0.12.0 (`tools/web-vendor/package.json:31-33`, `tools/web-vendor/build.sh:11-13`) |
