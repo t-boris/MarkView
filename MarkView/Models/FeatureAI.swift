@@ -116,6 +116,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// "Decide all for me" progress per feature: findings done, total.
     @Published var decideProgress: [String: (done: Int, total: Int)] = [:]
+    /// The settlement apply running per feature (`applyDecisions`).
+    private var applying: [String: Task<Void, Never>] = [:]
 
     /// Steps being prepared (context, files) before their AI call — shown as running at once.
     @Published private(set) var preparing: Set<String> = []
@@ -1056,10 +1058,15 @@ final class FeatureAssistant: ObservableObject {
         Already settled — never report again, not even reworded or from another perspective: anything a \
         closed finding covers (resolved, risk accepted or dismissed; its settlement is given above), an \
         answered question, or a decision. Proposed decisions count as made: the team confirms them. The \
-        status of requirements and decisions (draft, approved, proposed) and sign-offs are the team's \
-        workflow, tracked in the app — never a finding. A settled point is a problem again only when the \
-        current text contradicts its settlement. Report only problems that are new. When the specification \
-        is implementation-ready, return an empty list — that is the expected outcome of a later review.
+        status of requirements and decisions (draft, approved, proposed), sign-offs, and how records link \
+        to each other (ids, `decisions` lists) are bookkeeping the app keeps — never a finding. Report only what blocks implementation or what the \
+        product owner would decide differently from a competent implementer: details the implementer settles \
+        while building — exact numbers, tolerances, limits, timeouts, test fixtures, wording, finer \
+        permission or edge cases that follow from the stated rules — are not findings. Each decision adds \
+        detail; do not answer it with requests for still more detail. A settled point is a problem again \
+        only when the current text contradicts its settlement. Report only problems that are new. When the \
+        specification is implementation-ready, return an empty list — that is the expected outcome of a \
+        later review.
         """
         let findingSchema = Self.object([
             "title": Self.string, "category": ["type": "string", "enum": FeatureVocabulary.findingCategories],
@@ -1198,7 +1205,9 @@ final class FeatureAssistant: ObservableObject {
     Record it as a decision (context, alternatives, decision, reason, consequences; needs_decision true) only \
     when the resolution is a product choice the specification must remember. A finding settled by an \
     implementation detail the implementer decides anyway, a wording fix, or something an existing \
-    requirement or decision already covers is closed with its resolution text alone (needs_decision false).
+    requirement or decision already covers is closed with its resolution text alone (needs_decision false). \
+    Settle the finding with the least new detail that resolves it: no new rules, numbers or cases beyond \
+    what it asks; what the implementer decides while building stays with the implementer.
     """
 
     /// "Decide all for me": the AI resolves every open finding itself, a few per call; the decisions
@@ -1353,16 +1362,27 @@ final class FeatureAssistant: ObservableObject {
     /// requirements is rewritten on its own (one requirement with its settlements in one call misses
     /// less than the whole specification at once). The settlements are marked `applied` once every
     /// rewrite is written; a failed call leaves them pending for the next resolution or review.
+    /// One apply at a time per feature: a caller waits for a running one and then applies what is
+    /// still pending, so a review never reads requirements half-way through being rewritten (BUG-024:
+    /// a review started during the apply of a resolution reported the old text).
     func applyDecisions(_ slug: String) async {
+        while let running = applying[slug] { await running.value }
+        let task = Task {
+            await self.applyPending(slug)
+            self.applying[slug] = nil
+        }
+        applying[slug] = task
+        await task.value
+    }
+
+    private func applyPending(_ slug: String) async {
         let key = "apply:" + slug
-        // Another resolution is applying already: it, or the next review, takes these too.
-        guard !isRunning(key), let feature = store.feature(slug) else { return }
+        guard let feature = store.feature(slug) else { return }
         let decisions = feature.settlementsToApply
         guard !decisions.isEmpty else { return }
         preparing.insert(key)
         defer { preparing.remove(key) }
         let requirements = feature.activeRequirements
-        guard !requirements.isEmpty else { return markApplied(decisions, in: slug) }
         guard let targets = await decisionTargets(feature, decisions: decisions, requirements: requirements) else { return }
         var rewritten: [String] = []
         var failed = false
@@ -1382,6 +1402,13 @@ final class FeatureAssistant: ObservableObject {
                 return out
             }
             for (id, ok) in outcomes { if ok { rewritten.append(id) } else { failed = true } }
+        }
+        if let ids = targets[Self.overviewTarget] {
+            if let edits = await rewriteOverview(feature, with: decisions.filter { ids.contains($0.id) }) {
+                if edits > 0 { rewritten.append("the overview") }
+            } else {
+                failed = true
+            }
         }
         guard !failed else { return }
         markApplied(decisions, in: slug)
@@ -1407,6 +1434,9 @@ final class FeatureAssistant: ObservableObject {
         let prompt = """
         # Feature: \(feature.title)
 
+        ## \(Self.overviewTarget) (the feature overview)
+        \(feature.overviewBody.prefix(12_000))
+
         ## Requirements
         \(requirementList.prefix(90_000))
 
@@ -1415,13 +1445,14 @@ final class FeatureAssistant: ObservableObject {
 
         Task: for every settlement (decision or finding resolution), list the requirements whose statement \
         or acceptance criteria it changes, extends, narrows or contradicts — wherever the requirement text \
-        does not already say what the settlement says. Be thorough: one may touch several requirements; \
+        does not already say what the settlement says — and \(Self.overviewTarget) when the overview states \
+        something it changes (e.g. lists as open what is now decided). Be thorough: one may touch several; \
         one about an implementation detail no requirement states touches none. `id`: the settlement's id.
         """
         let item = Self.object(["id": Self.string, "requirements": Self.strings])
         guard let object = await structured("apply:" + feature.slug, prompt: prompt,
                                             schema: Self.object(["changes": Self.array(item)]), timeout: 600) else { return nil }
-        let requirementIDs = Set(requirements.map(\.id))
+        let requirementIDs = Set(requirements.map(\.id) + [Self.overviewTarget])
         let decisionIDs = Set(decisions.map(\.id))
         var targets: [String: [String]] = [:]
         for entry in object["changes"] as? [[String: Any]] ?? [] {
@@ -1459,6 +1490,8 @@ final class FeatureAssistant: ObservableObject {
               let statement = object["statement"] as? String,
               !statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let criteria = object["acceptance_criteria"] as? [String] ?? []
+        // Links to decisions that no longer exist (deleted by hand) are dropped on the way.
+        let known = Set(store.feature(feature.slug)?.list(.decision).map(\.id) ?? [])
         store.update(requirement.id, in: feature.slug) { front, body in
             // A criterion already checked off stays checked when its text is kept.
             let done = Set(FeatureObject.acceptanceCriteria(in: body).filter(\.done).map { $0.text.lowercased() })
@@ -1468,9 +1501,46 @@ final class FeatureAssistant: ObservableObject {
                 body = FeatureObject.replacingSection("Acceptance Criteria", in: body, with: lines.joined(separator: "\n"))
             }
             let ids = decisions.filter { $0.kind == .decision }.map(\.id)
-            front.set("decisions", list: Array(Set(front.strings("decisions") + ids)).sorted())
+            front.set("decisions", list: Array(Set(front.strings("decisions") + ids)).filter(known.contains).sorted())
         }
         return true
+    }
+
+    /// The routing id that stands for the feature overview.
+    private static let overviewTarget = "OVERVIEW"
+
+    /// Bring the overview in line with what was settled, by exact passage edits so the author's
+    /// text stays as it is everywhere else. Returns the number of edits made; nil when the call failed.
+    private func rewriteOverview(_ feature: Feature, with settlements: [FeatureObject]) async -> Int? {
+        let prompt = """
+        # Feature overview: \(feature.title)
+
+        \(feature.overviewBody.prefix(30_000))
+
+        ## Settled — the overview must not contradict it (oldest first)
+        \(Self.settlementList(settlements).prefix(30_000))
+
+        Task: the overview is the author's brief. Change only the passages that contradict what was \
+        settled or present as open what is now decided; leave everything else exactly as it is, in its \
+        language. Return edits: `find` is a passage copied verbatim from the overview (unique, long enough \
+        to occur once), `replace` its new text. No edits when nothing contradicts.
+        """
+        let edit = Self.object(["find": Self.string, "replace": Self.string])
+        guard let object = await structured("apply:overview:" + feature.slug, prompt: prompt,
+                                            schema: Self.object(["edits": Self.array(edit)]), effort: "medium", timeout: 600)
+        else { return nil }
+        let edits = (object["edits"] as? [[String: Any]] ?? []).compactMap { e -> (find: String, replace: String)? in
+            guard let find = e["find"] as? String, let replace = e["replace"] as? String else { return nil }
+            return (find, replace)
+        }
+        guard !edits.isEmpty else { return 0 }
+        var applied = 0
+        store.updateFeature(feature.slug) { _, body in
+            let result = FeatureObject.applyingEdits(edits, to: body)
+            body = result.text
+            applied = result.applied
+        }
+        return applied
     }
 
     /// Settlements as the apply prompts list them, oldest first (by creation date, then id).

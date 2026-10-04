@@ -1,5 +1,21 @@
 # MarkView — Follow-up Tasks
 
+## Task 77: review repeats after 4.0.0 — race, reused ids, overview, detail creep; Start over button (BUG-024, 2026-10-04, 4.1.0)
+
+Boris: "Я не уверен, что твой подход работает… чем больше decisions… тем больше у меня новых вопросов";
+"мне нужна возможность с нуля создать feature по overview" → chose: make Restart visible. Overview: rewrite it.
+Narrowing: details the implementer decides.
+
+- [x] Evidence on real r01: false F-009 from a review racing an apply; F-006/F-010 from ids reused after hand
+      deletion; overview findings ×3; detail-requests after each decision.
+- [x] Applies serialized per feature; `nextID` skips referenced numbers; dangling `decisions` links dropped.
+- [x] Overview corrected by exact passage edits when the routing names it.
+- [x] Review: implementer details and bookkeeping (statuses, sign-offs, links) are not findings; delegated
+      resolutions add the least detail.
+- [x] "Start over" header button.
+- [x] Harness checks (`referencedNumbers`, `nextID`, `applyingEdits`); Debug build; live check on a clone of the
+      current r01: race gone, overview fixed, DEC-026, reviews 1 → nothing new.
+
 ## Task 76: feature review converges; Resolve stage folded into Review (BUG-023, 2026-10-04, 4.0.0)
 
 Boris: "run review again — even more concerns… the process is not narrowing"; "А зачем нам Resolve stage?"

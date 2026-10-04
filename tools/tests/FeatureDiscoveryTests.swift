@@ -95,5 +95,22 @@ check(resolved.settlement == "AI: do Y — see DEC-001.", "a resolved finding ca
 check(object(.finding, "F-002", "status: dismissed\ndismissed_reason: gone").settlement == "dismissed: gone", "a dismissed finding carries its reason")
 check(object(.finding, "F-003", "status: open").settlement.isEmpty, "an open finding is not settled")
 
+// BUG-024: a number still referenced is never reused; overview edits touch only exact unique passages.
+var referenced = feature(front: "title: T\nstatus: review", questions: [])
+referenced.overviewBody = "Decision groups: see DEC-009.\n"
+referenced.objects[.decision] = [object(.decision, "DEC-001", "status: accepted")]
+referenced.objects[.requirement] = [object(.requirement, "REQ-001", "status: approved\ndecisions: [DEC-001, DEC-012]", "## Statement\n\nPer DEC-007.\n")]
+check(referenced.nextID(.decision) == "DEC-013", "a deleted decision still linked (DEC-012) is not reused")
+check(Set(referenced.referencedNumbers(.decision)) == Set([1, 7, 9, 12]), "references in links, texts and the overview count")
+check(referenced.nextID(.finding) == "F-001", "a kind without references starts at 1")
+
+let overview = "# R01\n\nThe six decision groups remain open.\n\nKeep me. Keep me.\n"
+let edited = FeatureObject.applyingEdits([(find: "The six decision groups remain open.", replace: "All six groups are decided."),
+                                          (find: "Keep me.", replace: "Gone."),
+                                          (find: "Not there", replace: "X"),
+                                          (find: "", replace: "Y")], to: overview)
+check(edited.applied == 1 && edited.text.contains("All six groups are decided.") && edited.text.contains("Keep me. Keep me."),
+      "only an exact, unique passage is edited")
+
 print(failures == 0 ? "All discovery checks passed." : "\(failures) discovery check(s) failed.")
 exit(failures == 0 ? 0 : 1)

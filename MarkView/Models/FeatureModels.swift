@@ -208,6 +208,21 @@ struct FeatureObject: Identifiable, Hashable {
         return lines.joined(separator: "\n")
     }
 
+    /// `text` with each edit's `find` replaced by its `replace`. An edit whose `find` is empty, missing
+    /// or not unique in the text is skipped, so an inexact edit never touches the wrong passage.
+    /// Returns the text and how many edits were made.
+    static func applyingEdits(_ edits: [(find: String, replace: String)], to text: String) -> (text: String, applied: Int) {
+        var out = text
+        var applied = 0
+        for edit in edits where !edit.find.isEmpty {
+            guard let range = out.range(of: edit.find),
+                  out.range(of: edit.find, range: range.upperBound..<out.endIndex) == nil else { continue }
+            out.replaceSubrange(range, with: edit.replace)
+            applied += 1
+        }
+        return (out, applied)
+    }
+
     static func load(kind: FeatureObjectKind, url: URL) -> FeatureObject? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let (front, body) = FrontMatter.split(text)
@@ -394,12 +409,26 @@ struct Feature: Identifiable {
     /// file name in the folder (a copied file keeps its old id inside).
     func nextID(_ kind: FeatureObjectKind) -> String {
         var numbers = list(kind).compactMap { Int($0.id.split(separator: "-").last ?? "") }
+        // A number still referenced anywhere — a link or a mention left behind by a deleted object —
+        // is never given to a new one: the reference would silently mean something else (BUG-024).
+        numbers += referencedNumbers(kind)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent(kind.folder).path)) ?? []
         numbers += names.compactMap { name in
             guard name.hasPrefix(kind.prefix + "-") else { return nil }
             return Int(name.dropFirst(kind.prefix.count + 1).prefix { $0.isNumber })
         }
         return String(format: "%@-%03d", kind.prefix, (numbers.max() ?? 0) + 1)
+    }
+
+    /// Numbers of `kind` ids mentioned in the overview and in every object (front matter and text).
+    func referencedNumbers(_ kind: FeatureObjectKind) -> [Int] {
+        guard let pattern = try? NSRegularExpression(pattern: "\\b\(kind.prefix)-([0-9]+)\\b") else { return [] }
+        let texts = [front.join(body: overviewBody)] + allObjects.map { $0.text() }
+        return texts.flatMap { text in
+            pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+                Range(match.range(at: 1), in: text).flatMap { Int(text[$0]) }
+            }
+        }
     }
 
     // MARK: Graph (spec §21–22)

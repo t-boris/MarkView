@@ -573,3 +573,13 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   (here: rewrite the requirement), and give the reviewer the settled items with how they were settled plus an
   explicit "empty is the expected result". Check convergence on real data: count what each round produced and
   read the new findings' titles — "X contradicts Y" findings mean the loop is feeding itself.
+
+## "Skip if already running" is wrong when the caller needs the result (BUG-024, 2026-10-04)
+- `applyDecisions` returned when another apply was running; that suited a second resolution but not a review,
+  which then read requirements mid-rewrite and filed a false finding. Rule: a step whose caller depends on its
+  outcome must wait for the running one (serialize), never skip it. Check the AI call log timestamps
+  (`ai-calls.jsonl`) when a finding contradicts the file as it is now.
+- Never reuse an id that something may still reference: derive the next number from existing files and every
+  mention in the feature.
+- A reviewer that may ask for any missing detail never runs dry, because every answer adds detail; give it the
+  same "the implementer decides" boundary the question round already has.
