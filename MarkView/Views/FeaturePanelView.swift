@@ -146,13 +146,15 @@ struct FeaturePanelView: View {
                 Spacer()
                 SmallButton(title: "Clean up", icon: "trash") { cleanup = Set(FeatureCleanup.allCases) }
                     .help("Delete outdated requirements, answered questions, closed findings and cancelled decisions")
+                if feature.isStructured, !feature.isImplemented {
+                    SmallButton(title: "Start over", icon: "arrow.counterclockwise") { confirmRestart = true }
+                        .help("Start the feature again from its overview: everything produced from it goes to the Trash")
+                }
                 Menu {
-                    Button("Restart Feature…") { confirmRestart = true }
-                        .disabled(feature.isImplemented || !feature.isStructured)
                     Button("Delete Feature…") { confirmDelete = true }
                         .disabled(feature.isImplemented)
                     if feature.isImplemented {
-                        Text("Implementation started — restart and delete are off")
+                        Text("Implementation started — start over and delete are off")
                     }
                     Divider()
                     Button("Project Cycle Time…") { showCycleTime = true }
@@ -160,11 +162,11 @@ struct FeaturePanelView: View {
                     Image(systemName: "ellipsis.circle").uiFont(size: 11)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("Restart or delete this feature, project cycle time")
+                .help("Delete this feature, project cycle time")
                 FeatureStatusMenu(store: store, feature: feature)
             }
-            .confirmationDialog("Restart \(feature.title)?", isPresented: $confirmRestart) {
-                Button("Restart from the idea", role: .destructive) {
+            .confirmationDialog("Start \(feature.title) over?", isPresented: $confirmRestart) {
+                Button("Start over from the overview", role: .destructive) {
                     guard store.restartFeature(feature.slug) else { return }
                     stage = .explore
                     Task { await assistant.exploreNext(feature.slug) }

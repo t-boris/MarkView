@@ -310,7 +310,10 @@ flowchart TD
   - A whole-spec review first calls `finishExplore` if discovery is done, then `applyDecisions`, so it reads one
     consistent specification.
   - The AI returns findings with category, severity, perspectives, quote, target and interpretations.
-  - The status of requirements and decisions and sign-offs are never findings (the team's workflow).
+  - The status of requirements and decisions, sign-offs and links between records are never findings (the
+    app's bookkeeping). Details the implementer settles while building (numbers, tolerances, fixtures,
+    finer edge cases following from the rules) are not findings either, so decisions do not breed requests
+    for more detail (BUG-024). Delegated resolutions settle a finding with the least new detail.
   - It is told what is settled and must not be reported again, even reworded: closed findings (the context
     digest carries each one's `settlement` — its resolution, dismissal reason or accepted risk), answered
     questions and decisions, proposed ones included. An empty list is the expected outcome of a later review.
@@ -331,9 +334,18 @@ flowchart TD
   `## Acceptance Criteria` are replaced (`FeatureObject.replacingSection`; a criterion already checked stays
   checked when its text is kept), decision ids join `decisions`, and every settlement sent gets
   `applied: <date>` once all rewrites succeeded. A failed call leaves them pending for the next resolution or
-  review; a second call while one runs returns at once. Before this, a resolution left the requirement text as
+  review. Applies run one at a time per feature: a caller (a review) waits for a running one, then applies
+  what is still pending (BUG-024: a review started during a resolution's apply read the old text). The routing
+  call may also name `OVERVIEW`: the overview is then corrected by exact passage edits (`find` must occur once,
+  `FeatureObject.applyingEdits`), the rest of the author's text untouched. A rewritten requirement drops
+  `decisions` links to decisions that no longer exist. Before this, a resolution left the requirement text as
   it was and each review reported the requirement contradicting it, so every round of resolutions produced the
   next round of findings. One call over all requirements and decisions at once missed rules and numbers.
+- **IDs are never reused** (`Feature.nextID`, BUG-024): besides existing files, every number of the kind still
+  mentioned in the overview or any object (`referencedNumbers`) is skipped, so a link left by a deleted object
+  never silently points at a new one.
+- **Start over** (header button, `FeatureStore.restartFeature`): everything produced goes to the Trash, the
+  overview and sources stay, discovery starts again. Was "Restart Feature…" in the ⋯ menu until 4.1.0.
 - **Reject a proposed decision** (`FeatureStore.rejectDecision`): sets `rejected`; when the decision was already
   `applied`, a high `contradiction` finding on the requirements carrying it asks how they should read instead.
 - **Consolidate** (`:624-681`):
