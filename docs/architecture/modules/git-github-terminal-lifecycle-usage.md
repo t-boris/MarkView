@@ -314,6 +314,20 @@ viewer reads as tabs, everything else — folders, apps, PDFs, missing paths, an
 in macOS as before. A Markdown file from outside an open project folder opens as a plain tab; it no longer
 turns the window into a single-file workspace (`WorkspaceManager.openFile`). Off in the globe menu.
 
+Agents also *drive* that browser tab (Task 80). Claude Code (`--mcp-config`) and Codex
+(`-c mcp_servers.markview_browser…`) started in the AI panel get an MCP server: the app binary re-run as
+`MarkView --mcp-browser --socket <path> --window <id>` (`Models/BrowserAgentTools.swift`, MCP over stdio, one
+JSON message per line; its `instructions` tell the agent to use it instead of Chrome or Playwright). Each tool
+call goes over a Unix socket in the user's temporary folder (`mv-browser-<pid>.sock`, mode 0600) to
+`BrowserControlServer`, which finds the window by `WorkspaceManager.browserControlID` and runs the tool in its
+browser tab (`agentBrowser()`: the active, preview or first browser tab, else a new one; brought to the front).
+Tools: navigate, snapshot (text and up to 300 interactive elements tagged `data-mv-ref`), click and type (by ref,
+CSS selector, or visible text / placeholder / label), press_key, evaluate (async body, JSON result), screenshot
+(`takeSnapshot`, PNG), console (captured from document start by `BrowserSession.consoleCaptureScript`), wait_for,
+back, reload. While an agent drives a tab, `alert`/`confirm` are answered at once and logged
+(`agentDialogs`). Agents' own browser plugins (Codex's chrome/browser plugins, Claude in Chrome) still exist; the
+server instructions steer the agent away from them. Off together with terminal links.
+
 ### B.2 Files
 
 | File | Role |
@@ -321,6 +335,7 @@ turns the window into a single-file workspace (`WorkspaceManager.openFile`). Off
 | `Models/TerminalSession.swift` | `TerminalProfile`, `TerminalSession` (PTY, web view, bridge, paste queue), `WeakMessageHandler` |
 | `Models/TerminalLink.swift` | Pure link resolution and PTY cwd lookup (`proc_pidinfo`) |
 | `Models/TerminalBrowserBridge.swift` | `BROWSER` / `open` wrappers, spool watcher, routing of web addresses and files |
+| `Models/BrowserAgentTools.swift`, `Models/BrowserControlServer.swift` | MCP server for agents (`--mcp-browser`) and the app-side socket that runs its tools in a browser tab |
 | `Views/TerminalView.swift` | `TerminalHostView`, dictation/restart buttons, `AITerminalPanel`, prompt bar, PR picker, `TerminalTabView` |
 | `Resources/Editor/terminal.html` | xterm.js page and JS side of the bridge |
 | `Resources/Editor/vendor/js/xterm.bundle.js`, `vendor/css/xterm.css` | Bundled `@xterm/xterm` 6.0.0 + fit 0.11.0 + web-links 0.12.0 (`tools/web-vendor/package.json:31-33`, `tools/web-vendor/build.sh:11-13`) |

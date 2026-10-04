@@ -1,5 +1,30 @@
 # MarkView — Follow-up Tasks
 
+## Task 80: agents drive MarkView's browser tab (MCP "markview-browser") (2026-10-04, 4.4.0)
+
+Boris: "он выполняет проверки, запускает и изменяет что‑то прямо в моём браузере Chrome. Почему он не открыл
+браузер в MarkView?" Codex drove Chrome through its own chrome/browser/computer-use plugins (the Codex app-server,
+not the terminal), which the `open`/`BROWSER` bridge cannot see. Chosen: give agents tools for MarkView's tab.
+
+- [x] `MarkView --mcp-browser --socket <path> --window <id>`: a stdio MCP server (re-exec of the app binary, like
+      `--dde-index`) relaying tool calls to the running app over a Unix socket; server instructions tell the agent
+      to use it instead of Chrome or other browser automation.
+- [x] App side: socket server (off the main thread) → the window's browser tab (the active/first one, or a new
+      one); tools: navigate, snapshot (text + elements with refs), click, type, press_key, evaluate, screenshot,
+      console, wait_for, back, reload. Load completion awaited; alerts auto-answered and logged while the agent
+      drives the tab; console captured from document start.
+- [x] Claude Code (`--mcp-config`) and Codex (`-c mcp_servers.markview_browser…`) started from MarkView's AI
+      terminals get the server; off together with "Open Terminal Links in MarkView".
+- [x] `tools/tests/browser-agent-tools-tests.sh` (MCP answers, a real `--mcp-browser` process relaying over a
+      socket); Debug build; QA copy: its Claude Code terminal started with the server and spawned it; a JSON-RPC
+      drive of a local page (navigate, snapshot, type by ref and by placeholder, click, console with the alert,
+      evaluate, screenshot, bad ref → clear error); then real `claude -p --model haiku` with the same config added
+      "Rosemary" through the tab and reported the list and console. `codex mcp list` accepts the `-c` config.
+
+**Review:** First drive found typing by visible text missed fields (placeholder, aria-label, <label>); fixed.
+Codex keeps its own Chrome plugins; the server instructions steer it to MarkView's tab, but it can still choose
+them. Disabling them in MarkView terminals remains an option if that happens.
+
 ## Task 79: files opened from terminals open in MarkView (2026-10-04, 4.3.0)
 
 Boris: "сделайте так, чтобы в MarkView открывался не только браузер, а если ссылка указывает на файл, он

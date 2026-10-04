@@ -3690,11 +3690,53 @@ class WorkspaceManager: ObservableObject {
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(AIAssistantPreferences.model(for: tool, project: aiProject))
-                   + tool.fullAccessArgs + linked).joined(separator: " ")
+                   + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
         case .codex, .cline, .copilot: return run
         }
+    }
+
+    /// This window's id for agents driving its browser tab (`BrowserControlServer`).
+    let browserControlID = UUID()
+
+    /// Shell-quoted arguments that give Claude Code and Codex the MCP server for this window's
+    /// browser tab (Task 80); none when terminal links do not open in MarkView.
+    private func browserToolArgs(for tool: CLITool) -> [String] {
+        guard TerminalBrowserBridge.isEnabled,
+              let server = BrowserControlServer.mcpArguments(window: browserControlID) else { return [] }
+        BrowserControlServer.register(browserControlID) { [weak self] in self?.agentBrowser() }
+        let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        switch tool {
+        case .claude:
+            let config: [String: Any] = ["mcpServers": [BrowserAgentTools.serverName: ["command": server.command, "args": server.args]]]
+            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
+                  let json = String(data: data, encoding: .utf8) else { return [] }
+            return ["--mcp-config", shellQuote(json)]
+        case .codex:
+            let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+            return ["-c", shellQuote("mcp_servers.markview_browser.command=" + toml(server.command)),
+                    "-c", shellQuote("mcp_servers.markview_browser.args=[" + server.args.map(toml).joined(separator: ",") + "]")]
+        case .cline, .copilot:
+            return []
+        }
+    }
+
+    /// The browser tab agents drive: the active one, else the app preview or the first one, else a
+    /// new tab. It is brought to the front so the user sees what the agent does.
+    func agentBrowser() -> BrowserSession {
+        let candidates: [(index: Int, session: BrowserSession)] = openTabs.indices.compactMap { index in
+            if case .browser(let session) = openTabs[index].kind { return (index, session) }
+            return nil
+        }
+        layout.workspaceArea = .files
+        showCenter = true
+        if let chosen = candidates.first(where: { $0.index == activeTabIndex })
+            ?? candidates.first(where: { $0.session.isAppPreview }) ?? candidates.first {
+            activeTabIndex = chosen.index
+            return chosen.session
+        }
+        return openBrowser(nil)
     }
 
     /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start

@@ -97,6 +97,10 @@ final class BrowserSession: NSObject, ObservableObject {
     var onSaveMarkdown: ((PageCapture.Mode) -> Void)?
     /// `target="_blank"` links and `window.open`.
     var onOpenInNewTab: ((URL) -> Void)?
+    /// An agent drives this tab (`BrowserAgentExecutor`): page dialogs are answered at once and
+    /// recorded in `agentDialogs` instead of stopping the page behind a modal alert.
+    var agentControlled = false
+    var agentDialogs: [String] = []
 
     private(set) lazy var webView: BrowserWebView = makeWebView()
     private var observations: [NSKeyValueObservation] = []
@@ -122,6 +126,9 @@ final class BrowserSession: NSObject, ObservableObject {
     private func makeWebView() -> BrowserWebView {
         let configuration = WKWebViewConfiguration()
         configuration.preferences.isElementFullscreenEnabled = true
+        // The page's console and uncaught errors, kept for agents (`browser_console`).
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         if let scriptURL = Self.captureScriptURL, let source = try? String(contentsOf: scriptURL, encoding: .utf8) {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
@@ -167,6 +174,32 @@ final class BrowserSession: NSObject, ObservableObject {
     }
 
     private var electronStandIns = false
+
+    static let consoleCaptureScript = #"""
+    (function () {
+      if (window.__mvConsole) return;
+      var log = window.__mvConsole = [];
+      function push(level, args) {
+        try {
+          var text = Array.prototype.map.call(args, function (a) {
+            if (a instanceof Error) return a.stack || String(a);
+            if (a && typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+            return String(a);
+          }).join(' ');
+          log.push(level + ': ' + text.slice(0, 2000));
+          if (log.length > 500) log.shift();
+        } catch (e) {}
+      }
+      ['log', 'info', 'warn', 'error', 'debug'].forEach(function (level) {
+        var original = console[level];
+        console[level] = function () { push(level, arguments); return original.apply(console, arguments); };
+      });
+      window.addEventListener('error', function (e) { push('error', [e.message + ' (' + e.filename + ':' + e.lineno + ')']); });
+      window.addEventListener('unhandledrejection', function (e) {
+        push('error', ['Unhandled rejection: ' + ((e.reason && e.reason.stack) || e.reason)]);
+      });
+    })();
+    """#
 
     static let electronStandInScript = #"""
     (function () {
@@ -335,6 +368,11 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
+        if agentControlled {
+            agentDialogs.append("alert: " + message)
+            completionHandler()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = frame.request.url?.host ?? "Page"
         alert.informativeText = message
@@ -344,6 +382,11 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void) {
+        if agentControlled {
+            agentDialogs.append("confirm (answered OK): " + message)
+            completionHandler(true)
+            return
+        }
         let alert = NSAlert()
         alert.messageText = frame.request.url?.host ?? "Page"
         alert.informativeText = message
