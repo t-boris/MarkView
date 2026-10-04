@@ -472,6 +472,22 @@ final class FeatureStore: ObservableObject {
         update(id, in: slug) { front, _ in front.set("status", status) }
     }
 
+    /// Reject a decision. One already written into requirements (`applied`) leaves them stating a
+    /// choice nobody stands behind any more, so a finding asks how they should read instead.
+    func rejectDecision(_ id: String, in slug: String) {
+        guard let feature = feature(slug), let decision = feature.object(id) else { return }
+        setStatus(id, in: slug, to: "rejected")
+        let carriers = feature.activeRequirements.filter { $0.front.strings("decisions").contains(id) }.map(\.id)
+        guard !decision.front.string("applied").isEmpty, !carriers.isEmpty else { return }
+        create(.finding, in: slug, title: "\(carriers.joined(separator: ", ")) still state rejected \(id)",
+               fields: [("category", .string("contradiction")), ("severity", .string("high")),
+                        ("perspectives", .list([.string("Product")])),
+                        ("refs", .list(carriers.map { .string($0) })), ("quote", .string("")), ("interpretations", .list([]))],
+               body: "## Finding\n\n\(id) (\(decision.title)) was rejected, but it was already written into "
+                   + "\(carriers.joined(separator: ", ")). Decide how they should read instead.\n\n> \(decision.section("Decision"))\n",
+               provenance: "Rejected \(id)")
+    }
+
     /// Change the overview (status, understanding…).
     func updateFeature(_ slug: String, _ change: (inout FrontMatter, inout String) -> Void) {
         guard let feature = feature(slug) else { return }

@@ -128,7 +128,9 @@ struct FeatureObject: Identifiable, Hashable {
     }
 
     /// `- [ ]` / `- [x]` lines under "## Acceptance Criteria".
-    var acceptanceCriteria: [(text: String, done: Bool)] {
+    var acceptanceCriteria: [(text: String, done: Bool)] { Self.acceptanceCriteria(in: body) }
+
+    static func acceptanceCriteria(in body: String) -> [(text: String, done: Bool)] {
         var inSection = false
         var items: [(String, Bool)] = []
         for line in body.components(separatedBy: "\n") {
@@ -176,7 +178,35 @@ struct FeatureObject: Identifiable, Hashable {
         }
     }
 
+    /// How a closed finding was settled: its resolution, or why it was dismissed or accepted as a
+    /// risk. The review reads it so that a settled problem is not reported again (BUG-023).
+    var settlement: String {
+        guard kind == .finding, isClosed else { return "" }
+        switch status {
+        case "dismissed": return "dismissed: " + front.string("dismissed_reason")
+        case "accepted-risk": return "risk accepted"
+        default: return section("Resolution")
+        }
+    }
+
     func text() -> String { front.join(body: body) }
+
+    /// `body` with the text of section `## name` replaced by `text` (heading kept, other sections
+    /// untouched); the section is appended when the body has none.
+    static func replacingSection(_ name: String, in body: String, with text: String) -> String {
+        var lines = body.components(separatedBy: "\n")
+        let isHeading = { (line: String) in line.hasPrefix("## ") }
+        let content = ["", text.trimmingCharacters(in: .whitespacesAndNewlines), ""]
+        guard let start = lines.firstIndex(where: {
+            isHeading($0) && $0.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased() == name.lowercased()
+        }) else {
+            let trimmed = body.trimmingCharacters(in: .newlines)
+            return (trimmed.isEmpty ? "" : trimmed + "\n\n") + "## \(name)\n" + content.joined(separator: "\n")
+        }
+        let end = lines[(start + 1)...].firstIndex(where: isHeading) ?? lines.endIndex
+        lines.replaceSubrange((start + 1)..<end, with: content)
+        return lines.joined(separator: "\n")
+    }
 
     static func load(kind: FeatureObjectKind, url: URL) -> FeatureObject? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
@@ -326,6 +356,18 @@ struct Feature: Identifiable {
     /// Requirements that count: not rejected, not merged into another (superseded).
     var activeRequirements: [FeatureObject] {
         list(.requirement).filter { $0.status != "rejected" && $0.status != "superseded" }
+    }
+
+    /// What was settled but not yet written into the requirements (BUG-023): decisions in force
+    /// (accepted, or proposed by the AI), and findings resolved by their resolution text alone (no
+    /// decision). A settlement that leaves the requirement text as it was makes every later review
+    /// report the requirement contradicting it.
+    var settlementsToApply: [FeatureObject] {
+        let decisions = list(.decision).filter { ["accepted", "proposed"].contains($0.status) }
+        let findings = list(.finding).filter {
+            $0.status == "resolved" && $0.front.string("resolved_by").isEmpty && !$0.section("Resolution").isEmpty
+        }
+        return (decisions + findings).filter { $0.front.string("applied").isEmpty }
     }
 
     /// Discovery questions already answered or skipped.

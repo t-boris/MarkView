@@ -1053,7 +1053,7 @@ class WorkspaceManager: ObservableObject {
             layout.leftPanel = panels.left == "issues" ? "issues" : "files"
             layout.issuesFeature = panels.feature
             layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
-            layout.featureStage = FeatureStage(rawValue: panels.stage) ?? .explore
+            layout.featureStage = FeatureStage.stored(panels.stage)
             showFileTree = panels.showFiles
             showTOC = panels.contentsVisible ?? false
             showCenter = panels.showCenter ?? true

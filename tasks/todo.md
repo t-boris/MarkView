@@ -1,5 +1,31 @@
 # MarkView — Follow-up Tasks
 
+## Task 76: feature review converges; Resolve stage folded into Review (BUG-023, 2026-10-04, 4.0.0)
+
+Boris: "run review again — even more concerns… the process is not narrowing"; "А зачем нам Resolve stage?"
+Choices: decisions go into the requirements automatically; a later review keeps every severity but never
+repeats what is settled; Resolve removed in the same PR.
+
+- [x] Evidence from real data: `grow-garden` r01 — 7 requirements, 25 decisions, 33 findings in one day, about
+      half "REQ-x contradicts / not updated per DEC-y", others rewordings of resolved findings.
+- [x] `applyDecisions`: pending decisions (`Feature.decisionsToApply`) rewritten into the requirements they
+      change, marked `applied`; after a resolution with a decision, after Decide all, before every review.
+- [x] Review: closed findings carry their settlement in the context; settled points (closed findings, answered
+      questions, decisions incl. proposed) are not reported again; title duplicates checked against all
+      findings; "Review: N new findings / nothing new" result.
+- [x] `FeatureStore.rejectDecision`: rejecting an applied decision opens a contradiction finding.
+- [x] Resolve stage removed; `BeforeBuildSection` in Review; stored "Resolve" opens Review.
+- [x] Harness: `replacingSection`, `acceptanceCriteria(in:)`, `decisionsToApply`, `settlement` in
+      `tools/tests/feature-discovery-tests.sh`; all harnesses pass; Debug build passes.
+- [x] Live check on an APFS clone of grow-garden with a QA copy (own bundle id, AX): Decide all → requirements
+      rewritten → review, five rounds; new findings 8 → 3 → 3 → 1. Fixed on the way: per-requirement rewrites
+      (one call over everything missed rules), text-only resolutions applied too, statuses/sign-offs not findings.
+
+**Review:** The loop fed itself because a resolution never reached the requirement text. Settlements are now
+written into requirements before the next review, and the reviewer gets the settled items with how they were
+settled. A later review still reports genuinely new medium edge cases (Boris chose all severities), but they
+shrink each round. Resolve's own content lives in Review's Before Build section.
+
 ## Task 75: app preview inside MarkView — browser tab, localhost preview, save page as Markdown (2026-10-01)
 
 Boris: "сделай превью аппликации внутри Markview… открывал браузер localhost и показывал прямо в localhost как
