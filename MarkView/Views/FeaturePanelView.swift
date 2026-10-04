@@ -64,6 +64,7 @@ struct FeaturePanelView: View {
                             ObjectContextView(store: store, feature: feature, object: object)
                         }
                         results(feature)
+                        removedBanner(feature)
                         switch stage {
                         case .explore: ExploreStageView(store: store, feature: feature)
                         case .review: ReviewStageView(store: store, feature: feature)
@@ -137,6 +138,34 @@ struct FeaturePanelView: View {
 
     private var openBug: BugReport? {
         workspaceManager.activeTab.flatMap { store.bug(at: $0.url) }
+    }
+
+    /// Requirements or decisions were deleted: offer a question round about what they settled.
+    @ViewBuilder
+    private func removedBanner(_ feature: Feature) -> some View {
+        let removed = feature.front.strings("removed_since_explore")
+        if !removed.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Removed from the specification").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
+                Text(removed.joined(separator: "\n")).uiFont(size: 10).foregroundColor(VSDark.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if assistant.isRunning("explore:" + feature.slug) {
+                    Working(text: "Asking about what they settled…")
+                } else {
+                    FlowButtons {
+                        SmallButton(title: "Re-explore", icon: "sparkles", prominent: true) {
+                            stage = .explore
+                            Task { await assistant.reexplore(feature.slug) }
+                        }
+                        .help("A question round about what the removed requirements and decisions settled")
+                        SmallButton(title: "Dismiss") {
+                            store.updateFeature(feature.slug) { front, _ in front["removed_since_explore"] = nil }
+                        }
+                    }
+                }
+            }
+            .padding(8).background(VSDark.orange.opacity(0.08)).cornerRadius(5)
+        }
     }
 
     private func header(_ feature: Feature) -> some View {
@@ -1756,6 +1785,11 @@ struct ObjectContextView: View {
                 }
             default:
                 EmptyView()
+            }
+            if [.requirement, .decision, .question, .finding, .research].contains(object.kind) {
+                SmallButton(title: "Delete…", icon: "trash") {
+                    FeatureObjectDeletion.confirmAndDelete([object.id], in: feature, store: store, workspace: workspaceManager)
+                }
             }
         }
         if object.kind == .finding { ResolutionOptions(store: store, feature: feature, finding: object) }

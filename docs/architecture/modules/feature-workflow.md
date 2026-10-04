@@ -353,6 +353,14 @@ flowchart TD
   - Target size is `max(8, min(30, n/5))`.
   - Merged requirements become `superseded` with `superseded_by`. Dropped ones become `rejected` with `rejected_reason`.
 - **Find outdated** (`markOutdated`, `:983-1046`) sets decisions to `superseded` (with `superseded_by` only when the replacement stays, and `outdated_reason`). It sets findings to `dismissed` with `dismissed_reason`.
+- **Delete objects** (navigator context menu, ⌘/⇧-click selection with a Delete bar, Delete… in
+  `ObjectContextView`; `FeatureObjectDeletion.confirmAndDelete` → `FeatureStore.deleteObjects`): one confirmation,
+  open tabs of the files close, `cleanUp` rewrites the links. Requirements in force and decisions accepted or
+  proposed that go are appended to the overview's `removed_since_explore` ("REQ-003 Title"). The Feature panel
+  then shows "Removed from the specification" with Re-explore (switches to Explore; `reexplore`) and Dismiss.
+  Every question round (`exploreNext`) names these removals in its prompt and clears the record once asked;
+  while a question is open Re-explore only says to answer it first. The text a deleted decision wrote into a
+  requirement stays (Reject is the way to take a choice back).
 - **Clean up** (`FeatureStore.cleanUp`, `:307-371`):
   - The sheet previews the candidates per category (`FeaturePanelView.swift:1576-1703`).
   - Each doomed ID maps to its `superseded_by` replacement, following chains through other doomed objects, or to nil.

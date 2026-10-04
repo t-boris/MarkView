@@ -12,6 +12,12 @@ This subsystem is the process entry point, the window shell, and the per-window 
 - **Workspace lifecycle**: open folder, single-file workspace, close folder, remove or recreate metadata; creates `.dde/` and the SQLite `SemanticDatabase`; starts the out-of-process structural index (`MarkView/Models/WorkspaceManager.swift:451-545,771-824,1394-1531,2987-3045`).
 - **Tabs**: open, switch, reorder, close, save, reload from disk, and the tab kinds (file, image, X-Ray, terminal, GitHub, Insight) (`MarkView/Models/WorkspaceManager.swift:212-291`, `MarkView/Models/DocumentState.swift:137-232`).
 - **File tree**: a one-folder-at-a-time browser with breadcrumbs, filtering, sort, create file/folder, drag-and-drop move/copy, git badges, and "Reveal in File Tree" (`MarkView/Views/FileTreeView.swift`).
+  Rows are selected as in Finder (`ListSelection`): a click selects and opens, ⌘-click adds or removes, ⇧-click
+  selects a range; the selection clears when the folder changes. With two or more selected, a bottom bar and the
+  selected rows' context menu act on all of them: Move to… (`transfer`, tabs follow), Move to Trash (one
+  confirmation, tabs close; also ⌫ in the focused list), Stage / Unstage / Discard Changes, Copy Paths. Every
+  file and folder has Rename… (`WorkspaceManager.rename` → `FileTransfer.rename`, refuses taken or invalid names,
+  case-only renames via a temporary name, tabs follow).
 - **Right panel shell** (`TOCView`): Contents, Search (FTS), Git, Terminal, Feature tabs (`MarkView/Views/TOCView.swift:4-33`).
 - **Supporting views and models**: image viewer, status bar, theme, color palette, YAML front matter, file transfer, AI filter term search, DDE Settings window.
 - **Dispatcher for bridge actions**: `WorkspaceManager` is the Swift-side target of most editor/X-Ray/code-viewer/Insight bridge messages. It forwards them to other subsystems' stores (`MarkView/Models/WorkspaceManager.swift:915-1000,1127-1275,2216-2366`).
@@ -404,7 +410,7 @@ Caches in memory: `OpenTab.content`, `headings` and `blocks` per tab; `openFileD
   - `prAction` checks `op` and `method` against allowlists (`:1212-1213`);
   - Insight bridge ids are checked (UUID parse, manifest membership, topic bounds) and sanitized for logs (`:2203-2285`);
   - `scanMarkdownFiles` checks symlink containment with a separator-aware prefix (`:565-600`).
-- File tree: new file and folder names reject `/`, `:`, `.`, `..` and existing names (`FileTreeView.swift:564-568,625-627`). A drop copies when any source is outside the root or ⌥ is held (`:600-616`). `FileTransfer` refuses self-nesting and never overwrites.
+- File tree: new file and folder names, and renames, reject `/`, `:`, `.`, `..` and existing names (`FileTreeView.swift:564-568,625-627`; `FileTransfer.rename`). A drop copies when any source is outside the root or ⌥ is held (`:600-616`). `FileTransfer` refuses self-nesting and never overwrites.
 - Remove Metadata lists exactly what it will delete and deletes the generated `.claude/CLAUDE.md` only when the header matches (`:760-764`).
 - `FrontMatter.isLossless` prevents writing back front matter the parser could not model (`FrontMatter.swift:52-54,94`).
 - Insight export forces a `.zip` extension, sanitizes the default name to ASCII, and removes staging in `defer` (`:2401-2423,2468,2719-2737`).

@@ -10,6 +10,10 @@ struct FileTreeView: View {
     @State private var dropTarget: URL?
     /// Row shown by "Reveal in File Tree" (highlighted until the next reveal).
     @State private var revealedURL: URL?
+    /// Rows selected with click, ⌘-click and ⇧-click, for actions on several at once.
+    @State private var selection = ListSelection<URL>()
+    /// The list has keyboard focus: ⌫ moves the selection to the Trash.
+    @FocusState private var listFocused: Bool
 
     private var _theme: Int { workspaceManager.themeVersion }
     private var git: GitClient { workspaceManager.gitClient }
@@ -284,6 +288,11 @@ struct FileTreeView: View {
                         }
                     }
                 }
+                .focusable()
+                .focused($listFocused)
+                .onDeleteCommand { trash(selectedItems) }
+                .onChange(of: currentDirectory) { _ in selection.clear() }
+                .onChange(of: searchText) { _ in selection.keep(only: filteredContents.map(\.url)) }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -302,6 +311,7 @@ struct FileTreeView: View {
                     }
                 }
                 .background(VSDark.bgSidebar)
+                if selection.count > 1 { selectionBar }
             } else if workspaceManager.indexingProgress != nil {
                 VStack(spacing: 12) {
                     Spacer()
@@ -454,13 +464,17 @@ struct FileTreeView: View {
         .padding(.horizontal, 8).padding(.vertical, 3)
         .contentShape(Rectangle())
         .help(linked.map { "Linked folder: \($0.path)" } ?? "")
-        .onTapGesture { currentDirectory = url }
+        .onTapGesture { click(url, isDirectory: true) }
         .onDrag { dragItem(url) }
         .background(dropTarget == url ? VSDark.blue.opacity(0.25)
+                    : selection.contains(url) ? Self.selectedBackground
                     : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
         .opacity(workspaceManager.isExcluded(url) ? 0.4 : 1.0)
         .contextMenu {
+            if isPartOfSelection(url) {
+                selectionMenu
+            } else {
             if let linked {
                 Button("Unlink Folder") { workspaceManager.unlinkFolder(linked.id) }
                 Divider()
@@ -500,7 +514,10 @@ struct FileTreeView: View {
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
             if linked == nil {
                 Divider()
-                Button("Move to Trash", role: .destructive) { moveToTrash(url, isDirectory: true) }
+                Button("Rename…") { rename(url) }
+                Button("Move to…") { moveAsking([url]) }
+                Button("Move to Trash", role: .destructive) { trash([url]) }
+            }
             }
         }
     }
@@ -522,11 +539,15 @@ struct FileTreeView: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 2)
-        .background(revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
+        .background(selection.contains(url) ? Self.selectedBackground
+                    : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
         .contentShape(Rectangle())
-        .onTapGesture { workspaceManager.openFile(url) }
+        .onTapGesture { click(url, isDirectory: false) }
         .onDrag { dragItem(url) }
         .contextMenu {
+            if isPartOfSelection(url) {
+                selectionMenu
+            } else {
             if let gs = gitStatus {
                 if gs.isStaged {
                     Button("Unstage") { workspaceManager.gitClient.unstageFile(gs.file) }
@@ -555,33 +576,158 @@ struct FileTreeView: View {
             Button("Open in Terminal.app") { openTerminal(at: url.deletingLastPathComponent()) }
             Button("Copy Path") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.path, forType: .string) }
             Divider()
-            Button("Move to Trash", role: .destructive) { moveToTrash(url, isDirectory: false) }
+            Button("Rename…") { rename(url) }
+            Button("Move to…") { moveAsking([url]) }
+            Button("Move to Trash", role: .destructive) { trash([url]) }
+            }
         }
     }
 
     // MARK: - Helpers
 
-    /// Move a file or folder to the macOS Trash after confirmation; its open tabs close without
-    /// saving, and the tree refreshes. Recoverable from the Trash, unlike a plain delete.
-    private func moveToTrash(_ url: URL, isDirectory: Bool) {
-        let name = url.lastPathComponent
+    // MARK: - Selection (several rows at once)
+
+    private static let selectedBackground = VSDark.blue.opacity(0.3)
+
+    /// The selected rows in list order; linked folders are never moved or trashed from here.
+    private var selectedItems: [URL] {
+        let linked = Set(filteredContents.filter { $0.linked != nil }.map(\.url))
+        return selection.ordered(filteredContents.map(\.url)).filter { !linked.contains($0) }
+    }
+
+    /// A right-click on a row of a multiple selection acts on the whole selection.
+    private func isPartOfSelection(_ url: URL) -> Bool { selection.count > 1 && selection.contains(url) }
+
+    /// Click: select it and open the file or enter the folder. ⌘-click adds or removes it, ⇧-click
+    /// selects the range from the last click; neither opens anything.
+    private func click(_ url: URL, isDirectory: Bool) {
+        // The modifiers of the click itself.
+        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        let kind: ListSelection<URL>.Click = flags.contains(.command) ? .toggle : flags.contains(.shift) ? .range : .plain
+        selection.click(url, kind, in: filteredContents.map(\.url))
+        listFocused = true
+        guard kind == .plain else { return }
+        if isDirectory { currentDirectory = url } else { workspaceManager.openFile(url) }
+    }
+
+    /// Bottom bar while several rows are selected.
+    private var selectionBar: some View {
+        HStack(spacing: 8) {
+            Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+            Spacer()
+            Button { moveAsking(selectedItems) } label: { Image(systemName: "folder").uiFont(size: 11) }
+                .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Move to…")
+            Button { trash(selectedItems) } label: { Image(systemName: "trash").uiFont(size: 11) }
+                .buttonStyle(.plain).foregroundColor(VSDark.red).help("Move to Trash (⌫)")
+            Menu { selectionMenu } label: { Image(systemName: "ellipsis.circle").uiFont(size: 11) }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("More actions")
+            Button { selection.clear() } label: { Image(systemName: "xmark").uiFont(size: 9, weight: .semibold) }
+                .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Clear the selection")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(VSDark.bgActive)
+    }
+
+    /// Actions on the whole selection (context menu of a selected row, the bar's menu).
+    @ViewBuilder private var selectionMenu: some View {
+        let items = selectedItems
+        let changed = items.compactMap { fileGitStatus($0) }
+        Button("Move \(items.count) Items to…") { moveAsking(items) }
+        if !changed.isEmpty {
+            Divider()
+            if changed.contains(where: { !$0.isStaged }) {
+                Button("Stage \(changed.filter { !$0.isStaged }.count)") { changed.filter { !$0.isStaged }.forEach { git.stageFile($0.file) } }
+            }
+            if changed.contains(where: \.isStaged) {
+                Button("Unstage \(changed.filter(\.isStaged).count)") { changed.filter(\.isStaged).forEach { git.unstageFile($0.file) } }
+            }
+            Button("Discard Changes in \(changed.count)…") { discard(changed) }
+        }
+        Divider()
+        Button("Copy \(items.count) Paths") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(items.map(\.path).joined(separator: "\n"), forType: .string)
+        }
+        Divider()
+        Button("Move \(items.count) Items to Trash", role: .destructive) { trash(items) }
+    }
+
+    /// Move files and folders to the macOS Trash after one confirmation; their open tabs close
+    /// without saving, and the tree refreshes. Recoverable from the Trash, unlike a plain delete.
+    private func trash(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         let alert = NSAlert()
-        alert.messageText = "Move “\(name)” to the Trash?"
-        alert.informativeText = isDirectory
-            ? "The folder and everything in it move to the Trash. Open documents from it close without saving."
-            : "The file moves to the Trash. If it is open, its tab closes without saving."
+        if urls.count == 1, let url = urls.first {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            alert.messageText = "Move “\(url.lastPathComponent)” to the Trash?"
+            alert.informativeText = isDirectory
+                ? "The folder and everything in it move to the Trash. Open documents from it close without saving."
+                : "The file moves to the Trash. If it is open, its tab closes without saving."
+        } else {
+            alert.messageText = "Move \(urls.count) items to the Trash?"
+            let names = urls.prefix(6).map { "• " + $0.lastPathComponent }.joined(separator: "\n")
+            alert.informativeText = names + (urls.count > 6 ? "\n…and \(urls.count - 6) more" : "")
+                + "\n\nFolders move with everything in them. Open documents from them close without saving."
+        }
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        workspaceManager.closeTabs(under: url)
-        do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-        } catch {
-            return showError("Couldn't move “\(name)” to the Trash: \(error.localizedDescription)")
+        var errors: [String] = []
+        for url in urls {
+            workspaceManager.closeTabs(under: url)
+            do { try FileManager.default.trashItem(at: url, resultingItemURL: nil) } catch {
+                errors.append("Couldn't move “\(url.lastPathComponent)” to the Trash: \(error.localizedDescription)")
+            }
         }
+        selection.clear()
         listVersion += 1
         workspaceManager.refreshFileTree()
+        if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
+    }
+
+    /// Choose a folder and move the items there; open tabs follow them.
+    private func moveAsking(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = browseURL
+        panel.prompt = "Move Here"
+        panel.message = urls.count == 1 ? "Move “\(urls[0].lastPathComponent)” to:" : "Move \(urls.count) items to:"
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let errors = workspaceManager.transfer(urls, into: folder, copy: false)
+        selection.clear()
+        listVersion += 1
+        if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
+    }
+
+    private func rename(_ url: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Rename “\(url.lastPathComponent)”"
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.stringValue = url.lastPathComponent
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = input
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if let error = workspaceManager.rename(url, to: input.stringValue) { return showError(error) }
+        selection.clear()
+        listVersion += 1
+    }
+
+    private func discard(_ files: [GitClient.GitFileStatus]) {
+        let alert = NSAlert()
+        alert.messageText = "Discard changes in \(files.count) file\(files.count == 1 ? "" : "s")?"
+        alert.informativeText = "Uncommitted changes are lost; this cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        files.forEach { git.discardChanges($0.file) }
     }
 
     private func fileIcon(for url: URL) -> (String, Color) {

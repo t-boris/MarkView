@@ -1,5 +1,34 @@
 # MarkView — Follow-up Tasks
 
+## Task 78: select several files and feature objects; delete, move, rename; re-explore after removals (2026-10-04)
+
+Boris: "не могу выбрать несколько файлов, удалить… из Decision возможность удалить их… при удалении decisions
+или requirements надо переранивать explore". Chosen: Trash, Move to folder, Git stage/unstage/discard, Rename and
+Copy paths; after removing requirements/decisions offer Re-explore (not automatic); an applied decision's text
+stays in the requirement when the decision is deleted.
+
+Files sidebar (`FileTreeView`):
+- [x] Selection: click selects (and opens a file / enters a folder as now), ⌘-click toggles, ⇧-click selects a
+      range; selected rows highlighted; cleared when the folder changes.
+- [x] Selection bar (2+ selected): count, Move to…, Move to Trash, menu (Stage, Unstage, Discard Changes, Copy
+      Paths), clear. The context menu of a selected row offers the same for the whole selection.
+- [x] ⌫ / ⌘⌫ in the focused list moves the selection to the Trash after one confirmation.
+- [x] Rename… for one file or folder; open tabs follow the new path (shared with Move via `transfer`).
+Feature navigator (Issues sidebar):
+- [x] Object rows selectable the same way; context menu Delete / Delete N…; Delete in `ObjectContextView`.
+- [x] `FeatureStore.deleteObjects`: open tabs closed, links rewritten (`cleanUp`); removed requirements and
+      decisions recorded in the overview (`removed_since_explore`).
+- [x] Banner in the Feature panel: "Removed: … — Re-explore / Dismiss"; Re-explore asks a question round that
+      knows what was removed, then clears the record.
+- [x] Harness checks for the pure parts (`tools/tests/list-selection-tests.sh`); Debug build; live check on a QA
+      copy (AX): Rename, Move to Trash, Delete DEC-005 from the navigator → links cleaned, banner, Re-explore with
+      an open question → "answer it first", without → a round asking how account deletion works now. ⌘/⇧-click
+      could not be driven in a background window (synthetic clicks are not delivered); covered by the
+      `ListSelection` checks only. Version 4.2.0.
+
+**Review:** Found while checking: Re-explore did nothing when a question was open; now every round carries the
+removals and the button explains. The file tree's ⌫ needs the list focused (after a click in it).
+
 ## Task 77: review repeats after 4.0.0 — race, reused ids, overview, detail creep; Start over button (BUG-024, 2026-10-04, 4.1.0)
 
 Boris: "Я не уверен, что твой подход работает… чем больше decisions… тем больше у меня новых вопросов";

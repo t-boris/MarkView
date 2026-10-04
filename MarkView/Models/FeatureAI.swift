@@ -483,13 +483,17 @@ final class FeatureAssistant: ObservableObject {
     /// Ask the next round of questions (0–3 Q files with options and a recommended answer) and
     /// update the understanding notes. Nothing is asked while a question is still open or when
     /// discovery is done.
-    func exploreNext(_ slug: String) async {
+    /// Requirements and decisions the team deleted since (`removed_since_explore`, "REQ-003 Title")
+    /// are named in the prompt, so what they settled is asked again where the feature still needs
+    /// it; the record is cleared once a round was asked. Returns whether a round was asked.
+    @discardableResult
+    func exploreNext(_ slug: String) async -> Bool {
         preparing.insert("explore:" + slug)
         defer { preparing.remove("explore:" + slug) }
-        guard let feature = store.feature(slug) else { return }
+        guard let feature = store.feature(slug) else { return false }
         // A question is still waiting for its answer: the Explore stage shows it; a new one
         // would repeat it (BUG-011).
-        guard feature.openQuestions.isEmpty else { return }
+        guard feature.openQuestions.isEmpty else { return false }
         // Done (nothing open, the AI expects no more): nothing to ask. "Ask more questions" or a
         // dimension marked partial or unknown by hand opens discovery again.
         if feature.isUnderstood, feature.questionsLeft == 0 {
@@ -497,11 +501,20 @@ final class FeatureAssistant: ObservableObject {
         }
 
         let asked = feature.list(.question).map { "- \($0.id) [\($0.status)] \($0.title)" }.joined(separator: "\n")
+        let removed = feature.front.strings("removed_since_explore")
         let prompt = context(feature) + """
 
         ## Questions already asked
         \(asked.isEmpty ? "(none)" : asked)
 
+        \(removed.isEmpty ? "" : """
+        ## Removed by the team
+        These requirements and decisions were deleted, so what they settled is no longer specified:
+        \(removed.map { "- " + $0 }.joined(separator: "\n"))
+        Ask again about what they covered only where the feature still needs an answer; do not bring \
+        them back by yourself.
+
+        """)
         Task: \(Self.discoveryInstruction) Add up to 3 short suggestions (things to consider or add).
         """
         let schema = Self.object([
@@ -511,14 +524,30 @@ final class FeatureAssistant: ObservableObject {
             "suggestions": Self.strings,
         ])
         guard let result = await run("explore:" + slug, prompt: prompt, schema: schema, effort: "medium"),
-              let object = result.structured as? [String: Any] else { return }
+              let object = result.structured as? [String: Any] else { return false }
         applyDiscovery(object, to: slug)
+        if !removed.isEmpty { store.updateFeature(slug) { front, _ in front["removed_since_explore"] = nil } }
         if feature.status == "idea" { store.updateFeature(slug) { front, _ in front.set("status", "exploring") } }
         let suggestions = object["suggestions"] as? [String] ?? []
         if !suggestions.isEmpty {
             results.insert(FeatureResult(title: "Suggestions", text: suggestions.map { "• " + $0 }.joined(separator: "\n"),
                                          pending: false, feature: slug), at: 0)
         }
+        return true
+    }
+
+    /// After requirements or decisions were deleted: a question round about what they settled.
+    /// While a question is open no round is asked (BUG-011); the next one covers the removals.
+    func reexplore(_ slug: String) async {
+        guard let feature = store.feature(slug) else { return }
+        guard feature.openQuestions.isEmpty else {
+            results.insert(FeatureResult(title: "Answer the open question first",
+                                         text: "The next question round also covers what was removed.",
+                                         pending: false, feature: slug), at: 0)
+            return
+        }
+        if feature.questionsLeft == 0 { store.updateFeature(slug) { front, _ in front.set("questions_left", "1") } }
+        await exploreNext(slug)
     }
 
     /// A question as discovery and the intake ask it: the text, why it matters, the dimension it
