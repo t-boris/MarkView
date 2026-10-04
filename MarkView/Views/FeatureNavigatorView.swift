@@ -359,6 +359,8 @@ struct FeatureNavigatorView: View {
     @State private var expanded: Set<String> = ["requirement", "question", "decision", "documents"]
     @State private var history: [String] = []
     @State private var showHistory = false
+    /// Objects selected with click, ⌘-click and ⇧-click, for deleting several at once.
+    @State private var selection = ListSelection<String>()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -394,9 +396,44 @@ struct FeatureNavigatorView: View {
                     }
                     .padding(.bottom, 12)
                 }
+                .onChange(of: feature.slug) { _ in selection.clear() }
+                .onChange(of: listedIDs(feature)) { ids in selection.keep(only: ids) }
+                if selection.count > 1 {
+                    HStack(spacing: 8) {
+                        Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                        Spacer()
+                        Button { delete(selection.ordered(listedIDs(feature)), in: feature) } label: {
+                            Image(systemName: "trash").uiFont(size: 11)
+                        }
+                        .buttonStyle(.plain).foregroundColor(VSDark.red).help("Delete the selected objects")
+                        Button { selection.clear() } label: { Image(systemName: "xmark").uiFont(size: 9, weight: .semibold) }
+                            .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Clear the selection")
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(VSDark.bgActive)
+                }
             }
         }
         .background(VSDark.bgSidebar)
+    }
+
+    /// Object ids in the order the expanded sections show them (⇧-click ranges follow it).
+    private func listedIDs(_ feature: Feature) -> [String] {
+        FeatureObjectKind.allCases.filter { expanded.contains($0.rawValue) }.flatMap { feature.list($0).map(\.id) }
+    }
+
+    /// Click opens the object and selects it; ⌘-click adds or removes it, ⇧-click selects a range.
+    private func click(_ object: FeatureObject, in feature: Feature) {
+        // The modifiers of the click itself.
+        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        let kind: ListSelection<String>.Click = flags.contains(.command) ? .toggle : flags.contains(.shift) ? .range : .plain
+        selection.click(object.id, kind, in: listedIDs(feature))
+        if kind == .plain { open(object.url) }
+    }
+
+    private func delete(_ ids: [String], in feature: Feature) {
+        guard FeatureObjectDeletion.confirmAndDelete(ids, in: feature, store: store, workspace: workspaceManager) else { return }
+        selection.clear()
     }
 
     @ViewBuilder
@@ -471,7 +508,7 @@ struct FeatureNavigatorView: View {
         .buttonStyle(.plain)
         if isExpanded {
             ForEach(objects) { object in
-                Button(action: { open(object.url) }) {
+                Button(action: { click(object, in: feature) }) {
                     HStack(spacing: 5) {
                         FeatureStatusDot(object: object)
                         Text(object.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
@@ -479,11 +516,21 @@ struct FeatureNavigatorView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.leading, 28).padding(.trailing, 8).padding(.vertical, 2)
-                    .background(isActive(object.url) ? VSDark.selection.opacity(0.35) : Color.clear)
+                    .background(selection.contains(object.id) ? VSDark.blue.opacity(0.3)
+                                : isActive(object.url) ? VSDark.selection.opacity(0.35) : Color.clear)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(object.title + "\n\(object.id) · \(object.status)")
+                .contextMenu {
+                    if selection.count > 1 && selection.contains(object.id) {
+                        Button("Delete \(selection.count) Objects…", role: .destructive) {
+                            delete(selection.ordered(listedIDs(feature)), in: feature)
+                        }
+                    } else {
+                        Button("Delete \(object.id)…", role: .destructive) { delete([object.id], in: feature) }
+                    }
+                }
             }
         }
     }
@@ -909,5 +956,31 @@ struct IntakeSheet: View {
             dismiss()
             workspaceManager.intakeFinished(kind, outcome: outcome)
         }
+    }
+}
+
+/// Deleting feature objects from the navigator or the object panel: one confirmation, open tabs
+/// of the files close, links to them are rewritten (`FeatureStore.deleteObjects`).
+enum FeatureObjectDeletion {
+    @MainActor
+    @discardableResult
+    static func confirmAndDelete(_ ids: [String], in feature: Feature, store: FeatureStore, workspace: WorkspaceManager) -> Bool {
+        let objects = ids.compactMap { feature.object($0) }
+        guard !objects.isEmpty else { return false }
+        let alert = NSAlert()
+        alert.messageText = objects.count == 1 ? "Delete \(objects[0].id)?" : "Delete \(objects.count) objects?"
+        var text = objects.prefix(6).map { "• \($0.id) \($0.title)" }.joined(separator: "\n")
+        if objects.count > 6 { text += "\n…and \(objects.count - 6) more" }
+        text += "\n\nThe files move to the Trash; links to them are removed from the other objects."
+        if objects.contains(where: FeatureStore.settlesSomething) {
+            text += " Removing requirements or decisions leaves what they settled open: the Feature panel offers to explore it again."
+        }
+        alert.informativeText = text
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        for object in objects { workspace.closeTabs(under: object.url) }
+        return store.deleteObjects(feature.slug, ids: Set(objects.map(\.id))) > 0
     }
 }

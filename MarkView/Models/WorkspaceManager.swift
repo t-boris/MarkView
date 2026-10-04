@@ -1392,7 +1392,22 @@ class WorkspaceManager: ObservableObject {
     @discardableResult
     func transfer(_ sources: [URL], into folder: URL, copy: Bool) -> [String] {
         let result = FileTransfer.perform(sources, into: folder, copy: copy)
-        for (source, destination) in result.moved {
+        followMoves(result.moved)
+        refreshFileTree()
+        return result.errors
+    }
+
+    /// Rename a file or folder in place; its open tabs follow. Returns the error, if any.
+    func rename(_ url: URL, to name: String) -> String? {
+        let result = FileTransfer.rename(url, to: name)
+        followMoves(result.moved)
+        refreshFileTree()
+        return result.errors.first
+    }
+
+    /// Open tabs of moved files (or files inside moved folders) point at their new place.
+    private func followMoves(_ moved: [(URL, URL)]) {
+        for (source, destination) in moved {
             for index in openTabs.indices {
                 let path = openTabs[index].url.standardizedFileURL.path
                 guard path == source.path || path.hasPrefix(source.path + "/") else { continue }
@@ -1400,8 +1415,6 @@ class WorkspaceManager: ObservableObject {
                 tabsStore.updateTab(at: index) { $0.url = moved }
             }
         }
-        refreshFileTree()
-        return result.errors
     }
 
     /// The PR X-Ray tab: the project's X-Ray seen through one change — what it touches,

@@ -410,6 +410,33 @@ final class FeatureStore: ObservableObject {
         return true
     }
 
+    /// Delete objects the user chose (navigator, object panel). Links to them are rewritten or
+    /// dropped (`cleanUp`). Requirements still in force and decisions accepted or proposed that go
+    /// are recorded in the overview (`removed_since_explore`), so the Feature panel can offer to
+    /// explore again what they settled. Returns how many files went to the Trash.
+    @discardableResult
+    func deleteObjects(_ slug: String, ids: Set<String>) -> Int {
+        guard let feature = feature(slug) else { return 0 }
+        let removed = ids.compactMap { feature.object($0) }.filter(Self.settlesSomething)
+            .sorted { $0.id < $1.id }.map { "\($0.id) \($0.title)" }
+        let count = cleanUp(slug, ids: ids)
+        if count > 0, !removed.isEmpty {
+            updateFeature(slug) { front, _ in
+                front.set("removed_since_explore", list: front.strings("removed_since_explore") + removed)
+            }
+        }
+        return count
+    }
+
+    /// A requirement in force or a decision accepted or proposed: removing it leaves something unsettled.
+    static func settlesSomething(_ object: FeatureObject) -> Bool {
+        switch object.kind {
+        case .requirement: return !["rejected", "superseded"].contains(object.status)
+        case .decision: return ["accepted", "proposed"].contains(object.status)
+        default: return false
+        }
+    }
+
     /// Start a feature over from its idea: everything produced from it (requirements, questions,
     /// decisions, findings, research, the plan, the discussion) goes to the Trash; the overview (the
     /// idea) and the attached sources stay; status back to idea, understanding unknown.

@@ -33,6 +33,39 @@ enum FileTransfer {
         return result
     }
 
+    /// Rename a file or folder in place. Refuses an invalid name or one already taken; a change
+    /// of letter case alone goes through a temporary name (the volume may ignore case).
+    static func rename(_ source: URL, to name: String) -> Result {
+        let fm = FileManager.default
+        let source = source.standardizedFileURL
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        var result = Result()
+        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains(":"), trimmed != ".", trimmed != ".." else {
+            result.errors.append("“\(trimmed)” is not a valid name.")
+            return result
+        }
+        let destination = source.deletingLastPathComponent().appendingPathComponent(trimmed)
+        guard destination.path != source.path else { return result }
+        let caseOnly = destination.path.lowercased() == source.path.lowercased()
+        if !caseOnly, fm.fileExists(atPath: destination.path) {
+            result.errors.append("“\(trimmed)” already exists in this folder.")
+            return result
+        }
+        do {
+            if caseOnly {
+                let temporary = source.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString)")
+                try fm.moveItem(at: source, to: temporary)
+                try fm.moveItem(at: temporary, to: destination)
+            } else {
+                try fm.moveItem(at: source, to: destination)
+            }
+            result.moved.append((source, destination))
+        } catch {
+            result.errors.append("Couldn't rename “\(source.lastPathComponent)”: \(error.localizedDescription)")
+        }
+        return result
+    }
+
     /// `name` in `folder`, or "name 2", "name 3"… when it is taken.
     static func freeName(for name: String, in folder: URL) -> URL {
         let fm = FileManager.default
