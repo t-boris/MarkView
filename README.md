@@ -2,17 +2,20 @@
 
 # MarkView
 
-### See how any project fits together, then work through it with AI.
+### Understand any project, then build it with AI — from idea to merged code.
 
-A native macOS workspace for code and documentation. MarkView turns a folder into a
-navigable **X-Ray** of subsystems, components, files and the things inside them. Next to
-it you get a markdown editor, viewers for code, data and images, and embedded
-**Claude Code / Codex terminals** that work on the project with you.
+MarkView is a native macOS workspace for code and documentation. It shows you how a
+project fits together (**X-Ray**), turns ideas into specifications through guided AI
+interviews and reviews, and hands the result to **Claude Code, Codex, Cline or Copilot**
+running in real terminals right next to your files.
 
-[![Download](https://img.shields.io/github/v/release/t-boris/MarkView?filter=v*&label=download&color=2ea043)](https://github.com/t-boris/MarkView/releases)
+[![Download MarkView](https://img.shields.io/github/v/release/t-boris/MarkView?filter=v*&label=download%20.dmg&color=2ea043)](https://github.com/t-boris/MarkView/releases/latest/download/MarkView.dmg)
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)
 ![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange)
+![Signed & notarized](https://img.shields.io/badge/Developer%20ID-notarized-success)
 ![License MIT](https://img.shields.io/badge/license-MIT-green)
+
+**[⬇ Download the latest MarkView.dmg](https://github.com/t-boris/MarkView/releases/latest/download/MarkView.dmg)** · [All releases](https://github.com/t-boris/MarkView/releases)
 
 <img src="docs/images/xray-component.png" alt="X-Ray of a project: subsystems with their components and dependencies" width="820">
 
@@ -22,18 +25,20 @@ it you get a markdown editor, viewers for code, data and images, and embedded
 
 ## Why MarkView
 
-- **Understand a codebase or a knowledge base in minutes.** The X-Ray groups files into
-  subsystems and components based on how they are actually connected. It then keeps
-  going inside each file, down to the individual issue, requirement or function.
-- **Work with AI where you read.** Claude Code and Codex run in real terminals inside
-  the app. One click sends a ready-made prompt, such as "Review PR", "Docs ↔ code" or
-  "Find bugs".
-- **One app for everything in the folder.** You get WYSIWYG markdown with Mermaid and
-  math, a code viewer for 45 languages, viewers for JSON/YAML/XML, JSON Canvas and
-  images, full-text search and Git.
-- **Native, fast and local.** It is built with SwiftUI and AppKit. The index lives in
-  your folder (`.dde/`), and AI runs through the CLI you already use, so the app needs
-  no API key of its own.
+- **See the whole system in minutes.** X-Ray groups files into components and subsystems
+  by how they are really connected, and keeps going inside every file — down to a single
+  requirement, endpoint or function.
+- **Specify before you build.** A feature starts as a sentence. MarkView asks the few
+  questions that matter, writes requirements and decisions as plain Markdown files, reviews
+  them from a dozen perspectives, and keeps the specification consistent as you decide.
+- **Your agents, in your workspace.** Claude Code, Codex, Cline and GitHub Copilot run in
+  real terminals inside the window. Pages and files they open land in MarkView tabs, not
+  in another app.
+- **Everything is a file in your repo.** Features, bugs, research and decisions live in
+  `docs/` as Markdown with YAML front matter — readable, diffable, reviewable in pull
+  requests. No server, no account, no lock-in.
+- **Native and fast.** SwiftUI and AppKit, a local SQLite index, no Swift package
+  dependencies. AI runs through the CLIs you already use and are signed in to.
 
 ---
 
@@ -44,164 +49,185 @@ Press **⌘4**, or right-click any folder and choose **X-Ray**.
 | | |
 |---|---|
 | <img src="docs/images/xray-overview.png" alt="Subsystems" width="400"> | <img src="docs/images/xray-contents.png" alt="Drilling down into a document's contents" width="400"> |
-| **Logical view**: subsystems and their dependencies, coloured by role. | **Double-click to zoom in**: component, then file, then *Issues*, then *bug / feature / chore*. |
+| **Logical view**: subsystems and their dependencies, coloured by role. | **Double-click to zoom in**: component → file → its sections → a single item. |
 
-**Always both levels:**
-- **Files are grouped.** Clustering on imports, note links and co-changes in git
-  history finds the components. The AI names them and groups them into subsystems.
-- **File contents are broken down.** Each file's own contents appear under its box:
-  - **Documents** are split into collections of like things (issues, requirements,
-    decisions, endpoints…). Each collection is typed the way the document types it,
-    down to every single item.
-  - **Long code files** are split by responsibility into logical parts, then roles,
-    then every type and function.
-  - **Short code** is outlined locally from its declarations.
-- **Every leaf opens the file scrolled to that exact line.**
-
-**More in the X-Ray:**
-- **Views:** Logical, Structure (folders on disk), Deployment (AI-mapped from build and
-  deploy files) and Docs (documents and their sections).
-- **Overlays:** documentation coverage, tests, bug history, freshness, complexity,
-  size and pull request.
-- **AI filters:** built-in *Importance*, your own saved filters ("payment flow",
-  "security"), or a ⚡ quick filter that is not saved. Keyword search runs first, then
-  the AI confirms the strongest candidates.
-- **PR X-Ray:** pick a pull request (via `gh`) to see where the change lands in the
-  architecture. You can read each file's diff, run *Analyze PR* and *Review with AI*,
-  or ask questions.
-- **Explain:** right-click a file and choose X-Ray. Code and markdown get
-  section-by-section margin notes with Explanation, Freshness and Importance lenses.
-- **I Need to Understand:** ask a question from **+** or a document's context menu.
-  The answer appears above X-Ray details with **What, Why, How and Origin**, clickable
-  evidence, and Retry when generation fails. **Save as research** creates a new
-  `RES-nnn` document only when requested.
-- **New Research:** choose documents or folders to analyse first, including nested
-  files. Right-click a folder → **New Research from This Folder…**. Creation forms
-  accept copied images with **⌘V**, showing removable attachment thumbnails.
-- **Speed:** results are cached by input, so a re-analysis only redoes what changed.
-
-**Project operations:** In a project X-Ray, open **Deployment** and its details panel,
-then choose **Discover operations**. MarkView examines project procedures and bounded
-references to external folders; unresolved procedures may be researched on the web
-by a supported assistant. Commands sourced outside the project remain proposals until
-you accept each one. Add or edit operations in the details panel. The shared list lives
-in `.markview/operations.json`; a source change shows a hint to re-discover and does
-not replace your edits. A **Deploy** control appears in the project toolbar and every
-project X-Ray view when deploy operations exist. Every run shows the exact command and
-working directory for confirmation, then opens a terminal-style output panel where
-you can answer prompts or cancel. Commands run through your login shell, so shell
-startup files and aliases or functions available to a noninteractive login shell can
-affect execution. Review the command and its source before running it. An exit code
-of zero for a remote workflow trigger means the request was dispatched; MarkView does
-not monitor the remote result.
+- **Four views:** *Logical* (AI-named components and subsystems), *Structure* (folders and
+  imports), *Deployment* (mapped from build and deploy files) and *Book* (documents only).
+- **Built from facts, named by AI.** The scan reads imports, note links, git co-changes,
+  size and complexity, then clusters files (Louvain). AI only names and describes what the
+  structure already shows. Results are cached by input, so re-analysis redoes only what
+  changed.
+- **Inside every file.** Documents split into collections of like things (issues,
+  requirements, decisions, endpoints), long code files into responsibilities and every type
+  and function. Every leaf opens the file at that exact line.
+- **Overlays:** documentation coverage, tests, bug history, freshness, complexity, size,
+  pull request, and AI *Importance* — plus your own saved AI filters ("payment flow",
+  "security") or a ⚡ one-off filter.
+- **Book X-Ray** turns a folder of documents (md, txt, rst, adoc, org) into parts, chapters
+  and sections with AI summaries, related-chapter links, *Describe this chapter* and
+  *Ask the book*.
+- **PR X-Ray** shows where a pull request lands in the architecture, with the diff, an AI
+  review of its findings and impact, chat, approve or merge.
+- **Explain** puts section-by-section margin notes on code and Markdown, with
+  Explanation, Freshness and Importance lenses; the code viewer adds AI go-to-definition and
+  find usages.
+- **Recursive Insight** turns a folder or a long document into a browsable site of
+  interactive pages you can dive into (depth 1–3) and export as a ZIP.
 
 ---
 
-## AI terminals
+## From idea to merged code
 
-The AI panel (**⌘3**) is a set of real terminals: xterm.js on a pseudo-terminal that
-Swift owns.
+The **Issues** sidebar holds the project's features and bugs. **+ → New Feature** (or
+*New from This Document*, or a GitHub issue) starts one; voice notes, screenshots, files and
+URLs are welcome as input. Each feature is a folder under `docs/features/<slug>/`:
+`requirements/`, `decisions/`, `questions/`, `findings/`, research notes, a discussion log
+and an implementation plan — all plain Markdown.
 
-- **Several at once:** **+** opens *Claude Code*, *Codex* or a plain *Shell*. Each one
-  runs in your login shell, in the project folder.
-- **Prompt buttons:** *Review PR…* (pick from open PRs), *Review changes*,
-  *Docs ↔ code*, *Explain file*, *Find bugs*, *Write tests*, *Run tests*,
-  *Security review*, *Update docs*, *Commit message*.
-  - Click sends the prompt.
-  - ⌥-click types it without sending, so you can edit it first.
-- **Dictation:** the 🎤 button transcribes speech with Whisper and types the text at the
-  prompt without sending it. The same 🎤 is in **New Feature** and **New Bug**;
-  **I Need to Understand** and **New Research** have a labelled **Dictate** button.
-  Click to record, click again and the text goes to the cursor
-  (Esc cancels). The 🎤 appears only when an OpenAI key is set. Dictated audio is sent to
-  OpenAI and billed to that key. It is not stored, and a recording stops at 10 minutes.
-- **Switching:** the toolbar picks the assistant and model. Switching the assistant
-  moves to (or starts) a terminal running it.
-- **Terminal in any folder:** right-click a folder and choose **Open Terminal Here** to
-  open a terminal in an editor tab.
-- **Live reload:** open files reload by themselves when an assistant changes them on
-  disk.
-- **Pages open in MarkView:** a page that Claude Code, Codex, `vite --open` or `gh browse`
-  opens from these terminals, and a web link you click in them, shows in the window's
-  browser tab instead of your default browser (toggle in the 🌐 menu).
-- **AI Tools menu** (✨ in the toolbar):
-  - *Diagrams:* System Architecture, Data Flow, Pipeline, Deployment, Sequence,
-    Entity-Relationship.
-  - *Analysis:* Constructive Critic, Deep Research, Full Codebase Audit, Code Structure
-    Map, Generate Full Documentation.
-  - The analysis items send their prompt to the terminal.
+**Explore** — guided discovery.
+- Rounds of at most three questions, each with concrete options and a recommended answer.
+  The AI reads your code and documents first, so it never asks what the project already
+  answers.
+- Answer, write your own, or **Decide for me**; *Decide the rest and finish* when you have
+  seen enough. Readiness and an understanding model show how far along you are.
+
+**Review** — a specification that converges.
+- *Run review* looks at the whole specification from Product, UX, Architecture, Security,
+  QA, Operations and other perspectives and reports findings with severity and quotes.
+- Resolve each finding by choosing an option, typing your own, or **Decide all for me**.
+  Every resolution is **written back into the requirements** — statement and acceptance
+  criteria — so the next review reads one consistent specification and never raises a
+  settled point again. Details an implementer would decide are left to the implementer.
+- **Before Build** collects what is left: blocking questions, AI decisions to confirm,
+  open assumptions and research gaps.
+- *Consolidate requirements*, *Find outdated* and *Clean up* keep large specifications
+  small. Delete requirements or decisions you no longer want — links are cleaned up and
+  **Re-explore** asks about what they used to settle. **Start over** rebuilds a feature
+  from its overview.
+
+**Build** — hand off and track.
+- *Propose plan* splits the work into issues; one click creates them and an epic on GitHub.
+- **Implement with AI** sends a binding handoff to the agent in the terminal (Claude Code
+  gets a one-line `/goal`); answered questions and accepted decisions are treated as
+  requirements, not reopened.
+- **Lifecycle analytics** record status changes, commits, pull requests, CI and merges;
+  *Project Cycle Time…* shows where time goes. **Sync** closes GitHub issues once their
+  feature or bug is done.
+
+**Bugs** get the same care: *New Bug* writes a structured report (and optionally a GitHub
+issue), *Investigate* asks focused questions, and the **bug basket** fixes several bugs with
+AI — one branch, one commit per bug.
+
+**Understand and research.** *I Need to Understand* answers a question about the project
+with **What, Why, How and Origin** and clickable evidence from code, documents, commits and
+pull requests. *New Research* runs in the background and writes a cited report to
+`docs/research/`, with every finding labelled and every web query recorded.
+
+---
+
+## AI agents and terminals
+
+- **Real terminals** (**⌘3**): xterm.js on a pseudo-terminal owned by the app. Open
+  Claude Code, Codex, Cline, Copilot or a plain shell — several at once — in the project
+  folder; Claude Code and Codex sessions resume when you reopen the project.
+- **One-click prompts:** *Review PR…*, *Review changes*, *Docs ↔ code*, *Explain file*,
+  *Find bugs*, *Write tests*, *Run tests*, *Security review*, *Update docs*,
+  *Commit message*. ⌥-click types a prompt without sending it.
+- **Per-project assistant and model**, plus a separate fast model for X-Ray, filters and
+  explanations. AI output can follow the document's language or use one of eight others.
+- **Pages and files open in MarkView.** When an agent runs `open https://…`, `open notes.md`
+  or uses `$BROWSER`, web pages appear in the window's browser tab, local HTML renders there
+  too, and documents, code and images open as tabs. Folders, apps and other files still go
+  to macOS. Clicked links and `path:line` references in the terminal work the same way.
+- **Usage at a glance:** quota chips for Claude Code and Codex in the terminal header.
+- **Live reload:** files an agent changes on disk refresh in their tabs.
+- **AI Tools** (✨): architecture, data-flow, pipeline, deployment, sequence and ER
+  diagrams; Constructive Critic, Deep Research, Codebase Audit, Code Structure Map.
 
 ---
 
 ## Reading and writing
 
-**Markdown**
-- WYSIWYG editing, or Source (**⌘⇧P**).
-- Mermaid diagrams with a full-screen viewer, and interactive `%%INTERACTIVE` diagrams
-  that you can drag, filter and edit with AI.
-- KaTeX math, footnotes, task lists and YAML frontmatter.
-- Obsidian-style `[[wikilinks]]`, and `file.ts#L40-L60` links that jump to lines.
-- Select text and press **RU / EN / ?** to translate or explain it. With nothing
-  selected, RU and EN translate the whole document into a new tab.
+- **Markdown, WYSIWYG or source** (**⌘⇧P**) with Mermaid (full-screen viewer), interactive
+  graph diagrams you edit by instruction, KaTeX math, footnotes, task lists, front matter,
+  `[[wikilinks]]` and `file.ts#L40-L60` links.
+- **Selection actions:** translate (RU / EN), explain, ask, challenge, expand, find edge
+  cases, find contradictions, research — or turn the text into a requirement, decision or
+  question of the current feature.
+- **Viewers:** CodeMirror 6 for 45 languages, collapsible JSON / YAML / XML / plist trees,
+  JSON Canvas, and an image viewer (PNG, JPEG, HEIC, WebP, SVG, RAW…) with zoom around the
+  cursor.
+- **Search the whole project** (**⌘⇧K**) with an SQLite FTS5 index; find in file (**⌘F**)
+  with case and regex.
+- **Dictation** (🎤) in the terminal, intake forms and discussions — speech to text with
+  OpenAI Whisper.
+- **PDF export** (**⌘E**).
 
-**Browser and app preview** (🌐 in the toolbar)
-- **Preview Web App (⌘6)** finds the project's web app (a `package.json` dev script of
-  Vite, Next, Angular, Astro and others, Django, Rails), starts its dev server in a
-  terminal tab when nothing answers yet, and shows `localhost` in a tab in the centre.
-  An Electron app is previewed as a web page only: MarkView serves its renderer with the
-  project's Vite (electron-vite, Forge, vite-plugin-electron) without starting Electron,
-  and stands in for its preload APIs so the page still renders.
-- **Browser (⌘5)** opens any address or `localhost:5173` in a tab.
-- **Save as Markdown** (toolbar or right-click): the selected text or the whole page
-  becomes a Markdown document in `docs/research` or another folder of the project, with
-  its title, source URL and date in the front matter.
+**Browser and app preview** (🌐)
+- **Preview Web App (⌘6)** finds the project's web app (Vite, Next, Angular, Astro,
+  Django, Rails, a static `index.html`…), starts its dev server when needed and shows
+  `localhost` in a tab. Electron apps are previewed as a web page without starting Electron.
+- **Browser (⌘5)** opens any address in a tab. **Save as Markdown** turns a page or a
+  selection into a clean document in `docs/research` with its source and date.
 
-**Recursive Insight** turns a folder of notes into a browsable summary site. You can
-dive deeper into any topic or explore all of them at depth 1–3, and export it as a ZIP.
+---
 
-**Viewers**
+## Workspace
 
-| Content | What you get |
-|---|---|
-| Code | CodeMirror 6 in 45 languages, folding, zoom, ✦ Explain notes |
-| JSON / YAML / XML / plist | Collapsible tree, or source |
-| JSON Canvas (`.canvas`) | Pan, zoom, properties, open linked files |
-| Images | PNG, JPEG, GIF, HEIC, WebP, TIFF, SVG, RAW… with zoom around the cursor, pan, fit / 1:1, and drag in or out |
-| PDF export | **⌘E** |
-
-**Workspace**
-- **File tree:** new file or folder; drag to move (⌥ copies); Git status letters, stage,
-  discard, pull and push.
-- **Contents / Search / Git** panel: SQLite FTS5 search over the whole folder, diffs,
-  commit, and *Commit & Push*.
-- **Windows:** each window is its own workspace, and the last folder reopens at launch.
+- **File tree** with breadcrumbs, filter, sort and git status. Select several items
+  (click, ⌘-click, ⇧-click) to **move, trash, stage, discard or copy paths** at once;
+  **Rename…** any file or folder — open tabs follow.
+- **Linked folders** bring outside folders into a project for browsing, search and AI
+  context while git, features and bugs stay with the project.
+- **Windows remember everything:** each window is its own project, and every window — its
+  tabs, panels and size — comes back after a restart.
+- **Project colours** tell windows apart at a glance, even in Mission Control.
+- **Git** built in: branches, stage, commit, push, pull, diffs. **GitHub** (opt-in, via
+  `gh`): pull requests with review and merge, issues, Actions runs and logs with *Explain
+  Failure*, notifications.
+- **New Project…** starts a project from an idea: the AI clarifies it, writes the first
+  specification and README, initialises git and can publish it to GitHub.
+- **Project operations:** *Discover operations* in the X-Ray Deployment view finds the
+  project's deploy, install and restart commands. The **Deploy** button runs them after you
+  confirm the exact command, with live output, Cancel and a notification when done. The list
+  is shared in `.markview/operations.json`.
+- Light, dark and system themes; interface text from 80% to 200%.
 
 ---
 
 ## Install
 
-1. Download **`MarkView-<version>.dmg`** from [Releases](https://github.com/t-boris/MarkView/releases).
+1. **[Download MarkView.dmg](https://github.com/t-boris/MarkView/releases/latest/download/MarkView.dmg)**
+   (the latest release; earlier versions are on the [Releases](https://github.com/t-boris/MarkView/releases) page).
 2. Open it and drag **MarkView** onto **Applications**.
-3. The app is signed with a Developer ID but not yet notarized. On first launch macOS
-   asks for confirmation: go to **System Settings → Privacy & Security** and click
-   **Open Anyway**.
+
+The app is signed with a Developer ID and notarized by Apple, so it opens without warnings.
 
 ### Requirements
 
 - macOS 13 Ventura or later.
-- **For AI:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-  (`npm i -g @anthropic-ai/claude-code`) and/or
-  [Codex](https://github.com/openai/codex) (`npm i -g @openai/codex`), signed in.
-  MarkView uses their sign-in and needs no provider key.
-- **Optional:**
-  - `git`, and [`gh`](https://cli.github.com) for PR X-Ray and the *Review PR* list.
-  - An **OpenAI API key** (Settings → DDE) for Whisper dictation only. Without it the
-    🎤 in the New Feature / New Bug text is hidden.
-  - Internet access for interactive `%%INTERACTIVE` diagrams, which load D3 and Dagre
-    from a CDN.
+- **For AI**, one or more of these command-line agents, installed and signed in:
+  [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
+  [Codex](https://github.com/openai/codex),
+  [Cline](https://cline.bot) or
+  [GitHub Copilot CLI](https://github.com/github/copilot-cli).
+  MarkView uses their sign-in and needs no provider key of its own.
+- **Optional:** `git`; [`gh`](https://cli.github.com) for GitHub; an OpenAI API key
+  (Settings) for dictation only.
 
-Settings (**⌘⇧,**) let you choose the assistant and model, a separate model for X-Ray,
-the language AI output is written in, CLI paths, and the Whisper model.
+Settings (**⌘⇧,**) choose the assistant and model, the X-Ray model, the language of AI
+output, CLI paths and the Whisper model.
+
+### Privacy and how AI runs
+
+- Your files stay on your Mac. The search index lives in the project's `.dde/` folder;
+  features, bugs and research are ordinary files in your repository.
+- AI requests go through the agent CLIs you installed, under their accounts and terms.
+  MarkView's own background calls (X-Ray, reviews, explanations) run them read-only. The
+  agent terminals run with the agents' full-access flags — they act on your project, as
+  they would in any terminal.
+- Dictation sends audio to OpenAI with your key. GitHub is contacted only when you turn the
+  integration on. Interactive graph diagrams load d3 and dagre from a CDN.
 
 ---
 
@@ -209,25 +235,16 @@ the language AI output is written in, CLI paths, and the Whisper model.
 
 ### Set up Xcode
 
-Install the full [Xcode app](https://developer.apple.com/xcode/) from the Mac App
-Store, then open it once and complete its first-launch setup. The standalone
-Command Line Tools package (`xcode-select --install`) does not include
-`xcodebuild`, which both build scripts require.
-
-Select Xcode for command-line builds and verify the setup:
+Install the full [Xcode app](https://developer.apple.com/xcode/) and open it once. The
+standalone Command Line Tools do not include `xcodebuild`, which the build scripts need.
 
 ```bash
 sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
 xcodebuild -version      # should print an Xcode version and build number
 ```
 
-Adjust the path if Xcode is installed elsewhere. If `DEVELOPER_DIR` is set in your
-shell, update or unset it because it overrides `xcode-select`.
-
-If `./install.sh` reports that `xcodebuild` requires Xcode and the active developer
-directory is `/Library/Developer/CommandLineTools`, complete the steps above, then
-rerun the installer. See Apple's [command-line tools setup guide](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings).
-To use MarkView without installing Xcode, download the DMG under [Install](#install).
+If `DEVELOPER_DIR` is set in your shell, update or unset it — it overrides `xcode-select`.
+See Apple's [command-line tools guide](https://developer.apple.com/documentation/xcode/configuring-command-line-tools-settings).
 
 ### Build and install
 
@@ -238,12 +255,13 @@ cd MarkView
 ./release.sh --install       # signed build + DMG installer in build/, installed from the DMG
 ```
 
-- `release.sh` signs with the first *Developer ID Application* identity in your keychain
-  and enables the hardened runtime.
-- Set `NOTARY_PROFILE` to a `notarytool store-credentials` profile to notarize and staple
-  the DMG as well.
+- `release.sh` signs with the first *Developer ID Application* identity in your keychain and
+  enables the hardened runtime. With a `notarytool` profile (`NOTARY_PROFILE`, default
+  `markview-notary`) it notarizes and staples the DMG; `--publish` creates the GitHub
+  release.
 - The bundled web libraries (CodeMirror, Cytoscape + ELK, xterm.js) are rebuilt with
-  `cd tools/web-vendor && npm ci && ./build.sh`.
+  `cd tools/web-vendor && npm ci && ./build.sh` — never loaded from a CDN.
+- There is no XCTest target; focused checks live in `tools/tests/*.sh`.
 
 <details>
 <summary><b>Project layout</b></summary>
@@ -254,23 +272,24 @@ MarkView/
 ├── Models/
 │   ├── WorkspaceManager.swift    central state: tabs, files, AI routing, terminals
 │   ├── ArchitectureStore.swift   X-Ray: scan, clustering, AI naming, overlays, PR X-Ray
-│   ├── XRayDigest / XRayCluster / XRayContent.swift
-│   │                             folder digest, Louvain clusters, contents of files
-│   ├── CodeExplainer.swift       Explain notes for code and markdown
-│   ├── FilterSearch.swift        AI filters (keywords first, AI confirms)
+│   ├── FeatureStore / FeatureAI  features, bugs, questions, reviews (docs/features, docs/bugs)
+│   ├── LifecycleAnalytics        cycle-time events and summaries
 │   ├── TerminalSession.swift     PTY (forkpty) + xterm.js web view
-│   ├── AIAssistants.swift        Claude Code / Codex discovery, models
-│   ├── CLICompletion.swift       one-shot CLI runs with JSON schemas
+│   ├── TerminalBrowserBridge     pages and files opened by agents → MarkView tabs
+│   ├── AIAssistants / CLICompletion / ACPAssistant
+│   │                             Claude Code, Codex, Cline, Copilot discovery and runs
 │   ├── SemanticDatabase.swift    SQLite + FTS5 index (.dde/state.db)
-│   └── GitClient, WhisperClient, InsightSession, …
+│   └── GitClient, GitHubStore, WhisperClient, InsightSession, …
 ├── Views/          SwiftUI: ContentView, EditorView (WKWebView), FileTreeView,
-│                   TerminalView, ImageViewerView, TOCView, GitView, DDESettingsView…
+│                   FeaturePanelView, TerminalView, BrowserTabView, GitView…
 ├── Bridge/         WebViewBridge (Swift ↔ JS), PDFExporter
 └── Resources/Editor/
     ├── index.html, terminal.html
     └── vendor/js/  markview-*.js (editor, X-Ray, code viewer, canvas…),
                     CodeMirror, Cytoscape + ELK, xterm.js, Mermaid, KaTeX, markdown-it
 ```
+
+Architecture notes: [`docs/architecture/`](docs/architecture/).
 
 </details>
 
@@ -283,8 +302,8 @@ MarkView/
 | Code viewer | CodeMirror 6 |
 | X-Ray | Cytoscape.js + ELK, Louvain clustering, git history |
 | Terminals | xterm.js on a Swift-owned PTY |
-| Storage | SQLite (C API) + FTS5 |
-| AI | Claude Code CLI, Codex CLI, OpenAI Whisper |
+| Storage | SQLite (C API) + FTS5; features and bugs as Markdown + YAML |
+| AI | Claude Code, Codex, Cline and Copilot CLIs (ACP); OpenAI Whisper |
 
 ## License
 

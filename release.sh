@@ -94,11 +94,14 @@ echo "✓ $DMG"
 
 if [ "$PUBLISH" = 1 ]; then
     echo "▸ Publishing release v${VERSION}…"
-    gh release create "v$VERSION" "$DMG" --target "$(git rev-parse HEAD)" --latest \
+    # A copy under a fixed name: releases/latest/download/MarkView.dmg always serves the newest one.
+    LATEST_DMG="$(dirname "$DMG")/MarkView.dmg"
+    cp "$DMG" "$LATEST_DMG"
+    gh release create "v$VERSION" "$DMG" "$LATEST_DMG" --target "$(git rev-parse HEAD)" --latest \
         --title "MarkView $VERSION" \
         --notes "Signed and notarized installer (Developer ID) built from \`main\` at $(git rev-parse --short HEAD).
 
-Open \`MarkView-$VERSION.dmg\` and drag MarkView to Applications."
+Open \`MarkView-$VERSION.dmg\` (or \`MarkView.dmg\`, the same file) and drag MarkView to Applications."
     echo "✓ $(gh release view "v$VERSION" --json url -q .url)"
 fi
 if [ "$INSTALL" = 1 ]; then
