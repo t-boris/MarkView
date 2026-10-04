@@ -145,6 +145,9 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 enum DDEAppEntry {
     static func main() {
         let args = CommandLine.arguments
+        if args.contains("--mcp-browser") {
+            BrowserAgentTools.runServer(arguments: args)  // never returns
+        }
         if let i = args.firstIndex(of: "--dde-index"), i + 1 < args.count {
             DDEIndexerRunner.run(folderPath: args[i + 1])  // never returns
         }
