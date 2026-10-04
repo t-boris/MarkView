@@ -79,7 +79,7 @@ final class PanelLayout: ObservableObject {
         leftPanel = defaults.string(forKey: Self.leftPanelKey) ?? "files"
         issuesFeature = defaults.string(forKey: Self.issuesFeatureKey) ?? ""
         gitSection = defaults.string(forKey: Self.gitSectionKey).flatMap(GitSection.init) ?? .changes
-        featureStage = defaults.string(forKey: FeatureStage.storageKey).flatMap(FeatureStage.init) ?? .explore
+        featureStage = FeatureStage.stored(defaults.string(forKey: FeatureStage.storageKey))
     }
 
     private func remember(_ value: String, _ key: String) {

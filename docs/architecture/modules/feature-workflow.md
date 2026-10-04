@@ -40,7 +40,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 - UI:
   - left panel Issues list and feature navigator
   - intake sheet
-  - right panel Feature tab with the Explore, Review, Resolve and Build stages
+  - right panel Feature tab with the Explore, Review and Build stages
   - bug investigation panel and cleanup sheet
   (`Views/FeatureNavigatorView.swift`, `Views/FeaturePanelView.swift`)
 
@@ -70,7 +70,7 @@ Related module docs: [app-shell-and-workspace](app-shell-and-workspace.md),
 | `MarkView/Models/IssueSync.swift` | Sync to GitHub (issue #36), Foundation only: `IssueSyncItem`, `IssueSyncLinks` (explicit references), `IssueSyncPlan` (pairs, unique lookups, shared-issue rule), `IssueSyncRemote`, `IssueSyncReport`, `IssueSyncPreflight`; tested by `tools/tests/issue-sync-tests.sh` |
 | `MarkView/Models/IssueSyncRun.swift` | `IssueSyncRun` (`@MainActor`, owned by `FeatureStore.issueSync`): preflight, per-issue lookup and close; `IssueSyncLoader` reads items from disk off the main thread |
 | `MarkView/Views/IssueSyncViews.swift` | `IssueSyncButton` and `IssueSyncReportView` in the Issues list header |
-| `MarkView/Views/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView`, `ResolveStageView`, `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
+| `MarkView/Views/FeaturePanelView.swift` | `FeatureStage`, `FeaturePanelView` and the stage views: `ExploreStageView`, `ReviewStageView` (with `BeforeBuildSection`), `BuildStageView`. Also the question, bug, source, finding and plan cards, `ObjectContextView` (trace, impact, history), `FeatureCleanupSheet`, `FlowLayout` |
 | `MarkView/Models/FrontMatter.swift` | (dependency) Ordered YAML subset; `isLossless` guards rewrites (`FrontMatter.swift:52-54,83-96`) |
 | `tools/importance-check.sh` | Live-CLI check of `ImportanceRater` against `Tests/Fixtures/importance` (currently broken, see 10) |
 | `docs/features/*/`, `docs/bugs/*.md` | Real files produced by this module (examples in section 6) |
@@ -290,7 +290,7 @@ flowchart TD
 - `QuestionRound` (`FeaturePanelView.swift`) preselects each recommendation; "Apply answers" sends the whole
   round to `answerBatch` in one AI call, which also asks the next round when nothing else is open (BUG-011).
   "Let the AI decide" takes the recommendation (or, without one, the AI's `chosen` answer) as a proposed
-  decision. The same round is used by the Resolve stage, `ObjectContextView` and the New Project sheet.
+  decision. The same round is used by Review's Before Build section, `ObjectContextView` and the New Project sheet.
 - A decision is recorded only when an answer chose between real alternatives (one decision may settle several
   questions, listed in `answers`); a plain clarification only updates requirements.
 - `applyRequirementChanges` ignores IDs that are not live requirements, and creates at most 3 new requirements.
@@ -307,16 +307,35 @@ flowchart TD
 ### 5.3 Review, resolve, clean up
 
 - **Review** (`review`, `FeatureAI.swift:794-841`):
-  - A whole-spec review first calls `finishExplore` if discovery is done.
+  - A whole-spec review first calls `finishExplore` if discovery is done, then `applyDecisions`, so it reads one
+    consistent specification.
   - The AI returns findings with category, severity, perspectives, quote, target and interpretations.
-  - A new finding is skipped when an open finding already has the same title (case-insensitive).
+  - The status of requirements and decisions and sign-offs are never findings (the team's workflow).
+  - It is told what is settled and must not be reported again, even reworded: closed findings (the context
+    digest carries each one's `settlement` — its resolution, dismissal reason or accepted risk), answered
+    questions and decisions, proposed ones included. An empty list is the expected outcome of a later review.
+  - A new finding is skipped when any finding, open or closed, already has the same title (case-insensitive).
+  - A whole-spec review reports its outcome as a result ("Review: N new findings" or "Review: nothing new").
   - Status moves from `exploring/draft/idea` to `review`.
   - `focus` (an object ID) limits the review to one requirement ("Review requirement" in `ObjectContextView`).
 - **Acceptance criteria** (`:844-867`) adds only the criteria that are new.
 - **Resolve a finding**:
   - `resolutionOptions` (`:872-895`) sets `status: discussing`, `resolution_question` and `options[{label,text,consequence}]`.
-  - `resolve` calls `closeFinding`. That creates a decision (accepted, or proposed when delegated), sets the finding to `resolved` with `resolved_by`, appends a `## Resolution`, and adds the decision to every referenced requirement's `decisions`. A delegated resolution ("Decide for me", "Decide all for me") records a decision only when `needs_decision` is true — a product choice the specification must remember; an implementation detail or wording fix closes the finding with its resolution text alone.
-- **Decide all for me** (`decideAllFindings`, `:932-977`) works in chunks of 8 findings. It skips findings closed meanwhile, updates `decideProgress`, and stops at the first failed chunk.
+  - `resolve` calls `closeFinding`. That creates a decision (accepted, or proposed when delegated), sets the finding to `resolved` with `resolved_by`, appends a `## Resolution`, and adds the decision to every referenced requirement's `decisions`. When a decision was recorded, `applyDecisions` follows. A delegated resolution ("Decide for me", "Decide all for me") records a decision only when `needs_decision` is true — a product choice the specification must remember; an implementation detail or wording fix closes the finding with its resolution text alone.
+- **Decide all for me** (`decideAllFindings`, `:932-977`) works in chunks of 8 findings. It skips findings closed meanwhile, updates `decideProgress`, and stops at the first failed chunk. Then `applyDecisions` runs once for all of them.
+- **Apply settlements** (`applyDecisions`, BUG-023): what was settled and is not yet `applied`
+  (`Feature.settlementsToApply`: decisions in force — accepted or proposed — and findings resolved by their
+  resolution text alone, without `resolved_by`) is written into the requirements. One call maps each settlement
+  to the requirements it changes; then each of those requirements is rewritten in its own call (four at a time,
+  effort medium), oldest settlement first, a later one overriding an earlier one. `## Statement` and
+  `## Acceptance Criteria` are replaced (`FeatureObject.replacingSection`; a criterion already checked stays
+  checked when its text is kept), decision ids join `decisions`, and every settlement sent gets
+  `applied: <date>` once all rewrites succeeded. A failed call leaves them pending for the next resolution or
+  review; a second call while one runs returns at once. Before this, a resolution left the requirement text as
+  it was and each review reported the requirement contradicting it, so every round of resolutions produced the
+  next round of findings. One call over all requirements and decisions at once missed rules and numbers.
+- **Reject a proposed decision** (`FeatureStore.rejectDecision`): sets `rejected`; when the decision was already
+  `applied`, a high `contradiction` finding on the requirements carrying it asks how they should read instead.
 - **Consolidate** (`:624-681`):
   - Offered in the UI above 30 active requirements (`FeaturePanelView.swift:948`).
   - Target size is `max(8, min(30, n/5))`.
@@ -326,7 +345,11 @@ flowchart TD
   - The sheet previews the candidates per category (`FeaturePanelView.swift:1576-1703`).
   - Each doomed ID maps to its `superseded_by` replacement, following chains through other doomed objects, or to nil.
   - List and scalar link keys in the surviving objects are rewritten, and a self-link is dropped. The plan is saved again only if an issue referenced a doomed ID. The files are moved to the Trash.
-- **Resolve stage** (`FeaturePanelView.swift:1132-1218`) collects: blocking questions, contradictions, blocker/high findings, proposed decisions (Accept/Reject), `open-assumption` research claims ("Ask" creates a question), unknown dimensions ("Research"), and the other open questions.
+- **Before Build** (`BeforeBuildSection`, at the end of the Review stage) collects what is left besides the
+  findings: blocking questions, proposed decisions (Accept / Reject), `open-assumption` research claims ("Ask"
+  creates a question), unknown dimensions ("Research"), and the other open questions. Hidden when all are empty.
+  Until 4.0.0 this was a separate Resolve stage that also repeated the contradiction and blocker/high finding
+  cards of Review (BUG-023).
 
 ### 5.4 Research, contextual actions, discussion
 
@@ -464,7 +487,7 @@ Object statuses written by code:
 |---|---|
 | Requirement | `draft` on create, or `approved` if past Explore (`FeatureAI.swift:287`; intake requirements always `draft`, `FeatureIntake.swift:109-113`). `draft/review → approved` (`approveRequirements`). `→ superseded` or `rejected` (consolidation). Otherwise manual |
 | Question | `open` on create. `→ answered` (`answer`, `decideRest`). `→ deferred` (`skip`, `decideRest`) |
-| Decision | `proposed` (delegated, `decideRest`, selection) or `accepted` (user answer, user resolve, chat). `proposed → accepted/rejected` (Resolve stage). `→ superseded` (`markOutdated`) |
+| Decision | `proposed` (delegated, `decideRest`, selection) or `accepted` (user answer, user resolve, chat). `proposed → accepted/rejected` (Before Build; `rejectDecision`). `applied: <date>` once written into the requirements (`applyDecisions`). `→ superseded` (`markOutdated`) |
 | Finding | `open` on create. `→ discussing` (`resolutionOptions`). `→ resolved` (`closeFinding`). `→ accepted-risk/dismissed` (buttons, `markOutdated`) |
 | Source fact | `pending → accepted/rejected` (`setFact`) |
 | Bug | `open` on create. `→ fixing` (`fixBugWithAI`). Manual `fixed`, `closed` |
@@ -633,6 +656,7 @@ Decision (`DEC`):
 | `sources` | the question, finding or document it came from |
 | `produces` | requirement IDs |
 | `superseded_by`, `outdated_reason` | `markOutdated` |
+| `applied` | date the decision was written into the requirements (`applyDecisions`); a finding resolved without a decision gets it too |
 
 The body has `## Context`, `## Alternatives` (numbered), `## Decision`, `## Reason` and `## Consequences` (`FeatureAI.swift:299-319`).
 
@@ -711,7 +735,7 @@ The body has `# Title`, then `## Summary`, `## Steps to reproduce`, `## Expected
 | UserDefaults | `features.active.<first 12 chars of ContentHash(root path)>` | active slug per project (`FeatureStore.swift:53-55`) |
 | `PanelLayout` (per window) | `layout.leftPanel` | `files` or `issues` (`FeatureNavigatorView.swift`) |
 | `PanelLayout` (per window) | `layout.issuesFeature` | slug of the feature open in the Issues list. Per window, not per project |
-| `PanelLayout` (per window) | `feature.stage` | `Explore/Review/Resolve/Build` (`FeaturePanelView.swift`) |
+| `PanelLayout` (per window) | `feature.stage` | `Explore/Review/Build`; a stored `Resolve` opens Review (`FeatureStage.stored`) |
 | `PanelLayout` (per window) | `layout.navigatorTab` | right panel tab, set by `intakeFinished` and `runFeatureAction` |
 
 The `PanelLayout` keys hold the last choice only to seed a new window and relaunch (BUG-004).

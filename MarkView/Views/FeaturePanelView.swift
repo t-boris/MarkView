@@ -2,10 +2,16 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// The four stages of a feature (spec §5).
+/// The stages of a feature (spec §5). Resolve was a stage of its own until 4.0.0 (BUG-023); what
+/// only it showed is Review's "Before Build" section now.
 enum FeatureStage: String, CaseIterable {
-    case explore = "Explore", review = "Review", resolve = "Resolve", build = "Build"
+    case explore = "Explore", review = "Review", build = "Build"
     static let storageKey = "feature.stage"
+
+    /// A stored stage; the former Resolve stage opens Review.
+    static func stored(_ raw: String?) -> FeatureStage {
+        raw == "Resolve" ? .review : raw.flatMap(FeatureStage.init) ?? .explore
+    }
 }
 
 /// Right panel "Feature" tab: stages, readiness, the AI around the open document.
@@ -61,7 +67,6 @@ struct FeaturePanelView: View {
                         switch stage {
                         case .explore: ExploreStageView(store: store, feature: feature)
                         case .review: ReviewStageView(store: store, feature: feature)
-                        case .resolve: ResolveStageView(store: store, feature: feature)
                         case .build: BuildStageView(store: store, feature: feature)
                         }
                     }
@@ -1290,6 +1295,7 @@ struct ReviewStageView: View {
                     FindingCard(store: store, feature: feature, finding: finding)
                 }
             }
+            BeforeBuildSection(store: store, feature: feature)
         }
     }
 }
@@ -1425,9 +1431,11 @@ struct ResolutionOptions: View {
     }
 }
 
-// MARK: - Resolve (spec §17)
+// MARK: - Before Build (spec §17)
 
-struct ResolveStageView: View {
+/// What is left to settle besides the findings above: blocking and open questions, the AI's
+/// proposed decisions to confirm, open assumptions and research gaps. Hidden when nothing is left.
+struct BeforeBuildSection: View {
     @EnvironmentObject private var assistant: FeatureAssistant
     @ObservedObject var store: FeatureStore
     let feature: Feature
@@ -1435,74 +1443,68 @@ struct ResolveStageView: View {
     var body: some View {
         let blocking = feature.list(.question).filter { $0.isBlocking && !$0.isClosed }
         let otherQuestions = feature.list(.question).filter { !$0.isBlocking && $0.status == "open" }
-        let conflicts = feature.list(.finding).filter { $0.front.string("category") == "contradiction" && !$0.isClosed }
-        let important = feature.list(.finding).filter {
-            $0.front.string("category") != "contradiction" && !$0.isClosed && ["blocker", "high"].contains($0.front.string("severity"))
-        }
         let assumptions = feature.list(.research).flatMap { note in
             (note.front["claims"]?.list ?? []).filter { $0["kind"]?.string == "open-assumption" }.compactMap { $0["text"]?.string }.map { (note.id, $0) }
         }
         let proposed = feature.list(.decision).filter { $0.status == "proposed" }
         let gaps = feature.understanding.filter { $0.state == "unknown" }
 
-        VStack(alignment: .leading, spacing: 10) {
-            PanelSection(title: "Resolution center") {
-                summary("Blocking questions", blocking.count, VSDark.red)
-                summary("Conflicting requirements", conflicts.count, VSDark.red)
-                summary("Important findings", important.count, VSDark.orange)
-                summary("Open questions", otherQuestions.count, VSDark.yellow)
-                summary("Decisions to confirm", proposed.count, VSDark.yellow)
-                summary("Open assumptions", assumptions.count, VSDark.yellow)
-                summary("Research gaps", gaps.count, VSDark.textDim)
-            }
-            if !blocking.isEmpty { QuestionRound(store: store, feature: feature, questions: blocking) }
-            ForEach(conflicts) { FindingCard(store: store, feature: feature, finding: $0) }
-            ForEach(important) { FindingCard(store: store, feature: feature, finding: $0) }
-            ForEach(proposed) { decision in
-                card {
-                    HStack {
-                        Text(decision.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
-                        Text("PROPOSED").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.yellow)
-                    }
-                    Text(decision.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
-                    Text(decision.section("Decision")).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        SmallButton(title: "Accept", prominent: true) { store.setStatus(decision.id, in: feature.slug, to: "accepted") }
-                        SmallButton(title: "Reject") { store.setStatus(decision.id, in: feature.slug, to: "rejected") }
-                    }
+        if !(blocking.isEmpty && otherQuestions.isEmpty && proposed.isEmpty && assumptions.isEmpty && gaps.isEmpty) {
+            VStack(alignment: .leading, spacing: 10) {
+                PanelSection(title: "Before Build") {
+                    summary("Blocking questions", blocking.count, VSDark.red)
+                    summary("Open questions", otherQuestions.count, VSDark.yellow)
+                    summary("Decisions to confirm", proposed.count, VSDark.yellow)
+                    summary("Open assumptions", assumptions.count, VSDark.yellow)
+                    summary("Research gaps", gaps.count, VSDark.textDim)
                 }
-            }
-            if !assumptions.isEmpty {
-                PanelSection(title: "Open assumptions") {
-                    ForEach(assumptions, id: \.1) { item in
-                        HStack(alignment: .top) {
-                            Text("• \(item.1)").uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
-                            Spacer()
-                            SmallButton(title: "Ask") {
-                                store.create(.question, in: feature.slug, title: "Is it true that: \(item.1)",
-                                             fields: [("q_type", .string("clarification")), ("blocking", .list([])),
-                                                      ("sources", .list([.string(item.0)]))],
-                                             body: "## Question\n\nConfirm or correct the assumption from \(item.0):\n\n> \(item.1)\n",
-                                             provenance: "Derived from \(item.0)")
-                            }
-                        }
-                    }
-                }
-            }
-            if !gaps.isEmpty {
-                PanelSection(title: "Research gaps") {
-                    ForEach(gaps, id: \.dimension) { gap in
+                if !blocking.isEmpty { QuestionRound(store: store, feature: feature, questions: blocking) }
+                ForEach(proposed) { decision in
+                    card {
                         HStack {
-                            Text(gap.dimension).uiFont(size: 10).foregroundColor(VSDark.text)
-                            Spacer()
-                            SmallButton(title: "Research", icon: "globe") {
-                                Task { await assistant.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)") }
+                            Text(decision.id).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                            Text("PROPOSED").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.yellow)
+                        }
+                        Text(decision.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
+                        Text(decision.section("Decision")).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            SmallButton(title: "Accept", prominent: true) { store.setStatus(decision.id, in: feature.slug, to: "accepted") }
+                            SmallButton(title: "Reject") { store.rejectDecision(decision.id, in: feature.slug) }
+                        }
+                    }
+                }
+                if !assumptions.isEmpty {
+                    PanelSection(title: "Open assumptions") {
+                        ForEach(assumptions, id: \.1) { item in
+                            HStack(alignment: .top) {
+                                Text("• \(item.1)").uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                                Spacer()
+                                SmallButton(title: "Ask") {
+                                    store.create(.question, in: feature.slug, title: "Is it true that: \(item.1)",
+                                                 fields: [("q_type", .string("clarification")), ("blocking", .list([])),
+                                                          ("sources", .list([.string(item.0)]))],
+                                                 body: "## Question\n\nConfirm or correct the assumption from \(item.0):\n\n> \(item.1)\n",
+                                                 provenance: "Derived from \(item.0)")
+                                }
                             }
                         }
                     }
                 }
+                if !gaps.isEmpty {
+                    PanelSection(title: "Research gaps") {
+                        ForEach(gaps, id: \.dimension) { gap in
+                            HStack {
+                                Text(gap.dimension).uiFont(size: 10).foregroundColor(VSDark.text)
+                                Spacer()
+                                SmallButton(title: "Research", icon: "globe") {
+                                    Task { await assistant.research(feature.slug, topic: "\(gap.dimension) for \(feature.title)") }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !otherQuestions.isEmpty { QuestionRound(store: store, feature: feature, questions: otherQuestions) }
             }
-            if !otherQuestions.isEmpty { QuestionRound(store: store, feature: feature, questions: otherQuestions) }
         }
     }
 

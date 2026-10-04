@@ -564,3 +564,12 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - Rule: read the tool's source for flags that promise "only X"; test with Electron's binary absent
   (`ELECTRON_SKIP_BINARY_DOWNLOAD=1`) so any start fails loudly, and flatten nested arrays *and promises* when
   filtering Vite plugins.
+
+## An AI loop must write its outcome back into what it reviews (BUG-023, 2026-10-04)
+- Review → resolve → review never converged: each resolution added a decision next to the requirement but left
+  the requirement text unchanged, so the next review reported the pair as a contradiction. Resolved findings
+  were also visible to the reviewer only by title, so the same concern came back reworded.
+- Rule: when an AI step settles something, write the settlement into the artifact the next AI step reads
+  (here: rewrite the requirement), and give the reviewer the settled items with how they were settled plus an
+  explicit "empty is the expected result". Check convergence on real data: count what each round produced and
+  read the new findings' titles — "X contradicts Y" findings mean the loop is feeding itself.
