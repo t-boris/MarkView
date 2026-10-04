@@ -9,6 +9,13 @@ import WebKit
 @MainActor final class TerminalSession {
     let id = UUID()
     var openInAppBrowser: ((URL) -> Void)?
+    var openFile: ((URL, Int?) -> Void)?
+}
+
+/// Stand-in for the app's file types (DocumentState.swift needs the whole app): what the editor
+/// and image viewer open.
+enum FileType {
+    static func isOpenable(_ url: URL) -> Bool { ["md", "json", "png"].contains(url.pathExtension.lowercased()) }
 }
 
 var failures = 0
@@ -118,7 +125,22 @@ try? fm.removeItem(at: tmp)
 // MARK: Terminal browser bridge
 
 check("request parsed", TerminalBrowserBridge.parse("7C9A1E2B-0000-4000-8000-000000000001\nhttp://localhost:5173/\n")?.url.absoluteString == "http://localhost:5173/")
-check("non-web request refused", TerminalBrowserBridge.parse("x\nfile:///etc/passwd\n") == nil && TerminalBrowserBridge.parse("x\njavascript:alert(1)") == nil)
+check("other schemes refused", TerminalBrowserBridge.parse("x\njavascript:alert(1)") == nil
+      && TerminalBrowserBridge.parse("x\nnotes.md") == nil && TerminalBrowserBridge.parse("x\n") == nil)
+check("file URL parsed as a file", TerminalBrowserBridge.parse("x\nfile:///tmp/a%20b/../r.md\n")?.url.path == "/tmp/r.md")
+check("absolute path parsed as a file", TerminalBrowserBridge.parse("x\n/tmp/report.html\n")?.url.isFileURL == true)
+
+let routes = fm.temporaryDirectory.appendingPathComponent("markview-routes-\(UUID().uuidString)")
+try! fm.createDirectory(at: routes, withIntermediateDirectories: true)
+for name in ["page.html", "notes.md", "data.json", "photo.png", "book.pdf", "tool.bin"] {
+    try! "x".write(to: routes.appendingPathComponent(name), atomically: true, encoding: .utf8)
+}
+check("HTML opens in the browser tab", TerminalBrowserBridge.destination(of: routes.appendingPathComponent("page.html")) == .browserTab)
+check("documents open in the editor", ["notes.md", "data.json", "photo.png"].allSatisfy {
+    TerminalBrowserBridge.destination(of: routes.appendingPathComponent($0)) == .editor })
+check("other files, folders and missing paths go to macOS", ["book.pdf", "tool.bin", "missing.md", ""].allSatisfy {
+    TerminalBrowserBridge.destination(of: routes.appendingPathComponent($0)) == .system })
+try? fm.removeItem(at: routes)
 
 func run(_ arguments: [String], environment: [String: String]) -> String {
     let process = Process()
@@ -163,6 +185,17 @@ let request = requests.first.flatMap { try? String(contentsOf: spool.appendingPa
 check("open URL dropped one request", requests.count == 1 && requests[0].hasSuffix(".url") && request.hasSuffix("http://localhost:4321/x\n"), "\(requests) \(request)")
 let passOut = run([bin.appendingPathComponent("open").path, "-R", "/nonexistent-markview-path"], environment: env)
 check("other uses go to /usr/bin/open", passOut.contains("does not exist") || passOut.contains("nonexistent"), passOut)
+let missingOut = run([bin.appendingPathComponent("open").path, "/nonexistent-markview-notes.md"], environment: env)
+check("a missing file goes to /usr/bin/open", missingOut.contains("does not exist") || missingOut.contains("nonexistent"), missingOut)
+for name in (try? fm.contentsOfDirectory(atPath: spool.path)) ?? [] { try? fm.removeItem(at: spool.appendingPathComponent(name)) }
+try! "# n".write(to: home.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+_ = run(["/bin/zsh", "-l", "-i", "-c", "cd \"$HOME\" && open notes.md"], environment: env)
+let fileRequests = (try? fm.contentsOfDirectory(atPath: spool.path)) ?? []
+let fileRequest = fileRequests.first.flatMap { try? String(contentsOf: spool.appendingPathComponent($0), encoding: .utf8) } ?? ""
+let parsedFile = TerminalBrowserBridge.parse(fileRequest)?.url
+check("open FILE drops a request with its absolute path", fileRequests.count == 1
+      && parsedFile?.standardizedFileURL.resolvingSymlinksInPath().path == home.appendingPathComponent("notes.md").resolvingSymlinksInPath().path,
+      "\(fileRequests) \(fileRequest)")
 try? fm.removeItem(at: bridge)
 
 
