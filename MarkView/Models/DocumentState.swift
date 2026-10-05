@@ -18,7 +18,8 @@ enum FileType: String {
     case sqlite
     case log
 
-    static let tableExtensions: Set<String> = ["csv", "tsv", "tab", "psv", "jsonl", "ndjson", "xlsx", "xlsm", "har"]
+    static let tableExtensions: Set<String> = ["csv", "tsv", "tab", "psv", "jsonl", "ndjson", "xlsx", "xlsm", "ods", "har",
+                                                     "arrow", "feather", "ipc", "arrows", "avro"]
     static let parquetExtensions: Set<String> = ["parquet", "pq"]
     static let sqliteExtensions: Set<String> = ["sqlite", "sqlite3", "db", "db3"]
     static let logExtensions: Set<String> = ["log", "out", "txt"]

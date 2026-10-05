@@ -166,8 +166,9 @@ pull requests. *New Research* runs in the background and writes a cited report t
   on any line — or in a source editor with syntax checking. YAML keeps its comments; JSON keeps
   its indentation.
 - **Data files as tables, with SQL.** CSV, TSV, PSV, JSON Lines / NDJSON, **Parquet** (snappy,
-  zstd, gzip, brotli, lz4), **SQLite** databases, **Excel** workbooks (every sheet) and **HAR**
-  network logs open in a fast grid: sort by any column, filter each column (`>10`, `=x`, `null`),
+  zstd, gzip, brotli, lz4), **Arrow IPC / Feather**, **Avro** (null, deflate, snappy), **SQLite**
+  databases, **Excel** and **OpenDocument** spreadsheets (every sheet) and **HAR** network logs
+  open in a fast grid: sort by any column, filter each column (`>10`, `=x`, `null`),
   search everything, see column statistics, and query with real SQL (SQLite in WebAssembly) —
   `SELECT plant, AVG(height) FROM data GROUP BY plant`. Export or copy the result.
 - **Log viewer** for `.log`, `.out` and `.txt`: levels (error, warn, info, debug…) with counts

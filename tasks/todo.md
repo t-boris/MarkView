@@ -19,7 +19,9 @@ own tools; JSON and YAML editable, not only viewable.
 the plain source editor (terminal-link-tests caught it); the source view stays the plain editor with a status line.
 A CSP (`connect-src 'self'`) blocked `markview-data:` with only "Load failed" in the page — reproduced in a stand
 with the real page before changing it.
-- [ ] Next wave: Arrow IPC/Feather, Avro, OpenDocument spreadsheets.
+- [x] Next wave (4.8.0): Arrow IPC/Feather (apache-arrow), Avro (own decoder: null/deflate/snappy, all types,
+      logical types), OpenDocument spreadsheets; fixtures written independently from the specs (Avro, ODS) or by
+      pyarrow (Feather, snappy blocks); `data-viewers-tests.sh` 23 checks.
 
 ## Task 83: Copilot's MCP policy blocks markview-browser (BUG-025, 2026-10-05, 4.6.1)
 

@@ -256,6 +256,7 @@
         let db;
         let info2 = '';                 // a line about the source (rows, delimiter, row groups…)
         let parquetDetails = null;
+        let schemaPanel = null;     // Arrow and Avro: their schema for the Schema panel
         const notes = [];
         if (isSQLite) {
             db = new SQL.Database(bytes);
@@ -271,8 +272,18 @@
                 if (total > limit) notes.push('Showing the first ' + fmtCount(limit) + ' of ' + fmtCount(total) + ' rows.');
                 parquetDetails = describeParquet(metadata, lib);
                 info2 = metadata.row_groups.length + (metadata.row_groups.length === 1 ? ' row group' : ' row groups');
-            } else if (ext === 'xlsx' || ext === 'xlsm') {
-                const sheets = readWorkbook(bytes, lib);
+            } else if (['arrow', 'feather', 'ipc', 'arrows'].includes(ext)) {
+                const arrow = readArrow(bytes, lib);
+                rows = arrow.rows;
+                schemaPanel = arrow.schema;
+                info2 = 'Arrow IPC';
+            } else if (ext === 'avro') {
+                const avro = readAvro(bytes, lib);
+                rows = avro.rows;
+                schemaPanel = avro.schema;
+                info2 = 'Avro · ' + avro.codec;
+            } else if (ext === 'xlsx' || ext === 'xlsm' || ext === 'ods') {
+                const sheets = ext === 'ods' ? readOpenDocument(bytes, lib) : readWorkbook(bytes, lib);
                 sheetNames = sheets.map((sheet) => sheet.name);
                 sheets.forEach((sheet) => loadRows(db, sheet.rows, sheet.name));
                 info2 = sheets.length + (sheets.length === 1 ? ' sheet' : ' sheets');
@@ -308,7 +319,7 @@
             <input type="search" class="dv-search" placeholder="Search all columns">
             <button class="dv-btn dv-sqlbtn" title="Query with SQL (table: ${manyTables ? 'each ' + (sheetNames ? 'sheet' : 'table') + ' by name' : 'data'})">SQL</button>
             <button class="dv-btn dv-stats" title="Statistics of the selected column">Column stats</button>
-            ${parquetDetails || isSQLite ? '<button class="dv-btn dv-schema">Schema</button>' : ''}
+            ${parquetDetails || isSQLite || schemaPanel ? '<button class="dv-btn dv-schema">Schema</button>' : ''}
             <button class="dv-btn dv-export" title="Save the rows shown as CSV">Export CSV</button>
             <button class="dv-btn dv-copy" title="Copy the rows shown as TSV (paste into a spreadsheet)">Copy</button>
           </div>
@@ -470,7 +481,7 @@
                     return '<tr><td><b>' + esc(c) + '</b></td><td><pre>' + (v === null ? '<i>null</i>' : esc(v)) + '</pre></td></tr>';
                 }).join('') + '</table>';
             } else if (mode === 'schema') {
-                side.innerHTML = isSQLite ? sqliteSchema() : (parquetDetails || '');
+                side.innerHTML = isSQLite ? sqliteSchema() : (parquetDetails || schemaPanel || '');
             } else {
                 const column = columns[currentColumn >= 0 ? currentColumn : 0];
                 if (!column) { side.innerHTML = '<h4>Column stats</h4><p>No column.</p>'; return; }
@@ -590,15 +601,215 @@
                 });
                 grid[(+row.getAttribute('r') || grid.length + 1) - 1] = cells;
             });
-            const rows = grid.filter(Boolean);
-            const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
-            const letters = (i) => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - m) / 26); } return s; };
-            const first = rows[0] || [];
-            const header = first.length && first.every((v) => typeof v === 'string' && v.trim()) && new Set(first).size === first.length;
-            const names = Array.from({ length: width }, (_, i) => header && first[i] ? first[i] : letters(i));
-            const objects = (header ? rows.slice(1) : rows).map((r) => { const o = {}; names.forEach((n, i) => { o[n] = r[i] === undefined ? null : r[i]; }); return o; });
-            return { name: sheet.getAttribute('name') || 'Sheet', rows: objects };
+            return { name: sheet.getAttribute('name') || 'Sheet', rows: gridObjects(grid.filter(Boolean)) };
         });
+    }
+
+    /** Rows of cells → objects: the first row is the header when it is all distinct text, else A, B, C… */
+    function gridObjects(rows) {
+        const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
+        const letters = (i) => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - m) / 26); } return s; };
+        const first = rows[0] || [];
+        const header = first.length && first.every((v) => typeof v === 'string' && v.trim()) && new Set(first).size === first.length;
+        const names = Array.from({ length: width }, (_, i) => header && first[i] ? first[i] : letters(i));
+        return (header ? rows.slice(1) : rows).map((r) => { const o = {}; names.forEach((n, i) => { o[n] = r[i] === undefined ? null : r[i]; }); return o; });
+    }
+
+    /** An OpenDocument spreadsheet (ods): every table as rows, repeated rows and cells expanded
+     *  only where they hold something (files repeat empty cells a million times). */
+    function readOpenDocument(bytes, lib) {
+        const files = lib.unzip(bytes);
+        if (!files['content.xml']) throw new Error('Not an OpenDocument spreadsheet (no content.xml).');
+        const doc = new DOMParser().parseFromString(lib.text(files['content.xml']), 'application/xml');
+        const TABLE = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
+        const OFFICE = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
+        const TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
+        const children = (node, name) => Array.from(node.childNodes).filter((n) => n.namespaceURI === TABLE && n.localName === name);
+        const rowsOf = (table) => {
+            const out = [];
+            const walk = (node) => {
+                for (const child of Array.from(node.childNodes)) {
+                    if (child.namespaceURI !== TABLE) continue;
+                    if (child.localName === 'table-row') out.push(child);
+                    else if (['table-rows', 'table-header-rows', 'table-row-group'].includes(child.localName)) walk(child);
+                }
+            };
+            walk(table);
+            return out;
+        };
+        return Array.from(doc.getElementsByTagNameNS(TABLE, 'table')).map((table) => {
+            const grid = [];
+            for (const row of rowsOf(table)) {
+                const cells = [];
+                for (const cell of Array.from(row.childNodes).filter((n) => n.namespaceURI === TABLE && /table-cell$/.test(n.localName))) {
+                    const repeat = +cell.getAttributeNS(TABLE, 'number-columns-repeated') || 1;
+                    const type = cell.getAttributeNS(OFFICE, 'value-type');
+                    let value = null;
+                    if (type === 'float' || type === 'percentage' || type === 'currency') value = Number(cell.getAttributeNS(OFFICE, 'value'));
+                    else if (type === 'date') value = (cell.getAttributeNS(OFFICE, 'date-value') || '').replace('T00:00:00', '');
+                    else if (type === 'boolean') value = cell.getAttributeNS(OFFICE, 'boolean-value') === 'true';
+                    else if (type === 'time') value = cell.getAttributeNS(OFFICE, 'time-value');
+                    else { const text = Array.from(cell.getElementsByTagNameNS(TEXT, 'p')).map((p) => p.textContent).join('\n'); value = text === '' ? null : text; }
+                    for (let k = 0; k < (value === null ? Math.min(repeat, 1) : Math.min(repeat, 1000)); k++) cells.push(value);
+                }
+                while (cells.length && cells[cells.length - 1] === null) cells.pop();
+                const repeatRows = +row.getAttributeNS(TABLE, 'number-rows-repeated') || 1;
+                for (let k = 0; k < (cells.length ? Math.min(repeatRows, 1000) : 1); k++) grid.push(cells);
+            }
+            while (grid.length && !grid[grid.length - 1].length) grid.pop();
+            return { name: table.getAttributeNS(TABLE, 'name') || 'Sheet', rows: gridObjects(grid.filter((r) => r.length)) };
+        });
+    }
+
+    /** An Arrow IPC file or stream (Feather v2): rows and its schema. */
+    function readArrow(bytes, lib) {
+        const table = lib.arrowTable(bytes);
+        const names = table.schema.fields.map((f) => f.name);
+        const limit = Math.min(table.numRows, 500000);
+        const columns = names.map((_, i) => table.getChildAt(i));
+        const rows = new Array(limit);
+        for (let r = 0; r < limit; r++) {
+            const o = {};
+            for (let c = 0; c < names.length; c++) {
+                let v = columns[c] ? columns[c].get(r) : null;
+                if (v && typeof v === 'object' && typeof v.toJSON === 'function' && !(v instanceof Date)) v = v.toJSON();
+                const type = String(table.schema.fields[c].type);
+                if (typeof v === 'number' && /^Timestamp|^Date/.test(type)) v = new Date(v);
+                o[names[c]] = v;
+            }
+            rows[r] = o;
+        }
+        const schema = '<h4>Arrow schema</h4><table>' + table.schema.fields.map((f) => '<tr><td>' + esc(f.name) + '</td><td>' + esc(String(f.type)) + (f.nullable ? ' · nullable' : '') + '</td></tr>').join('') + '</table>'
+            + '<p>' + fmtCount(table.numRows) + ' rows' + (table.numRows > limit ? ' (first ' + fmtCount(limit) + ' shown)' : '') + ', ' + table.batches.length + ' record batches</p>';
+        return { rows, schema };
+    }
+
+    /** An Avro object container file: its schema from the header, blocks with the null, deflate or
+     *  snappy codec, and every Avro type (records, enums, arrays, maps, unions, fixed, logical types). */
+    function readAvro(bytes, lib) {
+        if (!(bytes[0] === 0x4f && bytes[1] === 0x62 && bytes[2] === 0x6a && bytes[3] === 1)) throw new Error('Not an Avro object container file.');
+        const utf8 = new TextDecoder();
+        function Reader(buf) {
+            this.buf = buf; this.p = 0;
+            this.view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+        }
+        Reader.prototype.long = function () {
+            let n = 0, scale = 1, b;
+            do { b = this.buf[this.p++]; n += (b & 0x7f) * scale; scale *= 128; } while (b & 0x80);
+            return n % 2 === 0 ? n / 2 : -(n + 1) / 2;
+        };
+        Reader.prototype.bytes = function () { const n = this.long(); const out = this.buf.subarray(this.p, this.p + n); this.p += n; return out; };
+        Reader.prototype.string = function () { return utf8.decode(this.bytes()); };
+        const header = new Reader(bytes);
+        header.p = 4;
+        const meta = {};
+        for (let count = header.long(); count !== 0; count = header.long()) {
+            if (count < 0) { count = -count; header.long(); }
+            for (let i = 0; i < count; i++) { const key = header.string(); meta[key] = header.bytes(); }
+        }
+        const schemaText = utf8.decode(meta['avro.schema'] || new Uint8Array());
+        const schema = JSON.parse(schemaText);
+        const codec = meta['avro.codec'] ? utf8.decode(meta['avro.codec']) : 'null';
+        const sync = bytes.subarray(header.p, header.p + 16);
+        header.p += 16;
+
+        const named = {};
+        const register = (type, namespace) => {
+            if (Array.isArray(type)) { type.forEach((t) => register(t, namespace)); return; }
+            if (!type || typeof type !== 'object') return;
+            const ns = type.namespace || namespace;
+            if (type.name && ['record', 'error', 'enum', 'fixed'].includes(type.type)) {
+                named[type.name] = type;
+                if (ns && !type.name.includes('.')) named[ns + '.' + type.name] = type;
+            }
+            if (type.fields) type.fields.forEach((f) => register(f.type, ns));
+            if (type.items) register(type.items, ns);
+            if (type.values) register(type.values, ns);
+        };
+        register(schema, schema.namespace);
+        const iso = (ms) => new Date(ms).toISOString();
+        function read(type, r) {
+            if (typeof type === 'string') {
+                switch (type) {
+                    case 'null': return null;
+                    case 'boolean': return r.buf[r.p++] !== 0;
+                    case 'int': case 'long': return r.long();
+                    case 'float': { const v = r.view.getFloat32(r.p, true); r.p += 4; return v; }
+                    case 'double': { const v = r.view.getFloat64(r.p, true); r.p += 8; return v; }
+                    case 'bytes': return r.bytes();
+                    case 'string': return r.string();
+                    default:
+                        if (named[type]) return read(named[type], r);
+                        throw new Error('Unknown Avro type ' + type);
+                }
+            }
+            if (Array.isArray(type)) return read(type[r.long()], r);
+            const logical = type.logicalType;
+            switch (type.type) {
+                case 'record': case 'error': {
+                    const o = {};
+                    for (const field of type.fields) o[field.name] = read(field.type, r);
+                    return o;
+                }
+                case 'enum': return type.symbols[r.long()];
+                case 'array': {
+                    const out = [];
+                    for (let count = r.long(); count !== 0; count = r.long()) {
+                        if (count < 0) { count = -count; r.long(); }
+                        for (let i = 0; i < count; i++) out.push(read(type.items, r));
+                    }
+                    return out;
+                }
+                case 'map': {
+                    const out = {};
+                    for (let count = r.long(); count !== 0; count = r.long()) {
+                        if (count < 0) { count = -count; r.long(); }
+                        for (let i = 0; i < count; i++) { const key = r.string(); out[key] = read(type.values, r); }
+                    }
+                    return out;
+                }
+                case 'fixed': { const out = r.buf.subarray(r.p, r.p + type.size); r.p += type.size; return logical === 'decimal' ? decimal(out, type.scale) : out; }
+                default: {
+                    const v = read(type.type, r);
+                    if (logical === 'date' && typeof v === 'number') return iso(v * 86400000).slice(0, 10);
+                    if (logical === 'timestamp-millis' || logical === 'local-timestamp-millis') return iso(v);
+                    if (logical === 'timestamp-micros' || logical === 'local-timestamp-micros') return iso(v / 1000);
+                    if (logical === 'time-millis') return new Date(v).toISOString().slice(11, 23);
+                    if (logical === 'decimal' && v instanceof Uint8Array) return decimal(v, type.scale);
+                    return v;
+                }
+            }
+        }
+        function decimal(bytesValue, scale) {
+            let n = 0n;
+            for (const b of bytesValue) n = (n << 8n) | BigInt(b);
+            if (bytesValue.length && bytesValue[0] & 0x80) n -= 1n << BigInt(bytesValue.length * 8);
+            const negative = n < 0n;
+            let digits = (negative ? -n : n).toString().padStart((scale || 0) + 1, '0');
+            if (scale) digits = digits.slice(0, -scale) + '.' + digits.slice(-scale);
+            return (negative ? '-' : '') + digits;
+        }
+        const rows = [];
+        while (header.p < bytes.length && rows.length < 500000) {
+            const count = header.long();
+            const size = header.long();
+            let block = bytes.subarray(header.p, header.p + size);
+            header.p += size + 16; // the block, then the sync marker
+            if (codec === 'deflate') block = lib.inflate(block);
+            else if (codec === 'snappy') {
+                const data = block.subarray(0, block.length - 4); // a CRC-32 follows
+                let length = 0, scale = 1, k = 0, b;
+                do { b = data[k++]; length += (b & 0x7f) * scale; scale *= 128; } while (b & 0x80);
+                block = lib.snappy(data, length);
+            } else if (codec !== 'null') throw new Error('Avro codec ' + codec + ' is not supported (null, deflate and snappy are).');
+            const r = new Reader(block);
+            for (let i = 0; i < count; i++) {
+                const value = read(schema, r);
+                rows.push(value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Uint8Array) ? flatten(value) : { value });
+            }
+        }
+        void sync;
+        return { rows, codec, schema: '<h4>Avro schema</h4><pre>' + esc(JSON.stringify(schema, null, 2)) + '</pre>' };
     }
 
     function describeParquet(metadata, lib) {

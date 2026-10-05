@@ -129,6 +129,20 @@ check(text.contains("2026-03-01") && text.contains("Basil") && text.contains("2 
 text = open("session.har", "table")
 check(text.contains("GET") && text.contains("https://garden.example/api/plants") && text.contains("200"), "HAR: one row per request", text)
 
+text = open("plants.feather", "table")
+check(text.contains("3 rows") && text.contains("Kale") && text.contains("71.2"), "Arrow IPC / Feather", text)
+text = open("plants.avro", "table")
+check(text.contains("3 rows") && text.contains("Mint") && text.contains("2026-03-02") && text.contains("VEG") && text.contains("-3"),
+      "Avro (null codec): records, enum, union, negative long, date", text)
+text = open("plants-deflate.avro", "table")
+check(text.contains("3 rows") && text.contains("spreads") && text.contains("[\"shade\",\"wet\"]"), "Avro (deflate codec): arrays and unions", text)
+text = open("readings-snappy.avro", "table")
+check(text.contains("2 rows") && text.contains("labels.bed") && text.contains("north") && text.contains("12.34") && text.contains("-2.5")
+      && text.contains("2026-10-05T00:01:00.000Z"), "Avro (snappy codec): map, decimal, timestamp", text)
+text = open("harvest.ods", "table")
+check(text.contains("3 rows") && text.contains("Tomato") && text.contains("2026-08-01") && text.contains("Pepper"),
+      "OpenDocument spreadsheet: repeated rows expanded, a million empty rows ignored", text)
+
 text = open("app.log", "log")
 check(text.contains("Error3") && text.contains("Warn1"), "Log: levels counted (stack trace and JSON line are errors)", text)
 text = js("""

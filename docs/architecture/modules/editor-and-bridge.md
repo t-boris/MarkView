@@ -748,7 +748,8 @@ it does not change the app.
 
 ## Data viewers and JSON/YAML editing (Task 84)
 
-- **Routing.** `FileType` has `table` (csv, tsv, tab, psv, jsonl, ndjson, xlsx, xlsm, har), `parquet`
+- **Routing.** `FileType` has `table` (csv, tsv, tab, psv, jsonl, ndjson, xlsx, xlsm, ods, har, arrow, feather,
+  ipc, arrows, avro), `parquet`
   (parquet, pq), `sqlite` (sqlite, sqlite3, db, db3) and `log` (log, out, txt). `WorkspaceManager.openFile`
   opens them as `TabKind.data` tabs: no text is read and nothing is ever written back (`isFileBacked` false).
   `EditorView` calls `WebViewBridge.loadDataContent` → `window.setDataContent({src, kind, name, reload})`.
@@ -757,7 +758,13 @@ it does not change the app.
   allows `connect-src markview-data:` and `'wasm-unsafe-eval'` (WebAssembly only) for sql.js.
 - **Libraries** (`tools/web-vendor/data-entry.js` → `vendor/js/data.bundle.js`, `window.MVData`, loaded on first
   use): sql.js 1.14 (SQLite in WebAssembly, wasm inlined), papaparse 5.7, hyparquet 1.31 +
-  hyparquet-compressors 1.1, yaml 2.9 (comment-preserving documents), fflate 0.8 (xlsx unzip).
+  hyparquet-compressors 1.1, yaml 2.9 (comment-preserving documents), fflate 0.8 (xlsx/ods unzip, Avro deflate),
+  apache-arrow 21 (Arrow IPC file/stream and Feather v2; uncompressed buffers — LZ4/ZSTD-compressed Arrow buffers
+  are not decoded in JS).
+- **Avro** is decoded by `readAvro` (no library: the npm ones need Node's Buffer): object container header
+  (`avro.schema`, `avro.codec`), blocks with null, deflate or snappy (hyparquet's snappy; the CRC is skipped), all
+  types incl. named types, unions, maps, fixed and the logical types date, timestamp-millis/micros, time-millis and
+  decimal. **OpenDocument** (`readOpenDocument`) expands repeated rows/cells only where they hold a value.
 - **Tables** (`markview-data.js` `TableViewer`): rows go into an in-memory SQLite table `data` (Excel: one table
   per sheet; SQLite files are opened directly) with numeric columns typed NUMERIC. Sort, per-column filters
   (`>10`, `<=5`, `=x`, `!=x`, `null`, `!null`, text) and the global search become `WHERE`/`ORDER BY` around the
