@@ -39,6 +39,8 @@ enum WorkspaceTabState: Codable {
     case architecture(String)
     case terminal(URL)
     case browser(URL)
+    /// A data file tab (table, Parquet, SQLite, log); added in 4.7.
+    case data(URL)
 }
 
 struct WindowSessionArchive: Codable {

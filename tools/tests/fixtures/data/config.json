@@ -1,0 +1,5 @@
+{
+    "name": "garden",
+    "version": 1,
+    "plants": ["basil", "mint"]
+}

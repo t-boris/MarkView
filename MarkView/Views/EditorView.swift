@@ -18,6 +18,17 @@ struct EditorView: NSViewRepresentable {
 
         config.userContentController = userController
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        // Data viewers read their file through `markview-data:` (only files open in a data tab).
+        let dataFiles = DataFileSchemeHandler()
+        dataFiles.isAllowed = { [weak workspaceManager] url in
+            MainActor.assumeIsolated {
+                workspaceManager?.openTabs.contains { tab in
+                    if case .data = tab.kind { return tab.url.standardizedFileURL.path == url.standardizedFileURL.path }
+                    return false
+                } ?? false
+            }
+        }
+        config.setURLSchemeHandler(dataFiles, forURLScheme: DataFileSchemeHandler.scheme)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -312,14 +323,26 @@ struct EditorView: NSViewRepresentable {
             case .insight(let session):
                 currentCodeURL = nil
                 architectureCancellable = nil
-                webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView()")
+                webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView(); window.leaveDataView && window.leaveDataView()")
                 routeInsight(session: session, webView: webView)
                 return
             case .architecture(let scope):
+                webView.evaluateJavaScript("window.leaveDataView && window.leaveDataView()")
                 routeArchitecture(scope: scope, webView: webView)
                 return
             case .terminal, .image, .github, .browser:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
+                return
+            case .data:
+                guard let documentURL else { return }
+                currentCodeURL = nil
+                architectureCancellable = nil
+                let loadKey = "data\u{1}\(tab?.dataRevision ?? 0)"
+                guard loadKey != lastLoadedContent || documentURL.standardizedFileURL != lastLoadedDocumentURL else { return }
+                let reload = documentURL.standardizedFileURL == lastLoadedDocumentURL
+                lastLoadedContent = loadKey
+                lastLoadedDocumentURL = documentURL.standardizedFileURL
+                bridge.loadDataContent(documentURL, fileType: FileType.from(url: documentURL).rawValue, reload: reload, into: webView)
                 return
             case .file:
                 currentLineRevealURL = documentURL?.standardizedFileURL

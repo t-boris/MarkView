@@ -160,9 +160,19 @@ pull requests. *New Research* runs in the background and writes a cited report t
 - **Selection actions:** translate (RU / EN), explain, ask, challenge, expand, find edge
   cases, find contradictions, research — or turn the text into a requirement, decision or
   question of the current feature.
-- **Viewers:** CodeMirror 6 for 45 languages, collapsible JSON / YAML / XML / plist trees,
-  JSON Canvas, and an image viewer (PNG, JPEG, HEIC, WebP, SVG, RAW…) with zoom around the
-  cursor.
+- **Viewers:** CodeMirror 6 for 45 languages, collapsible XML / plist trees, JSON Canvas,
+  and an image viewer (PNG, JPEG, HEIC, WebP, SVG, RAW…) with zoom around the cursor.
+- **JSON and YAML you can edit** in the tree — double-click a value or a key, **+** and **×**
+  on any line — or in a source editor with syntax checking. YAML keeps its comments; JSON keeps
+  its indentation.
+- **Data files as tables, with SQL.** CSV, TSV, PSV, JSON Lines / NDJSON, **Parquet** (snappy,
+  zstd, gzip, brotli, lz4), **SQLite** databases, **Excel** workbooks (every sheet) and **HAR**
+  network logs open in a fast grid: sort by any column, filter each column (`>10`, `=x`, `null`),
+  search everything, see column statistics, and query with real SQL (SQLite in WebAssembly) —
+  `SELECT plant, AVG(height) FROM data GROUP BY plant`. Export or copy the result.
+- **Log viewer** for `.log`, `.out` and `.txt`: levels (error, warn, info, debug…) with counts
+  and filters, JSON log lines and stack traces understood, search with regex and *only
+  matches*, **Next error**, wrap, and **Follow** to watch a growing log.
 - **Search the whole project** (**⌘⇧K**) with an SQLite FTS5 index; find in file (**⌘F**)
   with case and regex.
 - **Dictation** (🎤) in the terminal, intake forms and discussions — speech to text with

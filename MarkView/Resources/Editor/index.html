@@ -18,7 +18,7 @@
       page never executes LLM-derived script. See task 5 / tech-spec Decisions
       2, 3, 5, 10, 11.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self'; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' markview-data:; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
     <!-- KaTeX CSS -->
@@ -977,6 +977,17 @@
         .struct-toolbar button { background: var(--bg-tertiary, #2d2d2d); color: var(--text-secondary); border: 1px solid var(--border-color);
                                  border-radius: 4px; padding: 3px 10px; font-size: calc(11px * var(--ui-scale, 1)); cursor: pointer; font-family: var(--font-sans); }
         .struct-toolbar button:hover { background: var(--accent-primary); color: #fff; }
+        /* Editing JSON / YAML in the tree and in the source editor (markview-structured.js). */
+        .struct-hint { color: var(--text-tertiary); font-size: calc(11px * var(--ui-scale, 1)); align-self: center; margin-right: 8px; }
+        .struct-actions { display: none; margin-left: 8px; gap: 3px; }
+        .struct-editable .struct-line:hover > .struct-actions { display: inline-flex; }
+        .struct-act { border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-secondary); border-radius: 3px; padding: 0 5px; line-height: 14px; cursor: pointer; font-size: calc(11px * var(--ui-scale, 1)); }
+        .struct-act:hover { background: var(--accent-primary); color: #fff; }
+        .struct-editable .struct-value, .struct-editable .struct-key { cursor: text; }
+        .struct-inline-input { font-family: var(--font-mono); font-size: inherit; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--accent-primary); border-radius: 3px; padding: 0 4px; }
+        .struct-source-status { padding: 3px 12px; border-bottom: 1px solid var(--border-color); font-size: calc(11px * var(--ui-scale, 1)); }
+        .struct-source-status.ok { color: var(--accent-success); }
+        .struct-source-status.bad { color: var(--accent-danger); }
         .struct-toolbar .spacer { flex: 1; }
         .struct-toolbar .struct-path { color: var(--text-secondary); font-size: calc(11px * var(--ui-scale, 1)); font-family: var(--font-mono); }
 
@@ -1429,6 +1440,7 @@
 
             <!-- Read-only code viewer (markview-code.js + codemirror.bundle.js) -->
             <div class="code-container" id="code-container"></div>
+            <div class="data-container" id="data-container"></div>
 
             <!-- Architecture tab (markview-architecture.js + cytoscape/elk) -->
             <div class="arch-container" id="arch-container">
@@ -1639,6 +1651,8 @@
     <script src="vendor/js/markview-architecture.js"></script>
     <script src="vendor/js/markview-diagram-viewer.js"></script>
     <script src="vendor/js/markview-d3-mermaid.js"></script>
+    <!-- markview-data.js wraps setContent / setStructuredContent / setCodeContent: load after them. -->
+    <script src="vendor/js/markview-data.js"></script>
     <script src="vendor/js/markview-init.js"></script>
     <script>
         (function() {

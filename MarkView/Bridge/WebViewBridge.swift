@@ -439,6 +439,15 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.documentGotoLine && window.documentGotoLine(\(line))")
     }
 
+    /// Show a data file (table, Parquet, SQLite, log): the page fetches it from `markview-data:`.
+    /// `reload`: the same file changed on disk (a followed log keeps following).
+    func loadDataContent(_ url: URL, fileType: String, reload: Bool, into webView: WKWebView) {
+        let source = DataFileSchemeHandler.address(of: url)
+        let payload: [String: Any] = ["src": source, "kind": fileType, "name": url.lastPathComponent, "reload": reload]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.setDataContent && window.setDataContent(\(json))")
+    }
+
     func loadStructuredContent(_ content: String, fileType: String, into webView: WKWebView, completion: @escaping () -> Void) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: [content], options: []),
               let jsonArrayString = String(data: jsonData, encoding: .utf8) else {

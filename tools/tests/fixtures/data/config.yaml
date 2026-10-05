@@ -1,0 +1,6 @@
+# Garden config
+name: garden   # the project
+version: 1
+plants:
+  - basil
+  - mint

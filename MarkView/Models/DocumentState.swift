@@ -11,6 +11,22 @@ enum FileType: String {
     case canvas
     /// Source code or plain text, shown read-only in the code viewer.
     case code
+    /// Data files with their own viewers (Task 84), read by the page from `markview-data:`:
+    /// tables (CSV, TSV, JSON Lines…) with SQL, Parquet, SQLite databases and logs.
+    case table
+    case parquet
+    case sqlite
+    case log
+
+    static let tableExtensions: Set<String> = ["csv", "tsv", "tab", "psv", "jsonl", "ndjson", "xlsx", "xlsm", "har"]
+    static let parquetExtensions: Set<String> = ["parquet", "pq"]
+    static let sqliteExtensions: Set<String> = ["sqlite", "sqlite3", "db", "db3"]
+    static let logExtensions: Set<String> = ["log", "out", "txt"]
+
+    /// A data file: opened without reading it as text, shown by the page's data viewers.
+    static func isData(_ url: URL) -> Bool {
+        [.table, .parquet, .sqlite, .log].contains(from(url: url))
+    }
 
     static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
 
@@ -20,7 +36,7 @@ enum FileType: String {
         "xml", "plist", "xsd", "xsl", "xslt", "svg",
         "yml", "yaml",
         "canvas"
-    ])
+    ]).union(tableExtensions).union(parquetExtensions).union(sqliteExtensions).union(logExtensions)
 
     /// Whether the app can open `url` as text — a dedicated viewer or the code viewer.
     static func isSupported(_ url: URL) -> Bool {
@@ -48,6 +64,10 @@ enum FileType: String {
         case "xml", "plist", "xsd", "xsl", "xslt", "svg": return .xml
         case "yml", "yaml": return .yaml
         case "canvas": return .canvas
+        case _ where tableExtensions.contains(ext): return .table
+        case _ where parquetExtensions.contains(ext): return .parquet
+        case _ where sqliteExtensions.contains(ext): return .sqlite
+        case _ where logExtensions.contains(ext): return .log
         default: return codeLanguage(for: url) != nil ? .code : .markdown
         }
     }
@@ -153,6 +173,8 @@ enum TabKind {
     case github(GitHubItem)
     /// A web page (a local development server or any site), shown by `BrowserTabView`.
     case browser(BrowserSession)
+    /// A data file (`FileType.isData`): the editor page reads it itself and never writes it.
+    case data
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
@@ -199,6 +221,8 @@ struct OpenTab: Identifiable {
     var scrollPosition: CGFloat = 0
     /// A markdown document shown like code, with the Explain margin notes.
     var notesView = false
+    /// Bumped when a data tab's file changes on disk: its viewer reads it again (a log follows).
+    var dataRevision = 0
 
     // Semantic block extraction (DDE Stage 1)
     var blocks: [SemanticBlock] = []

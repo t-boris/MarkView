@@ -919,6 +919,17 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
+        // Data files: the page's viewers read them (they may be binary or very large).
+        if FileType.isData(url) {
+            var tab = OpenTab(url: url, content: "", originalContent: "")
+            tab.kind = .data
+            tabsStore.appendTab(tab)
+            openFileDates[url] = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            addRecentFile(url)
+            startWatchingOpenFiles()
+            return
+        }
+
         // Images: the image viewer reads the file itself.
         if FileType.isImage(url) {
             var tab = OpenTab(url: url, content: "", originalContent: "")
@@ -968,6 +979,7 @@ class WorkspaceManager: ObservableObject {
                 let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
                 saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(tab.scrollPosition))
             case .image: saved = .image(tab.url)
+            case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
             case .terminal(let terminalID):
@@ -1024,7 +1036,7 @@ class WorkspaceManager: ObservableObject {
                     tab.notesView = notes
                     tab.scrollPosition = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
                 }
-            case .image(let url):
+            case .image(let url), .data(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
             case .architecture(let scope):
@@ -4562,6 +4574,15 @@ class WorkspaceManager: ObservableObject {
     /// (a branch switch can restore older modification dates).
     private func reloadChangedOpenFiles(all: Bool = false) {
         var changed = false
+        // Data tabs: the viewer reads the file again (a followed log scrolls to the new end).
+        for index in openTabs.indices {
+            guard case .data = openTabs[index].kind else { continue }
+            let url = openTabs[index].url
+            guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
+            defer { openFileDates[url] = date }
+            guard let seen = openFileDates[url], date > seen else { continue }
+            tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
+        }
         for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
             let url = openTabs[index].url
             guard let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else { continue }
