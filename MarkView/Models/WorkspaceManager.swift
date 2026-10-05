@@ -638,6 +638,8 @@ class WorkspaceManager: ObservableObject {
         recent.insert(url.standardizedFileURL.path, at: 0)
         setRecentProjects(Array(recent.prefix(8)))
         rootOpenedAsFolder = true
+        // Agents working in this folder can reach its browser tabs even from outside its terminals (BUG-027).
+        if TerminalBrowserBridge.isEnabled { registerBrowserControl() }
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
         architecture.reset()
@@ -3769,6 +3771,7 @@ class WorkspaceManager: ObservableObject {
     /// Offer this window's browser tabs to agents (`BrowserControlServer`).
     private func registerBrowserControl() {
         BrowserControlServer.register(browserControlID, .init(
+            root: { [weak self] in self?.rootNode?.url },
             tabs: { [weak self] in self?.browserSessions ?? [] },
             active: { [weak self] in
                 guard let self, self.openTabs.indices.contains(self.activeTabIndex),

@@ -165,16 +165,28 @@ enum BrowserAgentTools {
             arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
         }
         let ancestors = ancestorPIDs()
-        let socket = value("--socket") ?? ancestors.lazy.map(socketPath(forApp:)).first {
-            FileManager.default.fileExists(atPath: $0)
-        } ?? ""
+        let fromAncestors = ancestors.lazy.map(socketPath(forApp:)).first { FileManager.default.fileExists(atPath: $0) }
+        // BUG-027: an agent that runs its tools in a background process (Cline's hub daemon) has no
+        // MarkView among its ancestors; then any running MarkView is used and the window is chosen
+        // by the folder the agent works in (`cwd` in each request).
+        let fallbacks = value("--socket") == nil && fromAncestors == nil ? runningAppSockets() : []
+        let socket = value("--socket") ?? fromAncestors ?? fallbacks.first ?? ""
         let window = value("--window") ?? ""
-        if arguments.contains("--diagnose") { diagnose(socket: socket, window: window, ancestors: ancestors) }
+        let cwd = FileManager.default.currentDirectoryPath
+        if arguments.contains("--diagnose") {
+            diagnose(socket: socket, window: window, ancestors: ancestors, viaAncestors: fromAncestors != nil || value("--socket") != nil, cwd: cwd)
+        }
         while let line = Swift.readLine(strippingNewline: true) {
             guard !line.isEmpty, let data = line.data(using: .utf8),
                   let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
             guard let answer = handle(message, available: !socket.isEmpty, call: { tool, args in
-                request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "tool": tool, "arguments": args])
+                let payload: [String: Any] = ["window": window, "pids": ancestors.map(Int.init), "cwd": cwd, "tool": tool, "arguments": args]
+                // Found by socket only: ask each running MarkView until one has the agent's folder open.
+                for candidate in fallbacks.dropLast() {
+                    let reply = request(socket: candidate, payload: payload)
+                    if !(reply.isError && reply.text.hasPrefix(noWindowPrefix)) { return reply }
+                }
+                return request(socket: fallbacks.last ?? socket, payload: payload)
             }), let out = try? JSONSerialization.data(withJSONObject: answer) else { continue }
             FileHandle.standardOutput.write(out + Data("\n".utf8))
         }
@@ -184,7 +196,7 @@ enum BrowserAgentTools {
     /// `MarkView --mcp-browser --diagnose`, typed in a terminal where an agent lacks the browser tools
     /// (BUG-026): which processes are above it, whether a MarkView is among them, and whether that
     /// MarkView knows the window. Prints and exits.
-    static func diagnose(socket: String, window: String, ancestors: [Int32]) -> Never {
+    static func diagnose(socket: String, window: String, ancestors: [Int32], viaAncestors: Bool, cwd: String) -> Never {
         func name(_ pid: Int32) -> String {
             var info = kinfo_proc()
             var size = MemoryLayout<kinfo_proc>.stride
@@ -194,13 +206,14 @@ enum BrowserAgentTools {
         }
         print("MarkView browser tools — diagnosis")
         print("Parent processes: " + ancestors.map { "\($0) \(name($0))" }.joined(separator: " ← "))
+        print("Working folder: \(cwd)")
         guard !socket.isEmpty else {
-            print("✗ No MarkView is among the parent processes: this terminal was not opened by MarkView, or the agent")
-            print("  runs its tools in a background process. Start the agent in a MarkView terminal (AI panel or Open Terminal Here).")
+            print("✗ MarkView is not running (no control socket found).")
             exit(1)
         }
-        print("✓ MarkView found: \(socket)")
-        let reply = request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "tool": "browser_tabs", "arguments": [String: Any]()], timeout: 10)
+        print(viaAncestors ? "✓ MarkView found among the parent processes: \(socket)"
+                           : "✓ MarkView found by its socket (the agent runs its tools in a background process): \(socket)")
+        let reply = request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "cwd": cwd, "tool": "browser_tabs", "arguments": [String: Any]()], timeout: 10)
         print(reply.isError ? "✗ " + reply.text : "✓ The window answered. Its browser tabs:\n" + reply.text)
         exit(reply.isError ? 1 : 0)
     }
@@ -209,6 +222,30 @@ enum BrowserAgentTools {
     /// by the system, not from `$TMPDIR`, which MCP clients may not pass on).
     static func socketPath(forApp pid: Int32) -> String {
         FileManager.default.temporaryDirectory.appendingPathComponent("mv-browser-\(pid).sock").path
+    }
+
+    /// How the app's reply starts when no window has the agent's folder (another MarkView may have it).
+    static let noWindowPrefix = "No MarkView window has the folder"
+
+    /// Control sockets of MarkView processes that are running, newest process first.
+    static func runningAppSockets() -> [String] {
+        let folder = FileManager.default.temporaryDirectory.path
+        let pids = ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).compactMap { name -> Int32? in
+            guard name.hasPrefix("mv-browser-"), name.hasSuffix(".sock") else { return nil }
+            return Int32(name.dropFirst("mv-browser-".count).dropLast(".sock".count))
+        }.filter { kill($0, 0) == 0 || errno == EPERM }
+        return pids.sorted(by: >).map(socketPath(forApp:))
+    }
+
+    /// The window whose project folder holds `cwd` (the deepest one), else the only window.
+    static func windowIndex(forFolder cwd: String, roots: [String?]) -> Int? {
+        let path = (cwd as NSString).standardizingPath
+        let matches = roots.enumerated().compactMap { index, root -> (Int, Int)? in
+            guard let root = root.map({ ($0 as NSString).standardizingPath }), !root.isEmpty else { return nil }
+            return path == root || path.hasPrefix(root + "/") ? (index, root.count) : nil
+        }
+        if let best = matches.max(by: { $0.1 < $1.1 }) { return best.0 }
+        return roots.count == 1 ? 0 : nil
     }
 
     /// This process's parent, grandparent… up to launchd.

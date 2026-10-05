@@ -39,6 +39,11 @@ check(BrowserAgentTools.tabIndex("3", in: tabs) == 2, "a tab by its number")
 check(BrowserAgentTools.tabIndex("stripe", in: tabs) == 2, "a tab by part of its title")
 check(BrowserAgentTools.tabIndex("https", in: tabs) == nil, "an ambiguous part matches nothing")
 check(BrowserAgentTools.nextTabName(taken: ["T1", "Jira", "T3"]) == "T2", "the next free default name")
+check(BrowserAgentTools.windowIndex(forFolder: "/w/garden/src", roots: ["/w/other", "/w/garden", "/w"]) == 1,
+      "an agent outside the terminals: the window whose project holds its folder, the deepest")
+check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/garden"]) == 0, "else the only window")
+check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/a", "/w/b"]) == nil, "several windows and none matches: none")
+check(BrowserAgentTools.windowIndex(forFolder: "/w/gardening", roots: ["/w/garden", "/w/b"]) == nil, "a name prefix is not a parent folder")
 check(BrowserAgentTools.reportsPolicyBlock("\u{1b}[31m✗ MCP server was blocked by policy: \"markview-browser\"\u{1b}[0m"),
       "Copilot's policy block is recognised")
 check(!BrowserAgentTools.reportsPolicyBlock("MCP server was blocked by policy: \"github\"") && !BrowserAgentTools.reportsPolicyBlock("markview-browser ready"),
@@ -107,6 +112,7 @@ check(received["tool"] as? String == "browser_navigate" && (received["pids"] as?
       && (received["arguments"] as? [String: Any])?["url"] as? String == "localhost:5173",
       "found through its parent process, the call reached the app with its ancestors", "\(received)")
 check(lines.last?.contains("Garden") == true, "the app's reply came back as the tool result", out)
+check((received["cwd"] as? String)?.isEmpty == false, "the request names the agent's folder")
 let unreachable = BrowserAgentTools.request(socket: socketPath + ".missing", payload: [:], timeout: 1)
 check(unreachable.isError && unreachable.text.contains("not reachable"), "a closed app is reported, not hung on")
 unlink(socketPath)
