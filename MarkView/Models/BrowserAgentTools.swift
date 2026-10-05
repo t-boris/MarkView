@@ -289,6 +289,13 @@ enum BrowserAgentTools {
         return root
     }
 
+    /// Whether an MCP client's output says it refused the server by policy (a Copilot organisation
+    /// that allows only listed MCP servers): `MCP server was blocked by policy: "markview-browser"`.
+    static func reportsPolicyBlock(_ output: String) -> Bool {
+        let text = output.lowercased()
+        return text.contains("blocked by policy") && text.contains(serverName)
+    }
+
     /// The next free default name: T1, T2…
     static func nextTabName(taken: [String]) -> String {
         let used = Set(taken.map { $0.lowercased() })

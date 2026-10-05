@@ -343,6 +343,9 @@ MarkView it lists no tools. Globe menu → "Connect Agents to MarkView's Browser
 registers that form once for Claude Code (`claude mcp add --scope user`), Codex (`codex mcp add`), Copilot
 (`~/.copilot/mcp-config.json`) and Cline (`~/.cline/data/settings/cline_mcp_settings.json`), keeping the rest of
 those files.
+Globe menu → "Browser Tools for Agents" turns the server off per agent and Mac (`browser.agentTools.<tool>`). A
+Copilot terminal printing `MCP server was blocked by policy: "markview-browser"` (an organisation that lists its
+allowed MCP servers) turns it off for Copilot and offers to restart Copilot without it (BUG-025).
 
 ### B.2 Files
 

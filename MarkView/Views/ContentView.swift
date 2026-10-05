@@ -180,6 +180,9 @@ struct ContentView: View {
     @State private var restorationComplete = false
     @State private var lastFilesTab: UUID?
     @AppStorage(TerminalBrowserBridge.enabledKey) private var openTerminalLinksInApp = true
+    @AppStorage(BrowserControlServer.agentToolsKey(.claude)) private var browserToolsClaude = true
+    @AppStorage(BrowserControlServer.agentToolsKey(.codex)) private var browserToolsCodex = true
+    @AppStorage(BrowserControlServer.agentToolsKey(.copilot)) private var browserToolsCopilot = true
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -488,6 +491,12 @@ struct ContentView: View {
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
+            Menu("Browser Tools for Agents") {
+                Toggle("Claude Code", isOn: $browserToolsClaude)
+                Toggle("Codex", isOn: $browserToolsCodex)
+                Toggle("Copilot", isOn: $browserToolsCopilot)
+                Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
+            }
             Button("Connect Agents to MarkView's Browser…") { AgentBrowserRegistration.connectInteractively() }
                 .help("Let Claude Code, Codex, Copilot and Cline drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
