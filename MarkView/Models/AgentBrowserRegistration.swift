@@ -21,28 +21,51 @@ enum AgentBrowserRegistration {
     /// Register for every agent that is installed; off the main thread.
     static func registerAll(executable: String) async -> [Outcome] {
         var outcomes: [Outcome] = []
+        // An agent that is not found is reported, not skipped silently (BUG-026).
+        let missing = { (agent: String) in Outcome(agent: agent, ok: false, detail: "not found — set its path in Settings (⌘⇧,) and connect again") }
         if let claude = CLIToolLocator.resolve(.claude) {
             _ = await CLIToolLocator.run(claude, ["mcp", "remove", "--scope", "user", BrowserAgentTools.serverName], timeout: 30)
             let result = await CLIToolLocator.run(claude, ["mcp", "add", "--scope", "user", BrowserAgentTools.serverName, "--", executable, "--mcp-browser"], timeout: 30)
             outcomes.append(Outcome(agent: "Claude Code", ok: result.exitCode == 0,
                                     detail: result.exitCode == 0 ? "user scope" : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)))
-        }
+        } else { outcomes.append(missing("Claude Code")) }
         if let codex = CLIToolLocator.resolve(.codex) {
             _ = await CLIToolLocator.run(codex, ["mcp", "remove", "markview_browser"], timeout: 30)
             let result = await CLIToolLocator.run(codex, ["mcp", "add", "markview_browser", "--", executable, "--mcp-browser"], timeout: 30)
             outcomes.append(Outcome(agent: "Codex", ok: result.exitCode == 0,
                                     detail: result.exitCode == 0 ? "~/.codex/config.toml" : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)))
-        }
+        } else { outcomes.append(missing("Codex")) }
         if CLIToolLocator.resolve(.copilot) != nil {
             let entry: [String: Any] = ["type": "local", "command": executable, "args": ["--mcp-browser"], "tools": ["*"]]
             outcomes.append(addServer(entry, to: copilotConfig, agent: "Copilot"))
-        }
+        } else { outcomes.append(missing("Copilot")) }
         if CLIToolLocator.resolve(.cline) != nil {
-            let entry: [String: Any] = ["transport": ["type": "stdio", "command": executable, "args": ["--mcp-browser"]] as [String: Any],
-                                        "disabled": false, "autoApprove": [String](), "timeout": 120]
-            outcomes.append(addServer(entry, to: clineConfig, agent: "Cline"))
-        }
+            outcomes.append(addServer(clineEntry(executable: executable), to: clineConfig, agent: "Cline"))
+        } else { outcomes.append(missing("Cline")) }
         return outcomes
+    }
+
+    static func clineEntry(executable: String) -> [String: Any] {
+        ["transport": ["type": "stdio", "command": executable, "args": ["--mcp-browser"]] as [String: Any],
+         "disabled": false, "autoApprove": [String](), "timeout": 120]
+    }
+
+    /// BUG-026: Cline has no per-session MCP option, so a Cline started from the AI panel had no
+    /// browser tools until "Connect Agents…" was run on that Mac. Before it starts, make sure its
+    /// settings list the server (outside MarkView terminals the server offers no tools). Writes only
+    /// when the entry is missing or points at another copy of MarkView; off the main thread.
+    static func ensureCline(executable: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let data = try? Data(contentsOf: clineConfig),
+               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let entry = (root["mcpServers"] as? [String: Any])?[BrowserAgentTools.serverName] as? [String: Any],
+               let transport = entry["transport"] as? [String: Any], transport["command"] as? String == executable,
+               entry["disabled"] as? Bool != true {
+                return
+            }
+            let outcome = addServer(clineEntry(executable: executable), to: clineConfig, agent: "Cline")
+            NSLog("[MarkView] Cline browser tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
+        }
     }
 
     /// Put `entry` under `mcpServers["markview-browser"]` of a JSON settings file, keeping the rest.
@@ -85,9 +108,10 @@ enum AgentBrowserRegistration {
         Task {
             let outcomes = await registerAll(executable: executable)
             let report = NSAlert()
-            report.messageText = outcomes.isEmpty ? "No agent CLI was found." : "Agents connected to MarkView's browser"
+            report.messageText = outcomes.contains(where: \.ok) ? "Agents connected to MarkView's browser" : "No agent was connected"
             report.informativeText = outcomes.map { "\($0.ok ? "✓" : "✗") \($0.agent) — \($0.detail)" }.joined(separator: "\n")
-                + (outcomes.isEmpty ? "" : "\n\nAgents already running pick it up when restarted.")
+                + "\n\nAgents already running pick it up when restarted. In a MarkView terminal, "
+                + "`/Applications/MarkView.app/Contents/MacOS/MarkView --mcp-browser --diagnose` checks the connection."
             report.runModal()
         }
     }

@@ -3736,7 +3736,8 @@ class WorkspaceManager: ObservableObject {
                   let json = String(data: data, encoding: .utf8) else { return [] }
             return ["--additional-mcp-config", shellQuote(json)]
         case .cline:
-            // Cline has no per-session option: "Connect Agents to MarkView's Browser…" registers it.
+            // Cline has no per-session option: its own settings must list the server (BUG-026).
+            AgentBrowserRegistration.ensureCline(executable: server.command)
             return []
         }
     }

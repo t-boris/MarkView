@@ -169,6 +169,7 @@ enum BrowserAgentTools {
             FileManager.default.fileExists(atPath: $0)
         } ?? ""
         let window = value("--window") ?? ""
+        if arguments.contains("--diagnose") { diagnose(socket: socket, window: window, ancestors: ancestors) }
         while let line = Swift.readLine(strippingNewline: true) {
             guard !line.isEmpty, let data = line.data(using: .utf8),
                   let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
@@ -178,6 +179,30 @@ enum BrowserAgentTools {
             FileHandle.standardOutput.write(out + Data("\n".utf8))
         }
         exit(0)
+    }
+
+    /// `MarkView --mcp-browser --diagnose`, typed in a terminal where an agent lacks the browser tools
+    /// (BUG-026): which processes are above it, whether a MarkView is among them, and whether that
+    /// MarkView knows the window. Prints and exits.
+    static func diagnose(socket: String, window: String, ancestors: [Int32]) -> Never {
+        func name(_ pid: Int32) -> String {
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.stride
+            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+            guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return "?" }
+            return withUnsafeBytes(of: info.kp_proc.p_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        }
+        print("MarkView browser tools — diagnosis")
+        print("Parent processes: " + ancestors.map { "\($0) \(name($0))" }.joined(separator: " ← "))
+        guard !socket.isEmpty else {
+            print("✗ No MarkView is among the parent processes: this terminal was not opened by MarkView, or the agent")
+            print("  runs its tools in a background process. Start the agent in a MarkView terminal (AI panel or Open Terminal Here).")
+            exit(1)
+        }
+        print("✓ MarkView found: \(socket)")
+        let reply = request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "tool": "browser_tabs", "arguments": [String: Any]()], timeout: 10)
+        print(reply.isError ? "✗ " + reply.text : "✓ The window answered. Its browser tabs:\n" + reply.text)
+        exit(reply.isError ? 1 : 0)
     }
 
     /// The control socket of the MarkView process `pid`: in the user's temporary folder (resolved

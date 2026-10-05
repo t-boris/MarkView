@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## Task 85: Cline without browser tools (BUG-026, 2026-10-05, 4.8.1)
+
+Boris (work computer): Cline says it has no browser control in this session.
+
+- [x] Real Cline 3.0.65 and 3.0.68 (interactive via `script`, prompt mode) start the MCP server from the terminal
+      process: discovery works once Cline's settings list the server. This Mac had no registration for any agent.
+- [x] Cline from the AI panel: entry ensured automatically; Connect Agents reports missing agents;
+      `--mcp-browser --diagnose`; stale sockets removed.
+- [x] Registered all agents on this Mac (backup of Cline's settings in /tmp/claude-501).
+
 ## Task 84: data viewers — tables with SQL, Parquet, SQLite, Excel, HAR, logs; editable JSON/YAML (2026-10-05, 4.7.0)
 
 Boris (/goal): CSV with query, filter, sort; logs and TXT; Parquet and as many standards as possible, each with its

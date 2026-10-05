@@ -56,6 +56,7 @@ enum BrowserControlServer {
 
     private static func listen(at path: String) -> Bool {
         unlink(path)
+        removeStaleSockets(near: path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0, var address = BrowserAgentTools.unixAddress(path) else { return false }
         let bound = withUnsafePointer(to: &address) {
@@ -76,6 +77,17 @@ enum BrowserControlServer {
         thread.name = "MarkView browser control"
         thread.start()
         return true
+    }
+
+    /// Sockets of MarkView processes that are gone (they are not removed on quit).
+    private static func removeStaleSockets(near path: String) {
+        let folder = (path as NSString).deletingLastPathComponent
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [] {
+            guard name.hasPrefix("mv-browser-"), name.hasSuffix(".sock"),
+                  let pid = Int32(name.dropFirst("mv-browser-".count).dropLast(".sock".count)),
+                  pid != ProcessInfo.processInfo.processIdentifier else { continue }
+            if kill(pid, 0) != 0 && errno == ESRCH { unlink((folder as NSString).appendingPathComponent(name)) }
+        }
     }
 
     /// One connection: a request line in, a reply line out.
