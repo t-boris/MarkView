@@ -344,6 +344,10 @@ registers that form once for Claude Code (`claude mcp add --scope user`), Codex 
 (`~/.copilot/mcp-config.json`) and Cline (`~/.cline/data/settings/cline_mcp_settings.json`), keeping the rest of
 those files.
 Globe menu → "Browser Tools for Agents" turns the server off per agent and Mac (`browser.agentTools.<tool>`). A
+Cline started from the AI panel gets the entry in its settings automatically when missing
+(`AgentBrowserRegistration.ensureCline`, BUG-026); "Connect Agents…" reports agents it cannot find; and
+`MarkView --mcp-browser --diagnose` prints the parent processes, the MarkView found and the window's tabs. Sockets of
+MarkView processes that are gone are removed at launch. A
 Copilot terminal printing `MCP server was blocked by policy: "markview-browser"` (an organisation that lists its
 allowed MCP servers) turns it off for Copilot and offers to restart Copilot without it (BUG-025).
 
