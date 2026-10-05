@@ -11,6 +11,8 @@ enum BrowserControlServer {
     /// What a window offers agents: its browser tabs, the active one, bringing one to the front,
     /// and opening a new one.
     struct Window {
+        /// The window's project folder (agents outside its terminals are matched by their folder).
+        var root: () -> URL?
         var tabs: () -> [BrowserSession]
         var active: () -> BrowserSession?
         var show: (BrowserSession) -> Void
@@ -101,10 +103,11 @@ enum BrowserControlServer {
         }
         let window = (request["window"] as? String).flatMap(UUID.init(uuidString:))
         let pids = (request["pids"] as? [Int] ?? []).map(Int32.init)
+        let cwd = request["cwd"] as? String ?? ""
         let tool = request["tool"] as? String ?? ""
         nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
         Task { @MainActor in
-            let reply = await perform(tool, arguments, window: window, pids: pids)
+            let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd)
             let data = (try? JSONSerialization.data(withJSONObject: reply.json)) ?? Data()
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = BrowserAgentTools.writeAll(client, data + Data("\n".utf8))
@@ -115,13 +118,16 @@ enum BrowserControlServer {
 
     // MARK: - Tools
 
-    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32]) async -> BrowserAgentTools.Reply {
+    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String) async -> BrowserAgentTools.Reply {
         guard TerminalBrowserBridge.isEnabled else {
             return .error("MarkView's browser for terminals is turned off (globe menu → Open Terminal Links in MarkView).")
         }
         let windowID = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
+            ?? windowForFolder(cwd)
         guard let windowID, let window = windows[windowID] else {
-            return .error("The MarkView window of this terminal is closed, or this agent was not started in a MarkView terminal.")
+            let open = windows.values.compactMap { $0.root()?.path }.sorted()
+            return .error(BrowserAgentTools.noWindowPrefix + " this agent works in (\(cwd.isEmpty ? "unknown" : cwd)) open."
+                          + (open.isEmpty ? "" : " Open project windows: " + open.joined(separator: ", ")))
         }
         switch tool {
         case "browser_tabs":
@@ -150,6 +156,14 @@ enum BrowserControlServer {
             session.agentLastUsed = Date()
             return await BrowserAgentExecutor.run(tool, args, in: session)
         }
+    }
+
+    /// BUG-027: an agent running its tools outside the terminal (Cline's background hub): the window
+    /// whose project holds the agent's folder, else the only window.
+    private static func windowForFolder(_ cwd: String) -> UUID? {
+        let entries = Array(windows)
+        guard let index = BrowserAgentTools.windowIndex(forFolder: cwd, roots: entries.map { $0.value.root()?.path }) else { return nil }
+        return entries[index].key
     }
 
     private static func tabList(_ window: Window) -> String {

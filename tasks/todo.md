@@ -1,5 +1,17 @@
 # MarkView — Follow-up Tasks
 
+## Task 86: Cline's hub is not under MarkView (BUG-027, 2026-10-05, 4.8.2)
+
+Boris: Cline's own `--diagnose` run: "MarkView not found among the parent processes, the parent is .cline".
+
+- [x] Fallback: running MarkView sockets (each tried) + window by the agent's working folder (or the only window).
+- [x] Windows register on folder open; `--diagnose` shows folder and how MarkView was found.
+- [x] Harness (window choice); QA: diagnose from outside the terminals; real Cline outside MarkView opened and read a tab.
+
+**Review (lesson):** BUG-026's verification used this Mac's Cline, which spawns MCP servers from the terminal; the
+work computer's runs them in its hub. Parent-process discovery was an assumption about the client, not a fact —
+the fallback no longer depends on how a client spawns its servers.
+
 ## Task 85: Cline without browser tools (BUG-026, 2026-10-05, 4.8.1)
 
 Boris (work computer): Cline says it has no browser control in this session.

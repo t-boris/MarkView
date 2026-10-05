@@ -583,3 +583,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   mention in the feature.
 - A reviewer that may ask for any missing detail never runs dry, because every answer adds detail; give it the
   same "the implementer decides" boundary the question round already has.
+
+## Don't tie a feature to how a third-party client spawns processes (BUG-027, 2026-10-05)
+- MCP-server discovery relied on MarkView being an ancestor of the server. Cline on this Mac spawned servers from
+  the terminal process; on the work computer the same Cline ran them in a background hub under launchd, and the
+  tools vanished. The check here passed only because this machine's client behaved one way.
+- Rule: when a feature depends on a client's process model, add a path that does not (here: the app's socket +
+  the agent's working folder), and give the user a one-command diagnosis to run on the machine you cannot see.
