@@ -3704,7 +3704,7 @@ class WorkspaceManager: ObservableObject {
     /// browser tab (Task 80); none when terminal links do not open in MarkView.
     private func browserToolArgs(for tool: CLITool) -> [String] {
         registerBrowserControl()
-        guard TerminalBrowserBridge.isEnabled,
+        guard TerminalBrowserBridge.isEnabled, BrowserControlServer.agentToolsEnabled(tool),
               let server = BrowserControlServer.mcpArguments(window: browserControlID) else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         switch tool {
@@ -3726,6 +3726,30 @@ class WorkspaceManager: ObservableObject {
         case .cline:
             // Cline has no per-session option: "Connect Agents to MarkView's Browser…" registers it.
             return []
+        }
+    }
+
+    /// BUG-025: an organisation's Copilot policy may allow only listed MCP servers; Copilot then
+    /// prints `MCP server was blocked by policy: "markview-browser"` at every start. On that message
+    /// the server is turned off for Copilot on this Mac, and the terminal can restart without it.
+    private func watchForMCPPolicyBlock(_ session: TerminalSession) {
+        var recent = ""
+        session.onOutput = { [weak self, weak session] data in
+            recent = String((recent + String(decoding: data, as: UTF8.self)).suffix(4_000))
+            guard BrowserAgentTools.reportsPolicyBlock(recent) else { return }
+            recent = ""
+            DispatchQueue.main.async {
+                guard let self, let session, BrowserControlServer.agentToolsEnabled(.copilot) else { return }
+                UserDefaults.standard.set(false, forKey: BrowserControlServer.agentToolsKey(.copilot))
+                let alert = NSAlert()
+                alert.messageText = "Copilot's policy blocks MarkView's browser tools"
+                alert.informativeText = "Your organisation allows Copilot only the MCP servers it lists, so it refused \"\(BrowserAgentTools.serverName)\". MarkView no longer gives Copilot these tools on this Mac (globe menu → Browser Tools for Agents turns them back on). Copilot itself keeps working."
+                alert.addButton(withTitle: "Restart Copilot Without Them")
+                alert.addButton(withTitle: "Later")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                session.restart(profile: session.profile, startupCommand: self.startupCommand(for: session.profile, continuing: true),
+                                title: self.terminalTitle(for: session.profile, excluding: session))
+            }
         }
     }
 
@@ -3796,6 +3820,7 @@ class WorkspaceManager: ObservableObject {
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         session.browserWindowID = browserControlID
         registerBrowserControl()
+        if profile.tool == .copilot { watchForMCPPolicyBlock(session) }
         aiTerminals.append(session)
         activeAITerminalID = session.id
         startWatchingOpenFiles()

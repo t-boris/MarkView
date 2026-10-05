@@ -39,6 +39,10 @@ check(BrowserAgentTools.tabIndex("3", in: tabs) == 2, "a tab by its number")
 check(BrowserAgentTools.tabIndex("stripe", in: tabs) == 2, "a tab by part of its title")
 check(BrowserAgentTools.tabIndex("https", in: tabs) == nil, "an ambiguous part matches nothing")
 check(BrowserAgentTools.nextTabName(taken: ["T1", "Jira", "T3"]) == "T2", "the next free default name")
+check(BrowserAgentTools.reportsPolicyBlock("\u{1b}[31m✗ MCP server was blocked by policy: \"markview-browser\"\u{1b}[0m"),
+      "Copilot's policy block is recognised")
+check(!BrowserAgentTools.reportsPolicyBlock("MCP server was blocked by policy: \"github\"") && !BrowserAgentTools.reportsPolicyBlock("markview-browser ready"),
+      "other servers' blocks and normal output are not")
 let merged = BrowserAgentTools.withServer(["command": "x"], in: ["mcpServers": ["other": ["command": "y"]], "theme": "dark"])
 check(((merged["mcpServers"] as? [String: Any])?.count == 2) && merged["theme"] as? String == "dark", "registration keeps other servers and settings")
 var called: (String, [String: Any])?

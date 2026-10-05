@@ -1,5 +1,13 @@
 # MarkView — Follow-up Tasks
 
+## Task 83: Copilot's MCP policy blocks markview-browser (BUG-025, 2026-10-05, 4.6.1)
+
+Boris (work computer): "MCP server was blocked by policy: "markview-browser"".
+
+- [x] Per-agent, per-Mac switch (globe menu → Browser Tools for Agents).
+- [x] Copilot's policy message detected in its terminal → switch off + "Restart Copilot Without Them".
+- [x] Harness check; Debug build; QA copy with a stand-in Copilot: dialog, switch off, restart without the server.
+
 ## Task 82: agents work in named browser tabs; every agent; real clicks and typing (2026-10-05, 4.6.0)
 
 Boris: "сказать агенту… использовал какой-то таб… и мог управлять им… если я ему открою только ту платформу, чтобы
