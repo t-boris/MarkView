@@ -1,5 +1,32 @@
 # MarkView — Follow-up Tasks
 
+## Task 82: agents work in named browser tabs; every agent; real clicks and typing (2026-10-05, 4.6.0)
+
+Boris: "сказать агенту… использовал какой-то таб… и мог управлять им… если я ему открою только ту платформу, чтобы
+ему не надо было вводить credentials"; "возьми вкладку X… вкладку Y для того-то". Chosen: tab hand-off with Stop,
+all agents, real (trusted) clicks and typing. Logins already persist in the shared WebKit store.
+
+- [x] Named browser tabs (`T1`, `T2`… renamable, e.g. "Jira"); the name shows in the tab bar.
+- [x] Tools: `browser_tabs`, `browser_open_tab`; every tool takes `tab` (name, number, title or host part);
+      without it the active browser tab.
+- [x] Per-tab Stop: a bar "An agent is using this tab — Stop"; a stopped tab refuses agents until Allow.
+- [x] Any agent in any MarkView terminal: `--mcp-browser` without arguments finds the app and the window through
+      its parent processes (the terminal's shell); outside MarkView it offers no tools.
+- [x] Copilot gets `--additional-mcp-config` in the AI panel; globe menu "Connect Agents to MarkView's Browser…"
+      registers the server once for Claude Code, Codex, Copilot and Cline (for agents started by hand).
+- [x] Real input: clicks as native mouse events at the element, typing through the web view's text input,
+      keys as native key events (trusted events); JS fallback when the tab is not visible.
+- [x] `tools/tests/browser-agent-tools-tests.sh` (13 tools, `tab` argument, no tools outside MarkView, tab
+      lookup by name/number/title, next name, settings merge, a server started without arguments finding its
+      parent's socket); Debug build; QA copy: tabs Shop and Docs opened by name; click, typing and Enter in Shop
+      logged `click:true input:true enter:true` (trusted, background window); Stop in the tab bar → the agent was
+      refused; real `claude -p` (haiku) said Docs was stopped and searched "tomato" in Shop; real Copilot with
+      `--additional-mcp-config` listed the tabs.
+
+**Review:** Not driven live: "Allow" (synthetic clicks cannot switch tabs in a background window; same code
+path as Stop), Cline (config written in the format of its existing entries), and the registration command on
+this machine (it would point Boris's agents at a QA build).
+
 ## Task 81: research documents titled by the AI (2026-10-05, 4.5.0)
 
 Boris: "When I create research - it should create title based on AI not first phrase".

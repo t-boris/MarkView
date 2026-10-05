@@ -101,6 +101,12 @@ final class BrowserSession: NSObject, ObservableObject {
     /// recorded in `agentDialogs` instead of stopping the page behind a modal alert.
     var agentControlled = false
     var agentDialogs: [String] = []
+    /// The name agents and the user call this tab by: T1, T2… or one the user gave ("Jira").
+    @Published var agentName = "T1"
+    /// The user stopped agents from using this tab; tool calls are refused until allowed again.
+    @Published var agentStopped = false
+    /// When an agent last used this tab (the tab shows that an agent is at work).
+    @Published var agentLastUsed: Date?
 
     private(set) lazy var webView: BrowserWebView = makeWebView()
     private var observations: [NSKeyValueObservation] = []

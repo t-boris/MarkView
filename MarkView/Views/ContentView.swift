@@ -488,6 +488,8 @@ struct ContentView: View {
             Divider()
             Toggle("Open Terminal Links in MarkView", isOn: $openTerminalLinksInApp)
                 .help("Pages that Claude Code, Codex or dev servers open from MarkView's terminals show in the browser tab instead of the default browser (new terminals)")
+            Button("Connect Agents to MarkView's Browser…") { AgentBrowserRegistration.connectInteractively() }
+                .help("Let Claude Code, Codex, Copilot and Cline drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
             Image(systemName: "globe")
         }

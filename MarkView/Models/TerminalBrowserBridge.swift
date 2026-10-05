@@ -55,6 +55,14 @@ enum TerminalBrowserBridge {
         return environment
     }
 
+    /// The window of the terminal whose shell is among `pids` (an MCP server's ancestors).
+    static func windowID(forAncestors pids: [Int32]) -> UUID? {
+        guard !pids.isEmpty else { return nil }
+        let ancestors = Set(pids)
+        return sessions.values.compactMap(\.session)
+            .first { $0.shellPID > 0 && ancestors.contains($0.shellPID) }?.browserWindowID
+    }
+
     // MARK: - Support files
 
     /// Writes the wrapper scripts and zsh startup files once per launch and starts watching the spool.

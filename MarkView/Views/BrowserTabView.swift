@@ -25,6 +25,7 @@ struct BrowserTabView: View {
             } else {
                 Divider().background(VSDark.border)
             }
+            BrowserAgentBar(session: session)
             if let saved { savedBanner(saved) }
             ZStack {
                 BrowserWebViewRepresentable(session: session)
@@ -97,6 +98,13 @@ struct BrowserTabView: View {
             .fixedSize()
             .disabled(session.url == nil)
             .help("Save the selected text or the whole page as a Markdown document in the project")
+            Button { renameTab() } label: {
+                Text(session.agentName).uiFont(size: 10, weight: .semibold, design: .monospaced)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(VSDark.bgActive).cornerRadius(4)
+            }
+            .buttonStyle(.plain)
+            .help("This tab's name for agents (\"use tab \(session.agentName)\") — click to rename, e.g. Jira")
             iconButton("safari", "Open in the default browser", disabled: session.url == nil) {
                 if let url = session.url { NSWorkspace.shared.open(url) }
             }
@@ -116,6 +124,24 @@ struct BrowserTabView: View {
         address = url.absoluteString
         addressFocused = false
         session.load(url)
+    }
+
+    /// Rename the tab for agents: a short unique name ("Jira", "Billing").
+    private func renameTab() {
+        let alert = NSAlert()
+        alert.messageText = "Name this tab"
+        alert.informativeText = "Tell an agent to use it by this name, e.g. \"in tab Jira, create the ticket\"."
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        input.stringValue = session.agentName
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = input
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = input.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        let taken = workspaceManager.browserSessions.filter { $0 !== session }.map { $0.agentName.lowercased() }
+        session.agentName = taken.contains(name.lowercased()) ? name + " 2" : name
     }
 
     private func iconButton(_ symbol: String, _ help: String, disabled: Bool = false,
@@ -283,7 +309,43 @@ struct BrowserTabTitle: View {
     @ObservedObject var session: BrowserSession
 
     var body: some View {
-        Text(session.displayTitle)
+        HStack(spacing: 4) {
+            // The name agents and the user call the tab by.
+            Text(session.agentName)
+                .uiFont(size: 9, weight: .semibold, design: .monospaced)
+                .padding(.horizontal, 3)
+                .background(session.agentStopped ? VSDark.orange.opacity(0.25) : VSDark.bgActive)
+                .cornerRadius(3)
+            Text(session.displayTitle)
+        }
+    }
+}
+
+/// While an agent drives the tab (or the user stopped agents): who, and Stop / Allow.
+struct BrowserAgentBar: View {
+    @ObservedObject var session: BrowserSession
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            if session.agentStopped {
+                bar(icon: "hand.raised.fill", text: "Agents are stopped for tab \(session.agentName).", color: VSDark.orange,
+                    button: "Allow") { session.agentStopped = false }
+            } else if let last = session.agentLastUsed, context.date.timeIntervalSince(last) < 120 {
+                bar(icon: "sparkles", text: "An agent is using this tab (\(session.agentName)).", color: VSDark.blue,
+                    button: "Stop") { session.agentStopped = true }
+            }
+        }
+    }
+
+    private func bar(icon: String, text: String, color: Color, button: String, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).uiFont(size: 10).foregroundColor(color)
+            Text(text).uiFont(size: 11).foregroundColor(VSDark.text)
+            Spacer()
+            Button(button, action: action).controlSize(.small)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(color.opacity(0.12))
     }
 }
 

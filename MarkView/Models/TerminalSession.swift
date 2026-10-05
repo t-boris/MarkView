@@ -95,6 +95,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Everything typed or pasted goes through it: complete and in order even when the PTY is full.
     private var input: PTYWriter?
     private var childPID: pid_t = 0
+    /// The terminal's shell process: agents started in it are its descendants.
+    var shellPID: pid_t { childPID }
+    /// The window whose browser tabs agents in this terminal drive (`BrowserControlServer`).
+    var browserWindowID: UUID?
     private var operationStartedOnce = false
     private var readSource: DispatchSourceRead?
     private var exitSource: DispatchSourceProcess?
