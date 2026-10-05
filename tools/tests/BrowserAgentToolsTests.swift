@@ -22,8 +22,25 @@ check(BrowserAgentTools.handle(["jsonrpc": "2.0", "method": "notifications/initi
       "notifications get no answer")
 let list = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"]) { _, _ in .error("") }
 let names = ((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-check(names.contains("browser_navigate") && names.contains("browser_snapshot") && names.contains("browser_screenshot") && names.count == 11,
-      "eleven tools listed", "\(names)")
+check(names.contains("browser_navigate") && names.contains("browser_tabs") && names.contains("browser_open_tab") && names.count == 13,
+      "thirteen tools listed", "\(names)")
+let schemas = ((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]] ?? [])
+let clickProps = (schemas.first { $0["name"] as? String == "browser_click" }?["inputSchema"] as? [String: Any])?["properties"] as? [String: Any]
+check(clickProps?["tab"] != nil && clickProps?["ref"] != nil, "tools take a tab")
+let hidden = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 9, "method": "tools/list"], available: false) { _, _ in .error("") }
+check(((hidden?["result"] as? [String: Any])?["tools"] as? [Any])?.isEmpty == true, "outside MarkView no tools are offered")
+
+// MARK: Tabs
+
+let tabs = [(name: "T1", title: "Plant list", url: "http://localhost:5173/"), (name: "Jira", title: "Board - Jira", url: "https://acme.atlassian.net/"),
+            (name: "T3", title: "Stripe Dashboard", url: "https://dashboard.stripe.com/")]
+check(BrowserAgentTools.tabIndex("jira", in: tabs) == 1, "a tab by its name, any case")
+check(BrowserAgentTools.tabIndex("3", in: tabs) == 2, "a tab by its number")
+check(BrowserAgentTools.tabIndex("stripe", in: tabs) == 2, "a tab by part of its title")
+check(BrowserAgentTools.tabIndex("https", in: tabs) == nil, "an ambiguous part matches nothing")
+check(BrowserAgentTools.nextTabName(taken: ["T1", "Jira", "T3"]) == "T2", "the next free default name")
+let merged = BrowserAgentTools.withServer(["command": "x"], in: ["mcpServers": ["other": ["command": "y"]], "theme": "dark"])
+check(((merged["mcpServers"] as? [String: Any])?.count == 2) && merged["theme"] as? String == "dark", "registration keeps other servers and settings")
 var called: (String, [String: Any])?
 let callAnswer = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                            "params": ["name": "browser_click", "arguments": ["ref": "e3"]]]) { tool, args in
@@ -43,7 +60,8 @@ check((BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 5, "method": "resources
 
 // MARK: Stand-in for the app: a socket that records the request and answers
 
-let socketPath = FileManager.default.temporaryDirectory.appendingPathComponent("mv-test-\(getpid()).sock").path
+// The server is started without --socket: it must find this process (its parent) by the app's socket name.
+let socketPath = BrowserAgentTools.socketPath(forApp: getpid())
 unlink(socketPath)
 let listener = socket(AF_UNIX, SOCK_STREAM, 0)
 var address = BrowserAgentTools.unixAddress(socketPath)!
@@ -64,7 +82,7 @@ Thread {
 
 let process = Process()
 process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
-process.arguments = ["--mcp-browser", "--socket", socketPath, "--window", "7C9A1E2B-0000-4000-8000-000000000001"]
+process.arguments = ["--mcp-browser"]
 let input = Pipe(), output = Pipe()
 process.standardInput = input
 process.standardOutput = output
@@ -81,8 +99,9 @@ process.waitUntilExit()
 _ = served.wait(timeout: .now() + 5)
 let lines = out.split(separator: "\n").map(String.init)
 check(lines.count == 2, "two answers for two requests (the notification gets none)", out)
-check(received["tool"] as? String == "browser_navigate" && received["window"] as? String == "7C9A1E2B-0000-4000-8000-000000000001"
-      && (received["arguments"] as? [String: Any])?["url"] as? String == "localhost:5173", "the call reached the app with its window", "\(received)")
+check(received["tool"] as? String == "browser_navigate" && (received["pids"] as? [Int])?.first == Int(getpid())
+      && (received["arguments"] as? [String: Any])?["url"] as? String == "localhost:5173",
+      "found through its parent process, the call reached the app with its ancestors", "\(received)")
 check(lines.last?.contains("Garden") == true, "the app's reply came back as the tool result", out)
 let unreachable = BrowserAgentTools.request(socket: socketPath + ".missing", payload: [:], timeout: 1)
 check(unreachable.isError && unreachable.text.contains("not reachable"), "a closed app is reported, not hung on")

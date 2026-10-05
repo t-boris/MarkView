@@ -139,10 +139,12 @@ pull requests. *New Research* runs in the background and writes a cited report t
   or uses `$BROWSER`, web pages appear in the window's browser tab, local HTML renders there
   too, and documents, code and images open as tabs. Folders, apps and other files still go
   to macOS. Clicked links and `path:line` references in the terminal work the same way.
-- **Browser checks happen in MarkView too.** Claude Code and Codex started here get a
-  *markview-browser* MCP server: they navigate, read the page, click, type, run JavaScript,
-  read the console and take screenshots in the window's browser tab — where you watch —
-  instead of driving your Chrome.
+- **Agents work in your browser tabs.** Claude Code, Codex, Copilot and Cline get a
+  *markview-browser* MCP server: they navigate, read the page, click and type (as real mouse
+  clicks and keystrokes), run JavaScript, read the console and take screenshots in the window's
+  browser tabs — where you watch — instead of driving your Chrome. Sign in to a platform once in a
+  tab, name the tab ("Jira", "Stripe") and say *"in tab Jira, follow these steps"*; the agent uses
+  your session and never needs your password. **Stop** on a tab takes it back.
 - **Usage at a glance:** quota chips for Claude Code and Codex in the terminal header.
 - **Live reload:** files an agent changes on disk refresh in their tabs.
 - **AI Tools** (✨): architecture, data-flow, pipeline, deployment, sequence and ER

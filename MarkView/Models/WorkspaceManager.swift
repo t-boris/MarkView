@@ -3703,9 +3703,9 @@ class WorkspaceManager: ObservableObject {
     /// Shell-quoted arguments that give Claude Code and Codex the MCP server for this window's
     /// browser tab (Task 80); none when terminal links do not open in MarkView.
     private func browserToolArgs(for tool: CLITool) -> [String] {
+        registerBrowserControl()
         guard TerminalBrowserBridge.isEnabled,
               let server = BrowserControlServer.mcpArguments(window: browserControlID) else { return [] }
-        BrowserControlServer.register(browserControlID) { [weak self] in self?.agentBrowser() }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         switch tool {
         case .claude:
@@ -3717,26 +3717,47 @@ class WorkspaceManager: ObservableObject {
             let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
             return ["-c", shellQuote("mcp_servers.markview_browser.command=" + toml(server.command)),
                     "-c", shellQuote("mcp_servers.markview_browser.args=[" + server.args.map(toml).joined(separator: ",") + "]")]
-        case .cline, .copilot:
+        case .copilot:
+            let config: [String: Any] = ["mcpServers": [BrowserAgentTools.serverName: [
+                "type": "local", "command": server.command, "args": server.args, "tools": ["*"]]]]
+            guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
+                  let json = String(data: data, encoding: .utf8) else { return [] }
+            return ["--additional-mcp-config", shellQuote(json)]
+        case .cline:
+            // Cline has no per-session option: "Connect Agents to MarkView's Browser…" registers it.
             return []
         }
     }
 
-    /// The browser tab agents drive: the active one, else the app preview or the first one, else a
-    /// new tab. It is brought to the front so the user sees what the agent does.
-    func agentBrowser() -> BrowserSession {
-        let candidates: [(index: Int, session: BrowserSession)] = openTabs.indices.compactMap { index in
-            if case .browser(let session) = openTabs[index].kind { return (index, session) }
-            return nil
-        }
+    /// Offer this window's browser tabs to agents (`BrowserControlServer`).
+    private func registerBrowserControl() {
+        BrowserControlServer.register(browserControlID, .init(
+            tabs: { [weak self] in self?.browserSessions ?? [] },
+            active: { [weak self] in
+                guard let self, self.openTabs.indices.contains(self.activeTabIndex),
+                      case .browser(let session) = self.openTabs[self.activeTabIndex].kind else { return nil }
+                return session
+            },
+            show: { [weak self] session in self?.showBrowser(session) },
+            open: { [weak self] url, name in
+                guard let self else { return BrowserSession(url: url) }
+                let session = self.openBrowser(url)
+                if let name { session.agentName = name }
+                return session
+            }))
+    }
+
+    /// The window's browser tabs, in tab order.
+    var browserSessions: [BrowserSession] {
+        openTabs.compactMap { if case .browser(let session) = $0.kind { return session }; return nil }
+    }
+
+    /// Bring a browser tab to the front.
+    func showBrowser(_ session: BrowserSession) {
+        guard let index = openTabs.firstIndex(where: { if case .browser(let s) = $0.kind { return s === session }; return false }) else { return }
         layout.workspaceArea = .files
         showCenter = true
-        if let chosen = candidates.first(where: { $0.index == activeTabIndex })
-            ?? candidates.first(where: { $0.session.isAppPreview }) ?? candidates.first {
-            activeTabIndex = chosen.index
-            return chosen.session
-        }
-        return openBrowser(nil)
+        activeTabIndex = index
     }
 
     /// The command that continues `profile`'s last session in `directory` (BUG-005), or nil to start
@@ -3773,6 +3794,8 @@ class WorkspaceManager: ObservableObject {
                                       title: terminalTitle(for: profile))
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
+        session.browserWindowID = browserControlID
+        registerBrowserControl()
         aiTerminals.append(session)
         activeAITerminalID = session.id
         startWatchingOpenFiles()
@@ -4322,6 +4345,8 @@ class WorkspaceManager: ObservableObject {
         let session = TerminalSession(directory: folder.standardizedFileURL, startupCommand: startupCommand, title: title)
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
+        session.browserWindowID = browserControlID
+        registerBrowserControl()
         var tab = OpenTab(url: folder.appendingPathComponent(".markview-terminal-" + session.id.uuidString),
                           content: "", originalContent: "")
         tab.kind = .terminal(session.id)
@@ -4337,6 +4362,7 @@ class WorkspaceManager: ObservableObject {
     @discardableResult
     func openBrowser(_ url: URL?, activate: Bool = true) -> BrowserSession {
         let session = BrowserSession(url: url)
+        session.agentName = BrowserAgentTools.nextTabName(taken: browserSessions.map(\.agentName))
         session.onOpenInNewTab = { [weak self] url in self?.openBrowser(url) }
         session.onSaveMarkdown = { [weak session] mode in session?.saveRequest = mode }
         let base = rootNode?.url ?? FileManager.default.temporaryDirectory

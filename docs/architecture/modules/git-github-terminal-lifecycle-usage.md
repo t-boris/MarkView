@@ -328,6 +328,22 @@ back, reload. While an agent drives a tab, `alert`/`confirm` are answered at onc
 (`agentDialogs`). Agents' own browser plugins (Codex's chrome/browser plugins, Claude in Chrome) still exist; the
 server instructions steer the agent away from them. Off together with terminal links.
 
+Named tabs and every agent (Task 82). Each browser tab has a name for agents (`BrowserSession.agentName`: T1, T2…,
+renamable from the tab's toolbar, shown in the tab bar); `browser_tabs` lists them, `browser_open_tab` opens a
+named one, and every other tool takes `tab` (name, number, or a unique part of the title or address —
+`BrowserAgentTools.tabIndex`); without it the active browser tab. A bar on the tab shows when an agent used it
+in the last two minutes, with **Stop**; a stopped tab (`agentStopped`) refuses agents until **Allow**. Clicks are
+native mouse events at the element's centre and typing goes through the web view's `NSTextInputClient`, keys as
+native key events (all `isTrusted`), with the previous first responder restored; script events only when the tab
+is not on screen or something covers the element, or the typed text did not take. Copilot gets
+`--additional-mcp-config`. `--mcp-browser` without arguments finds the app by its socket name among its
+ancestor processes (`BrowserAgentTools.ancestorPIDs`) and the window by the terminal's shell
+(`TerminalSession.shellPID`, `browserWindowID`; `TerminalBrowserBridge.windowID(forAncestors:)`); outside
+MarkView it lists no tools. Globe menu → "Connect Agents to MarkView's Browser…" (`AgentBrowserRegistration`)
+registers that form once for Claude Code (`claude mcp add --scope user`), Codex (`codex mcp add`), Copilot
+(`~/.copilot/mcp-config.json`) and Cline (`~/.cline/data/settings/cline_mcp_settings.json`), keeping the rest of
+those files.
+
 ### B.2 Files
 
 | File | Role |
@@ -336,6 +352,7 @@ server instructions steer the agent away from them. Off together with terminal l
 | `Models/TerminalLink.swift` | Pure link resolution and PTY cwd lookup (`proc_pidinfo`) |
 | `Models/TerminalBrowserBridge.swift` | `BROWSER` / `open` wrappers, spool watcher, routing of web addresses and files |
 | `Models/BrowserAgentTools.swift`, `Models/BrowserControlServer.swift` | MCP server for agents (`--mcp-browser`) and the app-side socket that runs its tools in a browser tab |
+| `Models/AgentBrowserRegistration.swift` | One-time registration of the MCP server in the agents' own settings |
 | `Views/TerminalView.swift` | `TerminalHostView`, dictation/restart buttons, `AITerminalPanel`, prompt bar, PR picker, `TerminalTabView` |
 | `Resources/Editor/terminal.html` | xterm.js page and JS side of the bridge |
 | `Resources/Editor/vendor/js/xterm.bundle.js`, `vendor/css/xterm.css` | Bundled `@xterm/xterm` 6.0.0 + fit 0.11.0 + web-links 0.12.0 (`tools/web-vendor/package.json:31-33`, `tools/web-vendor/build.sh:11-13`) |

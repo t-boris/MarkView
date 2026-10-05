@@ -10,6 +10,8 @@ import WebKit
     let id = UUID()
     var openInAppBrowser: ((URL) -> Void)?
     var openFile: ((URL, Int?) -> Void)?
+    var shellPID: pid_t = 0
+    var browserWindowID: UUID?
 }
 
 /// Stand-in for the app's file types (DocumentState.swift needs the whole app): what the editor

@@ -3,26 +3,35 @@ import Foundation
 import WebKit
 
 /// The app side of `BrowserAgentTools`: a Unix socket in the user's temporary folder that the
-/// `--mcp-browser` processes of this app's terminals connect to. A request names the window
-/// (`register`) and a tool; the tool runs in that window's browser tab (`BrowserAgentExecutor`).
+/// `--mcp-browser` processes of this app's terminals connect to. A request names the window — by
+/// id, or by the processes above the MCP server (its terminal's shell) — and a tool; the tool runs
+/// in one of that window's browser tabs (`BrowserAgentExecutor`).
 @MainActor
 enum BrowserControlServer {
-    /// Window id → the window's tab for agents (shown, made when there is none).
-    private static var windows: [UUID: () -> BrowserSession?] = [:]
+    /// What a window offers agents: its browser tabs, the active one, bringing one to the front,
+    /// and opening a new one.
+    struct Window {
+        var tabs: () -> [BrowserSession]
+        var active: () -> BrowserSession?
+        var show: (BrowserSession) -> Void
+        var open: (URL?, String?) -> BrowserSession
+    }
+
+    private static var windows: [UUID: Window] = [:]
     private static var listening: String?
 
     /// The socket path of this app process, listening once started.
     static var socketPath: String? {
         if let listening { return listening }
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mv-browser-\(ProcessInfo.processInfo.processIdentifier).sock").path
+        let path = BrowserAgentTools.socketPath(forApp: ProcessInfo.processInfo.processIdentifier)
         guard listen(at: path) else { return nil }
         listening = path
         return path
     }
 
-    static func register(_ id: UUID, browser: @escaping () -> BrowserSession?) {
-        windows[id] = browser
+    static func register(_ id: UUID, _ window: Window) {
+        windows[id] = window
+        _ = socketPath
     }
 
     static func unregister(_ id: UUID) {
@@ -71,11 +80,11 @@ enum BrowserControlServer {
             return
         }
         let window = (request["window"] as? String).flatMap(UUID.init(uuidString:))
+        let pids = (request["pids"] as? [Int] ?? []).map(Int32.init)
         let tool = request["tool"] as? String ?? ""
-        let arguments = request["arguments"] as? [String: Any] ?? [:]
-        nonisolated(unsafe) let sendableArguments = arguments
+        nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
         Task { @MainActor in
-            let reply = await perform(tool, sendableArguments, window: window)
+            let reply = await perform(tool, arguments, window: window, pids: pids)
             let data = (try? JSONSerialization.data(withJSONObject: reply.json)) ?? Data()
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = BrowserAgentTools.writeAll(client, data + Data("\n".utf8))
@@ -84,15 +93,55 @@ enum BrowserControlServer {
         }
     }
 
-    private static func perform(_ tool: String, _ arguments: [String: Any], window: UUID?) async -> BrowserAgentTools.Reply {
+    // MARK: - Tools
+
+    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32]) async -> BrowserAgentTools.Reply {
         guard TerminalBrowserBridge.isEnabled else {
             return .error("MarkView's browser for terminals is turned off (globe menu → Open Terminal Links in MarkView).")
         }
-        guard let window, let provider = windows[window] else {
-            return .error("The MarkView window that started this terminal is closed.")
+        let windowID = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
+        guard let windowID, let window = windows[windowID] else {
+            return .error("The MarkView window of this terminal is closed, or this agent was not started in a MarkView terminal.")
         }
-        guard let session = provider() else { return .error("No browser tab is available in that window.") }
-        return await BrowserAgentExecutor.run(tool, arguments, in: session)
+        switch tool {
+        case "browser_tabs":
+            return BrowserAgentTools.Reply(text: tabList(window))
+        case "browser_open_tab":
+            let url = (args["url"] as? String).flatMap { BrowserAddress.url(from: $0) ?? URL(string: $0) }
+            let session = window.open(url, (args["name"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+            session.agentLastUsed = Date()
+            if url != nil { await BrowserAgentExecutor.settle(session, started: true) }
+            return BrowserAgentTools.Reply(text: "Opened tab \(session.agentName)." + (url == nil ? "" : " " + BrowserAgentExecutor.status(session).text))
+        default:
+            let session: BrowserSession
+            if let query = args["tab"] as? String, !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                let tabs = window.tabs()
+                guard let index = BrowserAgentTools.tabIndex(query, in: tabs.map { ($0.agentName, $0.displayTitle, $0.url?.absoluteString ?? "") }) else {
+                    return .error("No single browser tab matches “\(query)”.\n" + tabList(window))
+                }
+                session = tabs[index]
+            } else {
+                session = window.active() ?? window.tabs().first ?? window.open(nil, nil)
+            }
+            guard !session.agentStopped else {
+                return .error("The user stopped agent control of tab \(session.agentName). Do not retry; ask the user.")
+            }
+            window.show(session)
+            session.agentLastUsed = Date()
+            return await BrowserAgentExecutor.run(tool, args, in: session)
+        }
+    }
+
+    private static func tabList(_ window: Window) -> String {
+        let active = window.active()
+        let tabs = window.tabs()
+        guard !tabs.isEmpty else { return "No browser tabs are open; browser_open_tab opens one." }
+        return tabs.map { tab in
+            var line = "\(tab.agentName): \(tab.displayTitle) — \(tab.url?.absoluteString ?? "(empty)")"
+            if tab === active { line += " [active]" }
+            if tab.agentStopped { line += " [stopped by the user]" }
+            return line
+        }.joined(separator: "\n")
     }
 }
 
@@ -115,19 +164,25 @@ enum BrowserAgentExecutor {
                 guard let text = value as? String, let data = text.data(using: .utf8),
                       let page = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "" }
                 let elements = (page["elements"] as? [String] ?? []).joined(separator: "\n")
-                return "URL: \(page["url"] ?? "")\nTitle: \(page["title"] ?? "")\n\n## Elements\n\(elements.isEmpty ? "(none)" : elements)\n\n## Text\n\(page["text"] ?? "")"
+                return "Tab: \(session.agentName)\nURL: \(page["url"] ?? "")\nTitle: \(page["title"] ?? "")\n\n## Elements\n\(elements.isEmpty ? "(none)" : elements)\n\n## Text\n\(page["text"] ?? "")"
             }
         case "browser_click":
-            let reply = await script(web, Scripts.find + Scripts.click, ["a": args]) { $0 as? String ?? "" }
-            guard !reply.isError else { return reply }
-            await settle(session, started: false)
-            return BrowserAgentTools.Reply(text: reply.text + "\n" + status(session).text)
+            return await click(args, in: session)
         case "browser_type":
-            let reply = await script(web, Scripts.find + Scripts.type, ["a": args]) { $0 as? String ?? "" }
-            if (args["submit"] as? Bool) == true, !reply.isError { await settle(session, started: false) }
-            return reply
+            return await type(args, in: session)
         case "browser_press_key":
-            let reply = await script(web, Scripts.pressKey, ["key": args["key"] as? String ?? ""]) { $0 as? String ?? "" }
+            let key = args["key"] as? String ?? ""
+            guard !key.isEmpty else { return .error("A key is required.") }
+            let reply: BrowserAgentTools.Reply
+            if canUseNativeInput(web), let event = keyEvents(key, in: web) {
+                withFocus(web) {
+                    web.keyDown(with: event.down)
+                    web.keyUp(with: event.up)
+                }
+                reply = BrowserAgentTools.Reply(text: "Pressed \(key).")
+            } else {
+                reply = await script(web, Scripts.pressKey, ["key": key]) { $0 as? String ?? "" }
+            }
             await settle(session, started: false)
             return reply
         case "browser_evaluate":
@@ -172,9 +227,124 @@ enum BrowserAgentExecutor {
         }
     }
 
+    // MARK: Real input (trusted events)
+
+    /// Native events need the web view on screen in its window.
+    private static func canUseNativeInput(_ web: WKWebView) -> Bool {
+        web.window != nil && web.bounds.width > 0 && web.bounds.height > 0 && !web.isHiddenOrHasHiddenAncestor
+    }
+
+    /// A mouse click on the element's centre as the user's own (`isTrusted`) click; a script click
+    /// when the tab is not on screen or something else covers the element.
+    private static func click(_ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
+        let web = session.webView
+        let located = await script(web, Scripts.find + Scripts.locate, ["a": args]) { $0 as? String ?? "" }
+        guard !located.isError, let data = located.text.data(using: .utf8),
+              let target = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return located }
+        let description = target["describe"] as? String ?? "the element"
+        if (target["disabled"] as? Bool) == true { return .error("\(description) is disabled.") }
+        let point = CGPoint(x: target["x"] as? Double ?? 0, y: target["y"] as? Double ?? 0)
+        var how = "with a mouse click"
+        if canUseNativeInput(web), (target["hit"] as? Bool) == true, let window = web.window {
+            let location = windowPoint(point, in: web)
+            for type in [NSEvent.EventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                                                     timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                     clickCount: type == .mouseMoved ? 0 : 1, pressure: type == .leftMouseDown ? 1 : 0) else { continue }
+                switch type {
+                case .mouseMoved: web.mouseMoved(with: event)
+                case .leftMouseDown: web.mouseDown(with: event)
+                default: web.mouseUp(with: event)
+                }
+            }
+        } else {
+            let reply = await script(web, Scripts.find + Scripts.click, ["a": args]) { $0 as? String ?? "" }
+            guard !reply.isError else { return reply }
+            how = (target["hit"] as? Bool) == false ? "by script (another element covers it)" : "by script (the tab is not on screen)"
+        }
+        await settle(session, started: false)
+        return BrowserAgentTools.Reply(text: "Clicked \(description) \(how).\n" + status(session).text)
+    }
+
+    /// Focus the field, select what it holds (unless appending), and type the text through the web
+    /// view's text input as real keystrokes; a script sets the value when that did not take.
+    private static func type(_ args: [String: Any], in session: BrowserSession) async -> BrowserAgentTools.Reply {
+        let web = session.webView
+        let value = args["value"] as? String ?? ""
+        let prepared = await script(web, Scripts.find + Scripts.prepareTyping, ["a": args]) { $0 as? String ?? "" }
+        guard !prepared.isError else { return prepared }
+        var how = "as keystrokes"
+        var typed = false
+        if canUseNativeInput(web), let client = web as? NSTextInputClient {
+            withFocus(web) { client.insertText(value, replacementRange: NSRange(location: NSNotFound, length: 0)) }
+            let current = await script(web, Scripts.focusedValue, [:]) { $0 as? String ?? "" }
+            typed = value.isEmpty || current.text.contains(value)
+        }
+        if !typed {
+            let reply = await script(web, Scripts.find + Scripts.type, ["a": args.merging(["submit": false]) { $1 }]) { $0 as? String ?? "" }
+            guard !reply.isError else { return reply }
+            how = "by script"
+        }
+        if (args["submit"] as? Bool) == true {
+            if canUseNativeInput(web), let enter = keyEvents("Enter", in: web) {
+                withFocus(web) {
+                    web.keyDown(with: enter.down)
+                    web.keyUp(with: enter.up)
+                }
+            } else {
+                _ = await script(web, Scripts.pressKey, ["key": "Enter"]) { $0 as? String ?? "" }
+            }
+            await settle(session, started: false)
+            return BrowserAgentTools.Reply(text: "Typed into \(prepared.text) \(how) and pressed Enter.\n" + status(session).text)
+        }
+        return BrowserAgentTools.Reply(text: "Typed into \(prepared.text) \(how).")
+    }
+
+    /// Run `body` with the web view as its window's first responder (key events and text input go
+    /// to the first responder), then give the focus back to where it was.
+    private static func withFocus(_ web: WKWebView, _ body: () -> Void) {
+        guard let window = web.window else { return body() }
+        let previous = window.firstResponder
+        if previous !== web { window.makeFirstResponder(web) }
+        body()
+        if let previous, previous !== web { window.makeFirstResponder(previous) }
+    }
+
+    /// A point in page (CSS) pixels of the visible viewport → the window's coordinates.
+    private static func windowPoint(_ point: CGPoint, in web: WKWebView) -> CGPoint {
+        let scale = web.pageZoom * web.magnification
+        var local = CGPoint(x: point.x * scale, y: point.y * scale)
+        if !web.isFlipped { local.y = web.bounds.height - local.y }
+        return web.convert(local, to: nil)
+    }
+
+    private static func keyEvents(_ key: String, in web: WKWebView) -> (down: NSEvent, up: NSEvent)? {
+        func function(_ code: Int) -> String { String(Character(UnicodeScalar(UInt32(code))!)) }
+        let named: [String: (code: UInt16, characters: String)] = [
+            "Enter": (36, "\r"), "Return": (36, "\r"), "Tab": (48, "\t"), "Escape": (53, "\u{1b}"),
+            "Backspace": (51, "\u{7f}"), "Delete": (117, function(NSDeleteFunctionKey)), "Space": (49, " "),
+            "ArrowUp": (126, function(NSUpArrowFunctionKey)), "ArrowDown": (125, function(NSDownArrowFunctionKey)),
+            "ArrowLeft": (123, function(NSLeftArrowFunctionKey)), "ArrowRight": (124, function(NSRightArrowFunctionKey)),
+            "Home": (115, function(NSHomeFunctionKey)), "End": (119, function(NSEndFunctionKey)),
+            "PageUp": (116, function(NSPageUpFunctionKey)), "PageDown": (121, function(NSPageDownFunctionKey)),
+        ]
+        guard let window = web.window else { return nil }
+        guard let spec = named[key] ?? (key.count == 1 ? (0, key) : nil) else { return nil }
+        func make(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                             windowNumber: window.windowNumber, context: nil, characters: spec.characters,
+                             charactersIgnoringModifiers: spec.characters, isARepeat: false, keyCode: spec.code)
+        }
+        guard let down = make(.keyDown), let up = make(.keyUp) else { return nil }
+        return (down, up)
+    }
+
+    // MARK: Helpers
+
     /// Wait until the page has loaded (at most 30 s). `started`: a load was just asked for; else
     /// give an action a moment to start one.
-    private static func settle(_ session: BrowserSession, started: Bool) async {
+    static func settle(_ session: BrowserSession, started: Bool) async {
         try? await Task.sleep(nanoseconds: started ? 150_000_000 : 350_000_000)
         let deadline = Date().addingTimeInterval(30)
         while session.webView.isLoading, Date() < deadline {
@@ -182,9 +352,9 @@ enum BrowserAgentExecutor {
         }
     }
 
-    private static func status(_ session: BrowserSession) -> BrowserAgentTools.Reply {
+    static func status(_ session: BrowserSession) -> BrowserAgentTools.Reply {
         if let error = session.loadError { return .error("Could not load \(session.url?.absoluteString ?? "the page"): \(error)") }
-        return BrowserAgentTools.Reply(text: "Page: \(session.webView.url?.absoluteString ?? "") — \(session.webView.title ?? "")")
+        return BrowserAgentTools.Reply(text: "Tab \(session.agentName): \(session.webView.url?.absoluteString ?? "") — \(session.webView.title ?? "")")
     }
 
     private static func script(_ web: WKWebView, _ body: String, _ arguments: [String: Any],
@@ -230,7 +400,7 @@ enum BrowserAgentExecutor {
           let extra = '';
           if (tag === 'a') extra += ' -> ' + el.getAttribute('href');
           if (el.type === 'checkbox' || el.type === 'radio') extra += el.checked ? ' [checked]' : ' [unchecked]';
-          else if ((tag === 'input' || tag === 'textarea' || tag === 'select') && el.value) extra += ' value="' + String(el.value).slice(0, 60) + '"';
+          else if ((tag === 'input' || tag === 'textarea' || tag === 'select') && el.value && el.type !== 'password') extra += ' value="' + String(el.value).slice(0, 60) + '"';
           if (el.disabled) extra += ' (disabled)';
           out.push('[' + ref + '] ' + role + ' "' + name + '"' + extra);
         }
@@ -253,10 +423,19 @@ enum BrowserAgentExecutor {
           }
           return null;
         };
-        const describe = (el) => el.tagName.toLowerCase() + ' "' + (el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || '').trim().replace(/\s+/g, ' ').slice(0, 60) + '"';
+        const describe = (el) => el.tagName.toLowerCase() + ' "' + (el.getAttribute('aria-label') || el.innerText || (el.type === 'password' ? '' : el.value) || el.placeholder || '').trim().replace(/\s+/g, ' ').slice(0, 60) + '"';
         const el = find(a);
         if (!el) return 'ERROR: No element matches ' + JSON.stringify(a.ref || a.selector || a.text || '(nothing given)') + '. Take a new browser_snapshot.';
         el.scrollIntoView({ block: 'center', inline: 'center' });
+        """#
+
+        /// The element's centre in viewport pixels, and whether a click there reaches it.
+        static let locate = #"""
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const top = document.elementFromPoint(x, y);
+        return JSON.stringify({ x, y, hit: !!top && (top === el || el.contains(top) || top.contains(el)),
+                                disabled: !!el.disabled, describe: describe(el) });
         """#
 
         static let click = #"""
@@ -267,6 +446,30 @@ enum BrowserAgentExecutor {
         }
         el.click();
         return 'Clicked ' + describe(el) + '.';
+        """#
+
+        /// Focus the field and select its content, so typing replaces it (or put the caret at the end).
+        static let prepareTyping = #"""
+        el.focus();
+        if (el.isContentEditable) {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          if (a.append) range.collapse(false);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } else if ('value' in el && typeof el.select === 'function') {
+          if (a.append) { try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } else { el.select(); }
+        } else {
+          return 'ERROR: ' + describe(el) + ' does not take text.';
+        }
+        return describe(el);
+        """#
+
+        static let focusedValue = #"""
+        const el = document.activeElement;
+        if (!el) return '';
+        return el.isContentEditable ? el.textContent : String(el.value ?? '');
         """#
 
         static let type = #"""
@@ -284,13 +487,6 @@ enum BrowserAgentExecutor {
           el.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
           return 'ERROR: ' + describe(el) + ' does not take text.';
-        }
-        if (a.submit) {
-          const init = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
-          const go = el.dispatchEvent(new KeyboardEvent('keydown', init));
-          el.dispatchEvent(new KeyboardEvent('keyup', init));
-          if (go && el.form) { el.form.requestSubmit ? el.form.requestSubmit() : el.form.submit(); }
-          return 'Typed into ' + describe(el) + ' and submitted.';
         }
         return 'Typed into ' + describe(el) + '.';
         """#
