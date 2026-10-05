@@ -1,5 +1,26 @@
 # MarkView — Follow-up Tasks
 
+## Task 84: data viewers — tables with SQL, Parquet, SQLite, Excel, HAR, logs; editable JSON/YAML (2026-10-05, 4.7.0)
+
+Boris (/goal): CSV with query, filter, sort; logs and TXT; Parquet and as many standards as possible, each with its
+own tools; JSON and YAML editable, not only viewable.
+
+- [x] `TabKind.data` + `markview-data:` scheme (open data tabs only) + CSP for it and WebAssembly.
+- [x] Table viewer (CSV/TSV/PSV/JSONL/NDJSON, Parquet, SQLite, Excel, HAR): SQL (sql.js), sort, column filters,
+      search, stats, record view, schema, export/copy.
+- [x] Log viewer (.log/.out/.txt): levels, JSON logs, stack traces, search/regex/only matches, next error, wrap,
+      follow (reload on change).
+- [x] JSON/YAML: edit in the tree (values, keys, add, delete; YAML comments kept) and in the source view with a
+      syntax status line.
+- [x] `tools/tests/data-viewers-tests.sh` (18 checks, real page); all harnesses; Debug build; QA app opened a
+      5 000-row Parquet.
+
+**Review:** An editable CodeMirror for the JSON/YAML source broke terminal `file:line` links and ⌘F, which work on
+the plain source editor (terminal-link-tests caught it); the source view stays the plain editor with a status line.
+A CSP (`connect-src 'self'`) blocked `markview-data:` with only "Load failed" in the page — reproduced in a stand
+with the real page before changing it.
+- [ ] Next wave: Arrow IPC/Feather, Avro, OpenDocument spreadsheets.
+
 ## Task 83: Copilot's MCP policy blocks markview-browser (BUG-025, 2026-10-05, 4.6.1)
 
 Boris (work computer): "MCP server was blocked by policy: "markview-browser"".

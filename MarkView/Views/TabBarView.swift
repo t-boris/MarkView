@@ -71,6 +71,12 @@ struct TabBarView: View {
         case .insight: return "sparkles"
         case .image: return "photo"
         case .browser: return "globe"
+        case .data:
+            switch tab.fileType {
+            case .log: return "list.bullet.rectangle"
+            case .sqlite: return "cylinder"
+            default: return "tablecells"
+            }
         case .github(let item):
             if case .run = item { return "gearshape.2" }
             return "smallcircle.filled.circle"

@@ -1,0 +1,6 @@
+2026-10-05T12:00:00Z INFO started
+2026-10-05T12:00:01Z WARN slow disk
+2026-10-05T12:00:02Z ERROR failed to water
+    at Worker.run(Worker.java:42)
+2026-10-05T12:00:03Z DEBUG tick
+{"level": "error", "msg": "json failure"}

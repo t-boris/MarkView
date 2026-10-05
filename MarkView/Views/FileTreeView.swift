@@ -738,6 +738,10 @@ struct FileTreeView: View {
         case .canvas: return ("rectangle.3.group", VSDark.yellow)
         case .markdown: return ("doc.text", VSDark.blue)
         case .code: return ("curlybraces.square", VSDark.cyan)
+        case .table: return ("tablecells", VSDark.green)
+        case .parquet: return ("square.stack.3d.up", VSDark.purple)
+        case .sqlite: return ("cylinder", VSDark.yellow)
+        case .log: return ("list.bullet.rectangle", VSDark.textDim)
         }
     }
 

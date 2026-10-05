@@ -20,9 +20,10 @@ Sibling docs: [app-shell-and-workspace](app-shell-and-workspace.md) ·
 The subsystem owns:
 
 - One long-lived `WKWebView` (per `EditorView` instance) that renders every "document-like" tab:
-  Markdown (WYSIWYG + source), structured data (JSON/XML/YAML tree), JSON Canvas, read-only
-  source code (CodeMirror 6), the X-Ray / Architecture graph host, and the Recursive Insight
-  sandboxed iframe. The mode is switched in-page; the web view is never recreated per tab
+  Markdown (WYSIWYG + source), structured data (JSON/XML/YAML tree; JSON and YAML editable in
+  the tree and in the source view), JSON Canvas, read-only source code
+  (CodeMirror 6), data files (tables, Parquet, SQLite, Excel, HAR, logs — `markview-data.js`),
+  the X-Ray / Architecture graph host, and the Recursive Insight sandboxed iframe. The mode is switched in-page; the web view is never recreated per tab
   (`EditorView.swift:10-38`, `EditorView.swift:288-375`).
 - The single script message handler `bridge` and its JSON-ish message protocol
   (`EditorView.swift:16`, `WebViewBridge.swift:76-347`).
@@ -743,3 +744,36 @@ it does not change the app.
 - **JSON Canvas** — `.canvas` files (jsoncanvas.org 1.0) shown by `markview-canvas.js`.
 - **Wikilink** — `[[Note#Heading|label]]`, sent to Swift as `markview-wikilink:` URLs.
 - **Diag log** — `/tmp/markview-insight-diag.log`.
+
+
+## Data viewers and JSON/YAML editing (Task 84)
+
+- **Routing.** `FileType` has `table` (csv, tsv, tab, psv, jsonl, ndjson, xlsx, xlsm, har), `parquet`
+  (parquet, pq), `sqlite` (sqlite, sqlite3, db, db3) and `log` (log, out, txt). `WorkspaceManager.openFile`
+  opens them as `TabKind.data` tabs: no text is read and nothing is ever written back (`isFileBacked` false).
+  `EditorView` calls `WebViewBridge.loadDataContent` → `window.setDataContent({src, kind, name, reload})`.
+- **Bytes.** The page fetches `markview-data:///<path>` (`Bridge/DataFileSchemeHandler.swift`): only files open
+  in a data tab of that window are served (else 403); memory-mapped read off the main thread. The page's CSP
+  allows `connect-src markview-data:` and `'wasm-unsafe-eval'` (WebAssembly only) for sql.js.
+- **Libraries** (`tools/web-vendor/data-entry.js` → `vendor/js/data.bundle.js`, `window.MVData`, loaded on first
+  use): sql.js 1.14 (SQLite in WebAssembly, wasm inlined), papaparse 5.7, hyparquet 1.31 +
+  hyparquet-compressors 1.1, yaml 2.9 (comment-preserving documents), fflate 0.8 (xlsx unzip).
+- **Tables** (`markview-data.js` `TableViewer`): rows go into an in-memory SQLite table `data` (Excel: one table
+  per sheet; SQLite files are opened directly) with numeric columns typed NUMERIC. Sort, per-column filters
+  (`>10`, `<=5`, `=x`, `!=x`, `null`, `!null`, text) and the global search become `WHERE`/`ORDER BY` around the
+  current SQL; the grid is virtualised (25 px rows, up to 200 000 rows shown; Parquet reads at most 500 000).
+  Side panel: column statistics, a row's record (double-click), schema (Parquet metadata, SQLite DDL). Export CSV,
+  copy TSV, ⌘C copies a cell or row. Non-SELECT statements change only the in-memory copy.
+- **Logs** (`LogViewer`): level per line from the first 200 characters, from `level`/`severity` in JSON lines,
+  continuation lines (stack traces) inherit; timestamp highlight; level toggles (⌥-click: only that level);
+  text/regex search with match navigation and *only matches*; Next error; Wrap (renders ≤ 20 000 lines);
+  Follow. A data tab's file is polled with the open files (2 s); a change bumps `OpenTab.dataRevision` and the
+  page reloads it (a followed log stays at the end).
+- **JSON/YAML editing** (`markview-structured.js`): tree nodes carry `data-path`; double-click edits a value
+  (JSON literal, else text) or renames a key; + adds (object: asks the key; array: appends null), × deletes.
+  JSON is re-serialised with the file's indentation; YAML goes through `yaml`'s `parseDocument`/`setIn`/
+  `deleteIn` so comments stay. The source view stays the plain editor (find, go to line and ⌘S keep working;
+  an editable CodeMirror there broke both) with a status line that says whether the text parses; every change
+  sends `contentChanged`, ⌘S saves as for any file.
+- **Tests:** `tools/tests/data-viewers-tests.sh` (real page and bundles in a WKWebView, fixtures in
+  `tools/tests/fixtures/data`).
