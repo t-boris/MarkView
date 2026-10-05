@@ -61,6 +61,8 @@ enum ResearchDocument {
 
     /// The sections the AI writes; the app adds the front matter, title, question and sources.
     struct Answer: Equatable {
+        /// The title the AI gave a new research (`## Title`); empty when it gave none.
+        var title = ""
         var summary = ""
         var findings: [String] = []
         var recommendations = ""
@@ -88,15 +90,25 @@ enum ResearchDocument {
         guard sawHeading else {
             return Answer(summary: markdown.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return Answer(summary: text("summary"), findings: listItems(text("findings")),
+        return Answer(title: cleanTitle(text("title")), summary: text("summary"), findings: listItems(text("findings")),
                       recommendations: text("recommendations"))
+    }
+
+    /// The first line of a `## Title` section without Markdown decoration, at most 120 characters.
+    static func cleanTitle(_ text: String) -> String {
+        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        var title = line.trimmingCharacters(in: .whitespaces)
+        while let first = title.first, "#>*_`\"'“”«»".contains(first) { title.removeFirst() }
+        while let last = title.last, "*_`\"'“”«».".contains(last) { title.removeLast() }
+        title = title.trimmingCharacters(in: .whitespaces)
+        return String(title.prefix(120))
     }
 
     private static func answerHeading(_ line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("#") else { return nil }
         let title = trimmed.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces).lowercased()
-        for key in ["summary", "findings", "recommendations", "sources"] where title == key || title.hasPrefix(key + " ") || title.hasPrefix(key + ":") {
+        for key in ["title", "summary", "findings", "recommendations", "sources"] where title == key || title.hasPrefix(key + " ") || title.hasPrefix(key + ":") {
             return key
         }
         return nil

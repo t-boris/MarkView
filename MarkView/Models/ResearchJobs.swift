@@ -63,12 +63,14 @@ final class ResearchJobs: ObservableObject {
 
     /// Starts a research: copies attachments, lists the analysis scope, runs the agent and
     /// writes `relativePath` (a free name is chosen if it was taken meanwhile), then opens it.
-    func start(question: String, relativePath: String, targets: [URL], attachments: [URL]) {
+    /// The document is titled by the AI (`## Title`), else by the question's first line;
+    /// `nameFromTitle` (the user kept the suggested path) also names the file after that title.
+    func start(question: String, relativePath: String, targets: [URL], attachments: [URL], nameFromTitle: Bool = false) {
         guard let root = workspace?.rootNode?.url else { return }
         let file = root.appendingPathComponent(relativePath)
         let id = ResearchDocument.id(forPath: relativePath)
-        let title = Self.title(question)
-        launch(kind: .research, file: file, title: "Research: " + title) { job in
+        let questionTitle = Self.title(question)
+        launch(kind: .research, file: file, title: "Research: " + questionTitle) { job in
             let targetPaths = await Task.detached { ResearchScope.targetFiles(root: root, targets: targets) }.value
             job.update("Copying attachments")
             let copied = Self.copyAttachments(attachments, root: root, id: id)
@@ -76,7 +78,7 @@ final class ResearchJobs: ObservableObject {
             let scope = await Task.detached { ResearchScope.files(root: root, always: targetPaths + copied) }.value
             let web = Self.web(root)
             let prompt = ResearchPrompt.research(question: question, targets: targetPaths, attachments: copied, scope: scope, web: web.allowed)
-            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed)
+            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed, titled: true)
             var run = ResearchDocument.Run(question: question, answer: ResearchDocument.parseAnswer(outcome.text))
             run.incomplete = Self.incompleteReason(outcome, web: web)
             run.targets = targetPaths
@@ -87,8 +89,14 @@ final class ResearchJobs: ObservableObject {
             run.notes = web.note.map { [$0] } ?? []
             run.noProjectFiles = scope.isEmpty
             let exists = Self.existsIn(root)
-            let text = ResearchDocument.newDocument(id: id, title: title, created: FeatureStore.today, run: run, pathExists: exists)
-            let target = Self.freeFile(file, root: root)
+            let title = run.answer.title.isEmpty ? questionTitle : run.answer.title
+            var named = file
+            if nameFromTitle, !run.answer.title.isEmpty {
+                named = root.appendingPathComponent(ResearchDocument.relativePath(question: title, date: FeatureStore.today, exists: exists))
+            }
+            let target = Self.freeFile(named, root: root)
+            let text = ResearchDocument.newDocument(id: ResearchDocument.id(forPath: target.path), title: title,
+                                                    created: FeatureStore.today, run: run, pathExists: exists)
             do {
                 try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data(text.utf8).write(to: target, options: .withoutOverwriting)
@@ -324,8 +332,8 @@ final class JobHandle {
 
     /// Runs the agent over `root` with the research system prompt. Cancel, errors and the
     /// timeout end it early; the text streamed so far is kept (DEC-004, DEC-012).
-    func run(prompt: String, root: URL, web: Bool) async -> JobOutcome {
-        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: ResearchPrompt.system(web: web),
+    func run(prompt: String, root: URL, web: Bool, titled: Bool = false) async -> JobOutcome {
+        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: ResearchPrompt.system(web: web, titled: titled),
                                             readableFolder: root)
         request.allowWeb = web
         let minutes = ResearchSettings.timeoutMinutes

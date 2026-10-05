@@ -7,7 +7,9 @@ enum ResearchPrompt {
     /// How many scope paths are listed in full; larger repositories get a per-folder summary.
     static let listedFiles = 1500
 
-    static func system(web: Bool) -> String {
+    /// `titled`: a new research, whose answer starts with `## Title` (the document's title and,
+    /// unless the user chose a path, its file name). Follow-ups and comments have none.
+    static func system(web: Bool, titled: Bool = false) -> String {
         """
         You are a research analyst working inside a software repository, which may hold code, \
         documentation or both. You answer open analytical and strategic questions with a grounded \
@@ -32,13 +34,13 @@ enum ResearchPrompt {
 
         \(languageLine)
         Answer in Markdown with exactly these headings and nothing before the first one:
-        ## Summary
+        \(titled ? titleHeading : "")## Summary
         (a direct answer in a few sentences)
         ## Findings
         (a bulleted list; every item starts with one label)
         ## Recommendations
         (concrete next steps)
-        Do not write a title, the question or a Sources section: the app adds them from what you read.
+        Do not write the question or a Sources section: the app adds them from what you read.
         Never modify files.
         """
     }
@@ -71,6 +73,14 @@ enum ResearchPrompt {
         }
         return prompt + scopeText(scope)
     }
+
+    /// The first heading of a new research's answer.
+    private static let titleHeading = """
+        ## Title
+        (one line, at most 10 words: a report title naming the subject and the outcome — never a copy or a \
+        fragment of the question)
+
+        """
 
     static func followUp(document: String, question: String, retrying partial: String?, scope: [String], web: Bool) -> String {
         var prompt = "The current research document (including the user's edits):\n\n<document>\n\(document)\n</document>\n\n"

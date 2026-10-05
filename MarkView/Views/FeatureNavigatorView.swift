@@ -934,7 +934,7 @@ struct IntakeSheet: View {
             }
             dismiss()
             workspaceManager.research.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
-                                            targets: targets, attachments: attachments)
+                                            targets: targets, attachments: attachments, nameFromTitle: !outputPathEdited)
             return
         }
         working = true

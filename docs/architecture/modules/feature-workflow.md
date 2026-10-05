@@ -540,6 +540,11 @@ The first load only records a baseline (no backfill). A restart suppresses event
   cannot ask), timeout `research.timeoutMinutes`. The scope list (git-listed text files ≤ 1 MB, no vendor,
   lock, minified or binary files) goes into the prompt. `CLICompletion.Activity.webSearch/webFetch` and
   `Result.refused` give the real `web_queries` and fetched URLs.
+- **Title**: a new research's answer starts with `## Title` (`ResearchPrompt.system(titled:)`): one line naming the
+  subject and outcome, not the question. It becomes the document title; while the user has not edited the output
+  path, the file is named `docs/research/<date>-<slug of the title>.md` too (`ResearchJobs.start(nameFromTitle:)`).
+  Without a title (an older agent, a cut-off answer) the question's first line is the title, as before.
+  Attachments keep the folder named at the start.
 - **Write**: the app renders the document from the AI's Summary / Findings / Recommendations; it adds the
   front matter, title, question and Sources, and relabels a finding as `[AI inference]` when it lacks one label,
   a project fact lacks an existing path or an external fact a URL. Cancel, error, timeout, refused web or a

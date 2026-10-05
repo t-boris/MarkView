@@ -56,6 +56,10 @@ check("three findings", answer.findings.count == 3)
 check("continuation joined", answer.findings[1].contains("Second line"))
 check("recommendations", answer.recommendations == "Start with a pilot.")
 check("cut-off answer is summary", R.parseAnswer("partial thoughts").summary == "partial thoughts")
+let titled = R.parseAnswer("Reading files…\n\n## Title\n**“Offline sync: keep CRDTs, drop polling”**\n\n## Summary\nKeep it.\n")
+check("the AI's title is read without decoration", titled.title == "Offline sync: keep CRDTs, drop polling" && titled.summary == "Keep it.")
+check("no title section leaves the title empty", answer.title.isEmpty)
+check("a long title is cut", R.cleanTitle(String(repeating: "word ", count: 60)).count <= 120)
 
 // MARK: Labels (REQ-004)
 

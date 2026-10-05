@@ -1,5 +1,19 @@
 # MarkView — Follow-up Tasks
 
+## Task 81: research documents titled by the AI (2026-10-05, 4.5.0)
+
+Boris: "When I create research - it should create title based on AI not first phrase".
+
+- [x] New research answers start with `## Title` (in the system prompt's heading list: a request at the end of the
+      user prompt lost to "exactly these headings"); parsed (`Answer.title`, `cleanTitle`).
+- [x] The title names the document and, unless the output path was edited, its file; fallback: the question.
+- [x] `tools/tests/research-document-tests.sh`; Debug build; QA copy: "Review the documents in notes…" became
+      "Garden app sync note: thin documentation, open design questions" in
+      `2026-10-05-garden-app-sync-note-thin-documentation-open-design.md`.
+
+**Review:** The first live run came back in Portuguese for an English question (document-language setting) and
+the second in English: a model fluke, not reproduced; left as is.
+
 ## Task 80: agents drive MarkView's browser tab (MCP "markview-browser") (2026-10-04, 4.4.0)
 
 Boris: "он выполняет проверки, запускает и изменяет что‑то прямо в моём браузере Chrome. Почему он не открыл
