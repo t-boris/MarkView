@@ -1,5 +1,17 @@
 # MarkView — Follow-up Tasks
 
+## Task 93: Prototype Studio — step 2 took 8+ minutes with no sign of life (2026-10-07, 4.13.1)
+
+Boris's screenshot (a 10-screen Russian project): the foundation ran 8+ minutes under "Thinking…" with no "Writing" lines.
+Cause: the model reasons for minutes before writing mechanical files, and the foundation was one sequential run.
+
+- [x] Foundation, screens: effort "low" (the plan keeps "medium").
+- [x] Foundation in two parallel runs (data.js; shell = index.html, styles.css, app.js) against a fixed generic `DB` contract.
+- [x] Reasoning is reported every ~1,500 characters ("Thinking — about N K characters of reasoning").
+- [x] Screens four at a time. Live run on the 4-screen spec: 287 s → 155 s (foundation 225 s → 98 s); opened in Chrome,
+      all routes render, no console errors.
+- [ ] Measured on the large project (Boris's `vivaa-platform` run).
+
 ## Task 92: Prototype Studio — staged build: plan, foundation, screens in parallel (2026-10-07, 4.13.0)
 
 Boris: one build call took 17+ minutes with no inner progress and a 25-minute limit that loses everything on a miss.
