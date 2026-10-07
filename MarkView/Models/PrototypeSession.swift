@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -11,6 +12,15 @@ final class PrototypeSession: ObservableObject, Identifiable {
         let id = UUID()
         var role: Role
         var text: String
+        /// Images sent with the message, shown small under the text.
+        var images: [NSImage] = []
+    }
+
+    /// An image waiting to be sent with the next request.
+    struct Attachment: Identifiable {
+        let id = UUID()
+        let data: Data
+        let image: NSImage
     }
 
     /// One screen of a build in progress.
@@ -45,7 +55,12 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var reloadToken = 0
     @Published private(set) var runtimeErrors: [String] = []
     @Published private(set) var archive: URL?
-    @Published var pick: PrototypeAI.Pick?
+    @Published var pick: PrototypeAI.Pick? {
+        didSet { if pick == nil { pickShot = nil } }
+    }
+    /// A screenshot of the pointed-at element, taken when it was clicked.
+    @Published var pickShot: Data?
+    @Published private(set) var attachments: [Attachment] = []
     @Published var pickMode = false
 
     /// Adds a finished run to the workspace's usage counter.
@@ -177,20 +192,39 @@ final class PrototypeSession: ObservableObject, Identifiable {
         }
     }
 
-    /// One reviewer request, with the element pointed at in the preview if there is one.
-    func send(_ text: String) {
-        let instruction = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !instruction.isEmpty, !isBusy, hasSite else { return }
+    /// One reviewer request, with the element pointed at in the preview and the images sent with it. The screenshot of
+    /// the element goes along only when `withScreenshot` is on.
+    func send(_ text: String, withScreenshot: Bool = false) {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shot = pick != nil && withScreenshot ? pickShot : nil
+        guard !isBusy, hasSite, !typed.isEmpty || !attachments.isEmpty else { return }
+        let instruction = typed.isEmpty ? "Look at the attached image(s) and make the prototype match." : typed
         let pick = self.pick
-        messages.append(Message(role: .user, text: (pick.map { "[\($0.selector)] " } ?? "") + instruction))
+        var files: [(url: URL, note: String)] = []
+        var thumbnails: [NSImage] = []
+        do {
+            for (index, attachment) in attachments.enumerated() {
+                files.append((try PrototypeImages.save(attachment.data, in: folder), "image \(index + 1) from the reviewer"))
+                thumbnails.append(attachment.image)
+            }
+            if let shot, let pick {
+                files.append((try PrototypeImages.save(shot, in: folder), "screenshot of the element the reviewer pointed at (\(pick.selector))"))
+                if let image = NSImage(data: shot) { thumbnails.append(image) }
+            }
+        } catch {
+            messages.append(Message(role: .error, text: "Could not save the images: \(error.localizedDescription)"))
+            return
+        }
+        messages.append(Message(role: .user, text: (pick.map { "[\($0.selector)] " } ?? "") + instruction, images: thumbnails))
         self.pick = nil
+        attachments = []
         pickMode = false
         beginRun("Working on your request")
         task = Task { [self] in
             defer { endRun() }
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
-                                                           runtimeErrors: runtimeErrors, language: languageNote,
+                                                           attachments: files, runtimeErrors: runtimeErrors, language: languageNote,
                                                            record: record, stage: stageReporter)
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
@@ -244,6 +278,24 @@ final class PrototypeSession: ObservableObject, Identifiable {
     }
 
     func cancel() { task?.cancel() }
+
+    // MARK: - Images
+
+    func attach(_ images: [Data]) {
+        for data in images {
+            if let image = NSImage(data: data) { attachments.append(Attachment(data: data, image: image)) }
+        }
+    }
+
+    func removeAttachment(_ id: UUID) { attachments.removeAll { $0.id == id } }
+
+    /// Takes the images on the pasteboard; false when there were none (a text paste then goes on as usual).
+    @discardableResult
+    func attachFromPasteboard(_ pasteboard: NSPasteboard = .general) -> Bool {
+        let images = PrototypeImages.images(on: pasteboard)
+        attach(images)
+        return !images.isEmpty
+    }
 
     /// Called by the preview for each JavaScript error the page raises.
     func report(error text: String) {

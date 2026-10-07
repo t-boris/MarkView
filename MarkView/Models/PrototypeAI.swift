@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// The assistant side of Prototype Studio: builds a clickable HTML prototype from requirements,
@@ -20,6 +21,8 @@ enum PrototypeAI {
         var text: String
         var html: String
         var screen: String
+        /// The element's box in the preview, in points from the top left of the visible page.
+        var rect = CGRect.zero
     }
 
     enum ScreenState: Sendable, Equatable {
@@ -330,8 +333,14 @@ enum PrototypeAI {
         """
     }
 
+    /// An image the reviewer sent with the request: where it is (relative to the project root) and what it is.
+    struct Attachment: Equatable {
+        var path: String
+        var note: String
+    }
+
     static func revisePrompt(instruction: String, pick: Pick?, siteRelative: String, files: [PrototypeFiles.File],
-                             runtimeErrors: [String], priorFailure: String?) -> String {
+                             runtimeErrors: [String], priorFailure: String?, attachments: [Attachment] = []) -> String {
         var out = "The prototype lives in `\(siteRelative)/` (relative to the project root). Its requirements come from the project's documents; read them when the request touches behaviour they define.\n\n"
         let total = files.reduce(0) { $0 + $1.content.utf8.count }
         if total <= 150_000 {
@@ -350,6 +359,10 @@ enum PrototypeAI {
             text: \(pick.text)
             html: \(pick.html)
             """
+        }
+        if !attachments.isEmpty {
+            out += "\n\nImages the reviewer sent (open each one with your Read tool before you answer; they show what the request means):\n"
+                + attachments.map { "- \($0.path): \($0.note)" }.joined(separator: "\n")
         }
         if !runtimeErrors.isEmpty {
             out += "\n\nJavaScript errors the preview reported (fix them as part of this change):\n"
@@ -397,9 +410,10 @@ enum PrototypeAI {
 
     /// One structured run. `record` receives the finished run for the usage counter.
     private static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
-                             effort: String = "medium", record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
+                             effort: String = "medium", images: [URL] = [], record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
         let budget = budget(for: label)
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
+        request.images = images
         request.jsonSchema = schema
         request.effort = effort
         request.timeout = budget.limit
@@ -606,8 +620,13 @@ enum PrototypeAI {
         }
     }
 
+    private static func relativePath(_ url: URL, root: URL) -> String {
+        url.standardizedFileURL.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
+    }
+
     /// Applies one reviewer request. A change that cannot apply is sent back to the assistant once with the reason.
-    static func revise(root: URL, folder: URL, instruction: String, pick: Pick?, runtimeErrors: [String], language: String,
+    static func revise(root: URL, folder: URL, instruction: String, pick: Pick?, attachments: [(url: URL, note: String)] = [],
+                       runtimeErrors: [String], language: String,
                        record: @escaping Record, stage: @escaping Stage) async throws -> Outcome {
         let site = PrototypeFiles.site(of: folder)
         let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
@@ -616,8 +635,10 @@ enum PrototypeAI {
             let result = try await call(root: root, system: reviseSystem(language: language),
                                         prompt: revisePrompt(instruction: instruction, pick: pick, siteRelative: relative,
                                                              files: PrototypeFiles.read(site: site), runtimeErrors: runtimeErrors,
-                                                             priorFailure: failure),
-                                        schema: reviseSchema, label: "prototype:revise", record: record, stage: stage)
+                                                             priorFailure: failure,
+                                                             attachments: attachments.map { Attachment(path: relativePath($0.url, root: root), note: $0.note) }),
+                                        schema: reviseSchema, label: "prototype:revise", images: attachments.map(\.url),
+                                        record: record, stage: stage)
             let change = PrototypeFiles.change(from: result.structured)
             guard !change.isEmpty else {
                 failure = "The answer contained no files, edits or deletes."

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 /// The tab of Prototype Studio: the live prototype on the left, the review conversation on the right.
@@ -11,6 +12,8 @@ struct PrototypeStudioView: View {
     @StateObject private var dictation = DictationController()
     @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
     @AppStorage("prototypeChatWidth") private var chatWidth = 340.0
+    /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
+    @AppStorage("prototypePickScreenshot") private var pickScreenshot = true
     @State private var dragStartWidth: Double?
     @FocusState private var draftFocused: Bool
 
@@ -146,12 +149,22 @@ struct PrototypeStudioView: View {
 
     private func bubble(_ message: PrototypeSession.Message) -> some View {
         let color: Color = message.role == .user ? VSDark.bgActive : message.role == .error ? VSDark.red.opacity(0.18) : VSDark.bg
-        return Text(message.text)
-            .uiFont(size: 11).foregroundColor(VSDark.text)
-            .textSelection(.enabled)
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 6).fill(color))
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(message.text)
+                .uiFont(size: 11).foregroundColor(VSDark.text)
+                .textSelection(.enabled)
+            if !message.images.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(Array(message.images.enumerated()), id: \.offset) { _, image in
+                        Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 90, maxHeight: 60)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(color))
     }
 
     private var composer: some View {
@@ -166,8 +179,34 @@ struct PrototypeStudioView: View {
                         .buttonStyle(.plain).foregroundColor(VSDark.textDim)
                 }
                 .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.selection.opacity(0.5)))
+                Picker("", selection: $pickScreenshot) {
+                    Text("HTML").tag(false)
+                    Text("HTML + screenshot").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().controlSize(.small)
+                .help("What the assistant gets about the pointed-at element")
+                if pickScreenshot, let shot = session.pickShot, let image = NSImage(data: shot) {
+                    Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                }
             } else if session.pickMode {
                 Text("Click an element in the preview.").uiFont(size: 10).foregroundColor(VSDark.blue)
+            }
+            if !session.attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(session.attachments) { attachment in
+                            ZStack(alignment: .topTrailing) {
+                                Image(nsImage: attachment.image).resizable().scaledToFill().frame(width: 56, height: 56)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                Button { session.removeAttachment(attachment.id) } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundColor(.white).shadow(radius: 1)
+                                }
+                                .buttonStyle(.plain).padding(2)
+                            }
+                        }
+                    }
+                }
             }
             HStack(alignment: .top, spacing: 6) {
                 TextEditor(text: $draft)
@@ -177,6 +216,28 @@ struct PrototypeStudioView: View {
                     .focused($draftFocused)
                     .padding(4).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
                     .disabled(!session.hasSite || session.isBusy)
+                    .onPasteCommand(of: [.image, .png, .tiff, .fileURL]) { _ in
+                        // Images on the pasteboard become attachments; a text paste has no image and is left alone.
+                        if !session.attachFromPasteboard() { pasteText() }
+                    }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
+                        for provider in providers where provider.canLoadObject(ofClass: NSImage.self) {
+                            _ = provider.loadObject(ofClass: NSImage.self) { object, _ in
+                                guard let image = object as? NSImage, let png = PrototypeImages.pngData(from: image) else { return }
+                                Task { @MainActor in session.attach([png]) }
+                            }
+                        }
+                        return true
+                    }
+                Menu {
+                    Button("Choose image…") { chooseImages() }
+                    Button("Paste image from clipboard") { session.attachFromPasteboard() }
+                } label: {
+                    Image(systemName: "paperclip").uiFont(size: 13).foregroundColor(VSDark.textDim)
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .disabled(!session.hasSite || session.isBusy)
+                .help("Send an image with your request: paste it (⌘V), drop it here, or choose a file")
                 if openAIKey.isEmpty {
                     Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
                         Image(systemName: "mic").uiFont(size: 13).foregroundColor(VSDark.textDim)
@@ -207,15 +268,30 @@ struct PrototypeStudioView: View {
                 Spacer()
                 Button("Send") { submit() }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session.isBusy || !session.hasSite)
+                    .disabled((draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && session.attachments.isEmpty)
+                              || session.isBusy || !session.hasSite)
             }
         }
         .padding(10)
     }
 
     private func submit() {
-        session.send(draft)
+        session.send(draft, withScreenshot: pickScreenshot)
         draft = ""
+    }
+
+    /// A paste with no image: put the clipboard's text into the draft, as the editor would have.
+    private func pasteText() {
+        if let text = NSPasteboard.general.string(forType: .string) { draft += text }
+    }
+
+    private func chooseImages() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Attach"
+        guard panel.runModal() == .OK else { return }
+        session.attach(panel.urls.compactMap { PrototypeImages.image(at: $0) })
     }
 }
 
@@ -342,11 +418,13 @@ private struct PrototypePreview: NSViewRepresentable {
           if (!on) return;
           e.preventDefault(); e.stopPropagation();
           if (type !== 'click') return;
-          var el = e.target;
+          var el = e.target, r = el.getBoundingClientRect();
+          box.style.display = 'none';  // the highlight must not be in the screenshot
           window.webkit.messageHandlers.mvPick.postMessage({
             selector: path(el), tag: el.tagName.toLowerCase(),
             text: (el.innerText || el.value || '').trim().slice(0, 200),
-            html: el.outerHTML.slice(0, 800), screen: location.hash || ''
+            html: el.outerHTML.slice(0, 800), screen: location.hash || '',
+            rect: { x: r.left, y: r.top, w: r.width, h: r.height }
           });
         }, true);
       });
@@ -427,6 +505,23 @@ private struct PrototypePreview: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { applyPickMode(pickMode) }
 
+        /// A screenshot of the pointed-at element, kept with the pick; sent only if the reviewer chose HTML + screenshot.
+        private func snapshot(of pick: PrototypeAI.Pick) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                guard let self, let webView = self.webView else { return }
+                let config = WKSnapshotConfiguration()
+                config.rect = pick.rect.intersection(webView.bounds)
+                guard config.rect.width > 1, config.rect.height > 1 else { return }
+                config.snapshotWidth = NSNumber(value: Double(min(config.rect.width * 2, 1600)))
+                webView.takeSnapshot(with: config) { image, _ in
+                    guard let image, let png = PrototypeImages.pngData(from: image) else { return }
+                    Task { @MainActor in
+                        if self.session.pick?.selector == pick.selector { self.session.pickShot = png }
+                    }
+                }
+            }
+        }
+
         nonisolated func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             let name = message.name, body = message.body
             Task { @MainActor in
@@ -434,9 +529,14 @@ private struct PrototypePreview: NSViewRepresentable {
                     session.report(error: String(text.prefix(300)))
                 } else if name == "mvPick", let info = body as? [String: Any] {
                     func field(_ key: String) -> String { info[key] as? String ?? "" }
-                    session.pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
-                                                    html: field("html"), screen: field("screen"))
+                    let box = info["rect"] as? [String: Any] ?? [:]
+                    func number(_ key: String) -> CGFloat { CGFloat((box[key] as? NSNumber)?.doubleValue ?? 0) }
+                    let rect = CGRect(x: number("x"), y: number("y"), width: number("w"), height: number("h"))
+                    let pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
+                                                html: field("html"), screen: field("screen"), rect: rect)
+                    session.pick = pick
                     session.pickMode = false
+                    snapshot(of: pick)
                 }
             }
         }

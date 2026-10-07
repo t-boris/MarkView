@@ -33,6 +33,9 @@ enum CLICompletion {
         var effort: String? = nil
         /// Web search and fetching for research (Claude WebSearch/WebFetch, Codex --search).
         var allowWeb = false
+        /// Images the prompt refers to. Claude opens them with its Read tool (so they must lie under
+        /// `readableFolder`) and the prompt names their paths; Codex also gets them attached.
+        var images: [URL] = []
         /// What this call is for, as written to the AI call log (e.g. "explore:<slug>").
         var label = ""
 
@@ -175,7 +178,8 @@ enum CLICompletion {
                 arguments += ["--json-schema", try jsonString(schema)]
             }
         case .codex:
-            arguments = (request.allowWeb ? ["--search"] : []) + ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+            arguments = (request.allowWeb ? ["--search"] : []) + ["exec"]
+                + request.images.flatMap { ["-i", $0.path] } + ["--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                          "--json", "--color", "never", "-C", workDir.path]
             arguments += tool.modelArgs(model)
             if let effort = request.effort { arguments += ["-c", "model_reasoning_effort=\(effort)"] }
