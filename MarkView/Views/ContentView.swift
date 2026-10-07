@@ -229,7 +229,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .terminal, .browser, .data:
+            case .file, .image, .terminal, .browser, .data, .prototype:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -269,6 +269,9 @@ struct ContentView: View {
                 isPresented: graphCreatorSheetBinding,
                 preselectedType: workspaceManager.pendingGraphCreatorType ?? "architecture"
             )
+        }
+        .sheet(isPresented: $workspaceManager.showPrototypeCreator) {
+            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $workspaceManager.showPrototypeCreator)
         }
         .sheet(isPresented: $workspaceManager.showGlobalSearch) {
             SharedSearchView()
@@ -585,6 +588,10 @@ struct ContentView: View {
                         BrowserTabView(session: session)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
+                    } else if case .prototype(let session) = activeTab.kind {
+                        PrototypeStudioView(session: session)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
                             .environmentObject(workspaceManager)
@@ -612,7 +619,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .terminal, .browser: return true
+                case .file, .image, .terminal, .browser, .prototype: return true
                 default: return false
                 }
             }) {
@@ -1029,7 +1036,10 @@ struct AIToolsMenu: View {
                 Button("Sequence") { workspaceManager.runAITool(named: "sequence") }
                 Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
             }
-            // Each hands a prompt to the assistant in the Terminal tab, which writes the result.
+            Section("Prototype") {
+                Button("Prototype Studio…") { workspaceManager.showPrototypeCreator = true }
+                    .disabled(workspaceManager.rootNode == nil)
+            }
             Section("Analysis") {
                 Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }
                 // Superseded by New Research, which saves a report (DEC-010).
