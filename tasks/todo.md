@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## Task 91: quitting MarkView left the assistants of headless runs working (2026-10-07, 4.12.2)
+
+Found while Boris asked whether a restart stops a running prototype build: the old build's `claude` kept running for
+37 minutes as an orphan (parent 1), spending tokens with nobody to take the answer.
+
+- [x] `AgentProcesses` registry; `CLICompletion` and `ACPAssistant` add their CLI process and remove it when it ends.
+- [x] `applicationWillTerminate` stops them (SIGTERM, SIGKILL after 1 s), only when the app really quits.
+- [x] `tools/tests/agent-processes-tests.sh`; Debug build.
+- Not covered: the app killed with SIGKILL or crashing still leaves its agents; they end when their run times out.
+
 ## Task 90: Prototype Studio — progress, voice input, resizable conversation (2026-10-07, 4.12.1)
 
 Boris: (1) no way to dictate a request in the studio; (2) a build takes very long and only "Designing screens" is

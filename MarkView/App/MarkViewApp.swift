@@ -90,6 +90,12 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
+    /// Quitting for real (not when a save error keeps the windows open): stop the assistants of headless runs
+    /// so none keeps working, and spending tokens, for a window that is gone.
+    func applicationWillTerminate(_ notification: Notification) {
+        AgentProcesses.terminateAll()
+    }
+
     func log(_ msg: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) [AppDelegate] \(msg)\n"
         let path = NSHomeDirectory() + "/markview_debug.log"

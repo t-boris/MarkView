@@ -357,6 +357,7 @@ private final class ACPConnection: @unchecked Sendable {
             self.queue.async { self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(3000)) }
         }
         process.terminationHandler = { [weak self] process in
+            AgentProcesses.remove(process)
             output.fileHandleForReading.readabilityHandler = nil
             errors.fileHandleForReading.readabilityHandler = nil
             guard let self else { return }
@@ -372,6 +373,7 @@ private final class ACPConnection: @unchecked Sendable {
         }
         do {
             try process.run()
+            AgentProcesses.add(process)
         } catch {
             throw CLICompletion.Failure.failed(tool, error.localizedDescription)
         }
