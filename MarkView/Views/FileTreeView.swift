@@ -29,6 +29,7 @@ struct FileTreeView: View {
         let url: URL
         let isDir: Bool
         let modDate: Date?
+        var size: Int? = nil
         var linked: LinkedFolder? = nil
     }
 
@@ -42,7 +43,7 @@ struct FileTreeView: View {
         let fm = FileManager.default
         let sort = workspaceManager.fileTreeSortOrder
         // Dates are shown on every row, so always read them.
-        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]
 
         guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return [] }
 
@@ -54,7 +55,8 @@ struct FileTreeView: View {
             let vals = try? itemURL.resourceValues(forKeys: Set(keys))
             let isDir = vals?.isDirectory ?? false
             guard isDir || FileType.isOpenable(itemURL) else { return nil }
-            return Entry(url: itemURL, isDir: isDir, modDate: vals?.contentModificationDate)
+            return Entry(url: itemURL, isDir: isDir, modDate: vals?.contentModificationDate,
+                         size: isDir ? nil : vals?.fileSize)
         }
 
         let asc = sort.ascending
@@ -283,7 +285,7 @@ struct FileTreeView: View {
                             if item.isDir {
                                 folderRow(item.url, date: item.modDate, linked: item.linked)
                             } else {
-                                fileRow(item.url, date: item.modDate)
+                                fileRow(item.url, date: item.modDate, size: item.size)
                             }
                         }
                     }
@@ -431,6 +433,15 @@ struct FileTreeView: View {
         }
     }
 
+    /// "512 B", "14 KB", "2.3 MB".
+    private func sizeLabel(_ bytes: Int) -> some View {
+        Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+            .uiFont(size: 9, design: .monospaced)
+            .foregroundColor(VSDark.textDim)
+            .lineLimit(1)
+            .help("\(bytes.formatted()) bytes")
+    }
+
     private func dateLabel(_ date: Date?) -> some View {
         Text(shortDate(date))
             .uiFont(size: 9, design: .monospaced)
@@ -522,7 +533,7 @@ struct FileTreeView: View {
         }
     }
 
-    private func fileRow(_ url: URL, date: Date?) -> some View {
+    private func fileRow(_ url: URL, date: Date?, size: Int?) -> some View {
         let inProject = workspaceManager.linkedFolder(containing: url) == nil
         let gitStatus = inProject ? fileGitStatus(url) : nil
         let (icon, color) = fileIcon(for: url)
@@ -530,6 +541,7 @@ struct FileTreeView: View {
             Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
             Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
             Spacer()
+            if let size { sizeLabel(size) }
             dateLabel(date)
             if let gs = gitStatus {
                 Text(gs.status)
