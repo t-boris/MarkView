@@ -31,6 +31,7 @@
 		1AAF6AFF570308521B59A31D /* KaTeX_Math-Italic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = DD3754DD617C0FD5933A645A /* KaTeX_Math-Italic.woff2 */; };
 		1BDB682F708BB853000B820B /* KaTeX_SansSerif-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = C6D644220A558FD0B83AD5F0 /* KaTeX_SansSerif-Regular.woff2 */; };
 		1CE92586812A8B6BC840CE61 /* ProjectDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CD989BCFEEFA92D710964BA /* ProjectDraftStore.swift */; };
+		1E4AF0C8A995DE0722D2D276 /* PrototypeFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */; };
 		204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13993FF35E01B9904DA7B594 /* ResearchJobs.swift */; };
 		21AA8AE285DB8D167B52F9C4 /* markdown-it-footnote.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 663292B1115EE20A8D51CB93 /* markdown-it-footnote.min.js */; };
 		232FD1AED8C125EA9BAEAB2A /* BrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF2A565576699E172D2ADE1 /* BrowserSession.swift */; };
@@ -160,9 +161,11 @@
 		BA33CA169FFA17EBC8CD2BE3 /* prism-yaml.min.js in Resources */ = {isa = PBXBuildFile; fileRef = F58E38B38401EBC2C62DEA97 /* prism-yaml.min.js */; };
 		BAC0B21B067959AEAA6CA07D /* xterm.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 66E0D277415C2D86CE21A125 /* xterm.bundle.js */; };
 		BB52026DF6F312589FA3BC0E /* GitClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF4614EF60F2106DE512B32 /* GitClient.swift */; };
+		BD0E1A552EBABF480B72BB04 /* PrototypeCreatorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */; };
 		BD94ACBBCDF488AEDF85F52A /* KaTeX_Caligraphic-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = F5CBBFE5D52362BCDB63DB22 /* KaTeX_Caligraphic-Regular.woff2 */; };
 		BE0A08239C85E364CBFCC6EF /* markview-render.js in Resources */ = {isa = PBXBuildFile; fileRef = DD86AAC2720AC601F1FAFA66 /* markview-render.js */; };
 		BE4D6B76E147FC80DD5868B1 /* GraphRAG.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6ED2450EDB46A540B6CC461 /* GraphRAG.swift */; };
+		BFF74482B5C42F53724800E7 /* PrototypeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */; };
 		C0D73C1E22599BA770B33CBD /* KaTeX_Size4-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 6200A280D4FA5E5A3C452E95 /* KaTeX_Size4-Regular.woff2 */; };
 		C171BB5EDDA73F9B5FBB160C /* markview-diagram-viewer.js in Resources */ = {isa = PBXBuildFile; fileRef = 7D4807224B482E48E25EFFFA /* markview-diagram-viewer.js */; };
 		C2AB7D36E0F431AB20F0BF16 /* prism-html.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 3EC21EE39789DDD494DEA451 /* prism-html.min.js */; };
@@ -220,12 +223,14 @@
 		F5E36DB6F4BA9C780508F211 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */; };
 		F71AD30EA5690CB0BA397664 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = B22463A74DBAA149985AFD0B /* README.md */; };
 		F9DB0D1D862F55F68889E54F /* SemanticDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */; };
+		FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */; };
 		FAB93630CB9184D60154A8D0 /* FeatureNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */; };
 		FAD76A44F9619DCE5F76A026 /* LifecycleAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFA67A244B26B28A49C3526B /* LifecycleAnalytics.swift */; };
 		FB66FDB4BCB4FC386A679B71 /* ModuleExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07E6C73E57B66F2FC4DCD08F /* ModuleExplorerView.swift */; };
 		FBEE26C2ACD8DA6D055AC11B /* markview-canvas.css in Resources */ = {isa = PBXBuildFile; fileRef = ADA371AF8ACDEABE2F93D359 /* markview-canvas.css */; };
 		FC165556724BC49AFB71FF4E /* PDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4755545E00CAA90E990A42E /* PDFExporter.swift */; };
 		FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477DD53694435ADC874CA1A0 /* BugBasketView.swift */; };
+		FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8965BA2170772C6393FB45 /* PrototypeAI.swift */; };
 		FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */; };
 		FF7727D2E8B03F5B003E70D3 /* KaTeX_Size3-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = CE99F8479F3F1684FB7DAB2A /* KaTeX_Size3-Regular.woff2 */; };
 /* End PBXBuildFile section */
@@ -260,6 +265,7 @@
 		237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WikiLinkResolver.swift; sourceTree = "<group>"; };
 		253BAC42F71F867A6BC8DA76 /* prism-markdown.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-markdown.min.js"; sourceTree = "<group>"; };
 		25CD39285DCF78B6677A6485 /* auto-render.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "auto-render.min.js"; sourceTree = "<group>"; };
+		2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeCreatorSheet.swift; sourceTree = "<group>"; };
 		26726FF62649B52BE2384159 /* FileTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTreeView.swift; sourceTree = "<group>"; };
 		27FA2CF8DFE2C2FCD41F014E /* LifecycleCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleCapture.swift; sourceTree = "<group>"; };
 		2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageTracker.swift; sourceTree = "<group>"; };
@@ -273,6 +279,7 @@
 		2EB46759349C74CBC6AA73CF /* KaTeX_SansSerif-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Bold.woff2"; sourceTree = "<group>"; };
 		3491A3C7B018712298DBB744 /* d3.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = d3.min.js; sourceTree = "<group>"; };
 		374D415A70003378E9635011 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
+		392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStudioView.swift; sourceTree = "<group>"; };
 		39597935A465C90AA3271323 /* LifecycleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleViews.swift; sourceTree = "<group>"; };
 		3A41351EB21A8BB60C9A0A83 /* DependencyGraphScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyGraphScheduler.swift; sourceTree = "<group>"; };
 		3A5536B20A2DD735F6BA815A /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
@@ -350,6 +357,7 @@
 		8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStore.swift; sourceTree = "<group>"; };
 		8DE180277E01B9DBC61C4110 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
 		8E12A0F93CB8CBC21446ABCE /* markview-early.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-early.js"; sourceTree = "<group>"; };
+		8E8965BA2170772C6393FB45 /* PrototypeAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeAI.swift; sourceTree = "<group>"; };
 		912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsView.swift; sourceTree = "<group>"; };
 		96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppPreview.swift; sourceTree = "<group>"; };
 		988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSearchView.swift; sourceTree = "<group>"; };
@@ -386,6 +394,7 @@
 		B899AF32F819BB9FA6CA770F /* markview-web-only.mjs */ = {isa = PBXFileReference; path = "markview-web-only.mjs"; sourceTree = "<group>"; };
 		BA8F968A66CC85F478E65280 /* ProjectColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectColor.swift; sourceTree = "<group>"; };
 		BC5216E2466E79A0507BEAE8 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFiles.swift; sourceTree = "<group>"; };
 		BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManager.swift; sourceTree = "<group>"; };
 		BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageLogs.swift; sourceTree = "<group>"; };
 		C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYWriter.swift; sourceTree = "<group>"; };
@@ -397,6 +406,7 @@
 		C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Script-Regular.woff2"; sourceTree = "<group>"; };
 		C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectFlow.swift; sourceTree = "<group>"; };
 		CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsage.swift; sourceTree = "<group>"; };
+		CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSession.swift; sourceTree = "<group>"; };
 		CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubStore.swift; sourceTree = "<group>"; };
 		CDFBAEE90C4DF2A5A9B2CC83 /* markview-insight-helpers.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-helpers.js"; sourceTree = "<group>"; };
 		CE1EF33F9C88742E6505EC25 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mermaid.min.js; sourceTree = "<group>"; };
@@ -581,6 +591,9 @@
 				54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */,
 				8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */,
 				CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */,
+				8E8965BA2170772C6393FB45 /* PrototypeAI.swift */,
+				BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */,
+				CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */,
 				C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */,
 				6D6D9377AD0B59E94F3B37FF /* ResearchDocument.swift */,
 				13993FF35E01B9904DA7B594 /* ResearchJobs.swift */,
@@ -640,6 +653,8 @@
 				49F34A3A95ECF49AFECC200E /* ProjectChangeReviewView.swift */,
 				ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */,
 				912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */,
+				2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */,
+				392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */,
 				C2B2061839C6FC000555491E /* ResearchViews.swift */,
 				9F4B562671D5CF6D08403DAE /* SelectionActionBar.swift */,
 				988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */,
@@ -1067,6 +1082,11 @@
 				C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */,
 				F278A31184C35394A15B7F96 /* ProjectOperationsView.swift in Sources */,
 				83916360DABE7547F3F6D441 /* ProjectSearch.swift in Sources */,
+				FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */,
+				BD0E1A552EBABF480B72BB04 /* PrototypeCreatorSheet.swift in Sources */,
+				1E4AF0C8A995DE0722D2D276 /* PrototypeFiles.swift in Sources */,
+				BFF74482B5C42F53724800E7 /* PrototypeSession.swift in Sources */,
+				FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */,
 				8F2D2F323E878F0B3D73D1C7 /* ResearchDocument.swift in Sources */,
 				204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */,
 				9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */,
@@ -1141,7 +1161,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.11.0;
+				CURRENT_PROJECT_VERSION = 4.12.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1156,7 +1176,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.11.0;
+				MARKETING_VERSION = 4.12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1220,7 +1240,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.11.0;
+				CURRENT_PROJECT_VERSION = 4.12.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1241,7 +1261,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.11.0;
+				MARKETING_VERSION = 4.12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

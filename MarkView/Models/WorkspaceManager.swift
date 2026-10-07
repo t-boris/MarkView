@@ -995,6 +995,7 @@ class WorkspaceManager: ObservableObject {
                 guard let url = session.url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { continue }
                 saved = .browser(url)
             case .insight: continue // in-memory jobs have their own export workflow
+            case .prototype: continue // reopened from AI Tools → Prototype
             }
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
@@ -4402,6 +4403,45 @@ class WorkspaceManager: ObservableObject {
         }
         tabsStore.appendTab(tab, activate: activate)
         return session
+    }
+
+    // MARK: - Prototype Studio
+
+    /// Opens the creator sheet of Prototype Studio.
+    @Published var showPrototypeCreator = false
+
+    /// Prototypes saved in the open project, by folder name.
+    func savedPrototypes() -> [String] {
+        rootNode.map { PrototypeFiles.existingSlugs(root: $0.url) } ?? []
+    }
+
+    /// A new prototype from `sources` (project-relative files or folders) and the reviewer's brief; it builds at once.
+    func newPrototype(title: String, brief: String, sources: [String]) {
+        guard let root = rootNode?.url else { return }
+        openPrototype(PrototypeSession(root: root, title: title, brief: brief, sources: sources))
+    }
+
+    func openSavedPrototype(_ slug: String) {
+        guard let root = rootNode?.url else { return }
+        for index in openTabs.indices {
+            if case .prototype(let session) = openTabs[index].kind, session.manifest.slug == slug {
+                activeTabIndex = index
+                return
+            }
+        }
+        if let session = PrototypeSession(root: root, slug: slug) { openPrototype(session) }
+    }
+
+    private func openPrototype(_ session: PrototypeSession) {
+        session.record = { [weak self] result in result.record(in: self?.semanticDatabase) }
+        session.languageNote = ActionOutputLanguage.current == ActionOutputLanguage.documentLanguage
+            ? "" : "\n\nWrite every label, text and message in the prototype in \(ActionOutputLanguage.current)."
+        var tab = OpenTab(url: session.folder.appendingPathComponent(".markview-prototype-" + session.id.uuidString),
+                          content: "", originalContent: "")
+        tab.kind = .prototype(session)
+        layout.workspaceArea = .files
+        showCenter = true
+        tabsStore.appendTab(tab, activate: true)
     }
 
     /// Show a local HTML file in a browser tab: the tab already showing it is reloaded, else a new

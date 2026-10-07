@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## Task 89: Prototype Studio — clickable HTML prototype from requirements, reviewed until approved (2026-10-07, 4.12.0)
+
+Boris (/goal): an agent reads a file or folder of requirements and builds a deep, fully clickable HTML prototype; Boris
+asks for changes ("change this, remove that, add this") until it is approved; the approved prototype is saved as a zip
+and handed to implementation.
+
+Decisions (asked): a studio tab with the live prototype and a review chat, pointing at elements in the preview;
+the package is the prototype (HTML/CSS/JS) plus SPEC.md (screens, states, transitions, data, rules, traceability).
+
+- [x] `PrototypeFiles`: `.dde/prototypes/<slug>/` (manifest, `site/`, `versions/vN/`), path validation, exact-once edits,
+      all-or-nothing apply, snapshots/restore. `tools/tests/prototype-tests.sh` (30 checks).
+- [x] `PrototypeAI`: the assistant stays read-only (`CLICompletion`); it answers with files/edits as JSON and only
+      `PrototypeFiles.apply` writes. Build, revise (one retry when an edit does not apply), SPEC.md, zip.
+- [x] `PrototypeSession` + `PrototypeStudioView` (`TabKind.prototype`): preview, Point mode, JS errors reported by the page
+      are fixed by one automatic round, version menu (revert = new version), Approve & export.
+- [x] AI Tools → Prototype Studio… (`PrototypeCreatorSheet`): sources, brief, earlier prototypes.
+- [x] Live run with the real assistant (`tools/tests/prototype-live-run.sh`): 4-file support-desk prototype built from a requirements file, revised, SPEC.md written, zip packed; opened in Chrome: list, filters, ticket detail, roles, no console errors. Fixed: AppleDouble `._*` files in the zip.
+- [ ] Studio tab (preview, Point mode, banners) not clicked through in the running app yet.
+
 ## Task 86: Cline's hub is not under MarkView (BUG-027, 2026-10-05, 4.8.2)
 
 Boris: Cline's own `--diagnose` run: "MarkView not found among the parent processes, the parent is .cline".

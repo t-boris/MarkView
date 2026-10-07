@@ -71,6 +71,7 @@ struct TabBarView: View {
         case .insight: return "sparkles"
         case .image: return "photo"
         case .browser: return "globe"
+        case .prototype: return "rectangle.on.rectangle.angled"
         case .data:
             switch tab.fileType {
             case .log: return "list.bullet.rectangle"
