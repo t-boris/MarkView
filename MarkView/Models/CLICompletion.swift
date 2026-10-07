@@ -340,7 +340,8 @@ private final class Invocation: @unchecked Sendable {
                 self.stderrTail = String((self.stderrTail + String(decoding: data, as: UTF8.self)).suffix(4000))
             }
         }
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] finished in
+            AgentProcesses.remove(finished)
             guard let self else { return }
             stdout.fileHandleForReading.readabilityHandler = nil
             stderr.fileHandleForReading.readabilityHandler = nil
@@ -354,6 +355,7 @@ private final class Invocation: @unchecked Sendable {
 
         do {
             try process.run()
+            AgentProcesses.add(process)
         } catch {
             self.continuation = nil
             continuation.resume(throwing: CLICompletion.Failure.failed(tool, error.localizedDescription))
