@@ -9,8 +9,6 @@ struct GraphCreatorSheet: View {
     @State private var selectedFiles: Set<String> = []
     @State private var diagramType = "architecture"
     @State private var customPrompt = ""
-    @State private var isGenerating = false
-    @State private var error: String?
 
     private let diagramTypes = [
         ("architecture", "System Architecture", "C4 component diagram showing all systems, services, databases and their connections"),
@@ -88,24 +86,15 @@ struct GraphCreatorSheet: View {
                 }
             }
 
-            // Error
-            if let error = error {
-                Text(error).uiFont(.caption).foregroundColor(.red)
-            }
-
             // Buttons
             HStack {
                 Button("Cancel") { isPresented = false }
                 Spacer()
-                if isGenerating {
-                    ProgressView().scaleEffect(0.6)
-                    Text("Generating...").uiFont(.caption).foregroundColor(.secondary)
-                } else {
-                    Button("Generate") { generate() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(VSDark.blue)
-                        .disabled(selectedFiles.isEmpty)
-                }
+                Text(selectedFiles.isEmpty ? "No documents: the assistant works from the code" : "")
+                    .uiFont(.caption).foregroundColor(.secondary)
+                Button("Generate") { generate() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(VSDark.blue)
             }
         }
         .padding(20)
@@ -116,13 +105,8 @@ struct GraphCreatorSheet: View {
             let wm = workspaceManager
             if wm.activeTabIndex >= 0, wm.activeTabIndex < wm.openTabs.count {
                 let currentFile = wm.openTabs[wm.activeTabIndex].url.lastPathComponent
-                if availableFiles().contains(where: { $0.hasSuffix(currentFile) }) {
-                    selectedFiles = Set(availableFiles().filter { $0.hasSuffix(currentFile) })
-                } else {
-                    selectAll()
-                }
-            } else {
-                selectAll()
+                // Only the open document by default: many documents blur the diagram's question.
+                selectedFiles = Set(availableFiles().filter { $0.hasSuffix(currentFile) })
             }
         }
     }
@@ -156,57 +140,12 @@ struct GraphCreatorSheet: View {
         selectedFiles = [relative]
     }
 
-    /// Where the file goes, relative to the project ("docs/" or "" for the root).
-    private func targetPath(root: URL) -> String {
-        guard let folder = workspaceManager.graphCreatorFolder?.standardizedFileURL else { return "" }
-        let base = root.standardizedFileURL.path + "/"
-        guard folder.path.hasPrefix(base) else { return "" }
-        return String(folder.path.dropFirst(base.count)) + "/"
-    }
-
     private func generate() {
-        guard !selectedFiles.isEmpty else { return }
-        guard let root = workspaceManager.rootNode?.url else { return }
-
-        isGenerating = true
-        error = nil
-
-        // Build content from selected files, whole: the terminal writer delivers pastes of any length.
-        var content = ""
-        for file in selectedFiles.sorted() {
-            let url = root.appendingPathComponent(file)
-            if let text = try? String(contentsOf: url, encoding: .utf8) {
-                content += "--- \(file) ---\n\(text)\n\n"
-            }
-        }
-
-        // Get diagram type description
-        let typeDesc = diagramTypes.first(where: { $0.0 == diagramType })?.2 ?? "architecture diagram"
-        let promptExtra = diagramType == "custom" ? customPrompt : ""
-
-        let prompt = """
-        Based on the following documentation, create a Mermaid diagram.
-
-        Diagram type: \(typeDesc)
-        \(promptExtra.isEmpty ? "" : "Additional instructions: \(promptExtra)")
-
-        RULES:
-        1. Create a markdown file called "\(targetPath(root: root))graph-\(diagramType).md".
-        2. Include a ```mermaid code block. The FIRST LINE inside the mermaid block MUST be: %%INTERACTIVE
-        3. Node IDs: alphanumeric + underscore only. Labels in square brackets [].
-        4. DO NOT limit nodes — include ALL components, services, entities from the source.
-        5. Use subgraph blocks to organize by layers, domains, or logical groups.
-        6. Show INTERNAL vs EXTERNAL systems in different subgraphs.
-        7. Use classDef for color-coding by type.
-        8. Add a brief description before the diagram and a legend after.
-
-        Source documents (\(selectedFiles.count) files):
-        \(content)
-        """
-
-        // To the assistant in the AI terminal (the AI panel opens on it).
-        workspaceManager.sendToAssistant(prompt)
+        guard !selectedFiles.isEmpty || diagramType == "custom" else { return }
+        guard let kind = DiagramKind(rawValue: diagramType) else { return }
+        // The agent works headless; progress and errors show in the banner, the result opens when done.
+        workspaceManager.generateDiagram(kind: kind, instruction: diagramType == "custom" ? customPrompt : "",
+                                         sourcePaths: Array(selectedFiles), folder: workspaceManager.graphCreatorFolder)
         isPresented = false
-        isGenerating = false
     }
 }

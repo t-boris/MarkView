@@ -1596,9 +1596,8 @@
     <script src="vendor/js/katex.min.js"></script>
     <script src="vendor/js/auto-render.min.js"></script>
 
-    <!-- D3.js + Dagre for interactive layered mermaid canvas -->
-    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@dagrejs/dagre@1.1.4/dist/dagre.min.js"></script>
+    <!-- D3.js (bundled, no CDN) for the interactive mermaid canvas; ELK is loaded on first use -->
+    <script src="vendor/js/d3.min.js"></script>
 
     <!-- Turndown: HTML → Markdown (for WYSIWYG save) -->
     <script src="https://cdn.jsdelivr.net/npm/turndown@7.1.3/dist/turndown.min.js"></script>

@@ -2332,3 +2332,12 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] DEC-016 amends DEC-011; REQ-002 gains the equal-dates criterion.
 - [x] `tools/tests/issue-listing-tests.sh`: same-day bugs both directions, titles ignored, priority tie. Debug build.
 - [x] PR merged, Release 3.11.1 built, signed, notarized and published.
+
+
+## AI tools in the agent, useful diagrams (4.10.0)
+
+- [x] `DiagramAI`: JSON schema, system prompt (one question, node budget, grounded edges), validator, repair loop (2), strict Mermaid writer, legend
+- [x] Graph Creator, graph edit, code map, critic, audit run headless (`AIToolRuns.swift`) with a progress/stop/error banner; no terminal paste
+- [x] Canvas: ELK layered layout (vendored, lazy), groups as compounds, `:::kind` colors, border-clipped edges, source/evidence open the file; d3 vendored (no CDN), dagre removed
+- [x] Checks: `tools/tests/diagram-tests.sh`; real-agent runs on this repo (architecture, sequence) produced 15-node grounded diagrams in ~35 s
+- [ ] Not verified in the running app UI (banner, canvas click-through, audit end to end); Handoff `/goal` actions deliberately stay in the terminal

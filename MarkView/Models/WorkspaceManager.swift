@@ -320,6 +320,8 @@ class WorkspaceManager: ObservableObject {
         UserDefaults.standard.stringArray(forKey: WorkspaceManager.recentProjectsKey) ?? []
     /// Which tab each panel of this window shows; never shared with other windows (BUG-004).
     let layout = PanelLayout()
+    /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
+    let aiJobs = AIToolJobs()
     @Published var showFileTree: Bool = true {
         didSet { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") }
     }
@@ -3405,34 +3407,16 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        guard let prompt = aiPrompt(for: tool, contentOverride: contentOverride) else { return }
-        sendToAssistant(prompt)
+        switch tool {
+        case .critic: runCritic(contentOverride: contentOverride)
+        case .audit: runAudit()
+        case .codemap: runCodemap()
+        case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er: break
+        }
     }
 
     func runGraphEdit(instruction: String, currentMermaid: String) {
-        let file = activeTab.map { workspaceRelativePath($0.url) } ?? "the currently open file"
-        let editPrompt = """
-        I have a Mermaid diagram. Please modify it according to this instruction:
-
-        INSTRUCTION: \(instruction)
-
-        CURRENT MERMAID CODE:
-        ```mermaid
-        \(currentMermaid)
-        ```
-
-        RULES:
-        1. Modify the diagram as requested
-        2. Keep ALL other components that weren't mentioned
-        3. Maintain the subgraph structure and layers
-        4. Return the COMPLETE updated mermaid code
-        5. The FIRST LINE inside the mermaid block MUST be: %%INTERACTIVE
-        6. Update the file with the new diagram (replace the old mermaid block)
-
-        Save the updated diagram to \(file).
-        """
-
-        sendToAssistant(editPrompt)
+        editDiagram(instruction: instruction, currentMermaid: currentMermaid)
     }
 
     // MARK: - Recent Files
@@ -4618,161 +4602,6 @@ class WorkspaceManager: ObservableObject {
 
         let content = activeTab?.content ?? ""
         return (fileName, content)
-    }
-
-    private func aiPrompt(for tool: WorkspaceAITool, contentOverride: String?) -> String? {
-        let context = activeDocumentContext(contentOverride: contentOverride)
-
-        switch tool {
-        case .audit:
-            return AIPrompts.codebaseAuditPrompt
-
-        case .codemap:
-            return """
-            Scan the current directory recursively and generate a VISUAL CODE STRUCTURE MAP.
-
-            Create a file called "code-structure-map.md" with the following sections:
-
-            # Code Structure Map
-
-            ## Directory Tree
-            Show the full directory tree with annotations for each folder/file purpose.
-            Use indentation and icons:
-            📁 folder — description
-            📄 file — description
-            ⚙️ config file — what it configures
-            🧪 test file — what it tests
-            🐳 Docker — what it builds
-            📦 package manifest — dependencies
-
-            ## Architecture Layers Diagram
-            ```mermaid
-            %%INTERACTIVE
-            graph TD
-            subgraph "Entry Points"
-            ...
-            end
-            subgraph "Application Layer"
-            ...
-            end
-            subgraph "Domain / Business Logic"
-            ...
-            end
-            subgraph "Data Access / Persistence"
-            ...
-            end
-            subgraph "Infrastructure / External"
-            ...
-            end
-            ```
-            Show ALL files/modules as nodes grouped by architectural layer.
-            Connect them by actual import/dependency relationships found in code.
-
-            ## Configuration Map
-            Table showing:
-            | Config File | Purpose | Key Settings | Environment Vars | Notes |
-            For every config file found (.env, .yaml, .json, .toml, Dockerfile, CI files, etc.)
-
-            ## Dependency Graph
-            ```mermaid
-            %%INTERACTIVE
-            graph LR
-            ```
-            Show package/module dependencies — what imports what, what depends on what.
-            Use subgraph for internal vs external dependencies.
-
-            ## Entry Points
-            List all entry points:
-            - Main app entry
-            - API routes/endpoints
-            - CLI commands
-            - Background workers
-            - Scheduled tasks
-            - Event handlers
-            For each: file path, purpose, how it's triggered.
-
-            ## Data Flow
-            ```mermaid
-            %%INTERACTIVE
-            graph TD
-            ```
-            Show how data flows through the system:
-            - User input → API → Service → DB
-            - Events → Queue → Worker → Storage
-            - Cron → Batch → External API
-
-            ## File Statistics
-            | Metric | Value |
-            |--------|-------|
-            | Total files | ... |
-            | Source files | ... |
-            | Test files | ... |
-            | Config files | ... |
-            | Languages | ... |
-            | Largest files | top 10 |
-            | Most connected modules | top 10 |
-
-            Be thorough — scan EVERY file. Use %%INTERACTIVE in mermaid blocks for interactive diagrams.
-            """
-
-        case .critic:
-            if contentOverride != nil {
-                return """
-                You are a CONSTRUCTIVE CRITIC reviewing documentation. Analyze the following document thoroughly.
-
-                Create a file called "review-\(context.fileName)" with your review. Structure it as:
-
-                # Constructive Review: \(context.fileName)
-
-                ## Summary
-                Brief overview of what the document covers and its overall quality.
-
-                ## Strengths
-                What's done well — be specific with examples.
-
-                ## Issues Found
-                For each issue:
-                ### Issue N: [Title]
-                - **Severity**: Critical / Major / Minor / Suggestion
-                - **Location**: Where in the document
-                - **Problem**: What's wrong
-                - **Recommendation**: How to fix it
-                - **Example**: Show the fix if applicable
-
-                ## Missing Content
-                What should be documented but isn't.
-
-                ## Consistency Issues
-                Terminology, formatting, style inconsistencies.
-
-                ## Action Items
-                Numbered list of concrete tasks to improve this document.
-                Each with priority (P1/P2/P3) and estimated effort.
-
-                ## Overall Score
-                Rate 1-10 with brief justification.
-
-                ---
-                Also create a file called "tasks/review-tasks-\(context.fileName)" with just the action items as a task list:
-                - [ ] P1: task description
-                - [ ] P2: task description
-                etc.
-
-                Document to review:
-                \(context.content)
-                """
-            }
-
-            return """
-            You are a CONSTRUCTIVE CRITIC. Analyze the current workspace documentation thoroughly.
-            Create a file "review-\((context.fileName as NSString).deletingPathExtension).md" with: Summary, Strengths, Issues (with severity/location/fix), Missing Content, Consistency Issues, Action Items (P1/P2/P3), Overall Score 1-10.
-            Also create "tasks/review-tasks-\((context.fileName as NSString).deletingPathExtension).md" with action items as checkboxes.
-            \(context.content.isEmpty ? "Scan all files in the current directory." : "Document:\n\(context.content)")
-            """
-
-        case .architecture, .dataflow, .pipeline, .deployment, .sequence, .er:
-            return nil
-        }
     }
 
     private func resolveWorkspaceFileURL(filePath: String?, fallbackDocumentId: String?) -> URL? {

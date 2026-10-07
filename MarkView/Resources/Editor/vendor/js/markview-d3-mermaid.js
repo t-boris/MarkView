@@ -2,8 +2,17 @@
         // ============================================================================
 
         function initMermaidCanvas(container, mermaidSource) {
-            if (typeof d3 === 'undefined' || typeof dagre === 'undefined') {
+            if (typeof d3 === 'undefined') {
                 container.innerHTML = '<div style="padding:20px;color:#808080;">Loading libraries...</div>';
+                return;
+            }
+            if (typeof ELK === 'undefined') {
+                // ELK (layered layout) is large: loaded when the first diagram needs it.
+                const tag = document.createElement('script');
+                tag.src = 'vendor/js/elk.bundled.js';
+                tag.onload = () => initMermaidCanvas(container, mermaidSource);
+                tag.onerror = () => { container.innerHTML = '<div style="padding:20px;color:#808080;">Layout engine failed to load</div>'; };
+                document.head.appendChild(tag);
                 return;
             }
 
@@ -14,7 +23,8 @@
             const tc = {service:'#4ec9b0',database:'#c586c0',api:'#569cd6',queue:'#ce9178',
                 system:'#9cdcfe',gateway:'#dcdcaa',cache:'#d7ba7d',pipeline:'#dcdcaa',
                 worker:'#ce9178',scheduler:'#c586c0',process:'#4ec9b0',strategy:'#569cd6',
-                risk:'#f44747',instrument:'#c586c0',default:'#808080'};
+                risk:'#f44747',instrument:'#c586c0',ui:'#9cdcfe',library:'#808080',external:'#f44747',
+                data:'#c586c0',decision:'#d7ba7d',actor:'#9cdcfe',config:'#808080',default:'#808080'};
             const groupColors = ['#264f78','#2d4a22','#4a2d22','#2d2d4a','#4a4a22','#224a4a'];
 
             function guessType(label) {
@@ -28,43 +38,70 @@
                 return 'default';
             }
 
-            const {nodes, links, groups} = parseMermaid(mermaidSource);
+            const {nodes, links, groups, direction} = parseMermaid(mermaidSource);
             if (nodes.length === 0) { container.innerHTML = '<div style="padding:20px;color:#808080;font-size:calc(11px * var(--ui-scale, 1));">No nodes found</div>'; return; }
 
-            nodes.forEach(n => { n.type = guessType(n.label); n.color = tc[n.type] || tc.default; });
+            nodes.forEach(n => { n.type = n.kind || guessType(n.label); n.color = tc[n.type] || tc.default; });
             const uniqueGroups = [...new Set(nodes.map(n=>n.group).filter(Boolean))];
             const groupColorMap = {};
             uniqueGroups.forEach((g,i) => { groupColorMap[g] = groupColors[i % groupColors.length]; });
 
-            // Dagre layout — layered, no overlaps
-            const dagreGraph = new dagre.graphlib.Graph({compound:true});
-            dagreGraph.setGraph({rankdir:'TB', nodesep:40, ranksep:60, edgesep:20, marginx:30, marginy:30});
-            dagreGraph.setDefaultEdgeLabel(() => ({}));
+            const nodeById0 = {}; nodes.forEach(n => { nodeById0[n.id] = n; });
+            const groupBoxes = {};
 
-            // Add groups as parent nodes
-            uniqueGroups.forEach(g => { dagreGraph.setNode('group_'+g, {label:g, clusterLabelPos:'top', style:'fill:none'}); });
-
-            // Add nodes — calculate size based on label lines
+            // Node sizes from their labels
             nodes.forEach(n => {
                 const lines = n.label.replace(/<br\s*\/?>/gi, '\n').split('\n');
                 const maxLineLen = Math.max(...lines.map(l => l.trim().length));
-                const w = Math.max(maxLineLen * 7.5 + 20, 70);
-                const h = 20 + lines.length * 14;
-                dagreGraph.setNode(n.id, {label:n.label, width:w, height:h});
-                if (n.group) dagreGraph.setParent(n.id, 'group_'+n.group);
+                n.w = Math.max(maxLineLen * 7.5 + 24, 80);
+                n.h = 24 + lines.length * 14;
             });
 
-            // Add edges
-            links.forEach(l => { dagreGraph.setEdge(l.source, l.target, {label:l.label||''}); });
+            // Layers are far enough apart for the longest edge label to sit between two nodes
+            const labelRoom = Math.max(70, Math.max(0, ...links.map(l => (l.label||'').length)) * 6.2 + 50);
 
-            dagre.layout(dagreGraph);
-
-            // Apply positions
-            nodes.forEach(n => {
-                const pos = dagreGraph.node(n.id);
-                if (pos) { n.x = pos.x; n.y = pos.y; n.w = pos.width; n.h = pos.height; }
+            // ELK layered layout: groups are compound nodes, so members stay together without overlaps
+            const elkGraph = {
+                id: 'root',
+                layoutOptions: {
+                    'elk.algorithm': 'layered',
+                    'elk.direction': direction === 'TB' ? 'DOWN' : 'RIGHT',
+                    'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+                    'elk.layered.spacing.nodeNodeBetweenLayers': String(labelRoom),
+                    'elk.spacing.nodeNode': '34',
+                    'elk.spacing.edgeNode': '24',
+                    'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+                    'elk.padding': '[top=30,left=30,bottom=30,right=30]'
+                },
+                children: [],
+                edges: links.map((l, i) => ({id: 'e' + i, sources: [l.source], targets: [l.target]}))
+            };
+            const elkNode = n => ({id: n.id, width: n.w, height: n.h});
+            uniqueGroups.forEach(gName => {
+                elkGraph.children.push({
+                    id: 'group_' + gName,
+                    layoutOptions: {'elk.padding': '[top=34,left=18,bottom=18,right=18]',
+                                    'elk.layered.spacing.nodeNodeBetweenLayers': String(labelRoom), 'elk.spacing.nodeNode': '34'},
+                    children: nodes.filter(n => n.group === gName).map(elkNode)
+                });
             });
+            nodes.filter(n => !n.group).forEach(n => elkGraph.children.push(elkNode(n)));
 
+            const layoutDone = new ELK().layout(elkGraph).then(laid => {
+                // Absolute centers: ELK positions are relative to the parent group.
+                const place = (items, ox, oy) => (items || []).forEach(item => {
+                    if (item.id.startsWith('group_')) {
+                        const gName = item.id.slice(6);
+                        groupBoxes[gName] = {x: ox + item.x, y: oy + item.y, w: item.width, h: item.height};
+                        place(item.children, ox + item.x, oy + item.y);
+                    } else {
+                        const n = nodeById0[item.id];
+                        if (n) { n.x = ox + item.x + item.width / 2; n.y = oy + item.y + item.height / 2; }
+                    }
+                });
+                place(laid.children, 0, 0);
+            });
+            const draw = function() {
             const w = container.clientWidth || 800;
             const h = container.clientHeight || 600;
             container.innerHTML = '';
@@ -82,21 +119,18 @@
             // Arrow marker
             svg.append('defs').append('marker')
                 .attr('id','arr-'+container.id).attr('viewBox','0 -5 10 10')
-                .attr('refX',16).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6)
+                .attr('refX',9).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6)
                 .attr('orient','auto').append('path').attr('d','M0,-5L10,0L0,5').attr('fill',linkColor);
 
-            // Group backgrounds
-            uniqueGroups.forEach((gName,i) => {
-                const members = nodes.filter(n=>n.group===gName);
-                if (!members.length) return;
-                const pad = 20;
-                const x1 = d3.min(members, d=>d.x-d.w/2)-pad, y1 = d3.min(members, d=>d.y-d.h/2)-pad-12;
-                const x2 = d3.max(members, d=>d.x+d.w/2)+pad, y2 = d3.max(members, d=>d.y+d.h/2)+pad;
-                g.append('rect').attr('x',x1).attr('y',y1).attr('width',x2-x1).attr('height',y2-y1)
+            // Group backgrounds (boxes from the layout)
+            uniqueGroups.forEach(gName => {
+                const box = groupBoxes[gName];
+                if (!box) return;
+                g.append('rect').attr('x',box.x).attr('y',box.y).attr('width',box.w).attr('height',box.h)
                     .attr('rx',8).attr('ry',8).attr('fill',groupColorMap[gName]||'#333')
                     .attr('fill-opacity',0.12).attr('stroke',groupColorMap[gName]||'#555').attr('stroke-opacity',0.3);
-                g.append('text').attr('x',x1+6).attr('y',y1+10).attr('font-size',9)
-                    .attr('fill','#808080').attr('font-weight','bold').text(gName);
+                g.append('text').attr('x',box.x+10).attr('y',box.y+20).attr('font-size',11)
+                    .attr('fill','#9a9a9a').attr('font-weight','bold').text(gName);
             });
 
             // Build node map for quick lookup
@@ -111,22 +145,39 @@
                 else l.tgtNode = l.target;
             });
 
+            // Edge ends sit on the node borders, not the centers (nodes are translucent)
+            function endpoints(l) {
+                const a = l.srcNode, b = l.tgtNode;
+                const dx = b.x - a.x, dy = b.y - a.y;
+                function clip(n, ux, uy) {
+                    const hw = (n.w||70)/2, hh = (n.h||32)/2;
+                    const t = Math.min(ux ? hw/Math.abs(ux) : Infinity, uy ? hh/Math.abs(uy) : Infinity);
+                    return [n.x + ux*t, n.y + uy*t];
+                }
+                const len = Math.hypot(dx, dy) || 1;
+                const ux = dx/len, uy = dy/len;
+                const p1 = clip(a, ux, uy), p2 = clip(b, -ux, -uy);
+                return {x1:p1[0], y1:p1[1], x2:p2[0], y2:p2[1]};
+            }
+
             // Edges
             const edgeGroup = g.append('g');
             const edgeElements = [];
             links.forEach((l,i) => {
                 if (!l.srcNode || !l.tgtNode) return;
+                const ep = endpoints(l);
                 const line = edgeGroup.append('line')
-                    .attr('x1',l.srcNode.x).attr('y1',l.srcNode.y)
-                    .attr('x2',l.tgtNode.x).attr('y2',l.tgtNode.y)
+                    .attr('x1',ep.x1).attr('y1',ep.y1)
+                    .attr('x2',ep.x2).attr('y2',ep.y2)
                     .attr('stroke',linkColor).attr('stroke-width',1.5)
                     .attr('marker-end','url(#arr-'+container.id+')')
                     .style('cursor','pointer')
                     .attr('data-idx',i);
 
                 const labelEl = l.label ? edgeGroup.append('text')
-                    .attr('x',(l.srcNode.x+l.tgtNode.x)/2).attr('y',(l.srcNode.y+l.tgtNode.y)/2-4)
-                    .attr('font-size',8).attr('fill','#808080').attr('text-anchor','middle')
+                    .attr('x',(ep.x1+ep.x2)/2).attr('y',(ep.y1+ep.y2)/2-4)
+                    .attr('font-size',10).attr('fill',isDark?'#c0c0c0':'#444').attr('text-anchor','middle')
+                    .attr('paint-order','stroke').attr('stroke',bg).attr('stroke-width',4).attr('stroke-linejoin','round')
                     .text(l.label).style('pointer-events','none').attr('data-idx',i) : null;
 
                 edgeElements.push({line, labelEl, link: l});
@@ -135,8 +186,9 @@
                     event.stopPropagation();
                     showPopup(popup, event.pageX-container.getBoundingClientRect().left,
                         event.pageY-container.getBoundingClientRect().top,
-                        `<div class="popup-title">${l.srcNode.label} → ${l.tgtNode.label}</div>
-                         <div class="popup-type">Relationship: ${l.label||'depends_on'}</div>
+                        `<div class="popup-title">${esc(l.srcNode.label)} → ${esc(l.tgtNode.label)}</div>
+                         <div class="popup-type">${esc(l.label||'depends on')}</div>
+                         ${l.evidence?`<div class="popup-actions"><button class="popup-btn" onclick="openDiagramSource('${esc(l.evidence).replace(/'/g,'')}')">Evidence: ${esc(l.evidence)}</button></div>`:''}
                          <div class="popup-actions">
                            <input class="popup-input" id="edge-prompt-${container.id}" placeholder="Ask AI to change..." />
                            <button class="popup-btn" onclick="aiEditGraph('${container.id}','Change relationship between ${l.srcNode.label} and ${l.tgtNode.label}: '+document.getElementById('edge-prompt-${container.id}').value)">AI Edit</button>
@@ -148,10 +200,9 @@
             function updateEdges() {
                 edgeElements.forEach(({line, labelEl, link}) => {
                     if (!link.srcNode || !link.tgtNode) return;
-                    line.attr('x1',link.srcNode.x).attr('y1',link.srcNode.y)
-                        .attr('x2',link.tgtNode.x).attr('y2',link.tgtNode.y);
-                    if (labelEl) labelEl.attr('x',(link.srcNode.x+link.tgtNode.x)/2)
-                        .attr('y',(link.srcNode.y+link.tgtNode.y)/2-4);
+                    const ep = endpoints(link);
+                    line.attr('x1',ep.x1).attr('y1',ep.y1).attr('x2',ep.x2).attr('y2',ep.y2);
+                    if (labelEl) labelEl.attr('x',(ep.x1+ep.x2)/2).attr('y',(ep.y1+ep.y2)/2-4);
                 });
             }
 
@@ -179,7 +230,7 @@
                 // Multi-line label support: split on <br/> or <br>
                 const labelLines = n.label.replace(/<br\s*\/?>/gi, '\n').split('\n');
                 const textEl = ng.append('text').attr('text-anchor','middle')
-                    .attr('font-size',10).attr('fill',textColor).style('pointer-events','none');
+                    .attr('font-size',11).attr('fill',textColor).style('pointer-events','none');
                 labelLines.forEach((line, li) => {
                     textEl.append('tspan').attr('x',0)
                         .attr('dy', li === 0 ? -(labelLines.length-1)*6 + 4 : 13)
@@ -190,8 +241,10 @@
                     event.stopPropagation();
                     const rect = container.getBoundingClientRect();
                     showPopup(popup, event.pageX-rect.left, event.pageY-rect.top,
-                        `<div class="popup-title">${n.label}</div>
-                         <div class="popup-type">[${n.type}] ${n.group?'• '+n.group:''}</div>
+                        `<div class="popup-title">${esc(n.label)}</div>
+                         <div class="popup-type">[${esc(n.type)}] ${n.group?'• '+esc(n.group):''}</div>
+                         ${n.note?`<div class="popup-type">${esc(n.note)}</div>`:''}
+                         ${n.source?`<div class="popup-actions"><button class="popup-btn" onclick="openDiagramSource('${esc(n.source).replace(/'/g,'')}')">Open ${esc(n.source)}</button></div>`:''}
                          <div class="popup-actions">
                            <input class="popup-input" id="node-prompt-${container.id}" placeholder="Ask AI: remove, replace, modify..." />
                            <button class="popup-btn" onclick="aiEditGraph('${container.id}','Regarding ${n.label}: '+document.getElementById('node-prompt-${container.id}').value)">AI Edit</button>
@@ -244,6 +297,20 @@
 
             // Store references for filtering
             container._canvasData = {nodes, links, edgeElements, nodeGroup, edgeGroup, uniqueGroups};
+            };
+            layoutDone.then(draw).catch(err => {
+                container.innerHTML = '<div style="padding:20px;color:#f44747;font-size:11px;">Layout failed: ' + (err && err.message || err) + '</div>';
+            });
+        }
+
+        function esc(t) {
+            return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        // "path/File.swift:42" -> opens the project file (the line is not used yet)
+        function openDiagramSource(ref) {
+            const path = String(ref).split(':')[0];
+            if (path) sendToSwift('canvasOpenFile', {path: path});
         }
 
         function showPopup(popup, x, y, html) {
@@ -295,41 +362,58 @@
             const nodeMap = {};
             const lines = code.split('\n');
             let currentGroup = null;
+            let direction = 'LR';
+            const meta = {src: {}, note: {}, evidence: []};
+
+            // Declares a node from `id`, an optional label (quotes stripped) and an optional :::class
+            function declare(id, label, kind) {
+                if (label) label = label.replace(/^"(.*)"$/, '$1');
+                let n = nodeMap[id];
+                if (!n) { n = nodeMap[id] = {id, label: label || id, group: currentGroup}; nodes.push(n); }
+                else { if (label) n.label = label; if (currentGroup && !n.group) n.group = currentGroup; }
+                if (kind) n.kind = kind;
+                return n;
+            }
 
             for (const line of lines) {
                 const trimmed = line.trim();
+                // Metadata comments written by the diagram generator
+                let m = trimmed.match(/^%%\s+src\s+(\w+)\s+(\S+)/);
+                if (m) { meta.src[m[1]] = m[2]; continue; }
+                m = trimmed.match(/^%%\s+note\s+(\w+)\s+(.+)/);
+                if (m) { meta.note[m[1]] = m[2]; continue; }
+                m = trimmed.match(/^%%\s+evidence\s+(\w+)\s+(\w+)\s+(\S+)/);
+                if (m) { meta.evidence.push({from: m[1], to: m[2], ref: m[3]}); continue; }
                 if (!trimmed || trimmed.startsWith('%%') || trimmed.startsWith('classDef') ||
                     trimmed.startsWith('class ') || trimmed.startsWith('pie')) continue;
 
-                // Track subgroups
-                const sgMatch = trimmed.match(/^subgraph\s+(?:"([^"]+)"|(\S+))/);
+                // Track subgroups: subgraph g1["Name"], subgraph "Name", subgraph Name
+                const sgMatch = trimmed.match(/^subgraph\s+(?:\w+\s*\[\s*"([^"]+)"\s*\]|"([^"]+)"|(\S+))/);
                 if (sgMatch) {
-                    currentGroup = sgMatch[1] || sgMatch[2];
+                    currentGroup = sgMatch[1] || sgMatch[2] || sgMatch[3];
                     groups.push(currentGroup);
                     continue;
                 }
                 if (trimmed === 'end') { currentGroup = null; continue; }
+                const dirMatch = trimmed.match(/^(?:graph|flowchart)\s+(TB|TD|BT|LR|RL)/);
+                if (dirMatch) { direction = (dirMatch[1] === 'LR' || dirMatch[1] === 'RL') ? 'LR' : 'TB'; continue; }
                 if (trimmed.startsWith('graph') || trimmed.startsWith('flowchart') ||
                     trimmed.startsWith('erDiagram') || trimmed.startsWith('sequenceDiagram')) continue;
 
-                // Match edges: A --> B, A -->|label| B
-                const edgeMatch = trimmed.match(/^(\w+)(?:\[([^\]]*)\])?\s*(-+->|-->|==>|-.->|--)\s*(?:\|([^|]*)\|)?\s*(\w+)(?:\[([^\]]*)\])?/);
+                // Match edges: A --> B, A -->|label| B (labels in [...] / ["..."] optional, :::class optional)
+                const edgeMatch = trimmed.match(/^(\w+)(?:\[("[^"]*"|[^\]]*)\])?(?::::(\w+))?\s*(-+->|-->|==>|-.->|--)\s*(?:\|([^|]*)\|)?\s*(\w+)(?:\[("[^"]*"|[^\]]*)\])?(?::::(\w+))?/);
                 if (edgeMatch) {
-                    const [_, srcId, srcLabel, arrow, edgeLabel, tgtId, tgtLabel] = edgeMatch;
-                    if (!nodeMap[srcId]) { nodeMap[srcId] = {id:srcId, label:srcLabel||srcId, group:currentGroup}; nodes.push(nodeMap[srcId]); }
-                    else { if (srcLabel) nodeMap[srcId].label = srcLabel; if (currentGroup && !nodeMap[srcId].group) nodeMap[srcId].group = currentGroup; }
-                    if (!nodeMap[tgtId]) { nodeMap[tgtId] = {id:tgtId, label:tgtLabel||tgtId, group:currentGroup}; nodes.push(nodeMap[tgtId]); }
-                    else { if (tgtLabel) nodeMap[tgtId].label = tgtLabel; if (currentGroup && !nodeMap[tgtId].group) nodeMap[tgtId].group = currentGroup; }
-                    links.push({source:srcId, target:tgtId, label:edgeLabel||''});
+                    const [_, srcId, srcLabel, srcKind, arrow, edgeLabel, tgtId, tgtLabel, tgtKind] = edgeMatch;
+                    declare(srcId, srcLabel, srcKind);
+                    declare(tgtId, tgtLabel, tgtKind);
+                    links.push({source:srcId, target:tgtId, label:(edgeLabel||'').replace(/^"(.*)"$/, '$1').trim()});
                     continue;
                 }
 
-                // Match standalone nodes: A[Label] or A{Label} or A(Label) or A((Label))
-                const nodeMatch = trimmed.match(/^(\w+)[\[({]+([^\]})]+)[\]})]+/);
+                // Match standalone nodes: A["Label"]:::kind, A[Label], A{Label}, A(Label), A((Label))
+                const nodeMatch = trimmed.match(/^(\w+)[\[({]+("[^"]*"|[^\]})]+)[\]})]+(?::::(\w+))?/);
                 if (nodeMatch) {
-                    const [_, id, label] = nodeMatch;
-                    if (!nodeMap[id]) { nodeMap[id] = {id, label, group:currentGroup}; nodes.push(nodeMap[id]); }
-                    else { nodeMap[id].label = label; if (currentGroup) nodeMap[id].group = currentGroup; }
+                    declare(nodeMatch[1], nodeMatch[2], nodeMatch[3]);
                     continue;
                 }
 
@@ -337,8 +421,7 @@
                 const erMatch = trimmed.match(/^(\w+)\s+(\|[|o{}<>-]+)\s+(\w+)\s*:\s*(.+)/);
                 if (erMatch) {
                     const [_, src, rel, tgt, label] = erMatch;
-                    if (!nodeMap[src]) { nodeMap[src] = {id:src, label:src, group:currentGroup}; nodes.push(nodeMap[src]); }
-                    if (!nodeMap[tgt]) { nodeMap[tgt] = {id:tgt, label:tgt, group:currentGroup}; nodes.push(nodeMap[tgt]); }
+                    declare(src); declare(tgt);
                     links.push({source:src, target:tgt, label:label.trim()});
                     continue;
                 }
@@ -369,7 +452,9 @@
                     continue;
                 }
             }
-            return {nodes, links, groups};
+            nodes.forEach(n => { if (meta.src[n.id]) n.source = meta.src[n.id]; if (meta.note[n.id]) n.note = meta.note[n.id]; });
+            meta.evidence.forEach(e => { const l = links.find(x => x.source === e.from && x.target === e.to && !x.evidence); if (l) l.evidence = e.ref; });
+            return {nodes, links, groups, direction};
         }
 
         // Sentinel: posted only if execution reached the very end of the inline
