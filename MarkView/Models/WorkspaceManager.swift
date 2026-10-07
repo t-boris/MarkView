@@ -618,6 +618,8 @@ class WorkspaceManager: ObservableObject {
 
     /// Folder reopened on the next launch; cleared by Close Folder.
     static let lastFolderKey = "workspace.lastFolder"
+    /// How many recently opened folders are remembered and listed on the welcome screen.
+    static let maxRecentProjects = 30
     static let recentProjectsKey = "workspace.recentProjects"
 
     /// Removes a folder from the recent projects list; the folder itself is untouched.
@@ -636,7 +638,7 @@ class WorkspaceManager: ObservableObject {
         var recent = recentProjects
         recent.removeAll { $0 == url.standardizedFileURL.path }
         recent.insert(url.standardizedFileURL.path, at: 0)
-        setRecentProjects(Array(recent.prefix(8)))
+        setRecentProjects(Array(recent.prefix(Self.maxRecentProjects)))
         rootOpenedAsFolder = true
         // Agents working in this folder can reach its browser tabs even from outside its terminals (BUG-027).
         if TerminalBrowserBridge.isEnabled { registerBrowserControl() }
