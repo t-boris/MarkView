@@ -17,6 +17,7 @@ enum CLICompletion {
     enum Activity { case read(String), search(String), run(String), thinking, writing(Int), answerDelta(String), webSearch(String), webFetch(String) }
     enum Failure: LocalizedError {
         case invalidOutput(CLITool, String)
+        case timedOut(CLITool, TimeInterval)
         var errorDescription: String? { if case .invalidOutput(_, let d) = self { return d } else { return nil } }
     }
     static func run(_ r: Request, onDelta: (@Sendable (String) -> Void)? = nil, onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {

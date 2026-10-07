@@ -1,5 +1,17 @@
 # MarkView — Follow-up Tasks
 
+## Task 94: Prototype build — "Claude Code did not finish within 900 s" (2026-10-07, 4.13.2)
+
+Boris hit the 15-minute per-run limit (most likely the foundation of a 10-screen project, fixed in 4.13.1 by low effort and
+two parallel runs). The message did not say which step or what is kept.
+
+- [x] Per-step limits by run: planning 40 min (reads the whole source folder), shell and data 20 min each, screens and
+      changes 15 min, specification 25 min.
+- [x] The error names the step and the limit, and says what is kept ("did not finish planning the screens … within 40 minutes").
+- [x] Generation uses the project's own assistant and model like every other feature; only the effort differs per step
+      (plan and changes medium, foundation and screens low).
+- [ ] Re-run on the large project to see which step is still slow.
+
 ## Task 93: Prototype Studio — step 2 took 8+ minutes with no sign of life (2026-10-07, 4.13.1)
 
 Boris's screenshot (a 10-screen Russian project): the foundation ran 8+ minutes under "Thinking…" with no "Writing" lines.

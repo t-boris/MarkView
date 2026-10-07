@@ -122,5 +122,11 @@ check(lines.logs.filter { $0 == "Thinking" }.count == 1, "progress: repeated thi
 check(lines.logs.contains("Writing index.html"), "progress: file path split across chunks")
 check(lines.logs.contains("Writing app.js"), "progress: second file")
 
+// Limits and the timeout message: planning reads the sources, so it may take longest.
+check(PrototypeAI.budget(for: "prototype:plan").limit > PrototypeAI.budget(for: "prototype:screen:tickets").limit, "planning has the longest limit")
+check(PrototypeAI.budget(for: "prototype:screen:tickets").what == "writing the screen tickets", "screen run is named")
+let timeoutText = PrototypeAI.StepTimeout(what: "planning the screens (reading the requirements)", seconds: 2400).errorDescription ?? ""
+check(timeoutText.contains("planning the screens") && timeoutText.contains("40 minutes"), "timeout message names the step and the limit")
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
