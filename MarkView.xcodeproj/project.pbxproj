@@ -15,6 +15,7 @@
 		054EBF1BD806B79F394D661F /* KaTeX_Main-Bold.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0289B6B9616C87F5733E87D2 /* KaTeX_Main-Bold.woff2 */; };
 		05D480170300202EAEEC2219 /* KaTeX_Caligraphic-Bold.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = C810BDB58DAE8CE2BB086095 /* KaTeX_Caligraphic-Bold.woff2 */; };
 		06679ECC6CA1062ADA1CFA1C /* markview-find.js in Resources */ = {isa = PBXBuildFile; fileRef = 415F87E8564AD1DC4D91B47F /* markview-find.js */; };
+		07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6E0167483A13431C669BCFB /* AIToolRuns.swift */; };
 		082A811D6B13DF6C68B7F418 /* XRaySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E10D6ADB4ADB8D0AE4BC89E /* XRaySearch.swift */; };
 		09159E4A3BC906A91A79C319 /* prism-css.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 6779BE82AF1FEBCC63597CDC /* prism-css.min.js */; };
 		097D04C553ABB64ACED3CAF9 /* XRayDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60EBF634DBCC210E31CDDF84 /* XRayDigest.swift */; };
@@ -42,6 +43,7 @@
 		2EA8BD7113E8A11E3198C036 /* markview-insight-handlers.js in Resources */ = {isa = PBXBuildFile; fileRef = B1896DB2BE326B5758D19B8C /* markview-insight-handlers.js */; };
 		2FA409A1B784ECDB6359C349 /* markview-panels.js in Resources */ = {isa = PBXBuildFile; fileRef = 4B79AFECAF59E74251EEB369 /* markview-panels.js */; };
 		303108A29592F0A0B797254D /* markview-insight-srcdoc.js in Resources */ = {isa = PBXBuildFile; fileRef = 5E240F8B955EB833FBFEF31A /* markview-insight-srcdoc.js */; };
+		32C4F78110B5EE395C72E2B5 /* DiagramAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */; };
 		32D260F63092277E130CA096 /* GitHubPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01DB1D3BC3146A00A3212838 /* GitHubPublisher.swift */; };
 		33134280169E08459FF88E35 /* FeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */; };
 		37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5536B20A2DD735F6BA815A /* EditorView.swift */; };
@@ -66,6 +68,7 @@
 		489C63B8947F6F9CCDF0C9F6 /* prism-cpp.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 6B9EFCB313A4B742B3C5A1D0 /* prism-cpp.min.js */; };
 		48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FB90DA3782A6E99BB4881B /* FileNode.swift */; };
 		49C2FB6AE1E125A5FAC4F5ED /* prism-bash.min.js in Resources */ = {isa = PBXBuildFile; fileRef = D02CB0618F58621DB3A2FC17 /* prism-bash.min.js */; };
+		49E9BFB3C3A7EBCD4FDDDC10 /* markview-data.js in Resources */ = {isa = PBXBuildFile; fileRef = 509C73ABFDAE9E3E388138C7 /* markview-data.js */; };
 		4B1CC5B8D2EBA7F0ADEEFB47 /* prism-swift.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 629AC491A02BE9A042CEF3D2 /* prism-swift.min.js */; };
 		4D5E9CBFD185E53AEC3A9A9E /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */; };
 		4DFE55644DF8A088AD8C6688 /* KaTeX_Typewriter-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = B50F42A001DDEAC85D1AF123 /* KaTeX_Typewriter-Regular.woff2 */; };
@@ -200,6 +203,7 @@
 		E606218C0130063A42DC52BF /* FeatureIngest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05A80044FC2B47870FD0C5A /* FeatureIngest.swift */; };
 		E6C589155FCF44E841E7AC72 /* GitHubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */; };
 		E9110FE2B3D3EF80A911BE01 /* prism-line-numbers.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 05D306BABCE732DB48917D5D /* prism-line-numbers.min.js */; };
+		EB0EBDBA37EC0F25174ACE18 /* d3.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 3491A3C7B018712298DBB744 /* d3.min.js */; };
 		EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C501ACCB7ED2B026E7B473E /* BugBatch.swift */; };
 		ECD969D40C6C1A94488B600D /* HandoffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E1DE65EEA6FFCA20C1BE20 /* HandoffViews.swift */; };
 		EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779E8848F94EF650F4B206BD /* FeaturePanelView.swift */; };
@@ -267,6 +271,7 @@
 		2D2ABE405832861ECB534048 /* katex.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = katex.min.js; sourceTree = "<group>"; };
 		2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputLanguage.swift; sourceTree = "<group>"; };
 		2EB46759349C74CBC6AA73CF /* KaTeX_SansSerif-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Bold.woff2"; sourceTree = "<group>"; };
+		3491A3C7B018712298DBB744 /* d3.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = d3.min.js; sourceTree = "<group>"; };
 		374D415A70003378E9635011 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
 		39597935A465C90AA3271323 /* LifecycleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleViews.swift; sourceTree = "<group>"; };
 		3A41351EB21A8BB60C9A0A83 /* DependencyGraphScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DependencyGraphScheduler.swift; sourceTree = "<group>"; };
@@ -294,6 +299,7 @@
 		5063B80E8DE8FEF81AF48AFA /* markview-globals.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-globals.js"; sourceTree = "<group>"; };
 		50690741D7CB7EF5A17A1949 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5099218B9F25E2085FEEA6D2 /* katex.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = katex.min.css; sourceTree = "<group>"; };
+		509C73ABFDAE9E3E388138C7 /* markview-data.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-data.js"; sourceTree = "<group>"; };
 		52ABB6A927274482AD06DBCC /* GitHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubClient.swift; sourceTree = "<group>"; };
 		532F3E12BF8941192E531B0B /* markview-edit.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-edit.js"; sourceTree = "<group>"; };
 		534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuralIndexer.swift; sourceTree = "<group>"; };
@@ -360,6 +366,7 @@
 		A440251497E5756568B77B87 /* TerminalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLink.swift; sourceTree = "<group>"; };
 		A5753821BD65B28145CD7ED2 /* markview-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-bridge.js"; sourceTree = "<group>"; };
 		A66DC7A48AA84F40186F8857 /* MarkView.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkView.entitlements; sourceTree = "<group>"; };
+		A6E0167483A13431C669BCFB /* AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolRuns.swift; sourceTree = "<group>"; };
 		A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportanceRater.swift; sourceTree = "<group>"; };
 		AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserControlServer.swift; sourceTree = "<group>"; };
 		AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
@@ -396,6 +403,7 @@
 		CE99F8479F3F1684FB7DAB2A /* KaTeX_Size3-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Size3-Regular.woff2"; sourceTree = "<group>"; };
 		CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectSearch.swift; sourceTree = "<group>"; };
 		CF1ECD04117D7F7B9C3333EF /* MatrixTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTheme.swift; sourceTree = "<group>"; };
+		CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagramAI.swift; sourceTree = "<group>"; };
 		CF5D5E66F0FE79CAC3D471AB /* SpecificationHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecificationHandoff.swift; sourceTree = "<group>"; };
 		D001177FB31E944E039375B0 /* BookAnnotator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookAnnotator.swift; sourceTree = "<group>"; };
 		D02CB0618F58621DB3A2FC17 /* prism-bash.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-bash.min.js"; sourceTree = "<group>"; };
@@ -511,6 +519,7 @@
 				43F98342E7F3820A62C4E015 /* AIAssistants.swift */,
 				F4700050C38EAE4C47A81DF3 /* AICallLog.swift */,
 				1A772D24F7564B57E808520A /* AIPrompts.swift */,
+				A6E0167483A13431C669BCFB /* AIToolRuns.swift */,
 				F4B5A603D8B6885145771D0A /* AppFontScale.swift */,
 				B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */,
 				9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */,
@@ -526,6 +535,7 @@
 				747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */,
 				E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */,
 				3A41351EB21A8BB60C9A0A83 /* DependencyGraphScheduler.swift */,
+				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
 				28604B8D1BFD9BF716A5891D /* DictationController.swift */,
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
 				B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */,
@@ -694,6 +704,7 @@
 				F9700BEC91B54521286648B4 /* codemirror.bundle.js */,
 				FA31302DC2D267B205E5A3F6 /* cytoscape-elk.js */,
 				6F6EDEA395D89B943EAE23AF /* cytoscape.min.js */,
+				3491A3C7B018712298DBB744 /* d3.min.js */,
 				77905597C531DFE78D2D11EC /* data.bundle.js */,
 				A1350590278DCEFED8266A2F /* elk.bundled.js */,
 				E8354BE838C8A78ED8B8E305 /* js-yaml.min.js */,
@@ -707,6 +718,7 @@
 				B5602C568336324C646AC72E /* markview-canvas.js */,
 				3A6FFAB86BF5B4D5D9533CB1 /* markview-code.js */,
 				A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */,
+				509C73ABFDAE9E3E388138C7 /* markview-data.js */,
 				7D4807224B482E48E25EFFFA /* markview-diagram-viewer.js */,
 				8E12A0F93CB8CBC21446ABCE /* markview-early.js */,
 				532F3E12BF8941192E531B0B /* markview-edit.js */,
@@ -865,6 +877,7 @@
 				E3658E0C993163F1E9CD85C4 /* codemirror.bundle.js in Resources */,
 				620D68BE2FF9C442E49CCA22 /* cytoscape-elk.js in Resources */,
 				40125A43DB1E67123951476C /* cytoscape.min.js in Resources */,
+				EB0EBDBA37EC0F25174ACE18 /* d3.min.js in Resources */,
 				5E06E11F7C45A6F0ED032ABA /* data.bundle.js in Resources */,
 				28898C135E4FC09A15FDBC35 /* elk.bundled.js in Resources */,
 				B2129D7DF44CD7A0AD5CBED9 /* index.html in Resources */,
@@ -881,6 +894,7 @@
 				535F56C5E9AED7F130C90B75 /* markview-canvas.js in Resources */,
 				F420E9EEED8296CC65C60219 /* markview-code.js in Resources */,
 				871E76F5861DBF78E9904804 /* markview-d3-mermaid.js in Resources */,
+				49E9BFB3C3A7EBCD4FDDDC10 /* markview-data.js in Resources */,
 				C171BB5EDDA73F9B5FBB160C /* markview-diagram-viewer.js in Resources */,
 				7AC0EF4F6EE5F54659F1939B /* markview-early.js in Resources */,
 				385FF3231429AC909C3F1914 /* markview-edit.js in Resources */,
@@ -958,6 +972,7 @@
 				436C087D720363F0E8146706 /* AIAssistants.swift in Sources */,
 				45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */,
 				3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */,
+				07044898F5427AD51A50B41F /* AIToolRuns.swift in Sources */,
 				F5A6B4994538AD8DB1534251 /* AgentBrowserRegistration.swift in Sources */,
 				05330764F69306E4CE65E7E6 /* AgentUsage.swift in Sources */,
 				7A3B0C6CF75D5CA3691C22CE /* AgentUsageLogs.swift in Sources */,
@@ -984,6 +999,7 @@
 				3F66FAFBD3A6BB22023127BE /* DataFileSchemeHandler.swift in Sources */,
 				58088546C239F634B482BE26 /* DependencyGraphScheduler.swift in Sources */,
 				2E476CE6A3046AAAF2B1D631 /* DiagnosticsBarView.swift in Sources */,
+				32C4F78110B5EE395C72E2B5 /* DiagramAI.swift in Sources */,
 				8055E8C72B063DF8AA361E6C /* DictationController.swift in Sources */,
 				5D816BB3AF275CF0801D77B5 /* DictationViews.swift in Sources */,
 				565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */,
@@ -1125,7 +1141,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.9.0;
+				CURRENT_PROJECT_VERSION = 4.10.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1140,7 +1156,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.9.0;
+				MARKETING_VERSION = 4.10.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1204,7 +1220,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.9.0;
+				CURRENT_PROJECT_VERSION = 4.10.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1225,7 +1241,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.9.0;
+				MARKETING_VERSION = 4.10.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

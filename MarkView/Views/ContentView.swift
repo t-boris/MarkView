@@ -262,6 +262,7 @@ struct ContentView: View {
             guard isActiveWindow else { return }
             showFolderPicker = true
         }
+        .overlay(alignment: .bottomTrailing) { AIToolJobsBanner(jobs: workspaceManager.aiJobs) }
         .sheet(isPresented: graphCreatorSheetBinding) {
             GraphCreatorSheet(
                 workspaceManager: workspaceManager,

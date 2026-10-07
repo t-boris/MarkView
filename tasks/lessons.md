@@ -1,5 +1,18 @@
 # Lessons
 
+## 2026-10-07 — A diagram is useful when it answers one question and can be checked
+
+**Context:** AI diagrams (Graph Creator, code map, audit) were produced by pasting a prompt into the
+interactive terminal: "include ALL components", no example, no schema, no check. The app never saw the
+answer, so a broken or hairball diagram was only found by eye; the report was "diagrams are useless".
+
+**Rule:** Run AI tools in a headless agent (`CLICompletion`) and make the app own the result. For a
+diagram: the agent returns a graph as JSON by schema (one question, 8-20 nodes, verb-labelled edges,
+`source`/`evidence` file:line from files it read); Swift validates it against the project (ids, edges,
+node budget, paths that exist), asks again with the problems listed, and writes the file itself. A
+smaller true diagram beats a bigger guessed one; say what was left out. Test prompt changes end to end
+on this repository, not only the validator (`tools/tests/diagram-tests.sh` covers the validator).
+
 ## 2026-09-30 — A stateless AI loop needs the answers in its context, not a checklist
 
 **Context:** Review of New Feature / New Project discovery. Every AI call was a cold CLI run; the
