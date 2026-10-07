@@ -1037,8 +1037,19 @@ struct AIToolsMenu: View {
                 Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
             }
             Section("Prototype") {
-                Button("Prototype Studio…") { workspaceManager.showPrototypeCreator = true }
+                Button("New Prototype…") { workspaceManager.showPrototypeCreator = true }
                     .disabled(workspaceManager.rootNode == nil)
+                let saved = workspaceManager.savedPrototypes()
+                Menu("Open Prototype (\(saved.count))") {
+                    if saved.isEmpty {
+                        Text("No prototypes in this project yet")
+                    } else {
+                        ForEach(saved) { prototype in
+                            Button(prototype.label) { workspaceManager.openSavedPrototype(prototype.slug) }
+                        }
+                    }
+                }
+                .disabled(workspaceManager.rootNode == nil || saved.isEmpty)
             }
             Section("Analysis") {
                 Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }

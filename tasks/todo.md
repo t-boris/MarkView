@@ -1,5 +1,28 @@
 # MarkView — Follow-up Tasks
 
+## Task 92: Prototype Studio — staged build: plan, foundation, screens in parallel (2026-10-07, 4.13.0)
+
+Boris: one build call took 17+ minutes with no inner progress and a 25-minute limit that loses everything on a miss.
+Approved: change the approach so it is faster and the inner progress is visible.
+
+Design:
+1. **Plan** (reads the requirements; short structured answer): title, roles, entities, screens with purpose, data, actions,
+   states, rules and the requirements they cover. Shown in the chat at once.
+2. **Foundation** (no project reading, from the plan): index.html, styles.css, app.js (router, shell, helpers, documented
+   `App` API), data.js (fake backend). Saved as v1 so a preview exists early and nothing is lost later.
+3. **Screens**: one call per screen, three at a time, each writes only `screens/<id>.js` against the foundation's API.
+   A failed screen is retried once, then reported; the others stay. The preview reloads as each screen lands.
+- [x] `PrototypeAI.build` (plan/foundation/screens, retries, scoped progress), events for plan, per-screen state, written.
+      The screen script tags are inserted by the program at `<!--SCREENS-->`, so a screen is never left unloaded.
+- [x] Studio: step header, per-screen checklist (queued/writing/done/failed), plan in the chat; v1 is recorded after
+      the foundation, so the prototype is listed and kept even if a later step fails or is stopped.
+- [x] AI Tools → Prototype: New Prototype…, Open Prototype (N) with title, version and approved status.
+- [x] Checks: marker substitution, plan parsing, path rules (`prototype-tests.sh`, 38 checks). Live run with the real
+      assistant on a 4-screen spec: plan 26 s, foundation 225 s, 4 screens in parallel 36 s, 287 s in all, none failed;
+      opened in Chrome: roles gate the dashboard (agent sees "Access denied", manager sees all four metrics), no errors.
+- [ ] Studio tab (checklist, plan message, Open Prototype menu) clicked through in the running app; speed on a large
+      project (the 17+ min case) not measured yet.
+
 ## Task 91: quitting MarkView left the assistants of headless runs working (2026-10-07, 4.12.2)
 
 Found while Boris asked whether a restart stops a running prototype build: the old build's `claude` kept running for

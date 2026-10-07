@@ -22,14 +22,37 @@ enum PrototypeAI {
         var screen: String
     }
 
+    enum ScreenState: Sendable, Equatable {
+        case queued, writing, done
+        case failed(String)
+    }
+
+    struct PlannedScreen: Sendable, Equatable {
+        var id: String
+        var name: String
+        var route: String
+        var purpose: String
+    }
+
     /// What the studio shows while a run is going: `status` replaces the current line, `log` adds a line to the
-    /// activity list, `step` does both.
+    /// activity list, `step` does both. The rest report the stages of a build.
     enum Event: Sendable {
         case status(String)
         case log(String)
         case step(String)
+        /// A new stage of the build ("Step 2 of 3 · …").
+        case phase(String)
+        /// The plan is ready: what will be built.
+        case plan(title: String, summary: String, assumptions: [String], screens: [PlannedScreen])
+        case screen(id: String, state: ScreenState)
+        /// Files changed on disk: the preview should reload.
+        case written
+        /// A usable version exists (the text is its summary): the studio records it.
+        case milestone(String)
     }
     typealias Stage = @Sendable (Event) -> Void
+    /// Adds a finished run to the usage counter.
+    typealias Record = @MainActor @Sendable (CLICompletion.Result) -> Void
 
     /// Turns the assistant's activity (files read, searches, the answer growing) into events. The CLI reports
     /// from its own threads and for every token, so the answer is scanned for the file being written and the
@@ -96,16 +119,39 @@ enum PrototypeAI {
         "required": ["path", "content"], "additionalProperties": false,
     ]
 
-    static let generateSchema: [String: Any] = [
+    private static func strings() -> [String: Any] { ["type": "array", "items": ["type": "string"]] }
+
+    static let planSchema: [String: Any] = [
         "type": "object",
         "properties": [
             "title": ["type": "string"],
             "summary": ["type": "string"],
-            "screens": ["type": "array", "items": ["type": "string"]],
-            "assumptions": ["type": "array", "items": ["type": "string"]],
-            "files": ["type": "array", "items": fileSchema],
+            "assumptions": strings(),
+            "roles": strings(),
+            "entities": ["type": "array", "items": [
+                "type": "object",
+                "properties": ["name": ["type": "string"], "fields": strings(), "notes": ["type": "string"]],
+                "required": ["name", "fields", "notes"], "additionalProperties": false,
+            ]],
+            "screens": ["type": "array", "items": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "string"], "name": ["type": "string"], "route": ["type": "string"],
+                    "purpose": ["type": "string"], "data": strings(), "actions": strings(),
+                    "states": strings(), "rules": strings(), "requirements": strings(),
+                ],
+                "required": ["id", "name", "route", "purpose", "data", "actions", "states", "rules", "requirements"],
+                "additionalProperties": false,
+            ]],
         ],
-        "required": ["title", "summary", "screens", "assumptions", "files"], "additionalProperties": false,
+        "required": ["title", "summary", "assumptions", "roles", "entities", "screens"], "additionalProperties": false,
+    ]
+
+    /// The answer of the foundation and screen runs: a summary and whole files.
+    static let filesSchema: [String: Any] = [
+        "type": "object",
+        "properties": ["summary": ["type": "string"], "files": ["type": "array", "items": fileSchema]],
+        "required": ["summary", "files"], "additionalProperties": false,
     ]
 
     static let reviseSchema: [String: Any] = [
@@ -133,10 +179,6 @@ enum PrototypeAI {
     Rules for the files you write:
     - Plain HTML, CSS and JavaScript, no build step, no framework download, no network request, no external font, \
     image or script. It must work when index.html is opened from disk. Use inline SVG or CSS for icons and charts.
-    - File layout: index.html (structure and the screen containers), styles.css, app.js (state, routing, behaviour), \
-    data.js (realistic sample data and a small fake backend: functions that read and change it).
-    - Navigation is a hash router: every screen has its own #/route, the browser Back button works, and the \
-    current screen is highlighted in the navigation.
     - Everything that looks interactive works: buttons, links, tabs, menus, modals, forms with validation and error \
     messages, create/edit/delete with confirmation, search, filter, sort, pagination, toggles, drag only if the \
     requirements ask for it. A control that cannot work yet is not drawn.
@@ -153,28 +195,96 @@ enum PrototypeAI {
     - Keep each file under 150 KB.
     """
 
-    static func generateSystem(language: String) -> String {
-        craft + """
+    static func planSystem(language: String) -> String {
+        """
+        You plan a clickable prototype of a product that a team approves before any implementation starts. Read the \
+        requirement sources with your tools, then answer with the plan only; the screens are written afterwards by \
+        engineers who will NOT see the requirements, so each screen entry must carry everything they need.
 
-
-        Work in this order. First read the requirement sources with your tools and list the users, goals, entities, \
-        rules and flows in them. Then design the screens and the transitions between them. Then write the files. \
-        Answer with the JSON object only: `title` (short product name), `summary` (what was built, two sentences), \
-        `screens` (the screen names, in navigation order), `assumptions` (decisions the requirements did not make), \
-        `files` (path and full content of every file).\(language)
+        Answer with the JSON object: `title` (short product name), `summary` (what the prototype shows, two sentences), \
+        `assumptions` (decisions the requirements did not make), `roles` (who uses it and what each role may do), \
+        `entities` (name, fields with types, notes such as statuses and relations), and `screens`: at most 10, each with \
+        `id` (short lowercase words joined by dashes), `name`, `route` (hash route such as /tickets or /tickets/:id), \
+        `purpose`, `data` (what it shows, field by field), `actions` (every control and exactly what it does, with \
+        validation and permission rules), `states` (empty, loading, error and special states), `rules` (business rules \
+        the screen demonstrates) and `requirements` (the requirements it covers, quoted or referenced). Put modal \
+        flows inside the screen that opens them, not in screens of their own. Use the vocabulary of the requirements. \
+        Do not invent features the requirements do not ask for.\(language)
         """
     }
 
-    static func generatePrompt(brief: String, sources: [String]) -> String {
+    static func planPrompt(brief: String, sources: [String]) -> String {
         let list = sources.isEmpty ? "the whole project folder" : sources.map { "- \($0)" }.joined(separator: "\n")
         return """
-        Build the prototype of the product described by these requirement sources (files or folders, relative to \
-        the project root; read all of them, and any code or documents they refer to):
+        Plan the prototype of the product described by these requirement sources (files or folders, relative to the \
+        project root; read all of them, and any code or documents they refer to):
         \(list)
 
         What the reviewer asks for:
         \(brief.isEmpty ? "A complete prototype of everything the sources describe." : brief)
         """
+    }
+
+    static func foundationSystem(language: String) -> String {
+        craft + """
+
+
+        You write the foundation of the prototype: the files every screen builds on. The screens themselves are written \
+        afterwards, one engineer per screen and all at once, using only what you document, so the API must be \
+        complete and exact. Write these files:
+        - index.html: `<div id="app"></div>`, `<link rel="stylesheet" href="styles.css">`, then the scripts `data.js` and \
+        `app.js`, then the exact comment `<!--SCREENS-->` on its own line (the screen scripts are inserted there), then \
+        `<script>App.start()</script>`. No inline styles or other scripts.
+        - styles.css: the design system (tokens as CSS variables, layout shell, and classes for buttons, cards, tables, \
+        forms and fields with error text, badges, tabs, toolbars, modals, toasts, skeleton loading, empty states, \
+        pagination). Screens use these classes and add only their own small rules.
+        - data.js: the global `DB` with the entities of the plan, realistic seed data, and a fake backend: functions \
+        that list (with filter, sort, paging), get, create, update and delete each entity and enforce its rules. State is \
+        kept in memory and in localStorage; `DB.reset()` restores the seed.
+        - app.js: the global `App`. It starts with a header comment documenting the API for the screen authors, then \
+        provides: `App.register({id, route, title, render(ctx)})` where route may have `:params` and `render` returns an \
+        element or an HTML string (`ctx` has `params`, `query`, `user`, `proto`); a hash router with Back support and an \
+        unknown-route redirect to the first screen; the shell (header and navigation built from the plan's screens, the \
+        current screen highlighted); `App.h(tag, attrs, ...children)` for building elements; `App.navigate(path)`; \
+        `App.toast(message, kind)`; `App.modal({title, body, actions})`; `App.confirm(message)` returning a promise; \
+        `App.addStyles(css)`; `App.user()` and `App.can(permission)` with a "Signed in as" switch for the roles of the \
+        plan; `App.load(fn)` that shows the skeleton for about 350 ms before rendering. The toolbar "Prototype" menu has \
+        "Force empty state", "Force error state" (both exposed as `ctx.proto.empty` and `ctx.proto.error`, and \
+        `App.load` shows the error card with Retry when it is on) and "Reset demo data". A route whose screen is not \
+        registered (yet) shows the panel "This screen is still being built." The screens of the plan are: list them in \
+        `App.plan` (id, name, route) for the navigation.
+        Answer with the JSON object: `summary` (one sentence) and `files` (path and full content).\(language)
+        """
+    }
+
+    static func foundationPrompt(plan: String, failure: String?) -> String {
+        var out = "The plan of the prototype:\n\(plan)"
+        if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)\nWrite the four files again, complete." }
+        return out
+    }
+
+    static func screenSystem(language: String) -> String {
+        craft + """
+
+
+        You write ONE screen of a prototype whose foundation already exists. Other engineers write the other screens at \
+        the same time, so touch only your file. Write `screens/<id>.js` (the id is given): a self-contained script that \
+        calls `App.register({id, route, title, render(ctx)})` as documented in app.js, uses the `DB` functions and the \
+        CSS classes that exist, and implements everything the plan lists for the screen: every data field, every \
+        action with its validation and permission rules, every state. Make links to other screens with their hash \
+        routes (`#/route`). If you need a data function that `DB` lacks, define it in your own file (`DB.name = …`) \
+        with a name starting with your screen id. Screen-specific CSS goes through `App.addStyles`. Do not edit other \
+        files and do not change global behaviour.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: path and full content).\(language)
+        """
+    }
+
+    static func screenPrompt(plan: String, screen: PlannedScreen, foundation: [PrototypeFiles.File], failure: String?) -> String {
+        var out = "The plan of the whole prototype:\n\(plan)\n\nThe foundation files (the API you build on):\n"
+        for file in foundation { out += "\n=== \(file.path) ===\n\(file.content)\n" }
+        out += "\nWrite the screen `\(screen.id)` (\(screen.name), route \(screen.route)) as `screens/\(screen.id).js`."
+        if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)" }
+        return out
     }
 
     static func reviseSystem(language: String) -> String {
@@ -237,11 +347,11 @@ enum PrototypeAI {
 
     /// One structured run. `record` receives the finished run for the usage counter.
     private static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
-                             record: @MainActor (CLICompletion.Result) -> Void, stage: @escaping Stage) async throws -> CLICompletion.Result {
+                             timeout: TimeInterval = 900, record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
         request.jsonSchema = schema
         request.effort = "medium"
-        request.timeout = 1500
+        request.timeout = timeout
         request.label = label
         stage(.log("Started the assistant"))
         let tracker = ProgressTracker(root: root, emit: stage)
@@ -251,29 +361,183 @@ enum PrototypeAI {
         return result
     }
 
-    /// Builds the first version into `site`. Returns the outcome; `manifest` fields are the caller's to update.
-    static func generate(root: URL, folder: URL, brief: String, sources: [String], language: String,
-                         record: @MainActor (CLICompletion.Result) -> Void, stage: @escaping Stage) async throws -> (title: String, outcome: Outcome) {
-        let result = try await call(root: root, system: generateSystem(language: language),
-                                    prompt: generatePrompt(brief: brief, sources: sources), schema: generateSchema,
-                                    label: "prototype:generate", record: record, stage: stage)
-        guard let object = result.structured as? [String: Any] else {
-            throw CLICompletion.Failure.invalidOutput(.claude, "no prototype in the answer")
+    // MARK: - Staged build
+
+    /// The plan of a build: what the screens are, and the whole plan as JSON for the later runs.
+    struct Plan {
+        var json: String
+        var title: String
+        var summary: String
+        var assumptions: [String]
+        var screens: [PlannedScreen]
+
+        static let maxScreens = 10
+
+        init(structured: Any?) throws {
+            guard let object = structured as? [String: Any],
+                  let raw = object["screens"] as? [[String: Any]], !raw.isEmpty else {
+                throw CLICompletion.Failure.invalidOutput(.claude, "the plan has no screens")
+            }
+            var seen = Set<String>()
+            var screens: [PlannedScreen] = []
+            var normalised = raw.prefix(Self.maxScreens).map { $0 }
+            for (index, item) in normalised.enumerated() {
+                let name = item["name"] as? String ?? "Screen \(index + 1)"
+                var id = Self.slug(item["id"] as? String ?? name)
+                if id.isEmpty { id = "screen-\(index + 1)" }
+                var unique = id, n = 2
+                while seen.contains(unique) { unique = "\(id)-\(n)"; n += 1 }
+                seen.insert(unique)
+                normalised[index]["id"] = unique
+                screens.append(PlannedScreen(id: unique, name: name, route: item["route"] as? String ?? "/" + unique,
+                                             purpose: item["purpose"] as? String ?? ""))
+            }
+            var plan = object
+            plan["screens"] = normalised
+            let data = try JSONSerialization.data(withJSONObject: plan, options: [.prettyPrinted, .sortedKeys])
+            json = String(decoding: data, as: UTF8.self)
+            title = object["title"] as? String ?? "Prototype"
+            summary = object["summary"] as? String ?? ""
+            assumptions = object["assumptions"] as? [String] ?? []
+            self.screens = screens
         }
-        let change = PrototypeFiles.change(from: object)
-        guard change.files.contains(where: { $0.path == "index.html" }) else {
-            throw CLICompletion.Failure.invalidOutput(.claude, "the answer has no index.html")
+
+        /// Lowercase words joined by dashes: safe as the name of `screens/<id>.js`.
+        static func slug(_ text: String) -> String {
+            text.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "-" }.joined()
+                .split(separator: "-").prefix(5).joined(separator: "-")
         }
-        stage(.step("Saving the prototype"))
-        let written = try PrototypeFiles.apply(change, to: PrototypeFiles.site(of: folder))
-        return (object["title"] as? String ?? "Prototype",
-                Outcome(summary: object["summary"] as? String ?? "", screens: object["screens"] as? [String] ?? [],
-                        assumptions: object["assumptions"] as? [String] ?? [], written: written))
+    }
+
+    struct Built {
+        var title: String
+        var summary: String
+        var assumptions: [String]
+        var screens: [String]
+        var failed: [String]
+    }
+
+    /// Reports the activity of one run under `label`; screens run side by side, so they report log lines only.
+    private static func scoped(_ stage: @escaping Stage, label: String?, status: Bool) -> Stage {
+        { event in
+            switch event {
+            case .log(let text): stage(.log(label.map { "[\($0)] \(text)" } ?? text))
+            case .status(let text): if status { stage(.status(text)) }
+            default: stage(event)
+            }
+        }
+    }
+
+    /// Builds the first versions into `site` in three stages: the plan (reads the requirements), the foundation
+    /// (shell, styles, data, from the plan alone) and the screens (one run each, `concurrency` at a time).
+    /// A screen that fails twice is reported in `failed`; the others stay. Cancelling stops every run.
+    static func build(root: URL, folder: URL, brief: String, sources: [String], language: String, concurrency: Int = 3,
+                      record: @escaping Record, stage: @escaping Stage) async throws -> Built {
+        let site = PrototypeFiles.site(of: folder)
+
+        stage(.phase("Step 1 of 3 · Reading the requirements and planning the screens"))
+        stage(.status("Reading the requirements"))
+        let planned = try await call(root: root, system: planSystem(language: language),
+                                     prompt: planPrompt(brief: brief, sources: sources), schema: planSchema,
+                                     label: "prototype:plan", record: record, stage: scoped(stage, label: nil, status: true))
+        let plan = try Plan(structured: planned.structured)
+        stage(.plan(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: plan.screens))
+
+        stage(.phase("Step 2 of 3 · Building the shell, styles and sample data"))
+        stage(.status("Writing the foundation"))
+        var failure: String?
+        for attempt in 0..<2 {
+            let result = try await call(root: root, system: foundationSystem(language: language),
+                                        prompt: foundationPrompt(plan: plan.json, failure: failure), schema: filesSchema,
+                                        label: "prototype:foundation", record: record, stage: scoped(stage, label: nil, status: true))
+            do {
+                var change = PrototypeFiles.change(from: result.structured)
+                change.files = change.files.filter { !$0.path.hasPrefix("screens/") }
+                guard let html = change.files.first(where: { $0.path == "index.html" })?.content,
+                      change.files.contains(where: { $0.path == "app.js" }) else {
+                    throw PrototypeFiles.Failure.edits(["index.html and app.js are required."])
+                }
+                guard let linked = PrototypeFiles.insertScreenScripts(into: html, ids: plan.screens.map(\.id)) else {
+                    throw PrototypeFiles.Failure.edits(["index.html lacks the line <!--SCREENS--> where the screen scripts go."])
+                }
+                for index in change.files.indices where change.files[index].path == "index.html" {
+                    change.files[index].content = linked
+                }
+                stage(.step("Saving the foundation"))
+                try PrototypeFiles.apply(change, to: site)
+                failure = nil
+                break
+            } catch let error as PrototypeFiles.Failure {
+                failure = error.localizedDescription
+                if attempt == 1 { throw error }
+            }
+        }
+        stage(.milestone("The shell, navigation and sample data for \(plan.screens.count) screens; the screens follow."))
+
+        stage(.phase("Step 3 of 3 · Writing the screens"))
+        let foundation = PrototypeFiles.read(site: site).filter { ["app.js", "data.js", "styles.css"].contains($0.path) }
+        var failed: [String] = []
+        for screen in plan.screens { stage(.screen(id: screen.id, state: .queued)) }
+        try await withThrowingTaskGroup(of: (PlannedScreen, String?).self) { group in
+            var next = 0
+            func launch() {
+                guard next < plan.screens.count else { return }
+                let screen = plan.screens[next]
+                next += 1
+                group.addTask {
+                    stage(.screen(id: screen.id, state: .writing))
+                    do {
+                        try await buildScreen(root: root, site: site, plan: plan, screen: screen, foundation: foundation,
+                                              language: language, record: record,
+                                              stage: scoped(stage, label: screen.name, status: false))
+                        return (screen, nil)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        return (screen, error.localizedDescription)
+                    }
+                }
+            }
+            for _ in 0..<max(1, concurrency) { launch() }
+            while let (screen, problem) = try await group.next() {
+                if let problem {
+                    failed.append(screen.name)
+                    stage(.screen(id: screen.id, state: .failed(problem)))
+                } else {
+                    stage(.screen(id: screen.id, state: .done))
+                    stage(.written)
+                }
+                launch()
+            }
+        }
+        let built = plan.screens.map(\.name).filter { !failed.contains($0) }
+        return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed)
+    }
+
+    /// One screen: a run that answers with `screens/<id>.js`; the answer is tried twice.
+    private static func buildScreen(root: URL, site: URL, plan: Plan, screen: PlannedScreen, foundation: [PrototypeFiles.File],
+                                    language: String, record: @escaping Record, stage: @escaping Stage) async throws {
+        let wanted = "screens/\(screen.id).js"
+        var failure: String?
+        for attempt in 0..<2 {
+            let result = try await call(root: root, system: screenSystem(language: language),
+                                        prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation, failure: failure),
+                                        schema: filesSchema, label: "prototype:screen:\(screen.id)", record: record, stage: stage)
+            let files = PrototypeFiles.change(from: result.structured).files
+            guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
+                failure = "The answer must contain exactly one file, \(wanted)."
+                if attempt == 1 { throw PrototypeFiles.Failure.edits([failure!]) }
+                continue
+            }
+            stage(.log("Saving \(wanted)"))
+            try PrototypeFiles.apply(PrototypeFiles.Change(files: [PrototypeFiles.File(path: wanted, content: file.content)]), to: site)
+            return
+        }
     }
 
     /// Applies one reviewer request. A change that cannot apply is sent back to the assistant once with the reason.
     static func revise(root: URL, folder: URL, instruction: String, pick: Pick?, runtimeErrors: [String], language: String,
-                       record: @MainActor (CLICompletion.Result) -> Void, stage: @escaping Stage) async throws -> Outcome {
+                       record: @escaping Record, stage: @escaping Stage) async throws -> Outcome {
         let site = PrototypeFiles.site(of: folder)
         let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
         var failure: String?
@@ -305,7 +569,7 @@ enum PrototypeAI {
 
     /// SPEC.md for the export: screens, states, transitions, data, rules and traceability to the sources.
     static func specification(root: URL, folder: URL, manifest: PrototypeFiles.Manifest, language: String,
-                              record: @MainActor (CLICompletion.Result) -> Void, stage: @escaping Stage) async throws -> String {
+                              record: @escaping Record, stage: @escaping Stage) async throws -> String {
         let site = PrototypeFiles.site(of: folder)
         let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
         let decisions = manifest.history.map { "- v\($0.version): \($0.instruction.isEmpty ? "initial build" : $0.instruction) → \($0.summary)" }
