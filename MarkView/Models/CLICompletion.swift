@@ -277,6 +277,8 @@ private final class Invocation: @unchecked Sendable {
     /// Tool of the content block being streamed (Claude), so tool input is not counted as answer.
     private var blockTool: String?
     private var answerChars = 0
+    private var thinkingChars = 0
+    private var thinkingTicked = 0
     /// Last Codex "error" event; fatal only if no answer arrives.
     private var codexWarning: String?
     private let queue = DispatchQueue(label: "markview.cli-completion")
@@ -404,6 +406,14 @@ private final class Invocation: @unchecked Sendable {
             }
             guard event["type"] as? String == "content_block_delta",
                   let delta = event["delta"] as? [String: Any] else { return }
+            if delta["type"] as? String == "thinking_delta", let text = delta["thinking"] as? String {
+                // A long reasoning phase would look like a hang: report it every few thousand characters.
+                thinkingChars += text.count
+                if thinkingChars - thinkingTicked >= 1500 {
+                    thinkingTicked = thinkingChars
+                    onActivity?(.thinking)
+                }
+            }
             if delta["type"] as? String == "input_json_delta", let part = delta["partial_json"] as? String,
                !["Read", "Grep", "Glob", "WebSearch", "WebFetch"].contains(blockTool ?? "") {
                 // Structured output arrives as the input of a final tool call.

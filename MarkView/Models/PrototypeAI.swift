@@ -66,6 +66,7 @@ enum PrototypeAI {
         private var lastSize = Date.distantPast
         private var thinking = false
         private var reads = 0
+        private var thinkingTicks = 0
 
         init(root: URL, emit: @escaping Stage) {
             self.emit = emit
@@ -91,7 +92,10 @@ enum PrototypeAI {
             case .thinking:
                 if !thinking { emit(.log("Thinking")) }
                 thinking = true
-                emit(.status(reads == 0 ? "Thinking" : "Designing the screens"))
+                thinkingTicks += 1
+                let base = reads == 0 ? "Thinking" : "Designing the screens"
+                // The CLI reports reasoning every ~1,500 characters, so a long phase still visibly moves.
+                emit(.status(thinkingTicks > 1 ? "\(base) — about \(thinkingTicks * 3 / 2)K characters of reasoning" : base))
             case .writing(let count):
                 guard Date().timeIntervalSince(lastSize) > 0.7 else { return }
                 lastSize = Date()
@@ -225,22 +229,44 @@ enum PrototypeAI {
         """
     }
 
-    static func foundationSystem(language: String) -> String {
+    /// The data contract both foundation parts rely on, so they can be written at the same time.
+    private static let dataContract = """
+    The `DB` contract (generic, so the shell and the screens can be written without seeing data.js): \
+    `DB.list(entity, {q, filter, sort, dir, page, pageSize})` returns `{items, total, page, pageSize}`; \
+    `DB.get(entity, id)`; `DB.create(entity, record)`; `DB.update(entity, id, patch)`; `DB.remove(entity, id)`; \
+    `DB.reset()`; `DB.user` helpers are not part of it. `entity` is the entity's `name` exactly as in the plan. \
+    Domain functions (metrics, status changes, rules) are extra functions on `DB` with clear names.
+    """
+
+    static func dataSystem(language: String) -> String {
         craft + """
 
 
-        You write the foundation of the prototype: the files every screen builds on. The screens themselves are written \
-        afterwards, one engineer per screen and all at once, using only what you document, so the API must be \
-        complete and exact. Write these files:
+        You write data.js, the fake backend of the prototype. The shell and the screens are written at the same time by \
+        other engineers, so follow this contract exactly. \(dataContract)
+        data.js defines the global `DB`: the entities of the plan with realistic seed data (compact: 6 to 12 records per \
+        entity, long and short values, every status represented, dates relative to now), the generic functions above, and \
+        the domain functions the plan's rules and screens need. State is kept in memory and in localStorage; \
+        `DB.reset()` restores the seed. Enforce the rules of the plan (validation, status changes, permissions by role \
+        where the plan says so). Keep the file under 60 KB.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: data.js).\(language)
+        """
+    }
+
+    static func shellSystem(language: String) -> String {
+        craft + """
+
+
+        You write the shell of the prototype: the files every screen builds on. The data backend (data.js) and the \
+        screens are written at the same time by other engineers, using only what you document, so the API must be \
+        complete and exact. \(dataContract) Do not write data.js.
+        Write these files:
         - index.html: `<div id="app"></div>`, `<link rel="stylesheet" href="styles.css">`, then the scripts `data.js` and \
         `app.js`, then the exact comment `<!--SCREENS-->` on its own line (the screen scripts are inserted there), then \
         `<script>App.start()</script>`. No inline styles or other scripts.
         - styles.css: the design system (tokens as CSS variables, layout shell, and classes for buttons, cards, tables, \
         forms and fields with error text, badges, tabs, toolbars, modals, toasts, skeleton loading, empty states, \
-        pagination). Screens use these classes and add only their own small rules.
-        - data.js: the global `DB` with the entities of the plan, realistic seed data, and a fake backend: functions \
-        that list (with filter, sort, paging), get, create, update and delete each entity and enforce its rules. State is \
-        kept in memory and in localStorage; `DB.reset()` restores the seed.
+        pagination). Screens use these classes and add only their own small rules. Keep it under 20 KB.
         - app.js: the global `App`. It starts with a header comment documenting the API for the screen authors, then \
         provides: `App.register({id, route, title, render(ctx)})` where route may have `:params` and `render` returns an \
         element or an HTML string (`ctx` has `params`, `query`, `user`, `proto`); a hash router with Back support and an \
@@ -250,16 +276,16 @@ enum PrototypeAI {
         `App.addStyles(css)`; `App.user()` and `App.can(permission)` with a "Signed in as" switch for the roles of the \
         plan; `App.load(fn)` that shows the skeleton for about 350 ms before rendering. The toolbar "Prototype" menu has \
         "Force empty state", "Force error state" (both exposed as `ctx.proto.empty` and `ctx.proto.error`, and \
-        `App.load` shows the error card with Retry when it is on) and "Reset demo data". A route whose screen is not \
-        registered (yet) shows the panel "This screen is still being built." The screens of the plan are: list them in \
-        `App.plan` (id, name, route) for the navigation.
+        `App.load` shows the error card with Retry when it is on) and "Reset demo data" (calls `DB.reset()`). A route \
+        whose screen is not registered (yet) shows the panel "This screen is still being built." The screens of the \
+        plan are listed in `App.plan` (id, name, route) for the navigation.
         Answer with the JSON object: `summary` (one sentence) and `files` (path and full content).\(language)
         """
     }
 
     static func foundationPrompt(plan: String, failure: String?) -> String {
         var out = "The plan of the prototype:\n\(plan)"
-        if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)\nWrite the four files again, complete." }
+        if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)\nWrite the files again, complete." }
         return out
     }
 
@@ -347,10 +373,10 @@ enum PrototypeAI {
 
     /// One structured run. `record` receives the finished run for the usage counter.
     private static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
-                             timeout: TimeInterval = 900, record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
+                             timeout: TimeInterval = 900, effort: String = "medium", record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
         request.jsonSchema = schema
-        request.effort = "medium"
+        request.effort = effort
         request.timeout = timeout
         request.label = label
         stage(.log("Started the assistant"))
@@ -431,7 +457,7 @@ enum PrototypeAI {
     /// Builds the first versions into `site` in three stages: the plan (reads the requirements), the foundation
     /// (shell, styles, data, from the plan alone) and the screens (one run each, `concurrency` at a time).
     /// A screen that fails twice is reported in `failed`; the others stay. Cancelling stops every run.
-    static func build(root: URL, folder: URL, brief: String, sources: [String], language: String, concurrency: Int = 3,
+    static func build(root: URL, folder: URL, brief: String, sources: [String], language: String, concurrency: Int = 4,
                       record: @escaping Record, stage: @escaping Stage) async throws -> Built {
         let site = PrototypeFiles.site(of: folder)
 
@@ -443,35 +469,22 @@ enum PrototypeAI {
         let plan = try Plan(structured: planned.structured)
         stage(.plan(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: plan.screens))
 
-        stage(.phase("Step 2 of 3 · Building the shell, styles and sample data"))
-        stage(.status("Writing the foundation"))
-        var failure: String?
-        for attempt in 0..<2 {
-            let result = try await call(root: root, system: foundationSystem(language: language),
-                                        prompt: foundationPrompt(plan: plan.json, failure: failure), schema: filesSchema,
-                                        label: "prototype:foundation", record: record, stage: scoped(stage, label: nil, status: true))
-            do {
-                var change = PrototypeFiles.change(from: result.structured)
-                change.files = change.files.filter { !$0.path.hasPrefix("screens/") }
-                guard let html = change.files.first(where: { $0.path == "index.html" })?.content,
-                      change.files.contains(where: { $0.path == "app.js" }) else {
-                    throw PrototypeFiles.Failure.edits(["index.html and app.js are required."])
-                }
-                guard let linked = PrototypeFiles.insertScreenScripts(into: html, ids: plan.screens.map(\.id)) else {
-                    throw PrototypeFiles.Failure.edits(["index.html lacks the line <!--SCREENS--> where the screen scripts go."])
-                }
-                for index in change.files.indices where change.files[index].path == "index.html" {
-                    change.files[index].content = linked
-                }
-                stage(.step("Saving the foundation"))
-                try PrototypeFiles.apply(change, to: site)
-                failure = nil
-                break
-            } catch let error as PrototypeFiles.Failure {
-                failure = error.localizedDescription
-                if attempt == 1 { throw error }
-            }
+        stage(.phase("Step 2 of 3 · Building the shell, styles and sample data (two parts at once)"))
+        stage(.status("Writing the shell and the data"))
+        async let shell = foundationPart(root: root, plan: plan, system: foundationShell(language), label: "shell",
+                                         allowed: ["index.html", "styles.css", "app.js"], required: ["index.html", "app.js"],
+                                         record: record, stage: scoped(stage, label: "Shell", status: false))
+        async let data = foundationPart(root: root, plan: plan, system: dataSystem(language: language), label: "data",
+                                        allowed: ["data.js"], required: ["data.js"],
+                                        record: record, stage: scoped(stage, label: "Data", status: false))
+        var shellChange = try await shell
+        let dataChange = try await data
+        for index in shellChange.files.indices where shellChange.files[index].path == "index.html" {
+            shellChange.files[index].content = PrototypeFiles.insertScreenScripts(into: shellChange.files[index].content,
+                                                                                  ids: plan.screens.map(\.id)) ?? shellChange.files[index].content
         }
+        stage(.step("Saving the foundation"))
+        try PrototypeFiles.apply(PrototypeFiles.Change(files: shellChange.files + dataChange.files), to: site)
         stage(.milestone("The shell, navigation and sample data for \(plan.screens.count) screens; the screens follow."))
 
         stage(.phase("Step 3 of 3 · Writing the screens"))
@@ -514,6 +527,34 @@ enum PrototypeAI {
         return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed)
     }
 
+    private static func foundationShell(_ language: String) -> String { shellSystem(language: language) }
+
+    /// One part of the foundation: the answer is tried twice; `allowed` are the files it may write, `required` must be there.
+    /// A shell answer must also contain the `<!--SCREENS-->` line.
+    private static func foundationPart(root: URL, plan: Plan, system: String, label: String, allowed: Set<String>,
+                                       required: [String], record: @escaping Record, stage: @escaping Stage) async throws -> PrototypeFiles.Change {
+        var failure: String?
+        for attempt in 0..<2 {
+            let result = try await call(root: root, system: system, prompt: foundationPrompt(plan: plan.json, failure: failure),
+                                        schema: filesSchema, label: "prototype:foundation:\(label)", effort: "low",
+                                        record: record, stage: stage)
+            var change = PrototypeFiles.change(from: result.structured)
+            change.files = change.files.filter { allowed.contains($0.path) }
+            let missing = required.filter { name in !change.files.contains { $0.path == name } }
+            var problem: String?
+            if !missing.isEmpty {
+                problem = "These files are required: \(missing.joined(separator: ", "))."
+            } else if let html = change.files.first(where: { $0.path == "index.html" })?.content,
+                      PrototypeFiles.insertScreenScripts(into: html, ids: []) == nil {
+                problem = "index.html lacks the line <!--SCREENS--> where the screen scripts go."
+            }
+            guard let problem else { return change }
+            failure = problem
+            if attempt == 1 { throw PrototypeFiles.Failure.edits([problem]) }
+        }
+        throw PrototypeFiles.Failure.edits([failure ?? "The foundation could not be written."])
+    }
+
     /// One screen: a run that answers with `screens/<id>.js`; the answer is tried twice.
     private static func buildScreen(root: URL, site: URL, plan: Plan, screen: PlannedScreen, foundation: [PrototypeFiles.File],
                                     language: String, record: @escaping Record, stage: @escaping Stage) async throws {
@@ -522,7 +563,7 @@ enum PrototypeAI {
         for attempt in 0..<2 {
             let result = try await call(root: root, system: screenSystem(language: language),
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation, failure: failure),
-                                        schema: filesSchema, label: "prototype:screen:\(screen.id)", record: record, stage: stage)
+                                        schema: filesSchema, label: "prototype:screen:\(screen.id)", effort: "low", record: record, stage: stage)
             let files = PrototypeFiles.change(from: result.structured).files
             guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
                 failure = "The answer must contain exactly one file, \(wanted)."

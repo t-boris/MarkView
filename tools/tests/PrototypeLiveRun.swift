@@ -1,6 +1,7 @@
 import Foundation
 // Builds a prototype with the real assistant, revises it once and writes the specification.
 // Arguments: <project root> <source path>. Prints what happened; the result is in <root>/.dde/prototypes.
+setvbuf(stdout, nil, _IOLBF, 0)
 let args = CommandLine.arguments
 let root = URL(fileURLWithPath: args[1]), source = args[2]
 let folder = PrototypeFiles.folder(root: root, slug: "live")
