@@ -13,6 +13,12 @@ final class PrototypeSession: ObservableObject, Identifiable {
         var text: String
     }
 
+    struct ActivityLine: Identifiable {
+        let id = UUID()
+        let time: Date
+        let text: String
+    }
+
     let id = UUID()
     let root: URL
     let folder: URL
@@ -22,6 +28,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var messages: [Message] = []
     /// What the running assistant is doing; nil when idle.
     @Published private(set) var stage: String?
+    /// What the assistant did during the current run, oldest first.
+    @Published private(set) var activity: [ActivityLine] = []
+    @Published private(set) var runStarted: Date?
     @Published private(set) var reloadToken = 0
     @Published private(set) var runtimeErrors: [String] = []
     @Published private(set) var archive: URL?
@@ -69,15 +78,43 @@ final class PrototypeSession: ObservableObject, Identifiable {
     // MARK: - Runs
 
     private var stageReporter: PrototypeAI.Stage {
-        { [weak self] text in Task { @MainActor in if self?.stage != nil { self?.stage = text } } }
+        { [weak self] event in Task { @MainActor in self?.apply(event) } }
+    }
+
+    private func apply(_ event: PrototypeAI.Event) {
+        guard stage != nil else { return }
+        switch event {
+        case .status(let text): stage = text
+        case .log(let text): log(text)
+        case .step(let text): stage = text; log(text)
+        }
+    }
+
+    private func log(_ text: String) {
+        guard activity.last?.text != text else { return }
+        activity.append(ActivityLine(time: Date(), text: text))
+        if activity.count > 300 { activity.removeFirst(activity.count - 300) }
+    }
+
+    private func beginRun(_ first: String) {
+        activity = []
+        runStarted = Date()
+        stage = first
+        log(first)
+    }
+
+    private func endRun() {
+        stage = nil
+        runStarted = nil
+        task = nil
     }
 
     /// Builds the first version from the sources and the brief.
     func generate() {
         guard !isBusy else { return }
-        stage = "Starting"
+        beginRun("Reading the requirements")
         task = Task { [self] in
-            defer { stage = nil; task = nil }
+            defer { endRun() }
             do {
                 try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
                 let built = try await PrototypeAI.generate(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
@@ -108,9 +145,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
         messages.append(Message(role: .user, text: (pick.map { "[\($0.selector)] " } ?? "") + instruction))
         self.pick = nil
         pickMode = false
-        stage = "Starting"
+        beginRun("Working on your request")
         task = Task { [self] in
-            defer { stage = nil; task = nil }
+            defer { endRun() }
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
                                                            runtimeErrors: runtimeErrors, language: languageNote,
@@ -142,13 +179,13 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Approves the current version: writes the specification and packs prototype, spec and history into a zip.
     func approveAndExport() {
         guard !isBusy, hasSite else { return }
-        stage = "Writing the specification"
+        beginRun("Writing the specification")
         task = Task { [self] in
-            defer { stage = nil; task = nil }
+            defer { endRun() }
             do {
                 let spec = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest,
                                                                language: languageNote, record: record, stage: stageReporter)
-                stage = "Packing the archive"
+                stage = "Packing the archive"; log("Packing the archive")
                 let folder = self.folder, manifest = self.manifest
                 let zip = try await Task.detached(priority: .userInitiated) {
                     try PrototypeAI.packageArchive(folder: folder, manifest: manifest, spec: spec)
@@ -199,7 +236,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled, !runtimeErrors.isEmpty else { return }
             let errors = runtimeErrors
-            stage = "Fixing errors found in the preview"
+            stage = "Fixing errors found in the preview"; log("Fixing errors found in the preview")
             messages.append(Message(role: .assistant, text: "The preview reported \(errors.count) error\(errors.count == 1 ? "" : "s"); fixing:\n" + errors.map { "• \($0)" }.joined(separator: "\n")))
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder,

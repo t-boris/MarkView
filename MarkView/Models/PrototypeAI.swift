@@ -22,8 +22,71 @@ enum PrototypeAI {
         var screen: String
     }
 
-    /// Progress the studio shows while a run is going.
-    typealias Stage = @Sendable (String) -> Void
+    /// What the studio shows while a run is going: `status` replaces the current line, `log` adds a line to the
+    /// activity list, `step` does both.
+    enum Event: Sendable {
+        case status(String)
+        case log(String)
+        case step(String)
+    }
+    typealias Stage = @Sendable (Event) -> Void
+
+    /// Turns the assistant's activity (files read, searches, the answer growing) into events. The CLI reports
+    /// from its own threads and for every token, so the answer is scanned for the file being written and the
+    /// size line is throttled.
+    final class ProgressTracker: @unchecked Sendable {
+        private let lock = NSLock()
+        private let emit: Stage
+        private let rootPrefix: String
+        private var buffer = ""
+        private var lastPath = ""
+        private var lastSize = Date.distantPast
+        private var thinking = false
+        private var reads = 0
+
+        init(root: URL, emit: @escaping Stage) {
+            self.emit = emit
+            rootPrefix = root.standardizedFileURL.path + "/"
+        }
+
+        private func short(_ path: String) -> String { path.replacingOccurrences(of: rootPrefix, with: "") }
+
+        func handle(_ activity: CLICompletion.Activity) {
+            lock.lock(); defer { lock.unlock() }
+            if case .thinking = activity {} else { thinking = false }
+            switch activity {
+            case .read(let path):
+                reads += 1
+                emit(.log("Reading \(short(path))"))
+                emit(.status("Reading the requirements (\(reads) file\(reads == 1 ? "" : "s") so far)"))
+            case .search(let query):
+                emit(.log("Searching for “\(query.prefix(60))”"))
+            case .run(let command):
+                emit(.log("Running \(command.prefix(80))"))
+            case .webSearch, .webFetch:
+                break
+            case .thinking:
+                if !thinking { emit(.log("Thinking")) }
+                thinking = true
+                emit(.status(reads == 0 ? "Thinking" : "Designing the screens"))
+            case .writing(let count):
+                guard Date().timeIntervalSince(lastSize) > 0.7 else { return }
+                lastSize = Date()
+                emit(.status("Writing the files — \(count / 1000) K characters so far"))
+            case .answerDelta(let text):
+                buffer += text
+                if buffer.count > 600 { buffer = String(buffer.suffix(600)) }
+                guard let match = try? NSRegularExpression(pattern: "\"path\"\\s*:\\s*\"([^\"]+)\"")
+                        .matches(in: buffer, range: NSRange(buffer.startIndex..., in: buffer)).last,
+                      let range = Range(match.range(at: 1), in: buffer) else { return }
+                let path = String(buffer[range])
+                if path != lastPath {
+                    lastPath = path
+                    emit(.log("Writing \(path)"))
+                }
+            }
+        }
+    }
 
     // MARK: - Schemas
 
@@ -180,14 +243,10 @@ enum PrototypeAI {
         request.effort = "medium"
         request.timeout = 1500
         request.label = label
-        let result = try await CLICompletion.run(request, onDelta: { _ in stage("Writing the files") }, onActivity: { activity in
-            switch activity {
-            case .read: stage("Reading the requirements")
-            case .search: stage("Searching the project")
-            case .thinking: stage("Designing the screens")
-            default: break
-            }
-        })
+        stage(.log("Started the assistant"))
+        let tracker = ProgressTracker(root: root, emit: stage)
+        let result = try await CLICompletion.run(request, onActivity: { tracker.handle($0) })
+        stage(.log("The assistant finished"))
         await record(result)
         return result
     }
@@ -205,7 +264,7 @@ enum PrototypeAI {
         guard change.files.contains(where: { $0.path == "index.html" }) else {
             throw CLICompletion.Failure.invalidOutput(.claude, "the answer has no index.html")
         }
-        stage("Saving the prototype")
+        stage(.step("Saving the prototype"))
         let written = try PrototypeFiles.apply(change, to: PrototypeFiles.site(of: folder))
         return (object["title"] as? String ?? "Prototype",
                 Outcome(summary: object["summary"] as? String ?? "", screens: object["screens"] as? [String] ?? [],
@@ -231,7 +290,7 @@ enum PrototypeAI {
                 continue
             }
             do {
-                stage("Saving the change")
+                stage(.step("Saving the change"))
                 let written = try PrototypeFiles.apply(change, to: site)
                 let object = result.structured as? [String: Any] ?? [:]
                 return Outcome(summary: object["summary"] as? String ?? "Updated \(written.joined(separator: ", "))",

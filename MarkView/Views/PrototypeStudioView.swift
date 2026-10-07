@@ -8,6 +8,13 @@ struct PrototypeStudioView: View {
     @ObservedObject var session: PrototypeSession
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
+    @StateObject private var dictation = DictationController()
+    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
+    @AppStorage("prototypeChatWidth") private var chatWidth = 340.0
+    @State private var dragStartWidth: Double?
+    @FocusState private var draftFocused: Bool
+
+    private static let widthRange: ClosedRange<Double> = 260...760
 
     var body: some View {
         HStack(spacing: 0) {
@@ -20,11 +27,28 @@ struct PrototypeStudioView: View {
                     placeholder
                 }
             }
-            Divider().background(VSDark.border)
-            conversation.frame(width: 340)
+            resizeHandle
+            conversation.frame(width: chatWidth)
         }
         .background(VSDark.bg)
+        .onDisappear { dictation.cancel() }
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
+    }
+
+    /// The divider between preview and conversation; dragging it left widens the conversation.
+    private var resizeHandle: some View {
+        Rectangle().fill(VSDark.border).frame(width: 1)
+            .padding(.horizontal, 3)
+            .contentShape(Rectangle())
+            .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    let start = dragStartWidth ?? chatWidth
+                    dragStartWidth = start
+                    chatWidth = min(max(start - value.translation.width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
+                }
+                .onEnded { _ in dragStartWidth = nil })
+            .help("Drag to resize the conversation")
     }
 
     // MARK: Preview
@@ -78,14 +102,15 @@ struct PrototypeStudioView: View {
     private var placeholder: some View {
         VStack(spacing: 10) {
             Spacer()
-            if session.isBusy { ProgressView() } else {
-                Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 28).foregroundColor(VSDark.textDim)
-            }
-            Text(session.stage ?? "No prototype files yet.").uiFont(size: 12).foregroundColor(VSDark.textDim)
             if session.isBusy {
-                Text("Reading the requirements and building the screens takes a few minutes.")
+                Text("Building the prototype takes a few minutes. Everything the assistant does is listed here.")
                     .uiFont(size: 11).foregroundColor(VSDark.textDim)
-            } else if session.manifest.version == 0 {
+                PrototypeProgressView(session: session, maxLogHeight: 260).frame(maxWidth: 480)
+            } else {
+                Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 28).foregroundColor(VSDark.textDim)
+                Text("No prototype files yet.").uiFont(size: 12).foregroundColor(VSDark.textDim)
+            }
+            if !session.isBusy && session.manifest.version == 0 {
                 Button("Build the prototype") { session.generate() }
             }
             Spacer()
@@ -103,14 +128,8 @@ struct PrototypeStudioView: View {
                         ForEach(session.messages) { message in
                             bubble(message).id(message.id)
                         }
-                        if let stage = session.stage {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text(stage + "…").uiFont(size: 11).foregroundColor(VSDark.textDim)
-                                Spacer()
-                                Button("Stop") { session.cancel() }.controlSize(.small)
-                            }
-                            .id("stage")
+                        if session.isBusy && session.hasSite {
+                            PrototypeProgressView(session: session, maxLogHeight: 150).id("stage")
                         }
                     }
                     .padding(12)
@@ -150,12 +169,29 @@ struct PrototypeStudioView: View {
             } else if session.pickMode {
                 Text("Click an element in the preview.").uiFont(size: 10).foregroundColor(VSDark.blue)
             }
-            TextEditor(text: $draft)
-                .uiFont(size: 12)
-                .frame(height: 70)
-                .scrollContentBackground(.hidden)
-                .padding(4).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
-                .disabled(!session.hasSite || session.isBusy)
+            HStack(alignment: .top, spacing: 6) {
+                TextEditor(text: $draft)
+                    .uiFont(size: 12)
+                    .frame(height: 70)
+                    .scrollContentBackground(.hidden)
+                    .focused($draftFocused)
+                    .padding(4).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
+                    .disabled(!session.hasSite || session.isBusy)
+                if openAIKey.isEmpty {
+                    Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
+                        Image(systemName: "mic").uiFont(size: 13).foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain).padding(.top, 4)
+                    .help("Set up voice input in DDE Settings")
+                    .accessibilityLabel("Set up voice input")
+                } else {
+                    DictationButton(dictation: dictation) { transcript, window in
+                        DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
+                    }
+                    .padding(.top, 2)
+                }
+            }
+            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
             HStack {
                 Button {
                     session.approveAndExport()
@@ -180,6 +216,62 @@ struct PrototypeStudioView: View {
     private func submit() {
         session.send(draft)
         draft = ""
+    }
+}
+
+// MARK: - Progress
+
+/// What a running assistant is doing: the current step, the time so far and a list of its actions
+/// (files read, searches, files being written), so a long run never looks like a hang.
+struct PrototypeProgressView: View {
+    @ObservedObject var session: PrototypeSession
+    var maxLogHeight: CGFloat
+
+    private static let clock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text((session.stage ?? "Working") + "…").uiFont(size: 11, weight: .medium).foregroundColor(VSDark.text).lineLimit(2)
+                Spacer()
+                if let started = session.runStarted {
+                    TimelineView(.periodic(from: started, by: 1)) { context in
+                        let seconds = Int(context.date.timeIntervalSince(started))
+                        Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
+                            .uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim)
+                    }
+                }
+                Button("Stop") { session.cancel() }.controlSize(.small)
+            }
+            if !session.activity.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(session.activity) { line in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text(Self.clock.string(from: line.time))
+                                        .uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                                    Text(line.text).uiFont(size: 10).foregroundColor(VSDark.text)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .id(line.id)
+                            }
+                        }
+                        .padding(6)
+                    }
+                    .frame(maxHeight: maxLogHeight)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput.opacity(0.6)))
+                    .onChange(of: session.activity.count) { _ in
+                        if let last = session.activity.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
+                }
+            }
+        }
     }
 }
 

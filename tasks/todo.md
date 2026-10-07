@@ -1,5 +1,17 @@
 # MarkView — Follow-up Tasks
 
+## Task 90: Prototype Studio — progress, voice input, resizable conversation (2026-10-07, 4.12.1)
+
+Boris: (1) no way to dictate a request in the studio; (2) a build takes very long and only "Designing screens" is
+shown, so it looks hung; (3) the conversation panel should be resizable.
+
+- [x] Progress: `PrototypeAI.ProgressTracker` turns the assistant's activity into an activity list (files read, searches,
+      the file being written, found in the streamed answer) plus a status line with a counter; elapsed time; Stop.
+      Shown in the conversation and, before the first build, in the preview area. Checked by `prototype-tests.sh`.
+- [x] Voice input: the same Whisper dictation button as the feature discussion, in the composer.
+- [x] The conversation width is dragged at the divider (260-760 pt) and remembered.
+- [ ] Studio tab (progress list, dictation, divider) clicked through in the running app.
+
 ## Task 89: Prototype Studio — clickable HTML prototype from requirements, reviewed until approved (2026-10-07, 4.12.0)
 
 Boris (/goal): an agent reads a file or folder of requirements and builds a deep, fully clickable HTML prototype; Boris
