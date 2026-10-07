@@ -73,5 +73,30 @@ check(parsed == PrototypeFiles.Change(files: [.init(path: "a.html", content: "x"
                                       edits: [.init(path: "a.html", find: "x", replace: "y")], deletes: ["b.js"]), "parses an answer")
 check(PrototypeFiles.change(from: "nonsense").isEmpty, "ignores a malformed answer")
 
+// Progress lines: what the studio shows while the assistant works.
+final class Lines: @unchecked Sendable {
+    var logs: [String] = [], statuses: [String] = []
+}
+let lines = Lines()
+let tracker = PrototypeAI.ProgressTracker(root: URL(fileURLWithPath: "/proj"), emit: { event in
+    switch event {
+    case .log(let t), .step(let t): lines.logs.append(t)
+    case .status(let t): lines.statuses.append(t)
+    }
+})
+tracker.handle(.read("/proj/docs/req.md"))
+tracker.handle(.read("/proj/docs/api.md"))
+tracker.handle(.search("ticket status"))
+tracker.handle(.thinking); tracker.handle(.thinking)
+for chunk in ["{\"title\":\"X\",\"files\":[{\"pa", "th\":\"index.", "html\",\"content\":\"<h1>", "\"},{\"path\":\"app.js\",\"content\":\"x\"}"] {
+    tracker.handle(.answerDelta(chunk))
+}
+check(lines.logs.contains("Reading docs/req.md"), "progress: read path is project-relative")
+check(lines.statuses.contains("Reading the requirements (2 files so far)"), "progress: read counter")
+check(lines.logs.contains("Searching for “ticket status”"), "progress: search")
+check(lines.logs.filter { $0 == "Thinking" }.count == 1, "progress: repeated thinking logged once")
+check(lines.logs.contains("Writing index.html"), "progress: file path split across chunks")
+check(lines.logs.contains("Writing app.js"), "progress: second file")
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
