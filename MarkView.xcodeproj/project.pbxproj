@@ -126,6 +126,7 @@
 		83916360DABE7547F3F6D441 /* ProjectSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */; };
 		83B0C087FC9FE19D379FA53E /* CLICompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8617D6996AEA0B711F366A7C /* CLICompletion.swift */; };
 		8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F66D5EF3E31CCC33D408BA1 /* XRayCluster.swift */; };
+		869E202AE0802E01AC59477D /* PrototypeImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */; };
 		871E76F5861DBF78E9904804 /* markview-d3-mermaid.js in Resources */ = {isa = PBXBuildFile; fileRef = A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */; };
 		8A57F974EAA1485CCD758868 /* InsightCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4673CD185F2FD3A78E989FE /* InsightCache.swift */; };
 		8BC37EBFFA5F8FABED2F7777 /* LifecycleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39597935A465C90AA3271323 /* LifecycleViews.swift */; };
@@ -403,6 +404,7 @@
 		C18592F11080A421A6A1EC86 /* ListSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSelection.swift; sourceTree = "<group>"; };
 		C2B2061839C6FC000555491E /* ResearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchViews.swift; sourceTree = "<group>"; };
 		C4673CD185F2FD3A78E989FE /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
+		C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeImages.swift; sourceTree = "<group>"; };
 		C6D644220A558FD0B83AD5F0 /* KaTeX_SansSerif-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Regular.woff2"; sourceTree = "<group>"; };
 		C810BDB58DAE8CE2BB086095 /* KaTeX_Caligraphic-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Caligraphic-Bold.woff2"; sourceTree = "<group>"; };
 		C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Script-Regular.woff2"; sourceTree = "<group>"; };
@@ -596,6 +598,7 @@
 				CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */,
 				8E8965BA2170772C6393FB45 /* PrototypeAI.swift */,
 				BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */,
+				C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */,
 				CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */,
 				C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */,
 				6D6D9377AD0B59E94F3B37FF /* ResearchDocument.swift */,
@@ -1089,6 +1092,7 @@
 				FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */,
 				BD0E1A552EBABF480B72BB04 /* PrototypeCreatorSheet.swift in Sources */,
 				1E4AF0C8A995DE0722D2D276 /* PrototypeFiles.swift in Sources */,
+				869E202AE0802E01AC59477D /* PrototypeImages.swift in Sources */,
 				BFF74482B5C42F53724800E7 /* PrototypeSession.swift in Sources */,
 				FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */,
 				8F2D2F323E878F0B3D73D1C7 /* ResearchDocument.swift in Sources */,
@@ -1165,7 +1169,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.13.2;
+				CURRENT_PROJECT_VERSION = 4.14.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1180,7 +1184,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.13.2;
+				MARKETING_VERSION = 4.14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1244,7 +1248,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.13.2;
+				CURRENT_PROJECT_VERSION = 4.14.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1265,7 +1269,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.13.2;
+				MARKETING_VERSION = 4.14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

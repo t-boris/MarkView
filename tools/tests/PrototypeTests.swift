@@ -128,5 +128,14 @@ check(PrototypeAI.budget(for: "prototype:screen:tickets").what == "writing the s
 let timeoutText = PrototypeAI.StepTimeout(what: "planning the screens (reading the requirements)", seconds: 2400).errorDescription ?? ""
 check(timeoutText.contains("planning the screens") && timeoutText.contains("40 minutes"), "timeout message names the step and the limit")
 
+// Images sent with a request are named in the prompt, by project-relative path.
+let withImages = PrototypeAI.revisePrompt(instruction: "make it like this", pick: nil, siteRelative: "site", files: [],
+    runtimeErrors: [], priorFailure: nil,
+    attachments: [.init(path: ".dde/prototypes/x/attachments/a1.png", note: "image 1 from the reviewer")])
+check(withImages.contains(".dde/prototypes/x/attachments/a1.png: image 1 from the reviewer") && withImages.contains("Read tool"),
+      "prompt lists the images and tells the assistant to open them")
+check(!PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
+        .contains("Images the reviewer sent"), "no images, no image section")
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

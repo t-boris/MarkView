@@ -1,5 +1,22 @@
 # MarkView — Follow-up Tasks
 
+## Task 95: Prototype Studio — images in the conversation, screenshot of the pointed-at element (2026-10-07, 4.14.0)
+
+Boris: paste images into the AI chat of a prototype; Point should send either the HTML (as now) or the HTML plus a
+screenshot of the element.
+
+- [x] Images: ⌘V (an image or an image file on the pasteboard becomes an attachment; a text paste goes on as text), drop,
+      paperclip menu (choose a file, paste from the clipboard). Thumbnails with ✕ above the field and in the sent message.
+      Normalised to PNG, at most 1600 px on the long side, saved in `<prototype>/attachments/` (not in the export).
+- [x] The assistant opens them: the prompt lists their project-relative paths and says to open each with the Read tool
+      (Claude); Codex also gets them with `-i`. `CLICompletion.Request.images`.
+- [x] Point: a segmented choice "HTML" / "HTML + screenshot" (remembered, default HTML + screenshot). The element's
+      screenshot is taken when it is clicked (highlight hidden first) and sent only when chosen; a preview of it shows in the chip.
+- [x] `prototype-images-tests.sh` (12 checks), prompt checks in `prototype-tests.sh`; live run with the real assistant on an
+      instruction that exists only inside the picture.
+- [x] Real assistant: an instruction that existed only inside the picture ("ZEBRA CROSSING DESK") was carried out, so it opens the image.
+- [ ] Clicked through in the running app (⌘V paste into the field, drop, Point screenshot): not done; the Codex `-i` path untested.
+
 ## Task 94: Prototype build — "Claude Code did not finish within 900 s" (2026-10-07, 4.13.2)
 
 Boris hit the 15-minute per-run limit (most likely the foundation of a 10-screen project, fixed in 4.13.1 by low effort and
