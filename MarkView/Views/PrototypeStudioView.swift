@@ -103,7 +103,7 @@ struct PrototypeStudioView: View {
         VStack(spacing: 10) {
             Spacer()
             if session.isBusy {
-                Text("Building the prototype takes a few minutes. Everything the assistant does is listed here.")
+                Text("The assistant plans the screens, builds the shell, then writes the screens side by side. Everything it does is listed here.")
                     .uiFont(size: 11).foregroundColor(VSDark.textDim)
                 PrototypeProgressView(session: session, maxLogHeight: 260).frame(maxWidth: 480)
             } else {
@@ -227,6 +227,16 @@ struct PrototypeProgressView: View {
     @ObservedObject var session: PrototypeSession
     var maxLogHeight: CGFloat
 
+    @ViewBuilder
+    private func screenIcon(_ state: PrototypeAI.ScreenState) -> some View {
+        switch state {
+        case .queued: Image(systemName: "circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+        case .writing: ProgressView().controlSize(.mini).scaleEffect(0.7)
+        case .done: Image(systemName: "checkmark.circle.fill").uiFont(size: 11).foregroundColor(VSDark.green)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").uiFont(size: 11).foregroundColor(VSDark.red)
+        }
+    }
+
     private static let clock: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -247,6 +257,26 @@ struct PrototypeProgressView: View {
                     }
                 }
                 Button("Stop") { session.cancel() }.controlSize(.small)
+            }
+            if let phase = session.phase {
+                Text(phase).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.blue).fixedSize(horizontal: false, vertical: true)
+            }
+            if !session.screens.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(session.screens) { screen in
+                        HStack(spacing: 6) {
+                            screenIcon(screen.state).frame(width: 14)
+                            Text(screen.name).uiFont(size: 11).foregroundColor(screen.state == .queued ? VSDark.textDim : VSDark.text)
+                                .lineLimit(1)
+                            if case .failed(let problem) = screen.state {
+                                Text(problem).uiFont(size: 9).foregroundColor(VSDark.red).lineLimit(1)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(6)
+                .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput.opacity(0.6)))
             }
             if !session.activity.isEmpty {
                 ScrollViewReader { proxy in

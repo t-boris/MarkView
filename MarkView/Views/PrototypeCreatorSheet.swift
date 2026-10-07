@@ -61,10 +61,10 @@ struct PrototypeCreatorSheet: View {
                 GroupBox("Open an earlier prototype") {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(saved, id: \.self) { slug in
-                                Button(slug) {
+                            ForEach(saved) { prototype in
+                                Button(prototype.label) {
                                     isPresented = false
-                                    workspaceManager.openSavedPrototype(slug)
+                                    workspaceManager.openSavedPrototype(prototype.slug)
                                 }
                                 .buttonStyle(.link)
                             }

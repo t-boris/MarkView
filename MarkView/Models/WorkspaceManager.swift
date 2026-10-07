@@ -4410,9 +4410,27 @@ class WorkspaceManager: ObservableObject {
     /// Opens the creator sheet of Prototype Studio.
     @Published var showPrototypeCreator = false
 
-    /// Prototypes saved in the open project, by folder name.
-    func savedPrototypes() -> [String] {
-        rootNode.map { PrototypeFiles.existingSlugs(root: $0.url) } ?? []
+    /// A prototype saved in the open project, for the lists in the menu and the creator sheet.
+    struct SavedPrototype: Identifiable {
+        let slug: String
+        let title: String
+        let version: Int
+        let approved: Bool
+        var id: String { slug }
+        /// "Support Desk · v3 · approved"
+        var label: String { "\(title) · v\(version)" + (approved ? " · approved" : "") }
+    }
+
+    /// Prototypes saved in the open project, newest first.
+    func savedPrototypes() -> [SavedPrototype] {
+        guard let root = rootNode?.url else { return [] }
+        return PrototypeFiles.existingSlugs(root: root).compactMap { slug -> (SavedPrototype, Date)? in
+            let folder = PrototypeFiles.folder(root: root, slug: slug)
+            guard let manifest = PrototypeFiles.loadManifest(folder) else { return nil }
+            let date = manifest.history.last?.date ?? .distantPast
+            return (SavedPrototype(slug: slug, title: manifest.title, version: manifest.version, approved: manifest.approved), date)
+        }
+        .sorted { $0.1 > $1.1 }.map(\.0)
     }
 
     /// A new prototype from `sources` (project-relative files or folders) and the reviewer's brief; it builds at once.

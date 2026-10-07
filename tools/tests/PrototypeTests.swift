@@ -67,6 +67,29 @@ try PrototypeFiles.saveManifest(manifest, in: folder)
 check(PrototypeFiles.loadManifest(folder) == manifest, "manifest round trip")
 check(PrototypeFiles.existingSlugs(root: tmp) == ["demo"], "existing slugs")
 
+// Screen scripts are inserted by the program at the marker.
+let html = "<body>\n<script src=\"app.js\"></script>\n<!--SCREENS-->\n<script>App.start()</script>\n</body>"
+let linked = PrototypeFiles.insertScreenScripts(into: html, ids: ["tickets", "dashboard"]) ?? ""
+check(linked.contains("<script src=\"screens/tickets.js\"></script>\n<script src=\"screens/dashboard.js\"></script>"), "marker gets one script tag per screen")
+check(linked.range(of: "screens/dashboard.js")!.lowerBound < linked.range(of: "App.start()")!.lowerBound, "screen scripts load before App.start()")
+check(PrototypeFiles.insertScreenScripts(into: "<body></body>", ids: ["a"]) == nil, "missing marker is reported")
+
+// The plan: ids become safe file names, unique, at most ten screens.
+let planAnswer: [String: Any] = ["title": "Desk", "summary": "s", "assumptions": ["a"], "screens":
+    [["id": "Tickets List!", "name": "Tickets", "route": "/tickets", "purpose": "p"],
+     ["id": "tickets-list", "name": "Again", "route": "/again", "purpose": "p"],
+     ["id": "../../etc", "name": "Evil", "route": "/e", "purpose": "p"],
+     ["id": "", "name": "Дашборд", "route": "/d", "purpose": "p"]]]
+let plan = try PrototypeAI.Plan(structured: planAnswer)
+check(plan.screens.map(\.id) == ["tickets-list", "tickets-list-2", "etc", "screen-4"], "plan ids: safe, unique, never empty")
+check(plan.screens.allSatisfy { (try? PrototypeFiles.validate(path: "screens/\($0.id).js")) != nil }, "plan ids make valid screen paths")
+check(plan.json.contains("tickets-list-2"), "plan json carries the normalised ids")
+let many: [String: Any] = ["screens": (1...14).map { ["id": "s\($0)", "name": "S\($0)"] as [String: Any] }]
+check((try PrototypeAI.Plan(structured: many)).screens.count == 10, "plan is capped at ten screens")
+var emptyPlanFails = false
+do { _ = try PrototypeAI.Plan(structured: ["screens": []]) } catch { emptyPlanFails = true }
+check(emptyPlanFails, "plan without screens is rejected")
+
 let parsed = PrototypeFiles.change(from: ["files": [["path": "a.html", "content": "x"]],
                                           "edits": [["path": "a.html", "find": "x", "replace": "y"]], "delete": ["b.js"]])
 check(parsed == PrototypeFiles.Change(files: [.init(path: "a.html", content: "x")],
@@ -82,6 +105,7 @@ let tracker = PrototypeAI.ProgressTracker(root: URL(fileURLWithPath: "/proj"), e
     switch event {
     case .log(let t), .step(let t): lines.logs.append(t)
     case .status(let t): lines.statuses.append(t)
+    default: break
     }
 })
 tracker.handle(.read("/proj/docs/req.md"))

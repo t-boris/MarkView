@@ -197,6 +197,15 @@ enum PrototypeFiles {
         return Change(files: files, edits: edits, deletes: object["delete"] as? [String] ?? [])
     }
 
+    /// Replaces the line `<!--SCREENS-->` of the foundation's index.html with one script tag per screen; nil when
+    /// the line is missing. The tags are the program's, not the assistant's, so a screen can never be left unloaded.
+    static func insertScreenScripts(into html: String, ids: [String]) -> String? {
+        let marker = "<!--SCREENS-->"
+        guard html.contains(marker) else { return nil }
+        let tags = ids.map { "<script src=\"screens/\($0).js\"></script>" }.joined(separator: "\n")
+        return html.replacingOccurrences(of: marker, with: marker + "\n" + tags)
+    }
+
     // MARK: - Versions
 
     /// Copies `site` to `versions/v<version>`.

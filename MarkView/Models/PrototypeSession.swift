@@ -13,6 +13,13 @@ final class PrototypeSession: ObservableObject, Identifiable {
         var text: String
     }
 
+    /// One screen of a build in progress.
+    struct ScreenProgress: Identifiable, Equatable {
+        let id: String
+        var name: String
+        var state: PrototypeAI.ScreenState
+    }
+
     struct ActivityLine: Identifiable {
         let id = UUID()
         let time: Date
@@ -31,6 +38,10 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// What the assistant did during the current run, oldest first.
     @Published private(set) var activity: [ActivityLine] = []
     @Published private(set) var runStarted: Date?
+    /// The stage of a staged build ("Step 2 of 3 · …"); nil otherwise.
+    @Published private(set) var phase: String?
+    /// The screens of the build in progress, with what each is doing.
+    @Published private(set) var screens: [ScreenProgress] = []
     @Published private(set) var reloadToken = 0
     @Published private(set) var runtimeErrors: [String] = []
     @Published private(set) var archive: URL?
@@ -38,7 +49,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published var pickMode = false
 
     /// Adds a finished run to the workspace's usage counter.
-    var record: @MainActor (CLICompletion.Result) -> Void = { _ in }
+    var record: PrototypeAI.Record = { _ in }
     /// Appended to prompts when the output language differs from the documents' language.
     var languageNote = ""
 
@@ -87,6 +98,28 @@ final class PrototypeSession: ObservableObject, Identifiable {
         case .status(let text): stage = text
         case .log(let text): log(text)
         case .step(let text): stage = text; log(text)
+        case .phase(let text): phase = text; log(text)
+        case .plan(let title, let summary, let assumptions, let planned):
+            if !title.isEmpty { manifest.title = title }
+            manifest.screens = planned.map(\.name)
+            manifest.assumptions = assumptions
+            screens = planned.map { ScreenProgress(id: $0.id, name: $0.name, state: .queued) }
+            var text = "Plan: \(planned.count) screens.\n" + planned.map { "• \($0.name): \($0.purpose)" }.joined(separator: "\n")
+            if !summary.isEmpty { text = summary + "\n\n" + text }
+            messages.append(Message(role: .assistant, text: text))
+        case .screen(let id, let state):
+            if let index = screens.firstIndex(where: { $0.id == id }) { screens[index].state = state }
+            let done = screens.filter { $0.state == .done }.count
+            stage = "Writing the screens (\(done) of \(screens.count) done)"
+            switch state {
+            case .writing: log("Started: \(screens.first { $0.id == id }?.name ?? id)")
+            case .done: log("Done: \(screens.first { $0.id == id }?.name ?? id)")
+            case .failed(let problem): log("Failed: \(screens.first { $0.id == id }?.name ?? id) — \(problem)")
+            case .queued: break
+            }
+        case .written: reloadPreview()
+        case .milestone(let summary):
+            do { try accept(instruction: "", summary: summary) } catch { messages.append(Message(role: .error, text: error.localizedDescription)) }
         }
     }
 
@@ -104,12 +137,14 @@ final class PrototypeSession: ObservableObject, Identifiable {
     }
 
     private func endRun() {
+        phase = nil
+        screens = []
         stage = nil
         runStarted = nil
         task = nil
     }
 
-    /// Builds the first version from the sources and the brief.
+    /// Builds the prototype from the sources and the brief: plan, foundation, then the screens side by side.
     func generate() {
         guard !isBusy else { return }
         beginRun("Reading the requirements")
@@ -117,20 +152,25 @@ final class PrototypeSession: ObservableObject, Identifiable {
             defer { endRun() }
             do {
                 try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
-                let built = try await PrototypeAI.generate(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
-                                                           language: languageNote, record: record, stage: stageReporter)
-                if !built.title.isEmpty { manifest.title = built.title }
-                manifest.screens = built.outcome.screens
-                manifest.assumptions = built.outcome.assumptions
-                try accept(instruction: "", summary: built.outcome.summary)
-                var reply = built.outcome.summary
-                if !built.outcome.assumptions.isEmpty {
-                    reply += "\n\nAssumptions I made:\n" + built.outcome.assumptions.map { "• \($0)" }.joined(separator: "\n")
+                let built = try await PrototypeAI.build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
+                                                        language: languageNote, record: record, stage: stageReporter)
+                manifest.screens = built.screens + built.failed
+                if !built.screens.isEmpty {
+                    try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
+                }
+                var reply = built.summary.isEmpty ? "The prototype is ready." : built.summary
+                if !built.failed.isEmpty {
+                    reply += "\n\nThese screens could not be written: \(built.failed.joined(separator: ", ")). Ask me to build them and I will try again."
+                }
+                if !built.assumptions.isEmpty {
+                    reply += "\n\nAssumptions I made:\n" + built.assumptions.map { "• \($0)" }.joined(separator: "\n")
                 }
                 messages.append(Message(role: .assistant, text: reply))
                 await settleAndFix(language: languageNote)
             } catch is CancellationError {
-                messages.append(Message(role: .error, text: "Stopped."))
+                messages.append(Message(role: .error, text: manifest.version > 0
+                    ? "Stopped. What was built so far is kept; ask for the missing screens to continue."
+                    : "Stopped."))
             } catch {
                 messages.append(Message(role: .error, text: error.localizedDescription))
             }
@@ -229,6 +269,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
         runtimeErrors = []
         reloadToken += 1
     }
+
+    /// A screen landed: show it, keeping the errors of the page for the fix round at the end.
+    private func reloadPreview() { reloadToken += 1 }
 
     /// Lets the reloaded page run, and when it reported JavaScript errors, has the assistant fix them.
     private func settleAndFix(language: String) async {
