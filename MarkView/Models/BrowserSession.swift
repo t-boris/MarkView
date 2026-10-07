@@ -236,13 +236,18 @@ final class BrowserSession: NSObject, ObservableObject {
     })();
     """#
 
+    /// Folder a local page may read (its stylesheets, scripts and images); nil = the page's own folder.
+    var localReadRoot: URL?
+
     func load(_ url: URL) {
         loadError = nil
         preview = nil
         self.url = url
         // A local page (opened from a terminal) may read the files next to it.
         if url.isFileURL {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            let folder = url.deletingLastPathComponent()
+            let root = localReadRoot.flatMap { folder.standardizedFileURL.path.hasPrefix($0.standardizedFileURL.path) ? $0 : nil }
+            webView.loadFileURL(url, allowingReadAccessTo: root ?? folder)
         } else {
             webView.load(URLRequest(url: url))
         }

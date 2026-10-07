@@ -29,6 +29,11 @@ enum FileType: String {
         [.table, .parquet, .sqlite, .log].contains(from(url: url))
     }
 
+    static let htmlExtensions: Set<String> = ["html", "htm", "xhtml"]
+
+    /// A web page that can be shown in the browser tab.
+    static func isHTML(_ url: URL) -> Bool { htmlExtensions.contains(url.pathExtension.lowercased()) }
+
     static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
 
     /// Extensions with a dedicated viewer (markdown, structured data, canvas).

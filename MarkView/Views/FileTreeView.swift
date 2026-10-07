@@ -571,6 +571,9 @@ struct FileTreeView: View {
             }
             if git.isGitRepo && inProject { Button("Add to .gitignore") { addToGitignore(url, isDirectory: false) } }
             if inProject { Button { workspaceManager.openXRay(for: url) } label: { Label("X-Ray", systemImage: "viewfinder") } }
+            if FileType.isHTML(url) {
+                Button { workspaceManager.openHTMLInBrowser(url) } label: { Label("Open in Browser", systemImage: "safari") }
+            }
             if FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
                 Button { workspaceManager.startRecursiveInsight(at: url) } label: { Label("Recursive Insight on This File", systemImage: "sparkles") }
             }
