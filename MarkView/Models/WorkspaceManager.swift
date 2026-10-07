@@ -4404,6 +4404,25 @@ class WorkspaceManager: ObservableObject {
         return session
     }
 
+    /// Show a local HTML file in a browser tab: the tab already showing it is reloaded, else a new
+    /// one opens. The page may read the project's files, so relative stylesheets and scripts load.
+    func openHTMLInBrowser(_ file: URL) {
+        let file = file.standardizedFileURL
+        guard FileType.isHTML(file), FileManager.default.fileExists(atPath: file.path) else { return }
+        layout.workspaceArea = .files
+        showCenter = true
+        for index in openTabs.indices {
+            if case .browser(let session) = openTabs[index].kind, session.url?.standardizedFileURL == file {
+                activeTabIndex = index
+                session.load(file)
+                return
+            }
+        }
+        let session = openBrowser(nil)
+        session.localReadRoot = containerRoot(for: file)
+        session.load(file)
+    }
+
     /// A page a terminal program opened: shown in this window's browser, reusing a tab rather than
     /// adding one — the tab already on the same server, else the active, preview or first browser tab.
     func openInAppBrowser(_ url: URL) {
