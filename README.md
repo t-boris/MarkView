@@ -47,6 +47,18 @@ running in real terminals right next to your files.
 
 From the simplest to the most involved. Each step stands on its own; use only what you need.
 
+```mermaid
+flowchart LR
+    A["Read<br/>Markdown"] --> B["Browse a<br/>project"]
+    B --> C["X-Ray:<br/>understand it"]
+    C --> D["Review docs<br/>and code"]
+    D --> E["Specify<br/>a feature"]
+    E --> F["Prototype<br/>and approve"]
+    F --> G["Build with<br/>an AI agent"]
+    G --> H["PR, CI,<br/>release"]
+    H -. "feedback" .-> E
+```
+
 **1. Read and write documents.** Open a Markdown file (or double-click one in Finder) and read it
 in a clean window: WYSIWYG or source, Mermaid diagrams, math, task lists, front matter and
 `[[wikilinks]]`. Export to PDF. Nothing else is required: no project, no AI, no account.
@@ -104,6 +116,16 @@ run deploy and install commands with confirmation, publish to GitHub.
 
 Press **⌘4**, or right-click any folder and choose **X-Ray**.
 
+```mermaid
+flowchart LR
+    F["Files, imports,<br/>links, git history"] --> S["Scan<br/>(facts only)"]
+    S --> L["Louvain<br/>clustering"]
+    L --> N["AI names and<br/>describes clusters"]
+    N --> V["Views: Logical, Structure,<br/>Deployment, Book"]
+    V --> O["Overlays: docs, tests, bugs,<br/>freshness, complexity, PR"]
+    V --> Z["Zoom in: file, section,<br/>single item, source line"]
+```
+
 | | |
 |---|---|
 | <img src="docs/images/xray-overview.png" alt="Subsystems" width="400"> | <img src="docs/images/xray-contents.png" alt="Drilling down into a document's contents" width="400"> |
@@ -135,6 +157,19 @@ Press **⌘4**, or right-click any folder and choose **X-Ray**.
 ---
 
 ## From idea to merged code
+
+```mermaid
+flowchart LR
+    I["Idea, voice note,<br/>screenshot, GitHub issue"] --> X["Explore<br/>questions + options"]
+    X --> R["Review<br/>12 perspectives"]
+    R --> W["Findings resolved<br/>into requirements"]
+    W -->|"not settled"| R
+    W --> P["Prototype<br/>(optional)"]
+    W --> B["Build: plan,<br/>issues, handoff"]
+    P --> B
+    B --> G["Agent in terminal:<br/>branch, commits, PR"]
+    G --> Y["Sync: issues closed,<br/>cycle time recorded"]
+```
 
 The **Issues** sidebar holds the project's features and bugs. **+ → New Feature** (or
 *New from This Document*, or a GitHub issue) starts one; voice notes, screenshots, files and
@@ -185,6 +220,33 @@ pull requests. *New Research* runs in the background and writes a cited report t
 
 ## Reviews of every kind
 
+```mermaid
+flowchart TB
+    subgraph Docs["Documents"]
+        D1["Specification review"]
+        D2["Docs ↔ code"]
+        D3["Selection: challenge,<br/>edge cases, contradictions"]
+    end
+    subgraph Code["Code"]
+        C1["Review changes<br/>(uncommitted)"]
+        C2["Observed file changes<br/>(side-by-side diff)"]
+        C3["Security review"]
+        C4["Codebase Audit"]
+    end
+    subgraph PR["Pull requests"]
+        P1["Review PR…"]
+        P2["PR X-Ray:<br/>where it lands"]
+    end
+    subgraph Proto["Prototypes"]
+        R1["Click through,<br/>point, request changes"]
+    end
+    Docs --> F["Findings with severity,<br/>quotes and file:line"]
+    Code --> F
+    PR --> F
+    Proto --> F
+    F --> A["You decide:<br/>accept, edit, ignore"]
+```
+
 | What you review | How |
 |---|---|
 | **A specification** | Feature **Review** from Product, UX, Architecture, Security, QA and Operations; findings are resolved into the requirements. |
@@ -230,9 +292,60 @@ implementation.
   builds from that package.
 - Everything lives in `.dde/prototypes/<name>/` in your project.
 
+**How a prototype is built**
+
+```mermaid
+flowchart LR
+    S["Requirements<br/>file or folder"] --> PL["1. Plan<br/>(≤ 10 screens)"]
+    PL --> SH["2a. Shell<br/>index, styles, app"]
+    PL --> DA["2b. Sample data<br/>data.js"]
+    SH --> SC
+    DA --> SC
+    subgraph SC["3. Screens, four at a time"]
+        direction LR
+        A1["Screen 1"] ~~~ A2["Screen 2"] ~~~ A3["Screen …"]
+    end
+    SC --> V1["Preview + v1"]
+```
+
+**How a prototype is reviewed and handed off**
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant Studio as Studio tab
+    participant AI as Assistant (read-only)
+    participant Disk as .dde/prototypes
+    You->>Studio: Point at an element, paste a sketch, type or speak
+    Studio->>AI: Request + element HTML + screenshot + images
+    AI-->>Studio: Edits as JSON (validated, all-or-nothing)
+    Studio->>Disk: Apply edits, save version vN
+    Studio-->>You: Live preview reloads
+    You->>Studio: Approve
+    Studio->>AI: Write SPEC.md from the prototype and history
+    Studio->>Disk: ZIP: prototype, SPEC.md, CHANGES.md, README
+```
+
 ---
 
 ## AI agents and terminals
+
+```mermaid
+flowchart LR
+    subgraph App["MarkView window"]
+        T["Real terminals<br/>(PTY)"]
+        BR["Browser tabs"]
+        TABS["Document, code,<br/>image tabs"]
+        BG["Background AI:<br/>X-Ray, reviews, prototypes"]
+    end
+    T <--> AG["Claude Code · Codex ·<br/>Cline · Copilot CLIs"]
+    BG -->|"read-only runs"| AG
+    AG -->|"open url / open file"| BR
+    AG -->|"open url / open file"| TABS
+    AG <-->|"markview-browser MCP:<br/>navigate, click, read, screenshot"| BR
+    AG -->|"edits files"| FS[("Your repository")]
+    FS -->|"live reload"| TABS
+```
 
 - **Real terminals** (**⌘3**): xterm.js on a pseudo-terminal owned by the app. Open
   Claude Code, Codex, Cline, Copilot or a plain shell — several at once — in the project
