@@ -137,5 +137,16 @@ check(withImages.contains(".dde/prototypes/x/attachments/a1.png: image 1 from th
 check(!PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
         .contains("Images the reviewer sent"), "no images, no image section")
 
+check(PrototypeAI.budget(for: "prototype:revise").limit == 1800, "a change may take 30 minutes")
+do {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("conv-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let saved = [PrototypeFiles.StoredMessage(role: "user", text: "Hi", images: ["a.png"]),
+                 PrototypeFiles.StoredMessage(role: "error", text: "Timed out")]
+    check(PrototypeFiles.loadConversation(dir) == nil, "no conversation file yet")
+    PrototypeFiles.saveConversation(saved, in: dir)
+    check(PrototypeFiles.loadConversation(dir) == saved, "conversation round-trips")
+}
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

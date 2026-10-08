@@ -14,6 +14,17 @@ final class PrototypeSession: ObservableObject, Identifiable {
         var text: String
         /// Images sent with the message, shown small under the text.
         var images: [NSImage] = []
+        /// File names of those images in `attachments/`, so the conversation can be restored.
+        var imageNames: [String] = []
+        /// The request that failed, so the message can offer to run it again.
+        var retry: Request?
+    }
+
+    /// One reviewer request: the text, the pointed-at element and the saved images that go with it.
+    struct Request {
+        var instruction: String
+        var pick: PrototypeAI.Pick?
+        var files: [(url: URL, note: String)]
     }
 
     /// An image waiting to be sent with the next request.
@@ -42,7 +53,11 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// The prototype's folder name; the tab bar reads it off the main actor.
     nonisolated let slug: String
     @Published private(set) var manifest: PrototypeFiles.Manifest
-    @Published private(set) var messages: [Message] = []
+    @Published private(set) var messages: [Message] = [] {
+        didSet { saveConversation() }
+    }
+    /// A request text handed back to the input field after a failure; the studio view takes it.
+    @Published var restoredDraft: String?
     /// What the running assistant is doing; nil when idle.
     @Published private(set) var stage: String?
     /// What the assistant did during the current run, oldest first.
@@ -95,10 +110,28 @@ final class PrototypeSession: ObservableObject, Identifiable {
         self.folder = folder
         self.slug = slug
         self.manifest = manifest
-        for entry in manifest.history {
-            if !entry.instruction.isEmpty { messages.append(Message(role: .user, text: entry.instruction)) }
-            messages.append(Message(role: .assistant, text: "v\(entry.version): \(entry.summary)"))
+        if let stored = PrototypeFiles.loadConversation(folder) {
+            let attachments = folder.appendingPathComponent("attachments", isDirectory: true)
+            messages = stored.map { item in
+                let names = item.images.filter { !$0.contains("/") }
+                return Message(role: item.role == "user" ? .user : item.role == "error" ? .error : .assistant, text: item.text,
+                               images: names.compactMap { NSImage(contentsOf: attachments.appendingPathComponent($0)) }, imageNames: names)
+            }
+        } else {
+            for entry in manifest.history {
+                if !entry.instruction.isEmpty { messages.append(Message(role: .user, text: entry.instruction)) }
+                messages.append(Message(role: .assistant, text: "v\(entry.version): \(entry.summary)"))
+            }
         }
+    }
+
+    /// Saves the whole review conversation beside the manifest, so a reopened prototype shows all of it.
+    private func saveConversation() {
+        let stored = messages.map { message in
+            PrototypeFiles.StoredMessage(role: message.role == .user ? "user" : message.role == .error ? "error" : "assistant",
+                                         text: message.text, images: message.imageNames)
+        }
+        PrototypeFiles.saveConversation(stored, in: folder)
     }
 
     // MARK: - Runs
@@ -215,10 +248,25 @@ final class PrototypeSession: ObservableObject, Identifiable {
             messages.append(Message(role: .error, text: "Could not save the images: \(error.localizedDescription)"))
             return
         }
-        messages.append(Message(role: .user, text: (pick.map { "[\($0.selector)] " } ?? "") + instruction, images: thumbnails))
+        messages.append(Message(role: .user, text: (pick.map { "[\($0.selector)] " } ?? "") + instruction, images: thumbnails,
+                                imageNames: files.map { $0.url.lastPathComponent }))
         self.pick = nil
         attachments = []
         pickMode = false
+        run(Request(instruction: instruction, pick: pick, files: files))
+    }
+
+    /// Runs the request of a failed message again, without adding the question to the conversation twice.
+    func retry(_ request: Request) {
+        guard !isBusy else { return }
+        run(request)
+    }
+
+    /// Puts the text of a failed request back into the input field.
+    func edit(_ request: Request) { restoredDraft = request.instruction }
+
+    private func run(_ request: Request) {
+        let instruction = request.instruction, pick = request.pick, files = request.files
         beginRun("Working on your request")
         task = Task { [self] in
             defer { endRun() }
@@ -231,9 +279,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 messages.append(Message(role: .assistant, text: outcome.summary))
                 await settleAndFix(language: languageNote)
             } catch is CancellationError {
-                messages.append(Message(role: .error, text: "Stopped. The prototype is unchanged."))
+                messages.append(Message(role: .error, text: "Stopped. The prototype is unchanged.", retry: request))
             } catch {
-                messages.append(Message(role: .error, text: error.localizedDescription))
+                messages.append(Message(role: .error, text: error.localizedDescription, retry: request))
             }
         }
     }

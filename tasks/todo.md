@@ -2446,3 +2446,10 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] Canvas: ELK layered layout (vendored, lazy), groups as compounds, `:::kind` colors, border-clipped edges, source/evidence open the file; d3 vendored (no CDN), dagre removed
 - [x] Checks: `tools/tests/diagram-tests.sh`; real-agent runs on this repo (architecture, sequence) produced 15-node grounded diagrams in ~35 s
 - [ ] Not verified in the running app UI (banner, canvas click-through, audit end to end); Handoff `/goal` actions deliberately stay in the terminal
+
+## Task 96 — Prototype Studio resilience (4.14.1)
+- [x] A change may take 30 minutes (was 15): a 628 KB prototype timed out on a wide request.
+- [x] A failed or stopped request keeps its text: "Retry" runs it again (same images and pointed-at element), "Edit in the field" puts the text back into the input.
+- [x] The whole conversation (plan, errors, images, picked element prefix) is saved in `conversation.json` beside `prototype.json` and restored on open; older prototypes fall back to the history from the manifest.
+- [x] `tools/tests/prototype-tests.sh`: revise budget, conversation round trip. Debug build.
+- [ ] Not verified in the running app UI (Retry / Edit buttons, restored thumbnails).

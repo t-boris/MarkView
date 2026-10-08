@@ -62,6 +62,13 @@ enum PrototypeFiles {
         var history: [Entry] = []
     }
 
+    /// One message of the review conversation as saved in `conversation.json`; images are file names in `attachments/`.
+    struct StoredMessage: Codable, Equatable {
+        var role: String
+        var text: String
+        var images: [String] = []
+    }
+
     /// Text formats only: the agent answers with text, and the export stays reviewable.
     static let allowedExtensions: Set<String> = ["html", "css", "js", "json", "svg", "txt", "md", "csv"]
     static let maxFileBytes = 600_000
@@ -92,6 +99,21 @@ enum PrototypeFiles {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         return names.filter { FileManager.default.fileExists(atPath: manifestURL(of: folder(root: root, slug: $0)).path) }
             .sorted()
+    }
+
+    // MARK: - Conversation
+
+    static func conversationURL(of folder: URL) -> URL { folder.appendingPathComponent("conversation.json") }
+
+    static func loadConversation(_ folder: URL) -> [StoredMessage]? {
+        guard let data = try? Data(contentsOf: conversationURL(of: folder)) else { return nil }
+        return try? JSONDecoder().decode([StoredMessage].self, from: data)
+    }
+
+    static func saveConversation(_ messages: [StoredMessage], in folder: URL) {
+        guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
+              let data = try? JSONEncoder().encode(messages) else { return }
+        try? data.write(to: conversationURL(of: folder), options: .atomic)
     }
 
     // MARK: - Manifest
