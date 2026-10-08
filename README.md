@@ -4,9 +4,10 @@
 
 ### Understand any project, then build it with AI — from idea to merged code.
 
-MarkView is a native macOS workspace for code and documentation. It shows you how a
-project fits together (**X-Ray**), turns ideas into specifications through guided AI
-interviews and reviews, and hands the result to **Claude Code, Codex, Cline or Copilot**
+MarkView is a native macOS workspace for code and documentation. It starts as a plain
+Markdown reader, and grows with you: it shows how a project fits together (**X-Ray**),
+reviews documents, code and pull requests, turns ideas into specifications through guided AI
+interviews, builds clickable **prototypes** from requirements, and hands the result to **Claude Code, Codex, Cline or Copilot**
 running in real terminals right next to your files.
 
 [![Download MarkView](https://img.shields.io/github/v/release/t-boris/MarkView?filter=v*&label=download%20.dmg&color=2ea043)](https://github.com/t-boris/MarkView/releases/latest/download/MarkView.dmg)
@@ -39,6 +40,63 @@ running in real terminals right next to your files.
   requests. No server, no account, no lock-in.
 - **Native and fast.** SwiftUI and AppKit, a local SQLite index, no Swift package
   dependencies. AI runs through the CLIs you already use and are signed in to.
+
+---
+
+## What you can do with MarkView
+
+From the simplest to the most involved. Each step stands on its own; use only what you need.
+
+**1. Read and write documents.** Open a Markdown file (or double-click one in Finder) and read it
+in a clean window: WYSIWYG or source, Mermaid diagrams, math, task lists, front matter and
+`[[wikilinks]]`. Export to PDF. Nothing else is required: no project, no AI, no account.
+→ [Reading and writing](#reading-and-writing)
+
+**2. Browse a folder as a project.** Open a folder to get a file tree, full-text search
+(**⌘⇧K**), git status, a code viewer for 45 languages, and viewers for images, JSON, YAML,
+CSV, Parquet, SQLite, Excel, logs and HTML.
+→ [Reading and writing](#reading-and-writing), [Workspace](#workspace)
+
+**3. Understand an unfamiliar project: X-Ray.** See subsystems, components and dependencies,
+then zoom into a single file, requirement or function. Overlays show where documentation,
+tests or freshness are missing. *I Need to Understand* answers a question with clickable
+evidence. Book X-Ray does the same for a folder of documents.
+→ [X-Ray](#x-ray-from-system-to-single-item)
+
+**4. Check a document or a specification.** *Docs ↔ code* finds statements the code no
+longer backs. Feature *Review* reads a specification from a dozen perspectives, *Find
+Contradictions* and *Find outdated* keep it consistent, and Explain lenses mark what is stale
+or important. Selection actions challenge, expand or find edge cases in any passage.
+→ [Review](#from-idea-to-merged-code), [Reviews of every kind](#reviews-of-every-kind)
+
+**5. Review code.** Review uncommitted changes, review whatever changed on disk since you
+opened the project (including by agents), review a pull request in its architecture context,
+run a security review or a codebase audit.
+→ [Reviews of every kind](#reviews-of-every-kind)
+
+**6. Research.** A cited report with every finding labelled and every web query recorded,
+or a quick page clip from the built-in browser saved as Markdown.
+→ [Understand and research](#from-idea-to-merged-code)
+
+**7. Turn an idea into a specification.** Guided questions, requirements and decisions as
+plain Markdown files in your repository.
+→ [From idea to merged code](#from-idea-to-merged-code)
+
+**8. Prototype before you build: Prototype Studio.** Give it a requirements file or folder; it
+builds a deep, fully clickable HTML prototype you review in a studio tab until you approve it.
+→ [Prototype Studio](#prototype-studio-click-through-before-you-build)
+
+**9. Build with an AI agent.** Hand the approved specification to Claude Code, Codex, Cline or
+Copilot in a real terminal beside your files; track issues, pull requests and CI.
+→ [AI agents and terminals](#ai-agents-and-terminals)
+
+**10. Let agents use your browser tabs.** Agents drive pages you are logged in to, in a window
+you watch, without your password.
+→ [AI agents and terminals](#ai-agents-and-terminals)
+
+**11. Start, run and ship a project.** *New Project…* from an idea, preview the web app,
+run deploy and install commands with confirmation, publish to GitHub.
+→ [Workspace](#workspace)
 
 ---
 
@@ -122,6 +180,55 @@ AI — one branch, one commit per bug.
 with **What, Why, How and Origin** and clickable evidence from code, documents, commits and
 pull requests. *New Research* runs in the background and writes a cited report to
 `docs/research/`, with every finding labelled and every web query recorded.
+
+---
+
+## Reviews of every kind
+
+| What you review | How |
+|---|---|
+| **A specification** | Feature **Review** from Product, UX, Architecture, Security, QA and Operations; findings are resolved into the requirements. |
+| **A document against the code** | **Docs ↔ code** terminal prompt; the Explain *Freshness* lens; documentation-coverage overlay. |
+| **A passage** | Selection actions: challenge, find edge cases, find contradictions, explain, ask. |
+| **Uncommitted changes** | **Review changes** terminal prompt: bugs, edge cases, leftovers and missing tests with `file:line`. |
+| **Whatever changed on disk** | The **observed file changes** bar counts files added, modified or deleted since the project opened — by you, an agent or a build — and **Review** shows each as a side-by-side diff. |
+| **A pull request** | **Review PR…** prompt, or **PR X-Ray**: where the PR lands in the architecture, the diff, AI findings and impact, chat, approve or merge. |
+| **Security** | **Security review** prompt. |
+| **The whole codebase** | **Codebase Audit**, **Constructive Critic** and **Code Structure Map** in AI Tools. |
+| **An approach** | **Deep Research** and **New Research** with cited sources. |
+| **A prototype** | Prototype Studio: click through it, point at what to change, approve when it is right. |
+
+Review prompts never modify files; they report and wait for you.
+
+---
+
+## Prototype Studio: click through before you build
+
+Point MarkView at a requirements file or folder (**AI Tools → Prototype → New Prototype…**) and
+it builds a clickable HTML prototype you can review like a real product, then packs it for
+implementation.
+
+- **Build in steps you can watch.** The assistant plans the screens (up to ten), writes the
+  shared shell and sample data, then writes the screens side by side. A step header and a
+  per-screen checklist show progress, with a Stop button and a time limit per step. Every
+  step runs through your regular assistant and model.
+- **Deep, not a picture.** Routes, forms with validation, roles and permissions, filters,
+  empty and error states, and sample data that links across screens. Everything is plain
+  HTML, CSS and JavaScript that opens in any browser.
+- **Review in a studio tab.** The live preview sits next to a chat. Ask for a change in your
+  own words or by voice: *"change this, remove that, add this"*. Each accepted change is a
+  new version; go back to any version.
+- **Point at things.** Click **Point**, then an element in the preview; the assistant gets its
+  HTML and, optionally, a screenshot of it. Paste (**⌘V**), drop or choose images — a sketch,
+  a screenshot of another product — and the assistant reads them with the request.
+- **Retry and history.** A failed or stopped request offers **Retry** or **Edit in the
+  field**. The whole conversation is saved with the prototype and is back when you reopen it
+  (AI Tools → Prototype → Open Prototype).
+- **Approve and hand off.** Approving writes the specification and packs a ZIP: the
+  prototype, `SPEC.md` (screens, states, transitions, data, rules, traceability to your
+  requirements), `CHANGES.md` (the review history) and a README. An implementer, human or AI,
+  builds from that package.
+- Everything lives in `.dde/prototypes/<name>/` in your project.
 
 ---
 
