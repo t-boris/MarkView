@@ -153,6 +153,13 @@ struct PrototypeStudioView: View {
             Text(message.text)
                 .uiFont(size: 11).foregroundColor(VSDark.text)
                 .textSelection(.enabled)
+            if let request = message.retry {
+                HStack(spacing: 8) {
+                    Button("Retry") { session.retry(request) }.disabled(session.isBusy)
+                    Button("Edit in the field") { session.edit(request) }
+                }
+                .controlSize(.small)
+            }
             if !message.images.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(Array(message.images.enumerated()), id: \.offset) { _, image in
@@ -273,6 +280,12 @@ struct PrototypeStudioView: View {
             }
         }
         .padding(10)
+        .onChange(of: session.restoredDraft) { text in
+            guard let text else { return }
+            draft = text
+            session.restoredDraft = nil
+            draftFocused = true
+        }
     }
 
     private func submit() {

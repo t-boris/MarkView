@@ -391,7 +391,7 @@ enum PrototypeAI {
         case "prototype:plan": return ("planning the screens (reading the requirements)", 2400)
         case "prototype:foundation:shell": return ("writing the shell and styles", 1200)
         case "prototype:foundation:data": return ("writing the sample data", 1200)
-        case "prototype:revise": return ("your change", 900)
+        case "prototype:revise": return ("your change", 1800)
         case "prototype:spec": return ("writing the specification", 1500)
         default:
             if label.hasPrefix("prototype:screen:") { return ("writing the screen \(label.dropFirst("prototype:screen:".count))", 900) }
