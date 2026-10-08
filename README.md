@@ -177,6 +177,10 @@ URLs are welcome as input. Each feature is a folder under `docs/features/<slug>/
 `requirements/`, `decisions/`, `questions/`, `findings/`, research notes, a discussion log
 and an implementation plan — all plain Markdown.
 
+<img src="docs/images/feature-build-stage.png" alt="A feature in the Build stage: readiness 100%, 19 of 19 requirements approved, Propose plan and Implement with AI" width="600">
+
+*A feature moves Explore → Review → Build; readiness and approved requirements show how far along it is.*
+
 **Explore** — guided discovery.
 - Rounds of at most three questions, each with concrete options and a recommended answer.
   The AI reads your code and documents first, so it never asks what the project already
@@ -410,6 +414,11 @@ flowchart LR
 ---
 
 ## Workspace
+
+| | |
+|---|---|
+| <img src="docs/images/file-tree.png" alt="File tree with the git branch, filter, file sizes and ages" width="230"> | <img src="docs/images/github-actions.png" alt="GitHub Actions runs of the project inside the Git panel" width="420"> |
+| **File tree**: branch, filter, sizes and ages at a glance. | **Git panel**: changes, pull requests, issues and Actions runs (GitHub is opt-in). |
 
 - **File tree** with breadcrumbs, filter, sort and git status. Select several items
   (click, ⌘-click, ⇧-click) to **move, trash, stage, discard or copy paths** at once;
