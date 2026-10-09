@@ -39,6 +39,20 @@ enum BrowserAgentTools {
         }
     }
 
+    /// What an MCP server of this binary offers: the browser tools, or the project tools (`ProjectAgentTools`).
+    /// `rechecksApp`: look for the app again with every message, so that quitting MarkView takes the tools away.
+    struct MCPProfile {
+        let serverName: String
+        let instructions: String
+        let unavailableNote: String
+        let tools: [Tool]
+        let probeTool: String
+        var rechecksApp = false
+    }
+
+    static let browserProfile = MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
+                                           tools: tools, probeTool: "browser_tabs")
+
     private static let tab: [String: [String: Any]] = [
         "tab": ["type": "string", "description": "Which browser tab: its name (T2, Jira…), number, or part of its title or address. Default: the active browser tab."],
     ]
@@ -127,7 +141,9 @@ enum BrowserAgentTools {
 
     /// The answer to one MCP message, or nil for a notification. `call` performs a tool call.
     /// `available`: false outside a MarkView terminal — the server then offers no tools.
-    static func handle(_ message: [String: Any], available: Bool = true, call: (String, [String: Any]) -> Reply) -> [String: Any]? {
+    static func handle(_ message: [String: Any], available: Bool = true, profile: MCPProfile? = nil,
+                       call: (String, [String: Any]) -> Reply) -> [String: Any]? {
+        let profile = profile ?? browserProfile
         let method = message["method"] as? String ?? ""
         guard let id = message["id"] else { return nil }   // notifications need no answer
         func result(_ value: [String: Any]) -> [String: Any] { ["jsonrpc": "2.0", "id": id, "result": value] }
@@ -137,17 +153,17 @@ enum BrowserAgentTools {
             return result([
                 "protocolVersion": params?["protocolVersion"] as? String ?? protocolVersion,
                 "capabilities": ["tools": [String: Any]()],
-                "serverInfo": ["name": serverName, "version": "1"],
-                "instructions": available ? instructions : unavailableNote,
+                "serverInfo": ["name": profile.serverName, "version": "1"],
+                "instructions": available ? profile.instructions : profile.unavailableNote,
             ])
         case "ping":
             return result([:])
         case "tools/list":
-            return result(["tools": available ? tools.map(\.json) : []])
+            return result(["tools": available ? profile.tools.map(\.json) : []])
         case "tools/call":
             let params = message["params"] as? [String: Any] ?? [:]
-            guard available else { return result(Reply.error(unavailableNote).mcpResult) }
-            guard let name = params["name"] as? String, tools.contains(where: { $0.name == name }) else {
+            guard available else { return result(Reply.error(profile.unavailableNote).mcpResult) }
+            guard let name = params["name"] as? String, profile.tools.contains(where: { $0.name == name }) else {
                 return result(Reply.error("Unknown tool").mcpResult)
             }
             return result(call(name, params["arguments"] as? [String: Any] ?? [:]).mcpResult)
@@ -160,43 +176,83 @@ enum BrowserAgentTools {
     /// closes. Without `--socket` (an agent started by hand, registered once in its own configuration)
     /// the app is found among this process's ancestors — MarkView ← shell ← agent ← this server — and
     /// the window by the terminal's shell, so no environment variable has to survive the MCP client.
-    static func runServer(arguments: [String]) -> Never {
-        func value(_ flag: String) -> String? {
-            arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
-        }
-        let ancestors = ancestorPIDs()
-        let fromAncestors = ancestors.lazy.map(socketPath(forApp:)).first { FileManager.default.fileExists(atPath: $0) }
-        // BUG-027: an agent that runs its tools in a background process (Cline's hub daemon) has no
-        // MarkView among its ancestors; then any running MarkView is used and the window is chosen
-        // by the folder the agent works in (`cwd` in each request).
-        let fallbacks = value("--socket") == nil && fromAncestors == nil ? runningAppSockets() : []
-        let socket = value("--socket") ?? fromAncestors ?? fallbacks.first ?? ""
-        let window = value("--window") ?? ""
+    static func runServer(arguments: [String], profile: MCPProfile? = nil) -> Never {
+        let profile = profile ?? browserProfile
+        let found = locateApp(arguments: arguments)
+        let window = found.window
         let cwd = FileManager.default.currentDirectoryPath
         if arguments.contains("--diagnose") {
-            diagnose(socket: socket, window: window, ancestors: ancestors, viaAncestors: fromAncestors != nil || value("--socket") != nil, cwd: cwd)
+            diagnose(socket: found.socket, window: window, ancestors: found.ancestors, viaAncestors: found.viaAncestors, cwd: cwd, probe: profile.probeTool)
         }
         while let line = Swift.readLine(strippingNewline: true) {
             guard !line.isEmpty, let data = line.data(using: .utf8),
                   let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { continue }
-            guard let answer = handle(message, available: !socket.isEmpty, call: { tool, args in
-                let payload: [String: Any] = ["window": window, "pids": ancestors.map(Int.init), "cwd": cwd, "tool": tool, "arguments": args]
-                // Found by socket only: ask each running MarkView until one has the agent's folder open.
-                for candidate in fallbacks.dropLast() {
-                    let reply = request(socket: candidate, payload: payload)
-                    if !(reply.isError && reply.text.hasPrefix(noWindowPrefix)) { return reply }
-                }
-                return request(socket: fallbacks.last ?? socket, payload: payload)
+            // The project tools look for the app again with every message: with MarkView quit, they vanish.
+            let now = profile.rechecksApp ? locateApp(arguments: arguments) : found
+            guard let answer = handle(message, available: !now.socket.isEmpty, profile: profile, call: { tool, args in
+                forward(tool, args, to: now)
             }), let out = try? JSONSerialization.data(withJSONObject: answer) else { continue }
             FileHandle.standardOutput.write(out + Data("\n".utf8))
         }
         exit(0)
     }
 
+    /// Where the app is: its control socket (empty when it is not running), the processes above this one and the window.
+    struct AppLocation {
+        var socket: String
+        var fallbacks: [String]
+        var ancestors: [Int32]
+        var viaAncestors: Bool
+        var window: String
+    }
+
+    static func locateApp(arguments: [String]) -> AppLocation {
+        func value(_ flag: String) -> String? {
+            arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        }
+        let ancestors = ancestorPIDs()
+        let alive = { (path: String) in appIsAlive(socket: path) }
+        let fromAncestors = ancestors.lazy.map(socketPath(forApp:)).first { FileManager.default.fileExists(atPath: $0) && alive($0) }
+        // BUG-027: an agent that runs its tools in a background process (Cline's hub daemon) has no
+        // MarkView among its ancestors; then any running MarkView is used and the window is chosen
+        // by the folder the agent works in (`cwd` in each request).
+        let given = value("--socket").flatMap { alive($0) ? $0 : nil }
+        let fallbacks = given == nil && fromAncestors == nil ? runningAppSockets() : []
+        let socket = given ?? fromAncestors ?? fallbacks.first ?? ""
+        return AppLocation(socket: socket, fallbacks: fallbacks, ancestors: ancestors,
+                           viaAncestors: fromAncestors != nil || given != nil, window: value("--window") ?? "")
+    }
+
+    /// The MarkView process a control socket belongs to (`mv-browser-<pid>.sock`) still runs.
+    static func appIsAlive(socket path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        guard name.hasPrefix("mv-browser-"), name.hasSuffix(".sock"),
+              let pid = Int32(name.dropFirst("mv-browser-".count).dropLast(".sock".count)) else { return true }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    /// One tool call to the app that `location` names; with several running MarkViews, each is asked until one has the agent's folder open.
+    static func forward(_ tool: String, _ args: [String: Any], to location: AppLocation) -> Reply {
+        let payload: [String: Any] = ["window": location.window, "pids": location.ancestors.map(Int.init),
+                                      "cwd": FileManager.default.currentDirectoryPath, "tool": tool, "arguments": args]
+        for candidate in location.fallbacks.dropLast() {
+            let reply = request(socket: candidate, payload: payload)
+            if !(reply.isError && reply.text.hasPrefix(noWindowPrefix)) { return reply }
+        }
+        return request(socket: location.fallbacks.last ?? location.socket, payload: payload)
+    }
+
+    /// One call from the command line (`--project-call`): the same path as an MCP call, with the same "no app, no tools".
+    static func callApp(profile: MCPProfile, arguments: [String], tool: String, args: [String: Any]) -> Reply {
+        let location = locateApp(arguments: arguments)
+        guard !location.socket.isEmpty else { return .error(profile.unavailableNote) }
+        return forward(tool, args, to: location)
+    }
+
     /// `MarkView --mcp-browser --diagnose`, typed in a terminal where an agent lacks the browser tools
     /// (BUG-026): which processes are above it, whether a MarkView is among them, and whether that
     /// MarkView knows the window. Prints and exits.
-    static func diagnose(socket: String, window: String, ancestors: [Int32], viaAncestors: Bool, cwd: String) -> Never {
+    static func diagnose(socket: String, window: String, ancestors: [Int32], viaAncestors: Bool, cwd: String, probe: String = "browser_tabs") -> Never {
         func name(_ pid: Int32) -> String {
             var info = kinfo_proc()
             var size = MemoryLayout<kinfo_proc>.stride
@@ -213,15 +269,21 @@ enum BrowserAgentTools {
         }
         print(viaAncestors ? "✓ MarkView found among the parent processes: \(socket)"
                            : "✓ MarkView found by its socket (the agent runs its tools in a background process): \(socket)")
-        let reply = request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "cwd": cwd, "tool": "browser_tabs", "arguments": [String: Any]()], timeout: 10)
-        print(reply.isError ? "✗ " + reply.text : "✓ The window answered. Its browser tabs:\n" + reply.text)
+        let reply = request(socket: socket, payload: ["window": window, "pids": ancestors.map(Int.init), "cwd": cwd, "tool": probe, "arguments": [String: Any]()], timeout: 10)
+        print(reply.isError ? "✗ " + reply.text : "✓ The window answered:\n" + reply.text)
         exit(reply.isError ? 1 : 0)
     }
 
     /// The control socket of the MarkView process `pid`: in the user's temporary folder (resolved
     /// by the system, not from `$TMPDIR`, which MCP clients may not pass on).
     static func socketPath(forApp pid: Int32) -> String {
-        FileManager.default.temporaryDirectory.appendingPathComponent("mv-browser-\(pid).sock").path
+        URL(fileURLWithPath: socketFolder, isDirectory: true).appendingPathComponent("mv-browser-\(pid).sock").path
+    }
+
+    /// Where the control sockets live. `MARKVIEW_SOCKET_DIR` exists for the checks in tools/tests, which must not meet
+    /// a MarkView that runs on the same Mac.
+    static var socketFolder: String {
+        ProcessInfo.processInfo.environment["MARKVIEW_SOCKET_DIR"] ?? FileManager.default.temporaryDirectory.path
     }
 
     /// How the app's reply starts when no window has the agent's folder (another MarkView may have it).
@@ -229,7 +291,7 @@ enum BrowserAgentTools {
 
     /// Control sockets of MarkView processes that are running, newest process first.
     static func runningAppSockets() -> [String] {
-        let folder = FileManager.default.temporaryDirectory.path
+        let folder = socketFolder
         let pids = ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).compactMap { name -> Int32? in
             guard name.hasPrefix("mv-browser-"), name.hasSuffix(".sock") else { return nil }
             return Int32(name.dropFirst("mv-browser-".count).dropLast(".sock".count))
@@ -238,14 +300,15 @@ enum BrowserAgentTools {
     }
 
     /// The window whose project folder holds `cwd` (the deepest one), else the only window.
-    static func windowIndex(forFolder cwd: String, roots: [String?]) -> Int? {
+    /// `strict`: only a window whose project holds the folder counts (the project tools write files).
+    static func windowIndex(forFolder cwd: String, roots: [String?], strict: Bool = false) -> Int? {
         let path = (cwd as NSString).standardizingPath
         let matches = roots.enumerated().compactMap { index, root -> (Int, Int)? in
             guard let root = root.map({ ($0 as NSString).standardizingPath }), !root.isEmpty else { return nil }
             return path == root || path.hasPrefix(root + "/") ? (index, root.count) : nil
         }
         if let best = matches.max(by: { $0.1 < $1.1 }) { return best.0 }
-        return roots.count == 1 ? 0 : nil
+        return roots.count == 1 && !strict ? 0 : nil
     }
 
     /// This process's parent, grandparent… up to launchd.
@@ -343,10 +406,10 @@ enum BrowserAgentTools {
     }
 
     /// An agent's MCP settings with `mcpServers["markview-browser"] = entry`; other servers and keys stay.
-    static func withServer(_ entry: [String: Any], in root: [String: Any]) -> [String: Any] {
+    static func withServer(_ entry: [String: Any], in root: [String: Any], name: String? = nil) -> [String: Any] {
         var root = root
         var servers = root["mcpServers"] as? [String: Any] ?? [:]
-        servers[serverName] = entry
+        servers[name ?? serverName] = entry
         root["mcpServers"] = servers
         return root
     }

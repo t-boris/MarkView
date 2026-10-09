@@ -369,6 +369,14 @@ flowchart LR
   browser tabs — where you watch — instead of driving your Chrome. Sign in to a platform once in a
   tab, name the tab ("Jira", "Stripe") and say *"in tab Jira, follow these steps"*; the agent uses
   your session and never needs your password. **Stop** on a tab takes it back.
+- **Agents that understand MarkView.** A second local MCP server, *markview*, tells Claude Code,
+  Codex, Copilot and Cline what features, requirements, decisions, questions, bugs and prototypes
+  are, how the work flows (branch, pull request, statuses), and lets them read the project and add to
+  it — *"turn this prototype into features"* — through the app, which writes the files in its own
+  exact format, so ids and links stay valid. Writes go only to the project of the window the agent works in, and
+  only while MarkView is running: with the app closed there are no tools and nothing is written.
+  Where an organisation blocks MCP servers (Copilot at work, for one), **Connect Agents to MarkView…**
+  installs a Skill instead, which calls the same tools through `MarkView --project-call`.
 - **Usage at a glance:** quota chips for Claude Code and Codex in the terminal header.
 - **Live reload:** files an agent changes on disk refresh in their tabs.
 - **AI Tools** (✨): architecture, data-flow, pipeline, deployment, sequence and ER

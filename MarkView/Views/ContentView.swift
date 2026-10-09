@@ -501,7 +501,7 @@ struct ContentView: View {
                 Toggle("Copilot", isOn: $browserToolsCopilot)
                 Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
             }
-            Button("Connect Agents to MarkView's Browser…") { AgentBrowserRegistration.connectInteractively() }
+            Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
                 .help("Let Claude Code, Codex, Copilot and Cline drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
             Image(systemName: "globe")

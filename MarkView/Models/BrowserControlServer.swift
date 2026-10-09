@@ -17,6 +17,8 @@ enum BrowserControlServer {
         var active: () -> BrowserSession?
         var show: (BrowserSession) -> Void
         var open: (URL?, String?) -> BrowserSession
+        /// The window's features and bugs, for the project tools (`ProjectToolRunner`).
+        var features: () -> FeatureStore? = { nil }
     }
 
     private static var windows: [UUID: Window] = [:]
@@ -49,9 +51,9 @@ enum BrowserControlServer {
     }
 
     /// The arguments that start this binary as the MCP server for window `id`.
-    static func mcpArguments(window id: UUID) -> (command: String, args: [String])? {
+    static func mcpArguments(window id: UUID, flag: String = "--mcp-browser") -> (command: String, args: [String])? {
         guard let socket = socketPath, let executable = Bundle.main.executablePath else { return nil }
-        return (executable, ["--mcp-browser", "--socket", socket, "--window", id.uuidString])
+        return (executable, [flag, "--socket", socket, "--window", id.uuidString])
     }
 
     // MARK: - Socket
@@ -119,15 +121,20 @@ enum BrowserControlServer {
     // MARK: - Tools
 
     private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String) async -> BrowserAgentTools.Reply {
-        guard TerminalBrowserBridge.isEnabled else {
+        let isProjectTool = ProjectAgentTools.toolNames.contains(tool)
+        guard isProjectTool || TerminalBrowserBridge.isEnabled else {
             return .error("MarkView's browser for terminals is turned off (globe menu → Open Terminal Links in MarkView).")
         }
         let windowID = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
-            ?? windowForFolder(cwd)
+            ?? windowForFolder(cwd, strict: isProjectTool)
         guard let windowID, let window = windows[windowID] else {
             let open = windows.values.compactMap { $0.root()?.path }.sorted()
             return .error(BrowserAgentTools.noWindowPrefix + " this agent works in (\(cwd.isEmpty ? "unknown" : cwd)) open."
                           + (open.isEmpty ? "" : " Open project windows: " + open.joined(separator: ", ")))
+        }
+        if isProjectTool {
+            guard let store = window.features() else { return .error("This window has no project open.") }
+            return ProjectToolRunner.run(tool, args, store: store)
         }
         switch tool {
         case "browser_tabs":
@@ -160,9 +167,9 @@ enum BrowserControlServer {
 
     /// BUG-027: an agent running its tools outside the terminal (Cline's background hub): the window
     /// whose project holds the agent's folder, else the only window.
-    private static func windowForFolder(_ cwd: String) -> UUID? {
+    private static func windowForFolder(_ cwd: String, strict: Bool = false) -> UUID? {
         let entries = Array(windows)
-        guard let index = BrowserAgentTools.windowIndex(forFolder: cwd, roots: entries.map { $0.value.root()?.path }) else { return nil }
+        guard let index = BrowserAgentTools.windowIndex(forFolder: cwd, roots: entries.map { $0.value.root()?.path }, strict: strict) else { return nil }
         return entries[index].key
     }
 

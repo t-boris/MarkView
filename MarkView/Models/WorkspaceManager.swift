@@ -642,8 +642,9 @@ class WorkspaceManager: ObservableObject {
         recent.insert(url.standardizedFileURL.path, at: 0)
         setRecentProjects(Array(recent.prefix(Self.maxRecentProjects)))
         rootOpenedAsFolder = true
-        // Agents working in this folder can reach its browser tabs even from outside its terminals (BUG-027).
-        if TerminalBrowserBridge.isEnabled { registerBrowserControl() }
+        // Agents working in this folder can reach its browser tabs (BUG-027) and its project tools even from
+        // outside its terminals; the browser tools check the terminal-links setting themselves.
+        registerBrowserControl()
         fileTreeStore.reset()  // Clear previous tree so progress spinner is shown
         tabsStore.reset()
         architecture.reset()
@@ -3705,28 +3706,39 @@ class WorkspaceManager: ObservableObject {
     /// browser tab (Task 80); none when terminal links do not open in MarkView.
     private func browserToolArgs(for tool: CLITool) -> [String] {
         registerBrowserControl()
-        guard TerminalBrowserBridge.isEnabled, BrowserControlServer.agentToolsEnabled(tool),
-              let server = BrowserControlServer.mcpArguments(window: browserControlID) else { return [] }
+        guard BrowserControlServer.agentToolsEnabled(tool) else { return [] }
+        // The browser tools (when terminal links open in MarkView) and the project tools (features, bugs,
+        // prototypes), each a server of this same binary, both bound to this window.
+        var servers: [(name: String, codexName: String, command: String, args: [String])] = []
+        if TerminalBrowserBridge.isEnabled, let server = BrowserControlServer.mcpArguments(window: browserControlID) {
+            servers.append((BrowserAgentTools.serverName, "markview_browser", server.command, server.args))
+        }
+        if let server = BrowserControlServer.mcpArguments(window: browserControlID, flag: "--mcp-project") {
+            servers.append((ProjectAgentTools.serverName, ProjectAgentTools.serverName, server.command, server.args))
+        }
+        guard !servers.isEmpty else { return [] }
         let shellQuote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         switch tool {
         case .claude:
-            let config: [String: Any] = ["mcpServers": [BrowserAgentTools.serverName: ["command": server.command, "args": server.args]]]
+            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map { ($0.name, ["command": $0.command, "args": $0.args] as [String: Any]) })]
             guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
                   let json = String(data: data, encoding: .utf8) else { return [] }
             return ["--mcp-config", shellQuote(json)]
         case .codex:
             let toml = { (text: String) in "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-            return ["-c", shellQuote("mcp_servers.markview_browser.command=" + toml(server.command)),
-                    "-c", shellQuote("mcp_servers.markview_browser.args=[" + server.args.map(toml).joined(separator: ",") + "]")]
+            return servers.flatMap { server in
+                ["-c", shellQuote("mcp_servers.\(server.codexName).command=" + toml(server.command)),
+                 "-c", shellQuote("mcp_servers.\(server.codexName).args=[" + server.args.map(toml).joined(separator: ",") + "]")]
+            }
         case .copilot:
-            let config: [String: Any] = ["mcpServers": [BrowserAgentTools.serverName: [
-                "type": "local", "command": server.command, "args": server.args, "tools": ["*"]]]]
+            let config: [String: Any] = ["mcpServers": Dictionary(uniqueKeysWithValues: servers.map {
+                ($0.name, ["type": "local", "command": $0.command, "args": $0.args, "tools": ["*"]] as [String: Any]) })]
             guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.withoutEscapingSlashes]),
                   let json = String(data: data, encoding: .utf8) else { return [] }
             return ["--additional-mcp-config", shellQuote(json)]
         case .cline:
-            // Cline has no per-session option: its own settings must list the server (BUG-026).
-            AgentBrowserRegistration.ensureCline(executable: server.command)
+            // Cline has no per-session option: its own settings must list the servers (BUG-026).
+            AgentBrowserRegistration.ensureCline(executable: servers[0].command)
             return []
         }
     }
@@ -3771,7 +3783,8 @@ class WorkspaceManager: ObservableObject {
                 let session = self.openBrowser(url)
                 if let name { session.agentName = name }
                 return session
-            }))
+            },
+            features: { [weak self] in self?.features }))
     }
 
     /// The window's browser tabs, in tab order.

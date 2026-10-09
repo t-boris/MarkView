@@ -154,6 +154,12 @@ enum DDEAppEntry {
         if args.contains("--mcp-browser") {
             BrowserAgentTools.runServer(arguments: args)  // never returns
         }
+        if args.contains("--mcp-project") {
+            BrowserAgentTools.runServer(arguments: args, profile: ProjectAgentTools.profile)  // never returns
+        }
+        if args.contains("--project-call") {
+            ProjectAgentTools.runCall(arguments: args)  // never returns
+        }
         if let i = args.firstIndex(of: "--dde-index"), i + 1 < args.count {
             DDEIndexerRunner.run(folderPath: args[i + 1])  // never returns
         }
