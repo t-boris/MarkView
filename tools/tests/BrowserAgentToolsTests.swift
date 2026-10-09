@@ -43,6 +43,8 @@ check(BrowserAgentTools.windowIndex(forFolder: "/w/garden/src", roots: ["/w/othe
       "an agent outside the terminals: the window whose project holds its folder, the deepest")
 check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/garden"]) == 0, "else the only window")
 check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/a", "/w/b"]) == nil, "several windows and none matches: none")
+check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/garden"], strict: true) == nil
+      && BrowserAgentTools.windowIndex(forFolder: "/w/garden/src", roots: ["/w/other", "/w/garden"], strict: true) == 1, "strict: the only window is not enough, a project holding the folder is")
 check(BrowserAgentTools.windowIndex(forFolder: "/w/gardening", roots: ["/w/garden", "/w/b"]) == nil, "a name prefix is not a parent folder")
 check(BrowserAgentTools.reportsPolicyBlock("\u{1b}[31m✗ MCP server was blocked by policy: \"markview-browser\"\u{1b}[0m"),
       "Copilot's policy block is recognised")
