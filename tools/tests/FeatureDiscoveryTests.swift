@@ -112,5 +112,19 @@ let edited = FeatureObject.applyingEdits([(find: "The six decision groups remain
 check(edited.applied == 1 && edited.text.contains("All six groups are decided.") && edited.text.contains("Keep me. Keep me."),
       "only an exact, unique passage is edited")
 
+// The issues and the epic created from the plan belong to the feature (Build → Approve & create GitHub issues).
+let planRoot = FileManager.default.temporaryDirectory.appendingPathComponent("plan-issues-\(UUID().uuidString)/with-plan")
+try FileManager.default.createDirectory(at: planRoot.appendingPathComponent("implementation"), withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: planRoot.deletingLastPathComponent()) }
+try "---\ntitle: T\nstatus: review\nissues: [\"#3\"]\n---\n\nBody.\n".write(to: planRoot.appendingPathComponent("overview.md"), atomically: true, encoding: .utf8)
+var plan = FrontMatter()
+plan.set("type", "plan")
+plan.set("epic", "9")
+plan["issues"] = .list([PlannedIssue(id: "I-1", title: "A", summary: "s", requirements: ["REQ-001"], decisions: [], github: 7).yaml,
+                        PlannedIssue(id: "I-2", title: "B", summary: "s", requirements: ["REQ-002"], decisions: []).yaml])
+try plan.join(body: "# Plan\n\n## I-1: A (#7)\n").write(to: planRoot.appendingPathComponent("implementation/plan.md"), atomically: true, encoding: .utf8)
+let planned = Feature.load(folder: planRoot)
+check(planned?.issueNumbers == [3, 7, 9], "plan issues and the epic count as the feature's issues, with the overview's own: \(String(describing: planned?.issueNumbers))")
+
 print(failures == 0 ? "All discovery checks passed." : "\(failures) discovery check(s) failed.")
 exit(failures == 0 ? 0 : 1)
