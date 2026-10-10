@@ -364,13 +364,6 @@ struct ContentView: View {
                              selected: workspaceManager.showCenter) {
                     workspaceManager.toggleCenter()
                 }
-                headerDivider
-                ForEach(WorkspaceArea.allCases) { area in
-                    headerButton(area.symbol, help: area.rawValue, width: controlWidth,
-                                 selected: workspaceManager.layout.workspaceArea == area) {
-                        activate(area)
-                    }
-                }
                 Button { workspaceManager.toggleAIConsole() } label: {
                     Group {
                         if appFontScale >= 1.7 { Image(systemName: "terminal") }
@@ -384,8 +377,15 @@ struct ContentView: View {
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
-                .help("Assistant terminal (⌘3): Claude Code, Codex, Cline, Copilot, or shell")
+                .help("Agents (⌘3): terminals for Claude Code, Codex, Cline, Copilot, or a shell")
                 .accessibilityLabel("Agents (⌘3)")
+                headerDivider
+                ForEach(WorkspaceArea.allCases) { area in
+                    headerButton(area.symbol, help: area.rawValue, width: controlWidth,
+                                 selected: workspaceManager.layout.workspaceArea == area) {
+                        activate(area)
+                    }
+                }
                 headerDivider
                 HStack(spacing: 6) {
                     if let projectKey {
