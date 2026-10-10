@@ -2491,3 +2491,10 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] File tree: Extract Here / Extract to… on archives, Compress to .zip on files, folders and selections, with a progress line.
 - [x] `tools/tests/archive-tests.sh` (real zip and tar.gz, names with spaces and brackets, zip-slip, broken archive); Debug build; the tab checked in a second instance (screenshot).
 - [ ] Not tried: 7z / rar, clicking an entry in the running tab, a very large archive.
+
+## Task 102 — Search finds any file (4.20.0)
+- [x] The project search index reads any text file (a NUL-free, UTF-8 file up to 2 MB; the extension list is now only a shortcut and a denylist of binary extensions), so `.vue`, `.tf`, `Procfile` and the like are found; binaries are found by name. Excluded directories/files stay out; a 400 MB cap on text in memory.
+- [x] File names inside zip, jar, tar, tgz… archives are searched (`bundle.zip!/dir/file`); a zip lists from its central directory (any size), other archives only up to 50 MB; a hit opens that file's temporary copy. Their text is not searched.
+- [x] The right panel's Search tab uses this index (as ⌘⇧K does): Files and Text results, a hit opens at its line (code) or at the text (Markdown). The former meaning search of Markdown stays as the "Documents" mode.
+- [x] `tools/tests/project-search-tests.sh`; Debug build.
+- [ ] The panel was not driven in a running window.

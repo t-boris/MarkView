@@ -141,7 +141,8 @@ private struct TOCTabs<Content: View>: View {
 }
 
 /// Full-text search across the workspace index.
-struct WorkspaceSearchView: View {
+/// The meaning search of the project's Markdown documents (the semantic index): the Documents mode of the Search tab.
+struct DocumentSearchView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var searchQuery = ""
     @State private var searchResults: [SemanticDatabase.SearchResult] = []
