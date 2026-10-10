@@ -2517,3 +2517,9 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] The ⌘2 button and shortcut work for any open tab (they were limited to files).
 - [x] The heading script was run in a WKWebView; Debug build.
 - [ ] Not seen in the running app; prototype screens are listed but a click does not switch the screen.
+
+## Task 106 — Sync report you can act on (4.24.0)
+- [x] Sync counts a feature with status `done` as implemented, as the Issues list does (the report said "not done yet … (done)").
+- [x] The report explains itself in one line; each item is a button that opens the feature (Issues panel) or the bug report; a skipped item that is not done has "Mark implemented" / "Mark fixed"; an unlinked item has "Link issue…" (a number or URL, written into its `issues`). A changed row says "Changed. Run Sync again." (Sync itself stays a deliberate click: it closes issues on GitHub.)
+- [x] `issue-sync-tests.sh` updated (`done` is done); Debug build.
+- [ ] The report buttons were not driven in the running app.
