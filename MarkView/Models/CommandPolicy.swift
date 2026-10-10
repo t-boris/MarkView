@@ -193,6 +193,8 @@ enum CommandPolicy {
                 return ask("it can send data or write a file")
             }
             return .readOnly
+        case "log":
+            return positional.first == "show" ? .readOnly : ask("log stream never ends; use log show --last 15m")
         case "pg_isready": return .readOnly
         case "redis-cli":
             let verb = positional.first?.lowercased() ?? ""
@@ -238,6 +240,20 @@ enum CommandPolicy {
             if verb == "logs", hasFlag(["-t", "--tail"]) { return ask("following logs never ends") }
             if verb == "ps", let sub = positional.dropFirst().first, ["restart", "stop", "scale", "kill", "resize"].contains(sub) { return ask("it restarts or scales dynos") }
             return .readOnly
+        case "neonctl", "neon":
+            // neonctl <noun> <verb>: listing and getting only; connection strings carry the password.
+            let noun = positional.first ?? "", verb = positional.dropFirst().first ?? ""
+            if noun == "me" { return .readOnly }
+            if noun == "connection-string" { return ask("a connection string holds the password") }
+            return ["list", "get"].contains(verb) && !["auth", "set-context"].contains(noun) ? .readOnly : ask("neonctl \(noun) \(verb) can change the project")
+        case "supabase":
+            return positional.prefix(2) == ["projects", "list"] ? .readOnly : ask("supabase \(positional.joined(separator: " ")) can change the project")
+        case "pscale":
+            let verb = positional.dropFirst().first ?? ""
+            return ["list", "show"].contains(verb) && !["password", "service-token", "auth"].contains(positional.first ?? "") ? .readOnly : ask("pscale \(positional.joined(separator: " ")) can change the database")
+        case "turso":
+            let verb = positional.dropFirst().first ?? ""
+            return positional.first == "db" && ["list", "show"].contains(verb) ? .readOnly : ask("turso \(positional.joined(separator: " ")) can change the database")
         case "aws":
             return awsRisk(positional: positional, flags: flags, args: args)
         case "gcloud":

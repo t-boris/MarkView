@@ -26,8 +26,8 @@ enum DeploymentToolRunner {
             case "markview_deployments_logs":
                 let id = try environmentID(args, store: store)
                 let sourceID = try ProjectAgentTools.text(args, "source", required: true)
-                guard let source = store.environment(id)?.logSources.first(where: { $0.id == sourceID }) else {
-                    let known = store.environment(id)?.logSources.map(\.id).joined(separator: ", ") ?? ""
+                guard let source = store.logSources(id).first(where: { $0.id == sourceID }) else {
+                    let known = store.logSources(id).map(\.id).joined(separator: ", ")
                     throw ProjectAgentTools.Invalid(message: "No log source \"\(sourceID)\" on \(id)." + (known.isEmpty ? " It has none; use markview_deployments_run with a read-only command." : " Log sources: \(known)"))
                 }
                 let outcome = await store.run(source.command, on: id, origin: "The assistant", purpose: "Show the log \"\(source.title)\"")

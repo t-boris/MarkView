@@ -44,6 +44,8 @@ enum DeploymentDiscovery {
     static let ignoredDirectories: Set<String> = [".git", "node_modules", ".build", "build", "dist", "DerivedData", ".dde", "vendor", "Pods", ".venv", "venv", "target"]
     /// Hosts that appear in docs as the place code lives, not as a server to look at.
     static let codeHosts: Set<String> = ["github.com", "gitlab.com", "bitbucket.org", "ssh.dev.azure.com", "git.sr.ht"]
+    /// Words that follow "ssh" in prose and commands but are not machines.
+    static let notHosts: Set<String> = ["github", "gitlab", "bitbucket", "apt-get", "apt", "install", "keygen", "add", "agent", "config", "copy-id", "keyscan", "key", "keys", "into", "to", "as", "in", "with", "tunnel", "access", "connection", "server", "login", "user", "root"]
     static let placeholders: Set<String> = ["host", "hostname", "server", "example.com", "your-server", "your-host", "your.server.com", "my-server", "yourserver", "domain.com", "localhost", "127.0.0.1", "0.0.0.0", "user", "ip", "address", "x.x.x.x", "1.2.3.4"]
 
     // MARK: ssh config
@@ -102,6 +104,7 @@ enum DeploymentDiscovery {
         }
         var docText: [(String, String)] = []
         var compose: [(String, String)] = []
+        var packages: [(String, String)] = []
         for url in files {
             let path = rel(url), name = url.lastPathComponent.lowercased()
             guard let text = read(url) else { continue }
@@ -120,8 +123,13 @@ enum DeploymentDiscovery {
             }
             else if name.hasSuffix(".tf") { if let s = terraform(text, path: path) { merge(s) } }
             else if name.hasPrefix("docker-compose") || name.hasPrefix("compose.") { compose.append((path, text)) }
+            else if name == "package.json" { packages.append((path, text)) }
             if name.hasSuffix(".md") || name.hasSuffix(".sh") || name == "makefile" || name.hasPrefix("deploy") || path.hasPrefix("scripts/") { docText.append((path, text)) }
         }
+
+        // Managed services (a database in the cloud) and the hosting vendors the docs name.
+        for s in managedServices(docs: docText + compose, packages: packages) { merge(s) }
+        for s in vendorServers(docs: docText) where !found.values.contains(where: { $0.kind == .ssh && !$0.host.isEmpty && s.name.lowercased().hasPrefix($0.name.lowercased()) }) { merge(s) }
 
         // Hosts named in docs and scripts.
         var named: [String: (user: String, evidence: [String])] = [:]
@@ -146,16 +154,17 @@ enum DeploymentDiscovery {
         // Compose services are checks on a server; attach them to the first SSH suggestion, or list them alone.
         let services = compose.flatMap { composeServices($0.1) }
         if !services.isEmpty {
-            let checks = services.map { DeploymentCheck(id: "container-\($0)", title: "Container \($0)", kind: .docker, target: $0) }
-            if let key = found.values.filter({ $0.kind == .ssh }).sorted(by: { $0.confidence != $1.confidence ? $0.confidence > $1.confidence : $0.id < $1.id }).first?.id {
+            let checks = services.prefix(24).map { DeploymentCheck(id: "container-\($0)", title: "Container \($0)", kind: .docker, target: $0) }
+            let servers = found.values.filter { $0.kind == .ssh && !$0.host.isEmpty }
+            if servers.count == 1, let key = servers.first?.id {
                 var s = found[key]!
                 for check in checks where !s.checks.contains(where: { $0.id == check.id }) { s.checks.append(check) }
                 s.evidence.append("`\(compose[0].0)`: services \(services.joined(separator: ", "))")
                 found[key] = s
             } else {
-                merge(DeploymentSuggestion(id: "docker-host", name: "Docker host", kind: .ssh, checks: checks,
-                                           evidence: ["`\(compose[0].0)`: services \(services.joined(separator: ", "))"],
-                                           missing: ["Which server runs these containers? Add its host."], confidence: 40))
+                merge(DeploymentSuggestion(id: "docker-host", name: "Docker Compose services", kind: .ssh, checks: Array(checks),
+                                           evidence: ["`\(compose[0].0)`: \(services.count) services (\(services.prefix(6).joined(separator: ", "))\(services.count > 6 ? ", …" : ""))"],
+                                           missing: ["Which server runs these containers? Add its host; the container checks come with it."], confidence: 40))
             }
         }
 
@@ -168,6 +177,106 @@ enum DeploymentDiscovery {
                                        evidence: ["`~/.ssh/config`: Host \(host.alias), named in the project's docs"], confidence: 70))
         }
         return found.values.sorted { $0.confidence != $1.confidence ? $0.confidence > $1.confidence : $0.name < $1.name }
+    }
+
+    // MARK: managed services
+
+    /// Cloud databases and caches: the hostnames they are reached at, which docs write down (the connection URL with its
+    /// password is a secret and is never read), their port, and the CLI that shows their state.
+    private static let managed: [(provider: String, title: String, host: String, port: Int, package: String)] = [
+        ("neon", "Neon database", #"\bep-[a-z0-9-]+\.[a-z0-9.-]*neon\.tech\b"#, 5432, "@neondatabase/"),
+        ("supabase", "Supabase database", #"\b(?:db\.[a-z0-9]+\.supabase\.co|[a-z0-9-]+\.pooler\.supabase\.com)\b"#, 5432, "@supabase/"),
+        ("planetscale", "PlanetScale database", #"\b[a-z0-9.-]+\.psdb\.cloud\b"#, 3306, "@planetscale/"),
+        ("turso", "Turso database", #"\b[a-z0-9.-]+\.turso\.io\b"#, 443, "@libsql/"),
+        ("upstash", "Upstash Redis", #"\b[a-z0-9.-]+\.upstash\.io\b"#, 6379, "@upstash/"),
+        ("aws-rds", "Amazon RDS database", #"\b[a-z0-9.-]+\.rds\.amazonaws\.com\b"#, 5432, ""),
+        ("azure-postgres", "Azure PostgreSQL", #"\b[a-z0-9.-]+\.postgres\.database\.azure\.com\b"#, 5432, ""),
+        ("aiven", "Aiven service", #"\b[a-z0-9.-]+\.aivencloud\.com\b"#, 0, ""),
+        ("cockroach", "CockroachDB", #"\b[a-z0-9.-]+\.cockroachlabs\.cloud\b"#, 26257, ""),
+        ("mongodb-atlas", "MongoDB Atlas", #"\b[a-z0-9.-]+\.mongodb\.net\b"#, 0, "")
+    ]
+
+    private static func managedServices(docs: [(String, String)], packages: [(String, String)]) -> [DeploymentSuggestion] {
+        var out: [String: DeploymentSuggestion] = [:]
+        let environmentWords = ["production", "prod", "staging", "stage", "development", "dev", "preview"]
+        for entry in managed {
+            guard let regex = try? NSRegularExpression(pattern: entry.host, options: [.caseInsensitive]) else { continue }
+            var s = DeploymentSuggestion(id: entry.provider, name: entry.title, kind: .cloud, provider: entry.provider, confidence: 80)
+            var hosts: [String] = []
+            var labels: [String: String] = [:]
+            var projectIDs = Set<String>()
+            for (path, text) in docs {
+                for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                    let line = String(rawLine)
+                    let range = NSRange(line.startIndex..., in: line)
+                    let found = regex.matches(in: line, range: range).compactMap { Range($0.range, in: line).map { String(line[$0]).lowercased() } }
+                    for host in found {
+                        // A host is often named on several lines; the one that says which environment it is labels it.
+                        let label = environmentWords.first { line.lowercased().range(of: #"\b"# + $0 + #"\b"#, options: .regularExpression) != nil }
+                            .map { $0 == "prod" ? "production" : $0 == "stage" ? "staging" : $0 == "development" ? "dev" : $0 }
+                        if !hosts.contains(host) { hosts.append(host); s.evidence.append("`\(path)`: host \(host)") }
+                        if let label, labels[host] == nil { labels[host] = label }
+                    }
+                    if entry.provider == "neon", line.lowercased().contains("neon") {
+                        for m in matches(#"\b([a-z]{3,12}-[a-z]{3,12}-\d{6,10})\b"#, in: line) { projectIDs.insert(m[1]) }
+                    }
+                }
+            }
+            if entry.port > 0 {
+                for host in hosts {
+                    s.checks.append(DeploymentCheck(id: "port-\(host)", title: "Reachable" + (labels[host].map { " (\($0))" } ?? "") + ": \(host)", kind: .port, target: "\(host):\(entry.port)"))
+                }
+            }
+            let packageHit = packages.first { $0.1.contains("\"\(entry.package)") && !entry.package.isEmpty }
+            if hosts.isEmpty && packageHit == nil { continue }
+            if let packageHit { s.evidence.append("`\(packageHit.0)`: depends on \(entry.package)…"); if hosts.isEmpty { s.confidence = 40; s.name = entry.title + " (library found)" } }
+            s.cloudCommands = managedCommands(entry.provider, projectIDs: projectIDs.sorted())
+            s.missing = ["The connection URL (DATABASE_URL, with its password) is a secret: MarkView never reads it." + (hosts.isEmpty ? " No host is written in the docs: add one as a port check in Edit." : " The hosts above come from the docs; reachability is checked from this Mac.")]
+            if entry.provider == "neon" && projectIDs.isEmpty { s.missing.append("Neon project id not found in the docs: see the Neon console, or run `neonctl projects list`.") }
+            out[entry.provider] = s
+        }
+        return out.values.sorted { $0.name < $1.name }
+    }
+
+    private static func managedCommands(_ provider: String, projectIDs: [String]) -> [CloudCommand] {
+        switch provider {
+        case "neon":
+            var commands = [CloudCommand(id: "projects", title: "Projects", command: "neonctl projects list")]
+            for id in projectIDs.prefix(2) {
+                commands.append(CloudCommand(id: "branches-\(id)", title: "Branches of \(id)", command: "neonctl branches list --project-id \(id)"))
+                commands.append(CloudCommand(id: "operations-\(id)", title: "Recent operations of \(id)", command: "neonctl operations list --project-id \(id)"))
+                commands.append(CloudCommand(id: "databases-\(id)", title: "Databases of \(id)", command: "neonctl databases list --project-id \(id)"))
+            }
+            return commands
+        case "supabase": return [CloudCommand(id: "projects", title: "Projects", command: "supabase projects list")]
+        case "planetscale": return [CloudCommand(id: "databases", title: "Databases", command: "pscale database list")]
+        case "turso": return [CloudCommand(id: "databases", title: "Databases", command: "turso db list")]
+        case "aws-rds": return [CloudCommand(id: "instances", title: "DB instances", command: "aws rds describe-db-instances")]
+        default: return []
+        }
+    }
+
+    /// "production runs on a Contabo box", "dev: Hetzner server": the vendor and the environment, without a host.
+    private static func vendorServers(docs: [(String, String)]) -> [DeploymentSuggestion] {
+        let vendors = ["contabo": "Contabo", "hetzner": "Hetzner", "digitalocean": "DigitalOcean", "droplet": "DigitalOcean", "linode": "Linode", "vultr": "Vultr", "ovh": "OVH", "scaleway": "Scaleway", "lightsail": "AWS Lightsail", "ec2": "AWS EC2"]
+        let environments: [(String, String)] = [("production", "Production"), ("prod", "Production"), ("staging", "Staging"), ("stage", "Staging"), ("development", "Dev"), ("dev", "Dev")]
+        var out: [String: DeploymentSuggestion] = [:]
+        for (path, text) in docs where path.hasSuffix(".md") {
+            for rawLine in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                let line = String(rawLine), lower = line.lowercased()
+                guard line.count < 400, let vendor = vendors.first(where: { lower.range(of: #"\b"# + $0.key + #"\b"#, options: .regularExpression) != nil }) else { continue }
+                var seen = Set<String>()
+                for env in environments where lower.range(of: #"\b"# + env.0 + #"\b"#, options: .regularExpression) != nil && seen.insert(env.1).inserted {
+                    let id = DeploymentEnvironment.slug("\(env.1) \(vendor.value)")
+                    if out[id] == nil && out.count < 6 {
+                        out[id] = DeploymentSuggestion(id: id, name: "\(env.1) (\(vendor.value))", kind: .ssh,
+                                                       evidence: ["`\(path)`: \(line.trimmingCharacters(in: CharacterSet(charactersIn: "|- #>*`").union(.whitespaces)).prefix(110))"],
+                                                       missing: ["The docs name \(vendor.value) but no host: add the host (and user) of this server."], confidence: 45)
+                    }
+                }
+            }
+        }
+        return out.values.sorted { $0.name < $1.name }
     }
 
     // MARK: files
@@ -227,7 +336,10 @@ enum DeploymentDiscovery {
         for pattern in patterns {
             for m in matches(pattern, in: text) {
                 let user = m[1], host = m[2].lowercased()
-                if codeHosts.contains(host) || placeholders.contains(host) || placeholders.contains(user.lowercased()) { continue }
+                if codeHosts.contains(host) || placeholders.contains(host) || placeholders.contains(user.lowercased()) || notHosts.contains(host) || user.lowercased() == "git" { continue }
+                // A machine is a name with a letter or an IPv4 address; "109" is a number in a sentence.
+                let isIPv4 = host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
+                if !isIPv4 && host.rangeOfCharacter(from: .letters) == nil { continue }
                 if host.hasPrefix("-") || !host.contains(".") && host.count < 3 { continue }
                 // A bare word after "ssh" with no user and no dot is most often prose ("ssh into", "ssh keys").
                 if user.isEmpty && !host.contains(".") && host.range(of: #"\d"#, options: .regularExpression) == nil && host.range(of: #"-"#, options: .regularExpression) == nil { continue }

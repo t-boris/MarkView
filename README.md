@@ -400,7 +400,10 @@ flowchart LR
     A -->|"yes"| E
 ```
 
-- **Finds where it runs.** A scan reads the GitHub workflows, platform files (Vercel, Fly,
+- **Finds where it runs** — servers, and also the cloud database or cache behind them (Neon, Supabase,
+  PlanetScale, Turso, Upstash, Amazon RDS, Azure, Aiven, CockroachDB, MongoDB Atlas: found by the
+  hostnames the docs name and the libraries the code uses; the connection URL with its password is a
+  secret and is never read). A scan reads the GitHub workflows, platform files (Vercel, Fly,
   Heroku, Netlify, Render, AWS, Google Cloud, Kubernetes, Terraform, Docker Compose), deploy
   scripts, docs and your `~/.ssh/config`, and lists the servers and services it finds with the
   evidence. **Ask AI to find where it runs** sends the assistant to read the same, look at the
@@ -411,7 +414,10 @@ flowchart LR
   *checks* you define — a service, a container, a port, an HTTP health URL, PostgreSQL, Redis or
   MySQL answering, or any read-only command — as green and red lights, with one health badge. For a
   cloud service: the read-only commands of its CLI (`vercel ls`, `fly status`, `aws sts
-  get-caller-identity`…) and HTTP checks. Logs of each place are one click away, filterable.
+  get-caller-identity`…) and HTTP checks. Logs of each place need no setup — the system's journal, errors, one log per service and per
+  container — and any log can be sent to the assistant with **Ask AI**; every environment also has an
+  **Ask the AI** box (*"Is the database fine?"*, *"Why is it slow?"*). When a provider's CLI is missing or signed
+  out, the tab says how to install it and sign in.
 - **Safe by construction.** SSH uses your agent or key file without prompts; MarkView stores no
   passwords or keys, and an unknown host key must be checked against its fingerprint before it is
   trusted (a *changed* key is never trusted). Everything MarkView runs is classified first:
