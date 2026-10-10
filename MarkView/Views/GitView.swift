@@ -30,6 +30,7 @@ struct GitView: View {
             } else {
                 // Branch header
                 branchHeader
+                progressLine
 
                 if gitHub.isAvailable {
                     GitHubSectionPicker(gitHub: gitHub, section: $layout.gitSection)
@@ -69,6 +70,34 @@ struct GitView: View {
 
                 // History
                 historyView
+    }
+
+    /// What is running right now: a Git operation, or GitHub loading its lists. Without it a slow
+    /// network call looks like nothing happened.
+    private var progressText: String? {
+        if let activity = git.activity { return activity }
+        guard gitHub.isAvailable else { return nil }
+        switch layout.gitSection {
+        case .pullRequests where gitHub.loadingPRs: return "Loading pull requests from GitHub…"
+        case .issues where gitHub.loadingIssues: return "Loading issues from GitHub…"
+        case .actions where gitHub.loadingRuns: return "Loading workflow runs from GitHub…"
+        default: return nil
+        }
+    }
+
+    @ViewBuilder private var progressLine: some View {
+        if let text = progressText {
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
+                    Text(text).uiFont(size: 10).foregroundColor(VSDark.text)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                ProgressView().progressViewStyle(.linear).controlSize(.mini).tint(VSDark.blue)
+            }
+            .background(VSDark.bgInput)
+        }
     }
 
     // MARK: - No Repo
@@ -238,7 +267,8 @@ struct GitView: View {
             .help(help(for: group))
             if !collapsed.contains(group) {
                 ForEach(group == .tracked ? list.map { GitStatusEntry(path: $0) } : git.repoStatus.entries(in: group).filter { matches($0.path) }) { entry in
-                    fileRow(entry, group: group)
+                    // The group is part of the identity: a file that moves between groups is a new row.
+                    fileRow(entry, group: group).id(group.rawValue + ":" + entry.path)
                 }
             }
         }

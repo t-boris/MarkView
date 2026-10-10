@@ -133,7 +133,10 @@ struct FileTreeView: View {
                     Image(systemName: "arrow.triangle.branch").uiFont(size: 9).foregroundColor(VSDark.blue)
                     GitBranchMenu(git: git, workspaceManager: workspaceManager, fontSize: 10)
                     Spacer()
-                    if git.isOperating { ProgressView().scaleEffect(0.3) }
+                    if let activity = git.activity {
+                        ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
+                        Text(activity).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                    } else if git.isOperating { ProgressView().scaleEffect(0.3) }
                     Button(action: { Task { await git.pull() } }) {
                         Image(systemName: "arrow.down").uiFont(size: 9).foregroundColor(VSDark.textDim)
                     }.buttonStyle(.plain).help("Pull")
@@ -453,6 +456,7 @@ struct FileTreeView: View {
     /// location, unlinked from its menu, outside the project's own X-Ray, git and exclusions.
     private func folderRow(_ url: URL, date: Date?, linked: LinkedFolder? = nil) -> some View {
         let inProject = linked == nil && workspaceManager.linkedFolder(containing: url) == nil
+        let deco = inProject ? gitDecoration(url, isDirectory: true) : GitDecoration()
         return HStack(spacing: 6) {
             Image(systemName: linked == nil ? "folder.fill" : "folder.fill.badge.gearshape")
                 .uiFont(size: 11)
@@ -468,6 +472,13 @@ struct FileTreeView: View {
             }
             Spacer()
             dateLabel(date)
+            if deco.inside > 0, let state = deco.state {
+                HStack(spacing: 2) {
+                    Circle().fill(gitColor(state)).frame(width: 6, height: 6)
+                    Text("\(deco.inside)").uiFont(size: 8, weight: .medium).foregroundColor(gitColor(state))
+                }
+                .help(deco.detail)
+            }
             Image(systemName: "chevron.right")
                 .uiFont(size: 9)
                 .foregroundColor(VSDark.textDim)
@@ -481,7 +492,7 @@ struct FileTreeView: View {
                     : selection.contains(url) ? Self.selectedBackground
                     : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
         .onDrop(of: [.fileURL], isTargeted: dropBinding(url)) { providers in drop(providers, into: url) }
-        .opacity(workspaceManager.isExcluded(url) ? 0.4 : 1.0)
+        .opacity(workspaceManager.isExcluded(url) ? 0.4 : deco.state == .ignored ? 0.5 : 1.0)
         .contextMenu {
             if isPartOfSelection(url) {
                 selectionMenu
@@ -536,20 +547,23 @@ struct FileTreeView: View {
     private func fileRow(_ url: URL, date: Date?, size: Int?) -> some View {
         let inProject = workspaceManager.linkedFolder(containing: url) == nil
         let gitStatus = inProject ? fileGitStatus(url) : nil
+        let deco = inProject ? gitDecoration(url, isDirectory: false) : GitDecoration()
         let (icon, color) = fileIcon(for: url)
         return HStack(spacing: 4) {
             Image(systemName: icon).uiFont(size: 11).foregroundColor(color).frame(width: 16)
-            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
+            Text(url.lastPathComponent).uiFont(size: 11).foregroundColor(deco.state.map(gitColor) ?? VSDark.text).lineLimit(1)
             Spacer()
             if let size { sizeLabel(size) }
             dateLabel(date)
-            if let gs = gitStatus {
-                Text(gs.status)
-                    .uiFont(size: 8, weight: .bold, design: .monospaced)
-                    .foregroundColor(gs.status == "M" ? VSDark.orange : gs.status == "?" ? VSDark.green : VSDark.red)
+            if let state = deco.state, state != .ignored {
+                Text(state.letter)
+                    .uiFont(size: 9, weight: deco.staged ? .heavy : .bold, design: .monospaced)
+                    .foregroundColor(gitColor(state))
                     .frame(width: 12)
+                    .help(deco.detail)
             }
         }
+        .opacity(deco.state == .ignored ? 0.5 : 1)
         .padding(.horizontal, 8).padding(.vertical, 2)
         .background(selection.contains(url) ? Self.selectedBackground
                     : revealedURL == url ? VSDark.blue.opacity(0.18) : Color.clear)
@@ -757,6 +771,25 @@ struct FileTreeView: View {
         case .parquet: return ("square.stack.3d.up", VSDark.purple)
         case .sqlite: return ("cylinder", VSDark.yellow)
         case .log: return ("list.bullet.rectangle", VSDark.textDim)
+        }
+    }
+
+    /// What Git says about a path of the project, for the icon, colour and count in its row.
+    private func gitDecoration(_ url: URL, isDirectory: Bool) -> GitDecoration {
+        guard git.isGitRepo, let root = git.workingDirectory else { return GitDecoration() }
+        let prefix = root.standardizedFileURL.path + "/"
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(prefix) else { return GitDecoration() }
+        return git.repoStatus.decoration(of: String(path.dropFirst(prefix.count)), isDirectory: isDirectory)
+    }
+
+    private func gitColor(_ state: GitFileState) -> Color {
+        switch state {
+        case .modified, .typeChanged: return VSDark.orange
+        case .added, .copied, .untracked: return VSDark.green
+        case .deleted, .conflicted: return VSDark.red
+        case .renamed: return VSDark.blue
+        case .ignored, .tracked: return VSDark.textDim
         }
     }
 

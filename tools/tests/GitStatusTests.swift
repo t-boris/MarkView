@@ -33,6 +33,17 @@ check(!status.changedPaths.contains("build/") && status.changedPaths.contains("s
 check(GitRepoStatus.parse("").entries.isEmpty && GitRepoStatus.parse("garbage\0") == GitRepoStatus.empty, "empty and malformed output is harmless")
 check(GitRepoStatus.cleanTracked(lsFiles: "a.txt\0b.txt\0c.txt\0", changed: ["b.txt"]) == ["a.txt", "c.txt"], "clean tracked files exclude changed ones")
 
+// The file tree's view of the same output.
+check(status.decoration(of: "README.md", isDirectory: false) == GitDecoration(state: .modified, staged: true, inside: 0, detail: "Modified, staged"), "decoration: staged file")
+check(status.decoration(of: "both.txt", isDirectory: false).state == .modified && !status.decoration(of: "both.txt", isDirectory: false).staged, "decoration: staged and changed again counts as not fully staged")
+check(status.decoration(of: "scratch.txt", isDirectory: false).state == .untracked, "decoration: untracked file")
+check(status.decoration(of: "clash.txt", isDirectory: false).state == .conflicted, "decoration: conflict")
+check(status.decoration(of: "build", isDirectory: true).state == .ignored && status.decoration(of: "build/out/x.o", isDirectory: false).state == .ignored, "decoration: ignored directory and what is inside")
+check(status.decoration(of: ".DS_Store", isDirectory: false).state == .ignored, "decoration: ignored file")
+check(status.decoration(of: "dir", isDirectory: true).state == .untracked && status.decoration(of: "dir", isDirectory: true).inside == 1, "decoration: folder with an untracked file")
+check(status.decoration(of: "Sources", isDirectory: true) == GitDecoration(state: .modified, staged: false, inside: 1, detail: "1 changed file inside"), "decoration: folder with a modified file")
+check(status.decoration(of: "untouched.txt", isDirectory: false) == GitDecoration() && status.decoration(of: "docs", isDirectory: true) == GitDecoration(), "decoration: nothing for a clean path")
+
 // Against real git.
 func git(_ args: [String], in dir: URL) -> String {
     let process = Process()

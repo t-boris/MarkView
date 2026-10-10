@@ -15,11 +15,14 @@ class GitClient: ObservableObject {
     /// Tracked files without a change; loaded only while `showTracked` is on.
     @Published var cleanTracked: [String] = []
     @Published var stashCount = 0
-    /// Ignored paths are listed only on request (a big ignored tree such as node_modules is a single line).
-    @Published var showIgnored = false { didSet { if showIgnored != oldValue { Task { await refresh() } } } }
+    /// The Git tab lists the ignored paths on request; the file tree always knows them (a big ignored
+    /// tree such as node_modules is a single entry).
+    @Published var showIgnored = false
     @Published var showTracked = false { didSet { if showTracked != oldValue { Task { await refresh() } } } }
     @Published var commitLog: [GitCommit] = []
     @Published var isOperating = false
+    /// What a running operation is doing, in words ("Pushing…"), for the progress line of the Git tab.
+    @Published var activity: String?
     @Published var lastError: String?
 
     var workingDirectory: URL?
@@ -64,8 +67,8 @@ class GitClient: ObservableObject {
     private static func changedFile(_ entry: GitStatusEntry) -> GitFileStatus? {
         switch entry.special {
         case .ignored?: return nil
-        case .untracked?: return GitFileStatus(status: "?", file: entry.path, isStaged: false)
-        case .conflicted?: return GitFileStatus(status: "U", file: entry.path, isStaged: false)
+        case .untracked?: return GitFileStatus(status: "U", file: entry.path, isStaged: false)
+        case .conflicted?: return GitFileStatus(status: "!", file: entry.path, isStaged: false)
         default:
             if let index = entry.index { return GitFileStatus(status: index.letter, file: entry.path, isStaged: true) }
             if let worktree = entry.worktree { return GitFileStatus(status: worktree.letter, file: entry.path, isStaged: false) }
@@ -121,19 +124,7 @@ class GitClient: ObservableObject {
         onBranch?(branch)
         await loadBranches(in: dir)
 
-        // Status — porcelain v2 with every untracked file listed; ignored paths only on request.
-        var statusArgs = ["git", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]
-        if showIgnored { statusArgs.append("--ignored=matching") }
-        let parsed = GitRepoStatus.parse(await run(statusArgs, in: dir) ?? "")
-        repoStatus = parsed
-        changedFiles = parsed.entries.compactMap(Self.changedFile)
-        stashCount = (await run(["git", "stash", "list"], in: dir) ?? "").split(separator: "\n").count
-        if showTracked {
-            cleanTracked = GitRepoStatus.cleanTracked(lsFiles: await run(["git", "ls-files", "-z"], in: dir) ?? "",
-                                                      changed: parsed.changedPaths)
-        } else {
-            cleanTracked = []
-        }
+        await refreshStatus()
 
         // Log (last 20)
         let logOutput = await run("git", "log", "--oneline", "--format=%h|%s|%an|%ar", "-20", in: dir) ?? ""
@@ -144,27 +135,53 @@ class GitClient: ObservableObject {
         }
     }
 
+    /// Only the work tree's state (no branches or log): cheap enough to repeat while the app is in front.
+    func refreshStatus() async {
+        guard let dir = workingDirectory, isGitRepo else { return }
+        // Status — porcelain v2 with every untracked file and the ignored paths.
+        let statusArgs = ["git", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--ignored=matching"]
+        let parsed = GitRepoStatus.parse(await run(statusArgs, in: dir) ?? "")
+        let changed = parsed != repoStatus
+        if changed {
+            repoStatus = parsed
+            changedFiles = parsed.entries.compactMap(Self.changedFile)
+        }
+        let stashes = (await run(["git", "stash", "list"], in: dir) ?? "").split(separator: "\n").count
+        if stashes != stashCount { stashCount = stashes }
+        if showTracked {
+            cleanTracked = GitRepoStatus.cleanTracked(lsFiles: await run(["git", "ls-files", "-z"], in: dir) ?? "",
+                                                      changed: parsed.changedPaths)
+        } else if !cleanTracked.isEmpty {
+            cleanTracked = []
+        }
+    }
+
     // MARK: - Operations
 
     func stageFile(_ file: String) {
-        mutate(["add", "--", file])
+        mutate(["add", "--", file], activity: "Staging…")
     }
 
     func unstageFile(_ file: String) {
-        mutate(["reset", "-q", "HEAD", "--", file])
+        mutate(["reset", "-q", "HEAD", "--", file], activity: "Unstaging…")
     }
 
     func stageAll() {
-        mutate(["add", "-A"])
+        mutate(["add", "-A"], activity: "Staging everything…")
     }
 
     /// Run a git command that changes the repository and refresh; a failure is shown, not swallowed.
-    private func mutate(_ args: [String]) {
+    private func mutate(_ args: [String], activity label: String) {
         guard let dir = workingDirectory else { return }
         lastError = nil
+        activity = label
         Task {
+            defer { activity = nil }
             let result = await execute(["git"] + args, in: dir)
             if result.status != 0 { lastError = Self.explain(result) }
+            // The state of the files first (one quick call): the rows and tree icons follow at once;
+            // branches and the log, which these commands do not change, can wait.
+            await refreshStatus()
             await refresh()
         }
     }
@@ -178,9 +195,11 @@ class GitClient: ObservableObject {
     func commit(message: String) async -> Bool {
         guard let dir = workingDirectory, !message.isEmpty else { return false }
         isOperating = true
+        activity = "Committing (hooks may run)…"
         lastError = nil
         let result = await execute(["git", "commit", "-m", message], in: dir)
         isOperating = false
+        activity = nil
         await refresh()
         guard result.status == 0 else {
             // A hook that rejects the commit, a missing identity, nothing staged: say why and keep the message.
@@ -191,29 +210,26 @@ class GitClient: ObservableObject {
     }
 
     func push() async -> Bool {
-        guard let dir = workingDirectory else { return false }
-        isOperating = true
-        lastError = nil
-        let result = await runWithError("git", "push", in: dir)
-        isOperating = false
-        if let err = result.error, !err.isEmpty {
-            if err.contains("rejected") || err.contains("error") {
-                lastError = String(err.prefix(200))
-                return false
-            }
-        }
-        await refresh()
-        return true
+        await transfer(["push"], activity: "Pushing…")
     }
 
     func pull() async -> Bool {
+        await transfer(["pull"], activity: "Pulling…")
+    }
+
+    /// Push or pull: the network can take a while, so the progress line says what is going on, and a
+    /// failure (rejected, no upstream, a hook) is shown with git's own words.
+    private func transfer(_ args: [String], activity label: String) async -> Bool {
         guard let dir = workingDirectory else { return false }
         isOperating = true
+        activity = label
         lastError = nil
-        let result = await runWithError("git", "pull", in: dir)
+        let result = await execute(["git"] + args, in: dir)
         isOperating = false
-        if let err = result.error, err.contains("error") {
-            lastError = String(err.prefix(200))
+        activity = nil
+        guard result.status == 0 else {
+            lastError = Self.explain(result)
+            await refresh()
             return false
         }
         await refresh()
@@ -229,7 +245,7 @@ class GitClient: ObservableObject {
 
     func discardChanges(_ file: String) {
         guard let dir = workingDirectory else { return }
-        mutate(["checkout", "--", file])
+        mutate(["checkout", "--", file], activity: "Discarding changes…")
     }
 
     // MARK: - Branches
@@ -274,9 +290,11 @@ class GitClient: ObservableObject {
     private func branchOperation(_ args: [String], failure: String) async -> String? {
         guard let dir = workingDirectory else { return "No folder open." }
         isOperating = true
+        activity = args.contains("-c") ? "Creating the branch…" : "Switching branch…"
         lastError = nil
         let result = await GitHubClient.execute(args, in: dir, git: true)
         isOperating = false
+        activity = nil
         await refresh()
         guard result.status != 0 else { return nil }
         let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
