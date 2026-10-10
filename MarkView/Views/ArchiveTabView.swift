@@ -247,7 +247,36 @@ struct ArchiveTabView: View {
         .padding(.horizontal, 12).padding(.vertical, 5).background(color.opacity(0.12))
     }
 
-    private var list: some View {
+    private var list: some View { ArchiveEntriesList(model: model) }
+
+    private func extract(into parent: URL?) {
+        model.extract(into: parent) { _ in workspaceManager.refreshFileTree() }
+    }
+
+    private func chooseAndExtract() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Extract Here"
+        panel.message = "A new folder named after the archive is made inside the folder you choose."
+        panel.directoryURL = model.url.deletingLastPathComponent()
+        if panel.runModal() == .OK, let folder = panel.url { extract(into: folder) }
+    }
+
+    private func byteString(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+/// The rows of an archive: folders open and close, a file opens in its viewer. `compact` drops the date column
+/// (the Contents panel is narrow).
+struct ArchiveEntriesList: View {
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @ObservedObject var model: ArchiveModel
+    var compact = false
+
+    var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(model.rows) { row in rowView(row) }
@@ -278,7 +307,9 @@ struct ArchiveTabView: View {
             if !row.isDirectory {
                 Text(byteString(entry.size)).uiFont(size: 10).foregroundColor(VSDark.textDim)
             }
-            Text(entry.modified).uiFont(size: 10).foregroundColor(VSDark.textDim).frame(width: 96, alignment: .trailing)
+            if !compact {
+                Text(entry.modified).uiFont(size: 10).foregroundColor(VSDark.textDim).frame(width: 96, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 3)
         .contentShape(Rectangle())
@@ -289,20 +320,6 @@ struct ArchiveTabView: View {
         .help(entry.isSafe ? entry.path : "\(entry.path) — leaves the folder, never read or written")
     }
 
-    private func extract(into parent: URL?) {
-        model.extract(into: parent) { _ in workspaceManager.refreshFileTree() }
-    }
-
-    private func chooseAndExtract() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Extract Here"
-        panel.message = "A new folder named after the archive is made inside the folder you choose."
-        panel.directoryURL = model.url.deletingLastPathComponent()
-        if panel.runModal() == .OK, let folder = panel.url { extract(into: folder) }
-    }
 
     private func byteString(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)

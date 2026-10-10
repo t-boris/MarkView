@@ -416,7 +416,7 @@ struct ContentView: View {
                 .cornerRadius(7)
                 Spacer(minLength: 4)
                 if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
-                    headerButton("list.bullet.indent", help: "Document contents (⌘2)", width: controlWidth,
+                    headerButton("list.bullet.indent", help: "Contents of this file (⌘2): headings, page, archive entries, file facts", width: controlWidth,
                                  selected: workspaceManager.terminalVisible && workspaceManager.layout.navigatorTab == .contents) {
                         workspaceManager.toggleContext()
                     }
@@ -552,8 +552,11 @@ struct ContentView: View {
     }
 
     private var hasDocumentContents: Bool {
-        guard let tab = workspaceManager.activeTab, case .file = tab.kind else { return false }
-        return ["md", "markdown"].contains(tab.url.pathExtension.lowercased())
+        guard let tab = workspaceManager.activeTab else { return false }
+        switch tab.kind {
+        case .file, .archive, .image, .data: return true
+        default: return false
+        }
     }
 
     private var workspaceCenter: some View {

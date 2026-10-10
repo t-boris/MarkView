@@ -50,6 +50,7 @@
 		303108A29592F0A0B797254D /* markview-insight-srcdoc.js in Resources */ = {isa = PBXBuildFile; fileRef = 5E240F8B955EB833FBFEF31A /* markview-insight-srcdoc.js */; };
 		32C4F78110B5EE395C72E2B5 /* DiagramAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */; };
 		32D260F63092277E130CA096 /* GitHubPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01DB1D3BC3146A00A3212838 /* GitHubPublisher.swift */; };
+		32DF2292CC64688344D3A07B /* ContentsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */; };
 		33134280169E08459FF88E35 /* FeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */; };
 		37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5536B20A2DD735F6BA815A /* EditorView.swift */; };
 		3824EA89779E6F8AD2B05497 /* AIPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A772D24F7564B57E808520A /* AIPrompts.swift */; };
@@ -148,6 +149,7 @@
 		9803A874E731E8A96D8E3FE6 /* UnderstandingAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18364863130DED6B4062B88C /* UnderstandingAnswer.swift */; };
 		98413D034AC63B941F75AF93 /* KaTeX_Size2-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = F003E2548C1211EE5168696E /* KaTeX_Size2-Regular.woff2 */; };
 		98A2323E79D78181FA1D1D18 /* NewProject.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2274FA0138402D44C1B4ED /* NewProject.swift */; };
+		99272321285D4166306C9E67 /* FileInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5375DCBA15D7800DBB3F459 /* FileInfo.swift */; };
 		992B61ED8B1C843E2630C47C /* ListSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18592F11080A421A6A1EC86 /* ListSelection.swift */; };
 		9BC6E14F104CFF0A722A0BB1 /* IssueListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0283B26E80EA8FB9388E0688 /* IssueListing.swift */; };
 		9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */; };
@@ -389,6 +391,7 @@
 		A1350590278DCEFED8266A2F /* elk.bundled.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = elk.bundled.js; sourceTree = "<group>"; };
 		A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-d3-mermaid.js"; sourceTree = "<group>"; };
 		A440251497E5756568B77B87 /* TerminalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLink.swift; sourceTree = "<group>"; };
+		A5375DCBA15D7800DBB3F459 /* FileInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileInfo.swift; sourceTree = "<group>"; };
 		A5753821BD65B28145CD7ED2 /* markview-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-bridge.js"; sourceTree = "<group>"; };
 		A66DC7A48AA84F40186F8857 /* MarkView.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkView.entitlements; sourceTree = "<group>"; };
 		A6E0167483A13431C669BCFB /* AIToolRuns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIToolRuns.swift; sourceTree = "<group>"; };
@@ -460,6 +463,7 @@
 		E7E3D6A8144A620B1B335381 /* DocumentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentState.swift; sourceTree = "<group>"; };
 		E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeNavigation.swift; sourceTree = "<group>"; };
 		E8354BE838C8A78ED8B8E305 /* js-yaml.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "js-yaml.min.js"; sourceTree = "<group>"; };
+		EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentsPanelView.swift; sourceTree = "<group>"; };
 		EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Regular.woff2"; sourceTree = "<group>"; };
 		EC54928AB02E62BBA0C8C709 /* KaTeX_Main-Italic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Italic.woff2"; sourceTree = "<group>"; };
@@ -578,6 +582,7 @@
 				8DE180277E01B9DBC61C4110 /* FeatureModels.swift */,
 				8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */,
 				89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */,
+				A5375DCBA15D7800DBB3F459 /* FileInfo.swift */,
 				76FB90DA3782A6E99BB4881B /* FileNode.swift */,
 				0A28452C289DFE5AEBFA6D3D /* FileTransfer.swift */,
 				4A903B7EB574BDD8969788FE /* FilterSearch.swift */,
@@ -660,6 +665,7 @@
 				BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */,
 				E73E1ED4442620DF23B12D37 /* BrowserTabView.swift */,
 				477DD53694435ADC874CA1A0 /* BugBasketView.swift */,
+				EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */,
 				BC5216E2466E79A0507BEAE8 /* ContentView.swift */,
 				E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */,
 				F0746BDFCEB6533D5705C4BC /* DiagnosticsBarView.swift */,
@@ -1044,6 +1050,7 @@
 				A5EF4EAAA485984C364ACDFC /* CodeNavigation.swift in Sources */,
 				6FB910979981EED49A926F3F /* ConflictPrompt.swift in Sources */,
 				B3CD83BBB6B21765A1064042 /* ContentView.swift in Sources */,
+				32DF2292CC64688344D3A07B /* ContentsPanelView.swift in Sources */,
 				F5E36DB6F4BA9C780508F211 /* DDESettingsView.swift in Sources */,
 				3F66FAFBD3A6BB22023127BE /* DataFileSchemeHandler.swift in Sources */,
 				58088546C239F634B482BE26 /* DependencyGraphScheduler.swift in Sources */,
@@ -1062,6 +1069,7 @@
 				EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */,
 				33134280169E08459FF88E35 /* FeatureStore.swift in Sources */,
 				C30849D1EB88CFBA5B4D748C /* FeatureVocabulary.swift in Sources */,
+				99272321285D4166306C9E67 /* FileInfo.swift in Sources */,
 				48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */,
 				5DBCD266044E10383F40D0E9 /* FileTransfer.swift in Sources */,
 				6CC857BDBF6BE8DAAF2CECD2 /* FileTreeView.swift in Sources */,
@@ -1201,7 +1209,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.20.0;
+				CURRENT_PROJECT_VERSION = 4.21.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1216,7 +1224,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.20.0;
+				MARKETING_VERSION = 4.21.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1280,7 +1288,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.20.0;
+				CURRENT_PROJECT_VERSION = 4.21.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1301,7 +1309,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.20.0;
+				MARKETING_VERSION = 4.21.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
