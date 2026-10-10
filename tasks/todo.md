@@ -2470,3 +2470,10 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] Every issue linked to a feature is shown in its row (was the first three).
 - [x] The "Terminal" tab, header button and menu item are called "Agents" (it holds Claude, Codex, Copilot, Cline and shell terminals); stored layout values are unchanged.
 - [ ] Not verified in the running app UI.
+
+## Task 99 — Git state in the file tree, stale rows, progress (4.17.0)
+- [x] File tree: each file shows its Git state (name colour + letter M/A/D/R/U/!; bold when fully staged; tooltip says "Modified, not staged"), each folder a dot and the number of changed files inside, ignored paths dimmed. `GitRepoStatus.decoration(of:isDirectory:)`, checked in `git-status-tests.sh`.
+- [x] The status refreshes by itself: every 10 s while the app is in front (`refreshStatus`, status only), when the app becomes active, and right after stage / unstage / discard (before branches and log). The tree now redraws on Git changes (WorkspaceManager forwards `gitClient.objectWillChange`; it was never observed, which is why icons lagged).
+- [x] Git tab rows carry their group in their identity (`fileRow(...).id(group:path)`): a file moving from Changes to Staged no longer keeps the old row.
+- [x] Progress: Git operations name what they do (Staging, Discarding, Committing (hooks may run), Pushing, Pulling, Switching branch) in a progress line under the branch header and in the tree's Git bar; GitHub lists show "Loading pull requests / issues / workflow runs from GitHub…". Push and pull report failures by exit status with git's own words.
+- [ ] The stale-row fix and the progress line were not driven in a running window (clicks cannot be posted to a background instance); the tree icons were checked in a second instance on a temp repository.

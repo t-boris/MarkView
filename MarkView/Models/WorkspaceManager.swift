@@ -17,6 +17,8 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     var shouldAutoRefresh: () -> Bool = { true }
+    /// Called on every beat of the watcher's timer (the Git status changes without the top folder changing).
+    var onTimer: () -> Void = {}
 
     private var fileWatcher: DispatchSourceFileSystemObject?
     private var fileWatchTimer: Timer?
@@ -151,6 +153,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
     }
 
     private func checkForFileTreeChanges() {
+        onTimer()
         guard let rootURL = rootNode?.url else { return }
         guard shouldAutoRefresh() else { return }
         // Clear cached resource values so we see fresh modification dates
@@ -586,6 +589,10 @@ class WorkspaceManager: ObservableObject {
         fileTreeStore.shouldAutoRefresh = { [weak self] in
             self?.indexingProgress == nil
         }
+        fileTreeStore.onTimer = { [weak self] in
+            guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
+            Task { await self.gitClient.refreshStatus() }
+        }
         fileTreeStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -599,6 +606,20 @@ class WorkspaceManager: ObservableObject {
         layout.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        // The file tree shows each file's Git state: it redraws when the repository status changes.
+        gitClient.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        // Edits made outside MarkView (an agent, a terminal) change the status: look again when the
+        // app comes back to the front.
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating else { return }
+                Task { await self.gitClient.refresh() }
             }
             .store(in: &cancellables)
         Self.debugLog("WorkspaceManager init DONE")
