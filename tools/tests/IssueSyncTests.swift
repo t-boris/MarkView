@@ -58,8 +58,8 @@ check("rejected-only items get no unlinked row", !unlinkedPairs.contains("BUG-00
 
 // MARK: Eligibility (REQ-003, DEC-005, owner answer on bugs)
 
-check("feature statuses done", ["implemented", "verified", "archived", " Implemented "].allSatisfy { feature("f", $0).isDone })
-check("feature earlier statuses not done", ["", "idea", "ready", "implementing", "done"].allSatisfy { !feature("f", $0).isDone })
+check("feature statuses done", ["implemented", "verified", "archived", "done", " Implemented ", " Done "].allSatisfy { feature("f", $0).isDone })
+check("feature earlier statuses not done", ["", "idea", "ready", "implementing"].allSatisfy { !feature("f", $0).isDone })
 check("bug fixed/closed done", bug("b", "fixed").isDone && bug("b", "closed").isDone)
 check("bug open/fixing not done", !bug("b", "open").isDone && !bug("b", "fixing").isDone)
 check("shared issue with an unfinished item is not closed", {

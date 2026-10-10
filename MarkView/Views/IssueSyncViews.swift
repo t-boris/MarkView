@@ -34,6 +34,8 @@ struct IssueSyncReportView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var expanded = true
     @State private var showUnlinked = false
+    /// Items changed from this report: their rows say so until Sync runs again.
+    @State private var changed: Set<String> = []
     /// Height of the rows: the report takes only what it needs, up to 220 points.
     @State private var rowsHeight: CGFloat = 0
 
@@ -52,6 +54,8 @@ struct IssueSyncReportView: View {
                     Text(error).uiFont(size: 10).foregroundColor(VSDark.text)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 } else if expanded, !report.rows.isEmpty {
+                    Text("Sync closes a GitHub issue once every feature (implemented) and bug (fixed) linked to it is done. It never reopens an issue.")
+                        .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(report.linkedRows) { row($0, report: report) }
@@ -103,13 +107,18 @@ struct IssueSyncReportView: View {
                     .foregroundColor(VSDark.blue)
                     .fixedSize()
                     .help("Open \(target.repo)#\(target.number) on GitHub")
-                Text(row.item.kind == .bug ? row.item.id : row.item.title)
+                Button(row.item.kind == .bug ? row.item.id : row.item.title) { openItem(row.item) }
+                    .buttonStyle(.plain)
                     .uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.tail)
-                    .help("\(row.item.id) · \(row.item.status.isEmpty ? "no status" : row.item.status)")
+                    .help("Open \(row.item.id) · \(row.item.status.isEmpty ? "no status" : row.item.status)")
             }
             Text(row.outcome.detail).uiFont(size: 9).foregroundColor(VSDark.textDim)
                 .lineLimit(2).padding(.leading, 16)
                 .help(row.outcome.detail)
+            if row.outcome.kind == .skipped, !row.item.isDone {
+                actionLine(row.item, button: row.item.kind == .bug ? "Mark fixed" : "Mark implemented",
+                           help: "Set the status so the next Sync can close the issue") { markDone(row.item) }
+            }
         }
         .padding(.vertical, 1)
     }
@@ -129,11 +138,79 @@ struct IssueSyncReportView: View {
             .help("Only issue, issues and github fields and full issue URLs count; \"issue #n\" in text does not")
             if showUnlinked {
                 ForEach(rows) { row in
-                    Text(row.item.kind == .bug ? "\(row.item.id) \(row.item.title)" : row.item.title)
-                        .uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).padding(.leading, 16)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button(row.item.kind == .bug ? "\(row.item.id) \(row.item.title)" : row.item.title) { openItem(row.item) }
+                            .buttonStyle(.plain).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1)
+                        actionLine(row.item, button: "Link issue…", help: "Write the GitHub issue's number into this item") { linkIssue(row.item) }
+                    }.padding(.leading, 16)
                 }
             }
         }
+    }
+
+    /// A small button under a row, or the note that the item was changed.
+    @ViewBuilder private func actionLine(_ item: IssueSyncItem, button: String, help: String, action: @escaping () -> Void) -> some View {
+        if changed.contains(item.id) {
+            Text("Changed. Run Sync again.").uiFont(size: 9).foregroundColor(VSDark.green).padding(.leading, 16)
+        } else {
+            Button(button, action: action)
+                .buttonStyle(.plain).uiFont(size: 9, weight: .medium).foregroundColor(VSDark.blue)
+                .padding(.leading, 16).help(help)
+        }
+    }
+
+    /// The feature in the Issues panel, or the bug report in the editor.
+    private func openItem(_ item: IssueSyncItem) {
+        let store = workspaceManager.features
+        switch item.kind {
+        case .feature:
+            guard store.feature(item.id) != nil else { return }
+            workspaceManager.layout.leftPanel = "issues"
+            workspaceManager.layout.issuesFeature = item.id
+            store.activeSlug = item.id
+        case .bug:
+            if let bug = store.bugs.first(where: { $0.key == item.id }) { workspaceManager.openFile(bug.url) }
+        }
+    }
+
+    /// Set the status that counts as done: a feature implemented, a bug fixed.
+    private func markDone(_ item: IssueSyncItem) {
+        let store = workspaceManager.features
+        switch item.kind {
+        case .feature: store.updateFeature(item.id) { front, _ in front.set("status", "implemented") }
+        case .bug:
+            guard let bug = store.bugs.first(where: { $0.key == item.id }) else { return }
+            store.updateBug(bug.url) { front, _ in front.set("status", "fixed") }
+        }
+        changed.insert(item.id)
+    }
+
+    /// Ask for the GitHub issue (a number or its URL) and write it into the item's `issues`.
+    private func linkIssue(_ item: IssueSyncItem) {
+        let alert = NSAlert()
+        alert.messageText = "Link a GitHub issue to \(item.kind == .bug ? item.id : item.title)"
+        alert.informativeText = "The number or the URL of the issue. It is written into the item's issues field."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "123 or https://github.com/…/issues/123"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Link")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let digits = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).split(whereSeparator: { !$0.isNumber }).last
+        guard let number = digits.flatMap({ Int($0) }), number > 0 else { return }
+        let store = workspaceManager.features
+        let add: (inout FrontMatter) -> Void = { front in
+            let existing = front.strings("issues") + front.strings("issue")
+            let known = existing.compactMap { Int($0.filter(\.isNumber)) }
+            if !known.contains(number) { front.set("issues", list: front.strings("issues") + ["#\(number)"]) }
+        }
+        switch item.kind {
+        case .feature: store.updateFeature(item.id) { front, _ in add(&front) }
+        case .bug:
+            guard let bug = store.bugs.first(where: { $0.key == item.id }) else { return }
+            store.updateBug(bug.url) { front, _ in add(&front) }
+        }
+        changed.insert(item.id)
     }
 
     private func open(_ target: IssueSyncTarget, inProject: Bool) {

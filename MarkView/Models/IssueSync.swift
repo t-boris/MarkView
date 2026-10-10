@@ -20,9 +20,9 @@ struct IssueSyncItem: Equatable, Sendable {
     /// Markdown searched for full GitHub issue URLs.
     var texts: [String]
 
-    /// Features count when implemented, verified or archived (DEC-005); bugs when fixed or
-    /// closed (owner answer 2026-09-27).
-    static let doneFeature: Set<String> = ["implemented", "verified", "archived"]
+    /// Features count when implemented, verified or archived (DEC-005), and `done` as the Issues list
+    /// reads it (features written by hand); bugs when fixed or closed (owner answer 2026-09-27).
+    static let doneFeature: Set<String> = IssueStatus.implementedFeature.union(["archived"])
     static let doneBug: Set<String> = ["fixed", "closed"]
 
     var isDone: Bool {
