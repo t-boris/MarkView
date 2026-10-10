@@ -15,6 +15,15 @@ struct TOCView: View {
         case feature = "Feature"
 
         static let storageKey = "layout.navigatorTab"
+
+        /// What the tab is called. The raw values are stored in saved layouts and stay as they were.
+        var title: String {
+            switch self {
+            case .terminal: return "Agents"
+            case .feature: return "Tasks"
+            default: return rawValue
+            }
+        }
     }
 
     var body: some View {
@@ -118,7 +127,7 @@ private struct TOCTabs<Content: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(TOCView.Tab.allCases.filter { $0 != .feature || store.hasIssues }, id: \.self) { tab in
-                    VSDarkTabButton(title: tab == .feature ? "Tasks" : tab.rawValue, isSelected: selectedTab == tab) {
+                    VSDarkTabButton(title: tab.title, isSelected: selectedTab == tab) {
                         selectedTab = tab
                     }
                 }

@@ -2462,3 +2462,11 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] Checks: `tools/tests/project-agent-tools-tests.sh` (tool list, guide, validation, bodies, real `--mcp-project` / `--project-call` processes, "no app, no tools", the app quitting while the server runs), `browser-agent-tools-tests.sh` still passes; `MARKVIEW_SOCKET_DIR` keeps checks away from a MarkView on the same Mac.
 - [x] End to end in a second instance (other bundle id, private socket folder, temp project): every reader and writer, validation errors, path traversal refused, a call from outside the project refused, MCP over stdio, the app quit → no tools. Files written had the app's exact format.
 - [ ] Not verified: Copilot's and Codex's skills folders (`~/.copilot/skills`, `~/.codex/skills`) against those CLIs; the registered servers inside the real Claude/Codex/Copilot/Cline; the "Connect Agents…" dialog text.
+
+## Task 98 — Git tab shows the whole state of the repository; Terminal tab is "Agents" (4.16.0)
+- [x] `GitStatusModel.swift`: parser of `git status --porcelain=v2 -z --branch --untracked-files=all [--ignored=matching]` (modified, added, deleted, renamed, copied, type changed, conflict, untracked, ignored; staged and unstaged apart) and clean tracked files from `git ls-files -z`. `tools/tests/git-status-tests.sh`: sample output and a real temporary repository.
+- [x] Git tab: counts per group, ahead/behind and stash, groups Conflicts / Staged / Changes / Untracked, optional Ignored and Tracked (checkboxes, loaded only when on), path filter, diff of staged vs unstaged. Untracked directories are listed file by file, so the file tree badges them too.
+- [x] Stage, unstage, discard and commit show why they failed (hook, identity, nothing staged) instead of doing nothing; a failed commit keeps its message.
+- [x] Every issue linked to a feature is shown in its row (was the first three).
+- [x] The "Terminal" tab, header button and menu item are called "Agents" (it holds Claude, Codex, Copilot, Cline and shell terminals); stored layout values are unchanged.
+- [ ] Not verified in the running app UI.
