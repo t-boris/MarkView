@@ -374,7 +374,7 @@ struct ContentView: View {
                 Button { workspaceManager.toggleAIConsole() } label: {
                     Group {
                         if appFontScale >= 1.7 { Image(systemName: "terminal") }
-                        else { Label("Terminal", systemImage: "terminal") }
+                        else { Label("Agents", systemImage: "terminal") }
                     }
                     .uiFont(size: 12, weight: .semibold)
                     .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.blue : VSDark.text)
@@ -385,7 +385,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Assistant terminal (⌘3): Claude Code, Codex, Cline, Copilot, or shell")
-                .accessibilityLabel("Terminal (⌘3)")
+                .accessibilityLabel("Agents (⌘3)")
                 headerDivider
                 HStack(spacing: 6) {
                     if let projectKey {

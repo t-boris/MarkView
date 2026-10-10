@@ -339,8 +339,9 @@ struct IssueLinks: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
 
     var body: some View {
+        // Every linked issue, not the first few: the title gives way (it truncates), the numbers do not.
         HStack(spacing: 3) {
-            ForEach(numbers.prefix(3), id: \.self) { number in
+            ForEach(numbers, id: \.self) { number in
                 Button("#\(number)") { workspaceManager.openGitHubIssue(number) }
                     .buttonStyle(.plain)
                     .uiFont(size: 9, weight: .medium, design: .monospaced)
@@ -348,6 +349,8 @@ struct IssueLinks: View {
                     .help("Open GitHub issue #\(number)")
             }
         }
+        .fixedSize()
+        .layoutPriority(1)
     }
 }
 

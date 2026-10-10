@@ -7,6 +7,10 @@ struct GitView: View {
     @State private var commitMessage = ""
     @State private var selectedFile: String?
     @State private var diffText = ""
+    @State private var filter = ""
+    @State private var collapsed: Set<GitStatusGroup> = []
+    /// Height of the status rows: the list takes what it needs, up to 260 points.
+    @State private var listHeight: CGFloat = 0
     /// GitHub sections, shown only when the integration is on and the folder is on GitHub.
     @ObservedObject var gitHub: GitHubStore
     /// This window's Git section (BUG-004: not shared between windows).
@@ -119,85 +123,209 @@ struct GitView: View {
         .background(VSDark.bgActive)
     }
 
-    // MARK: - Changed Files
+    // MARK: - Repository status
+
+    private var visibleGroups: [GitStatusGroup] {
+        GitStatusGroup.allCases.filter { group in
+            switch group {
+            case .ignored: return git.showIgnored
+            case .tracked: return git.showTracked
+            default: return true
+            }
+        }
+    }
+
+    private func matches(_ path: String) -> Bool {
+        filter.isEmpty || path.localizedCaseInsensitiveContains(filter)
+    }
+
+    private func paths(in group: GitStatusGroup) -> [String] {
+        group == .tracked ? git.cleanTracked.filter(matches) : git.repoStatus.entries(in: group).map(\.path).filter(matches)
+    }
 
     private var changedFilesView: some View {
-        Group {
-            if git.changedFiles.isEmpty {
+        VStack(spacing: 0) {
+            statusSummary
+            let clean = git.repoStatus.entries.allSatisfy { $0.special == .ignored }
+            if clean && !git.showIgnored && !git.showTracked {
                 HStack {
                     Image(systemName: "checkmark.circle").uiFont(size: 10).foregroundColor(VSDark.green)
                     Text("Working tree clean").uiFont(size: 10).foregroundColor(VSDark.textDim)
                     Spacer()
                 }.padding(.horizontal, 10).padding(.vertical, 6)
             } else {
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("Changes (\(git.changedFiles.count))").uiFont(size: 10, weight: .bold).foregroundColor(VSDark.textDim)
-                        Spacer()
-                        Button("Stage All") { git.stageAll() }
-                            .uiFont(size: 9).buttonStyle(.plain).foregroundColor(VSDark.blue)
-                    }.padding(.horizontal, 10).padding(.vertical, 4)
-
-                    ScrollView {
-                        LazyVStack(spacing: 1) {
-                            ForEach(git.changedFiles) { file in
-                                fileRow(file)
-                            }
-                        }
-                    }.frame(maxHeight: 150)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(visibleGroups) { group in groupSection(group) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(GeometryReader { proxy in
+                        Color.clear.onAppear { listHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { listHeight = $0 }
+                    })
                 }
+                .frame(height: min(max(listHeight, 1), 260))
             }
 
             if let error = git.lastError {
-                HStack(spacing: 4) {
+                HStack(alignment: .top, spacing: 4) {
                     Image(systemName: "exclamationmark.triangle").uiFont(size: 9).foregroundColor(VSDark.red)
-                    Text(error).uiFont(size: 9).foregroundColor(VSDark.red).lineLimit(2)
-                    Spacer()
+                    Text(error).uiFont(size: 9).foregroundColor(VSDark.red).lineLimit(6)
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(action: { git.lastError = nil }) {
+                        Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)
+                    }.buttonStyle(.plain)
                 }.padding(.horizontal, 10).padding(.vertical, 4).background(VSDark.red.opacity(0.1))
             }
         }
     }
 
-    private func fileRow(_ file: GitClient.GitFileStatus) -> some View {
-        HStack(spacing: 6) {
-            // Stage/unstage checkbox
+    /// Counts per group, where the branch stands against its upstream, and what to list besides changes.
+    private var statusSummary: some View {
+        let status = git.repoStatus
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                ForEach([GitStatusGroup.conflicts, .staged, .changes, .untracked], id: \.self) { group in
+                    let count = status.count(group)
+                    if count > 0 || group != .conflicts {
+                        Text("\(count) \(group.rawValue.lowercased())").uiFont(size: 9, weight: .medium)
+                            .foregroundColor(count == 0 ? VSDark.textDim : color(for: group))
+                    }
+                }
+                Spacer(minLength: 0)
+                if status.upstream != nil {
+                    Text("↑\(status.ahead) ↓\(status.behind)").uiFont(size: 9, weight: .medium, design: .monospaced)
+                        .foregroundColor(status.behind > 0 ? VSDark.orange : VSDark.textDim)
+                        .help(status.behind > 0 ? "\(status.behind) commit(s) on \(status.upstream ?? "") not here yet: pull before pushing"
+                              : "Ahead of \(status.upstream ?? "") by \(status.ahead) commit(s)")
+                } else if !status.head.isEmpty {
+                    Text("no upstream").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                }
+                if git.stashCount > 0 {
+                    Text("\(git.stashCount) stash").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                }
+            }
+            HStack(spacing: 8) {
+                Toggle("Ignored", isOn: $git.showIgnored).toggleStyle(.checkbox)
+                    .help("List the paths Git ignores (.gitignore)")
+                Toggle("Tracked", isOn: $git.showTracked).toggleStyle(.checkbox)
+                    .help("List the files Git tracks that have no change")
+                Spacer(minLength: 0)
+                if status.count(.changes) + status.count(.untracked) > 0 {
+                    Button("Stage All") { git.stageAll() }.uiFont(size: 9).buttonStyle(.plain).foregroundColor(VSDark.blue)
+                }
+            }
+            .uiFont(size: 9)
+            TextField("Filter paths", text: $filter).textFieldStyle(.plain).uiFont(size: 10)
+                .padding(.horizontal, 6).padding(.vertical, 3).background(VSDark.bgInput).cornerRadius(4)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+    }
+
+    @ViewBuilder
+    private func groupSection(_ group: GitStatusGroup) -> some View {
+        let list = paths(in: group)
+        if !list.isEmpty || (group == .ignored || group == .tracked) {
+            Button(action: { if collapsed.contains(group) { collapsed.remove(group) } else { collapsed.insert(group) } }) {
+                HStack(spacing: 4) {
+                    Image(systemName: collapsed.contains(group) ? "chevron.right" : "chevron.down").uiFont(size: 8).frame(width: 10)
+                    Text("\(group.rawValue) (\(list.count))").uiFont(size: 10, weight: .bold)
+                    Spacer()
+                }.foregroundColor(color(for: group))
+            }
+            .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 4)
+            .help(help(for: group))
+            if !collapsed.contains(group) {
+                ForEach(group == .tracked ? list.map { GitStatusEntry(path: $0) } : git.repoStatus.entries(in: group).filter { matches($0.path) }) { entry in
+                    fileRow(entry, group: group)
+                }
+            }
+        }
+    }
+
+    private func help(for group: GitStatusGroup) -> String {
+        switch group {
+        case .conflicts: return "Unmerged paths: fix them, then stage to mark them resolved"
+        case .staged: return "In the index: part of the next commit"
+        case .changes: return "Tracked files changed in the work tree, not staged"
+        case .untracked: return "New files Git does not track yet"
+        case .ignored: return "Paths matched by .gitignore (a directory counts as one entry)"
+        case .tracked: return "Files Git tracks that have no change"
+        }
+    }
+
+    private func color(for group: GitStatusGroup) -> Color {
+        switch group {
+        case .conflicts: return VSDark.red
+        case .staged: return VSDark.green
+        case .changes: return VSDark.orange
+        case .untracked: return VSDark.blue
+        case .ignored, .tracked: return VSDark.textDim
+        }
+    }
+
+    private func color(for state: GitFileState) -> Color {
+        switch state {
+        case .modified, .typeChanged: return VSDark.orange
+        case .added, .copied: return VSDark.green
+        case .deleted, .conflicted: return VSDark.red
+        case .renamed: return VSDark.blue
+        case .untracked: return VSDark.blue
+        case .ignored, .tracked: return VSDark.textDim
+        }
+    }
+
+    private func fileRow(_ entry: GitStatusEntry, group: GitStatusGroup) -> some View {
+        let state = group == .tracked ? .tracked : entry.state(in: group) ?? .tracked
+        let dim = group == .ignored || group == .tracked
+        let selection = group.rawValue + ":" + entry.path
+        return HStack(spacing: 6) {
+            switch group {
+            case .staged:
+                Button(action: { git.unstageFile(entry.path) }) {
+                    Image(systemName: "checkmark.square.fill").uiFont(size: 10).foregroundColor(VSDark.green)
+                }.buttonStyle(.plain).help("Unstage")
+            case .changes, .untracked, .conflicts:
+                Button(action: { git.stageFile(entry.path) }) {
+                    Image(systemName: "square").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                }.buttonStyle(.plain).help(group == .conflicts ? "Mark as resolved (stage)" : "Stage")
+            case .ignored, .tracked:
+                Color.clear.frame(width: 10, height: 10)
+            }
+
+            Text(state.letter).uiFont(size: 9, weight: .bold, design: .monospaced)
+                .foregroundColor(color(for: state)).frame(width: 12).help(state.title)
+
             Button(action: {
-                if file.isStaged { git.unstageFile(file.file) } else { git.stageFile(file.file) }
+                selectedFile = selection
+                if group == .staged || group == .changes {
+                    Task { diffText = await git.diff(file: entry.path, staged: group == .staged) }
+                } else {
+                    diffText = ""
+                    if !entry.isDirectory { openFile(entry.path) }
+                }
             }) {
-                Image(systemName: file.isStaged ? "checkmark.square.fill" : "square")
-                    .uiFont(size: 10)
-                    .foregroundColor(file.isStaged ? VSDark.green : VSDark.textDim)
+                Text(entry.origin.map { "\($0) → \(entry.path)" } ?? entry.path)
+                    .uiFont(size: 10).foregroundColor(dim ? VSDark.textDim : VSDark.text)
+                    .italic(group == .ignored).lineLimit(1).truncationMode(.middle)
             }.buttonStyle(.plain)
 
-            // Status icon
-            Image(systemName: file.statusIcon)
-                .uiFont(size: 9)
-                .foregroundColor(file.statusColor == "orange" ? VSDark.orange :
-                                file.statusColor == "green" ? VSDark.green :
-                                file.statusColor == "red" ? VSDark.red : VSDark.textDim)
+            Spacer(minLength: 0)
 
-            // Filename (clickable for diff)
-            Button(action: {
-                selectedFile = file.file
-                Task { diffText = await git.diff(file: file.file) }
-            }) {
-                Text(file.file).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
-            }.buttonStyle(.plain)
-
-            Spacer()
-
-            // Open in editor
-            Button(action: { openFile(file.file) }) {
-                Image(systemName: "doc.text").uiFont(size: 8).foregroundColor(VSDark.blue)
-            }.buttonStyle(.plain)
-
-            // Discard changes
-            Button(action: { git.discardChanges(file.file) }) {
-                Image(systemName: "arrow.uturn.backward").uiFont(size: 8).foregroundColor(VSDark.red)
-            }.buttonStyle(.plain).help("Discard changes")
+            if !entry.isDirectory && entry.state(in: group) != .deleted && group != .conflicts || group == .conflicts {
+                Button(action: { openFile(entry.path) }) {
+                    Image(systemName: "doc.text").uiFont(size: 8).foregroundColor(VSDark.blue)
+                }.buttonStyle(.plain).help("Open")
+            }
+            if group == .changes {
+                Button(action: { git.discardChanges(entry.path) }) {
+                    Image(systemName: "arrow.uturn.backward").uiFont(size: 8).foregroundColor(VSDark.red)
+                }.buttonStyle(.plain).help("Discard changes in the work tree")
+            }
         }
         .padding(.horizontal, 10).padding(.vertical, 3)
-        .background(selectedFile == file.file ? VSDark.bgActive : Color.clear)
+        .background(selectedFile == selection ? VSDark.bgActive : Color.clear)
     }
 
     // MARK: - Diff
@@ -205,7 +333,8 @@ struct GitView: View {
     private var diffView: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(selectedFile ?? "").uiFont(size: 9, weight: .bold).foregroundColor(VSDark.blue)
+                Text(selectedFile.map { String($0.drop(while: { $0 != ":" }).dropFirst()) } ?? "")
+                    .uiFont(size: 9, weight: .bold).foregroundColor(VSDark.blue)
                 Spacer()
                 Button(action: { diffText = ""; selectedFile = nil }) {
                     Image(systemName: "xmark").uiFont(size: 8).foregroundColor(VSDark.textDim)

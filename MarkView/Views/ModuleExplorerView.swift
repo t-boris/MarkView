@@ -12,7 +12,7 @@ struct ModuleExplorerView: View {
             GeometryReader { geometry in
                 let showStats = geometry.size.width >= 460 * max(1, fontScale)
                 HStack(spacing: 6) {
-                    Text("Terminal").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                    Text("Agents").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
                         .lineLimit(1)
                     Spacer(minLength: 6)
                     if showStats {

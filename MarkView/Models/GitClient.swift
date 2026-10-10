@@ -10,6 +10,14 @@ class GitClient: ObservableObject {
     /// Remote branches ("origin/x") with no local branch of the same name, most recent first.
     @Published var remoteBranches: [String] = []
     @Published var changedFiles: [GitFileStatus] = []
+    /// Everything Git says about the work tree: changes, untracked, conflicts and (when asked) ignored paths.
+    @Published var repoStatus = GitRepoStatus.empty
+    /// Tracked files without a change; loaded only while `showTracked` is on.
+    @Published var cleanTracked: [String] = []
+    @Published var stashCount = 0
+    /// Ignored paths are listed only on request (a big ignored tree such as node_modules is a single line).
+    @Published var showIgnored = false { didSet { if showIgnored != oldValue { Task { await refresh() } } } }
+    @Published var showTracked = false { didSet { if showTracked != oldValue { Task { await refresh() } } } }
     @Published var commitLog: [GitCommit] = []
     @Published var isOperating = false
     @Published var lastError: String?
@@ -52,6 +60,19 @@ class GitClient: ObservableObject {
         let date: String
     }
 
+    /// The one-line status the file tree and the commit bar use: staged wins over unstaged.
+    private static func changedFile(_ entry: GitStatusEntry) -> GitFileStatus? {
+        switch entry.special {
+        case .ignored?: return nil
+        case .untracked?: return GitFileStatus(status: "?", file: entry.path, isStaged: false)
+        case .conflicted?: return GitFileStatus(status: "U", file: entry.path, isStaged: false)
+        default:
+            if let index = entry.index { return GitFileStatus(status: index.letter, file: entry.path, isStaged: true) }
+            if let worktree = entry.worktree { return GitFileStatus(status: worktree.letter, file: entry.path, isStaged: false) }
+            return nil
+        }
+    }
+
     // MARK: - Setup
 
     func setup(at url: URL) {
@@ -67,6 +88,9 @@ class GitClient: ObservableObject {
         localBranches = []
         remoteBranches = []
         changedFiles = []
+        repoStatus = .empty
+        cleanTracked = []
+        stashCount = 0
         commitLog = []
         lastError = nil
     }
@@ -97,22 +121,18 @@ class GitClient: ObservableObject {
         onBranch?(branch)
         await loadBranches(in: dir)
 
-        // Status — porcelain format: "XY filename" where X=index, Y=worktree
-        let statusOutput = await run("git", "status", "--porcelain", in: dir) ?? ""
-        changedFiles = statusOutput.components(separatedBy: "\n").compactMap { line in
-            guard line.count >= 3 else { return nil }
-            let indexStatus = line[line.startIndex]       // X: staged status
-            let workStatus = line[line.index(after: line.startIndex)]  // Y: worktree status
-            let file = String(line.dropFirst(3))
-            guard !file.isEmpty else { return nil }
-
-            let isStaged = indexStatus != " " && indexStatus != "?"
-            let displayStatus: String
-            if indexStatus == "?" { displayStatus = "?" }
-            else if isStaged { displayStatus = String(indexStatus) }
-            else { displayStatus = String(workStatus) }
-
-            return GitFileStatus(status: displayStatus, file: file, isStaged: isStaged)
+        // Status — porcelain v2 with every untracked file listed; ignored paths only on request.
+        var statusArgs = ["git", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"]
+        if showIgnored { statusArgs.append("--ignored=matching") }
+        let parsed = GitRepoStatus.parse(await run(statusArgs, in: dir) ?? "")
+        repoStatus = parsed
+        changedFiles = parsed.entries.compactMap(Self.changedFile)
+        stashCount = (await run(["git", "stash", "list"], in: dir) ?? "").split(separator: "\n").count
+        if showTracked {
+            cleanTracked = GitRepoStatus.cleanTracked(lsFiles: await run(["git", "ls-files", "-z"], in: dir) ?? "",
+                                                      changed: parsed.changedPaths)
+        } else {
+            cleanTracked = []
         }
 
         // Log (last 20)
@@ -127,31 +147,46 @@ class GitClient: ObservableObject {
     // MARK: - Operations
 
     func stageFile(_ file: String) {
-        guard let dir = workingDirectory else { return }
-        Task { _ = await run("git", "add", file, in: dir); await refresh() }
+        mutate(["add", "--", file])
     }
 
     func unstageFile(_ file: String) {
-        guard let dir = workingDirectory else { return }
-        Task { _ = await run("git", "reset", "HEAD", file, in: dir); await refresh() }
+        mutate(["reset", "-q", "HEAD", "--", file])
     }
 
     func stageAll() {
+        mutate(["add", "-A"])
+    }
+
+    /// Run a git command that changes the repository and refresh; a failure is shown, not swallowed.
+    private func mutate(_ args: [String]) {
         guard let dir = workingDirectory else { return }
-        Task { _ = await run("git", "add", "-A", in: dir); await refresh() }
+        lastError = nil
+        Task {
+            let result = await execute(["git"] + args, in: dir)
+            if result.status != 0 { lastError = Self.explain(result) }
+            await refresh()
+        }
+    }
+
+    /// The reason a command failed, in a few lines (git writes it to stderr; a hook may use stdout).
+    private static func explain(_ result: (status: Int32, output: String, error: String)) -> String {
+        let text = (result.error.isEmpty ? result.output : result.error).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "git failed (exit \(result.status))" : String(text.suffix(600))
     }
 
     func commit(message: String) async -> Bool {
         guard let dir = workingDirectory, !message.isEmpty else { return false }
         isOperating = true
         lastError = nil
-        let result = await run("git", "commit", "-m", message, in: dir)
+        let result = await execute(["git", "commit", "-m", message], in: dir)
         isOperating = false
-        if let result = result, result.contains("nothing to commit") {
-            lastError = "Nothing to commit"
+        await refresh()
+        guard result.status == 0 else {
+            // A hook that rejects the commit, a missing identity, nothing staged: say why and keep the message.
+            lastError = result.output.contains("nothing to commit") ? "Nothing to commit" : Self.explain(result)
             return false
         }
-        await refresh()
         return true
     }
 
@@ -185,15 +220,16 @@ class GitClient: ObservableObject {
         return true
     }
 
-    func diff(file: String) async -> String {
+    func diff(file: String, staged: Bool = false) async -> String {
         guard let dir = workingDirectory else { return "" }
+        if staged { return await run("git", "diff", "--cached", "--", file, in: dir) ?? "" }
         if let d = await run("git", "diff", file, in: dir), !d.isEmpty { return d }
         return await run("git", "diff", "--cached", file, in: dir) ?? ""
     }
 
     func discardChanges(_ file: String) {
         guard let dir = workingDirectory else { return }
-        Task { _ = await run("git", "checkout", "--", file, in: dir); await refresh() }
+        mutate(["checkout", "--", file])
     }
 
     // MARK: - Branches
@@ -269,6 +305,10 @@ class GitClient: ObservableObject {
     // large output (e.g. `git status` on a big repo) can't fill the 64KB pipe buffer
     // and deadlock the process — which previously froze the whole app on the main thread.
     nonisolated private func run(_ args: String..., in dir: URL) async -> String? {
+        await run(args, in: dir)
+    }
+
+    nonisolated private func run(_ args: [String], in dir: URL) async -> String? {
         let argv = args
         return await Task.detached(priority: .utility) {
             let process = Process()
@@ -284,6 +324,28 @@ class GitClient: ObservableObject {
                 process.waitUntilExit()
                 return String(data: data, encoding: .utf8)
             } catch { return nil }
+        }.value
+    }
+
+    /// Runs git off the main thread and keeps the exit status, stdout and stderr (both drained concurrently).
+    nonisolated private func execute(_ args: [String], in dir: URL) async -> (status: Int32, output: String, error: String) {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = args
+            process.currentDirectoryURL = dir
+            let outPipe = Pipe(), errPipe = Pipe()
+            process.standardOutput = outPipe
+            process.standardError = errPipe
+            do {
+                try process.run()
+                let errHandle = errPipe.fileHandleForReading
+                let errFuture = Task.detached { errHandle.readDataToEndOfFile() }
+                let out = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let err = await errFuture.value
+                process.waitUntilExit()
+                return (process.terminationStatus, String(decoding: out, as: UTF8.self), String(decoding: err, as: UTF8.self))
+            } catch { return (-1, "", error.localizedDescription) }
         }.value
     }
 

@@ -331,7 +331,7 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("2", modifiers: [.command])
 
-                Button("Terminal") {
+                Button("Agents") {
                     activeWorkspace?.showAIConsole()
                 }
                 .keyboardShortcut("3", modifiers: [.command])
