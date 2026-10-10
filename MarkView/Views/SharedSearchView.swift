@@ -35,6 +35,52 @@ final class SharedSearchModel: ObservableObject {
         indexing = false
     }
 
+    /// Open a result: a file (at its line, or at the text found), or a file from inside an archive
+    /// (its temporary copy). False, with `error` set, when it cannot be opened.
+    func open(_ result: ProjectSearchResult, in workspaceManager: WorkspaceManager) async -> Bool {
+        guard let root = workspaceManager.rootNode?.url, let path = result.path else { return false }
+        let roots = self.roots
+        if let range = path.range(of: ProjectSearchIndex.archiveSeparator) {
+            let entryPath = String(path[range.upperBound...])
+            guard let archiveURL = ProjectSearchRoot.url(for: String(path[..<range.lowerBound]), in: roots) else { return false }
+            let opened = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                Result {
+                    guard let entry = try Archive.list(archiveURL).first(where: { $0.path == entryPath }) else { throw ArchiveError.notFound(entryPath) }
+                    return try Archive.extractEntry(entry, from: archiveURL)
+                }
+            }.value
+            switch opened {
+            case .success(let copy): workspaceManager.openFile(copy); return true
+            case .failure(let failure): error = failure.localizedDescription; return false
+            }
+        }
+        guard let url = ProjectSearchRoot.url(for: path, in: roots) else { return false }
+        let linked = workspaceManager.linkedFolders
+        // The result must still be under a root of the search (the project or a linked folder).
+        let valid = await Task.detached { () -> Bool in
+            let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+            let bases = roots.map { $0.url.resolvingSymlinksInPath().standardizedFileURL.path + "/" }
+            return bases.contains { resolved.path.hasPrefix($0) } && FileManager.default.fileExists(atPath: resolved.path)
+        }.value
+        guard valid else {
+            error = "This result is missing or no longer inside the project. Refreshing search."
+            await rebuild(root: root, linked: linked)
+            return false
+        }
+        if result.scope == .content, let line = result.line, !FileType.markdownExtensions.contains(url.pathExtension.lowercased()) {
+            workspaceManager.openFile(url, line: line)
+        } else {
+            workspaceManager.openFile(url)
+            if result.scope == .content {
+                let text = query
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    NotificationCenter.default.post(name: .scrollToText, object: text)
+                }
+            }
+        }
+        return true
+    }
+
     func search() async {
         let searched = query
         let found = await index.search(searched)
@@ -162,31 +208,7 @@ struct SharedSearchView: View {
     }
 
     private func open(_ result: ProjectSearchResult) {
-        guard let root = workspaceManager.rootNode?.url, let path = result.path,
-              let url = ProjectSearchRoot.url(for: path, in: model.roots) else { return }
-        let roots = model.roots
-        let linked = workspaceManager.linkedFolders
-        Task {
-            // The result must still be under a root of the search (the project or a linked folder).
-            let valid = await Task.detached { () -> Bool in
-                let resolved = url.resolvingSymlinksInPath().standardizedFileURL
-                let bases = roots.map { $0.url.resolvingSymlinksInPath().standardizedFileURL.path + "/" }
-                return bases.contains { resolved.path.hasPrefix($0) } && FileManager.default.fileExists(atPath: resolved.path)
-            }.value
-            guard valid else {
-                model.error = "This result is missing or no longer inside the project. Refreshing search."
-                await model.rebuild(root: root, linked: linked)
-                return
-            }
-            workspaceManager.openFile(url)
-            if result.scope == .content {
-                let query = model.query
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    NotificationCenter.default.post(name: .scrollToText, object: query)
-                }
-            }
-            dismiss()
-        }
+        Task { if await model.open(result, in: workspaceManager) { dismiss() } }
     }
 
     private struct SearchCommand: Identifiable {

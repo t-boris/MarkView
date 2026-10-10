@@ -26,6 +26,7 @@
 		1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
+		154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */; };
 		157DDC41421A035DDCC9B022 /* xterm.css in Resources */ = {isa = PBXBuildFile; fileRef = 411349198AB547C789A6D5A7 /* xterm.css */; };
 		17DD8F8CD95F47159059B6B0 /* FrontMatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE77C117377664F496CB39A /* FrontMatter.swift */; };
 		18099E3D18B650276934515C /* ProjectColorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */; };
@@ -371,6 +372,7 @@
 		8DE180277E01B9DBC61C4110 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
 		8E12A0F93CB8CBC21446ABCE /* markview-early.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-early.js"; sourceTree = "<group>"; };
 		8E8965BA2170772C6393FB45 /* PrototypeAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeAI.swift; sourceTree = "<group>"; };
+		8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelView.swift; sourceTree = "<group>"; };
 		912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsView.swift; sourceTree = "<group>"; };
 		96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebAppPreview.swift; sourceTree = "<group>"; };
 		9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveSupport.swift; sourceTree = "<group>"; };
@@ -683,6 +685,7 @@
 				2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */,
 				392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */,
 				C2B2061839C6FC000555491E /* ResearchViews.swift */,
+				8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */,
 				9F4B562671D5CF6D08403DAE /* SelectionActionBar.swift */,
 				988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */,
 				4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */,
@@ -1127,6 +1130,7 @@
 				204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */,
 				9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */,
 				5C987E1F79D333237A661FE4 /* ResearchViews.swift in Sources */,
+				154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */,
 				E038D9416B2960E5EA79CC20 /* SelectionActionBar.swift in Sources */,
 				F9DB0D1D862F55F68889E54F /* SemanticDatabase.swift in Sources */,
 				C9956E7AE6B4CD7C52DC8548 /* SemanticModel.swift in Sources */,
@@ -1197,7 +1201,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.19.0;
+				CURRENT_PROJECT_VERSION = 4.20.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1212,7 +1216,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.19.0;
+				MARKETING_VERSION = 4.20.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1276,7 +1280,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.19.0;
+				CURRENT_PROJECT_VERSION = 4.20.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1297,7 +1301,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.19.0;
+				MARKETING_VERSION = 4.20.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
