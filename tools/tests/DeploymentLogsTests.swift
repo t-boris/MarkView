@@ -30,5 +30,21 @@ var hostile = DeploymentEnvironment(id: "h", name: "H", kind: .ssh, host: "h.exa
 hostile.checks = [DeploymentCheck(id: "x", title: "x", kind: .systemd, target: "a; reboot"), DeploymentCheck(id: "y", title: "y", kind: .docker, target: "$(id)")]
 check(!DeploymentLogs.suggestions(for: hostile, snapshot: nil).contains { $0.command.contains("reboot") || $0.command.contains("$(") }, "a hostile name never reaches a command")
 
+// What is read before answering a question.
+var box = DeploymentEnvironment(id: "b", name: "Box", kind: .ssh, host: "b.example.com")
+box.logSources = [LogSource(id: "mine", title: "App", command: "tail -n 200 /var/log/app.log")]
+var seen = SystemSnapshot(); seen.os = "Linux"
+seen.containers = [.init(name: "web", status: "Up 3 days", image: "nginx"), .init(name: "pg", status: "Up 3 days", image: "postgres:16"), .init(name: "worker", status: "Restarting (1) 5 seconds ago", image: "app"), .init(name: "cache", status: "Up 2 days", image: "redis:7")]
+seen.failedUnits = ["backup.service"]
+let plan = DeploymentLogs.evidencePlan(question: "Is it healthy?", env: box, snapshot: seen).map(\.title)
+check(plan.first == "Errors only" && plan.contains("Service backup.service") && plan.contains("Container worker"), "errors, failed services and containers that are not up come first: \(plan)")
+check(plan.count <= 6 && Set(plan).count == plan.count, "no more than six, none twice")
+let dbPlan = DeploymentLogs.evidencePlan(question: "Is the database fine?", env: box, snapshot: seen).map(\.title)
+check(dbPlan.contains("Container pg") && !dbPlan.contains("Container cache") || dbPlan.count == 6, "a question about the database reads the database container: \(dbPlan)")
+check(DeploymentLogs.evidencePlan(question: "?", env: box, snapshot: seen).contains { $0.title == "App" }, "the person's own log is read too")
+check(DeploymentLogs.evidencePlan(question: "?", env: DeploymentEnvironment(id: "q", name: "Q", kind: .ssh, host: "q.example.com"), snapshot: nil).count >= 2, "before a first look it still reads the journal")
+check(DeploymentLogs.evidencePlan(question: "?", env: DeploymentEnvironment(id: "c", name: "C", kind: .cloud, provider: "fly"), snapshot: nil).isEmpty, "a cloud service has nothing to read this way")
+check(DeploymentLogs.evidencePlan(question: "x", env: box, snapshot: seen).allSatisfy { CommandPolicy.classify($0.command).isReadOnly }, "everything read is read-only")
+
 print(failures == 0 ? "All deployment logs checks passed." : "\(failures) deployment logs check(s) failed.")
 exit(failures == 0 ? 0 : 1)

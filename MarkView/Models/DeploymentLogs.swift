@@ -37,6 +37,33 @@ enum DeploymentLogs {
         return own + suggestions(for: env, snapshot: snapshot).filter { s in !own.contains { $0.command == s.command } }
     }
 
+    /// The logs worth reading before answering `question` about this environment: errors first, then the
+    /// failed services, the containers that are not up, those the question names (database, cache…), and the
+    /// person's own sources; at most `limit`. The first look has to have happened for containers to be known.
+    static func evidencePlan(question: String, env: DeploymentEnvironment, snapshot: SystemSnapshot?, limit: Int = 6) -> [LogSource] {
+        let all = all(for: env, snapshot: snapshot)
+        var chosen: [LogSource] = []
+        func take(_ s: LogSource?) { if let s, !chosen.contains(where: { $0.command == s.command }), chosen.count < limit { chosen.append(s) } }
+        let asked = question.lowercased()
+        take(all.first { $0.id == "auto-errors" } ?? all.first { $0.id == "auto-system" })
+        for unit in snapshot?.failedUnits ?? [] { take(all.first { $0.id == "auto-unit-\(unit)" }) }
+        for container in snapshot?.containers ?? [] where !container.status.lowercased().hasPrefix("up") || container.status.lowercased().contains("unhealthy") {
+            take(all.first { $0.id == "auto-container-\(container.name)" })
+        }
+        let words: [(String, [String])] = [("database", ["postgres", "mysql", "mariadb", "mongo", "db", "sql"]), ("db", ["postgres", "mysql", "mariadb", "mongo", "db", "sql"]),
+                                           ("postgres", ["postgres"]), ("redis", ["redis"]), ("cache", ["redis", "memcache"]), ("proxy", ["nginx", "traefik", "caddy"]),
+                                           ("web", ["nginx", "web", "app"]), ("auth", ["auth", "gotrue", "keycloak"])]
+        for (word, needles) in words where asked.contains(word) {
+            for container in snapshot?.containers ?? [] where needles.contains(where: { (container.name + " " + container.image).lowercased().contains($0) }) {
+                take(all.first { $0.id == "auto-container-\(container.name)" })
+            }
+        }
+        for own in env.logSources.prefix(2) { take(own) }
+        // Nothing stands out: the journal and the first containers.
+        for s in all where chosen.count < 3 { take(s) }
+        return chosen
+    }
+
     /// A unit or container name that can sit in a command unquoted.
     static func safeName(_ name: String) -> Bool {
         !name.isEmpty && !name.hasPrefix("-") && name.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) || "._-@:".unicodeScalars.contains($0) }

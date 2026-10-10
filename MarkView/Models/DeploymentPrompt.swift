@@ -2,6 +2,34 @@ import Foundation
 
 /// The prompt that sends the assistant to find where the project runs (Deployments → Ask AI).
 enum DeploymentPrompt {
+    /// The prompt of the in-app answer: MarkView has already looked and read the logs; the model reads only that.
+    static func answer(environment name: String, id: String, question: String, report: String, evidence: [(title: String, text: String)]) -> String {
+        var text = """
+        You are a careful site-reliability engineer. A person asks a question about one environment of their project ("\(name)", id \(id)) in MarkView's Deployments. MarkView has looked at it and read some logs; that evidence is below. Use ONLY the evidence. If it is not enough, say what is missing and give the exact read-only command to run next. Do not guess and do not invent numbers.
+
+        Question: \(question)
+
+        State MarkView saw:
+        \(report)
+        """
+        var budget = 24_000
+        for item in evidence where budget > 0 {
+            let body = item.text.count > 6000 ? "…" + String(item.text.suffix(6000)) : item.text
+            budget -= body.count
+            text += "\n\n--- \(item.title) ---\n\(body)"
+        }
+        if evidence.isEmpty { text += "\n\n(No log could be read.)" }
+        text += """
+
+
+        Answer in the language of the question, in under 250 words, in this shape:
+        **Verdict:** Healthy / Needs attention / Problem / Can't tell, in one line.
+        **What I see:** a few bullets with the numbers and the log lines that matter.
+        **What I would do:** concrete next steps; mark each command "(read-only)" or "(changes something: MarkView will ask you first)". Say nothing about changes before saying what the evidence shows.
+        """
+        return text
+    }
+
     /// A question about one environment, with what MarkView last saw and, when given, a log the person is reading.
     static func ask(environment name: String, id: String, question: String, report: String, logTitle: String? = nil, log: String? = nil) -> String {
         var text = """
