@@ -175,6 +175,8 @@ enum TabKind {
     case terminal(UUID)
     /// An image file, shown by `ImageViewerView` (no text content).
     case image
+    /// An archive (zip, tar, 7z…), shown by `ArchiveTabView`; its entries open as temporary copies.
+    case archive
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
     case github(GitHubItem)
     /// A web page (a local development server or any site), shown by `BrowserTabView`.
