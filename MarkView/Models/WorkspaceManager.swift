@@ -396,6 +396,8 @@ class WorkspaceManager: ObservableObject {
     @Published var gitClient = GitClient()
     /// Where the project runs and how each place is doing (the Deployments tab).
     let deployments = DeploymentStore()
+    /// Answers to questions about an environment, read from state and logs by the project's own assistant.
+    let deploymentAdvisor = DeploymentAdvisor()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).

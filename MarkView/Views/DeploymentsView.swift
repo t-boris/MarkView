@@ -397,6 +397,10 @@ private struct EnvironmentDetail: View {
                 TextField("e.g. Why is it slow? Is the database fine? What failed in the last hour?", text: $question)
                     .textFieldStyle(.roundedBorder).onSubmit { ask(question) }
                 Button("Ask") { ask(question) }.disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .help("MarkView looks, reads the logs and the assistant answers here")
+                Button { askInAgents(question) } label: { Image(systemName: "terminal") }
+                    .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .help("Ask in the Agents tab instead: the assistant there can run more commands (changes ask you first)")
             }
             HStack(spacing: 6) {
                 ForEach(quickQuestions, id: \.self) { q in
@@ -404,7 +408,8 @@ private struct EnvironmentDetail: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text("The assistant works in the Agents tab with this environment's state. It reads logs and runs read-only commands by itself; anything that changes something is shown to you here first.")
+            AdvisorAnswers(advisor: workspaceManager.deploymentAdvisor, envID: env.id) { q in askInAgents(q) }
+            Text("MarkView looks at the environment, reads the logs that matter (read-only) and your project's assistant answers from that. To go further, continue in the Agents tab: there it can run more commands, and anything that changes something is shown to you here first.")
                 .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
@@ -416,7 +421,19 @@ private struct EnvironmentDetail: View {
             : ["Is it healthy?", "Look for errors in the logs", "Why is it slow?"]
     }
 
+    /// The answer appears here: state and logs are read by MarkView, the project's own assistant reads them.
     private func ask(_ text: String, log: String? = nil, logTitle: String? = nil) {
+        let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        let workspace = workspaceManager
+        workspace.deploymentAdvisor.ask(q, env: env, store: store, root: store.root, log: log.map { (logTitle ?? "Log", $0) }) { result in
+            result.record(in: workspace.semanticDatabase)
+        }
+        question = ""
+    }
+
+    /// The same question in the Agents tab, where the assistant can run commands (with your approval for changes).
+    private func askInAgents(_ text: String, log: String? = nil, logTitle: String? = nil) {
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
         workspaceManager.askAboutDeployment(env.id, question: q, logTitle: logTitle, log: log)
@@ -732,5 +749,51 @@ private struct EnvironmentEditor: View {
             }
             content()
         }
+    }
+}
+
+/// The answers to the questions asked about an environment, with what the assistant is doing while it works.
+private struct AdvisorAnswers: View {
+    @ObservedObject var advisor: DeploymentAdvisor
+    let envID: String
+    let continueInAgents: (String) -> Void
+
+    var body: some View {
+        if let exchange = advisor.latest(envID) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(exchange.question).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(2)
+                    Spacer(minLength: 4)
+                    if case .working = exchange.state { Button("Stop") { advisor.cancel(envID) }.controlSize(.small) }
+                    else { Button { advisor.clear(envID) } label: { Image(systemName: "xmark") }.buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Clear") }
+                }
+                switch exchange.state {
+                case .working(let step):
+                    HStack(spacing: 6) { ProgressView().controlSize(.small); Text(step).uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                case .failed(let message):
+                    Label(message, systemImage: "exclamationmark.triangle").uiFont(size: 10).foregroundColor(VSDark.red).textSelection(.enabled)
+                case .done: EmptyView()
+                }
+                if !exchange.answer.isEmpty {
+                    Text(rendered(exchange.answer)).uiFont(size: 11).foregroundColor(VSDark.text).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                }
+                if !exchange.evidence.isEmpty {
+                    Text("Read: " + exchange.evidence.joined(separator: " · ")).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(2)
+                }
+                if exchange.state == .done {
+                    HStack(spacing: 8) {
+                        Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(exchange.answer, forType: .string) }
+                        Button("Continue in Agents") { continueInAgents(exchange.question) }
+                            .help("Ask the same in the Agents tab, where the assistant can run more commands")
+                    }.controlSize(.small)
+                }
+            }
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bg).cornerRadius(6)
+        }
+    }
+
+    private func rendered(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
     }
 }
