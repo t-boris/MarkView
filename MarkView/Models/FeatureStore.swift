@@ -606,6 +606,21 @@ final class FeatureStore: ObservableObject {
             lastError = "Could not save the plan: \(error.localizedDescription)"
         }
         reloadSync(slug)
+        linkPlanIssues(slug, numbers: issues.compactMap(\.github) + [epic].compactMap { $0 })
+    }
+
+    /// Record the GitHub issues and epic created from the plan in the overview's `issues`, so the
+    /// feature names them where a person or an agent reads it. Existing entries are kept.
+    private func linkPlanIssues(_ slug: String, numbers: [Int]) {
+        guard !numbers.isEmpty, let feature = feature(slug) else { return }
+        let known = Set(feature.front.strings("issue") + feature.front.strings("issues"))
+            .compactMap { Int($0.filter(\.isNumber)) }
+        guard !Set(numbers).isSubset(of: Set(known)) else { return }
+        updateFeature(slug) { front, _ in
+            let existing = front.strings("issues")
+            let added = numbers.filter { !known.contains($0) }.map { "#\($0)" }
+            front.set("issues", list: existing + added)
+        }
     }
 
     /// Add a turn to the feature's discussion log (discussion.md).

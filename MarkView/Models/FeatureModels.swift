@@ -248,7 +248,7 @@ struct Feature: Identifiable {
     var documents: [URL] = []
     /// Title found in the documents (first heading) when the overview has none.
     var documentTitle: String?
-    /// GitHub issues the feature refers to (front matter `issue`, links and "issue #n" in its documents).
+    /// GitHub issues the feature refers to (front matter `issue`, links and "issue #n" in its documents, and the issues and epic of its plan).
     var issueNumbers: [Int] = []
     /// Latest modification time of the overview and the documents (the Issues list's date fallback).
     var modified: Date?
@@ -516,7 +516,6 @@ struct Feature: Identifiable {
                     ? parts[1].trimmingCharacters(in: .whitespaces) : heading
             }
         }
-        feature.issueNumbers = Self.issueReferences(in: texts, front: front)
         feature.modified = ([overview] + feature.documents).compactMap(fileModificationDate).max()
         for kind in FeatureObjectKind.allCases {
             let dir = folder.appendingPathComponent(kind.folder)
@@ -529,6 +528,9 @@ struct Feature: Identifiable {
         if let plan = try? String(contentsOf: feature.planURL, encoding: .utf8) {
             (feature.planFront, feature.planBody) = FrontMatter.split(plan)
         }
+        // The issues and epic the plan created count as the feature's own issues.
+        feature.issueNumbers = Set(Self.issueReferences(in: texts, front: front)
+                                   + feature.planIssues.compactMap(\.github) + [feature.epic].compactMap { $0 }).sorted()
         return feature
     }
 }
