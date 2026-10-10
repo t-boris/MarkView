@@ -14,11 +14,11 @@ source = pathlib.Path('MarkView/Models/DocumentState.swift').read_text()
 (out / 'main.swift').write_text(pathlib.Path('tools/tests/TerminalLinkTests.swift').read_text())
 root = out / 'fixtures'
 (root / 'sub').mkdir(parents=True)
-for name in ['sample.swift', 'spaced file.md', 'README.md', 'LICENSE', 'literal%20.md', 'colon:42', 'archive.zip', 'sub/child.swift']:
+for name in ['sample.swift', 'spaced file.md', 'README.md', 'LICENSE', 'literal%20.md', 'colon:42', 'archive.iso', 'sub/child.swift']:
     (root / name).write_text('test fixture\n')
 PY
 swiftc -module-cache-path /private/tmp/markview-swift-cache -o "$out/terminal-link-tests" \
-    MarkView/Models/AppFontScale.swift MarkView/Models/TerminalLink.swift MarkView/Models/TerminalSession.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/PTYWriter.swift "$out/FileType.swift" "$out/main.swift"
+    MarkView/Models/AppFontScale.swift MarkView/Models/TerminalLink.swift MarkView/Models/TerminalSession.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/PTYWriter.swift "$out/FileType.swift" MarkView/Models/ArchiveSupport.swift "$out/main.swift"
 "$out/terminal-link-tests" "$PWD/MarkView/Resources/Editor/terminal.html" "$out/fixtures" "$@"
 
 cp tools/tests/EditorLineLinkTests.swift "$out/main.swift"

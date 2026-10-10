@@ -2504,3 +2504,9 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] `FileInfo` (Foundation/ImageIO), `tools/tests/file-info-tests.sh`; archive rows are shared with the archive tab (`ArchiveEntriesList`).
 - [x] Debug build; checked in a second instance: an archive tab and an HTML file (screenshots).
 - [ ] Not tried: Markdown with the facts footer in the running app, image thumbnail, clicking an entry in the panel.
+
+## Task 104 — Archives in the file tree; JSON / YAML structure in Contents (4.22.0)
+- [x] Archives were missing from the file tree: the tree lists only what `FileType.isOpenable`, and archives were not on that list. Now they are (an archive icon too); tests that compile `FileType` alone take `ArchiveSupport.swift`, and the terminal-link fixture `archive.zip` became `archive.iso` (a zip now opens in the app).
+- [x] Contents for JSON and YAML: the structure (keys, nested, with line numbers; "[n]" for array elements), a filter, and a click shows the key: in the tree viewer the node is opened up to, scrolled to and flashed (`window.revealStructure`, matched by the node's `data-path`); in a source view the line is selected. `StructureOutline` (parser, key paths for both formats), `WorkspaceManager.revealStructure`, `.revealStructure` notification, `WebViewBridge.revealStructure`.
+- [x] Tests: `structure-outline-tests.sh` (keys, lines, paths, block scalars, list items), `structure-reveal-tests.sh` (the real reveal function in a WKWebView on viewer-shaped markup).
+- [ ] The click itself was not driven in the running app (the panel was seen showing the outline).

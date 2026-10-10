@@ -435,6 +435,13 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.codeGotoLine && window.codeGotoLine(\(line), \(endLine ?? line))")
     }
 
+    /// Show a key of a JSON / YAML file: its node in the tree viewer, or its line in a source view.
+    func revealStructure(pathJSON: String, line: Int, in webView: WKWebView) {
+        let path = (try? JSONSerialization.data(withJSONObject: [pathJSON]))
+            .flatMap { String(data: $0, encoding: .utf8) }.map { String($0.dropFirst().dropLast()) } ?? "\"[]\""
+        webView.evaluateJavaScript("window.revealStructure && window.revealStructure(\(path), \(line))")
+    }
+
     func revealDocumentLine(_ line: Int, in webView: WKWebView) {
         webView.evaluateJavaScript("window.documentGotoLine && window.documentGotoLine(\(line))")
     }

@@ -18,6 +18,10 @@ struct ContentsPanelView<Headings: View>: View {
                 HTMLPreviewView(url: tab.url, token: tab.originalContent.hashValue).id(tab.url)
                 Divider().background(VSDark.border)
                 info
+            case .file where StructureOutline.supports(tab.url):
+                StructureOutlineList(url: tab.url, text: tab.content)
+                Divider().background(VSDark.border)
+                info
             case .file where !tab.headings.isEmpty:
                 headings()
                 Divider().background(VSDark.border)
@@ -162,4 +166,62 @@ struct ArchiveContentsPanel: View {
     }
 
     private func byteString(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
+}
+
+/// The keys of a JSON or YAML file as a tree; a click jumps to the key in the file.
+struct StructureOutlineList: View {
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    let url: URL
+    /// The text as edited, so the outline follows typing.
+    let text: String
+    @State private var items: [StructureOutline.Item] = []
+    @State private var filter = ""
+    @State private var computing = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if items.count > 12 || !filter.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    TextField("Filter keys", text: $filter).textFieldStyle(.plain).uiFont(size: 10)
+                }
+                .padding(.horizontal, 6).padding(.vertical, 3).background(VSDark.bgInput).cornerRadius(4).padding(8)
+            }
+            if shown.isEmpty {
+                Spacer()
+                Text(computing ? "Reading the structure…" : items.isEmpty ? "No keys found" : "No key matches")
+                    .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(shown) { item in
+                            Button { workspaceManager.revealStructure(url, item: item) } label: {
+                                HStack(spacing: 4) {
+                                    Color.clear.frame(width: CGFloat(filter.isEmpty ? item.depth : 0) * 12, height: 1)
+                                    Circle().fill(VSDark.textDim.opacity(0.4)).frame(width: 5, height: 5)
+                                    Text(item.title).uiFont(size: 11, design: item.title.hasPrefix("[") ? .monospaced : .default)
+                                        .foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 4)
+                                    Text("\(item.line)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim)
+                                }
+                                .padding(.vertical, 2).padding(.horizontal, 8).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .task(id: text.hashValue) {
+            computing = true
+            let url = url, text = text
+            items = await Task.detached(priority: .userInitiated) { StructureOutline.items(for: url, text: text) }.value
+            computing = false
+        }
+    }
+
+    private var shown: [StructureOutline.Item] {
+        filter.isEmpty ? items : items.filter { $0.title.localizedCaseInsensitiveContains(filter) }
+    }
 }

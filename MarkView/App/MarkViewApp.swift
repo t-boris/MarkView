@@ -528,6 +528,8 @@ extension Notification.Name {
     static let scrollToText = Notification.Name("ScrollToText")
     /// userInfo: "url" (URL), "line" (Int), optional "endLine" (Int).
     static let revealCodeLine = Notification.Name("RevealCodeLine")
+    /// The Contents panel picked a key of a JSON / YAML file (`url`, `path` JSON, `line`).
+    static let revealStructure = Notification.Name("RevealStructure")
 }
 
 // MARK: - Markdown Document Type

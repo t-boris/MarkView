@@ -1780,6 +1780,14 @@ class WorkspaceManager: ObservableObject {
             ["url": url, "line": line, "endLine": endLine ?? line])
     }
 
+    /// Show a key of a JSON / YAML file picked in the Contents panel: the file's tab comes forward and
+    /// its tree viewer scrolls to the node (a source view to the line).
+    func revealStructure(_ url: URL, item: StructureOutline.Item) {
+        openFile(url)
+        NotificationCenter.default.post(name: .revealStructure, object: nil,
+                                        userInfo: ["url": url, "path": item.pathJSON, "line": item.line])
+    }
+
     /// Open `url`, honouring a GitHub-style line fragment: `L42` or `L40-L60`.
     func openFile(_ url: URL, lineFragment fragment: String?) {
         let target = URL(fileURLWithPath: url.path)
