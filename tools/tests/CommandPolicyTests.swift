@@ -18,12 +18,14 @@ expect("read", ["uptime", "df -h", "free -m", "ps aux | grep nginx | head -5", "
                 "pg_isready -h db", "redis-cli ping", "mysqladmin ping", "git log -5 --oneline", "pm2 list", "sudo -n journalctl -u app -n 50", "dmesg | tail -20",
                 "du -sh /var/lib/* 2>/dev/null", "ss -ltnp", "nginx -t", "echo hello", "uname -a", "crontab -l", "find /var/log -name '*.log' -mtime -1",
                 "vercel ls", "vercel logs my-deploy", "fly status", "fly logs --no-tail", "heroku ps", "aws ec2 describe-instances", "aws logs tail /ecs/app --since 10m", "aws sts get-caller-identity",
-                "gcloud compute instances list", "az vm list", "doctl compute droplet list", "openssl x509 -noout -dates -in cert.pem", "ping -c 3 example.com"])
+                "gcloud compute instances list", "az vm list", "doctl compute droplet list", "openssl x509 -noout -dates -in cert.pem", "ping -c 3 example.com", "log show --last 15m --style compact | tail -n 200",
+                "neonctl projects list", "neonctl branches list --project-id flat-dawn-39185109", "neonctl operations list --project-id x", "neonctl me", "neonctl databases list --project-id x --branch production",
+                "supabase projects list", "pscale database list", "turso db list", "turso db show app"])
 expect("ask", ["systemctl restart nginx", "systemctl stop app", "docker restart web", "docker rm -f web", "docker compose up -d", "kubectl delete pod x", "kubectl rollout restart deploy/api",
                "kubectl get secret db -o yaml", "tail -f /var/log/syslog", "journalctl -f", "docker logs -f web", "docker stats", "ps aux > /tmp/out.txt", "cat a && cat b", "echo a; echo b",
                "uptime &", "cat $(which ls)", "sed -i s/a/b/ file", "awk '{system(\"x\")}' f", "find / -delete", "find . -exec rm {} +", "curl -X POST https://x", "curl -d a=b https://x", "curl -o out https://x",
                "redis-cli flushall", "psql -c 'select 1'", "git pull", "git checkout main", "service nginx restart", "apt-get install x", "npm run build", "vim file", "FOO=bar uptime",
-               "sudo systemctl restart nginx", "sudo apt update", "top", "ping example.com", "mount /dev/sda1 /mnt", "ip addr add 1.2.3.4 dev eth0", "crontab -e", "vercel --prod", "vercel deploy", "fly deploy", "fly logs",
+               "sudo systemctl restart nginx", "sudo apt update", "log stream", "neonctl connection-string --project-id x", "neonctl branches delete br-x", "neonctl branches reset dev --parent", "neonctl auth", "supabase db reset", "turso db destroy app", "pscale branch delete db b", "top", "ping example.com", "mount /dev/sda1 /mnt", "ip addr add 1.2.3.4 dev eth0", "crontab -e", "vercel --prod", "vercel deploy", "fly deploy", "fly logs",
                "heroku restart", "heroku logs --tail", "aws ec2 terminate-instances --instance-ids i-1", "aws s3 rm s3://b/x", "aws secretsmanager get-secret-value --secret-id x", "gcloud compute instances delete x", "cat <<EOF", "ls `pwd`",
                "uptime || true", "echo hi >> /etc/hosts", "multi-line-placeholder"])
 expect("blocked", ["rm -rf /", "rm -rf /*", "rm -fr ~", "sudo rm -rf /", "mkfs.ext4 /dev/sda1", "dd if=/dev/zero of=/dev/sda", "shutdown -h now", "reboot", "sudo reboot", "systemctl poweroff",

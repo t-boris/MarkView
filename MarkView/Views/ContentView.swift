@@ -421,6 +421,12 @@ struct ContentView: View {
                         workspaceManager.toggleContext()
                     }
                 }
+                if workspaceManager.rootNode != nil {
+                    headerButton("server.rack", help: "Deployments (⌃⌘D): where the project runs, its state, logs and the AI", width: controlWidth,
+                                 selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openDeployments()
+                    }
+                }
                 browserMenu.frame(width: controlWidth, height: controlWidth)
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
                     workspaceManager.showGlobalSearch = true

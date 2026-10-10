@@ -177,6 +177,12 @@ final class DeploymentStore: ObservableObject {
         }
     }
 
+    /// The logs of an environment: its own sources, then what the machine and the last look suggest.
+    func logSources(_ id: String) -> [LogSource] {
+        guard let env = environment(id) else { return [] }
+        return DeploymentLogs.all(for: env, snapshot: states[id]?.snapshot)
+    }
+
     // MARK: Looking
 
     private func executor(for env: DeploymentEnvironment) -> DeploymentExecutor { DeploymentExecutors.make(for: env, projectRoot: root) }
@@ -239,7 +245,7 @@ final class DeploymentStore: ObservableObject {
 
     /// Run `command` on an environment. A read-only command runs at once; anything else only after the
     /// person says yes to that exact command; a blocked one never runs.
-    func run(_ command: String, on id: String, origin: String, purpose: String = "") async -> DeploymentRunOutcome {
+    func run(_ command: String, on id: String, origin: String, purpose: String = "", timeout: TimeInterval = 60) async -> DeploymentRunOutcome {
         guard let env = environment(id) else { return .unavailable("There is no environment \(id).") }
         guard env.problems.isEmpty else { return .unavailable("The environment is not set up properly: " + env.problems.joined(separator: " ")) }
         let risk = CommandPolicy.classify(command)
@@ -255,7 +261,7 @@ final class DeploymentStore: ObservableObject {
             }
         case .readOnly: break
         }
-        let result = await executor(for: env).run(command, stdin: nil, timeout: 60)
+        let result = await executor(for: env).run(command, stdin: nil, timeout: timeout)
         note(CommandLogEntry(time: Date(), environment: id, command: command, origin: origin, outcome: "ran", status: result.status))
         return .ran(result)
     }
@@ -323,7 +329,7 @@ final class DeploymentStore: ObservableObject {
                 for check in state.snapshot?.checks ?? [] { lines.append("  check \(check.id): \(check.status.rawValue)\(check.detail.isEmpty ? "" : " (\(check.detail))")") }
                 if let updated = state.updated { lines.append("  looked at \(updated.formatted(date: .omitted, time: .standard))") }
             } else { lines.append("  not looked at yet") }
-            for source in env.logSources { lines.append("  log source \(source.id): \(source.title)") }
+            for source in logSources(env.id) { lines.append("  log source \(source.id): \(source.title)") }
             return lines.joined(separator: "\n")
         }.joined(separator: "\n\n")
     }

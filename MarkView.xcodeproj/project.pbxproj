@@ -29,6 +29,7 @@
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
 		154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */; };
 		157DDC41421A035DDCC9B022 /* xterm.css in Resources */ = {isa = PBXBuildFile; fileRef = 411349198AB547C789A6D5A7 /* xterm.css */; };
+		16ED0D443EE08A367B04FEDE /* DeploymentLogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D927D442B92D66E708016C /* DeploymentLogs.swift */; };
 		17DD8F8CD95F47159059B6B0 /* FrontMatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEE77C117377664F496CB39A /* FrontMatter.swift */; };
 		18099E3D18B650276934515C /* ProjectColorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */; };
 		18F606AE5BF16CA830AC2654 /* js-yaml.min.js in Resources */ = {isa = PBXBuildFile; fileRef = E8354BE838C8A78ED8B8E305 /* js-yaml.min.js */; };
@@ -199,6 +200,7 @@
 		C736E5E1FFFB0156CDA82E01 /* AgentUsageViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */; };
 		C78F412DCE44DBB2D9137206 /* FeatureAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E031440F6D9721BE887B99 /* FeatureAI.swift */; };
 		C9956E7AE6B4CD7C52DC8548 /* SemanticModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E489E1DDD498F75FC258CB3 /* SemanticModel.swift */; };
+		CB8A7A969D11FF1E22842A89 /* ProviderHints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C5186158816AE816A500A12 /* ProviderHints.swift */; };
 		CBF31B5E8E50178F95B4926C /* WindowSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D82BEDE854FFB9C40E29EC /* WindowSessionController.swift */; };
 		CC06E828F3E074262772D431 /* ArchitectureScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */; };
 		CC5F970127807FF4AAD167CE /* ProjectOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC88CD59AA9428A2869FFDC4 /* ProjectOperation.swift */; };
@@ -312,6 +314,7 @@
 		3A5536B20A2DD735F6BA815A /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		3A6FFAB86BF5B4D5D9533CB1 /* markview-code.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-code.js"; sourceTree = "<group>"; };
 		3B668CCF19220EBA5609ABCC /* WebClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebClip.swift; sourceTree = "<group>"; };
+		3C5186158816AE816A500A12 /* ProviderHints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderHints.swift; sourceTree = "<group>"; };
 		3CF2A565576699E172D2ADE1 /* BrowserSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSession.swift; sourceTree = "<group>"; };
 		3E5D9ED683199ECEC005CAE0 /* KaTeX_AMS-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_AMS-Regular.woff2"; sourceTree = "<group>"; };
 		3EC21EE39789DDD494DEA451 /* prism-html.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-html.min.js"; sourceTree = "<group>"; };
@@ -443,6 +446,7 @@
 		BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageLogs.swift; sourceTree = "<group>"; };
 		C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYWriter.swift; sourceTree = "<group>"; };
 		C18592F11080A421A6A1EC86 /* ListSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSelection.swift; sourceTree = "<group>"; };
+		C1D927D442B92D66E708016C /* DeploymentLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentLogs.swift; sourceTree = "<group>"; };
 		C2B2061839C6FC000555491E /* ResearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchViews.swift; sourceTree = "<group>"; };
 		C4673CD185F2FD3A78E989FE /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
 		C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeImages.swift; sourceTree = "<group>"; };
@@ -598,6 +602,7 @@
 				96429CBA553AACC7995D6F5E /* DeploymentAgentTools.swift */,
 				9845BC21274AB0C15237A10A /* DeploymentDiscovery.swift */,
 				B4FFB949AF205D33DC98B5FE /* DeploymentExecutor.swift */,
+				C1D927D442B92D66E708016C /* DeploymentLogs.swift */,
 				03C366A9013B412C265A07FA /* DeploymentModels.swift */,
 				556AB9035BEE3C05957DCF70 /* DeploymentPrompt.swift */,
 				847DBF92043DDF1F0644B95D /* DeploymentStore.swift */,
@@ -657,6 +662,7 @@
 				BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */,
 				C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */,
 				CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */,
+				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */,
 				6D6D9377AD0B59E94F3B37FF /* ResearchDocument.swift */,
 				13993FF35E01B9904DA7B594 /* ResearchJobs.swift */,
@@ -1091,6 +1097,7 @@
 				685D46722E538BE5740CBEA1 /* DeploymentAgentTools.swift in Sources */,
 				8E01BCA5CDB5E09D3D218052 /* DeploymentDiscovery.swift in Sources */,
 				C19453BD9854C33D756DA63F /* DeploymentExecutor.swift in Sources */,
+				16ED0D443EE08A367B04FEDE /* DeploymentLogs.swift in Sources */,
 				357F08AC660A1E560A138E99 /* DeploymentModels.swift in Sources */,
 				41F6147A4E26CBA53ECCF909 /* DeploymentPrompt.swift in Sources */,
 				E7C64C54C097AC4FB51EC55F /* DeploymentStore.swift in Sources */,
@@ -1176,6 +1183,7 @@
 				869E202AE0802E01AC59477D /* PrototypeImages.swift in Sources */,
 				BFF74482B5C42F53724800E7 /* PrototypeSession.swift in Sources */,
 				FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */,
+				CB8A7A969D11FF1E22842A89 /* ProviderHints.swift in Sources */,
 				8F2D2F323E878F0B3D73D1C7 /* ResearchDocument.swift in Sources */,
 				204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */,
 				9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */,
@@ -1253,7 +1261,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.25.0;
+				CURRENT_PROJECT_VERSION = 4.26.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1268,7 +1276,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.25.0;
+				MARKETING_VERSION = 4.26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1332,7 +1340,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.25.0;
+				CURRENT_PROJECT_VERSION = 4.26.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1353,7 +1361,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.25.0;
+				MARKETING_VERSION = 4.26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

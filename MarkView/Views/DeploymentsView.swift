@@ -139,6 +139,7 @@ struct DeploymentsView: View {
 // MARK: - Detail
 
 private struct EnvironmentDetail: View {
+    @EnvironmentObject var workspaceManager: WorkspaceManager
     @ObservedObject var store: DeploymentStore
     let env: DeploymentEnvironment
     let edit: () -> Void
@@ -149,6 +150,7 @@ private struct EnvironmentDetail: View {
     @State private var logText = ""
     @State private var logFilter = ""
     @State private var trusting: (lines: [String], fingerprints: [String])?
+    @State private var question = ""
 
     private var state: DeploymentStore.State { store.states[env.id] ?? DeploymentStore.State() }
 
@@ -157,11 +159,12 @@ private struct EnvironmentDetail: View {
             VStack(alignment: .leading, spacing: 14) {
                 header
                 if let problem = state.problem { problemBanner(problem) }
+                assistantCard
                 if let snap = state.snapshot, snap.os != "cloud" { system(snap) }
                 if let snap = state.snapshot, !snap.checks.isEmpty || !state.held.isEmpty { checks(snap) }
                 if let snap = state.snapshot, snap.os != "cloud", !snap.containers.isEmpty || !snap.failedUnits.isEmpty { services(snap) }
                 if env.kind == .cloud { cloud }
-                if env.kind != .cloud, !env.logSources.isEmpty { logs }
+                if env.kind != .cloud { logs }
                 commandBox
                 if let snap = state.snapshot, snap.os != "cloud", !snap.processes.isEmpty { processes(snap) }
                 activity
@@ -353,10 +356,29 @@ private struct EnvironmentDetail: View {
                         if !CommandPolicy.classify(c.command).isReadOnly { Text("asks first").uiFont(size: 10).foregroundColor(VSDark.orange) }
                     }
                     if let out = state.cloud[c.id] {
+                        if !out.result.succeeded, let found = ProviderHints.problem(command: c.command, stderr: out.result.stderr + out.result.stdout, status: out.result.status),
+                           let advice = ProviderHints.advice(command: c.command, stderr: out.result.stderr + out.result.stdout, status: out.result.status) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label(advice, systemImage: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(VSDark.orange)
+                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                HStack(spacing: 8) {
+                                    if found.problem == .missing {
+                                        Button("Install \(found.hint.tool)") { install(found.hint) }.controlSize(.small).disabled(running)
+                                            .help("Runs \(found.hint.installCommand) on this Mac after you approve it")
+                                    } else {
+                                        Button("Sign in…") { signIn(found.hint) }.controlSize(.small)
+                                            .help("Opens a terminal here and copies \(found.hint.login)")
+                                    }
+                                    if running { ProgressView().controlSize(.small) }
+                                }
+                            }
+                        }
                         Text(out.result.succeeded ? out.result.stdout : (out.result.stderr.isEmpty ? out.result.stdout : out.result.stderr))
                             .uiFont(size: 10, design: .monospaced).foregroundColor(out.result.succeeded ? VSDark.text : VSDark.red)
                             .textSelection(.enabled).lineLimit(30).frame(maxWidth: .infinity, alignment: .leading)
                             .padding(6).background(VSDark.bgInput).cornerRadius(4)
+                    } else if state.phase == .loading {
+                        Text("Looking…").uiFont(size: 10).foregroundColor(VSDark.textDim)
                     }
                 }
             }
@@ -364,16 +386,61 @@ private struct EnvironmentDetail: View {
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
     }
 
+    /// Ask the assistant about this environment; it looks with the markview_deployments tools.
+    private var assistantCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").foregroundColor(VSDark.purple)
+                Text("ASK THE AI ABOUT THIS ENVIRONMENT").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+            }
+            HStack {
+                TextField("e.g. Why is it slow? Is the database fine? What failed in the last hour?", text: $question)
+                    .textFieldStyle(.roundedBorder).onSubmit { ask(question) }
+                Button("Ask") { ask(question) }.disabled(question.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            HStack(spacing: 6) {
+                ForEach(quickQuestions, id: \.self) { q in
+                    Button(q) { ask(q) }.buttonStyle(.bordered).controlSize(.small)
+                }
+                Spacer(minLength: 0)
+            }
+            Text("The assistant works in the Agents tab with this environment's state. It reads logs and runs read-only commands by itself; anything that changes something is shown to you here first.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
+    }
+
+    private var quickQuestions: [String] {
+        state.problem != nil
+            ? ["Help me connect", "What could be wrong?"]
+            : ["Is it healthy?", "Look for errors in the logs", "Why is it slow?"]
+    }
+
+    private func ask(_ text: String, log: String? = nil, logTitle: String? = nil) {
+        let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return }
+        workspaceManager.askAboutDeployment(env.id, question: q, logTitle: logTitle, log: log)
+        question = ""
+    }
+
     private var logs: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let sources = store.logSources(env.id)
+        return VStack(alignment: .leading, spacing: 6) {
             Text("LOGS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
             HStack {
                 Picker("", selection: $logSource) {
-                    ForEach(env.logSources) { Text($0.title).tag($0.id) }
-                }.labelsHidden().frame(maxWidth: 200)
+                    ForEach(sources) { Text($0.title).tag($0.id) }
+                }.labelsHidden().frame(maxWidth: 220)
                 Button("Fetch") { fetchLog() }.disabled(running || logSource.isEmpty)
                 TextField("Filter", text: $logFilter).textFieldStyle(.roundedBorder).frame(minWidth: 80, maxWidth: 160)
+                if !logText.isEmpty {
+                    Button { ask("Read this log: what stands out, and what should I do?", log: logText, logTitle: sources.first { $0.id == logSource }?.title) } label: { Label("Ask AI", systemImage: "sparkles") }
+                        .help("Send what is on screen to the assistant")
+                }
                 Spacer(minLength: 0)
+            }
+            if logText.isEmpty && !running {
+                Text("Pick a log and Fetch. These are read-only commands: the system's journal and one log per service and container.").uiFont(size: 10).foregroundColor(VSDark.textDim)
             }
             if !logText.isEmpty {
                 ScrollView {
@@ -383,7 +450,7 @@ private struct EnvironmentDetail: View {
             }
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
-        .onAppear { if logSource.isEmpty { logSource = env.logSources.first?.id ?? "" } }
+        .onAppear { if logSource.isEmpty { logSource = sources.first?.id ?? "" } }
     }
 
     private var filteredLog: String {
@@ -392,7 +459,7 @@ private struct EnvironmentDetail: View {
     }
 
     private func fetchLog() {
-        guard let source = env.logSources.first(where: { $0.id == logSource }) else { return }
+        guard let source = store.logSources(env.id).first(where: { $0.id == logSource }) else { return }
         running = true
         Task {
             let outcome = await store.run(source.command, on: env.id, origin: "You")
@@ -424,6 +491,24 @@ private struct EnvironmentDetail: View {
         case .needsConfirmation(let why): Label("Asks you first: \(why)", systemImage: "hand.raised").uiFont(size: 10).foregroundColor(VSDark.orange)
         case .blocked(let why): Label(why, systemImage: "nosign").uiFont(size: 10).foregroundColor(VSDark.red)
         }
+    }
+
+    /// Install a provider's CLI: the person sees the exact command and approves it, then it runs here and the state is read again.
+    private func install(_ hint: ProviderHints.Hint) {
+        running = true
+        Task {
+            output = await store.run(hint.installCommand, on: env.id, origin: "You", purpose: "Install \(hint.tool), the command-line tool of \(env.provider.isEmpty ? "this service" : env.provider)", timeout: 900).summary
+            running = false
+            await store.refresh(env.id)
+        }
+    }
+
+    /// Signing in opens a browser and waits for it: do it in a terminal. The command is copied.
+    private func signIn(_ hint: ProviderHints.Hint) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(hint.login.components(separatedBy: "   (").first ?? hint.login, forType: .string)
+        if let root = store.root { workspaceManager.openTerminal(in: root) }
+        output = "Copied: \(hint.login). Paste it in the terminal that opened, finish signing in, then press Refresh."
     }
 
     private func runCommand() {

@@ -4533,6 +4533,15 @@ class WorkspaceManager: ObservableObject {
         sendToAssistant(prompt, submit: true)
     }
 
+    /// Deployments → "Ask the AI": a question about one environment goes to the assistant with what MarkView
+    /// last saw (and the log being read); it looks with the markview_deployments tools.
+    func askAboutDeployment(_ id: String, question: String, logTitle: String? = nil, log: String? = nil) {
+        guard let env = deployments.environment(id) else { return }
+        guard !assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
+        let prompt = DeploymentPrompt.ask(environment: env.name, id: env.id, question: question, report: deployments.report(for: id), logTitle: logTitle, log: log)
+        sendToAssistant(prompt, submit: true)
+    }
+
     func openSavedPrototype(_ slug: String) {
         guard let root = rootNode?.url else { return }
         for index in openTabs.indices {

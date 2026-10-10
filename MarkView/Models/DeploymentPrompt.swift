@@ -2,6 +2,28 @@ import Foundation
 
 /// The prompt that sends the assistant to find where the project runs (Deployments → Ask AI).
 enum DeploymentPrompt {
+    /// A question about one environment, with what MarkView last saw and, when given, a log the person is reading.
+    static func ask(environment name: String, id: String, question: String, report: String, logTitle: String? = nil, log: String? = nil) -> String {
+        var text = """
+        Look into the environment "\(name)" (id \(id)) in this project's Deployments and answer my question.
+
+        My question: \(question)
+
+        What MarkView last saw:
+        \(report)
+        """
+        if let log, !log.isEmpty {
+            let excerpt = log.count > 8000 ? "…" + String(log.suffix(8000)) : log
+            text += "\n\nThe log I am reading (\(logTitle ?? "log")):\n```\n\(excerpt)\n```"
+        }
+        text += """
+
+
+        How: use the MarkView tools: markview_deployments_status to look now, markview_deployments_logs and markview_deployments_run to read more (read-only commands run at once; anything that changes something is shown to me in the app and runs only if I approve it). If this environment is a cloud service and you have tools for it (an MCP server such as Neon's, or its CLI), use them to read its state too. Answer plainly: what is wrong or fine, the evidence (numbers, log lines), and what you would do next. Do not change anything without asking me first, and never ask me for a password.
+        """
+        return text
+    }
+
     static func analyze(project: String, existing: [String], hasMCP: Bool) -> String {
         let known = existing.isEmpty ? "No environment is set up yet." : "Already set up: \(existing.joined(separator: ", ")). Do not propose these again."
         let how = hasMCP
