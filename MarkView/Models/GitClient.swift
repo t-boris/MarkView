@@ -15,6 +15,8 @@ class GitClient: ObservableObject {
     /// Tracked files without a change; loaded only while `showTracked` is on.
     @Published var cleanTracked: [String] = []
     @Published var stashCount = 0
+    /// What Git is in the middle of: "merge", "rebase", "cherry-pick" or "revert" (nil = nothing).
+    @Published var operationInProgress: String?
     /// The Git tab lists the ignored paths on request; the file tree always knows them (a big ignored
     /// tree such as node_modules is a single entry).
     @Published var showIgnored = false
@@ -92,6 +94,7 @@ class GitClient: ObservableObject {
         remoteBranches = []
         changedFiles = []
         repoStatus = .empty
+        operationInProgress = nil
         cleanTracked = []
         stashCount = 0
         commitLog = []
@@ -146,6 +149,8 @@ class GitClient: ObservableObject {
             repoStatus = parsed
             changedFiles = parsed.entries.compactMap(Self.changedFile)
         }
+        let current = Self.operation(in: dir)
+        if current != operationInProgress { operationInProgress = current }
         let stashes = (await run(["git", "stash", "list"], in: dir) ?? "").split(separator: "\n").count
         if stashes != stashCount { stashCount = stashes }
         if showTracked {
@@ -154,6 +159,16 @@ class GitClient: ObservableObject {
         } else if !cleanTracked.isEmpty {
             cleanTracked = []
         }
+    }
+
+    /// A merge, rebase, cherry-pick or revert that stopped (its marker is in the repository's .git folder).
+    nonisolated private static func operation(in dir: URL) -> String? {
+        let git = dir.appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: git.path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+        let markers = [("MERGE_HEAD", "merge"), ("rebase-merge", "rebase"), ("rebase-apply", "rebase"),
+                       ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert")]
+        return markers.first { FileManager.default.fileExists(atPath: git.appendingPathComponent($0.0).path) }?.1
     }
 
     // MARK: - Operations

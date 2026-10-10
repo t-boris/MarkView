@@ -265,6 +265,17 @@ struct GitView: View {
             }
             .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 4)
             .help(help(for: group))
+            if group == .conflicts && !list.isEmpty {
+                HStack(spacing: 6) {
+                    Button(action: { workspaceManager.resolveConflictsWithAI() }) {
+                        Label("Resolve with AI", systemImage: "sparkles").uiFont(size: 10, weight: .medium)
+                    }
+                    .buttonStyle(.borderedProminent).tint(VSDark.blue).controlSize(.small)
+                    .help("Hand the conflicted files to the assistant: it resolves and stages them, you review and commit")
+                    Text(git.operationInProgress.map { "\($0) in progress" } ?? "").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    Spacer(minLength: 0)
+                }.padding(.horizontal, 10).padding(.vertical, 2)
+            }
             if !collapsed.contains(group) {
                 ForEach(group == .tracked ? list.map { GitStatusEntry(path: $0) } : git.repoStatus.entries(in: group).filter { matches($0.path) }) { entry in
                     // The group is part of the identity: a file that moves between groups is a new row.

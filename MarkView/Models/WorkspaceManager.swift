@@ -4175,6 +4175,19 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// Hand the conflicted files to the assistant (Git tab → Conflicts → Resolve with AI). It resolves and
+    /// stages them; committing, pushing and aborting stay with the person.
+    func resolveConflictsWithAI() {
+        let files = gitClient.repoStatus.entries(in: .conflicts).map(\.path)
+        guard !files.isEmpty else { return }
+        guard !assistantIsBusy else {
+            gitClient.lastError = "The assistant is still working. Resolve the conflicts with it when it has finished."
+            return
+        }
+        let prompt = ConflictPrompt.make(files: files, operation: gitClient.operationInProgress, branch: gitClient.branch)
+        sendToAssistant(prompt, submit: true)
+    }
+
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     func fixBugWithAI(_ url: URL) {
         features.updateBug(url) { front, _ in front.set("status", "fixing") }
