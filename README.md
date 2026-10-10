@@ -384,6 +384,49 @@ flowchart LR
 
 ---
 
+## Deployments: see where it runs
+
+Most projects end up running somewhere. **Deployments** (**⌃⌘D**, or ✨ → *Deployments…*) shows
+each place as one picture, so you do not open five terminals to know whether production is well.
+
+```mermaid
+flowchart LR
+    P["Code, docs, CI,<br/>platform files,<br/>~/.ssh/config"] -->|"scan, or ask the AI"| S["Suggested<br/>environments"]
+    S -->|"you add what is real"| E["Environments<br/>(.dde/deployments.json,<br/>no secrets)"]
+    E -->|"SSH · this Mac · cloud CLI"| L["Read-only look:<br/>CPU, memory, disks,<br/>services, containers,<br/>checks, logs"]
+    L --> V["Gauges, history,<br/>health badge"]
+    AI["Assistant (MCP)"] -->|"read-only: at once"| L
+    AI -->|"anything else"| A{"You approve<br/>this exact command?"}
+    A -->|"yes"| E
+```
+
+- **Finds where it runs.** A scan reads the GitHub workflows, platform files (Vercel, Fly,
+  Heroku, Netlify, Render, AWS, Google Cloud, Kubernetes, Terraform, Docker Compose), deploy
+  scripts, docs and your `~/.ssh/config`, and lists the servers and services it finds with the
+  evidence. **Ask AI to find where it runs** sends the assistant to read the same, look at the
+  repository's GitHub environments with `gh`, and ask you for what it cannot know (a host behind a
+  secret, the user, the key). It proposes; you add.
+- **The whole picture.** For a server (over SSH) or this Mac: uptime, CPU load and memory with a
+  short history, every disk, busiest processes, Docker containers, failed systemd services, and
+  *checks* you define — a service, a container, a port, an HTTP health URL, PostgreSQL, Redis or
+  MySQL answering, or any read-only command — as green and red lights, with one health badge. For a
+  cloud service: the read-only commands of its CLI (`vercel ls`, `fly status`, `aws sts
+  get-caller-identity`…) and HTTP checks. Logs of each place are one click away, filterable.
+- **Safe by construction.** SSH uses your agent or key file without prompts; MarkView stores no
+  passwords or keys, and an unknown host key must be checked against its fingerprint before it is
+  trusted (a *changed* key is never trusted). Everything MarkView runs is classified first:
+  **read-only** commands (uptime, df, `docker ps`, `journalctl`, `systemctl status`, `kubectl get`…)
+  run at once; **anything else** — a restart, an edit, a deploy — is shown to you with the host and
+  runs only after you approve that exact command; commands that shut a machine down, wipe a disk
+  or pipe a download into a shell **never run**. Every command is noted in
+  `.dde/deployments-log.jsonl`.
+- **The AI can work it too.** Through the *markview* MCP server (or the Skill, for agents without
+  MCP) an assistant can read the state, look now, read logs, and run commands — with the same
+  rules: it gets the answer of a read-only command at once, and for a restart it waits for you in the
+  app; if you say no, it is told so. *"Why is staging slow? Look at the logs and the database."*
+
+---
+
 ## Reading and writing
 
 - **Markdown, WYSIWYG or source** (**⌘⇧P**) with Mermaid (full-screen viewer), interactive

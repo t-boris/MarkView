@@ -17,12 +17,14 @@ func check(_ condition: Bool, _ message: String, _ detail: String = "", line: In
 
 let tools = ProjectAgentTools.tools
 let names = tools.map(\.name)
-check(names.count == 14 && Set(names).count == 14, "fourteen distinct tools", "\(names)")
+check(names.count == 19 && Set(names).count == 19, "nineteen distinct tools", "\(names)")
 check(names.allSatisfy { $0.hasPrefix("markview_") }, "every tool is prefixed")
 check(tools.allSatisfy { !$0.description.isEmpty && $0.required.allSatisfy { $0.isEmpty == false && tools.isEmpty == false } }, "every tool is described")
 check(tools.allSatisfy { tool in tool.required.allSatisfy { tool.properties[$0] != nil } }, "required arguments are declared")
 let readOnly: Set<String> = ["markview_guide", "markview_project", "markview_list_features", "markview_get_feature", "markview_list_bugs", "markview_get_bug", "markview_list_prototypes", "markview_get_prototype"]
-check(readOnly.isSubset(of: Set(names)) && names.count - readOnly.count == 6, "eight readers, six writers")
+check(readOnly.isSubset(of: Set(names)) && names.count - readOnly.count == 11, "eight readers, six writers, five deployments tools")
+check(DeploymentAgentTools.names.count == 5 && DeploymentAgentTools.names.isSubset(of: Set(names)), "the deployments tools are among them")
+check(ProjectAgentTools.guide("deployments").contains("never run") && ProjectAgentTools.guideTopics.contains("deployments"), "there is a deployments guide")
 let requirement = tools.first { $0.name == "markview_add_requirement" }!
 check((requirement.properties["req_type"]?["enum"] as? [String]) == FeatureVocabulary.requirementTypes, "requirement types come from the app's vocabulary")
 check(requirement.required == ["feature", "title", "statement", "acceptance_criteria"], "a requirement needs criteria")
@@ -75,7 +77,7 @@ let initResult = initialize?["result"] as? [String: Any]
 check((initResult?["serverInfo"] as? [String: Any])?["name"] as? String == "markview", "the server is named markview")
 check((initResult?["instructions"] as? String)?.contains("markview_guide") == true, "instructions point to the guide")
 let list = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"], profile: profile) { _, _ in .error("") }
-check((((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.count ?? 0) == 14, "tools/list offers the project tools")
+check((((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.count ?? 0) == 19, "tools/list offers the project tools")
 let offline = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 3, "method": "tools/list"], available: false, profile: profile) { _, _ in .error("") }
 check(((offline?["result"] as? [String: Any])?["tools"] as? [Any])?.isEmpty == true, "without the app: no tools")
 var reached = false
@@ -157,7 +159,7 @@ check(run(["--project-call", "markview_guide", "[1]"]).status == 2, "--project-c
 let app = spawnApp { tool in "reply to \(tool)" }
 let withApp = run(["--mcp-project"], input: rpc(1, "tools/list") + rpc(2, "tools/call", ["name": "markview_add_requirement", "arguments": ["feature": "f", "title": "T"]]))
 let withLines = withApp.out.split(separator: "\n")
-check(withLines.count == 2 && toolCount(withLines[0]) == 14, "with the app running the project tools are offered", withApp.out)
+check(withLines.count == 2 && toolCount(withLines[0]) == 19, "with the app running the project tools are offered", withApp.out)
 check(withLines.last?.contains("reply to markview_add_requirement") == true, "a tool call reaches the app and its reply comes back", withApp.out)
 let callWithApp = run(["--project-call", "markview_get_feature", "{\"feature\":\"orders\"}"])
 check(callWithApp.status == 0 && callWithApp.out.contains("reply to markview_get_feature"), "--project-call reaches the app", callWithApp.out)
@@ -190,7 +192,7 @@ func ask(_ id: Int) -> Int {
     guard let line = BrowserAgentTools.readLine(sOut.fileHandleForReading.fileDescriptor) else { return -2 }
     return toolCount(Substring(String(decoding: line, as: UTF8.self)))
 }
-check(ask(1) == 14, "while MarkView runs the tools are there")
+check(ask(1) == 19, "while MarkView runs the tools are there")
 fakeApp.terminate()
 fakeApp.waitUntilExit()
 check(ask(2) == 0, "when MarkView quits the tools disappear, without restarting the server")

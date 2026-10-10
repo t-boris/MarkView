@@ -394,6 +394,8 @@ class WorkspaceManager: ObservableObject {
     @Published var incrementalCompiler: IncrementalCompiler?
     @Published var embeddingClient = EmbeddingClient()
     @Published var gitClient = GitClient()
+    /// Where the project runs and how each place is doing (the Deployments tab).
+    let deployments = DeploymentStore()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).
@@ -745,6 +747,7 @@ class WorkspaceManager: ObservableObject {
             gitClient.setup(at: url)
             setUpGitHub(at: url)
             setUpFeatures(at: url)
+            deployments.setRoot(url)
             Self.debugLog("initDDE: git setup done")
 
             // Load cached diagrams and analysis results from database
@@ -1016,6 +1019,7 @@ class WorkspaceManager: ObservableObject {
                 saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(tab.scrollPosition))
             case .image: saved = .image(tab.url)
             case .archive: saved = .archive(tab.url)
+            case .deployments: saved = .deployments
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1074,6 +1078,7 @@ class WorkspaceManager: ObservableObject {
                     tab.notesView = notes
                     tab.scrollPosition = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
                 }
+            case .deployments: openDeployments()
             case .image(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
@@ -1966,6 +1971,7 @@ class WorkspaceManager: ObservableObject {
         gitHubRoot = nil
         gitHub.reset()
         features.reset()
+        deployments.setRoot(nil)
         indexingProgress = nil
         structuralIndexProgress = nil
         analysisStage = nil
@@ -3822,7 +3828,8 @@ class WorkspaceManager: ObservableObject {
                 if let name { session.agentName = name }
                 return session
             },
-            features: { [weak self] in self?.features }))
+            features: { [weak self] in self?.features },
+            deployments: { [weak self] in self?.deployments }))
     }
 
     /// The window's browser tabs, in tab order.
@@ -4501,6 +4508,29 @@ class WorkspaceManager: ObservableObject {
     func newPrototype(title: String, brief: String, sources: [String]) {
         guard let root = rootNode?.url else { return }
         openPrototype(PrototypeSession(root: root, title: title, brief: brief, sources: sources))
+    }
+
+    /// The Deployments tab: where the project runs, with CPU, memory, disks, services and logs of each place.
+    func openDeployments() {
+        guard let root = rootNode?.url else { return }
+        deployments.setRoot(root)
+        deployments.onNeedsAttention = { [weak self] in self?.openDeployments() }
+        for index in openTabs.indices {
+            if case .deployments = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-deployments"), content: "", originalContent: "")
+        tab.kind = .deployments
+        layout.workspaceArea = .files
+        showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// Deployments → "Ask AI to find where it runs": the assistant reads the project and proposes environments.
+    func analyzeDeploymentsWithAI() {
+        guard let root = rootNode?.url else { return }
+        guard !assistantIsBusy else { deployments.lastError = "The assistant is still working."; return }
+        let prompt = DeploymentPrompt.analyze(project: root.lastPathComponent, existing: deployments.environments.map(\.name), hasMCP: true)
+        sendToAssistant(prompt, submit: true)
     }
 
     func openSavedPrototype(_ slug: String) {

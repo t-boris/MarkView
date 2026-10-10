@@ -255,6 +255,9 @@ struct SharedSearchView: View {
                 SearchCommand(id: "new-bug", title: "New Bug…", symbol: "ladybug", detail: "Work", run: {
                     manager.intake = IntakeRequest(kind: .bug)
                 }),
+                SearchCommand(id: "deployments", title: "Show Deployments", symbol: "server.rack", detail: "Where the project runs", run: {
+                    manager.openDeployments()
+                }),
                 SearchCommand(id: "git", title: "Show Git", symbol: "arrow.triangle.branch", detail: "Work", run: {
                     manager.layout.workspaceArea = .work
                     manager.layout.workSection = .git
