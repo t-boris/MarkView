@@ -160,6 +160,18 @@ struct EditorView: NSViewRepresentable {
                 self.applyPendingCodeReveal()
             }
 
+            // A key picked in the Contents panel: its node in the tree viewer (or its line in the source).
+            NotificationCenter.default.addObserver(
+                forName: .revealStructure,
+                object: nil, queue: .main
+            ) { [weak self] notification in
+                guard let self, let webView = self.webView,
+                      let url = (notification.userInfo?["url"] as? URL)?.standardizedFileURL, url == self.currentLineRevealURL,
+                      let path = notification.userInfo?["path"] as? String,
+                      let line = notification.userInfo?["line"] as? Int else { return }
+                self.bridge.revealStructure(pathJSON: path, line: line, in: webView)
+            }
+
             // Navigation results and AI answers for the file in the code viewer.
             NotificationCenter.default.addObserver(
                 forName: .codeNavEvent,

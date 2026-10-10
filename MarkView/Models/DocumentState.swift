@@ -56,9 +56,10 @@ enum FileType: String {
         return type.conforms(to: .image)
     }
 
-    /// Whether the app opens `url` at all: as text, or in the image viewer.
+    /// Whether the app opens `url` at all: as text, in the image viewer or in the archive view. The file
+    /// tree lists only what opens, so an archive missing here is missing from the tree.
     static func isOpenable(_ url: URL) -> Bool {
-        isSupported(url) || isImage(url)
+        isSupported(url) || isImage(url) || Archive.isArchive(url)
     }
 
     /// Determine file type from URL extension

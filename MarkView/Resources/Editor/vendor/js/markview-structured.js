@@ -212,6 +212,31 @@
             toggleEl.classList.toggle('collapsed', collapsed);
         }
 
+        /** The Contents panel asks to show a key: the node of the tree viewer at `path` (a JSON array of keys
+         *  and indexes) is opened up to, scrolled to and flashed; in a source view the line is selected. */
+        window.revealStructure = function(pathJSON, line) {
+            if (state.mode !== 'structured') {
+                if (typeof window.documentGotoLine === 'function') window.documentGotoLine(line);
+                return true;
+            }
+            const node = Array.from(DOM.rendered.querySelectorAll('.struct-node[data-path]'))
+                .find(function(n) { return n.getAttribute('data-path') === pathJSON; });
+            if (!node) return false;
+            // Open every folded container the node sits in.
+            for (let el = node.parentElement; el && el !== DOM.rendered; el = el.parentElement) {
+                if (el.classList && el.classList.contains('struct-children') && el.classList.contains('collapsed')) {
+                    el.classList.remove('collapsed');
+                    const toggle = DOM.rendered.querySelector('.struct-toggle[data-target="' + el.id + '"]');
+                    if (toggle) { toggle.textContent = '▼'; toggle.classList.remove('collapsed'); }
+                }
+            }
+            const row = node.querySelector('.struct-line') || node;
+            row.scrollIntoView({ block: 'center' });
+            row.classList.add('struct-revealed');
+            setTimeout(function() { row.classList.remove('struct-revealed'); }, 2200);
+            return true;
+        };
+
         window.structFoldAll = function() {
             DOM.rendered.querySelectorAll('.struct-children').forEach(el => { el.classList.add('collapsed'); });
             DOM.rendered.querySelectorAll('.struct-toggle').forEach(el => { el.textContent = '▶'; el.classList.add('collapsed'); });

@@ -777,6 +777,7 @@ struct FileTreeView: View {
     }
 
     private func fileIcon(for url: URL) -> (String, Color) {
+        if Archive.isArchive(url) { return ("archivebox", VSDark.yellow) }
         switch FileType.from(url: url) {
         case .json: return ("curlybraces", VSDark.green)
         case .xml:  return ("chevron.left.forwardslash.chevron.right", VSDark.orange)
