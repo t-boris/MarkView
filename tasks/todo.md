@@ -2498,3 +2498,9 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] The right panel's Search tab uses this index (as ⌘⇧K does): Files and Text results, a hit opens at its line (code) or at the text (Markdown). The former meaning search of Markdown stays as the "Documents" mode.
 - [x] `tools/tests/project-search-tests.sh`; Debug build.
 - [ ] The panel was not driven in a running window.
+
+## Task 103 — The Contents panel shows any content (4.21.0)
+- [x] Contents (right panel, ⌘2) follows the open tab: Markdown → headings plus the file facts; HTML → the page (scripts off) plus facts; archive → summary, filter, entries (a click opens the file) plus facts; any other file, image or data file → facts (kind, size, dates, text counts, image size, path) and a thumbnail for images. The header button shows for all of these, not only Markdown.
+- [x] `FileInfo` (Foundation/ImageIO), `tools/tests/file-info-tests.sh`; archive rows are shared with the archive tab (`ArchiveEntriesList`).
+- [x] Debug build; checked in a second instance: an archive tab and an HTML file (screenshots).
+- [ ] Not tried: Markdown with the facts footer in the running app, image thumbnail, clicking an entry in the panel.

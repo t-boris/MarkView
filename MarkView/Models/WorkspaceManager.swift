@@ -373,8 +373,11 @@ class WorkspaceManager: ObservableObject {
     }
 
     func toggleContext() {
-        guard let tab = activeTab, case .file = tab.kind,
-              ["md", "markdown"].contains(tab.url.pathExtension.lowercased()) else { return }
+        guard let tab = activeTab else { return }
+        switch tab.kind {
+        case .file, .archive, .image, .data: break
+        default: return
+        }
         showTOC = true
         layout.navigatorTab = .contents
         terminalVisible = true

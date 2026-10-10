@@ -56,52 +56,49 @@ struct TOCView: View {
             }
     }
 
-    @ViewBuilder
     private var contentsList: some View {
         Group {
-            if let idx = workspaceManager.activeTabIndex as Int?,
-               idx >= 0, idx < workspaceManager.openTabs.count {
-                let tab = workspaceManager.openTabs[idx]
-
-                if tab.headings.isEmpty {
-                    emptyState("No Headings")
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(tab.headings) { heading in
-                                Button(action: {
-                                    workspaceManager.updateActiveHeading(heading.id)
-                                    NotificationCenter.default.post(name: .scrollToHeading, object: heading.id)
-                                }) {
-                                    HStack(spacing: 4) {
-                                        if heading.level > 1 {
-                                            Color.clear.frame(width: CGFloat(heading.level - 1) * 12)
-                                        }
-                                        Circle()
-                                            .fill(heading.id == tab.activeHeadingId ? VSDark.blue : VSDark.textDim.opacity(0.4))
-                                            .frame(width: 5, height: 5)
-                                        Text(heading.text)
-                                            .uiFont(size: 11)
-                                            .foregroundColor(heading.id == tab.activeHeadingId ? VSDark.textBright : VSDark.text)
-                                            .lineLimit(2)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }
-                                    .padding(.vertical, 2)
-                                    .padding(.horizontal, 8)
-                                    .background(heading.id == tab.activeHeadingId ? VSDark.selection.opacity(0.3) : Color.clear)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .background(VSDark.bgSidebar)
-                }
+            if let tab = workspaceManager.activeTab {
+                ContentsPanelView(tab: tab) { headingsList(tab) }
             } else {
                 emptyState("No File Open")
             }
         }
+    }
+
+    /// The headings of a Markdown document; a click scrolls to one.
+    private func headingsList(_ tab: OpenTab) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(tab.headings) { heading in
+                    Button(action: {
+                        workspaceManager.updateActiveHeading(heading.id)
+                        NotificationCenter.default.post(name: .scrollToHeading, object: heading.id)
+                    }) {
+                        HStack(spacing: 4) {
+                            if heading.level > 1 {
+                                Color.clear.frame(width: CGFloat(heading.level - 1) * 12)
+                            }
+                            Circle()
+                                .fill(heading.id == tab.activeHeadingId ? VSDark.blue : VSDark.textDim.opacity(0.4))
+                                .frame(width: 5, height: 5)
+                            Text(heading.text)
+                                .uiFont(size: 11)
+                                .foregroundColor(heading.id == tab.activeHeadingId ? VSDark.textBright : VSDark.text)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 8)
+                        .background(heading.id == tab.activeHeadingId ? VSDark.selection.opacity(0.3) : Color.clear)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .background(VSDark.bgSidebar)
     }
 
     private func emptyState(_ text: String) -> some View {
