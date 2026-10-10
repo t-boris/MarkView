@@ -317,6 +317,13 @@ struct FileTreeView: View {
                 }
                 .background(VSDark.bgSidebar)
                 if selection.count > 1 { selectionBar }
+                if let archiveBusy {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 12, height: 12)
+                        Text(archiveBusy).uiFont(size: 10).foregroundColor(VSDark.text)
+                        Spacer()
+                    }.padding(.horizontal, 10).padding(.vertical, 4).background(VSDark.bgActive)
+                }
             } else if workspaceManager.indexingProgress != nil {
                 VStack(spacing: 12) {
                     Spacer()
@@ -530,6 +537,8 @@ struct FileTreeView: View {
                 Button("Add to .gitignore") { addToGitignore(url, isDirectory: true) }
             }
             Divider()
+            Button("Compress to .zip") { compress([url]) }
+            Divider()
             Button { workspaceManager.openTerminal(in: url) } label: { Label("Open Terminal Here", systemImage: "terminal") }
             Button("Show in Finder") { NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "") }
             Button("Open in Terminal.app") { openTerminal(at: url) }
@@ -597,6 +606,12 @@ struct FileTreeView: View {
                 }
             }
             Button { workspaceManager.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
+            Divider()
+            if Archive.isArchive(url) {
+                Button("Extract Here") { extractArchive(url, askFolder: false) }
+                Button("Extract to…") { extractArchive(url, askFolder: true) }
+            }
+            Button("Compress to .zip") { compress([url]) }
             Divider()
             Button { workspaceManager.openTerminal(in: url.deletingLastPathComponent()) } label: {
                 Label("Open Terminal Here", systemImage: "terminal")
@@ -672,6 +687,8 @@ struct FileTreeView: View {
             }
             Button("Discard Changes in \(changed.count)…") { discard(changed) }
         }
+        Divider()
+        Button("Compress \(items.count) Items to .zip") { compress(items) }
         Divider()
         Button("Copy \(items.count) Paths") {
             NSPasteboard.general.clearContents()
@@ -917,6 +934,56 @@ struct FileTreeView: View {
     /// One path component: no slashes, not "." or "..".
     private func isValidName(_ name: String) -> Bool {
         !name.contains("/") && !name.contains(":") && name != "." && name != ".."
+    }
+
+    /// What an archive action in progress is doing ("Extracting photos.zip…").
+    @State private var archiveBusy: String?
+
+    /// Unpack into a new folder next to the archive, or inside a folder the person picks.
+    private func extractArchive(_ url: URL, askFolder: Bool) {
+        var parent: URL?
+        if askFolder {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.prompt = "Extract Here"
+            panel.message = "A new folder named after the archive is made inside the folder you choose."
+            panel.directoryURL = url.deletingLastPathComponent()
+            guard panel.runModal() == .OK, let chosen = panel.url else { return }
+            parent = chosen
+        }
+        guard archiveBusy == nil else { return }
+        archiveBusy = "Extracting \(url.lastPathComponent)…"
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { () -> Result<URL, Error> in
+                let folder = Archive.uniqueFolder(for: url, in: parent)
+                return Result { try Archive.extractAll(url, to: folder); return folder }
+            }.value
+            archiveBusy = nil
+            switch result {
+            case .success(let folder):
+                workspaceManager.refreshFileTree()
+                NSWorkspace.shared.activateFileViewerSelecting([folder])
+            case .failure(let error): showError("Could not extract \(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Zip files and folders into a new .zip next to them.
+    private func compress(_ urls: [URL]) {
+        guard archiveBusy == nil, !urls.isEmpty else { return }
+        archiveBusy = "Compressing \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
+        Task {
+            let result = await Task.detached(priority: .userInitiated) { Result { try Archive.compress(urls) } }.value
+            archiveBusy = nil
+            switch result {
+            case .success(let zip):
+                workspaceManager.refreshFileTree()
+                NSWorkspace.shared.activateFileViewerSelecting([zip])
+            case .failure(let error): showError("Could not compress: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func showError(_ message: String) {

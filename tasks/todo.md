@@ -2483,3 +2483,11 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] `GitClient.operationInProgress` (merge / rebase / cherry-pick / revert, from the markers in `.git`), shown beside the button and used in the prompt.
 - [x] `tools/tests/conflict-prompt-tests.sh`; Debug build.
 - [ ] Not tried with a real assistant on a real conflict.
+
+## Task 101 — Archive support (4.19.0)
+- [x] `ArchiveSupport.swift`: list (`bsdtar -tv`), open one entry (unpacked to a temporary cache, member names escaped against glob matching), extract all into a NEW folder named after the archive (never into an existing one), make a .zip (`zip -r -y -X`, `.DS_Store` left out). Formats: zip, tar, tgz, tar.gz/bz2/xz, 7z, rar, jar. Nothing in an archive is run.
+- [x] Safety: an absolute path or a `..` component refuses the whole extraction and the entry; limits of 200 000 entries, 100 MB for one opened entry, 4 GB unpacked.
+- [x] Archive tab (`ArchiveTabView`): tree of entries with sizes and dates, filter, click opens a file in its viewer, Extract Here / Extract to… / Show in Finder; restored with the window session (`WorkspaceTabState.archive`).
+- [x] File tree: Extract Here / Extract to… on archives, Compress to .zip on files, folders and selections, with a progress line.
+- [x] `tools/tests/archive-tests.sh` (real zip and tar.gz, names with spaces and brackets, zip-slip, broken archive); Debug build; the tab checked in a second instance (screenshot).
+- [ ] Not tried: 7z / rar, clicking an entry in the running tab, a very large archive.

@@ -947,6 +947,15 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
+        // Archives: the archive view lists them; nothing is unpacked until a file is clicked.
+        if Archive.isArchive(url) {
+            var tab = OpenTab(url: url, content: "", originalContent: "")
+            tab.kind = .archive
+            tabsStore.appendTab(tab)
+            addRecentFile(url)
+            return
+        }
+
         // Data files: the page's viewers read them (they may be binary or very large).
         if FileType.isData(url) {
             var tab = OpenTab(url: url, content: "", originalContent: "")
@@ -1007,6 +1016,7 @@ class WorkspaceManager: ObservableObject {
                 let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
                 saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(tab.scrollPosition))
             case .image: saved = .image(tab.url)
+            case .archive: saved = .archive(tab.url)
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1065,7 +1075,7 @@ class WorkspaceManager: ObservableObject {
                     tab.notesView = notes
                     tab.scrollPosition = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
                 }
-            case .image(let url), .data(let url):
+            case .image(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
             case .architecture(let scope):
@@ -2133,7 +2143,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices.reversed() {
             let tab = openTabs[index]
             switch tab.kind {
-            case .file, .image:
+            case .file, .image, .archive:
                 let path = tab.url.standardizedFileURL.path
                 if path == base || path.hasPrefix(base + "/") { tabsStore.removeTab(at: index) }
             default:
