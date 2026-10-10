@@ -229,7 +229,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .archive, .terminal, .browser, .data, .prototype:
+            case .file, .image, .archive, .deployments, .terminal, .browser, .data, .prototype:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -583,6 +583,10 @@ struct ContentView: View {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
                         ImageViewerView(url: activeTab.url).id(activeTab.id)
+                    } else if case .deployments = activeTab.kind {
+                        DeploymentsView(store: workspaceManager.deployments)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .archive = activeTab.kind {
                         ArchiveTabView(url: activeTab.url)
                             .environmentObject(workspaceManager)
@@ -622,7 +626,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .archive, .terminal, .browser, .prototype: return true
+                case .file, .image, .archive, .deployments, .terminal, .browser, .prototype: return true
                 default: return false
                 }
             }) {
@@ -1053,6 +1057,10 @@ struct AIToolsMenu: View {
                     }
                 }
                 .disabled(workspaceManager.rootNode == nil || saved.isEmpty)
+            }
+            Section("Operations") {
+                Button("Deployments…") { workspaceManager.openDeployments() }
+                    .disabled(workspaceManager.rootNode == nil)
             }
             Section("Analysis") {
                 Button("Constructive Critic") { workspaceManager.runAITool(named: "critic") }

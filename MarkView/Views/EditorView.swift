@@ -342,7 +342,7 @@ struct EditorView: NSViewRepresentable {
                 webView.evaluateJavaScript("window.leaveDataView && window.leaveDataView()")
                 routeArchitecture(scope: scope, webView: webView)
                 return
-            case .terminal, .image, .archive, .github, .browser, .prototype:
+            case .terminal, .image, .archive, .deployments, .github, .browser, .prototype:
                 // Drawn over the editor (TerminalTabView, ImageViewerView, GitHub views); it keeps its content.
                 return
             case .data:

@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ProjectAgentToolsTests.swift "$out/main.swift"
-swiftc -O -o "$out/project-agent-tools-tests" MarkView/Models/BrowserAgentTools.swift MarkView/Models/FeatureVocabulary.swift MarkView/Models/ProjectAgentTools.swift "$out/main.swift"
+swiftc -O -o "$out/project-agent-tools-tests" MarkView/Models/BrowserAgentTools.swift MarkView/Models/FeatureVocabulary.swift MarkView/Models/DeploymentAgentTools.swift MarkView/Models/ProjectAgentTools.swift "$out/main.swift"
 # The control sockets live in one folder: a private one keeps a MarkView running on this Mac out of the checks.
 mkdir "$out/sockets"
 MARKVIEW_SOCKET_DIR="$out/sockets" "$out/project-agent-tools-tests"

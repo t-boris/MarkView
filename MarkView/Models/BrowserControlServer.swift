@@ -19,6 +19,8 @@ enum BrowserControlServer {
         var open: (URL?, String?) -> BrowserSession
         /// The window's features and bugs, for the project tools (`ProjectToolRunner`).
         var features: () -> FeatureStore? = { nil }
+        /// The window's Deployments, for the deployments tools (`DeploymentToolRunner`).
+        var deployments: () -> DeploymentStore? = { nil }
     }
 
     private static var windows: [UUID: Window] = [:]
@@ -131,6 +133,10 @@ enum BrowserControlServer {
             let open = windows.values.compactMap { $0.root()?.path }.sorted()
             return .error(BrowserAgentTools.noWindowPrefix + " this agent works in (\(cwd.isEmpty ? "unknown" : cwd)) open."
                           + (open.isEmpty ? "" : " Open project windows: " + open.joined(separator: ", ")))
+        }
+        if isProjectTool, DeploymentAgentTools.names.contains(tool) {
+            guard let store = window.deployments() else { return .error("This window has no project open.") }
+            return await DeploymentToolRunner.run(tool, args, store: store)
         }
         if isProjectTool {
             guard let store = window.features() else { return .error("This window has no project open.") }

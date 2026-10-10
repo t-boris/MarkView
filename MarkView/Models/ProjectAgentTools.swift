@@ -19,7 +19,9 @@ enum ProjectAgentTools {
     and markview_create_* tools: the app writes the Markdown files in the exact format it reads, with \
     correct ids and links. Do not create or edit files under docs/features or docs/bugs by hand. To turn a \
     prototype into features: markview_get_prototype, then markview_create_feature, then one \
-    markview_add_requirement per behaviour (with acceptance criteria).
+    markview_add_requirement per behaviour (with acceptance criteria). markview_deployments* tools show where the \
+    project runs and how each place is doing, and run commands there (read-only ones at once, anything else only after \
+    the person approves it in the app); read markview_guide topic "deployments" before using them.
     """
 
     static let unavailableNote = "MarkView project tools: MarkView is not running for this project, so nothing is available."
@@ -83,7 +85,7 @@ enum ProjectAgentTools {
              required: ["title", "summary"]),
         tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind.",
              ["feature": feature, "id": ["type": "string"], "status": ["type": "string"]], required: ["feature", "status"]),
-    ]
+    ] + DeploymentAgentTools.tools
 
     static let toolNames: Set<String> = Set(tools.map(\.name))
 
@@ -92,7 +94,7 @@ enum ProjectAgentTools {
 
     // MARK: - Guide
 
-    static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "process"]
+    static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "process", "deployments"]
 
     static func guide(_ topic: String?) -> String {
         switch topic ?? "overview" {
@@ -104,9 +106,29 @@ enum ProjectAgentTools {
         case "prototype": return prototypeGuide
         case "workflow": return workflowGuide
         case "process": return processGuide
+        case "deployments": return deploymentsGuide
         default: return overviewGuide
         }
     }
+
+    static let deploymentsGuide = """
+    Deployments is the part of MarkView that shows where a project runs and how each place is doing: servers over SSH, \
+    this Mac, cloud services (through their CLIs). The person sees CPU, memory, disks, containers, services, checks and logs \
+    as gauges; you can see the same and act on it.
+
+    1. Learn what exists: markview_deployments. If nothing is set up, find out where the project runs: read the CI (.github/workflows), \
+    the platform files (vercel.json, fly.toml, Procfile, docker-compose, k8s/, terraform), the docs and scripts, ~/.ssh/config, and with \
+    `gh` the repository's environments and recent deployments. Do not read or print secret values (only their names), and never ask \
+    for a password in chat: MarkView connects with the person's SSH agent or key file.
+    2. Propose what you found with markview_deployments_propose (evidence = file and line; `notes` = what you could not find out). \
+    Ask the person what is missing (the host, the user, which key). They add the environment in the app.
+    3. Look: markview_deployments_status. Then read logs with markview_deployments_logs, or run read-only commands with \
+    markview_deployments_run (uptime, df, docker ps, journalctl -u app -n 200 --no-pager, systemctl status, kubectl get, vercel ls…).
+    4. Changes (restart a service, edit a file, deploy): call markview_deployments_run with a `purpose`. The app shows the person the \
+    exact command and the host and asks; if they refuse you get that answer. Do not try another route to the same effect. Commands that \
+    shut a machine down, wipe a disk or pipe a download into a shell never run. After a change, look again with markview_deployments_status \
+    and tell the person what the platform shows now.
+    """
 
     static let overviewGuide = """
     MarkView keeps a project's product knowledge as plain Markdown with YAML front matter in the repository.
@@ -363,6 +385,13 @@ enum ProjectAgentTools {
         3. For each capability (not each screen): `markview_create_feature`, then one `markview_add_requirement` per behaviour, with \
         testable acceptance criteria; `markview_add_decision` for choices; `markview_add_question` for what the prototype leaves open.
         4. Report the slugs you created.
+
+        ## Deployments
+
+        `deployments` in the guide (`--project-call markview_guide '{"topic":"deployments"}'`): where the project runs and how each place \
+        is doing. `markview_deployments` shows it, `markview_deployments_propose` suggests a place you found, `markview_deployments_status` \
+        looks now, `markview_deployments_logs` and `markview_deployments_run` read logs and run commands. Read-only commands run at once; \
+        anything else waits for the person's yes in the app. Never put a password, token or key into a call.
 
         ## How work is done
 

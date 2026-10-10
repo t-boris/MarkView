@@ -178,6 +178,8 @@ enum TabKind {
     case image
     /// An archive (zip, tar, 7z…), shown by `ArchiveTabView`; its entries open as temporary copies.
     case archive
+    /// The project's Deployments: where it runs and how each place is doing (`DeploymentsView`).
+    case deployments
     /// A GitHub Actions run or an issue, shown by `GitHubRunView` / `GitHubIssueView`.
     case github(GitHubItem)
     /// A web page (a local development server or any site), shown by `BrowserTabView`.
@@ -243,6 +245,7 @@ struct OpenTab: Identifiable {
     /// The display name for the tab (file name)
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
+        if case .deployments = kind { return "Deployments" }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
         if case .browser = kind { return "Browser" }

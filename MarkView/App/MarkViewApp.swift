@@ -336,6 +336,11 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 
+                Button("Deployments") {
+                    activeWorkspace?.openDeployments()
+                }
+                .keyboardShortcut("d", modifiers: [.command, .control])
+
                 Button("X-Ray") {
                     activeWorkspace?.openArchitecture()
                 }
