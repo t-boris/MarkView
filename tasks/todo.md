@@ -2477,3 +2477,9 @@ Boris explicitly authorized committing/pushing this fix directly to main without
 - [x] Git tab rows carry their group in their identity (`fileRow(...).id(group:path)`): a file moving from Changes to Staged no longer keeps the old row.
 - [x] Progress: Git operations name what they do (Staging, Discarding, Committing (hooks may run), Pushing, Pulling, Switching branch) in a progress line under the branch header and in the tree's Git bar; GitHub lists show "Loading pull requests / issues / workflow runs from GitHub…". Push and pull report failures by exit status with git's own words.
 - [ ] The stale-row fix and the progress line were not driven in a running window (clicks cannot be posted to a background instance); the tree icons were checked in a second instance on a temp repository.
+
+## Task 100 — Resolve Git conflicts with AI (4.18.0)
+- [x] Git tab → Conflicts → "Resolve with AI" hands the conflicted files to the assistant terminal (`WorkspaceManager.resolveConflictsWithAI`, prompt in `ConflictPrompt`): read both sides, keep the intent of both, regenerate lock files, run build/tests, `git add` each file; never commit, push or abort. It ends with a per-file report and the command that continues the merge/rebase/cherry-pick/revert.
+- [x] `GitClient.operationInProgress` (merge / rebase / cherry-pick / revert, from the markers in `.git`), shown beside the button and used in the prompt.
+- [x] `tools/tests/conflict-prompt-tests.sh`; Debug build.
+- [ ] Not tried with a real assistant on a real conflict.
