@@ -30,8 +30,12 @@ struct ContentsPanelView<Headings: View>: View {
                 if case .image = tab.kind { ImageThumbnail(url: tab.url).id(tab.url) }
                 else if case .file = tab.kind, tab.fileType == .markdown { placeholder("No headings") }
                 ScrollView { FileInfoRows(url: tab.url, revision: tab.dataRevision).padding(10) }
+            case .browser(let session):
+                BrowserContentsPanel(session: session).id(session.id)
+            case .prototype(let session):
+                PrototypeContentsPanel(session: session).id(session.id)
             default:
-                placeholder("Nothing to show for this tab")
+                TabFactsPanel(tab: tab)
             }
         }
         .background(VSDark.bgSidebar)
@@ -223,5 +227,174 @@ struct StructureOutlineList: View {
 
     private var shown: [StructureOutline.Item] {
         filter.isEmpty ? items : items.filter { $0.title.localizedCaseInsensitiveContains(filter) }
+    }
+}
+
+/// A label and a value, in the style of the file facts.
+private struct FactRows: View {
+    let rows: [(String, String)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(row.0).uiFont(size: 10).foregroundColor(VSDark.textDim).frame(width: 70, alignment: .leading)
+                    Text(row.1).uiFont(size: 10).foregroundColor(VSDark.text).textSelection(.enabled)
+                        .lineLimit(4).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// What a terminal, GitHub, X-Ray or Insight tab is: facts only (these tabs have no outline of their own).
+struct TabFactsPanel: View {
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    let tab: OpenTab
+
+    var body: some View {
+        ScrollView { FactRows(rows: rows).padding(10) }
+    }
+
+    private var rows: [(String, String)] {
+        switch tab.kind {
+        case .terminal(let id):
+            var rows: [(String, String)] = [("Tab", "Terminal")]
+            if let session = workspaceManager.terminalSession(id) {
+                rows.append(("Runs", session.profile == .shell ? "Shell" : session.profile.rawValue.capitalized))
+                rows.append(("Status", session.isRunning ? "Running" : "Exited" + (session.exitCode.map { " (code \($0))" } ?? "")))
+                rows.append(("Folder", session.directory.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")))
+            }
+            return rows
+        case .github(let item):
+            switch item {
+            case .issue(let number, let repo, let title): return [("Tab", "GitHub issue"), ("Repository", repo), ("Number", "#\(number)"), ("Title", title)]
+            case .run(let id, let repo, let title): return [("Tab", "GitHub Actions run"), ("Repository", repo), ("Run", String(id)), ("Title", title)]
+            }
+        case .architecture(let scope):
+            return [("Tab", "X-Ray"), ("Scope", scope.isEmpty ? "Whole project" : scope == TabKind.pullRequestScope ? "Pull request" : scope)]
+        default:
+            return [("Tab", tab.displayName)]
+        }
+    }
+}
+
+/// A prototype: its facts and screens.
+struct PrototypeContentsPanel: View {
+    @ObservedObject var session: PrototypeSession
+
+    var body: some View {
+        let manifest = session.manifest
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                FactRows(rows: [("Tab", "Prototype"), ("Title", manifest.title), ("Version", "v\(manifest.version)"),
+                                ("Approved", manifest.approved ? "Yes" : "Not yet"),
+                                ("Screens", String(manifest.screens.count)), ("Sources", manifest.sources.joined(separator: ", "))])
+                if !manifest.screens.isEmpty {
+                    Text("SCREENS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                    ForEach(manifest.screens, id: \.self) { screen in
+                        HStack(spacing: 4) {
+                            Image(systemName: "rectangle.portrait").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                            Text(screen).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1)
+                        }
+                    }
+                }
+                if !manifest.assumptions.isEmpty {
+                    Text("ASSUMPTIONS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                    ForEach(manifest.assumptions, id: \.self) { Text("• " + $0).uiFont(size: 10).foregroundColor(VSDark.text) }
+                }
+            }
+            .padding(10)
+        }
+    }
+}
+
+/// The headings of the page in a browser tab, and the page's facts; a click scrolls the page to the heading.
+@MainActor
+final class BrowserOutlineModel: ObservableObject {
+    struct Heading: Identifiable { let id: Int; let level: Int; let text: String }
+    @Published private(set) var headings: [Heading] = []
+    @Published private(set) var links = 0
+    let session: BrowserSession
+    private static let selector = "h1,h2,h3,h4,h5,h6"
+
+    init(session: BrowserSession) { self.session = session }
+
+    func reload() {
+        guard session.url != nil else { headings = []; links = 0; return }
+        let script = "JSON.stringify({h:[...document.querySelectorAll('\(Self.selector)')].slice(0,300).map(function(h,i){return {i:i,l:+h.tagName[1],t:(h.innerText||'').trim().replace(/\\s+/g,' ').slice(0,140)}}),a:document.querySelectorAll('a[href]').length})"
+        session.webView.evaluateJavaScript(script) { [weak self] value, _ in
+            guard let self, let text = value as? String, let data = text.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            let list = (object["h"] as? [[String: Any]] ?? []).compactMap { entry -> Heading? in
+                guard let i = entry["i"] as? Int, let level = entry["l"] as? Int, let text = entry["t"] as? String, !text.isEmpty else { return nil }
+                return Heading(id: i, level: level, text: text)
+            }
+            Task { @MainActor in self.headings = list; self.links = object["a"] as? Int ?? 0 }
+        }
+    }
+
+    func scroll(to heading: Heading) {
+        session.webView.evaluateJavaScript("(function(){var e=document.querySelectorAll('\(Self.selector)')[\(heading.id)]; if(e){e.scrollIntoView({block:'start',behavior:'smooth'});}})()")
+    }
+}
+
+struct BrowserContentsPanel: View {
+    @ObservedObject var session: BrowserSession
+    @StateObject private var model: BrowserOutlineModel
+
+    init(session: BrowserSession) {
+        self.session = session
+        _model = StateObject(wrappedValue: BrowserOutlineModel(session: session))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                FactRows(rows: [("Title", session.title.isEmpty ? "—" : session.title),
+                                ("Address", session.url?.absoluteString ?? "—"),
+                                ("Host", session.url?.host ?? "—"),
+                                ("Status", session.isLoading ? "Loading…" : session.loadError ?? "Loaded"),
+                                ("Links", String(model.links))]).padding(10)
+            }
+            .frame(maxHeight: 130)
+            Divider().background(VSDark.border)
+            HStack {
+                Text("HEADINGS").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                Spacer()
+                Button { model.reload() } label: { Image(systemName: "arrow.clockwise").uiFont(size: 9) }
+                    .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Read the page's headings again")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            if model.headings.isEmpty {
+                Spacer()
+                Text(session.isLoading ? "Loading…" : "No headings on this page").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.headings) { heading in
+                            Button { model.scroll(to: heading) } label: {
+                                HStack(spacing: 4) {
+                                    Color.clear.frame(width: CGFloat(heading.level - 1) * 12, height: 1)
+                                    Circle().fill(VSDark.textDim.opacity(0.4)).frame(width: 5, height: 5)
+                                    Text(heading.text).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(.vertical, 2).padding(.horizontal, 8).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        // Read the page when it finishes loading, and when the address changes.
+        .onReceive(session.$isLoading.removeDuplicates()) { loading in
+            if !loading { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { model.reload() } }
+        }
+        .task(id: session.url) { model.reload() }
     }
 }

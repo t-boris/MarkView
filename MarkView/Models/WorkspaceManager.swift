@@ -373,11 +373,7 @@ class WorkspaceManager: ObservableObject {
     }
 
     func toggleContext() {
-        guard let tab = activeTab else { return }
-        switch tab.kind {
-        case .file, .archive, .image, .data: break
-        default: return
-        }
+        guard activeTab != nil else { return }
         showTOC = true
         layout.navigatorTab = .contents
         terminalVisible = true
