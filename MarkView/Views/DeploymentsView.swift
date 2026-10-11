@@ -164,6 +164,7 @@ private struct EnvironmentDetail: View {
                 if let snap = state.snapshot, !snap.checks.isEmpty || !state.held.isEmpty { checks(snap) }
                 if let snap = state.snapshot, snap.os != "cloud", !snap.containers.isEmpty || !snap.failedUnits.isEmpty { services(snap) }
                 if env.kind == .cloud { cloud }
+                DatabaseCard(store: store, env: env, installPsql: { install(ProviderHints.hints["psql"]!) })
                 if env.kind != .cloud { logs }
                 commandBox
                 if let snap = state.snapshot, snap.os != "cloud", !snap.processes.isEmpty { processes(snap) }
@@ -593,7 +594,7 @@ private struct ApprovalSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised.fill").foregroundColor(VSDark.orange).font(.system(size: 18))
-                Text("\(request.origin) wants to run a command").uiFont(size: 14, weight: .semibold)
+                Text("\(request.origin) \(request.origin == "You" ? "want" : "wants") to run a command").uiFont(size: 14, weight: .semibold)
             }
             Text("On \(request.environment.name) (\(request.environment.kind == .ssh ? request.environment.destination : request.environment.kind == .local ? "this Mac" : request.environment.provider))")
                 .uiFont(size: 11).foregroundColor(.secondary)

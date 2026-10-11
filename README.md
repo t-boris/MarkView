@@ -403,7 +403,7 @@ flowchart LR
 - **Finds where it runs** — servers, and also the cloud database or cache behind them (Neon, Supabase,
   PlanetScale, Turso, Upstash, Amazon RDS, Azure, Aiven, CockroachDB, MongoDB Atlas: found by the
   hostnames the docs name and the libraries the code uses; the connection URL with its password is a
-  secret and is never read). A scan reads the GitHub workflows, platform files (Vercel, Fly,
+  secret: it is read only when you connect the database, see below). A scan reads the GitHub workflows, platform files (Vercel, Fly,
   Heroku, Netlify, Render, AWS, Google Cloud, Kubernetes, Terraform, Docker Compose), deploy
   scripts, docs and your `~/.ssh/config`, and lists the servers and services it finds with the
   evidence. **Ask AI to find where it runs** sends the assistant to read the same, look at the
@@ -418,6 +418,17 @@ flowchart LR
   container — and any log can be sent to the assistant with **Ask AI**; every environment also has an
   **Ask the AI** box (*"Is the database fine?"*, *"Why is it slow?"*). When a provider's CLI is missing or signed
   out, the tab says how to install it and sign in.
+- **Look into the database.** Connect a PostgreSQL database (Neon, Supabase, RDS, or one on your
+  own server) from a `.env` file in the project or by pasting its connection string into your
+  Keychain, and the environment shows how big it is, its connections, every table with an estimated
+  row count and size, a table's columns, indexes, constraints and first rows, and a SQL box. Reads run
+  at once inside a transaction the server itself keeps read-only (20 s limit, 500 rows); an `INSERT`,
+  `UPDATE`, `DELETE` or `DROP` is shown to you and runs only after you approve that exact statement;
+  psql meta-commands and `COPY … PROGRAM` never run. The password is read when you look, kept in
+  memory, handed to `psql` over standard input (never in a command line) and removed from everything
+  shown or logged; `.dde/deployments.json` names the file and variable, never the URL. `psql` is
+  found in Homebrew's `libpq` (the tab offers to install it). The assistant has the same view through
+  `markview_deployments_db`, without ever seeing the password.
 - **Safe by construction.** SSH uses your agent or key file without prompts; MarkView stores no
   passwords or keys, and an unknown host key must be checked against its fingerprint before it is
   trusted (a *changed* key is never trusted). Everything MarkView runs is classified first:

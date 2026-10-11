@@ -71,6 +71,7 @@ final class DeploymentStore: ObservableObject {
     @Published private(set) var suggestions: [DeploymentSuggestion] = []
     @Published private(set) var scanning = false
     @Published private(set) var log: [CommandLogEntry] = []
+    @Published var databaseStates: [String: DatabaseState] = [:]
     @Published var approval: DeploymentApproval?
     @Published var selected: String?
     @Published var autoRefresh = false { didSet { restartAuto() } }
@@ -116,7 +117,7 @@ final class DeploymentStore: ObservableObject {
         log = text.split(separator: "\n").suffix(200).compactMap { try? decoder.decode(CommandLogEntry.self, from: Data($0.utf8)) }
     }
 
-    private func note(_ entry: CommandLogEntry) {
+    func note(_ entry: CommandLogEntry) {
         log.append(entry)
         if log.count > 200 { log.removeFirst(log.count - 200) }
         guard let folder, let logFile else { return }
@@ -149,8 +150,10 @@ final class DeploymentStore: ObservableObject {
     }
 
     func remove(_ id: String) {
+        for target in environment(id)?.databases ?? [] where target.source == .keychain { DatabaseKeychain.delete(account: (root?.path ?? "") + "|" + id + "|" + target.id) }
         environments.removeAll { $0.id == id }
         states[id] = nil
+        databaseStates = databaseStates.filter { !$0.key.hasPrefix(id + "|") }
         if selected == id { selected = environments.first?.id }
         save()
     }
@@ -185,7 +188,7 @@ final class DeploymentStore: ObservableObject {
 
     // MARK: Looking
 
-    private func executor(for env: DeploymentEnvironment) -> DeploymentExecutor { DeploymentExecutors.make(for: env, projectRoot: root) }
+    func executor(for env: DeploymentEnvironment) -> DeploymentExecutor { DeploymentExecutors.make(for: env, projectRoot: root) }
 
     func refreshAll() { for env in environments { Task { await refresh(env.id) } } }
 
@@ -266,7 +269,7 @@ final class DeploymentStore: ObservableObject {
         return .ran(result)
     }
 
-    private func ask(env: DeploymentEnvironment, command: String, reason: String, origin: String, purpose: String) async -> Bool {
+    func ask(env: DeploymentEnvironment, command: String, reason: String, origin: String, purpose: String) async -> Bool {
         await withCheckedContinuation { continuation in
             let request = DeploymentApproval(environment: env, command: command, reason: reason, origin: origin, purpose: purpose) { [weak self] yes in
                 continuation.resume(returning: yes)
@@ -329,6 +332,7 @@ final class DeploymentStore: ObservableObject {
                 for check in state.snapshot?.checks ?? [] { lines.append("  check \(check.id): \(check.status.rawValue)\(check.detail.isEmpty ? "" : " (\(check.detail))")") }
                 if let updated = state.updated { lines.append("  looked at \(updated.formatted(date: .omitted, time: .standard))") }
             } else { lines.append("  not looked at yet") }
+            lines += databaseReport(for: env)
             for source in logSources(env.id) { lines.append("  log source \(source.id): \(source.title)") }
             return lines.joined(separator: "\n")
         }.joined(separator: "\n\n")

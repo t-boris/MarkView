@@ -128,6 +128,11 @@ enum ProjectAgentTools {
     exact command and the host and asks; if they refuse you get that answer. Do not try another route to the same effect. Commands that \
     shut a machine down, wipe a disk or pipe a download into a shell never run. After a change, look again with markview_deployments_status \
     and tell the person what the platform shows now.
+    5. Databases: a PostgreSQL database the person connected (a Neon project, a managed or self-hosted Postgres) appears as a "database" \
+    line in markview_deployments. markview_deployments_db with action overview gives its size, connections and tables; action table gives \
+    columns, indexes and a few rows; action query runs one SQL statement. Reads run at once in a transaction the server keeps read-only \
+    (20 s limit, 500 rows): ask for counts and aggregates, not whole tables. Anything that writes is shown to the person and runs only if \
+    they approve. You never see the connection password; do not ask for it.
     """
 
     static let overviewGuide = """
@@ -390,7 +395,8 @@ enum ProjectAgentTools {
 
         `deployments` in the guide (`--project-call markview_guide '{"topic":"deployments"}'`): where the project runs and how each place \
         is doing. `markview_deployments` shows it, `markview_deployments_propose` suggests a place you found, `markview_deployments_status` \
-        looks now, `markview_deployments_logs` and `markview_deployments_run` read logs and run commands. Read-only commands run at once; \
+        looks now, `markview_deployments_logs` and `markview_deployments_run` read logs and run commands, `markview_deployments_db` looks into a \
+        connected PostgreSQL database (size, tables, rows, read-only queries). Read-only commands run at once; \
         anything else waits for the person's yes in the app. Never put a password, token or key into a call.
 
         ## How work is done

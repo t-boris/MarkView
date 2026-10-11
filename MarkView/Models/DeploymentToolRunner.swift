@@ -37,8 +37,60 @@ enum DeploymentToolRunner {
                     text = all.suffix(lines + 1).joined(separator: "\n")
                 }
                 return .init(text: clip(text))
+            case "markview_deployments_db":
+                return await database(args, store: store)
             default:
                 return .error("Unknown tool \(tool).")
+            }
+        } catch let invalid as ProjectAgentTools.Invalid {
+            return .error(invalid.message)
+        } catch {
+            return .error(error.localizedDescription)
+        }
+    }
+
+    private static func database(_ args: [String: Any], store: DeploymentStore) async -> BrowserAgentTools.Reply {
+        do {
+            let id = try environmentID(args, store: store)
+            let wanted = try ProjectAgentTools.text(args, "database")
+            let targets = store.environment(id)?.databases ?? []
+            guard !targets.isEmpty else {
+                return .error("No database is connected to \(id). The person connects one in the Deployments tab (Database): from a .env file or by pasting a connection string into the Keychain.")
+            }
+            guard let target = wanted.isEmpty ? (targets.count == 1 ? targets[0] : nil) : targets.first(where: { $0.id == wanted }) else {
+                return .error("Say which database: " + targets.map(\.id).joined(separator: ", "))
+            }
+            switch try ProjectAgentTools.text(args, "action", required: true) {
+            case "overview":
+                await store.loadOverview(env: id, target: target.id)
+                let state = store.databaseState(id, target.id)
+                guard let o = state.overview else { return .error(state.error ?? "Could not look at the database.") }
+                var lines = ["\(o.database) — \(o.version), \(databaseBytes(o.bytes)), \(o.tables.count) tables/views, \(o.connections) of \(o.maxConnections) connections, user \(o.user)"]
+                if !o.extensions.isEmpty { lines.append("extensions: " + o.extensions.joined(separator: ", ")) }
+                lines.append("(rows are estimates from the statistics; sizes include indexes)")
+                for t in o.tables.prefix(80) { lines.append("\(t.id) [\(t.kindTitle)] ~\(t.rows) rows, \(databaseBytes(t.bytes))") }
+                if o.tables.count > 80 { lines.append("… \(o.tables.count - 80) more") }
+                return .init(text: clip(lines.joined(separator: "\n")))
+            case "table":
+                let name = try ProjectAgentTools.text(args, "table", required: true)
+                let schema = try ProjectAgentTools.text(args, "schema")
+                let table = DatabaseTable(schema: schema.isEmpty ? "public" : schema, name: name, kind: "r", rows: 0, bytes: 0, indexBytes: 0)
+                await store.loadTable(env: id, target: target.id, table: table)
+                let state = store.databaseState(id, target.id)
+                guard let detail = state.details[table.id], !detail.columns.isEmpty else { return .error(state.error ?? "No table \(table.id).") }
+                var lines = ["\(table.id)", "columns:"]
+                for c in detail.columns { lines.append("  \(c.name) \(c.type)\(c.notNull ? " not null" : "")\(c.defaultValue.isEmpty ? "" : " default \(c.defaultValue)")") }
+                if !detail.indexes.isEmpty { lines += ["indexes:"] + detail.indexes.map { "  " + $0 } }
+                if !detail.constraints.isEmpty { lines += ["constraints:"] + detail.constraints.map { "  " + $0 } }
+                if let sample = state.samples[table.id] { lines += ["first rows:", sample.text(maxRows: 10)] }
+                return .init(text: clip(lines.joined(separator: "\n")))
+            case "query":
+                let sql = try ProjectAgentTools.text(args, "sql", required: true)
+                let purpose = try ProjectAgentTools.text(args, "purpose")
+                let outcome = await store.runQuery(sql, env: id, target: target.id, origin: "The assistant", purpose: purpose)
+                return .init(text: clip(outcome.summary))
+            default:
+                return .error("action must be overview, table or query.")
             }
         } catch let invalid as ProjectAgentTools.Invalid {
             return .error(invalid.message)
