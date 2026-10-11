@@ -845,17 +845,8 @@ struct FileTreeView: View {
             let base = repo.standardizedFileURL.path + "/"
             let path = url.standardizedFileURL.path
             guard path.hasPrefix(base) else { return showError("“\(url.lastPathComponent)” is outside the repository.") }
-            let entry = "/" + path.dropFirst(base.count) + (isDirectory ? "/" : "")
-            let ignore = repo.appendingPathComponent(".gitignore")
-            var text = (try? String(contentsOf: ignore, encoding: .utf8)) ?? ""
-            guard !text.components(separatedBy: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) else { return }
-            if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
-            text += entry + "\n"
-            do { try text.write(to: ignore, atomically: true, encoding: .utf8) } catch {
-                return showError("Couldn't update .gitignore: \(error.localizedDescription)")
-            }
+            await git.ignore(String(path.dropFirst(base.count)), isDirectory: isDirectory)
             listVersion += 1
-            await git.refresh()
         }
     }
 
