@@ -2585,3 +2585,10 @@ Decisions (asked): configured per project with an edit step before each run; sto
 - [x] Implement with AI opens a **Definition of Done** sheet first (Start hands over; "Save as this project's default"); the same editor is in Settings → Implement with AI. Built-in wording is read-only, custom items are editable.
 - [x] Tests: `definition-of-done-tests.sh` (modes, text, storage, merge, broken file, prompt), `handoff-prompt-tests.sh` still passes. In a second instance: Settings → the sheet shows, a mode switch dims the row, Save writes `.dde/definition-of-done.json`.
 - [ ] Not tried: Start from the sheet into a real assistant (it would open an AI terminal), how Claude/Codex/Copilot/Cline behave with a long goal, adding or removing custom items in the UI. The app does not verify the items itself (a possible next step: read Git cleanliness, PR and CI status and tick items beside the feature).
+
+## Task 114 — Git tab showed the wrong branch (4.31.1)
+Feedback: "In Git → Changes I see main although I am not on main; the branch must be the one actually selected."
+- [x] Cause: the header showed `GitClient.branch`, which only a full refresh set (tab open, app activation, an app-made change). The background status poll saw the new HEAD (`repoStatus.head`) but left the header, branch lists and log alone, so a branch switched by an agent or a terminal while the app was in front stayed "main". `refreshStatus` now notices a moved HEAD and refreshes branch, lists and log.
+- [x] The X-Ray source "All changes vs main" now names the current branch: "<branch>: all changes vs main (commits + uncommitted)". The comparison with the default branch is by design (what a PR from here would contain); only the labelling was ambiguous.
+- [x] Driven in a second instance: header `master` → `git checkout -b feat/demo-branch` in a shell → header followed; back to `master` → followed again, with the app left in front (no re-activation).
+- [ ] The X-Ray picker label was not looked at in the running app (build only).
