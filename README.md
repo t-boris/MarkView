@@ -369,6 +369,13 @@ flowchart LR
   browser tabs — where you watch — instead of driving your Chrome. Sign in to a platform once in a
   tab, name the tab ("Jira", "Stripe") and say *"in tab Jira, follow these steps"*; the agent uses
   your session and never needs your password. **Stop** on a tab takes it back.
+- **The browser tab downloads, remembers passwords and saves PDFs.** Files download to `~/Downloads`
+  (links with a `download` attribute, attachments and `blob:` links) with a banner to open or reveal
+  them. After a sign-in the tab offers to save the password in your login Keychain, and fills it on
+  that exact site when you press **Fill**; nothing is filled while an agent drives the tab. The key
+  menu lists and deletes saved logins and imports a Chrome export (Chrome → Password Manager →
+  Settings → Export passwords); MarkView does not read Chrome's encrypted store. **Save Page as
+  PDF** writes the whole page as A4 pages next to the Markdown option.
 - **Agents that understand MarkView.** A second local MCP server, *markview*, tells Claude Code,
   Codex, Copilot and Cline what features, requirements, decisions, questions, bugs and prototypes
   are, how the work flows (branch, pull request, statuses), and lets them read the project and add to

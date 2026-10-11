@@ -43,6 +43,9 @@ struct PageCapture {
     var hasSelection: Bool
 }
 
+/// What "Save Page as…" writes.
+enum PageFormat: String { case markdown, pdf }
+
 /// What a preview tab shows while it looks for the project's web app.
 enum WebPreviewState: Equatable {
     case searching
@@ -86,6 +89,16 @@ final class BrowserSession: NSObject, ObservableObject {
     @Published var preview: WebPreviewState?
     /// "Save as Markdown" was asked for (toolbar or context menu); the tab view shows the sheet.
     @Published var saveRequest: PageCapture.Mode?
+    /// The format the sheet opens with; the sheet resets it to Markdown when it closes.
+    var saveFormat: PageFormat = .markdown
+    /// The last download of this tab, shown in a banner until dismissed.
+    @Published var download: BrowserDownload?
+    /// A submitted login form the person may save (or update), shown in a bar.
+    @Published var passwordPrompt: PasswordPrompt?
+    /// A login form is on the page and logins are saved for its site.
+    @Published private(set) var fillOffer: PasswordFillOffer?
+    private var downloadTargets: [ObjectIdentifier: URL] = [:]
+    private var promptTask: Task<Void, Never>?
     /// The terminal tab running the dev server this preview started, if any.
     var previewTerminalID: UUID?
     var startWebApp: ((WebAppTarget) -> Void)?
@@ -111,6 +124,7 @@ final class BrowserSession: NSObject, ObservableObject {
     private(set) lazy var webView: BrowserWebView = makeWebView()
     private var observations: [NSKeyValueObservation] = []
     private var failedURL: URL?
+    private var passwordHandler: BrowserPasswordHandler?
 
     /// The converter script, from the editor bundle (overridable for tests outside the app).
     static var captureScriptURL = Bundle.main.url(forResource: "markview-page-markdown", withExtension: "js",
@@ -139,12 +153,19 @@ final class BrowserSession: NSObject, ObservableObject {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         }
+        let passwords = BrowserPasswordHandler()
+        passwords.session = self
+        passwordHandler = passwords
+        configuration.userContentController.add(passwords, contentWorld: .defaultClient, name: BrowserPasswordScript.handlerName)
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: BrowserPasswordScript.source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         let view = BrowserWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.allowsMagnification = true
         view.saveMarkdown = { [weak self] mode in self?.onSaveMarkdown?(mode) }
+        view.savePDF = { [weak self] in self?.saveFormat = .pdf; self?.saveRequest = .page }
         observations = [
             view.observe(\.url, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { if let url = view.url { self?.url = url } }
@@ -279,6 +300,9 @@ final class BrowserSession: NSObject, ObservableObject {
     func close() {
         isClosed = true
         observations = []
+        promptTask?.cancel()
+        passwordPrompt = nil
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserPasswordScript.handlerName, contentWorld: .defaultClient)
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
     }
@@ -306,6 +330,11 @@ final class BrowserSession: NSObject, ObservableObject {
 extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        // A link with a `download` attribute (also a blob: or data: one) is a download, not a page.
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
         guard let url = navigationAction.request.url, let scheme = url.scheme?.lowercased() else {
             decisionHandler(.allow)
             return
@@ -321,7 +350,10 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
-        decisionHandler(navigationResponse.canShowMIMEType || !navigationResponse.isForMainFrame ? .allow : .download)
+        // A file the server sends as an attachment is saved even when the browser could show it.
+        let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+        let attachment = disposition.trimmingCharacters(in: .whitespaces).hasPrefix("attachment")
+        decisionHandler(attachment || !(navigationResponse.canShowMIMEType || !navigationResponse.isForMainFrame) ? .download : .allow)
     }
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
@@ -335,6 +367,7 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         loadError = nil
         failedURL = nil
+        fillOffer = nil
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -371,6 +404,10 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if navigationAction.shouldPerformDownload {
+            webView.startDownload(using: navigationAction.request) { [weak self] download in download.delegate = self }
+            return nil
+        }
         if let url = navigationAction.request.url {
             if let onOpenInNewTab { onOpenInNewTab(url) } else { load(url) }
         }
@@ -421,28 +458,85 @@ extension BrowserSession: WKDownloadDelegate {
                   suggestedFilename: String, completionHandler: @escaping @MainActor (URL?) -> Void) {
         let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        let name = (suggestedFilename as NSString).lastPathComponent
-        let base = (name as NSString).deletingPathExtension
-        let ext = (name as NSString).pathExtension
-        var target = folder.appendingPathComponent(name.isEmpty ? "download" : name)
-        var n = 2
-        while FileManager.default.fileExists(atPath: target.path) {
-            target = folder.appendingPathComponent(ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
-            n += 1
-        }
+        let target = BrowserDownloads.freeURL(in: folder, suggestedName: suggestedFilename) { FileManager.default.fileExists(atPath: $0.path) }
+        downloadTargets[ObjectIdentifier(download)] = target
+        self.download = .running(target.lastPathComponent)
         completionHandler(target)
     }
 
-    func downloadDidFinish(_ download: WKDownload) {}
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let target = downloadTargets.removeValue(forKey: ObjectIdentifier(download)) else { return }
+        self.download = .finished(target)
+    }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
-        loadError = "Download failed: \(error.localizedDescription)"
+        let name = downloadTargets.removeValue(forKey: ObjectIdentifier(download))?.lastPathComponent ?? "the file"
+        self.download = .failed("Could not download \(name): \(error.localizedDescription)")
+    }
+}
+
+// MARK: - Saved passwords
+
+extension BrowserSession {
+    /// The tab is driven by an agent (now or a moment ago): nothing is filled into its pages.
+    var agentBusy: Bool {
+        agentControlled || (agentLastUsed.map { Date().timeIntervalSince($0) < 120 } ?? false)
+    }
+
+    /// A login form was submitted on `host`: offer to save the password, or to update it.
+    func loginSubmitted(host: String, username: String, password: String) {
+        guard !password.isEmpty, !PasswordRules.neverHosts().contains(host) else { return }
+        let saved = BrowserPasswordStore.shared.password(host: host, username: username)
+        if saved == password { return }
+        passwordPrompt = PasswordPrompt(host: host, username: username, password: password, isUpdate: saved != nil)
+        promptTask?.cancel()
+        // The password is held only for a while; after that the offer is gone.
+        promptTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000_000)
+            if !Task.isCancelled { self?.passwordPrompt = nil }
+        }
+    }
+
+    func savePasswordPrompt() {
+        guard let prompt = passwordPrompt else { return }
+        BrowserPasswordStore.shared.save(host: prompt.host, username: prompt.username, password: prompt.password)
+        dismissPasswordPrompt()
+    }
+
+    func dismissPasswordPrompt(neverForSite: Bool = false) {
+        if neverForSite, let host = passwordPrompt?.host { PasswordRules.neverSave(host: host) }
+        promptTask?.cancel()
+        passwordPrompt = nil
+    }
+
+    /// The page shows (or no longer shows) a password field.
+    func loginFormChanged(host: String, present: Bool) {
+        guard present, !agentBusy, host == PasswordRules.host(of: webView.url) else { fillOffer = nil; return }
+        let usernames = BrowserPasswordStore.shared.all().filter { $0.host == host }.map(\.username)
+        fillOffer = usernames.isEmpty ? nil : PasswordFillOffer(host: host, usernames: usernames)
+    }
+
+    /// Fill the saved login of the page's site into its login form, on the person's request.
+    /// The logins are those of the exact host the page is on now.
+    @discardableResult
+    func fillPassword(username: String? = nil) async -> Bool {
+        guard !agentBusy, let url = webView.url, let scheme = url.scheme, let host = PasswordRules.host(of: url),
+              PasswordRules.isEligible(scheme: scheme, host: host) else { return false }
+        let logins = BrowserPasswordStore.shared.logins(for: host)
+        guard !logins.isEmpty else { return false }
+        let arguments: [String: Any] = ["logins": logins.map { ["username": $0.username, "password": $0.password] },
+                                        "username": username ?? ""]
+        let filled = try? await webView.callAsyncJavaScript(
+            "return window.__mvFill ? window.__mvFill(logins, username) : false;",
+            arguments: arguments, in: nil, contentWorld: .defaultClient)
+        return filled as? Bool ?? false
     }
 }
 
 /// The page's context menu gets "Save Selection / Page as Markdown".
 final class BrowserWebView: WKWebView {
     var saveMarkdown: ((PageCapture.Mode) -> Void)?
+    var savePDF: (() -> Void)?
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
@@ -453,6 +547,7 @@ final class BrowserWebView: WKWebView {
             items.append(menuItem("Save Selection as Markdown…", action: #selector(saveSelection)))
         }
         items.append(menuItem("Save Page as Markdown…", action: #selector(savePage)))
+        items.append(menuItem("Save Page as PDF…", action: #selector(savePageAsPDF)))
         items.append(.separator())
         for (index, item) in items.enumerated() { menu.insertItem(item, at: index) }
     }
@@ -465,4 +560,5 @@ final class BrowserWebView: WKWebView {
 
     @objc private func saveSelection() { saveMarkdown?(.selection) }
     @objc private func savePage() { saveMarkdown?(.page) }
+    @objc private func savePageAsPDF() { savePDF?() }
 }

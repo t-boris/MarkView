@@ -603,3 +603,10 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   tools vanished. The check here passed only because this machine's client behaved one way.
 - Rule: when a feature depends on a client's process model, add a path that does not (here: the app's socket +
   the agent's working folder), and give the user a one-command diagnosis to run on the machine you cannot see.
+
+## Never take a full-screen screenshot while checking a second app instance (2026-10-11)
+- To find out why clicks did not reach the test instance I ran `screencapture` of the whole screen; it captured the
+  person's other windows (calls, project documents, another browser's password page). I deleted it at once and did not
+  use it, but it should not have been taken.
+- Rule: capture only the test instance's window (`screencapture -l<window id>`); list windows by owner name and number
+  only (no screenshots) when something else may be in front.

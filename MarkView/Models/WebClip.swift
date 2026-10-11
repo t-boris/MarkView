@@ -24,9 +24,9 @@ enum WebClip {
     }
 
     /// `<date>-<slug>.md` from the page title (or its host when it has none).
-    static func fileName(title: String, url: URL?, date: String) -> String {
+    static func fileName(title: String, url: URL?, date: String, ext: String = "md") -> String {
         let name = title.isEmpty ? (url?.host ?? "page") : title
-        return "\(date)-\(ResearchDocument.slug(name)).md"
+        return "\(date)-\(ResearchDocument.slug(name)).\(ext)"
     }
 
     /// The title written into the document: the page's, else its host.
@@ -49,14 +49,15 @@ enum WebClip {
         return url
     }
 
-    /// A file name the user typed, made safe: no folders, `.md` added when missing.
-    static func sanitizedName(_ typed: String) -> String? {
+    /// A file name the user typed, made safe: no folders, `.md` (or `.pdf`) added when missing.
+    static func sanitizedName(_ typed: String, ext: String = "md") -> String? {
         var name = typed.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         while name.hasPrefix(".") { name.removeFirst() }
         guard !name.isEmpty else { return nil }
-        let ext = (name as NSString).pathExtension.lowercased()
-        if ext != "md" && ext != "markdown" { name += ".md" }
+        let given = (name as NSString).pathExtension.lowercased()
+        let accepted = ext == "md" ? given == "md" || given == "markdown" : given == ext
+        if !accepted { name += "." + ext }
         return name
     }
 

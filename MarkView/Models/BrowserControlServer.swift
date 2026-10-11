@@ -515,7 +515,7 @@ enum BrowserAgentExecutor {
 
         static let focusedValue = #"""
         const el = document.activeElement;
-        if (!el) return '';
+        if (!el || el.type === 'password') return '';
         return el.isContentEditable ? el.textContent : String(el.value ?? '');
         """#
 

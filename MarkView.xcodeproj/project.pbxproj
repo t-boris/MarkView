@@ -25,6 +25,7 @@
 		0D0E7699A94DA632F228BFC7 /* GitStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F51142258159DFBAE3D4E66 /* GitStatusModel.swift */; };
 		0D1620D4F638BFBE26F57280 /* IncrementalCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE23AFAF75C072899E5648F /* IncrementalCompiler.swift */; };
 		1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */; };
+		114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
 		154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */; };
@@ -71,6 +72,7 @@
 		4095BC8ADAD6AE04D6A7D406 /* XRayContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CB217F1317B780D7EE6C48 /* XRayContent.swift */; };
 		415531DA77449F4A0EFBA98F /* ProjectChangeReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49F34A3A95ECF49AFECC200E /* ProjectChangeReviewView.swift */; };
 		41F6147A4E26CBA53ECCF909 /* DeploymentPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 556AB9035BEE3C05957DCF70 /* DeploymentPrompt.swift */; };
+		4345AA82ADCF820AD138E290 /* BrowserPagePDF.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E83CEDED9E2C01ACB93A1FC /* BrowserPagePDF.swift */; };
 		436C087D720363F0E8146706 /* AIAssistants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F98342E7F3820A62C4E015 /* AIAssistants.swift */; };
 		4516FE66FBDB4C4DBB73DEF6 /* GitHubClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ABB6A927274482AD06DBCC /* GitHubClient.swift */; };
 		45E882A9EAE673E382F7EDC1 /* AICallLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4700050C38EAE4C47A81DF3 /* AICallLog.swift */; };
@@ -80,10 +82,12 @@
 		48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FB90DA3782A6E99BB4881B /* FileNode.swift */; };
 		49C2FB6AE1E125A5FAC4F5ED /* prism-bash.min.js in Resources */ = {isa = PBXBuildFile; fileRef = D02CB0618F58621DB3A2FC17 /* prism-bash.min.js */; };
 		49E9BFB3C3A7EBCD4FDDDC10 /* markview-data.js in Resources */ = {isa = PBXBuildFile; fileRef = 509C73ABFDAE9E3E388138C7 /* markview-data.js */; };
+		4AD85E6BE22486D88DBC235B /* BrowserPasswordsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12DA7BD1AEE0B21AE771C2E /* BrowserPasswordsView.swift */; };
 		4B1CC5B8D2EBA7F0ADEEFB47 /* prism-swift.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 629AC491A02BE9A042CEF3D2 /* prism-swift.min.js */; };
 		4B6563478345F3CDF9FCB956 /* DeploymentToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F1C10751459B0288159692 /* DeploymentToolRunner.swift */; };
 		4D5E9CBFD185E53AEC3A9A9E /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */; };
 		4DFE55644DF8A088AD8C6688 /* KaTeX_Typewriter-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = B50F42A001DDEAC85D1AF123 /* KaTeX_Typewriter-Regular.woff2 */; };
+		52D267AB5AD1B443C3C84F6A /* BrowserPasswordScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE52195632D08967C57105E7 /* BrowserPasswordScript.swift */; };
 		535F56C5E9AED7F130C90B75 /* markview-canvas.js in Resources */ = {isa = PBXBuildFile; fileRef = B5602C568336324C646AC72E /* markview-canvas.js */; };
 		555AB3A34426446C7A47E20D /* AgentUsageTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */; };
 		565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E3D6A8144A620B1B335381 /* DocumentState.swift */; };
@@ -222,6 +226,7 @@
 		DC10071CBEB69D6C12FD024C /* NewProjectFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */; };
 		DC1AFFCE9EA17F235032DE55 /* prism.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 75EAFF59D525BADEE5D10341 /* prism.min.js */; };
 		DC5FB06B941F2FAC5FE795D0 /* BUILD_NOTES.md in Resources */ = {isa = PBXBuildFile; fileRef = 6CB6E44E2302C6E3A8508397 /* BUILD_NOTES.md */; };
+		DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */; };
 		DE8C79F0949DBC49CE793975 /* CodeExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */; };
 		DE90B95905D50E8BE2A58C9B /* KaTeX_SansSerif-Italic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0BE4C0AC709F37DFC849F5F9 /* KaTeX_SansSerif-Italic.woff2 */; };
 		DF9A6736013C2EFD1144E302 /* markdown-it.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 795FD366C1490B12B6E18DD4 /* markdown-it.min.js */; };
@@ -267,6 +272,7 @@
 
 /* Begin PBXFileReference section */
 		0014EBC9E004A6161D90A834 /* HandoffPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffPrompt.swift; sourceTree = "<group>"; };
+		007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPasswords.swift; sourceTree = "<group>"; };
 		01DB1D3BC3146A00A3212838 /* GitHubPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubPublisher.swift; sourceTree = "<group>"; };
 		0283B26E80EA8FB9388E0688 /* IssueListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueListing.swift; sourceTree = "<group>"; };
 		0289B6B9616C87F5733E87D2 /* KaTeX_Main-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Bold.woff2"; sourceTree = "<group>"; };
@@ -324,6 +330,7 @@
 		3C5186158816AE816A500A12 /* ProviderHints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderHints.swift; sourceTree = "<group>"; };
 		3CF2A565576699E172D2ADE1 /* BrowserSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSession.swift; sourceTree = "<group>"; };
 		3E5D9ED683199ECEC005CAE0 /* KaTeX_AMS-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_AMS-Regular.woff2"; sourceTree = "<group>"; };
+		3E83CEDED9E2C01ACB93A1FC /* BrowserPagePDF.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPagePDF.swift; sourceTree = "<group>"; };
 		3EC21EE39789DDD494DEA451 /* prism-html.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-html.min.js"; sourceTree = "<group>"; };
 		3F66D5EF3E31CCC33D408BA1 /* XRayCluster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayCluster.swift; sourceTree = "<group>"; };
 		4033AD5C5A31B2C7D17C4334 /* markdown-it-task-lists.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it-task-lists.min.js"; sourceTree = "<group>"; };
@@ -460,6 +467,7 @@
 		C4673CD185F2FD3A78E989FE /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
 		C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeImages.swift; sourceTree = "<group>"; };
 		C6D644220A558FD0B83AD5F0 /* KaTeX_SansSerif-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Regular.woff2"; sourceTree = "<group>"; };
+		C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloads.swift; sourceTree = "<group>"; };
 		C810BDB58DAE8CE2BB086095 /* KaTeX_Caligraphic-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Caligraphic-Bold.woff2"; sourceTree = "<group>"; };
 		C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Script-Regular.woff2"; sourceTree = "<group>"; };
 		C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectFlow.swift; sourceTree = "<group>"; };
@@ -468,6 +476,7 @@
 		CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubStore.swift; sourceTree = "<group>"; };
 		CDFBAEE90C4DF2A5A9B2CC83 /* markview-insight-helpers.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-helpers.js"; sourceTree = "<group>"; };
 		CE1EF33F9C88742E6505EC25 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mermaid.min.js; sourceTree = "<group>"; };
+		CE52195632D08967C57105E7 /* BrowserPasswordScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPasswordScript.swift; sourceTree = "<group>"; };
 		CE99F8479F3F1684FB7DAB2A /* KaTeX_Size3-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Size3-Regular.woff2"; sourceTree = "<group>"; };
 		CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectSearch.swift; sourceTree = "<group>"; };
 		CF1ECD04117D7F7B9C3333EF /* MatrixTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixTheme.swift; sourceTree = "<group>"; };
@@ -511,6 +520,7 @@
 		F003E2548C1211EE5168696E /* KaTeX_Size2-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Size2-Regular.woff2"; sourceTree = "<group>"; };
 		F05A80044FC2B47870FD0C5A /* FeatureIngest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureIngest.swift; sourceTree = "<group>"; };
 		F0746BDFCEB6533D5705C4BC /* DiagnosticsBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsBarView.swift; sourceTree = "<group>"; };
+		F12DA7BD1AEE0B21AE771C2E /* BrowserPasswordsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPasswordsView.swift; sourceTree = "<group>"; };
 		F21E96FB5400057E1B7290BB /* MarkViewDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MarkViewDebug.entitlements; sourceTree = "<group>"; };
 		F43C1666D920639C5EE347C0 /* prism-diff-highlight.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "prism-diff-highlight.css"; sourceTree = "<group>"; };
 		F4700050C38EAE4C47A81DF3 /* AICallLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AICallLog.swift; sourceTree = "<group>"; };
@@ -600,6 +610,10 @@
 				1024FF456031B1D1BC834778 /* BookBuilder.swift */,
 				1E4DF51D68638A97BBFD2C28 /* BrowserAgentTools.swift */,
 				AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */,
+				C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */,
+				3E83CEDED9E2C01ACB93A1FC /* BrowserPagePDF.swift */,
+				007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */,
+				CE52195632D08967C57105E7 /* BrowserPasswordScript.swift */,
 				3CF2A565576699E172D2ADE1 /* BrowserSession.swift */,
 				208F3A1A41768480AD365DC2 /* BugBasket.swift */,
 				9C501ACCB7ED2B026E7B473E /* BugBatch.swift */,
@@ -715,6 +729,7 @@
 				2BB9D81DA338A806D3B356A8 /* AgentUsageViews.swift */,
 				45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */,
 				BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */,
+				F12DA7BD1AEE0B21AE771C2E /* BrowserPasswordsView.swift */,
 				E73E1ED4442620DF23B12D37 /* BrowserTabView.swift */,
 				477DD53694435ADC874CA1A0 /* BugBasketView.swift */,
 				EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */,
@@ -1094,6 +1109,11 @@
 				C437CB6464A6748152C17D72 /* BookBuilder.swift in Sources */,
 				3F86E0D206B89BE60050116B /* BrowserAgentTools.swift in Sources */,
 				909D6D522F19DECD394127BE /* BrowserControlServer.swift in Sources */,
+				DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */,
+				4345AA82ADCF820AD138E290 /* BrowserPagePDF.swift in Sources */,
+				52D267AB5AD1B443C3C84F6A /* BrowserPasswordScript.swift in Sources */,
+				114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */,
+				4AD85E6BE22486D88DBC235B /* BrowserPasswordsView.swift in Sources */,
 				232FD1AED8C125EA9BAEAB2A /* BrowserSession.swift in Sources */,
 				38AE3A92E9CFAFAFD37686A1 /* BrowserTabView.swift in Sources */,
 				8C30E46A7399E5C9B7C06CEF /* BugBasket.swift in Sources */,
@@ -1281,7 +1301,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.28.0;
+				CURRENT_PROJECT_VERSION = 4.29.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1296,7 +1316,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.28.0;
+				MARKETING_VERSION = 4.29.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1360,7 +1380,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.28.0;
+				CURRENT_PROJECT_VERSION = 4.29.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1381,7 +1401,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.28.0;
+				MARKETING_VERSION = 4.29.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

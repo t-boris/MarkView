@@ -107,6 +107,9 @@ check("folder without Markdown not offered", !folders.contains("notes-free"), "\
 check("file name", WebClip.fileName(title: "Vite: Getting Started!", url: nil, date: "2026-10-01") == "2026-10-01-vite-getting-started.md")
 check("file name from host", WebClip.fileName(title: "", url: URL(string: "http://localhost:5173/"), date: "2026-10-01") == "2026-10-01-localhost.md")
 check("sanitized name", WebClip.sanitizedName("../a/b") == "-a-b.md" && WebClip.sanitizedName("  ") == nil && WebClip.sanitizedName("x.md") == "x.md")
+check("sanitized pdf name", WebClip.sanitizedName("x", ext: "pdf") == "x.pdf" && WebClip.sanitizedName("x.PDF", ext: "pdf") == "x.PDF"
+      && WebClip.sanitizedName("x.md", ext: "pdf") == "x.md.pdf" && WebClip.sanitizedName("x.pdf") == "x.pdf.md")
+check("pdf file name", WebClip.fileName(title: "My Page", url: nil, date: "2026-10-11", ext: "pdf") == "2026-10-11-my-page.pdf")
 let taken: Set<String> = ["a.md", "a-2.md"]
 check("free name", WebClip.freeURL(in: tmp, name: "a.md") { taken.contains($0.lastPathComponent) }.lastPathComponent == "a-3.md")
 check("inside project", WebClip.isInside(tmp.appendingPathComponent("docs"), root: tmp) && !WebClip.isInside(tmp.deletingLastPathComponent(), root: tmp))
