@@ -145,28 +145,37 @@
                 changed.forEach(function(id) {
                     for (let n = byId.get(id); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
                 });
-                // Files the change adds are not in the X-Ray yet: draw them in their folder's component.
+                // Files the change adds are not in the X-Ray yet: draw them in their folder's component
+                // (or, without the logical view, in their nearest folder of the modules view).
                 const extra = [];
-                if (logical) {
-                    const assigned = function(path) {
-                        for (let folder = path.split('/').slice(0, -1).join('/'); ; folder = folder.split('/').slice(0, -1).join('/')) {
-                            const a = (snap.overrides || {})[folder] || ((snap.assignments || {})[folder] || {}).component;
-                            if (a) return a;
-                            if (!folder) return null;
-                        }
-                    };
-                    pr.files.forEach(function(f) {
-                        const id = prefix + f.path;
-                        if (byId.has(id)) return;
-                        const comp = assigned(f.path);
-                        const parent = comp && byId.has('l:c:' + comp) ? 'l:c:' + comp : 'l:';
-                        extra.push({ id: id, parent: parent, kind: 'file', name: f.path.split('/').pop(), path: f.path,
-                                     loc: f.deleted ? f.deletions : f.additions, files: 1,
-                                     summary: f.deleted ? 'Removed in this change' : 'New in this change' });
-                        for (let n = byId.get(parent); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
-                        keep.add(id);
-                    });
-                }
+                const assigned = function(path) {
+                    for (let folder = path.split('/').slice(0, -1).join('/'); ; folder = folder.split('/').slice(0, -1).join('/')) {
+                        const a = (snap.overrides || {})[folder] || ((snap.assignments || {})[folder] || {}).component;
+                        if (a) return a;
+                        if (!folder) return null;
+                    }
+                };
+                const parentFor = function(path) {
+                    if (logical) {
+                        const comp = assigned(path);
+                        return comp && byId.has('l:c:' + comp) ? 'l:c:' + comp : 'l:';
+                    }
+                    for (let folder = path.split('/').slice(0, -1).join('/'); folder; folder = folder.split('/').slice(0, -1).join('/')) {
+                        if (byId.has('m:' + folder)) return 'm:' + folder;
+                    }
+                    return 'm:';
+                };
+                pr.files.forEach(function(f) {
+                    const id = prefix + f.path;
+                    if (byId.has(id)) return;
+                    const parent = parentFor(f.path);
+                    if (!byId.has(parent)) return;
+                    extra.push({ id: id, parent: parent, kind: 'file', name: f.path.split('/').pop(), path: f.path,
+                                 loc: f.deleted ? f.deletions : f.additions, files: 1,
+                                 summary: f.deleted ? 'Removed in this change' : 'New in this change' });
+                    for (let n = byId.get(parent); n && !keep.has(n.id); n = n.parent != null ? byId.get(n.parent) : null) keep.add(n.id);
+                    keep.add(id);
+                });
                 const nodes = base.nodes.filter(function(n) { return keep.has(n.id); }).concat(extra);
                 const edges = base.edges.filter(function(e) { return keep.has(e.source) && keep.has(e.target) && changed.has(e.source) && changed.has(e.target); })
                     .concat(prDependencyEdges(prefix).filter(function(e) { return keep.has(e.source) && keep.has(e.target); }));

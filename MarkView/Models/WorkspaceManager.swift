@@ -1495,6 +1495,20 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    /// Compare this checkout with another branch in the PR X-Ray. `reverse` shows what `ref` has that this
+    /// branch lacks (read from `ref`, nothing is checked out); otherwise this branch's commits and uncommitted
+    /// changes against `ref`.
+    func compareBranch(_ ref: String, reverse: Bool) {
+        guard let root = rootNode?.url, GitClient.isPlausibleBranchName(ref) else { return }
+        let current = gitClient.branch.isEmpty ? "this checkout" : gitClient.branch
+        let title = reverse ? "\(ref) vs \(current): what \(ref) adds"
+                            : "\(current) vs \(ref) (commits + uncommitted)"
+        openXRayTab(scope: TabKind.pullRequestScope)
+        // No AI run until asked: Analyze and Review are buttons in the view.
+        architecture.showComparison(id: (reverse ? "rev:" : "cmp:") + ref, title: title, root: root, db: semanticDatabase)
+        architecture.refreshPRSources(root: root)
+    }
+
     /// X-Ray from the file tree. A folder gets its own X-Ray tab — its own structure,
     /// found and named inside it as if it were the project. A file opens with Explain
     /// (its sections, importance, freshness and filters).

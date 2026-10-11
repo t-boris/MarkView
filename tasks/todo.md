@@ -2592,3 +2592,11 @@ Feedback: "In Git → Changes I see main although I am not on main; the branch m
 - [x] The X-Ray source "All changes vs main" now names the current branch: "<branch>: all changes vs main (commits + uncommitted)". The comparison with the default branch is by design (what a PR from here would contain); only the labelling was ambiguous.
 - [x] Driven in a second instance: header `master` → `git checkout -b feat/demo-branch` in a shell → header followed; back to `master` → followed again, with the app left in front (no re-activation).
 - [ ] The X-Ray picker label was not looked at in the running app (build only).
+
+## Task 115 — Compare with any branch in the PR X-Ray (4.32.0)
+Request: "compare with branch" — choose the base, and the reverse comparison (what another branch adds), opened in the PR X-Ray.
+- [x] Branch menu (Git tab): **Compare This Branch With** → any local or remote branch (this checkout's commits and uncommitted changes against it); **Show What Another Branch Adds** → that branch's changes against this one, read from the branch (nothing is checked out; the file viewer shows the branch's version). Sources `cmp:<ref>` and `rev:<ref>` in `ArchitectureStore`, kept in the picker across refreshes; no AI run until Analyze / Review is pressed.
+- [x] The default source is labelled with the branch: "<branch>: all changes vs master (commits + uncommitted)".
+- [x] Files a change adds are now drawn in the PR X-Ray also when the project has no logical view (nearest folder of the modules view); before, they appeared only with the logical view, so a comparison with a branch that adds files looked empty.
+- [x] Driven in a second instance on a throwaway repo with three branches: both menus, both comparisons show the right files; the picker keeps the earlier comparison.
+- [ ] Not tried: remote branches in the menu, a very long branch list, Review/Analyze on a comparison, a detached HEAD.

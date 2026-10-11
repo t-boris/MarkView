@@ -605,6 +605,13 @@ struct GitBranchMenu: View {
                 }
             }
             Divider()
+            Menu("Compare This Branch With") {
+                compareList(reverse: false)
+            }
+            Menu("Show What Another Branch Adds") {
+                compareList(reverse: true)
+            }
+            Divider()
             Button("New Branch…") { creating = true }
         } label: {
             HStack(spacing: 3) {
@@ -630,6 +637,23 @@ struct GitBranchMenu: View {
 
     private func run(_ operation: @escaping () async -> String?) {
         Task { error = await operation() }
+    }
+
+    /// The other branches to compare with, local first, then remote ones (opened in the PR X-Ray).
+    @ViewBuilder
+    private func compareList(reverse: Bool) -> some View {
+        let others = git.localBranches.filter { $0 != git.branch }
+        ForEach(others, id: \.self) { name in
+            Button(name) { workspaceManager.compareBranch(name, reverse: reverse) }
+        }
+        if !git.remoteBranches.isEmpty {
+            Menu("Remote Branches") {
+                ForEach(git.remoteBranches, id: \.self) { name in
+                    Button(name) { workspaceManager.compareBranch(name, reverse: reverse) }
+                }
+            }
+        }
+        if others.isEmpty && git.remoteBranches.isEmpty { Text("No other branches") }
     }
 }
 
