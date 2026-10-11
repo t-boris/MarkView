@@ -9,6 +9,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/WebPreviewTests.swift "$out/main.swift"
 swiftc -O -o "$out/web-preview-tests" MarkView/Models/WebAppPreview.swift MarkView/Models/WebClip.swift \
-  MarkView/Models/BrowserSession.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/FrontMatter.swift MarkView/Models/ResearchDocument.swift \
+  MarkView/Models/BrowserSession.swift MarkView/Models/BrowserPasswords.swift MarkView/Models/BrowserPasswordScript.swift \
+  MarkView/Models/BrowserDownloads.swift MarkView/Models/BrowserPagePDF.swift MarkView/Models/TerminalBrowserBridge.swift MarkView/Models/FrontMatter.swift MarkView/Models/ResearchDocument.swift \
   "$out/main.swift"
 "$out/web-preview-tests"

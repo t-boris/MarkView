@@ -12,6 +12,7 @@ struct BrowserTabView: View {
     @FocusState private var addressFocused: Bool
     @State private var saved: URL?
     @State private var savedHideTask: Task<Void, Never>?
+    @State private var showPasswords = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,9 @@ struct BrowserTabView: View {
                 Divider().background(VSDark.border)
             }
             BrowserAgentBar(session: session)
+            if let prompt = session.passwordPrompt { passwordPromptBar(prompt) }
+            if let offer = session.fillOffer, session.passwordPrompt == nil { fillOfferBar(offer) }
+            if let download = session.download { downloadBanner(download) }
             if let saved { savedBanner(saved) }
             ZStack {
                 BrowserWebViewRepresentable(session: session)
@@ -47,12 +51,13 @@ struct BrowserTabView: View {
             if !addressFocused { address = url?.absoluteString ?? "" }
         }
         .sheet(item: Binding(get: { session.saveRequest.map(SaveRequest.init) },
-                             set: { session.saveRequest = $0?.mode })) { request in
-            SavePageMarkdownSheet(session: session, mode: request.mode,
+                             set: { session.saveRequest = $0?.mode; if $0 == nil { session.saveFormat = .markdown } })) { request in
+            SavePageMarkdownSheet(session: session, mode: request.mode, format: session.saveFormat,
                                   root: workspaceManager.rootNode?.url) { url in
                 didSave(url)
             }
         }
+        .sheet(isPresented: $showPasswords) { BrowserPasswordsSheet() }
     }
 
     private struct SaveRequest: Identifiable {
@@ -91,13 +96,29 @@ struct BrowserTabView: View {
             Menu {
                 Button("Save Selection as Markdown…") { session.saveRequest = .selection }
                 Button("Save Page as Markdown…") { session.saveRequest = .page }
+                Divider()
+                Button("Save Page as PDF…") { session.saveFormat = .pdf; session.saveRequest = .page }
             } label: {
                 Image(systemName: "square.and.arrow.down").uiFont(size: 12)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
             .disabled(session.url == nil)
-            .help("Save the selected text or the whole page as a Markdown document in the project")
+            .help("Save the selected text as Markdown, or the whole page as a Markdown document or a PDF")
+            Menu {
+                if let offer = session.fillOffer {
+                    ForEach(offer.usernames, id: \.self) { name in
+                        Button("Fill \(name.isEmpty ? "saved login" : name)") { Task { await session.fillPassword(username: name) } }
+                    }
+                    Divider()
+                }
+                Button("Saved Passwords…") { showPasswords = true }
+            } label: {
+                Image(systemName: session.fillOffer == nil ? "key" : "key.fill").uiFont(size: 12)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Saved passwords: fill a login form, manage logins, import them from Chrome")
             Button { renameTab() } label: {
                 Text(session.agentName).uiFont(size: 10, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 5).padding(.vertical, 2)
@@ -158,6 +179,76 @@ struct BrowserTabView: View {
         .accessibilityLabel(help)
     }
 
+    // MARK: - Password and download bars
+
+    private func passwordPromptBar(_ prompt: PasswordPrompt) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "key.fill").foregroundColor(VSDark.blue)
+            Text(prompt.isUpdate ? "Update the saved password for \(label(prompt))?" : "Save the password for \(label(prompt))?")
+                .uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            Button(prompt.isUpdate ? "Update" : "Save") { session.savePasswordPrompt() }
+            Button("Not now") { session.dismissPasswordPrompt() }
+            Button("Never for this site") { session.dismissPasswordPrompt(neverForSite: true) }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(VSDark.blue.opacity(0.12))
+    }
+
+    private func label(_ prompt: PasswordPrompt) -> String {
+        prompt.username.isEmpty ? prompt.host : "\(prompt.username) on \(prompt.host)"
+    }
+
+    private func fillOfferBar(_ offer: PasswordFillOffer) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "key.fill").foregroundColor(VSDark.blue)
+            Text("A saved login for \(offer.host) is available.").uiFont(size: 11).foregroundColor(VSDark.text)
+            Spacer()
+            if offer.usernames.count > 1 {
+                Menu("Fill…") {
+                    ForEach(offer.usernames, id: \.self) { name in
+                        Button(name.isEmpty ? "Saved login" : name) { Task { await session.fillPassword(username: name) } }
+                    }
+                }
+                .menuStyle(.borderlessButton).fixedSize()
+            } else {
+                Button("Fill") { Task { await session.fillPassword(username: offer.usernames.first) } }
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(VSDark.blue.opacity(0.12))
+    }
+
+    private func downloadBanner(_ download: BrowserDownload) -> some View {
+        HStack(spacing: 8) {
+            switch download {
+            case .running(let name):
+                ProgressView().controlSize(.small)
+                Text("Downloading \(name)…").uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(1).truncationMode(.middle)
+                Spacer()
+            case .finished(let url):
+                Image(systemName: "arrow.down.circle.fill").foregroundColor(VSDark.green)
+                Text("Downloaded \(url.lastPathComponent)").uiFont(size: 11).foregroundColor(VSDark.text)
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button("Open") { NSWorkspace.shared.open(url); session.download = nil }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(VSDark.orange)
+                Text(message).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
+                Spacer()
+            }
+            if case .running = download {} else {
+                Button { session.download = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(VSDark.bgActive)
+    }
+
     // MARK: - Saved banner
 
     private func didSave(_ url: URL) {
@@ -176,7 +267,10 @@ struct BrowserTabView: View {
             Text("Saved \(relativePath(url))").uiFont(size: 11).foregroundColor(VSDark.text)
                 .lineLimit(1).truncationMode(.middle)
             Spacer()
-            Button("Open") { workspaceManager.openFile(url); saved = nil }
+            Button("Open") {
+                if url.pathExtension.lowercased() == "pdf" { NSWorkspace.shared.open(url) } else { workspaceManager.openFile(url) }
+                saved = nil
+            }
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             Button { saved = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
         }
@@ -349,10 +443,12 @@ struct BrowserAgentBar: View {
     }
 }
 
-/// "Save as Markdown": the selection or the page, which folder of the project, and the file name.
+/// "Save Page": a Markdown document of the selection or the page, or a PDF of the page; which folder
+/// of the project, and the file name.
 struct SavePageMarkdownSheet: View {
     @ObservedObject var session: BrowserSession
     @State var mode: PageCapture.Mode
+    @State var format: PageFormat
     let root: URL?
     let onSaved: (URL) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -367,17 +463,29 @@ struct SavePageMarkdownSheet: View {
     @State private var nameEdited = false
     @State private var error: String?
     @State private var loading = true
+    @State private var saving = false
 
+    private var ext: String { format == .pdf ? "pdf" : "md" }
     private var capture: PageCapture? { mode == .selection ? selection : page }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Save as Markdown").uiFont(size: 14, weight: .semibold)
+            Text("Save Page").uiFont(size: 14, weight: .semibold)
+            Picker("Format", selection: $format) {
+                Text("Markdown").tag(PageFormat.markdown)
+                Text("PDF").tag(PageFormat.pdf)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: format) { new in
+                if new == .pdf { mode = .page }
+                switchExtension()
+            }
             Picker("Content", selection: $mode) {
                 Text("Selected text").tag(PageCapture.Mode.selection)
                 Text("Whole page").tag(PageCapture.Mode.page)
             }
             .pickerStyle(.segmented)
+            .disabled(format == .pdf)
             .onChange(of: mode) { _ in updateName() }
             HStack {
                 Text("Folder").frame(width: 70, alignment: .leading)
@@ -395,7 +503,7 @@ struct SavePageMarkdownSheet: View {
             }
             HStack {
                 Text("File name").frame(width: 70, alignment: .leading)
-                TextField("name.md", text: Binding(get: { fileName }, set: { name in
+                TextField(format == .pdf ? "name.pdf" : "name.md", text: Binding(get: { fileName }, set: { name in
                     // The field writes its value back when it gets focus; only a change is an edit.
                     guard name != fileName else { return }
                     fileName = name
@@ -407,6 +515,10 @@ struct SavePageMarkdownSheet: View {
             Group {
                 if loading {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 160)
+                } else if format == .pdf {
+                    Text("A PDF of the whole page as it is shown now, in A4 pages.")
+                        .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                        .frame(maxWidth: .infinity, minHeight: 160)
                 } else if let capture, !capture.markdown.isEmpty {
                     ScrollView {
                         Text(preview(capture.markdown))
@@ -428,12 +540,14 @@ struct SavePageMarkdownSheet: View {
                 Text(error).uiFont(size: 11).foregroundColor(VSDark.red)
             }
             HStack {
-                if let capture { Text("\(capture.markdown.count) characters").uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                if let capture, format == .markdown { Text("\(capture.markdown.count) characters").uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                if saving { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") { save() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(capture?.markdown.isEmpty != false || WebClip.sanitizedName(fileName) == nil)
+                    .disabled(saving || loading || WebClip.sanitizedName(fileName, ext: ext) == nil
+                              || (format == .markdown && capture?.markdown.isEmpty != false))
             }
         }
         .padding(18)
@@ -467,7 +581,14 @@ struct SavePageMarkdownSheet: View {
 
     private func updateName() {
         guard !nameEdited, let capture else { return }
-        fileName = WebClip.fileName(title: WebClip.title(of: capture), url: capture.url, date: FeatureStore.today)
+        fileName = WebClip.fileName(title: WebClip.title(of: capture), url: capture.url, date: FeatureStore.today, ext: ext)
+    }
+
+    /// The format changed: a generated name follows it, a typed name only swaps `.md` and `.pdf`.
+    private func switchExtension() {
+        if !nameEdited { updateName(); return }
+        let old = format == .pdf ? ".md" : ".pdf"
+        if fileName.lowercased().hasSuffix(old) { fileName = String(fileName.dropLast(old.count)) + "." + ext }
     }
 
     private func chooseFolder() {
@@ -488,21 +609,40 @@ struct SavePageMarkdownSheet: View {
     }
 
     private func save() {
-        guard let capture, let name = WebClip.sanitizedName(fileName) else { return }
+        guard let name = WebClip.sanitizedName(fileName, ext: ext) else { return }
         let target: URL
         if let otherFolder { target = otherFolder }
         else if let root { target = root.appendingPathComponent(folder, isDirectory: true) }
         else { return }
+        error = nil
+        if format == .pdf {
+            saving = true
+            Task { @MainActor in
+                defer { saving = false }
+                do {
+                    let data = try await session.pagePDF()
+                    try write(data, to: target, name: name)
+                } catch {
+                    self.error = "Could not save: \(error.localizedDescription)"
+                }
+            }
+            return
+        }
+        guard let capture else { return }
         let title = WebClip.title(of: capture)
         let text = WebClip.document(capture, mode: mode, title: title, date: FeatureStore.today)
         do {
-            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-            let url = WebClip.freeURL(in: target, name: name) { FileManager.default.fileExists(atPath: $0.path) }
-            try text.write(to: url, atomically: true, encoding: .utf8)
-            onSaved(url)
-            dismiss()
+            try write(Data(text.utf8), to: target, name: name)
         } catch {
             self.error = "Could not save: \(error.localizedDescription)"
         }
+    }
+
+    private func write(_ data: Data, to target: URL, name: String) throws {
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let url = WebClip.freeURL(in: target, name: name) { FileManager.default.fileExists(atPath: $0.path) }
+        try data.write(to: url, options: .atomic)
+        onSaved(url)
+        dismiss()
     }
 }
