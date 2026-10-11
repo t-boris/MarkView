@@ -503,7 +503,7 @@ flowchart LR
 - **Windows remember everything:** each window is its own project, and every window — its
   tabs, panels and size — comes back after a restart.
 - **Project colours** tell windows apart at a glance, even in Mission Control.
-- **Git** built in: branches, stage, commit, push, pull, diffs. **GitHub** (opt-in, via
+- **Git** built in: branches, stage, commit, push, pull, diffs. Right-click any file in the Git tab's Changes list to stage, unstage, commit just that file, discard, stop tracking, add to `.gitignore`, resolve a conflict or trash it. **GitHub** (opt-in, via
   `gh`): pull requests with review and merge, issues, Actions runs and logs with *Explain
   Failure*, notifications.
 - **New Project…** starts a project from an idea: the AI clarifies it, writes the first

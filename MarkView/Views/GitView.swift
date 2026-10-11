@@ -265,6 +265,7 @@ struct GitView: View {
             }
             .buttonStyle(.plain).padding(.horizontal, 10).padding(.top, 4)
             .help(help(for: group))
+            .contextMenu { groupMenu(group, list) }
             if group == .conflicts && !list.isEmpty {
                 HStack(spacing: 6) {
                     Button(action: { workspaceManager.resolveConflictsWithAI() }) {
@@ -282,6 +283,19 @@ struct GitView: View {
                     fileRow(entry, group: group).id(group.rawValue + ":" + entry.path)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func groupMenu(_ group: GitStatusGroup, _ list: [String]) -> some View {
+        switch group {
+        case .changes, .untracked:
+            Button("Stage All \(group.rawValue)") { git.stage(list) }
+            Button("Commit All \(group.rawValue)…") { commitPaths(list) }
+        case .staged:
+            Button("Unstage All") { git.unstage(list) }
+        default:
+            EmptyView()
         }
     }
 
@@ -367,6 +381,90 @@ struct GitView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 3)
         .background(selectedFile == selection ? VSDark.bgActive : Color.clear)
+        .contentShape(Rectangle())
+        .contextMenu { rowMenu(entry, group: group) }
+    }
+
+    // MARK: - Context menu
+
+    @ViewBuilder
+    private func rowMenu(_ entry: GitStatusEntry, group: GitStatusGroup) -> some View {
+        let path = entry.path
+        let isDirectory = entry.isDirectory
+        switch group {
+        case .untracked:
+            Button("Stage (Track)") { git.stage([path]) }
+            Button("Commit This \(isDirectory ? "Folder" : "File")…") { commitPaths([path]) }
+            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+        case .changes:
+            Button("Stage") { git.stage([path]) }
+            Button("Commit This File…") { commitPaths([path]) }
+            Button("Discard Changes", role: .destructive) { git.discardChanges(path) }
+            Divider()
+            Button("Stop Tracking (Keep File)") { git.untrack(path) }
+            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+        case .staged:
+            Button("Unstage") { git.unstage([path]) }
+            Button("Commit This File…") { commitPaths([path]) }
+            Divider()
+            Button("Stop Tracking (Keep File)") { git.untrack(path) }
+            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+        case .conflicts:
+            Button("Mark as Resolved (Stage)") { git.stage([path]) }
+            Button("Take Ours") { Task { await git.resolve(path, taking: "ours") } }
+            Button("Take Theirs") { Task { await git.resolve(path, taking: "theirs") } }
+        case .tracked:
+            Button("Stop Tracking (Keep File)") { git.untrack(path) }
+            Button("Add to .gitignore") { Task { await git.ignore(path, isDirectory: isDirectory) } }
+        case .ignored:
+            Text("Ignored by .gitignore")
+        }
+        Divider()
+        if !isDirectory && entry.state(in: group) != .deleted {
+            Button("Open") { openFile(path) }
+        }
+        Button("Show in Finder") {
+            if let root = git.workingDirectory { NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(path)]) }
+        }
+        Button("Copy Relative Path") { copy(path) }
+        Button("Copy Full Path") { if let root = git.workingDirectory { copy(root.appendingPathComponent(path).path) } }
+        if group == .untracked || group == .ignored {
+            Divider()
+            Button("Move to Trash", role: .destructive) { trash(path) }
+        }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func trash(_ path: String) {
+        guard let root = git.workingDirectory else { return }
+        do {
+            try FileManager.default.trashItem(at: root.appendingPathComponent(path), resultingItemURL: nil)
+        } catch {
+            git.lastError = "Couldn't move to the Trash: \(error.localizedDescription)"
+        }
+        Task { await git.refresh() }
+    }
+
+    /// Ask for a message, then stage and commit just these paths.
+    private func commitPaths(_ paths: [String]) {
+        let alert = NSAlert()
+        alert.messageText = "Commit \(paths.count == 1 ? paths[0] : "\(paths.count) paths")"
+        alert.informativeText = "Only this will be committed; other staged changes stay as they are."
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        input.placeholderString = "Commit message"
+        input.stringValue = commitMessage
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Commit")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = input
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let message = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        Task { _ = await git.commit(paths: paths, message: message) }
     }
 
     // MARK: - Diff

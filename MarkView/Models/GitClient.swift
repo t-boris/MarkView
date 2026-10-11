@@ -258,6 +258,72 @@ class GitClient: ObservableObject {
         return await run("git", "diff", "--cached", file, in: dir) ?? ""
     }
 
+    // MARK: - Actions on single paths (the Changes list's context menu)
+
+    func stage(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        mutate(["add", "--"] + paths, activity: "Staging…")
+    }
+
+    func unstage(_ paths: [String]) {
+        guard !paths.isEmpty else { return }
+        mutate(["reset", "-q", "HEAD", "--"] + paths, activity: "Unstaging…")
+    }
+
+    /// Stop tracking a file or folder but keep it on disk (`git rm --cached`).
+    func untrack(_ path: String) {
+        mutate(["rm", "-r", "--cached", "-q", "--", path], activity: "Untracking…")
+    }
+
+    /// Resolve a conflicted file by taking one side wholesale (`ours` or `theirs`), then stage it.
+    func resolve(_ path: String, taking side: String) async {
+        guard let dir = workingDirectory else { return }
+        lastError = nil
+        activity = "Taking \(side)…"
+        defer { activity = nil }
+        var result = await execute(["git", "checkout", "--\(side)", "--", path], in: dir)
+        if result.status == 0 { result = await execute(["git", "add", "--", path], in: dir) }
+        if result.status != 0 { lastError = Self.explain(result) }
+        await refreshStatus()
+        await refresh()
+    }
+
+    /// Commit only these paths (new files are added first); the message is kept by the caller on failure.
+    func commit(paths: [String], message: String) async -> Bool {
+        guard let dir = workingDirectory, !message.isEmpty, !paths.isEmpty else { return false }
+        isOperating = true
+        activity = "Committing (hooks may run)…"
+        lastError = nil
+        var result = await execute(["git", "add", "--"] + paths, in: dir)
+        if result.status == 0 { result = await execute(["git", "commit", "-m", message, "--"] + paths, in: dir) }
+        isOperating = false
+        activity = nil
+        await refresh()
+        if result.status != 0 { lastError = Self.explain(result) }
+        return result.status == 0
+    }
+
+    /// Append `/path` (or `/path/`) to the repository's `.gitignore`, once.
+    func ignore(_ path: String, isDirectory: Bool) async {
+        guard let dir = workingDirectory else { return }
+        let top = await run("git", "rev-parse", "--show-toplevel", in: dir)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let repo = URL(fileURLWithPath: top.isEmpty ? dir.path : top)
+        var clean = path
+        while clean.hasSuffix("/") { clean.removeLast() }
+        let entry = "/" + clean + (isDirectory ? "/" : "")
+        let file = repo.appendingPathComponent(".gitignore")
+        var text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        if !text.components(separatedBy: "\n").contains(where: { $0.trimmingCharacters(in: .whitespaces) == entry }) {
+            if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
+            text += entry + "\n"
+            do { try text.write(to: file, atomically: true, encoding: .utf8) } catch {
+                lastError = "Couldn't update .gitignore: \(error.localizedDescription)"
+                return
+            }
+        }
+        await refresh()
+    }
+
     func discardChanges(_ file: String) {
         guard let dir = workingDirectory else { return }
         mutate(["checkout", "--", file], activity: "Discarding changes…")
