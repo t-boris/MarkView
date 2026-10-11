@@ -2039,7 +2039,9 @@ final class ArchitectureStore: ObservableObject {
         Task {
             let repo = gitHubRepo
             let sources = await Task.detached { Self.listPRSources(root: root, repo: repo) }.value
-            prSources = sources
+            // Comparisons the person asked for (a branch against this one) are not in the list git builds.
+            let comparisons = prSources.filter { Self.comparison($0.id) != nil && !sources.contains($0) }
+            prSources = sources + comparisons
             revision += 1
             if selectDefaultSource {
                 selectDefaultSource = false
@@ -2134,7 +2136,43 @@ final class ArchitectureStore: ObservableObject {
         return process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
     }
 
+    /// A comparison the person chose: `cmp:<ref>` is this checkout (commits and uncommitted changes) against
+    /// `<ref>`; `rev:<ref>` is what `<ref>` has that this checkout does not, read without checking it out.
+    nonisolated static func comparison(_ id: String) -> (reverse: Bool, ref: String)? {
+        for (prefix, reverse) in [("cmp:", false), ("rev:", true)] where id.hasPrefix(prefix) {
+            let ref = String(id.dropFirst(prefix.count))
+            return ref.isEmpty || ref.hasPrefix("-") ? nil : (reverse, ref)
+        }
+        return nil
+    }
+
+    nonisolated private static func commit(of ref: String, root: URL) -> String? {
+        ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--verify", "--quiet", ref + "^{commit}"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func mergeBase(with ref: String, root: URL) -> String? {
+        guard commit(of: ref, root: root) != nil,
+              let base = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "merge-base", ref, "HEAD"])?
+                  .trimmingCharacters(in: .whitespacesAndNewlines), !base.isEmpty else { return nil }
+        return base
+    }
+
+    /// Show a branch comparison in the PR view; `title` is what the source picker shows.
+    func showComparison(id: String, title: String, root: URL, db: SemanticDatabase?) {
+        if !prSources.contains(where: { $0.id == id }) { prSources.append(PRSource(id: id, title: title)) }
+        showPR(id, root: root, db: db)
+    }
+
     nonisolated private static func diff(for source: PRSource, root: URL, repo: GitHubRepo?) -> String? {
+        if let chosen = comparison(source.id) {
+            guard let base = mergeBase(with: chosen.ref, root: root) else { return nil }
+            if chosen.reverse {
+                return ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", base, chosen.ref, "--no-color", "-U3"])
+            }
+            guard let tracked = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", base, "--no-color", "-U3"]) else { return nil }
+            return tracked + untrackedDiff(root: root)
+        }
         switch source.id {
         case "local":
             guard let base = baseBranch(root: root),
@@ -2359,8 +2397,16 @@ final class ArchitectureStore: ObservableObject {
         // A reload keeps the repository the pull request came from.
         let repo = prOverlay?.source.id == source.id && prRepo != nil ? prRepo : gitHubRepo
         let (diff, checkout, base) = await Task.detached { () -> (String?, PRCheckout?, String?) in
-            let checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo) : nil
-            let base = checkout?.mergeBase ?? (source.id == "local" ? Self.localMergeBase(root: root) : nil)
+            var checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo) : nil
+            var base = checkout?.mergeBase ?? (source.id == "local" ? Self.localMergeBase(root: root) : nil)
+            if let chosen = Self.comparison(source.id), let mergeBase = Self.mergeBase(with: chosen.ref, root: root) {
+                base = mergeBase
+                // Another branch's changes are read from that branch, not from the working copy.
+                if chosen.reverse, let head = Self.commit(of: chosen.ref, root: root) {
+                    let label = "branch-" + chosen.ref.map { $0.isLetter || $0.isNumber || $0 == "-" ? String($0) : "_" }.joined()
+                    checkout = PRCheckout(number: label, head: head, mergeBase: mergeBase)
+                }
+            }
             return (Self.diff(for: source, root: root, repo: repo), checkout, base)
         }.value
         guard let diff else {
