@@ -42,6 +42,14 @@ enum DeploymentAgentTools {
              ["environment": environment, "source": ["type": "string", "description": "A log source id from markview_deployments"],
               "lines": ["type": "integer", "description": "Keep the last N lines (default 200)"]],
              required: ["environment", "source"]),
+        tool("markview_deployments_db", "Look into a PostgreSQL database connected to an environment (see \"database\" lines in markview_deployments): action \"overview\" gives its size, connections and every table with estimated rows and size; \"table\" gives one table's columns, indexes, constraints and a few rows; \"query\" runs one SQL statement. A read (SELECT, WITH, SHOW, EXPLAIN) runs at once in a transaction the server keeps read-only, with a 20 s limit, and returns at most 500 rows: ask for counts and aggregates rather than whole tables. INSERT, UPDATE, DELETE, DDL and the like are shown to the person and run only if they approve; if they say no you must not try another way. You never see the connection password.",
+             ["environment": environment,
+              "database": ["type": "string", "description": "The database id from markview_deployments (optional when there is one)"],
+              "action": ["type": "string", "enum": ["overview", "table", "query"]],
+              "schema": ["type": "string", "description": "table: the schema (default public)"], "table": ["type": "string", "description": "table: the table name"],
+              "sql": ["type": "string", "description": "query: one statement"],
+              "purpose": ["type": "string", "description": "query: why, in a sentence; the person reads it if asked to approve"]],
+             required: ["environment", "action"]),
     ]
 
     static let names: Set<String> = Set(tools.map(\.name))

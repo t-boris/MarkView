@@ -28,6 +28,7 @@ enum ProviderHints {
         "supabase": Hint(tool: "supabase", install: "brew install supabase/tap/supabase", login: "supabase login"),
         "pscale": Hint(tool: "pscale", install: "brew install planetscale/tap/pscale", login: "pscale auth login"),
         "turso": Hint(tool: "turso", install: "brew install tursodatabase/tap/turso", login: "turso auth login"),
+        "psql": Hint(tool: "psql", install: "brew install libpq   (MarkView finds it without linking)", login: "(none)"),
         "docker": Hint(tool: "docker", install: "install Docker Desktop", login: "(none)")
     ]
 

@@ -141,7 +141,7 @@ check(neon?.checks.map(\.target).sorted() == ["ep-billowing-paper-as15eck5-poole
 check(neon?.checks.contains { $0.title.contains("(production)") } == true && neon?.checks.contains { $0.title.contains("(dev)") } == true, "labelled production and dev from the docs' lines")
 check(neon?.cloudCommands.contains { $0.command == "neonctl branches list --project-id flat-dawn-39185109" } == true, "the project id gives neonctl commands: \(neon?.cloudCommands.map(\.command) ?? [])")
 check(neon?.cloudCommands.allSatisfy { CommandPolicy.classify($0.command).isReadOnly } == true, "every Neon command is read-only")
-check(neon?.missing.joined().contains("never reads it") == true, "it says the connection URL is never read")
+check(neon?.missing.joined().contains("never shows or saves it") == true, "it says the connection URL is never shown or saved")
 check(!managed.flatMap { $0.evidence + $0.missing + $0.checks.map(\.target) }.joined().contains("SuperSecret") && !managed.contains { $0.evidence.joined().contains("ep-secret-host") }, ".env is never read")
 let servers = managed.filter { $0.kind == .ssh }
 check(servers.map(\.name).contains("Dev (Contabo)") && servers.map(\.name).contains("Production (Contabo)") && servers.allSatisfy { $0.host.isEmpty && !$0.missing.isEmpty }, "the hosting vendor and environments from the docs become servers still missing a host: \(servers.map(\.name))")

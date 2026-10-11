@@ -47,7 +47,7 @@ enum DeploymentPrompt {
         text += """
 
 
-        How: use the MarkView tools: markview_deployments_status to look now, markview_deployments_logs and markview_deployments_run to read more (read-only commands run at once; anything that changes something is shown to me in the app and runs only if I approve it). If this environment is a cloud service and you have tools for it (an MCP server such as Neon's, or its CLI), use them to read its state too. Answer plainly: what is wrong or fine, the evidence (numbers, log lines), and what you would do next. Do not change anything without asking me first, and never ask me for a password.
+        How: use the MarkView tools: markview_deployments_status to look now, markview_deployments_logs and markview_deployments_run to read more, and markview_deployments_db to look into a connected database (size, tables, rows, read-only SQL) (read-only commands run at once; anything that changes something is shown to me in the app and runs only if I approve it). If this environment is a cloud service and you have tools for it (an MCP server such as Neon's, or its CLI), use them to read its state too. Answer plainly: what is wrong or fine, the evidence (numbers, log lines), and what you would do next. Do not change anything without asking me first, and never ask me for a password.
         """
         return text
     }

@@ -182,7 +182,7 @@ enum DeploymentDiscovery {
     // MARK: managed services
 
     /// Cloud databases and caches: the hostnames they are reached at, which docs write down (the connection URL with its
-    /// password is a secret and is never read), their port, and the CLI that shows their state.
+    /// password is a secret: it is read only when the person connects the database), their port, and the CLI that shows their state.
     private static let managed: [(provider: String, title: String, host: String, port: Int, package: String)] = [
         ("neon", "Neon database", #"\bep-[a-z0-9-]+\.[a-z0-9.-]*neon\.tech\b"#, 5432, "@neondatabase/"),
         ("supabase", "Supabase database", #"\b(?:db\.[a-z0-9]+\.supabase\.co|[a-z0-9-]+\.pooler\.supabase\.com)\b"#, 5432, "@supabase/"),
@@ -231,7 +231,7 @@ enum DeploymentDiscovery {
             if hosts.isEmpty && packageHit == nil { continue }
             if let packageHit { s.evidence.append("`\(packageHit.0)`: depends on \(entry.package)…"); if hosts.isEmpty { s.confidence = 40; s.name = entry.title + " (library found)" } }
             s.cloudCommands = managedCommands(entry.provider, projectIDs: projectIDs.sorted())
-            s.missing = ["The connection URL (DATABASE_URL, with its password) is a secret: MarkView never reads it." + (hosts.isEmpty ? " No host is written in the docs: add one as a port check in Edit." : " The hosts above come from the docs; reachability is checked from this Mac.")]
+            s.missing = ["The connection URL (DATABASE_URL, with its password) is a secret: MarkView reads it only when you connect the database, from the .env file or the Keychain, and never shows or saves it." + (hosts.isEmpty ? " No host is written in the docs: add one as a port check in Edit." : " The hosts above come from the docs; reachability is checked from this Mac.")]
             if entry.provider == "neon" && projectIDs.isEmpty { s.missing.append("Neon project id not found in the docs: see the Neon console, or run `neonctl projects list`.") }
             out[entry.provider] = s
         }
@@ -243,6 +243,7 @@ enum DeploymentDiscovery {
         case "neon":
             var commands = [CloudCommand(id: "projects", title: "Projects", command: "neonctl projects list")]
             for id in projectIDs.prefix(2) {
+                commands.append(CloudCommand(id: "project-\(id)", title: "Project \(id): size and compute", command: "neonctl projects get \(id)"))
                 commands.append(CloudCommand(id: "branches-\(id)", title: "Branches of \(id)", command: "neonctl branches list --project-id \(id)"))
                 commands.append(CloudCommand(id: "operations-\(id)", title: "Recent operations of \(id)", command: "neonctl operations list --project-id \(id)"))
                 commands.append(CloudCommand(id: "databases-\(id)", title: "Databases of \(id)", command: "neonctl databases list --project-id \(id)"))

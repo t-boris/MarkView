@@ -22,8 +22,12 @@ struct DeploymentEnvironment: Codable, Identifiable, Equatable {
     var checks: [DeploymentCheck] = []
     var logSources: [LogSource] = []
     var notes = ""
+    /// Databases connected to this environment (nil in files written before they existed).
+    var databaseList: [DatabaseTarget]?
     /// Where in the project this was found ("`.github/workflows/deploy.yml`: host PROD_HOST").
     var evidence: [String] = []
+
+    var databases: [DatabaseTarget] { databaseList ?? [] }
 
     /// `user@host`, as ssh takes it.
     var destination: String { user.isEmpty ? host : "\(user)@\(host)" }
@@ -60,6 +64,19 @@ struct DeploymentEnvironment: Codable, Identifiable, Equatable {
         while existing.contains(candidate) { candidate = "\(base)-\(n)"; n += 1 }
         return candidate
     }
+}
+
+/// A database the person connected to an environment. It names where the URL is read from, never the URL itself.
+struct DatabaseTarget: Codable, Identifiable, Equatable {
+    enum Source: String, Codable { case envFile, keychain }
+
+    var id: String
+    var title: String
+    var source: Source
+    /// envFile: the file relative to the project folder (`.env`, `apps/api/.env.production`).
+    var file = ""
+    /// envFile: the variable (`DATABASE_URL`).
+    var key = ""
 }
 
 struct CloudCommand: Codable, Identifiable, Equatable {
