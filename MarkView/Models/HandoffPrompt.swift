@@ -23,8 +23,9 @@ enum HandoffPrompt {
     }
 
     /// Establish a goal using the command or task model of the receiving assistant.
-    static func feature(_ path: String, backend: GoalBackend) -> String {
-        let objective = "Implement what \(path) specifies. Read the whole folder first. Verify the implementation against the specification. \(featureRecords)"
+    static func feature(_ path: String, backend: GoalBackend, done: DefinitionOfDone? = nil) -> String {
+        var objective = "Implement what \(path) specifies. Read the whole folder first. Verify the implementation against the specification. \(featureRecords)"
+        if let text = done?.goalText(), !text.isEmpty { objective += " " + text }
         switch backend {
         case .claude, .codex: return "/goal \(objective)"
         case .copilot: return "/autopilot \(objective)"

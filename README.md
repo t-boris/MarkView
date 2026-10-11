@@ -503,6 +503,7 @@ flowchart LR
 - **Windows remember everything:** each window is its own project, and every window — its
   tabs, panels and size — comes back after a restart.
 - **Project colours** tell windows apart at a glance, even in Mission Control.
+- **A definition of done for Implement with AI.** Before a run you see what “done” means: a fresh branch from `origin/main`, feature records and GitHub issues kept current, everything committed, a pull request with green CI, tests run — and optionally merge, version bump, deploy, a MarkView browser check and a manual test list. Mark each item *Require*, *Ask me* or *Skip*, add your own, and save it as the project's default (`.dde/definition-of-done.json`, also in Settings). The assistant gets it with the goal and must show evidence for every required item.
 - **Git** built in: branches, stage, commit, push, pull, diffs. Right-click any file in the Git tab's Changes list to stage, unstage, commit just that file, discard, stop tracking, add to `.gitignore`, resolve a conflict or trash it. **GitHub** (opt-in, via
   `gh`): pull requests with review and merge, issues, Actions runs and logs with *Explain
   Failure*, notifications.

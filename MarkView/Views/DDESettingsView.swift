@@ -10,6 +10,7 @@ struct DDESettingsView: View {
     @AppStorage(ResearchSettings.timeoutKey) private var researchTimeout = ResearchSettings.defaultTimeoutMinutes
     @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
     @State private var showKey = false
+    @State private var showDone = false
     @State private var saved = false
     @State private var openaiStatus: KeyStatus = .unknown
 
@@ -194,6 +195,18 @@ struct DDESettingsView: View {
             }
 
             GitHubSettingsSection()
+
+            GroupBox("Implement with AI") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("What “done” means for an implementation goal: a fresh branch from origin/main, up-to-date records and GitHub issues, everything committed, a pull request with green CI, tests, deploy… Each item can be required, asked about or skipped; you can also change it just before a run.")
+                        .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Button("Definition of Done…") { showDone = true }
+                        .disabled(workspaceManager.projectFolder == nil)
+                        .help(workspaceManager.projectFolder == nil ? "Open a project folder first" : "Choose what the assistant must finish")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+            }
+            .sheet(isPresented: $showDone) { DefinitionOfDoneSheet(root: workspaceManager.projectFolder) }
 
             // Clear database
             GroupBox("Maintenance") {

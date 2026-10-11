@@ -273,6 +273,14 @@ struct ContentView: View {
         .sheet(isPresented: $workspaceManager.showPrototypeCreator) {
             PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $workspaceManager.showPrototypeCreator)
         }
+        .sheet(isPresented: Binding(get: { workspaceManager.doneRequest != nil },
+                                    set: { if !$0 { workspaceManager.doneRequest = nil } })) {
+            if let url = workspaceManager.doneRequest {
+                DefinitionOfDoneSheet(root: workspaceManager.projectFolder, feature: url) { done in
+                    workspaceManager.startImplementation(url, done: done)
+                }
+            }
+        }
         .sheet(isPresented: $workspaceManager.showGlobalSearch) {
             SharedSearchView()
                 .environmentObject(workspaceManager)
