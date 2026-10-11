@@ -7,5 +7,5 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/HandoffPromptTests.swift "$out/main.swift"
-swiftc -O -o "$out/handoff-prompt-tests" MarkView/Models/HandoffPrompt.swift "$out/main.swift"
+swiftc -O -o "$out/handoff-prompt-tests" MarkView/Models/HandoffPrompt.swift MarkView/Models/DefinitionOfDone.swift "$out/main.swift"
 "$out/handoff-prompt-tests"

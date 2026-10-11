@@ -402,6 +402,8 @@ class WorkspaceManager: ObservableObject {
     let gitHub = GitHubStore()
     /// Feature workspaces of the folder (docs/features/<slug>/…).
     let features = FeatureStore()
+    /// Implement with AI was asked for this document: the definition-of-done sheet is shown first.
+    @Published var doneRequest: URL?
     /// New Research jobs of this window: research, follow-ups and comments (docs/research/).
     let research = ResearchJobs()
     /// This window's bug basket for batch Fix with AI (issue #31); a new folder empties it.
@@ -4183,13 +4185,20 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Hand a document to the AI to implement, establishing a goal in the receiving assistant.
-    /// The feature is recorded as "implementation started" with the CLI that got it.
+    /// Implement with AI: in a project the person first sees the definition of done for this run (and may
+    /// change it); without a project folder the standard one is used at once.
     func implementWithAI(_ url: URL) {
+        if projectFolder != nil { doneRequest = url } else { startImplementation(url, done: .standard) }
+    }
+
+    /// Hand a document to the AI to implement, establishing a goal in the receiving assistant. The goal
+    /// carries the definition of done. The feature is recorded as "implementation started" with the CLI
+    /// that got it.
+    func startImplementation(_ url: URL, done: DefinitionOfDone) {
         let path = workspaceRelativePath(url)
         guard let session = sendToAssistant(submit: true, promptFor: { session in
             guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
-            return HandoffPrompt.feature(path, backend: backend)
+            return HandoffPrompt.feature(path, backend: backend, done: done)
         }) else { return }
         let target = url.standardizedFileURL.path
         guard let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
