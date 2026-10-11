@@ -145,9 +145,17 @@ class GitClient: ObservableObject {
         let statusArgs = ["git", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all", "--ignored=matching"]
         let parsed = GitRepoStatus.parse(await run(statusArgs, in: dir) ?? "")
         let changed = parsed != repoStatus
+        // The branch moved under us (an agent or a terminal switched it): the header, the branch lists and
+        // the log follow, not just the file rows.
+        let branchMoved = !repoStatus.head.isEmpty && !parsed.head.isEmpty && parsed.head != repoStatus.head
         if changed {
             repoStatus = parsed
             changedFiles = parsed.entries.compactMap(Self.changedFile)
+        }
+        if branchMoved {
+            branch = parsed.head == "(detached)" ? "HEAD" : parsed.head
+            onBranch?(branch)
+            Task { await refresh() }
         }
         let current = Self.operation(in: dir)
         if current != operationInProgress { operationInProgress = current }

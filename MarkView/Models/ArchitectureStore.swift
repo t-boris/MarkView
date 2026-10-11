@@ -2059,7 +2059,12 @@ final class ArchitectureStore: ObservableObject {
         // GitHub, fetched and read at its own head.
         var sources: [PRSource] = []
         if let base = baseBranch(root: root) {
-            sources.append(PRSource(id: "local", title: "All changes vs \(base.replacingOccurrences(of: "origin/", with: "")) (commits + uncommitted)"))
+            let current = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--abbrev-ref", "HEAD"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let baseName = base.replacingOccurrences(of: "origin/", with: "")
+            // Name both sides: this branch against the base it would be merged into.
+            let subject = current.isEmpty || current == "HEAD" ? "All changes" : "\(current): all changes"
+            sources.append(PRSource(id: "local", title: "\(subject) vs \(baseName) (commits + uncommitted)"))
         }
         // Every open pull request, then the 30 most recently merged or closed ones (two
         // queries: with one, old open ones fall outside the limit behind recent merges).
