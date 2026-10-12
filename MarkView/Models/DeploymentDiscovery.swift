@@ -420,7 +420,8 @@ enum DeploymentDiscovery {
         return byProject.sorted { $0.key < $1.key }.map { project, names in
             let flag = " --project \(project)"
             var s = DeploymentSuggestion(id: DeploymentEnvironment.slug("firebase-" + project), name: "Firebase \(project)", kind: .cloud, provider: "firebase", confidence: 80)
-            var commands: [(String, String, String)] = [("projects", "Projects", "firebase projects:list")]
+            // Only commands of this project: `projects:list` would show every project of the account.
+            var commands: [(String, String, String)] = []
             if config["hosting"] != nil {
                 commands.append(("sites", "Hosting sites", "firebase hosting:sites:list\(flag)"))
                 commands.append(("channels", "Hosting channels and the live version", "firebase hosting:channel:list\(flag)"))
