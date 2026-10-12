@@ -7,11 +7,16 @@ import Foundation
 // and file contents are never read into the text, because they can hold secrets.
 
 struct AgentActivity: Equatable {
-    enum State: Equatable { case working, idle }
+    enum State: Equatable { case working, idle, failing }
     var state: State
-    /// "Editing BrowserSession.swift", "Running xcodebuild", "Thinking", "Waiting for you".
+    /// What is happening now, in words: the agent's own last sentence of this turn ("Now building
+    /// the app"), else the tool it is using ("Editing BrowserSession.swift"). Never a bare "Thinking".
     var text: String
-    /// The session's own title ("Sign-in popups in the browser"), when the log has one.
+    /// The concrete tool call behind `text` ("Running xcodebuild"), when it differs.
+    var detail: String?
+    /// What it was asked to do: the last request typed to it, one line.
+    var task: String?
+    /// The session's own title, when the log has one.
     var topic: String?
 }
 
@@ -22,23 +27,75 @@ enum AgentActivityParser {
     // MARK: Claude Code
 
     static func claude(lines: [Data], now: Date = Date()) -> AgentActivity? {
-        var topic: String?
+        var topic: String?, task: String?
         var last: (kind: Kind, text: String, date: Date?)?
+        var narration: String?, latestNarration: String?, action: String?
+        var failed: Bool?, sawResult = false
         for line in lines.reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                   let type = object["type"] as? String else { continue }
-            if type == "ai-title", topic == nil, let title = object["aiTitle"] as? String, !title.isEmpty {
-                topic = clip(title, 60)
+            if type == "ai-title" {
+                if topic == nil, let title = object["aiTitle"] as? String, !title.isEmpty { topic = clip(title, 60) }
                 continue
             }
-            guard last == nil, type == "assistant" || type == "user",
-                  object["isSidechain"] as? Bool != true,
+            guard type == "assistant" || type == "user", object["isSidechain"] as? Bool != true,
                   let message = object["message"] as? [String: Any] else { continue }
-            last = classifyClaude(type: type, message: message, date: date(object["timestamp"]))
-            if topic != nil { break }
+            if last == nil { last = classifyClaude(type: type, message: message, date: date(object["timestamp"])) }
+            let blocks = message["content"] as? [[String: Any]] ?? []
+            if type == "user" {
+                if let result = blocks.first(where: { $0["type"] as? String == "tool_result" }) {
+                    sawResult = true
+                    if failed == nil { failed = result["is_error"] as? Bool ?? false }
+                }
+                if let prompt = userPrompt(message["content"]) { task = prompt; break }
+            } else {
+                if latestNarration == nil, let text = blocks.last(where: { $0["type"] as? String == "text" })?["text"] as? String,
+                   let sentence = firstSentence(text) {
+                    latestNarration = sentence
+                    if !sawResult { narration = sentence }
+                }
+                if action == nil, let use = blocks.last(where: { $0["type"] as? String == "tool_use" }) {
+                    action = describe(tool: use["name"] as? String ?? "", input: use["input"] as? [String: Any] ?? [:])
+                }
+            }
+        }
+        // The session's title sits before the prompt; keep looking for it.
+        if topic == nil {
+            for line in lines.reversed() {
+                if let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], object["type"] as? String == "ai-title",
+                   let title = object["aiTitle"] as? String, !title.isEmpty { topic = clip(title, 60); break }
+            }
         }
         guard let last else { return nil }
-        return finish(last, topic: topic, now: now)
+        // While a tool runs only a sentence said right before it describes it; between tools the turn's
+        // latest sentence still says what the work is.
+        let running = last.text.isEmpty ? false : true
+        return finish(last, narration: running ? narration : latestNarration, action: action, failed: failed == true,
+                      task: task, topic: topic, now: now)
+    }
+
+    /// The text of a request typed to the agent; nil for tool results, interruptions and the
+    /// system's own wrappers (`<system-reminder>`, `<command-name>`…).
+    private static func userPrompt(_ content: Any?) -> String? {
+        let text: String
+        if let string = content as? String { text = string }
+        else if let blocks = content as? [[String: Any]], !blocks.contains(where: { $0["type"] as? String == "tool_result" }) {
+            text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: " ")
+        } else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("<"), !trimmed.hasPrefix("["), !trimmed.hasPrefix("Caveat:") else { return nil }
+        return clip(trimmed, 90)
+    }
+
+    /// The first sentence of an assistant message, without markdown marks, at most 100 characters.
+    static func firstSentence(_ text: String) -> String? {
+        let plain = text.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !plain.isEmpty, !plain.hasPrefix("#"), !plain.hasPrefix("|"), !plain.hasPrefix("-") else { return nil }
+        var sentence = plain
+        if let end = plain.range(of: #"[.!?:](\s|$)"#, options: .regularExpression) { sentence = String(plain[..<end.lowerBound]) }
+        sentence = sentence.trimmingCharacters(in: .whitespaces)
+        return sentence.count < 4 ? nil : clip(sentence, 100)
     }
 
     private enum Kind { case working, idle }
@@ -46,22 +103,19 @@ enum AgentActivityParser {
     private static func classifyClaude(type: String, message: [String: Any], date: Date?) -> (kind: Kind, text: String, date: Date?)? {
         let content = message["content"]
         if type == "user" {
-            if let text = content as? String { return (text.hasPrefix("[Request interrupted") ? .idle : .working,
-                                                      text.hasPrefix("[Request interrupted") ? "Interrupted" : "Thinking", date) }
+            if let text = content as? String { return text.hasPrefix("[Request interrupted") ? (.idle, "Interrupted", date) : (.working, "", date) }
             guard let blocks = content as? [[String: Any]], let block = blocks.last else { return nil }
-            if block["type"] as? String == "tool_result" { return (.working, "Thinking", date) }
             let text = block["text"] as? String ?? ""
-            return text.hasPrefix("[Request interrupted") ? (.idle, "Interrupted", date) : (.working, "Thinking", date)
+            return text.hasPrefix("[Request interrupted") ? (.idle, "Interrupted", date) : (.working, "", date)
         }
         guard let blocks = content as? [[String: Any]], let block = blocks.last else { return nil }
         switch block["type"] as? String {
         case "tool_use":
             return (.working, describe(tool: block["name"] as? String ?? "", input: block["input"] as? [String: Any] ?? [:]), date)
         case "thinking":
-            return (.working, "Thinking", date)
+            return (.working, "", date)
         case "text":
-            let ended = message["stop_reason"] as? String == "end_turn"
-            return ended ? (.idle, "Waiting for you", date) : (.working, "Writing a reply", date)
+            return message["stop_reason"] as? String == "end_turn" ? (.idle, "Waiting for you", date) : (.working, "", date)
         default:
             return nil
         }
@@ -70,30 +124,34 @@ enum AgentActivityParser {
     // MARK: Codex
 
     static func codex(lines: [Data], now: Date = Date()) -> AgentActivity? {
+        var last: (kind: Kind, text: String, date: Date?)?
+        var narration: String?, task: String?
         for line in lines.reversed() {
             guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                   let type = object["type"] as? String,
                   let payload = object["payload"] as? [String: Any],
                   let kind = payload["type"] as? String else { continue }
             let stamp = date(object["timestamp"])
-            var found: (kind: Kind, text: String, date: Date?)?
-            switch (type, kind) {
-            case ("event_msg", "task_complete"), ("event_msg", "turn_aborted"):
-                found = (.idle, kind == "task_complete" ? "Waiting for you" : "Interrupted", stamp)
-            case ("event_msg", "task_started"), ("event_msg", "user_message"):
-                found = (.working, "Thinking", stamp)
-            case ("response_item", "function_call"), ("response_item", "local_shell_call"):
-                found = (.working, "Running a command", stamp)
-            case ("response_item", "reasoning"), ("response_item", "function_call_output"):
-                found = (.working, "Thinking", stamp)
-            case ("response_item", "message"):
-                found = (.working, "Writing a reply", stamp)
-            default:
-                continue
+            if last == nil {
+                switch (type, kind) {
+                case ("event_msg", "task_complete"): last = (.idle, "Waiting for you", stamp)
+                case ("event_msg", "turn_aborted"): last = (.idle, "Interrupted", stamp)
+                case ("response_item", "function_call"), ("response_item", "local_shell_call"): last = (.working, "Running a command", stamp)
+                case ("event_msg", "task_started"), ("event_msg", "user_message"), ("response_item", "reasoning"),
+                     ("response_item", "function_call_output"), ("response_item", "message"): last = (.working, "", stamp)
+                default: break
+                }
             }
-            return found.flatMap { finish($0, topic: nil, now: now) }
+            if type == "event_msg", kind == "user_message" {
+                if let text = (payload["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { task = clip(text, 90) }
+                break
+            }
+            if narration == nil, type == "response_item", kind == "message", payload["role"] as? String == "assistant",
+               let parts = payload["content"] as? [[String: Any]],
+               let text = parts.compactMap({ $0["text"] as? String }).last, let sentence = firstSentence(text) { narration = sentence }
         }
-        return nil
+        guard let last else { return nil }
+        return finish(last, narration: narration, action: nil, failed: false, task: task, topic: nil, now: now)
     }
 
     // MARK: Text
@@ -134,6 +192,9 @@ enum AgentActivityParser {
         }
     }
 
+    private static let subcommandPrograms: Set<String> = ["git", "npm", "pnpm", "yarn", "firebase", "vercel", "fly", "docker",
+                                                          "cargo", "brew", "swift", "make", "xcodegen", "kubectl", "terraform"]
+
     /// The program of a shell command: its name only, after any `VAR=value` prefixes and `cd x &&`.
     static func program(of command: String?) -> String? {
         guard let text = command?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
@@ -143,17 +204,31 @@ enum AgentActivityParser {
             let words = segment.split(separator: " ").filter { !$0.contains("=") }
             guard let first = words.first, first != "cd", first != "export", first != "set" else { continue }
             let name = (String(first) as NSString).lastPathComponent
-            return name.range(of: "^[A-Za-z0-9_.+-]{1,32}$", options: .regularExpression) != nil ? name : nil
+            guard name.range(of: "^[A-Za-z0-9_.+-]{1,32}$", options: .regularExpression) != nil else { return nil }
+            // "git push", "gh pr merge": the subcommand says what is being done; arguments never shown.
+            let depth = name == "gh" ? 2 : subcommandPrograms.contains(name) ? 1 : 0
+            var parts = [name]
+            for word in words.dropFirst().prefix(depth) {
+                guard word.range(of: "^[a-z][a-z:-]{1,24}$", options: .regularExpression) != nil else { break }
+                parts.append(String(word))
+            }
+            return parts.joined(separator: " ")
         }
         return nil
     }
 
-    private static func finish(_ found: (kind: Kind, text: String, date: Date?), topic: String?, now: Date) -> AgentActivity {
+    private static func finish(_ found: (kind: Kind, text: String, date: Date?), narration: String?, action: String?,
+                                failed: Bool, task: String?, topic: String?, now: Date) -> AgentActivity {
         if found.kind == .working, let date = found.date, now.timeIntervalSince(date) > staleAfter {
-            let minutes = Int(now.timeIntervalSince(date) / 60)
-            return AgentActivity(state: .idle, text: "No activity for \(minutes) min", topic: topic)
+            return AgentActivity(state: .idle, text: "No activity for \(Int(now.timeIntervalSince(date) / 60)) min", detail: nil, task: task, topic: topic)
         }
-        return AgentActivity(state: found.kind == .working ? .working : .idle, text: found.text, topic: topic)
+        if found.kind == .idle { return AgentActivity(state: .idle, text: found.text, detail: nil, task: task, topic: topic) }
+        // A tool is running: its phrase. Between tools: the agent's own words, else what it just did.
+        let tool = found.text.isEmpty ? nil : found.text
+        var text = narration ?? tool ?? action.map { "After: " + $0 } ?? "Starting on the request"
+        if failed { text = "Last step failed · " + text }
+        return AgentActivity(state: failed ? .failing : .working, text: text, detail: narration != nil ? (tool ?? action) : nil,
+                             task: task, topic: topic)
     }
 
     private static func clip(_ text: String, _ length: Int) -> String {

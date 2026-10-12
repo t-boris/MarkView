@@ -41,14 +41,14 @@ final class AgentActivityMonitor: ObservableObject {
     /// What the toolbar shows: the active terminal's assistant, or the first working one.
     var headline: Entry? {
         let active = activeTerminalID()
-        return entries.first { $0.activity.state == .working && $0.id == active }
-            ?? entries.first { $0.activity.state == .working }
+        return entries.first { $0.activity.state != .idle && $0.id == active }
+            ?? entries.first { $0.activity.state != .idle }
             ?? entries.first { $0.id == active } ?? entries.first
     }
 
     /// Working assistants other than the headline.
     var othersWorking: Int {
-        entries.filter { $0.activity.state == .working && $0.id != headline?.id }.count
+        entries.filter { $0.activity.state != .idle && $0.id != headline?.id }.count
     }
 
     private func tick() {

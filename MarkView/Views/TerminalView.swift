@@ -137,6 +137,7 @@ struct AITerminalPanel: View {
             let compact = geometry.size.width < 420 * max(1, fontScale)
             VStack(spacing: 0) {
                 tabBar(compact: compact)
+                AgentActivityBanner(monitor: workspaceManager.agentActivity, terminalID: workspaceManager.aiTerminal?.id)
                 Divider().background(VSDark.border)
                 if let session = workspaceManager.aiTerminal {
                     HStack(spacing: 7) {
@@ -195,6 +196,7 @@ struct AITerminalPanel: View {
                 HStack(spacing: 2) {
                     ForEach(workspaceManager.aiTerminals) { session in
                         TerminalPanelTab(session: session,
+                                         monitor: workspaceManager.agentActivity,
                                          compact: compact,
                                          isActive: session.id == workspaceManager.aiTerminal?.id,
                                          select: { workspaceManager.activeAITerminalID = session.id },
@@ -255,6 +257,7 @@ struct AITerminalPanel: View {
 /// One terminal in the AI panel's tab bar.
 private struct TerminalPanelTab: View {
     @ObservedObject var session: TerminalSession
+    let monitor: AgentActivityMonitor
     let compact: Bool
     let isActive: Bool
     let select: () -> Void
@@ -270,6 +273,8 @@ private struct TerminalPanelTab: View {
                 .help(session.title)
             if !session.isRunning {
                 Circle().fill(VSDark.textDim).frame(width: 5, height: 5).help("Exited")
+            } else {
+                AgentTabDot(monitor: monitor, terminalID: session.id)
             }
             Button(action: close) {
                 Image(systemName: "xmark").uiFont(size: 8, weight: .bold)

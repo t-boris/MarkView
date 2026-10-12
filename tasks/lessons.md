@@ -610,3 +610,8 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
   use it, but it should not have been taken.
 - Rule: capture only the test instance's window (`screencapture -l<window id>`); list windows by owner name and number
   only (no screenshots) when something else may be in front.
+
+## A status must say what and why, and sit on the thing it describes (2026-10-12)
+- The AI-activity chip (4.38.0) showed "Thinking" and appeared once in the toolbar for a window with several agent tabs. Boris: "Thinking" means nothing; each tab needs its own status; show the task and what is being done.
+- Rule: a status text names the task and the concrete step (the agent's own last sentence, else the tool and its target); a bare state word ("Thinking", "Working") is never enough. A status for several items (tabs, files, jobs) belongs on each item, with the toolbar only summarising.
+- Check a new indicator against the multi-item case (two tabs, two windows) before calling it done, not only the single-item one.

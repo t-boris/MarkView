@@ -2663,3 +2663,10 @@ Request: measure how long CI runs and how long we wait for it; record the AI's C
 - [x] `LifecycleCICapture`: from `gh run list --commit <sha> --json …` the first request/start and one event per re-run attempt; `LifecycleGitHub.heads` gives each PR's last commit (GraphQL `oid`); `GitHubClient.ciRuns`; `FeatureStore.syncLifecycle` records them (PR path until CI passed is recorded, and commits merged to main).
 - [x] `LifecycleCI`: queue wait, CI time until green, re-runs; shown in the per-feature durations and as a CI block in the cycle-time summary. Tests in `lifecycle-tests.sh` (71 checks).
 - [ ] No hook: a re-run is seen when GitHub shows attempt > 1, so its request time is unknown (no queue time for re-runs); time lost on failed attempts is inside "CI time until green", not split out. Not run against a live GitHub repository.
+
+## Task 125 — AI status: per tab, and meaningful (4.40.0)
+Feedback on 4.38.0: the chip said "Thinking" (empty) and showed once in the toolbar, not per tab; wants the task and what is being done.
+- [x] Text: the agent's own last sentence of the turn (between tools) or a sentence said just before the running tool, else the tool and its target ("Running gh pr merge", "Editing X.swift"); "Last step failed · …" when the last tool result was an error (red dot); `task` is the last request typed to the agent; the tooltip adds the step and the session title. Codex: task from `user_message`, sentence from its last assistant message.
+- [x] UI: a status dot on every terminal tab (tooltip with the full account), a banner under the tab bar for the shown terminal (now + task), the toolbar chip keeps the headline and "+N".
+- [x] Tests (`agent-activity-tests.sh`) extended; second instance showed the tab dot and the banner on live data.
+- [ ] Two terminals in the same folder read the same (newest) session log, so they show the same status; terminals in different folders or worktrees are exact.
