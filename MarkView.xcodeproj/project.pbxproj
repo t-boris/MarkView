@@ -148,6 +148,7 @@
 		83916360DABE7547F3F6D441 /* ProjectSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */; };
 		83B0C087FC9FE19D379FA53E /* CLICompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8617D6996AEA0B711F366A7C /* CLICompletion.swift */; };
 		8509AB727B59B4DD5CD83A56 /* XRayCluster.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F66D5EF3E31CCC33D408BA1 /* XRayCluster.swift */; };
+		8517D595DFA05B01778DC95A /* BrowserPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA5359172A93CF061733031F /* BrowserPopup.swift */; };
 		869E202AE0802E01AC59477D /* PrototypeImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */; };
 		871E76F5861DBF78E9904804 /* markview-d3-mermaid.js in Resources */ = {isa = PBXBuildFile; fileRef = A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */; };
 		8A57F974EAA1485CCD758868 /* InsightCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4673CD185F2FD3A78E989FE /* InsightCache.swift */; };
@@ -517,6 +518,7 @@
 		E802C0AB5CDA33CD9676A804 /* CodeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeNavigation.swift; sourceTree = "<group>"; };
 		E8354BE838C8A78ED8B8E305 /* js-yaml.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "js-yaml.min.js"; sourceTree = "<group>"; };
 		EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentsPanelView.swift; sourceTree = "<group>"; };
+		EA5359172A93CF061733031F /* BrowserPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopup.swift; sourceTree = "<group>"; };
 		EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Regular.woff2"; sourceTree = "<group>"; };
 		EC54928AB02E62BBA0C8C709 /* KaTeX_Main-Italic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Italic.woff2"; sourceTree = "<group>"; };
@@ -740,6 +742,7 @@
 				45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */,
 				BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */,
 				F12DA7BD1AEE0B21AE771C2E /* BrowserPasswordsView.swift */,
+				EA5359172A93CF061733031F /* BrowserPopup.swift */,
 				E73E1ED4442620DF23B12D37 /* BrowserTabView.swift */,
 				477DD53694435ADC874CA1A0 /* BugBasketView.swift */,
 				04EA701D2CEB5F5976D2E382 /* CloudServicesView.swift */,
@@ -1126,6 +1129,7 @@
 				52D267AB5AD1B443C3C84F6A /* BrowserPasswordScript.swift in Sources */,
 				114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */,
 				4AD85E6BE22486D88DBC235B /* BrowserPasswordsView.swift in Sources */,
+				8517D595DFA05B01778DC95A /* BrowserPopup.swift in Sources */,
 				232FD1AED8C125EA9BAEAB2A /* BrowserSession.swift in Sources */,
 				38AE3A92E9CFAFAFD37686A1 /* BrowserTabView.swift in Sources */,
 				8C30E46A7399E5C9B7C06CEF /* BugBasket.swift in Sources */,
@@ -1317,7 +1321,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.36.0;
+				CURRENT_PROJECT_VERSION = 4.37.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1332,7 +1336,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.36.0;
+				MARKETING_VERSION = 4.37.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1396,7 +1400,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.36.0;
+				CURRENT_PROJECT_VERSION = 4.37.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1417,7 +1421,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.36.0;
+				MARKETING_VERSION = 4.37.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

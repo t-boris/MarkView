@@ -2643,3 +2643,9 @@ Request: could not edit `.gitignore` or any non-Markdown file, only read it. Dec
 - [x] `markview-code.js`: the Edit / Done button (not for Markdown notes view), changes posted as `contentChanged`, a new file always opens read-only, editing closes the margin notes (their lines no longer match). `index.html`: button style.
 - [x] Driven in a second instance on a throwaway folder: `.gitignore` opened, Edit → text typed (dot on the tab, file on disk unchanged) → ⌘S (file on disk has the line, git shows it modified) → Done → typing is refused again.
 - [ ] Not tried: a very large file, undo after ⌘S, a file changed on disk while it has unsaved edits (the existing open-file watcher decides), Explain after an edit (notes stay closed until the file is reopened).
+
+## Task 122 — Sign-in popups in the browser (4.37.0)
+Request: sign-in in the Astro Web project does nothing in MarkView's browser but works in Chrome.
+- [x] Cause: the site signs in with Firebase `signInWithPopup`; `BrowserSession.createWebViewWith` returned nil, so `window.open` returned null (blocked popup, and the site swallows the error). Confirmed on a bare WKWebView. The web view's User-Agent also lacked `Safari`, which Google may refuse.
+- [x] `BrowserPopup` (new): a `window.open` with a size becomes a small window using WebKit's own configuration, so `window.opener`, `postMessage` and `window.close()` work; links with `target=_blank` stay new tabs. User-Agent now names Safari. Test: `tools/tests/browser-popup-tests.sh`.
+- [ ] Not tried: a real Google sign-in (needs the person's account); saved-password fill inside the popup window.
