@@ -2635,3 +2635,11 @@ Request: in the Firebase place, functions and hosting were raw CLI text: no way 
 - [x] Run against the real astroweb project through the app's own executor: 1 hosting channel, 52 functions, a function's log command exits 0. Fly and Vercel shapes were checked on the person's accounts (structure only). Tests: `cloud-services-tests.sh`.
 - [ ] The card itself was not looked at in a running window (driving a second instance failed: it restored other projects' windows and lost focus); layout is built and compiled only.
 - [ ] Not done: Fly/Vercel rows were not run through the app; a function's health (errors in recent logs) was left out on request; other providers (Netlify, Render, AWS…) show raw text as before.
+
+## Task 121 — Edit source files (4.36.0)
+Request: could not edit `.gitignore` or any non-Markdown file, only read it. Decisions: an **Edit** button (files open read-only as before), for all code and text files (tables, databases and logs keep their viewers).
+- [x] Cause: the code viewer (`codemirror-entry.js`) was built read-only (`EditorState.readOnly`, `editable(false)`); the rest of the path (`contentChanged` → tab content → modified dot → ⌘S `saveFile`) already worked for every file-backed tab.
+- [x] `codemirror-entry.js`: editing in a compartment (`setEditable`, `onChange`, `getDoc`), history (undo/redo) and Tab indent; `codemirror.bundle.js` rebuilt (only that bundle; `build.sh` stops later at `data-entry.js` because `yaml` is not installed in `tools/web-vendor/node_modules`, which was already so).
+- [x] `markview-code.js`: the Edit / Done button (not for Markdown notes view), changes posted as `contentChanged`, a new file always opens read-only, editing closes the margin notes (their lines no longer match). `index.html`: button style.
+- [x] Driven in a second instance on a throwaway folder: `.gitignore` opened, Edit → text typed (dot on the tab, file on disk unchanged) → ⌘S (file on disk has the line, git shows it modified) → Done → typing is refused again.
+- [ ] Not tried: a very large file, undo after ⌘S, a file changed on disk while it has unsaved edits (the existing open-file watcher decides), Explain after an edit (notes stay closed until the file is reopened).
