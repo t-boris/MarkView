@@ -22,7 +22,8 @@ func event(_ stage: LifecycleStage, _ offset: TimeInterval, feature: String = "f
 }
 
 // Stages and steps
-expect(LifecycleStage.allCases.count, 9, "nine canonical stages")
+expect(LifecycleStage.allCases.count, 11, "nine canonical stages and two CI details")
+expect(LifecycleStage.chain.count, 9, "CI details are outside the chain of steps")
 expect(LifecycleStage.manual, [.implementationStarted, .implementationFinished, .reviewDone, .ciPassed, .mergedToMain, .verified],
        "six manual stages")
 expect(LifecycleStep.all.count, 8, "eight adjacent steps")
@@ -140,6 +141,44 @@ expect(captures, [
 ], "PR opened, approved, CI green, merged into main; closed-unmerged and other-branch merges ignored")
 expect(LifecycleGitHub.captures(from: Data("{\"errors\":[]}".utf8)), [], "error answer gives nothing")
 expect(LifecycleGitHub.query(numbers: [5, 14]).contains("n14: issueOrPullRequest(number: 14)"), true, "query per number")
+
+// CI: request, start and re-runs of one commit's Actions runs
+let runs = """
+[{"databaseId":11,"createdAt":"2026-09-20T10:00:00Z","startedAt":"2026-09-20T10:03:00Z","updatedAt":"2026-09-20T10:20:00Z","status":"completed","conclusion":"success","attempt":1},
+ {"databaseId":12,"createdAt":"2026-09-20T10:00:05Z","startedAt":"2026-09-20T10:01:00Z","updatedAt":"2026-09-20T10:30:00Z","status":"completed","conclusion":"success","attempt":3}]
+"""
+let ci = LifecycleCICapture.captures(runsJSON: Data(runs.utf8), note: "PR #12")
+expect(ci.filter { $0.stage == .ciRequested && $0.note == "PR #12" }.map(\.date), [at("2026-09-20T10:00:00Z")], "first request is the earliest first-attempt run")
+expect(ci.filter { $0.stage == .ciStarted }.map(\.date), [at("2026-09-20T10:03:00Z")], "start is the earliest first attempt (a re-run has no known queue time)")
+expect(ci.filter { $0.note.contains(LifecycleCI.rerunMarker) }.map(\.note),
+       ["PR #12 · re-run 2 of run 12", "PR #12 · re-run 3 of run 12"], "attempts 2 and 3 are re-runs")
+expect(LifecycleCICapture.captures(runsJSON: Data("[]".utf8), note: "x"), [], "no runs, nothing")
+expect(LifecycleCICapture.captures(runsJSON: Data("garbage".utf8), note: "x"), [], "garbage, nothing")
+let onlyRerun = #"[{"databaseId":5,"createdAt":"2026-09-20T10:00:00Z","startedAt":"2026-09-20T12:00:00Z","attempt":2}]"#
+expect(LifecycleCICapture.captures(runsJSON: Data(onlyRerun.utf8), note: "c").map(\.stage), [.ciRequested],
+       "a run only on its second attempt gives no queue time, just the re-run")
+
+let heads = LifecycleGitHub.heads(from: Data(("""
+{"data":{"repository":{"defaultBranchRef":{"name":"main"},
+ "n14":{"number":14,"state":"OPEN","createdAt":"2026-09-22T08:00:00Z","baseRefName":"main","commits":{"nodes":[{"commit":{"oid":"abc123"}}]}},
+ "n15":{"number":15,"state":"CLOSED","createdAt":"2026-09-22T08:00:00Z","mergedAt":null,"baseRefName":"main","commits":{"nodes":[{"commit":{"oid":"def"}}]}}}}}
+""").utf8))
+expect(heads.map { "\($0.note) \($0.sha)" }, ["PR #14 abc123"], "head commit of open pull requests; closed-unmerged skipped")
+
+func ciEvent(_ stage: LifecycleStage, _ offset: TimeInterval, _ note: String) -> LifecycleEvent {
+    LifecycleEvent(id: UUID(), project: "/p", feature: "f", stage: stage, timestamp: base.addingTimeInterval(offset),
+                   actor: "t", source: .automatic, model: nil, note: note)
+}
+let ciEvents = [ciEvent(.ciRequested, 0, "PR #1"), ciEvent(.ciStarted, 120, "PR #1"),
+                ciEvent(.ciRequested, 1800, "PR #1 · re-run 2 of run 9"), ciEvent(.ciPassed, 3600, "PR #1")]
+expect(LifecycleCI.queue(ciEvents), .valid(120), "queue wait: request to first start")
+expect(LifecycleCI.work(ciEvents), .valid(3480), "CI time: first start to passed, re-runs included")
+expect(LifecycleCI.reruns(ciEvents), 1, "one re-run counted")
+let ciSummary = LifecycleCI.summary(["a": ciEvents, "b": [ciEvent(.ciRequested, 0, "PR #2"), ciEvent(.ciStarted, 60, "PR #2"), ciEvent(.ciPassed, 660, "PR #2")], "c": [event(.ideaCreated, 0)]])
+expect(ciSummary.features, 2, "features without CI events are not counted")
+expect(ciSummary.rerunFeatures, 1, "one feature needed a re-run")
+expect(ciSummary.reruns, 1, "re-runs in all")
+expect(ciSummary.queue?.count, 2, "queue statistic over both features")
 
 // CLI session logs: the model the CLI answered with after the click
 let home = FileManager.default.temporaryDirectory.appendingPathComponent("lifecycle-probe-\(UUID().uuidString)")

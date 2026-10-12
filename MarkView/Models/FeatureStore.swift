@@ -759,9 +759,18 @@ final class FeatureStore: ObservableObject {
         let actor = lifecycleActor
         Task {
             for target in targets {
-                if !target.issues.isEmpty, let captures = try? await client.lifecycleCaptures(numbers: target.issues) {
-                    for capture in captures where capture.date >= target.since {
+                if !target.issues.isEmpty, let found = try? await client.lifecycleCaptures(numbers: target.issues) {
+                    for capture in found.captures where capture.date >= target.since {
                         recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
+                    }
+                    // CI of each pull request's last commit (request, start, re-runs), until CI passed is recorded.
+                    let done = Set(LifecycleLog.shared.events(project: project, feature: target.slug)
+                        .filter { $0.stage == .ciPassed }.compactMap(\.note))
+                    for head in found.heads where !done.contains(head.note) {
+                        guard let runs = try? await client.ciRuns(commit: head.sha, note: head.note) else { continue }
+                        for capture in runs.captures where capture.date >= target.since {
+                            recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
+                        }
                     }
                 }
                 // Commits on main from the last week still without "CI passed".
@@ -776,7 +785,11 @@ final class FeatureStore: ObservableObject {
                     let short = String(note.dropFirst("commit ".count))
                     let sha = await GitHubClient.execute(["rev-parse", "--verify", "-q", short + "^{commit}"], in: root, git: true)
                         .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !sha.isEmpty, let date = try? await client.ciPassed(commit: sha) else { continue }
+                    guard !sha.isEmpty, let runs = try? await client.ciRuns(commit: sha, note: note) else { continue }
+                    for capture in runs.captures where capture.date >= target.since {
+                        recordCapture(capture.stage, date: capture.date, note: capture.note, feature: target.slug, project: project, actor: actor)
+                    }
+                    guard let date = runs.passed else { continue }
                     recordCapture(.ciPassed, date: date, note: note, feature: target.slug, project: project, actor: actor)
                 }
             }

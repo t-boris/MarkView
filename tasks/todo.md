@@ -2656,3 +2656,10 @@ Request: with several windows open it is easy to forget what the AI is doing in 
 - [x] `AgentActivityMonitor` (per window, owned by `WorkspaceManager`): every 3 s, off the main thread, only while a Claude/Codex terminal runs; unchanged idle logs are not re-read. `AgentActivityChip` in the toolbar: dot (green pulsing = working), phrase, `+N` for other working agents; click shows the terminal.
 - [x] Tests `tools/tests/agent-activity-tests.sh` (19 checks incl. secrets, stale logs, subagent lines); real logs of this machine parsed; second instance showed "Running xcodebuild" live.
 - [ ] Not done: Cline/Copilot (no readable log); with two terminals in one folder the newest log wins; "waiting for permission" is not told apart from "working"; window title bar text was not changed (chip chosen).
+
+## Task 124 — CI time in the lifecycle log (4.39.0)
+Request: measure how long CI runs and how long we wait for it; record the AI's CI re-run request in the place that tracks durations. Decisions: new lifecycle stages; GitHub polling instead of a Claude Code hook; measure queue wait, CI time and re-run count.
+- [x] `ci_requested` and `ci_started` stages (automatic), outside the chain of adjacent steps (CI starts at PR open, before review); DEC-017 amends DEC-006.
+- [x] `LifecycleCICapture`: from `gh run list --commit <sha> --json …` the first request/start and one event per re-run attempt; `LifecycleGitHub.heads` gives each PR's last commit (GraphQL `oid`); `GitHubClient.ciRuns`; `FeatureStore.syncLifecycle` records them (PR path until CI passed is recorded, and commits merged to main).
+- [x] `LifecycleCI`: queue wait, CI time until green, re-runs; shown in the per-feature durations and as a CI block in the cycle-time summary. Tests in `lifecycle-tests.sh` (71 checks).
+- [ ] No hook: a re-run is seen when GitHub shows attempt > 1, so its request time is unknown (no queue time for re-runs); time lost on failed attempts is inside "CI time until green", not split out. Not run against a live GitHub repository.
