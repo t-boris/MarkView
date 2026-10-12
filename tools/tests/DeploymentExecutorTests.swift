@@ -47,5 +47,26 @@ check(ConnectionProblem.from(CommandResult(status: 0, stdout: "x", stderr: "")) 
 check(ConnectionProblem.hostKeyChanged.message.contains("will not continue"), "a changed key is never trusted")
 check(await HostKeys.scan(host: "-oProxyCommand=x", port: 22) == nil, "host key scan refuses an unsafe host")
 
+// The person's own Node comes first on the PATH (nvm default alias).
+let fakeHome = NSTemporaryDirectory() + "mv-home-\(UUID().uuidString)"
+for version in ["v20.20.2", "v22.22.3", "v22.9.0", "v24.21.0"] {
+    try FileManager.default.createDirectory(atPath: fakeHome + "/.nvm/versions/node/\(version)/bin", withIntermediateDirectories: true)
+}
+try FileManager.default.createDirectory(atPath: fakeHome + "/.nvm/alias", withIntermediateDirectories: true)
+func nvmDefault(_ text: String) throws { try text.write(toFile: fakeHome + "/.nvm/alias/default", atomically: true, encoding: .utf8) }
+try nvmDefault("22\n")
+check(LocalExecutor.nodeBinDirectories(home: fakeHome) == [fakeHome + "/.nvm/versions/node/v22.22.3/bin"], "nvm default 22 is the newest installed 22.x (not 22.9.0)")
+try nvmDefault("v20.20.2")
+check(LocalExecutor.nodeBinDirectories(home: fakeHome) == [fakeHome + "/.nvm/versions/node/v20.20.2/bin"], "an exact nvm default")
+try nvmDefault("lts/*")
+check(LocalExecutor.nodeBinDirectories(home: fakeHome) == [fakeHome + "/.nvm/versions/node/v24.21.0/bin"], "a named alias falls back to the newest installed")
+try nvmDefault("26")
+check(LocalExecutor.nodeBinDirectories(home: fakeHome).isEmpty, "a version that is not installed adds nothing")
+try nvmDefault("22")
+let searchPath = LocalExecutor.searchPath(home: fakeHome).split(separator: ":").map(String.init)
+check(searchPath.first == fakeHome + "/.nvm/versions/node/v22.22.3/bin" && searchPath.firstIndex(of: "/opt/homebrew/bin")! > 0, "the nvm Node precedes Homebrew's")
+check(LocalExecutor.nodeBinDirectories(home: fakeHome + "/nowhere").isEmpty, "no nvm, no change")
+try? FileManager.default.removeItem(atPath: fakeHome)
+
 print(failures == 0 ? "All deployment executor checks passed." : "\(failures) deployment executor check(s) failed.")
 exit(failures == 0 ? 0 : 1)
