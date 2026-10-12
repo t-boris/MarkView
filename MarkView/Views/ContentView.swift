@@ -378,6 +378,7 @@ struct ContentView: View {
                         else { Label("Agents", systemImage: "terminal") }
                     }
                     .uiFont(size: 12, weight: .semibold)
+                    .fixedSize()
                     .foregroundColor(workspaceManager.terminalVisible && !workspaceManager.showTOC ? VSDark.blue : VSDark.text)
                     .padding(.horizontal, 9)
                     .frame(height: controlWidth)

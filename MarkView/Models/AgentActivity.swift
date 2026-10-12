@@ -6,6 +6,13 @@ import Foundation
 // the parsers. Only tool names, file names and the session's own title are shown: command lines
 // and file contents are never read into the text, because they can hold secrets.
 
+/// One item of the agent's own task list (Claude Code's TodoWrite, Codex's update_plan).
+struct AgentPlanItem: Equatable {
+    enum Status: Equatable { case pending, active, done }
+    var title: String
+    var status: Status
+}
+
 struct AgentActivity: Equatable {
     enum State: Equatable { case working, idle, failing }
     var state: State
@@ -18,6 +25,10 @@ struct AgentActivity: Equatable {
     var task: String?
     /// The session's own title, when the log has one.
     var topic: String?
+    /// The agent's task list as last written, in order; empty when it keeps none.
+    var plan: [AgentPlanItem] = []
+
+    var planDone: Int { plan.filter { $0.status == .done }.count }
 }
 
 enum AgentActivityParser {
@@ -70,8 +81,50 @@ enum AgentActivityParser {
         // While a tool runs only a sentence said right before it describes it; between tools the turn's
         // latest sentence still says what the work is.
         let running = last.text.isEmpty ? false : true
-        return finish(last, narration: running ? narration : latestNarration, action: action, failed: failed == true,
-                      task: task, topic: topic, now: now)
+        var result = finish(last, narration: running ? narration : latestNarration, action: action, failed: failed == true,
+                            task: task, topic: topic, now: now)
+        result.plan = claudePlan(lines)
+        return result
+    }
+
+    /// The task list from the last TodoWrite call in the log tail.
+    static func claudePlan(_ lines: [Data]) -> [AgentPlanItem] {
+        for line in lines.reversed() where String(decoding: line, as: UTF8.self).contains("\"TodoWrite\"") {
+            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  object["type"] as? String == "assistant", object["isSidechain"] as? Bool != true,
+                  let blocks = (object["message"] as? [String: Any])?["content"] as? [[String: Any]],
+                  let use = blocks.last(where: { $0["name"] as? String == "TodoWrite" }),
+                  let todos = (use["input"] as? [String: Any])?["todos"] as? [[String: Any]] else { continue }
+            return todos.compactMap { todo in
+                guard let content = todo["content"] as? String ?? todo["activeForm"] as? String, !content.isEmpty else { return nil }
+                return AgentPlanItem(title: clip(content, 90), status: planStatus(todo["status"] as? String))
+            }
+        }
+        return []
+    }
+
+    /// Codex's update_plan: `arguments` is a JSON string `{"plan":[{"step":…,"status":…}]}`.
+    static func codexPlan(_ lines: [Data]) -> [AgentPlanItem] {
+        for line in lines.reversed() where String(decoding: line, as: UTF8.self).contains("update_plan") {
+            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let payload = object["payload"] as? [String: Any], payload["name"] as? String == "update_plan",
+                  let arguments = payload["arguments"] as? String,
+                  let input = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+                  let steps = input["plan"] as? [[String: Any]] else { continue }
+            return steps.compactMap { step in
+                guard let title = step["step"] as? String, !title.isEmpty else { return nil }
+                return AgentPlanItem(title: clip(title, 90), status: planStatus(step["status"] as? String))
+            }
+        }
+        return []
+    }
+
+    static func planStatus(_ text: String?) -> AgentPlanItem.Status {
+        switch text {
+        case "completed", "done": return .done
+        case "in_progress", "active": return .active
+        default: return .pending
+        }
     }
 
     /// The text of a request typed to the agent; nil for tool results, interruptions and the
@@ -151,7 +204,9 @@ enum AgentActivityParser {
                let text = parts.compactMap({ $0["text"] as? String }).last, let sentence = firstSentence(text) { narration = sentence }
         }
         guard let last else { return nil }
-        return finish(last, narration: narration, action: nil, failed: false, task: task, topic: nil, now: now)
+        var result = finish(last, narration: narration, action: nil, failed: false, task: task, topic: nil, now: now)
+        result.plan = codexPlan(lines)
+        return result
     }
 
     // MARK: Text
@@ -248,12 +303,21 @@ enum AgentActivityParser {
 enum AgentActivityLog {
     /// Claude Code names a project's log folder after its path with every other character as "-".
     static func claudeFolderName(for directory: URL) -> String {
-        String(directory.standardizedFileURL.path.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+        String(directory.path.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+    }
+
+    /// The folder as typed and with symlinks resolved ("/tmp" is "/private/tmp"): the CLI names its
+    /// log folder after the path it was started in. (`standardizedFileURL` would drop "/private".)
+    private static func spellings(_ directory: URL) -> [URL] {
+        let resolved = directory.resolvingSymlinksInPath()
+        return resolved.path == directory.path ? [directory] : [directory, resolved]
     }
 
     static func newestClaudeLog(for directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
-        let folder = home.appendingPathComponent(".claude/projects").appendingPathComponent(claudeFolderName(for: directory))
-        return newest(in: [folder], matching: { _ in true })
+        let folders = spellings(directory).map {
+            home.appendingPathComponent(".claude/projects").appendingPathComponent(claudeFolderName(for: $0))
+        }
+        return newest(in: folders, matching: { _ in true })
     }
 
     /// The newest Codex rollout from the last two days whose first line names this folder.
@@ -266,11 +330,11 @@ enum AgentActivityLog {
             let c = calendar.dateComponents([.year, .month, .day], from: day)
             return root.appendingPathComponent(String(format: "%04d/%02d/%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0))
         }
-        let path = directory.standardizedFileURL.path
+        let paths = Set(spellings(directory).map(\.path))
         return newest(in: folders, matching: { url in
             guard let first = firstLine(of: url), let object = try? JSONSerialization.jsonObject(with: first) as? [String: Any],
                   let payload = object["payload"] as? [String: Any], let cwd = payload["cwd"] as? String else { return false }
-            return URL(fileURLWithPath: cwd).standardizedFileURL.path == path
+            return paths.contains(URL(fileURLWithPath: cwd).path)
         })
     }
 
