@@ -2615,3 +2615,9 @@ Report: in the natal-mystic project (astroweb) the Deployments scan finds nothin
 - [x] Old false positive: `STRIPE_SECRET_KEY` matched the host-secret pattern (the letters "IP" inside STRIPE) and appeared as a place; secret names now need a whole HOST/SERVER/IP word.
 - [x] Scan of the real project now gives exactly one place: Firebase astroweb-dev, with its commands, check and log; tests in `deployment-discovery-tests.sh`.
 - [ ] Not looked at in the app's Deployments window; the hosting address assumes the default `.web.app` site.
+
+## Task 118 — Cloud CLIs run on the person's Node (4.34.1)
+Report: the Firebase place was found, but every command in the Deployments window failed with `TypeError: Cannot read properties of undefined (reading 'prototype')` (SlowBuffer) from firebase-tools.
+- [x] Cause: Deployments runs commands with a fixed PATH (Homebrew first, no nvm). `firebase` from Homebrew then ran on Homebrew's Node 26, which removed `SlowBuffer`; the person's terminal uses nvm's Node 22 where it works (reproduced in a shell with the same PATH).
+- [x] `LocalExecutor.searchPath`: the nvm default (`~/.nvm/alias/default`, newest installed match) and Volta come before Homebrew; tests in `deployment-executor-tests.sh`; with that PATH `firebase hosting:sites:list --project astroweb-dev` returns the sites.
+- [ ] Other Node version managers (fnm, asdf, mise) are not read; the agent-tool runner and terminals are unchanged.

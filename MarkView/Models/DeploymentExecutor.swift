@@ -119,9 +119,37 @@ protocol DeploymentExecutor {
 struct LocalExecutor: DeploymentExecutor {
     var directory: URL?
 
+    /// The PATH the commands run with. The person's own Node comes first (nvm default, Volta): CLIs written in
+    /// Node (firebase, vercel…) must run on the version their terminal uses, not on whatever Homebrew has newest
+    /// (firebase-tools crashes on Node 26).
+    static func searchPath(home: String) -> String {
+        (nodeBinDirectories(home: home) + ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", home + "/.local/bin", home + "/.fly/bin"]).joined(separator: ":")
+    }
+
+    /// `~/.nvm` default alias (`22`, `v22.22.3`, `lts/*` or `node` are looked up among the installed versions), then Volta.
+    static func nodeBinDirectories(home: String) -> [String] {
+        let fm = FileManager.default
+        var found: [String] = []
+        let nvm = home + "/.nvm"
+        if let alias = (try? String(contentsOfFile: nvm + "/alias/default", encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), !alias.isEmpty,
+           let installed = try? fm.contentsOfDirectory(atPath: nvm + "/versions/node") {
+            func key(_ name: String) -> [Int] { name.drop(while: { $0 == "v" }).split(separator: ".").map { Int($0) ?? 0 } }
+            let sorted = installed.filter { $0.hasPrefix("v") }.sorted { key($0).lexicographicallyPrecedes(key($1)) }
+            let wanted = alias.hasPrefix("v") ? alias : "v" + alias
+            // `22` and `v22` mean the newest 22.x; `v22.22.3` means that one; names such as `node` or `lts/*` mean the newest installed.
+            let match = alias.first.map({ $0.isNumber || $0 == "v" }) == true
+                ? sorted.last { $0 == wanted || $0.hasPrefix(wanted + ".") }
+                : sorted.last
+            if let match { found.append(nvm + "/versions/node/" + match + "/bin") }
+        }
+        let volta = home + "/.volta/bin"
+        if fm.fileExists(atPath: volta) { found.append(volta) }
+        return found.filter { fm.fileExists(atPath: $0) }
+    }
+
     func run(_ command: String, stdin: String?, timeout: TimeInterval) async -> CommandResult {
         // A login-like PATH: a GUI app does not inherit the shell's, so the CLIs (vercel, fly, aws) would not be found.
-        let path = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", NSHomeDirectory() + "/.local/bin", NSHomeDirectory() + "/.fly/bin"].joined(separator: ":")
+        let path = Self.searchPath(home: NSHomeDirectory())
         return await ProcessRunner.run(executable: "/bin/sh", arguments: ["-c", command], stdin: stdin, timeout: timeout, directory: directory, environment: ["PATH": path])
     }
 }
