@@ -407,7 +407,7 @@ flowchart LR
     A -->|"yes"| E
 ```
 
-- **Finds where it runs** — servers, and also the cloud database or cache behind them (Neon, Supabase,
+- **Finds where it runs** — servers, platforms that are configured by files (Firebase: one place per project of `.firebaserc`, with hosting, functions and a signed-in CLI; Vercel, Fly.io, Heroku, Kubernetes, AWS, Google Cloud), and also the cloud database or cache behind them (Neon, Supabase,
   PlanetScale, Turso, Upstash, Amazon RDS, Azure, Aiven, CockroachDB, MongoDB Atlas: found by the
   hostnames the docs name and the libraries the code uses; the connection URL with its password is a
   secret: it is read only when you connect the database, see below). A scan reads the GitHub workflows, platform files (Vercel, Fly,

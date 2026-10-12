@@ -2607,3 +2607,11 @@ Report: "the Git tab keeps showing main although we work on another branch". Cau
 - [x] Branch header shows "+N copies"; the branch menu has **Other Working Copies** (branch — folder, changes; opens that folder in MarkView) and a branch that is checked out in another copy reads "— in <folder>" and opens that copy instead of failing to switch.
 - [x] Tests in `git-status-tests.sh`; driven in a second instance on a throwaway repo with a linked worktree: label, menu, opening the copy shows its branch and its changes.
 - [ ] Not done: choosing which copy an agent works in when starting "Implement with AI" (would create the worktree itself); refresh of the copy list only on a full refresh (tab open, app activation, own operations).
+
+## Task 117 — Deployment discovery knows Firebase (4.34.0)
+Report: in the natal-mystic project (astroweb) the Deployments scan finds nothing although the AI understands the deploy.
+- [x] Cause: the project deploys with Firebase (`firebase.json`, `.firebaserc`, a workflow running `firebase-tools deploy`); discovery had no Firebase rule, and a workflow that deploys to a cloud service with no `environment:` and no host secret produced no suggestion at all.
+- [x] `firebase.json` + `.firebaserc` → one cloud place per Firebase project: hosting sites/channels, deployed functions, a hosting reachability check (`<project>.web.app`), the functions log; all read-only (`CommandPolicy` knows `firebase`: deploy, use, login and `--follow` ask). `ProviderHints` says how to install and sign in. A deploy workflow's evidence joins the project; a cloud deploy workflow without a host now suggests the service itself.
+- [x] Old false positive: `STRIPE_SECRET_KEY` matched the host-secret pattern (the letters "IP" inside STRIPE) and appeared as a place; secret names now need a whole HOST/SERVER/IP word.
+- [x] Scan of the real project now gives exactly one place: Firebase astroweb-dev, with its commands, check and log; tests in `deployment-discovery-tests.sh`.
+- [ ] Not looked at in the app's Deployments window; the hosting address assumes the default `.web.app` site.
