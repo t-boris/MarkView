@@ -81,6 +81,19 @@ jobs:
 """)
 try write("fly.toml", "app = \"my-api\"\n[http_service]\n")
 try write("vercel.json", "{}")
+try write("firebase.json", #"{"hosting":{"public":"web/dist"},"functions":[{"source":"functions"}],"firestore":{"rules":"firestore.rules"}}"#)
+try write(".firebaserc", #"{"projects":{"default":"demo-dev","prod":"demo-prod"}}"#)
+try write(".github/workflows/firebase-deploy.yml", """
+name: Deploy to Firebase
+on: { push: { branches: [main] } }
+jobs:
+  deploy:
+    steps:
+      - run: npx -y firebase-tools deploy --non-interactive
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+""")
 try write("docker-compose.yml", composeText)
 try write("README.md", docs)
 try write("node_modules/x/README.md", "ssh deploy@evil.example.org")
@@ -93,6 +106,15 @@ check(byId["staging"]?.kind == .ssh, "workflow: staging")
 check(byId["fly"]?.provider == "fly" && byId["fly"]?.cloudCommands.first?.command == "fly status -a my-api", "fly.toml: app and commands")
 check(byId["fly"]?.cloudCommands.allSatisfy { CommandPolicy.classify($0.command).isReadOnly } == true, "every suggested fly command is read-only")
 check(byId["vercel"]?.provider == "vercel" && byId["vercel"]?.cloudCommands.allSatisfy { CommandPolicy.classify($0.command).isReadOnly } == true, "vercel.json: read-only commands")
+let dev = byId["firebase-demo-dev"], prod = byId["firebase-demo-prod"]
+check(dev?.provider == "firebase" && prod?.provider == "firebase", "firebase.json + .firebaserc: one place per project: \(found.map(\.id))")
+check(dev?.cloudCommands.contains { $0.command == "firebase functions:list --project demo-dev" } == true && dev?.checks.first?.target == "https://demo-dev.web.app", "firebase: commands and hosting check name the project")
+check(dev?.logSources.first?.command == "firebase functions:log --project demo-dev --lines 100", "firebase: functions log")
+check(dev?.evidence.contains { $0.contains("firebase-deploy.yml") } == true && byId["firebase"] == nil, "firebase: the workflow's evidence joins the projects, no bare duplicate")
+check(([dev, prod].compactMap { $0 }.flatMap { $0.cloudCommands.map(\.command) + $0.logSources.map(\.command) }).allSatisfy { CommandPolicy.classify($0).isReadOnly }, "every suggested firebase command is read-only")
+check(!CommandPolicy.classify("firebase deploy --project demo-dev").isReadOnly && !CommandPolicy.classify("firebase functions:log --follow").isReadOnly && !CommandPolicy.classify("firebase use prod").isReadOnly, "firebase deploy, following logs and use are not")
+check(ProviderHints.advice(command: "firebase projects:list", stderr: "Error: Failed to authenticate, have you run firebase login?", status: 1)?.contains("firebase login") == true, "a signed-out firebase says how to sign in")
+check(!found.contains { $0.id.contains("stripe") }, "a secret that merely contains the letters IP (STRIPE_SECRET_KEY) is not a host")
 let server = found.first { $0.host == "203.0.113.10" }
 check(server?.user == "deploy" && server?.port == 2222 && server?.identityFile == "~/.ssh/prod_ed25519", "the docs' host picks up its ssh config entry")
 for f in found { print("   found", f.id, f.kind, f.host, f.confidence, f.checks.map(\.id)) }

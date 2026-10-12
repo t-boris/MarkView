@@ -234,6 +234,13 @@ enum CommandPolicy {
             if ["scale", "machine", "machines", "apps", "ips", "services"].contains(verb), let sub = positional.dropFirst().first, !["show", "list", "ls", "status"].contains(sub) { return ask("it changes the app") }
             if verb == "scale", positional.count == 1 { return ask("scale") }
             return .readOnly
+        case "firebase":
+            // firebase <topic>:<verb>: listing and reading only; deploy, use, login and the emulators change things.
+            let ok: Set<String> = ["projects:list", "apps:list", "hosting:sites:list", "hosting:channel:list", "functions:list",
+                                   "functions:log", "firestore:indexes", "login:list", "--version"]
+            guard let verb = positional.first, ok.contains(verb) else { return ask("firebase \(positional.first ?? "") can deploy or change the project") }
+            if verb == "functions:log", hasFlag(["--follow", "-f"]) { return ask("following logs never ends") }
+            return .readOnly
         case "heroku":
             let ok: Set<String> = ["ps", "releases", "apps", "status", "logs", "whoami", "info"]
             guard let verb = positional.first, ok.contains(verb) else { return ask("heroku \(positional.first ?? "") can change the app") }

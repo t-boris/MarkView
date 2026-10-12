@@ -19,6 +19,7 @@ enum ProviderHints {
         "vercel": Hint(tool: "vercel", install: "npm i -g vercel", login: "vercel login"),
         "fly": Hint(tool: "fly", install: "brew install flyctl", login: "fly auth login"),
         "flyctl": Hint(tool: "flyctl", install: "brew install flyctl", login: "fly auth login"),
+        "firebase": Hint(tool: "firebase", install: "npm i -g firebase-tools", login: "firebase login"),
         "heroku": Hint(tool: "heroku", install: "brew tap heroku/brew && brew install heroku", login: "heroku login"),
         "aws": Hint(tool: "aws", install: "brew install awscli", login: "aws configure   (or: aws sso login)"),
         "gcloud": Hint(tool: "gcloud", install: "brew install --cask google-cloud-sdk", login: "gcloud auth login"),
@@ -45,7 +46,7 @@ enum ProviderHints {
         guard let hint = hints[tool] else { return nil }
         let text = stderr.lowercased()
         if status == 127 || text.contains("command not found") || text.contains("no such file or directory") && text.contains(tool) { return (.missing, hint) }
-        if text.contains("not logged in") || text.contains("not authenticated") || text.contains("unauthorized") || text.contains("no credentials") || text.contains("please log in") || text.contains("login required") || text.contains("401") { return (.signedOut, hint) }
+        if text.contains("failed to authenticate") || text.contains("not logged in") || text.contains("not authenticated") || text.contains("unauthorized") || text.contains("no credentials") || text.contains("please log in") || text.contains("login required") || text.contains("401") { return (.signedOut, hint) }
         return nil
     }
 

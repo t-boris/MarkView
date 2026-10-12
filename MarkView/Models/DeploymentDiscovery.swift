@@ -110,6 +110,7 @@ enum DeploymentDiscovery {
             guard let text = read(url) else { continue }
             if path.hasPrefix(".github/workflows/") && (name.hasSuffix(".yml") || name.hasSuffix(".yaml")) { workflow(text, path: path).forEach(merge) }
             else if name == "vercel.json" || path == ".vercel/project.json" { merge(vercel(path: path)) }
+            else if name == "firebase.json" { firebase(text, path: path, rc: read(url.deletingLastPathComponent().appendingPathComponent(".firebaserc"))).forEach(merge) }
             else if name == "fly.toml" { merge(fly(text, path: path)) }
             else if name == "netlify.toml" { merge(simpleCloud(id: "netlify", name: "Netlify", provider: "netlify", path: path, commands: [])) }
             else if name == "render.yaml" { merge(simpleCloud(id: "render", name: "Render", provider: "render", path: path, commands: [])) }
@@ -125,6 +126,20 @@ enum DeploymentDiscovery {
             else if name.hasPrefix("docker-compose") || name.hasPrefix("compose.") { compose.append((path, text)) }
             else if name == "package.json" { packages.append((path, text)) }
             if name.hasSuffix(".md") || name.hasSuffix(".sh") || name == "makefile" || name.hasPrefix("deploy") || path.hasPrefix("scripts/") { docText.append((path, text)) }
+        }
+
+        // A workflow that deploys with the Firebase CLI says the same as firebase.json: put its evidence on each project.
+        if let generic = found["firebase"] {
+            let projects = found.keys.filter { $0.hasPrefix("firebase-") }
+            if projects.isEmpty { found["firebase"]?.missing.append("The Firebase project id is not in the files (.firebaserc): add it with `firebase use --add`, or put `--project <id>` in the commands in Edit.") }
+            else {
+                for key in projects {
+                    guard var project = found[key] else { continue }
+                    project.evidence += generic.evidence.filter { !project.evidence.contains($0) }
+                    found[key] = project
+                }
+                found["firebase"] = nil
+            }
         }
 
         // Managed services (a database in the cloud) and the hosting vendors the docs name.
@@ -356,19 +371,70 @@ enum DeploymentDiscovery {
         guard deploys.contains(where: { lower.contains($0) }) else { return [] }
         var results: [DeploymentSuggestion] = []
         let environments = Array(Set(matches(#"^\s*environment:\s*['"]?([A-Za-z0-9_.-]+)['"]?\s*$"#, in: text).map { $0[1] })).sorted()
-        let secretHosts = Array(Set(matches(#"\$\{\{\s*(?:secrets|vars)\.([A-Za-z0-9_]*(?:HOST|SERVER|IP)[A-Za-z0-9_]*)\s*\}\}"#, in: text).map { $0[1] })).sorted()
+        let secretHosts = Array(Set(matches(#"\$\{\{\s*(?:secrets|vars)\.((?:[A-Za-z0-9]+_)*(?:HOST|SERVER|IP)(?:NAME|ADDRESS)?S?(?:_[A-Za-z0-9]+)*)\s*\}\}"#, in: text).map { $0[1] })).sorted()
         let usesSSH = lower.contains("ssh") || lower.contains("rsync") || lower.contains("scp ")
         let names = environments.isEmpty ? secretHosts.map { secretEnvironmentName($0) } : environments
+        let cloudProvider = lower.contains("firebase") ? "firebase" : lower.contains("vercel") ? "vercel" : lower.contains("flyctl") || lower.contains("fly deploy") ? "fly" : lower.contains("heroku") ? "heroku" : lower.contains("kubectl") || lower.contains("helm") ? "kubernetes" : lower.contains("gcloud") ? "gcloud" : lower.contains("aws") ? "aws" : "cloud"
+        // A deploy to a cloud service has no host to name: the service itself is the place.
+        if names.isEmpty && !usesSSH && cloudProvider != "cloud" {
+            var s = DeploymentSuggestion(id: cloudProvider, name: providerTitle(cloudProvider), kind: .cloud, provider: cloudProvider)
+            s.evidence = ["`\(path)`: deploys with \(providerTitle(cloudProvider))"]
+            s.confidence = 60
+            return [s]
+        }
         for name in (names.isEmpty && usesSSH ? ["Server"] : names) {
             let secret = secretHosts.first { secretEnvironmentName($0).lowercased() == name.lowercased() } ?? secretHosts.first
             var s = DeploymentSuggestion(id: DeploymentEnvironment.slug(name), name: name.prefix(1).uppercased() + name.dropFirst(), kind: usesSSH ? .ssh : .cloud)
-            if !usesSSH { s.provider = lower.contains("vercel") ? "vercel" : lower.contains("flyctl") || lower.contains("fly deploy") ? "fly" : lower.contains("heroku") ? "heroku" : lower.contains("kubectl") || lower.contains("helm") ? "kubernetes" : lower.contains("gcloud") ? "gcloud" : lower.contains("aws") ? "aws" : "cloud" }
+            if !usesSSH { s.provider = cloudProvider }
             s.evidence = ["`\(path)`: deploys" + (environments.contains(name) ? " to the environment \(name)" : "")]
             if let secret { s.evidence.append("`\(path)`: host is the secret \(secret)"); if usesSSH { s.missing.append("The host is the repository secret \(secret): read it from the repository settings or ask your team.") } }
             s.confidence = environments.contains(name) ? 70 : 55
             results.append(s)
         }
         return results
+    }
+
+    private static func providerTitle(_ provider: String) -> String {
+        ["firebase": "Firebase", "vercel": "Vercel", "fly": "Fly.io", "heroku": "Heroku", "kubernetes": "Kubernetes", "gcloud": "Google Cloud", "aws": "AWS"][provider] ?? provider
+    }
+
+    /// `firebase.json` says what the project uses (hosting, functions, Firestore…), `.firebaserc` which Firebase projects
+    /// it is (an alias per environment). One place per project; the commands only look.
+    private static func firebase(_ text: String, path: String, rc: String?) -> [DeploymentSuggestion] {
+        guard let data = text.data(using: .utf8), let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        let services = ["hosting", "functions", "firestore", "database", "storage", "dataconnect", "apphosting"].filter { config[$0] != nil }
+        var aliases: [(alias: String, project: String)] = []
+        if let rc, let rcData = rc.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: rcData) as? [String: Any],
+           let projects = object["projects"] as? [String: String] {
+            aliases = projects.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
+        }
+        let uses = services.isEmpty ? "" : " (" + services.joined(separator: ", ") + ")"
+        if aliases.isEmpty {
+            return [DeploymentSuggestion(id: "firebase", name: "Firebase", kind: .cloud, provider: "firebase",
+                                         cloudCommands: [CloudCommand(id: "projects", title: "Projects", command: "firebase projects:list")],
+                                         evidence: ["`\(path)`: Firebase" + uses],
+                                         missing: ["No .firebaserc: the Firebase project id is not in the files. Add it with `firebase use --add`, or put `--project <id>` in the commands in Edit."], confidence: 70)]
+        }
+        var byProject: [String: [String]] = [:]
+        for entry in aliases { byProject[entry.project, default: []].append(entry.alias) }
+        return byProject.sorted { $0.key < $1.key }.map { project, names in
+            let flag = " --project \(project)"
+            var s = DeploymentSuggestion(id: DeploymentEnvironment.slug("firebase-" + project), name: "Firebase \(project)", kind: .cloud, provider: "firebase", confidence: 80)
+            var commands: [(String, String, String)] = [("projects", "Projects", "firebase projects:list")]
+            if config["hosting"] != nil {
+                commands.append(("sites", "Hosting sites", "firebase hosting:sites:list\(flag)"))
+                commands.append(("channels", "Hosting channels and the live version", "firebase hosting:channel:list\(flag)"))
+                s.checks.append(DeploymentCheck(id: "hosting", title: "Hosting responds: \(project).web.app", kind: .http, target: "https://\(project).web.app"))
+            }
+            if config["functions"] != nil {
+                commands.append(("functions", "Deployed functions", "firebase functions:list\(flag)"))
+                s.logSources.append(LogSource(id: "functions", title: "Functions log", command: "firebase functions:log\(flag) --lines 100"))
+            }
+            s.cloudCommands = commands.map { CloudCommand(id: $0.0, title: $0.1, command: $0.2) }
+            s.evidence = ["`\(path)`: Firebase" + uses, "`.firebaserc`: project \(project) (" + names.joined(separator: ", ") + ")"]
+            s.missing = ["The CLI must be signed in (`firebase login`). The hosting address assumes the default site \(project).web.app; a custom domain is added in Edit."]
+            return s
+        }
     }
 
     private static func secretEnvironmentName(_ secret: String) -> String {
