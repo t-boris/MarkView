@@ -244,3 +244,41 @@ struct GitRepoStatus: Equatable {
         lsFiles.split(separator: "\0", omittingEmptySubsequences: true).map(String.init).filter { !changed.contains($0) }
     }
 }
+
+/// One working copy of a repository (`git worktree list --porcelain`): the main checkout or a linked
+/// worktree. Agents often work in a linked worktree on a branch of their own, so the folder MarkView has
+/// open can stay on another branch than the work that is going on.
+struct GitWorktree: Identifiable, Equatable {
+    var path: String
+    /// Short branch name; nil on a detached HEAD or a bare repository.
+    var branch: String?
+    var isDetached = false
+    var isBare = false
+    /// Filled in by the caller: number of changed paths (nil = not looked at).
+    var changes: Int?
+    var id: String { path }
+
+    var folderName: String { (path as NSString).lastPathComponent }
+    /// What to show as the branch.
+    var branchLabel: String { branch ?? (isDetached ? "detached HEAD" : "bare") }
+
+    static func parse(_ porcelain: String) -> [GitWorktree] {
+        var result: [GitWorktree] = []
+        var current: GitWorktree?
+        for line in porcelain.components(separatedBy: "\n") {
+            if line.hasPrefix("worktree ") {
+                if let current { result.append(current) }
+                current = GitWorktree(path: String(line.dropFirst("worktree ".count)))
+            } else if line.hasPrefix("branch ") {
+                let ref = String(line.dropFirst("branch ".count))
+                current?.branch = ref.hasPrefix("refs/heads/") ? String(ref.dropFirst("refs/heads/".count)) : ref
+            } else if line == "detached" {
+                current?.isDetached = true
+            } else if line == "bare" {
+                current?.isBare = true
+            }
+        }
+        if let current { result.append(current) }
+        return result
+    }
+}
