@@ -85,5 +85,18 @@ a = claude([user("Do it"), bash, failedResult, done])
 check(a?.state == .idle, "a finished turn is idle even after an error")
 check(AgentActivityParser.firstSentence("## Heading") == nil && AgentActivityParser.firstSentence("Done: all good") == "Done", "sentence rules")
 
+// Task lists
+let todo = #"{"type":"assistant","timestamp":"\#(t)","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Parse the log","status":"completed","activeForm":"Parsing the log"},{"content":"Add the banner","status":"in_progress","activeForm":"Adding the banner"},{"content":"Release","status":"pending","activeForm":"Releasing"}]}}]}}"#
+a = claude([user("Do it"), todo, edit])
+check(a?.plan.map(\.status) == [.done, .active, .pending] && a?.plan.first?.title == "Parse the log" && a?.planDone == 1, "TodoWrite list with statuses")
+check(claude([user("Do it"), edit])?.plan.isEmpty == true, "no list, empty plan")
+let todo2 = todo.replacingOccurrences(of: "\"pending\"", with: "\"completed\"")
+check(claude([todo, edit, todo2, edit])?.planDone == 2, "the last TodoWrite wins")
+check(claude([user("a"), todo, done, user("b"), edit])?.plan.count == 3, "the list survives a new request")
+let plan = #"{"type":"response_item","timestamp":"\#(t)","payload":{"type":"function_call","name":"update_plan","arguments":"{\"plan\":[{\"step\":\"Write tests\",\"status\":\"completed\"},{\"step\":\"Ship\",\"status\":\"in_progress\"}]}"}}"#
+check(codex([plan, call])?.plan.map(\.title) == ["Write tests", "Ship"] && codex([plan, call])?.planDone == 1, "codex update_plan")
+
+check(AgentActivityLog.claudeFolderName(for: URL(fileURLWithPath: "/private/tmp/x.y")) == "-private-tmp-x-y", "a /private path keeps its prefix")
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

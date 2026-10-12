@@ -2670,3 +2670,11 @@ Feedback on 4.38.0: the chip said "Thinking" (empty) and showed once in the tool
 - [x] UI: a status dot on every terminal tab (tooltip with the full account), a banner under the tab bar for the shown terminal (now + task), the toolbar chip keeps the headline and "+N".
 - [x] Tests (`agent-activity-tests.sh`) extended; second instance showed the tab dot and the banner on live data.
 - [ ] Two terminals in the same folder read the same (newest) session log, so they show the same status; terminals in different folders or worktrees are exact.
+
+## Task 126 — The agent's task list in the status (4.41.0)
+Request: show the tasks the agent works through, mark them done, see plans, current work and progress.
+- [x] `AgentPlanItem`/`plan`: Claude Code's last `TodoWrite` list (done / in progress / pending) and Codex's `update_plan`; kept while the log tail has it, also after the turn ends and across new requests.
+- [x] Banner under the tab bar: progress bar and `done/total`, a chevron opens the list (✓ struck through, ● current, ○ planned); the tab tooltip says "Plan: 1 of 4 done". Tests extended (`agent-activity-tests.sh`).
+- [x] Found while checking live: `standardizedFileURL` dropped "/private", so a folder under /private/tmp did not find its log; both spellings are tried now. The "Agents" toolbar button no longer gets squeezed by the chip.
+- [x] Driven in a second instance with a planted log for a throwaway folder (removed): tab dot, banner, 1/4 bar and the opened list.
+- [ ] Not seen: a real TodoWrite/update_plan session (none on this machine; shapes follow the CLIs' documented tool inputs). Claude Code's newer TaskCreate/TaskUpdate tools are not read. Items older than the log tail (256 KB) are lost.

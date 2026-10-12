@@ -21,6 +21,7 @@ extension AgentActivity {
         var lines = [text]
         if let detail { lines.append("Step: \(detail)") }
         if let task { lines.append("Task: \(task)") }
+        if !plan.isEmpty { lines.append("Plan: \(planDone) of \(plan.count) done") }
         if let topic { lines.append("Session: \(topic)") }
         return lines.joined(separator: "\n")
     }
@@ -38,25 +39,61 @@ struct AgentTabDot: View {
     }
 }
 
-/// Under the tab bar: what the shown terminal's assistant was asked and what it is doing now.
+/// Under the tab bar: what the shown terminal's assistant was asked, what it is doing now, and its
+/// own task list with progress (click to open the list).
 struct AgentActivityBanner: View {
     @ObservedObject var monitor: AgentActivityMonitor
     let terminalID: UUID?
+    @State private var expanded = false
 
     var body: some View {
         if let entry = monitor.entries.first(where: { $0.id == terminalID }) {
             let activity = entry.activity
-            HStack(alignment: .top, spacing: 7) {
-                AgentStatusDot(state: activity.state).padding(.top, 4)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(activity.text).uiFont(size: 11, weight: .medium)
-                        .foregroundColor(activity.state == .idle ? VSDark.textDim : VSDark.text)
-                        .lineLimit(2)
-                    if let task = activity.task {
-                        Text("Task: " + task).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .top, spacing: 7) {
+                    AgentStatusDot(state: activity.state).padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(activity.text).uiFont(size: 11, weight: .medium)
+                            .foregroundColor(activity.state == .idle ? VSDark.textDim : VSDark.text)
+                            .lineLimit(2)
+                        if let task = activity.task {
+                            Text("Task: " + task).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if !activity.plan.isEmpty {
+                        Button { withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() } } label: {
+                            HStack(spacing: 3) {
+                                Text("\(activity.planDone)/\(activity.plan.count)").uiFont(size: 10, weight: .semibold, design: .monospaced)
+                                Image(systemName: expanded ? "chevron.up" : "chevron.down").uiFont(size: 8, weight: .bold)
+                            }
+                            .foregroundColor(VSDark.textDim)
+                        }
+                        .buttonStyle(.plain)
+                        .help("The agent's task list: \(activity.planDone) of \(activity.plan.count) done")
                     }
                 }
-                Spacer(minLength: 0)
+                if !activity.plan.isEmpty {
+                    ProgressView(value: Double(activity.planDone), total: Double(activity.plan.count))
+                        .progressViewStyle(.linear).tint(VSDark.green).scaleEffect(y: 0.6)
+                    if expanded {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(activity.plan.enumerated()), id: \.offset) { _, item in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Image(systemName: item.status == .done ? "checkmark.circle.fill"
+                                          : item.status == .active ? "circle.inset.filled" : "circle")
+                                        .uiFont(size: 10)
+                                        .foregroundColor(item.status == .done ? VSDark.green : item.status == .active ? VSDark.blue : VSDark.textDim)
+                                    Text(item.title).uiFont(size: 10, weight: item.status == .active ? .semibold : .regular)
+                                        .foregroundColor(item.status == .done ? VSDark.textDim : VSDark.text)
+                                        .strikethrough(item.status == .done)
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                        .padding(.leading, 14)
+                    }
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
