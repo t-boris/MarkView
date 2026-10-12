@@ -98,6 +98,8 @@ final class BrowserSession: NSObject, ObservableObject {
     /// A login form is on the page and logins are saved for its site.
     @Published private(set) var fillOffer: PasswordFillOffer?
     private var downloadTargets: [ObjectIdentifier: URL] = [:]
+    /// Open `window.open` popups of this tab.
+    private var popups: [BrowserPopup] = []
     private var promptTask: Task<Void, Never>?
     /// The terminal tab running the dev server this preview started, if any.
     var previewTerminalID: UUID?
@@ -146,6 +148,8 @@ final class BrowserSession: NSObject, ObservableObject {
     private func makeWebView() -> BrowserWebView {
         let configuration = WKWebViewConfiguration()
         configuration.preferences.isElementFullscreenEnabled = true
+        // Sign-in pages (Google) refuse an embedded browser that does not name itself a Safari.
+        configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15"
         // The page's console and uncaught errors, kept for agents (`browser_console`).
         configuration.userContentController.addUserScript(WKUserScript(
             source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -302,6 +306,7 @@ final class BrowserSession: NSObject, ObservableObject {
         observations = []
         promptTask?.cancel()
         passwordPrompt = nil
+        for popup in popups { popup.close() }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserPasswordScript.handlerName, contentWorld: .defaultClient)
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
@@ -407,6 +412,14 @@ extension BrowserSession: WKNavigationDelegate, WKUIDelegate {
         if navigationAction.shouldPerformDownload {
             webView.startDownload(using: navigationAction.request) { [weak self] download in download.delegate = self }
             return nil
+        }
+        // A script's popup (sign-in) stays a window linked to its page; links open as tabs.
+        if BrowserPopup.isPopup(windowFeatures) {
+            let popup = BrowserPopup(configuration: configuration, features: windowFeatures)
+            popup.onClose = { [weak self] closed in self?.popups.removeAll { $0 === closed } }
+            popups.append(popup)
+            popup.show()
+            return popup.webView
         }
         if let url = navigationAction.request.url {
             if let onOpenInNewTab { onOpenInNewTab(url) } else { load(url) }
