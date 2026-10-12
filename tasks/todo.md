@@ -2678,3 +2678,11 @@ Request: show the tasks the agent works through, mark them done, see plans, curr
 - [x] Found while checking live: `standardizedFileURL` dropped "/private", so a folder under /private/tmp did not find its log; both spellings are tried now. The "Agents" toolbar button no longer gets squeezed by the chip.
 - [x] Driven in a second instance with a planted log for a throwaway folder (removed): tab dot, banner, 1/4 bar and the opened list.
 - [ ] Not seen: a real TodoWrite/update_plan session (none on this machine; shapes follow the CLIs' documented tool inputs). Claude Code's newer TaskCreate/TaskUpdate tools are not read. Items older than the log tail (256 KB) are lost.
+
+## Task 127 — AI status for every assistant: Codex, Cline, Copilot too (4.42.0)
+Request: the status must work in all environments, not only Claude Code.
+- [x] Claude Code: exact tab mapping — the CLI writes `~/.claude/sessions/<pid>.json` ({pid, sessionId, cwd}); the session whose pid runs under the terminal's shell gives the log, so two tabs in one folder no longer share a status (checked on 9 live sessions of this Mac). Falls back to the newest log of the folder.
+- [x] Cline (CLI 3.x): `~/.cline/data/db/sessions.db` (status, pid, cwd, messages path) + `<session>.messages.json` (Anthropic-shaped, read with the Claude rules; tool names `run_commands`, `read_files`…); working only while the row says running, else idle; the `<user_input>` wrapper is stripped from the task.
+- [x] Copilot: `~/.copilot/session-store.db` turns (last request and the first sentence of its answer); working while its terminal prints (`printed(within: 6)`), else idle. SQLite is opened read-only (`mode=ro`, else an immutable snapshot).
+- [x] Tests extended (cline, copilot, process tree, wrapper); parsers run on this Mac's real Cline and Copilot data.
+- [ ] Not seen live: a Cline or Copilot terminal running in a MarkView tab (no running session here); Cline's task list (no todo tool in its messages), Copilot's plan and what it is doing mid-turn (it records a turn when it ends); a Codex rollout of a terminal is still matched by folder (newest), not by process.
