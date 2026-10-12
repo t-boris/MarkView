@@ -66,7 +66,17 @@ final class DeploymentStore: ObservableObject {
         var note: String?
     }
 
+    /// What a cloud place runs, as a list of things with a state (see `CloudServices`).
+    struct ServicesState: Equatable {
+        var items: [CloudService] = []
+        /// Why a part of the list is missing (signed out, a command failed).
+        var problems: [String] = []
+        var loading = false
+        var updated: Date?
+    }
+
     @Published private(set) var environments: [DeploymentEnvironment] = []
+    @Published private(set) var servicesStates: [String: ServicesState] = [:]
     @Published private(set) var states: [String: State] = [:]
     @Published private(set) var suggestions: [DeploymentSuggestion] = []
     @Published private(set) var scanning = false
@@ -214,6 +224,7 @@ final class DeploymentStore: ObservableObject {
                 result.cloud[command.id] = CloudOutput(command: command.command, result: output, at: Date())
                 note(CommandLogEntry(time: Date(), environment: env.id, command: command.command, origin: "Refresh", outcome: "ran", status: output.status))
             }
+            await loadServices(id)
         } else {
             let probe = await exec.run("sh -s", stdin: SystemProbe.script(checks: run), timeout: 45)
             if env.kind == .ssh, let problem = ConnectionProblem.from(probe) { result.phase = .failed; result.problem = problem }
@@ -228,6 +239,63 @@ final class DeploymentStore: ObservableObject {
         }
         result.updated = Date()
         states[id] = result
+    }
+
+    /// The things a cloud place runs: the provider's own list commands (read-only, JSON), then a reachability look at the
+    /// public sites. The list keeps what it had while it loads.
+    func loadServices(_ id: String) async {
+        guard let env = environment(id), env.kind == .cloud, env.problems.isEmpty else { return }
+        let scope = CloudServices.scope(of: env.cloudCommands)
+        let queries = CloudServices.queries(provider: env.provider, scope: scope)
+        guard !queries.isEmpty else { return }
+        var current = servicesStates[id] ?? ServicesState()
+        current.loading = true
+        servicesStates[id] = current
+        let exec = executor(for: env)
+        var items: [CloudService] = [], problems: [String] = []
+        for query in queries where CommandPolicy.classify(query.command).isReadOnly {
+            let output = await exec.run(query.command, stdin: nil, timeout: 60)
+            note(CommandLogEntry(time: Date(), environment: id, command: query.command, origin: "Services", outcome: "ran", status: output.status))
+            let text = output.stderr + output.stdout
+            if output.succeeded {
+                let parsed = CloudServices.parse(query, provider: env.provider, scope: scope, output: output.stdout)
+                if parsed.isEmpty, CloudServices.json(output.stdout) == nil, !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    problems.append("\(query.group): the answer of `\(query.command)` could not be read.")
+                }
+                items += parsed
+            } else {
+                let firstLine = text.split(separator: "\n").first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }).map { String($0.prefix(200)) } ?? "no answer"
+                problems.append("\(query.group): " + (ProviderHints.advice(command: query.command, stderr: text, status: output.status) ?? firstLine))
+            }
+        }
+        let probes = items.indices.filter { items[$0].probe }
+        let answers = await withTaskGroup(of: (Int, Int?, Double).self) { group -> [(Int, Int?, Double)] in
+            for index in probes {
+                let address = items[index].openURL ?? ""
+                group.addTask { let r = await Self.probe(address); return (index, r.code, r.seconds) }
+            }
+            var all: [(Int, Int?, Double)] = []
+            for await answer in group { all.append(answer) }
+            return all
+        }
+        for (index, code, seconds) in answers {
+            let result = CloudServices.probeResult(code: code, seconds: seconds)
+            items[index].level = result.level
+            items[index].state = result.state
+        }
+        servicesStates[id] = ServicesState(items: items, problems: problems, loading: false, updated: Date())
+    }
+
+    /// One look at a public address of the person's own: the status code and how long it took.
+    nonisolated private static func probe(_ address: String) async -> (code: Int?, seconds: Double) {
+        guard let url = URL(string: address), url.scheme == "https" else { return (nil, 0) }
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.httpMethod = "GET"
+        let started = Date()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+        guard let (_, response) = try? await session.data(for: request), let http = response as? HTTPURLResponse else { return (nil, Date().timeIntervalSince(started)) }
+        return (http.statusCode, Date().timeIntervalSince(started))
     }
 
     private func restartAuto() {
