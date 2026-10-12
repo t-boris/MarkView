@@ -344,7 +344,16 @@ private struct EnvironmentDetail: View {
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(VSDark.bgSidebar).cornerRadius(6)
     }
 
-    private var cloud: some View {
+    @ViewBuilder private var cloud: some View {
+        if !CloudServices.queries(provider: env.provider, scope: CloudServices.scope(of: env.cloudCommands)).isEmpty {
+            CloudServicesCard(env: env, store: store) { question, log, title in ask(question, log: log, logTitle: title) }
+            DisclosureGroup("Raw output of the commands") { rawCloud }.uiFont(size: 11)
+        } else {
+            rawCloud
+        }
+    }
+
+    private var rawCloud: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("CLOUD STATE (\(env.provider.uppercased()))").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
             if env.cloudCommands.isEmpty { Text("No commands yet. Add read-only commands of the provider's CLI in Edit.").uiFont(size: 11).foregroundColor(VSDark.textDim) }

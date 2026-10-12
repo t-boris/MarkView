@@ -407,6 +407,7 @@ flowchart LR
     A -->|"yes"| E
 ```
 
+- **Services of a cloud place** — a Firebase, Fly or Vercel place lists what it runs, one row each: Firebase functions and hosting channels, Fly app and machines, Vercel deployments. Each row has a state badge (a hosting site's answer to a request from this Mac, a machine's state and health checks, a deployment's state), a button for its log (read-only, filterable, hand it to the assistant), and links to open it and its console page. Environment variables and secrets the CLIs print are never read.
 - **Finds where it runs** — servers, platforms that are configured by files (Firebase: one place per project of `.firebaserc`, with hosting, functions and a signed-in CLI; Vercel, Fly.io, Heroku, Kubernetes, AWS, Google Cloud), and also the cloud database or cache behind them (Neon, Supabase,
   PlanetScale, Turso, Upstash, Amazon RDS, Azure, Aiven, CockroachDB, MongoDB Atlas: found by the
   hostnames the docs name and the libraries the code uses; the connection URL with its password is a
