@@ -415,6 +415,8 @@ class WorkspaceManager: ObservableObject {
     }
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
     @Published private(set) var aiTerminals: [TerminalSession] = []
+    /// What the assistants in the AI terminals are doing (toolbar chip).
+    let agentActivity = AgentActivityMonitor()
     /// The terminal shown in the AI panel.
     @Published var activeAITerminalID: UUID? {
         // Closing the workspace empties `aiTerminals` first, so it does not overwrite the saved set.
@@ -580,6 +582,9 @@ class WorkspaceManager: ObservableObject {
         try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
         recentFilesURL = appDir.appendingPathComponent("recentFiles.json")
         research.workspace = self
+        agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
+        agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
+        agentActivity.start()
 
         // Restore layout from UserDefaults
         let ud = UserDefaults.standard

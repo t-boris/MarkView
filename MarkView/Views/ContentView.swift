@@ -423,6 +423,7 @@ struct ContentView: View {
                 .background(VSDark.bgActive)
                 .cornerRadius(7)
                 Spacer(minLength: 4)
+                AgentActivityChip(monitor: workspaceManager.agentActivity, workspaceManager: workspaceManager, compact: compact)
                 if workspaceManager.layout.workspaceArea == .files && hasDocumentContents {
                     headerButton("list.bullet.indent", help: "Contents of this tab (⌘2): headings, structure, page, entries, facts", width: controlWidth,
                                  selected: workspaceManager.terminalVisible && workspaceManager.layout.navigatorTab == .contents) {
