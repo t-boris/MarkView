@@ -86,6 +86,15 @@ struct LifecycleSection: View {
                 durationRow(item.step.title, item.duration)
             }
             durationRow("Idea created → verified (total)", total)
+            if events.contains(where: { $0.stage.isCIDetail }) {
+                Text("CI").uiFont(size: 8, weight: .bold).foregroundColor(VSDark.textDim).padding(.top, 2)
+                durationRow("Waiting for a runner", LifecycleCI.queue(events))
+                durationRow("CI time until green", LifecycleCI.work(events))
+                let reruns = LifecycleCI.reruns(events)
+                durationRow("Re-runs", .missing).overlay(alignment: .trailing) {
+                    Text("\(reruns)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textBright)
+                }
+            }
         }
     }
 
@@ -213,6 +222,7 @@ struct CycleTimeSummarySheet: View {
         let events = store.lifecycleProject.map { log.events(project: $0) } ?? []
         let grouped = Dictionary(grouping: events.filter { slugs.contains($0.feature) }, by: \.feature)
         let summary = LifecycleAnalytics.summary(grouped)
+        let ci = LifecycleCI.summary(grouped)
         VStack(alignment: .leading, spacing: 10) {
             Text("Cycle time — \(store.root?.lastPathComponent ?? "project")").uiFont(size: 13, weight: .semibold)
             Text("Calendar time between adjacent stages over this project's features (\(grouped.count) with events). Only features with both boundary events count; inconsistent steps are left out.")
@@ -234,6 +244,20 @@ struct CycleTimeSummarySheet: View {
                         }
                         Divider().gridCellUnsizedAxes(.horizontal)
                         statRow("Idea created → verified (total)", summary.total, bold: true)
+                        if ci.features > 0 {
+                            Divider().gridCellUnsizedAxes(.horizontal)
+                            GridRow { header("CI (last commit of each pull request)"); header(""); header(""); header("") }
+                            statRow("Waiting for a runner (requested → started)", ci.queue, bold: false)
+                            statRow("CI time until green (started → passed)", ci.work, bold: false)
+                            GridRow {
+                                Text("Re-runs").uiFont(size: 11).lineLimit(1)
+                                Text("\(ci.reruns)").uiFont(size: 11, design: .monospaced)
+                                Text(ci.features == 0 ? "" : String(format: "%.1f per feature", Double(ci.reruns) / Double(ci.features)))
+                                    .uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+                                Text("\(ci.rerunFeatures) of \(ci.features)").uiFont(size: 11, design: .monospaced).foregroundColor(.secondary)
+                                    .gridColumnAlignment(.trailing)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

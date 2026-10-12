@@ -100,7 +100,7 @@ enum LifecycleGitHub {
         let pr = """
             number state createdAt mergedAt baseRefName \
             reviews(states: APPROVED, first: 1) { nodes { submittedAt } } \
-            commits(last: 1) { nodes { commit { statusCheckRollup { state \
+            commits(last: 1) { nodes { commit { oid statusCheckRollup { state \
             contexts(first: 100) { nodes { __typename ... on CheckRun { completedAt } ... on StatusContext { createdAt } } } } } } }
             """
         let items = numbers.map { n in
@@ -113,16 +113,7 @@ enum LifecycleGitHub {
     /// review done, all checks green → CI passed, merged into the default branch → merged to main.
     /// Closed-unmerged pull requests count for nothing.
     static func captures(from json: Data) -> [Capture] {
-        guard let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
-              let repository = (root["data"] as? [String: Any])?["repository"] as? [String: Any] else { return [] }
-        let main = (repository["defaultBranchRef"] as? [String: Any])?["name"] as? String
-        var pulls: [Int: [String: Any]] = [:]
-        for (key, value) in repository where key.hasPrefix("n") {
-            guard let item = value as? [String: Any] else { continue }
-            if let number = item["number"] as? Int { pulls[number] = item }
-            let linked = (item["closedByPullRequestsReferences"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
-            for pr in linked { if let number = pr["number"] as? Int { pulls[number] = pr } }
-        }
+        guard let (main, pulls) = pulls(from: json) else { return [] }
         var result: [Capture] = []
         for (number, pr) in pulls.sorted(by: { $0.key < $1.key }) {
             let state = (pr["state"] as? String ?? "").uppercased()
@@ -148,6 +139,34 @@ enum LifecycleGitHub {
             }
         }
         return result
+    }
+
+    /// The pull requests of a `query` answer by number, and the default branch's name.
+    private static func pulls(from json: Data) -> (String?, [Int: [String: Any]])? {
+        guard let root = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let repository = (root["data"] as? [String: Any])?["repository"] as? [String: Any] else { return nil }
+        let main = (repository["defaultBranchRef"] as? [String: Any])?["name"] as? String
+        var pulls: [Int: [String: Any]] = [:]
+        for (key, value) in repository where key.hasPrefix("n") {
+            guard let item = value as? [String: Any] else { continue }
+            if let number = item["number"] as? Int { pulls[number] = item }
+            let linked = (item["closedByPullRequestsReferences"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+            for pr in linked { if let number = pr["number"] as? Int { pulls[number] = pr } }
+        }
+        return (main, pulls)
+    }
+
+    /// The last commit of each pull request that counts (open or merged), as ("PR #12", sha): its
+    /// Actions runs are what `LifecycleCICapture` reads.
+    static func heads(from json: Data) -> [(note: String, sha: String)] {
+        guard let (_, pulls) = pulls(from: json) else { return [] }
+        return pulls.sorted(by: { $0.key < $1.key }).compactMap { number, pr in
+            let merged = (pr["mergedAt"] as? String).flatMap(date)
+            guard (pr["state"] as? String ?? "").uppercased() != "CLOSED" || merged != nil else { return nil }
+            let commits = (pr["commits"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+            guard let sha = (commits.last?["commit"] as? [String: Any])?["oid"] as? String, !sha.isEmpty else { return nil }
+            return ("PR #\(number)", sha)
+        }
     }
 
     /// ISO 8601, with or without fractional seconds (GitHub and the CLI logs use both).
@@ -204,5 +223,38 @@ enum LifecycleGit {
               runs.allSatisfy({ ($0["status"] as? String)?.lowercased() == "completed" && ($0["conclusion"] as? String)?.lowercased() == "success" })
         else { return nil }
         return runs.compactMap { ($0["updatedAt"] as? String).flatMap(LifecycleGitHub.date) }.max()
+    }
+}
+
+
+/// Request, start and re-runs of CI for one commit, from
+/// `gh run list --commit <sha> --json databaseId,createdAt,startedAt,attempt`.
+enum LifecycleCICapture {
+    static let runFields = "databaseId,createdAt,startedAt,updatedAt,status,conclusion,attempt"
+
+    /// `note` is the pull request or commit the events belong to. The first request is the earliest
+    /// run created and the start is the earliest first attempt that began; a run on a later attempt
+    /// has no known queue time (GitHub keeps no request time for a re-run), so it only counts as a
+    /// re-run, stamped with the start of its latest attempt.
+    static func captures(runsJSON: Data, note: String) -> [LifecycleGitHub.Capture] {
+        guard let runs = try? JSONSerialization.jsonObject(with: runsJSON) as? [[String: Any]], !runs.isEmpty else { return [] }
+        func time(_ run: [String: Any], _ key: String) -> Date? { (run[key] as? String).flatMap(LifecycleGitHub.date) }
+        func attempt(_ run: [String: Any]) -> Int { max((run["attempt"] as? NSNumber)?.intValue ?? 1, 1) }
+        var result: [LifecycleGitHub.Capture] = []
+        let first = runs.filter { attempt($0) == 1 }
+        if let requested = first.compactMap({ time($0, "createdAt") }).min() {
+            result.append(.init(stage: .ciRequested, date: requested, note: note))
+        }
+        if let started = first.compactMap({ time($0, "startedAt") }).min() {
+            result.append(.init(stage: .ciStarted, date: started, note: note))
+        }
+        for run in runs where attempt(run) > 1 {
+            guard let date = time(run, "startedAt") ?? time(run, "createdAt") else { continue }
+            let id = (run["databaseId"] as? NSNumber)?.intValue ?? 0
+            for n in 2...attempt(run) {
+                result.append(.init(stage: .ciRequested, date: date, note: "\(note)\(LifecycleCI.rerunMarker)\(n) of run \(id)"))
+            }
+        }
+        return result
     }
 }

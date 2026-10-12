@@ -11,6 +11,8 @@ enum LifecycleStage: String, CaseIterable, Codable, Sendable {
     case implementationStarted = "implementation_started"
     case implementationFinished = "implementation_finished"
     case reviewDone = "review_done"
+    case ciRequested = "ci_requested"
+    case ciStarted = "ci_started"
     case ciPassed = "ci_passed"
     case mergedToMain = "merged_to_main"
     case verified
@@ -23,6 +25,8 @@ enum LifecycleStage: String, CaseIterable, Codable, Sendable {
         case .implementationStarted: return "Implementation started"
         case .implementationFinished: return "Implementation finished"
         case .reviewDone: return "Review done"
+        case .ciRequested: return "CI requested"
+        case .ciStarted: return "CI started"
         case .ciPassed: return "CI passed"
         case .mergedToMain: return "Merged to main"
         case .verified: return "Verified"
@@ -30,7 +34,15 @@ enum LifecycleStage: String, CaseIterable, Codable, Sendable {
     }
 
     /// Recorded by MarkView itself; never marked by hand (DEC-013).
-    var isAutomatic: Bool { [.ideaCreated, .questionsResolved, .specReady].contains(self) }
+    var isAutomatic: Bool { [.ideaCreated, .questionsResolved, .specReady, .ciRequested, .ciStarted].contains(self) }
+
+    /// Run details of CI (queue wait, re-runs): read from GitHub, kept out of the chain of adjacent
+    /// steps because CI starts when a pull request opens, before its review is done. Their
+    /// durations are in `LifecycleCI`.
+    var isCIDetail: Bool { self == .ciRequested || self == .ciStarted }
+
+    /// The stages whose adjacent pairs are the steps.
+    static var chain: [LifecycleStage] { allCases.filter { !$0.isCIDetail } }
 
     var order: Int { Self.allCases.firstIndex(of: self) ?? 0 }
 
@@ -68,7 +80,7 @@ struct LifecycleStep: Hashable, Sendable {
     /// The step whose duration is compared per AI model (DEC-011).
     var isAIStep: Bool { start == .implementationStarted }
 
-    static let all: [LifecycleStep] = zip(LifecycleStage.allCases, LifecycleStage.allCases.dropFirst()).map(LifecycleStep.init)
+    static let all: [LifecycleStep] = zip(LifecycleStage.chain, LifecycleStage.chain.dropFirst()).map(LifecycleStep.init)
 }
 
 enum LifecycleDuration: Equatable, Sendable {
@@ -162,5 +174,46 @@ enum LifecycleAnalytics {
         if days > 0 { return "\(days)d \(hours)h \(rest)m" }
         if hours > 0 { return "\(hours)h \(rest)m" }
         return "\(rest)m"
+    }
+}
+
+
+/// How long CI takes and how often it was started again, from the events of `ci_requested`,
+/// `ci_started` and `ci_passed`.
+enum LifecycleCI {
+    /// A re-run is a `ci_requested` event whose note has this marker: "PR #12 · re-run 2 of run 987".
+    static let rerunMarker = " · re-run "
+
+    static func isRerun(_ event: LifecycleEvent) -> Bool {
+        event.stage == .ciRequested && (event.note?.contains(rerunMarker) ?? false)
+    }
+
+    /// Requested → started: waiting for a runner. Earliest request to the first start.
+    static func queue(_ events: [LifecycleEvent]) -> LifecycleDuration {
+        LifecycleAnalytics.duration(from: .ciRequested, to: .ciStarted, in: events)
+    }
+
+    /// Started → passed: the time CI ran until it was green, failed attempts and re-runs included.
+    static func work(_ events: [LifecycleEvent]) -> LifecycleDuration {
+        LifecycleAnalytics.duration(from: .ciStarted, to: .ciPassed, in: events)
+    }
+
+    static func reruns(_ events: [LifecycleEvent]) -> Int { events.filter(isRerun).count }
+
+    struct Summary: Equatable, Sendable {
+        let queue: LifecycleAnalytics.Statistic?
+        let work: LifecycleAnalytics.Statistic?
+        /// Features with any CI event, and how many of them needed a re-run, with the re-runs in all.
+        let features: Int
+        let rerunFeatures: Int
+        let reruns: Int
+    }
+
+    static func summary(_ features: [String: [LifecycleEvent]]) -> Summary {
+        let withCI = features.values.filter { $0.contains { $0.stage.isCIDetail || $0.stage == .ciPassed } }
+        let counts = withCI.map(reruns)
+        return Summary(queue: LifecycleAnalytics.statistic(withCI.compactMap { queue($0).seconds }),
+                       work: LifecycleAnalytics.statistic(withCI.compactMap { work($0).seconds }),
+                       features: withCI.count, rerunFeatures: counts.filter { $0 > 0 }.count, reruns: counts.reduce(0, +))
     }
 }
