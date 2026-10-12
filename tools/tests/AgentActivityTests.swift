@@ -98,5 +98,23 @@ check(codex([plan, call])?.plan.map(\.title) == ["Write tests", "Ship"] && codex
 
 check(AgentActivityLog.claudeFolderName(for: URL(fileURLWithPath: "/private/tmp/x.y")) == "-private-tmp-x-y", "a /private path keeps its prefix")
 
+// Cline and Copilot
+let clineMessages = #"{"messages":[{"role":"user","content":[{"type":"text","text":"Remove old branches"}]},{"role":"assistant","content":[{"type":"text","text":"Checking the branches first."},{"type":"tool_use","name":"run_commands","input":{"commands":["cd /p && git branch -vv"]}}]}]}"#
+var c = AgentActivityParser.cline(messagesJSON: Data(clineMessages.utf8), status: "running", now: now)
+check(c?.state == .working && c?.text == "Checking the branches first" && c?.detail == "Running git branch", "cline running: sentence and tool")
+check(c?.task == "Remove old branches", "cline task")
+c = AgentActivityParser.cline(messagesJSON: Data(clineMessages.utf8), status: "idle", now: now)
+check(c?.state == .idle && c?.text == "Waiting for you" && c?.task == "Remove old branches", "cline idle keeps the task")
+check(AgentActivityParser.cline(messagesJSON: Data("garbage".utf8), status: "idle") == nil, "cline garbage")
+check(AgentActivityParser.describe(tool: "read_files", input: ["files": [["path": "/a/b/c.txt"]]]) == "Reading c.txt", "cline read_files")
+let cp = AgentActivityParser.copilot(userMessage: "Open the page", response: "Opened the page. More.", busy: false)
+check(cp?.state == .idle && cp?.task == "Open the page" && cp?.detail == "Opened the page", "copilot idle")
+check(AgentActivityParser.copilot(userMessage: "Open the page", response: nil, busy: true)?.state == .working, "copilot working while its terminal prints")
+check(AgentActivityParser.copilot(userMessage: nil, response: nil, busy: true) == nil, "copilot without data")
+check(ProcessTree.isDescendant(getpid(), of: getppid()) && ProcessTree.isDescendant(getpid(), of: getpid()) && !ProcessTree.isDescendant(getpid(), of: 999_999), "process tree")
+
+let wrapped = #"{"messages":[{"role":"user","content":[{"type":"text","text":"<user_input mode=\"act\"><mode_notice>The user switched.\nSecond line.</mode_notice>\nReview old branches</user_input>"}]}]}"#
+check(AgentActivityParser.cline(messagesJSON: Data(wrapped.utf8), status: "idle")?.task == "Review old branches", "cline request wrapper and notice are removed")
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

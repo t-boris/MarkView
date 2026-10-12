@@ -1,4 +1,6 @@
+import Darwin
 import Foundation
+import SQLite3
 
 // What an assistant CLI is doing right now, read from the tail of its own session log
 // (Claude Code's ~/.claude/projects/<folder>/*.jsonl, Codex's ~/.codex/sessions/**/rollout-*.jsonl).
@@ -135,7 +137,13 @@ enum AgentActivityParser {
         else if let blocks = content as? [[String: Any]], !blocks.contains(where: { $0["type"] as? String == "tool_result" }) {
             text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: " ")
         } else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("<user_input") {
+            // Cline wraps the request: <user_input mode="act"><mode_notice>…</mode_notice>request</user_input>
+            trimmed = trimmed.replacingOccurrences(of: #"(?s)<mode_notice>.*?</mode_notice>"#, with: "", options: [.regularExpression])
+                .replacingOccurrences(of: #"</?user_input[^>]*>"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard !trimmed.isEmpty, !trimmed.hasPrefix("<"), !trimmed.hasPrefix("["), !trimmed.hasPrefix("Caveat:") else { return nil }
         return clip(trimmed, 90)
     }
@@ -209,6 +217,40 @@ enum AgentActivityParser {
         return result
     }
 
+    // MARK: Cline
+
+    /// Cline's `<session>.messages.json` (Anthropic-shaped messages), read with the claude rules.
+    /// `status` is the session row's: only "running"-like states count as working.
+    static func cline(messagesJSON: Data, status: String, now: Date = Date()) -> AgentActivity? {
+        guard let root = try? JSONSerialization.jsonObject(with: messagesJSON) as? [String: Any],
+              let messages = root["messages"] as? [[String: Any]] else { return nil }
+        var lines: [Data] = []
+        for message in messages {
+            guard let role = message["role"] as? String,
+                  let line = try? JSONSerialization.data(withJSONObject: ["type": role, "message": message]) else { continue }
+            lines.append(line)
+        }
+        guard var result = claude(lines: lines, now: now) else { return nil }
+        if status != "running" && status != "busy" && status != "active" {
+            result.state = .idle
+            result.text = status == "idle" ? "Waiting for you" : "Session " + status
+            result.detail = nil
+        }
+        return result
+    }
+
+    // MARK: Copilot
+
+    /// Copilot records a turn when it ends: the last request and the start of the answer. Whether
+    /// it is working now is known from the terminal (`busy`), not from its store.
+    static func copilot(userMessage: String?, response: String?, busy: Bool) -> AgentActivity? {
+        guard userMessage != nil || response != nil else { return nil }
+        let task = userMessage.map { clip($0, 90) }
+        let said = response.flatMap(firstSentence)
+        if busy { return AgentActivity(state: .working, text: task.map { "Working after: " + $0 } ?? "Working", detail: nil, task: task, topic: nil) }
+        return AgentActivity(state: .idle, text: "Waiting for you", detail: said, task: task, topic: nil)
+    }
+
     // MARK: Text
 
     /// A readable phrase for a tool call. The command line of a shell call is not used (it can
@@ -228,8 +270,16 @@ enum AgentActivityParser {
         case "Bash", "BashOutput":
             if let description = input["description"] as? String, !description.isEmpty { return clip(description, 60) }
             return program(of: input["command"] as? String).map { "Running \($0)" } ?? "Running a command"
-        case "Grep", "Glob", "LS":
+        case "Grep", "Glob", "LS", "search_codebase", "list_files", "grep", "glob":
             return "Searching the project"
+        case "run_commands":
+            let first = (input["commands"] as? [String])?.first ?? input["command"] as? String
+            return program(of: first).map { "Running \($0)" } ?? "Running a command"
+        case "read_files":
+            let path = ((input["files"] as? [[String: Any]])?.first?["path"] as? String) ?? (input["files"] as? [String])?.first
+            return path.map { "Reading \(clip(($0 as NSString).lastPathComponent, 40))" } ?? "Reading files"
+        case "edit_file", "write_file", "apply_patch", "editor", "replace_in_file", "write_to_file":
+            return file("path", "file_path", "filePath").map { "Editing \($0)" } ?? "Editing files"
         case "Task", "Agent":
             if let description = input["description"] as? String, !description.isEmpty { return "Subagent: " + clip(description, 50) }
             return "Running a subagent"
@@ -243,7 +293,7 @@ enum AgentActivityParser {
             return "Asking you a question"
         default:
             if tool.hasPrefix("mcp__") { return "Using \(tool.split(separator: "_").last.map(String.init) ?? "a tool")" }
-            return tool.isEmpty ? "Working" : "Using \(tool)"
+            return tool.isEmpty ? "Working" : "Using \(tool.replacingOccurrences(of: "_", with: " "))"
         }
     }
 
@@ -320,6 +370,48 @@ enum AgentActivityLog {
         return newest(in: folders, matching: { _ in true })
     }
 
+    /// The log of the Claude Code running under terminal shell `shellPID`: the CLI writes
+    /// `~/.claude/sessions/<pid>.json` ({pid, sessionId, cwd}), so tabs of one folder do not mix up.
+    static func claudeLog(shell shellPID: pid_t, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
+        guard shellPID > 0 else { return nil }
+        let folder = home.appendingPathComponent(".claude/sessions")
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        for url in files where url.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: url), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let pid = (object["pid"] as? NSNumber)?.int32Value, let id = object["sessionId"] as? String,
+                  let cwd = object["cwd"] as? String, ProcessTree.isDescendant(pid, of: shellPID) else { continue }
+            for spelling in spellings(URL(fileURLWithPath: cwd)) {
+                let log = home.appendingPathComponent(".claude/projects").appendingPathComponent(claudeFolderName(for: spelling))
+                    .appendingPathComponent(id + ".jsonl")
+                if FileManager.default.fileExists(atPath: log.path) { return log }
+            }
+        }
+        return nil
+    }
+
+    /// The live Cline CLI session of a terminal: its messages file and state. By process when the
+    /// row's pid runs under the shell, else the newest live session of the folder.
+    static func clineSession(directory: URL, shell shellPID: pid_t,
+                             home: URL = FileManager.default.homeDirectoryForCurrentUser) -> (messages: URL, status: String)? {
+        let db = home.appendingPathComponent(".cline/data/db/sessions.db").path
+        let paths = Set(spellings(directory).map(\.path))
+        let rows = SQLiteRead.rows(db, "SELECT pid, status, cwd, messages_path FROM sessions WHERE ended_at IS NULL AND is_subagent = 0 ORDER BY updated_at DESC LIMIT 20", columns: 4)
+        func make(_ row: [String]) -> (URL, String)? { row[3].isEmpty ? nil : (URL(fileURLWithPath: row[3]), row[1]) }
+        if let row = rows.first(where: { Int32($0[0]).map { ProcessTree.isDescendant($0, of: shellPID) } ?? false }) { return make(row) }
+        return rows.first { paths.contains(URL(fileURLWithPath: $0[2]).path) && Int32($0[0]).map(ProcessTree.isAlive) ?? false }.flatMap(make)
+    }
+
+    /// The last finished Copilot turn in a folder.
+    static func copilotTurn(directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> (user: String?, response: String?)? {
+        let db = home.appendingPathComponent(".copilot/session-store.db").path
+        for spelling in spellings(directory) {
+            let rows = SQLiteRead.rows(db, "SELECT t.user_message, t.assistant_response FROM turns t JOIN sessions s ON s.id = t.session_id WHERE s.cwd = ?1 ORDER BY t.id DESC LIMIT 1",
+                                       args: [spelling.path], columns: 2)
+            if let row = rows.first { return (row[0].isEmpty ? nil : row[0], row[1].isEmpty ? nil : row[1]) }
+        }
+        return nil
+    }
+
     /// The newest Codex rollout from the last two days whose first line names this folder.
     static func newestCodexLog(for directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser,
                                now: Date = Date()) -> URL? {
@@ -369,5 +461,61 @@ enum AgentActivityLog {
         defer { try? handle.close() }
         guard let data = try? handle.read(upToCount: 64 * 1024) else { return nil }
         return data.split(separator: UInt8(ascii: "\n"), maxSplits: 1).first.map { Data($0) }
+    }
+}
+
+
+enum ProcessTree {
+    static func parent(of pid: pid_t) -> pid_t? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        return info.kp_eproc.e_ppid
+    }
+
+    static func isAlive(_ pid: pid_t) -> Bool { kill(pid, 0) == 0 || errno == EPERM }
+
+    /// `pid` is `ancestor` or runs below it (a few levels: the shell, the CLI's wrapper, the CLI).
+    static func isDescendant(_ pid: pid_t, of ancestor: pid_t) -> Bool {
+        var current = pid
+        for _ in 0..<10 {
+            if current == ancestor { return true }
+            guard let next = parent(of: current), next > 1, next != current else { return false }
+            current = next
+        }
+        return false
+    }
+}
+
+/// Read-only SQLite queries returning text columns.
+enum SQLiteRead {
+    static func rows(_ path: String, _ sql: String, args: [String] = [], columns: Int) -> [[String]] {
+        // Read-only, so another program's live database is never changed; when its WAL side files
+        // cannot be opened (a database nobody has open), once more as an immutable snapshot.
+        for mode in ["mode=ro", "immutable=1"] {
+            var db: OpaquePointer?
+            let uri = "file:" + (path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path) + "?" + mode
+            guard sqlite3_open_v2(uri, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK else { sqlite3_close(db); continue }
+            defer { sqlite3_close(db) }
+            sqlite3_busy_timeout(db, 300)
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { continue }
+            defer { sqlite3_finalize(statement) }
+            return read(statement, args: args, columns: columns)
+        }
+        return []
+    }
+
+    private static func read(_ statement: OpaquePointer?, args: [String], columns: Int) -> [[String]] {
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (index, value) in args.enumerated() { sqlite3_bind_text(statement, Int32(index + 1), value, -1, transient) }
+        var result: [[String]] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            result.append((0..<columns).map { column in
+                sqlite3_column_text(statement, Int32(column)).map { String(cString: $0) } ?? ""
+            })
+        }
+        return result
     }
 }

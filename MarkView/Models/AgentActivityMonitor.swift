@@ -1,8 +1,8 @@
 import Foundation
 
-/// Watches the assistants running in a window's AI terminals and publishes what each one is
-/// doing, for the toolbar. Reads each session log's tail off the main thread every few seconds,
-/// and only while an assistant terminal is running.
+/// Watches the assistants running in a window's AI terminals (Claude Code, Codex, Cline, Copilot)
+/// and publishes what each one is doing, for the tabs and the toolbar. Reads each one's own session
+/// store off the main thread every few seconds, and only while an assistant terminal is running.
 @MainActor
 final class AgentActivityMonitor: ObservableObject {
     struct Entry: Equatable, Identifiable {
@@ -11,7 +11,7 @@ final class AgentActivityMonitor: ObservableObject {
         let activity: AgentActivity
     }
 
-    /// One entry per running Claude Code or Codex terminal that has a readable session log.
+    /// One entry per running assistant terminal whose session can be read.
     @Published private(set) var entries: [Entry] = []
 
     /// The terminals to watch and the shown one; set by the workspace.
@@ -53,7 +53,7 @@ final class AgentActivityMonitor: ObservableObject {
 
     private func tick() {
         guard !busy else { return }
-        let watched = terminals().filter { $0.isRunning && ($0.profile == .claude || $0.profile == .codex) }
+        let watched = terminals().filter { $0.isRunning && $0.profile != .shell }
         guard !watched.isEmpty else {
             if !entries.isEmpty { entries = [] }
             seen = [:]
@@ -61,24 +61,38 @@ final class AgentActivityMonitor: ObservableObject {
         }
         busy = true
         let jobs = watched.map { (id: $0.id, name: $0.title, directory: $0.directory, profile: $0.profile,
-                                  cached: seen[$0.id]) }
+                                  shell: $0.shellPID, printing: $0.printed(within: 6), cached: seen[$0.id]) }
         Task.detached(priority: .utility) { [weak self] in
             var results: [(UUID, String, URL, Int, Date, AgentActivity?)] = []
             for job in jobs {
-                let url = job.profile == .codex ? AgentActivityLog.newestCodexLog(for: job.directory)
-                                                : AgentActivityLog.newestClaudeLog(for: job.directory)
-                guard let url, let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-                      let date = values.contentModificationDate else { continue }
-                let size = values.fileSize ?? 0
-                if let cached = job.cached, cached.url == url, cached.size == size, cached.date == date,
-                   cached.activity?.state != .working {
-                    results.append((job.id, job.name, url, size, date, cached.activity))
-                    continue
+                switch job.profile {
+                case .claude, .codex:
+                    let url = job.profile == .codex ? AgentActivityLog.newestCodexLog(for: job.directory)
+                        : (AgentActivityLog.claudeLog(shell: job.shell) ?? AgentActivityLog.newestClaudeLog(for: job.directory))
+                    guard let url, let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                          let date = values.contentModificationDate else { continue }
+                    let size = values.fileSize ?? 0
+                    if let cached = job.cached, cached.url == url, cached.size == size, cached.date == date,
+                       cached.activity?.state != .working {
+                        results.append((job.id, job.name, url, size, date, cached.activity))
+                        continue
+                    }
+                    let lines = AgentActivityLog.tail(of: url)
+                    let activity = job.profile == .codex ? AgentActivityParser.codex(lines: lines)
+                                                         : AgentActivityParser.claude(lines: lines)
+                    results.append((job.id, job.name, url, size, date, activity))
+                case .cline:
+                    guard let session = AgentActivityLog.clineSession(directory: job.directory, shell: job.shell),
+                          let data = try? Data(contentsOf: session.messages) else { continue }
+                    results.append((job.id, job.name, session.messages, data.count, Date(),
+                                    AgentActivityParser.cline(messagesJSON: data, status: session.status)))
+                case .copilot:
+                    guard let turn = AgentActivityLog.copilotTurn(directory: job.directory) else { continue }
+                    results.append((job.id, job.name, job.directory, 0, Date(),
+                                    AgentActivityParser.copilot(userMessage: turn.user, response: turn.response, busy: job.printing)))
+                case .shell:
+                    break
                 }
-                let lines = AgentActivityLog.tail(of: url)
-                let activity = job.profile == .codex ? AgentActivityParser.codex(lines: lines)
-                                                     : AgentActivityParser.claude(lines: lines)
-                results.append((job.id, job.name, url, size, date, activity))
             }
             await self?.apply(results)
         }
