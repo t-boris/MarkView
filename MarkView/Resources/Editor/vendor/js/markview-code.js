@@ -1,7 +1,8 @@
         // ============================================================================
-        // Code viewer — read-only CodeMirror 6 (vendor/js/codemirror.bundle.js, loaded
-        // on first use). Swift calls setCodeContent(text, language, fileName) for any
-        // source file; every other content entry point leaves the code view.
+        // Code viewer — CodeMirror 6 (vendor/js/codemirror.bundle.js, loaded on first use),
+        // read-only until the person presses Edit. Swift calls setCodeContent(text, language,
+        // fileName) for any source file; every other content entry point leaves the code view.
+        // Typing is sent to Swift as `contentChanged` (the tab becomes modified, ⌘S saves).
         // ============================================================================
         (function() {
             const container = document.getElementById('code-container');
@@ -11,6 +12,12 @@
             explainButton.className = 'code-explain-btn'; explainButton.textContent = '✦ Explain';
             explainButton.title = 'Explain this file section by section (AI)';
             main.appendChild(explainButton);
+            // Source files open read-only: Edit lets the person type (⌘S saves, like a document).
+            const editButton = document.createElement('button');
+            editButton.className = 'code-edit-btn'; editButton.textContent = '✎ Edit';
+            editButton.title = 'Edit this file (⌘S saves it)';
+            editButton.hidden = true;
+            main.appendChild(editButton);
             // A markdown document opened with its notes: the way back to the document.
             const documentButton = document.createElement('button');
             documentButton.className = 'code-document-btn'; documentButton.textContent = '← Document';
@@ -192,8 +199,24 @@
                 DOM.statusMode.textContent = language ? language.toUpperCase() : 'TEXT';
             }
 
+            // Edit mode: the code viewer takes typing and reports every change. The margin notes and
+            // lens bands belong to the text as it was explained, so editing closes them.
+            let editing = false;
+            function setEditing(on) {
+                const was = editing;
+                editing = !!on && !!codeViewer && viewer === codeViewer;
+                if (codeViewer && codeViewer.isEditable && codeViewer.isEditable() !== editing) codeViewer.setEditable(editing);
+                editButton.textContent = editing ? '✓ Done' : '✎ Edit';
+                editButton.title = editing ? 'Stop editing (the changes stay in the tab until ⌘S)' : 'Edit this file (⌘S saves it)';
+                main.classList.toggle('code-editing', editing);
+                if (editing) { notesState = null; renderNotes(); explainButton.hidden = true; }
+                else if (was) renderNotes();
+            }
+            editButton.addEventListener('click', function() { setEditing(!editing); });
+
             window.leaveCodeView = function() {
                 if (!container.classList.contains('visible')) return;
+                setEditing(false);
                 if (window.closeCodeFloating) window.closeCodeFloating();
                 container.classList.remove('visible');
                 document.body.classList.remove('code-mode');
@@ -207,6 +230,8 @@
                 currentFile = fileName || null;
                 enterCodeView(language);
                 documentButton.hidden = language !== 'markdown';
+                setEditing(false);
+                editButton.hidden = language === 'markdown';
                 main.classList.toggle('code-md', language === 'markdown');
                 state.markdown = text;
                 docPending = true;
@@ -233,6 +258,10 @@
                     if (!codeViewer) {
                         codeViewer = window.MVCode.create(main, { doc: text, language: language, dark: isDark() });
                         codeViewer.onLayout(queueLayout);
+                        codeViewer.onChange(function(text) {
+                            state.markdown = text;
+                            sendToSwift('contentChanged', { markdown: text, html: '' });
+                        });
                         codeViewer.element = main.querySelector('.cm-editor');
                     } else {
                         codeViewer.setDoc(text, language);

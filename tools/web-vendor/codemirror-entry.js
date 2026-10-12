@@ -1,4 +1,4 @@
-// Read-only code viewer for MarkView, bundled to vendor/js/codemirror.bundle.js
+// Code viewer for MarkView (read-only until the person presses Edit), bundled to vendor/js/codemirror.bundle.js
 // as the global `MVCode`. Languages are bundled statically (no dynamic imports),
 // so the viewer works offline inside WKWebView.
 import { EditorState, Compartment } from "@codemirror/state";
@@ -6,7 +6,7 @@ import { EditorView, lineNumbers, highlightActiveLineGutter, highlightSpecialCha
          drawSelection, highlightActiveLine, keymap } from "@codemirror/view";
 import { foldGutter, codeFolding, foldKeymap, bracketMatching, syntaxHighlighting,
          HighlightStyle, StreamLanguage, indentUnit } from "@codemirror/language";
-import { defaultKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { search, searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
 import { tags as t } from "@lezer/highlight";
 import { indentationMarkers } from "@replit/codemirror-indentation-markers";
@@ -112,23 +112,30 @@ function themeExtensions(dark) {
     colors: { light: c.marker, dark: c.marker, activeLight: c.gutter, activeDark: c.gutter } })];
 }
 
-/** Create a read-only viewer inside `parent`. Returns a small controller. */
+/** Create a viewer inside `parent`; it is read-only until `setEditable(true)`. Returns a small controller. */
 function create(parent, { doc = "", language = "", dark = false } = {}) {
   let currentLanguage = language;
   let isDark = dark;
+  let editable = false;
   const theme = new Compartment();
+  const editing = new Compartment();
+  const editExtensions = () => (editable ? [] : [EditorState.readOnly.of(true), EditorView.editable.of(false)]);
+  const changeListeners = [];
   const layoutListeners = [];
   const notifyLayout = () => layoutListeners.forEach((fn) => fn());
   const build = () => [
     lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), drawSelection(),
     highlightActiveLine(), codeFolding(), foldGutter(), bracketMatching(),
     highlightSelectionMatches(), search({ top: true }), indentUnit.of("    "),
-    EditorState.readOnly.of(true), EditorView.editable.of(false),
+    editing.of(editExtensions()), history(),
     EditorView.contentAttributes.of({ tabindex: "0" }),
-    keymap.of([...defaultKeymap, ...searchKeymap, ...foldKeymap]),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap, indentWithTab]),
     languages[currentLanguage] ? languages[currentLanguage]() : [],
     theme.of(themeExtensions(isDark)),
-    EditorView.updateListener.of((u) => { if (u.geometryChanged || u.viewportChanged || u.docChanged) notifyLayout(); }),
+    EditorView.updateListener.of((u) => {
+      if (u.geometryChanged || u.viewportChanged || u.docChanged) notifyLayout();
+      if (u.docChanged && editable) { const text = u.state.doc.toString(); changeListeners.forEach((fn) => fn(text)); }
+    }),
   ];
   const view = new EditorView({ parent, state: EditorState.create({ doc, extensions: build() }) });
   view.scrollDOM.addEventListener("scroll", notifyLayout, { passive: true });
@@ -137,8 +144,19 @@ function create(parent, { doc = "", language = "", dark = false } = {}) {
     /** Replace the document (and optionally its language); resets scroll and folds. */
     setDoc(text, nextLanguage) {
       if (nextLanguage !== undefined) currentLanguage = nextLanguage;
+      editable = false;
       view.setState(EditorState.create({ doc: text, extensions: build() }));
     },
+    /** Let the person type (Edit) or lock the text again (Done). A new document starts read-only. */
+    setEditable(on) {
+      editable = !!on;
+      view.dispatch({ effects: editing.reconfigure(editExtensions()) });
+      if (editable) view.focus();
+    },
+    isEditable() { return editable; },
+    /** Call `fn(text)` with the whole text after every change the person makes. */
+    onChange(fn) { changeListeners.push(fn); },
+    getDoc() { return view.state.doc.toString(); },
     setTheme(dark) {
       isDark = dark;
       view.dispatch({ effects: theme.reconfigure(themeExtensions(isDark)) });
