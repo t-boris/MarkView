@@ -109,6 +109,7 @@ check(byId["vercel"]?.provider == "vercel" && byId["vercel"]?.cloudCommands.allS
 let dev = byId["firebase-demo-dev"], prod = byId["firebase-demo-prod"]
 check(dev?.provider == "firebase" && prod?.provider == "firebase", "firebase.json + .firebaserc: one place per project: \(found.map(\.id))")
 check(dev?.cloudCommands.contains { $0.command == "firebase functions:list --project demo-dev" } == true && dev?.checks.first?.target == "https://demo-dev.web.app", "firebase: commands and hosting check name the project")
+check([dev, prod].compactMap { $0 }.allSatisfy { $0.cloudCommands.allSatisfy { $0.command.contains("--project demo-") && !$0.command.contains("projects:list") } }, "firebase: every command is scoped to its project, none lists the whole account")
 check(dev?.logSources.first?.command == "firebase functions:log --project demo-dev --lines 100", "firebase: functions log")
 check(dev?.evidence.contains { $0.contains("firebase-deploy.yml") } == true && byId["firebase"] == nil, "firebase: the workflow's evidence joins the projects, no bare duplicate")
 check(([dev, prod].compactMap { $0 }.flatMap { $0.cloudCommands.map(\.command) + $0.logSources.map(\.command) }).allSatisfy { CommandPolicy.classify($0).isReadOnly }, "every suggested firebase command is read-only")

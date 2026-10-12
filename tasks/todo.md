@@ -2621,3 +2621,8 @@ Report: the Firebase place was found, but every command in the Deployments windo
 - [x] Cause: Deployments runs commands with a fixed PATH (Homebrew first, no nvm). `firebase` from Homebrew then ran on Homebrew's Node 26, which removed `SlowBuffer`; the person's terminal uses nvm's Node 22 where it works (reproduced in a shell with the same PATH).
 - [x] `LocalExecutor.searchPath`: the nvm default (`~/.nvm/alias/default`, newest installed match) and Volta come before Homebrew; tests in `deployment-executor-tests.sh`; with that PATH `firebase hosting:sites:list --project astroweb-dev` returns the sites.
 - [ ] Other Node version managers (fnm, asdf, mise) are not read; the agent-tool runner and terminals are unchanged.
+
+## Task 119 — Firebase place shows only its own project (4.34.2)
+Report: the Firebase place "does not understand there is a project, shows everything together": the first command, `firebase projects:list`, listed every project of the signed-in account.
+- [x] Removed `projects:list` from the suggestion; every Firebase command is scoped with `--project <id>`; test added.
+- [ ] A place already added keeps its saved commands (`.dde/deployments.json`): delete the "Projects" command in Edit, or remove the place and add it again from the scan.
