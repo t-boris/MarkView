@@ -9,6 +9,8 @@ class GitClient: ObservableObject {
     @Published var localBranches: [String] = []
     /// Remote branches ("origin/x") with no local branch of the same name, most recent first.
     @Published var remoteBranches: [String] = []
+    /// Every working copy of this repository (the open folder is one of them), main checkout first.
+    @Published var worktrees: [GitWorktree] = []
     @Published var changedFiles: [GitFileStatus] = []
     /// Everything Git says about the work tree: changes, untracked, conflicts and (when asked) ignored paths.
     @Published var repoStatus = GitRepoStatus.empty
@@ -92,6 +94,7 @@ class GitClient: ObservableObject {
         branch = ""
         localBranches = []
         remoteBranches = []
+        worktrees = []
         changedFiles = []
         repoStatus = .empty
         operationInProgress = nil
@@ -126,6 +129,7 @@ class GitClient: ObservableObject {
         branch = (await run("git", "rev-parse", "--abbrev-ref", "HEAD", in: dir) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         onBranch?(branch)
         await loadBranches(in: dir)
+        await loadWorktrees(in: dir)
 
         await refreshStatus()
 
@@ -338,6 +342,18 @@ class GitClient: ObservableObject {
     }
 
     // MARK: - Branches
+
+    /// The repository's working copies, each with its number of changed paths. A single copy is not worth
+    /// listing, so the list stays empty then.
+    private func loadWorktrees(in dir: URL) async {
+        var list = GitWorktree.parse(await run("git", "worktree", "list", "--porcelain", in: dir) ?? "")
+        guard list.count > 1 else { worktrees = []; return }
+        for index in list.indices where !list[index].isBare {
+            let status = await run("git", "status", "--porcelain", "--untracked-files=normal", in: URL(fileURLWithPath: list[index].path))
+            list[index].changes = status?.split(separator: "\n").count
+        }
+        worktrees = list
+    }
 
     private func loadBranches(in dir: URL) async {
         let output = await run("git", "for-each-ref", "--sort=-committerdate", "--format=%(refname)",

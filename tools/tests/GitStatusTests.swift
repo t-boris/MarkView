@@ -88,5 +88,25 @@ check(Set(live.entries(in: .ignored).map(\.path)) == ["build/", "run.log"], "rea
 let tracked = GitRepoStatus.cleanTracked(lsFiles: git(["ls-files", "-z"], in: repo), changed: live.changedPaths)
 check(Set(tracked) == [".gitignore", "keep.txt"], "real repo: clean tracked files: \(tracked)")
 
+let trees = GitWorktree.parse("""
+worktree /r/MarkView
+HEAD aaa
+branch refs/heads/main
+
+worktree /r/MarkView-x
+HEAD bbb
+branch refs/heads/fix/bug-1
+
+worktree /r/MarkView-release
+HEAD ccc
+detached
+
+""")
+check(trees.map(\.path) == ["/r/MarkView", "/r/MarkView-x", "/r/MarkView-release"], "worktrees: every copy is listed")
+check(trees[1].branch == "fix/bug-1" && trees[1].folderName == "MarkView-x", "worktrees: branch keeps its slashes")
+check(trees[2].branch == nil && trees[2].isDetached && trees[2].branchLabel == "detached HEAD", "worktrees: detached HEAD")
+let linked = git(["worktree", "list", "--porcelain"], in: repo)
+check(GitWorktree.parse(linked).count == 1 && GitWorktree.parse(linked)[0].branch == "main", "worktrees: real repo with one copy")
+
 print(failures == 0 ? "All git status checks passed." : "\(failures) git status check(s) failed.")
 exit(failures == 0 ? 0 : 1)

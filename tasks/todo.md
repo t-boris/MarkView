@@ -2600,3 +2600,10 @@ Request: "compare with branch" — choose the base, and the reverse comparison (
 - [x] Files a change adds are now drawn in the PR X-Ray also when the project has no logical view (nearest folder of the modules view); before, they appeared only with the logical view, so a comparison with a branch that adds files looked empty.
 - [x] Driven in a second instance on a throwaway repo with three branches: both menus, both comparisons show the right files; the picker keeps the earlier comparison.
 - [ ] Not tried: remote branches in the menu, a very long branch list, Review/Analyze on a comparison, a detached HEAD.
+
+## Task 116 — Working copies (git worktrees) in the Git tab (4.33.0)
+Report: "the Git tab keeps showing main although we work on another branch". Cause found: MarkView's open folder is the main checkout (always on `main`) while agents work in linked worktrees (`MarkView-multiselect`, `MarkView-readme`, …) on branches of their own; the header was right for the folder it watches.
+- [x] `GitWorktree.parse` (`git worktree list --porcelain`) in `GitStatusModel.swift`; `GitClient.worktrees` with the number of changed paths per copy, filled on every full refresh; empty when the repository has one copy.
+- [x] Branch header shows "+N copies"; the branch menu has **Other Working Copies** (branch — folder, changes; opens that folder in MarkView) and a branch that is checked out in another copy reads "— in <folder>" and opens that copy instead of failing to switch.
+- [x] Tests in `git-status-tests.sh`; driven in a second instance on a throwaway repo with a linked worktree: label, menu, opening the copy shows its branch and its changes.
+- [ ] Not done: choosing which copy an agent works in when starting "Implement with AI" (would create the worktree itself); refresh of the copy list only on a full refresh (tab open, app activation, own operations).

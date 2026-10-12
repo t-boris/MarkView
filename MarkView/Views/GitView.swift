@@ -590,17 +590,44 @@ struct GitBranchMenu: View {
     @State private var error: String?
 
     var body: some View {
+        HStack(spacing: 5) {
+            menu
+            if git.worktrees.count > 1 {
+                Text("+\(git.worktrees.count - 1) copies").uiFont(size: fontSize - 2).foregroundColor(VSDark.textDim)
+                    .help("Other working copies of this repository (worktrees), each on its own branch: open the branch menu to see them.")
+            }
+        }
+    }
+
+    private var menu: some View {
         Menu {
             Section("Switch to") {
                 ForEach(git.localBranches, id: \.self) { name in
-                    Button((name == git.branch ? "✓ " : "") + name) { run { await workspaceManager.switchBranch(name) } }
-                        .disabled(name == git.branch)
+                    // A branch checked out in another working copy cannot be checked out here: open that copy.
+                    let elsewhere = git.worktrees.first { $0.branch == name && !sameFolder($0.path) }
+                    Button((name == git.branch ? "✓ " : "") + name + (elsewhere.map { " — in \($0.folderName)" } ?? "")) {
+                        if let elsewhere { workspaceManager.openFolder(URL(fileURLWithPath: elsewhere.path)) }
+                        else { run { await workspaceManager.switchBranch(name) } }
+                    }
+                    .disabled(name == git.branch)
                 }
             }
             if !git.remoteBranches.isEmpty {
                 Menu("Remote Branches") {
                     ForEach(git.remoteBranches, id: \.self) { name in
                         Button(name) { run { await workspaceManager.switchBranch(name) } }
+                    }
+                }
+            }
+            if !git.worktrees.isEmpty {
+                Menu("Other Working Copies (\(git.worktrees.count - 1))") {
+                    ForEach(git.worktrees) { copy in
+                        let here = sameFolder(copy.path)
+                        Button((here ? "✓ " : "") + copy.branchLabel + " — " + copy.folderName
+                               + (copy.changes.map { $0 > 0 ? " (\($0) changes)" : "" } ?? "")) {
+                            workspaceManager.openFolder(URL(fileURLWithPath: copy.path))
+                        }
+                        .disabled(here || copy.isBare)
                     }
                 }
             }
@@ -621,7 +648,7 @@ struct GitBranchMenu: View {
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .disabled(git.isOperating)
-        .help("Switch or create a branch. Uncommitted changes move along unless the switch would overwrite them.")
+        .help("Switch or create a branch. Uncommitted changes move along unless the switch would overwrite them. \"copies\" are other working copies of this repository (worktrees), each on its own branch.")
         .popover(isPresented: $creating, arrowEdge: .bottom) {
             GitNewBranchForm(git: git) { name, base in
                 creating = false
@@ -637,6 +664,11 @@ struct GitBranchMenu: View {
 
     private func run(_ operation: @escaping () async -> String?) {
         Task { error = await operation() }
+    }
+
+    private func sameFolder(_ path: String) -> Bool {
+        guard let open = git.workingDirectory else { return false }
+        return open.resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     /// The other branches to compare with, local first, then remote ones (opened in the PR X-Ray).
