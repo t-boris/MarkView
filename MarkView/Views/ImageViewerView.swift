@@ -10,15 +10,26 @@ struct ImageViewerView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     let url: URL
     @StateObject private var canvas = ImageCanvasController()
+    /// The folder's images, for the arrows and the slideshow.
+    @State private var siblings: [URL] = []
+    @State private var playing = false
+    @AppStorage("imageSlideshowSeconds") private var interval = 4.0
+
+    private var previous: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: -1, wrap: false) }
+    private var next: URL? { ImageSiblings.neighbour(of: url, in: siblings, step: 1, wrap: false) }
+
+    private struct Slideshow: Hashable { var playing: Bool; var interval: Double }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().background(VSDark.border)
             if let image = canvas.image {
-                ImageCanvasRepresentable(image: image, controller: canvas) { urls in
+                ImageCanvasRepresentable(image: image, controller: canvas, openFiles: { urls in
                     urls.forEach { workspaceManager.openFile($0) }
-                }
+                }, step: { go($0, wrap: playing) }, togglePlay: { togglePlay() })
+                .overlay(alignment: .leading) { arrow("chevron.left", target: previous, step: -1) }
+                .overlay(alignment: .trailing) { arrow("chevron.right", target: next, step: 1) }
             } else {
                 VStack(spacing: 8) {
                     Spacer()
@@ -31,7 +42,44 @@ struct ImageViewerView: View {
             }
         }
         .background(VSDark.bg)
-        .task(id: url) { await canvas.load(url) }
+        .task(id: url) {
+            let directory = url.deletingLastPathComponent()
+            siblings = await Task.detached { ImageSiblings.list(in: directory, isImage: FileType.isImage) }.value
+            await canvas.load(url)
+        }
+        .task(id: Slideshow(playing: playing, interval: interval)) {
+            // Moves right every `interval` seconds, from the last image back to the first.
+            while playing, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                if playing, !Task.isCancelled { go(1, wrap: true) }
+            }
+        }
+    }
+
+    /// Show the neighbouring image in this tab.
+    private func go(_ step: Int, wrap: Bool) {
+        guard let target = ImageSiblings.neighbour(of: url, in: siblings, step: step, wrap: wrap) else { return }
+        workspaceManager.showImage(target, replacing: url)
+    }
+
+    private func togglePlay() {
+        if siblings.count > 1 { playing.toggle() }
+    }
+
+    /// A round arrow at the window's edge, only where there is a picture to go to.
+    @ViewBuilder
+    private func arrow(_ symbol: String, target: URL?, step: Int) -> some View {
+        if target != nil {
+            Button { go(step, wrap: false) } label: {
+                Image(systemName: symbol).uiFont(size: 16, weight: .semibold)
+                    .foregroundColor(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(Color.black.opacity(0.45)))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
+            .help(step < 0 ? "Previous image (←)" : "Next image (→)")
+        }
     }
 
     private var header: some View {
@@ -40,6 +88,25 @@ struct ImageViewerView: View {
             Text(url.lastPathComponent).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
             Text(canvas.info).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
             Spacer()
+            if let position = ImageSiblings.position(of: url, in: siblings) {
+                Text(position).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).fixedSize()
+                iconButton("chevron.left", "Previous image (←)") { go(-1, wrap: false) }.opacity(previous == nil ? 0.3 : 1)
+                iconButton("chevron.right", "Next image (→)") { go(1, wrap: false) }.opacity(next == nil ? 0.3 : 1)
+                iconButton(playing ? "pause.fill" : "play.fill", playing ? "Stop the slideshow (Space)" : "Play the folder as a slideshow (Space)") {
+                    togglePlay()
+                }
+                Menu {
+                    ForEach([2.0, 3.0, 5.0, 10.0, 30.0], id: \.self) { seconds in
+                        Button { interval = seconds } label: {
+                            Text("\(Int(seconds)) seconds" + (interval == seconds ? " ✓" : ""))
+                        }
+                    }
+                } label: {
+                    Text("\(Int(interval)) s").uiFont(size: 10, design: .monospaced)
+                }
+                .menuStyle(.borderlessButton).fixedSize()
+                .help("Seconds each image stays in the slideshow")
+            }
             if canvas.image != nil {
                 iconButton("minus.magnifyingglass", "Zoom out") { canvas.zoom(by: 1 / 1.25) }
                 Text("\(Int((canvas.zoom * 100).rounded())) %")
@@ -74,7 +141,7 @@ struct ImageViewerView: View {
 
     private func textButton(_ title: String, _ help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text)
+            Text(title).uiFont(size: 10, weight: .medium).foregroundColor(VSDark.text).lineLimit(1).fixedSize()
                 .padding(.horizontal, 6).padding(.vertical, 1)
                 .background(RoundedRectangle(cornerRadius: 3).fill(VSDark.border.opacity(0.6)))
         }
@@ -123,9 +190,13 @@ private struct ImageCanvasRepresentable: NSViewRepresentable {
     let image: NSImage
     let controller: ImageCanvasController
     let openFiles: ([URL]) -> Void
+    let step: (Int) -> Void
+    let togglePlay: () -> Void
 
     func makeNSView(context: Context) -> ImageCanvasView {
         let view = ImageCanvasView()
+        view.onStep = step
+        view.onTogglePlay = togglePlay
         view.onZoomChange = { [weak controller] zoom in controller?.zoom = zoom }
         view.onDropFiles = openFiles
         view.image = image
@@ -136,6 +207,8 @@ private struct ImageCanvasRepresentable: NSViewRepresentable {
     func updateNSView(_ view: ImageCanvasView, context: Context) {
         if view.image !== image { view.image = image }
         view.onDropFiles = openFiles
+        view.onStep = step
+        view.onTogglePlay = togglePlay
         controller.canvas = view
     }
 }
@@ -152,6 +225,9 @@ final class ImageCanvasView: NSView {
     }
     var onZoomChange: ((CGFloat) -> Void)?
     var onDropFiles: (([URL]) -> Void)?
+    /// ← / → ask for the previous / next image of the folder; Space starts or stops the slideshow.
+    var onStep: ((Int) -> Void)?
+    var onTogglePlay: (() -> Void)?
 
     private let imageView = NSImageView()
     /// Points per image pixel.
@@ -345,7 +421,13 @@ final class ImageCanvasView: NSView {
         case "-": zoom(by: 1 / 1.25, around: nil)
         case "0": fit()
         case "1": actualSize()
-        default: super.keyDown(with: event)
+        case " ": onTogglePlay?()
+        default:
+            switch event.keyCode {
+            case 123: onStep?(-1)
+            case 124: onStep?(1)
+            default: super.keyDown(with: event)
+            }
         }
     }
 

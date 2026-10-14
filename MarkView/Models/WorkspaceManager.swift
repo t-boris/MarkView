@@ -990,6 +990,12 @@ class WorkspaceManager: ObservableObject {
         openTextFile(url)
     }
 
+    /// The image viewer's arrows and slideshow: the image tab of `url` shows `target` instead.
+    func showImage(_ target: URL, replacing url: URL) {
+        guard let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind else { return }
+        tabsStore.updateTab(at: index) { $0.url = target }
+    }
+
     /// The image viewer's "Source" (SVG): replace the image tab with the file as text.
     func openImageAsText(_ url: URL) {
         if let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind {
