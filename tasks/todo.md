@@ -2686,3 +2686,10 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] Copilot: `~/.copilot/session-store.db` turns (last request and the first sentence of its answer); working while its terminal prints (`printed(within: 6)`), else idle. SQLite is opened read-only (`mode=ro`, else an immutable snapshot).
 - [x] Tests extended (cline, copilot, process tree, wrapper); parsers run on this Mac's real Cline and Copilot data.
 - [ ] Not seen live: a Cline or Copilot terminal running in a MarkView tab (no running session here); Cline's task list (no todo tool in its messages), Copilot's plan and what it is doing mid-turn (it records a turn when it ends); a Codex rollout of a terminal is still matched by folder (newest), not by process.
+
+## Task 128: Pick an element in the browser and send it to the AI (4.43.0)
+- [x] `markview-pick-element.js`: hover highlight, click picks, Esc cancels; returns rect, HTML, selector.
+- [x] `BrowserSession.pickElement`: snapshot of the element (PNG in the pasted-images cache), then `onElementPicked`.
+- [x] `WorkspaceManager.sendPickedElement`: pastes page, selector, screenshot path and HTML (cut at 8000 chars) into the AI terminal; also puts image + text on the clipboard.
+- [x] Toolbar button in the browser tab; `tools/tests/browser-element-pick-tests.sh`.
+- Verified: picker and snapshot in a real WKWebView (page sees no click). Not verified: the toolbar button and the paste into a live agent tab.

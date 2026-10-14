@@ -31,6 +31,8 @@ struct BrowserTabView: View {
             if let offer = session.fillOffer, session.passwordPrompt == nil { fillOfferBar(offer) }
             if let download = session.download { downloadBanner(download) }
             if let saved { savedBanner(saved) }
+            if session.isPicking { noticeBar("Click an element to send it to the AI — Esc cancels", symbol: "cursorarrow.rays", color: VSDark.blue) }
+            if let notice = session.pickNotice { noticeBar(notice, symbol: "checkmark.circle.fill", color: VSDark.green, dismiss: true) }
             ZStack {
                 BrowserWebViewRepresentable(session: session)
                 if let preview = session.preview {
@@ -93,6 +95,16 @@ struct BrowserTabView: View {
             .frame(height: 22)
             .background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bg))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(addressFocused ? VSDark.blue : VSDark.border, lineWidth: 1))
+            Button {
+                if session.isPicking { session.cancelPick() } else { Task { await session.pickElement() } }
+            } label: {
+                Image(systemName: "cursorarrow.rays").uiFont(size: 12)
+                    .foregroundColor(session.isPicking ? VSDark.blue : VSDark.text)
+            }
+            .buttonStyle(.plain)
+            .disabled(session.url == nil)
+            .help(session.isPicking ? "Cancel picking (Esc)"
+                  : "Pick an element on the page: its screenshot and HTML go into the AI's input")
             Menu {
                 Button("Save Selection as Markdown…") { session.saveRequest = .selection }
                 Button("Save Page as Markdown…") { session.saveRequest = .page }
@@ -219,6 +231,17 @@ struct BrowserTabView: View {
         .controlSize(.small)
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(VSDark.blue.opacity(0.12))
+    }
+
+    private func noticeBar(_ text: String, symbol: String, color: Color, dismiss: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).foregroundColor(color)
+            Text(text).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(2)
+            Spacer()
+            if dismiss { Button { session.pickNotice = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain) }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(VSDark.bgActive)
     }
 
     private func downloadBanner(_ download: BrowserDownload) -> some View {
