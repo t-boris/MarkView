@@ -87,6 +87,7 @@ final class GitHubStore: ObservableObject {
     /// Tab models by "<repo>#<number>".
     private var runModels: [String: GitHubRunModel] = [:]
     private var issueModels: [String: GitHubIssueModel] = [:]
+    private var pullRequestModels: [String: GitHubPullRequestModel] = [:]
 
     var client: GitHubClient? {
         guard let root, let repo = selectedRepo else { return nil }
@@ -136,7 +137,7 @@ final class GitHubStore: ObservableObject {
         generation += 1
         pullRequests = []; issues = []; runs = []; workflows = []; branchRuns = []
         labels = []; assignableUsers = []
-        runModels = [:]; issueModels = [:]
+        runModels = [:]; issueModels = [:]; pullRequestModels = [:]
         activeRunIds = []
         runWorkflow = nil
         loadingPRs = false; loadingIssues = false; loadingRuns = false
@@ -243,6 +244,15 @@ final class GitHubStore: ObservableObject {
         guard let client = client(for: slug) else { return nil }
         let model = GitHubIssueModel(number: number, client: client, store: self)
         issueModels[key] = model
+        return model
+    }
+
+    func pullRequestModel(_ number: Int, repo slug: String) -> GitHubPullRequestModel? {
+        let key = "\(slug)#\(number)"
+        if let model = pullRequestModels[key] { return model }
+        guard let client = client(for: slug) else { return nil }
+        let model = GitHubPullRequestModel(number: number, client: client, store: self)
+        pullRequestModels[key] = model
         return model
     }
 
@@ -575,6 +585,53 @@ final class GitHubIssueModel: ObservableObject {
             busy = false
             refresh()
             store.refreshIssues()
+        }
+    }
+}
+
+
+/// One pull request's tab: its details, checks and conversation, and the actions on it.
+@MainActor
+final class GitHubPullRequestModel: ObservableObject {
+    let number: Int
+    let client: GitHubClient
+    private weak var store: GitHubStore?
+
+    @Published private(set) var pullRequest: GHPullRequest?
+    /// Description, comments, reviews and code comments as GitHub renders them.
+    @Published private(set) var html: GHIssueHTML?
+    @Published var error: String?
+    @Published private(set) var busy = false
+
+    init(number: Int, client: GitHubClient, store: GitHubStore) {
+        self.number = number
+        self.client = client
+        self.store = store
+        refresh()
+    }
+
+    func refresh() {
+        Task {
+            do {
+                async let details = client.pullRequest(number)
+                async let rendered = client.pullRequestHTML(number)
+                let (pr, html) = try await (details, rendered)
+                pullRequest = pr
+                self.html = html
+                error = nil
+            } catch { self.error = error.localizedDescription }
+        }
+    }
+
+    /// Run an action, then reload the pull request and the list.
+    func act(_ label: String, _ action: @escaping (GitHubClient) async throws -> Void) {
+        guard let store else { return }
+        busy = true
+        Task {
+            error = await store.perform(label, client: client, action)
+            busy = false
+            refresh()
+            store.refreshPullRequests()
         }
     }
 }

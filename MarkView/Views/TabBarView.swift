@@ -82,6 +82,7 @@ struct TabBarView: View {
             }
         case .github(let item):
             if case .run = item { return "gearshape.2" }
+            if case .pullRequest = item { return "arrow.triangle.pull" }
             return "smallcircle.filled.circle"
         case .file: return tab.isMarkdown ? "doc.text" : "chevron.left.forwardslash.chevron.right"
         }

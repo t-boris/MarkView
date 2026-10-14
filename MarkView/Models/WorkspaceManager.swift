@@ -4357,6 +4357,7 @@ class WorkspaceManager: ObservableObject {
         layout.navigatorTab = .git
         switch item {
         case .issue: layout.gitSection = .issues
+        case .pullRequest: layout.gitSection = .pullRequests
         case .run: layout.gitSection = .actions
         }
         showCenter = true

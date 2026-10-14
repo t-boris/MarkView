@@ -271,6 +271,7 @@ struct TabFactsPanel: View {
         case .github(let item):
             switch item {
             case .issue(let number, let repo, let title): return [("Tab", "GitHub issue"), ("Repository", repo), ("Number", "#\(number)"), ("Title", title)]
+            case .pullRequest(let number, let repo, let title): return [("Tab", "GitHub pull request"), ("Repository", repo), ("Number", "#\(number)"), ("Title", title)]
             case .run(let id, let repo, let title): return [("Tab", "GitHub Actions run"), ("Repository", repo), ("Run", String(id)), ("Title", title)]
             }
         case .architecture(let scope):

@@ -134,6 +134,8 @@ struct GHIssueHTML: Sendable {
         var avatar: String?
         var createdAt: String?
         var html: String
+        /// What a pull request entry is: a review verdict or the file and line of a code comment.
+        var label: String?
     }
     var body: String
     var comments: [Comment]
@@ -478,6 +480,28 @@ struct GitHubClient: Sendable {
         let json = try await gh(["run", "list"] + r + ["--commit", sha, "-L", "100", "--json", LifecycleCICapture.runFields])
         let data = Data(json.utf8)
         return (LifecycleCICapture.captures(runsJSON: data, note: note), LifecycleGit.ciPassed(runsJSON: data))
+    }
+
+    /// The pull request's description and its whole conversation — comments, reviews and code
+    /// comments — as GitHub renders them, oldest first.
+    func pullRequestHTML(_ number: Int) async throws -> GHIssueHTML {
+        let accept = ["-H", "Accept: application/vnd.github.full+json"]
+        let body = try await gh(["api", "repos/\(repo.slug)/pulls/\(number)"] + accept + ["-q", ".body_html // \"\""])
+        func entries(_ path: String, _ shape: String) async throws -> [GHIssueHTML.Comment] {
+            let lines = try await gh(["api", "repos/\(repo.slug)/\(path)?per_page=100", "--paginate"] + accept + ["-q", shape])
+            return lines.split(separator: "\n").compactMap { try? JSONDecoder().decode(GHIssueHTML.Comment.self, from: Data($0.utf8)) }
+        }
+        let user = "author: .user.login, avatar: .user.avatar_url"
+        async let comments = entries("issues/\(number)/comments",
+            ".[] | {\(user), createdAt: .created_at, html: (.body_html // \"\")}")
+        // A review without text only groups its code comments, which are listed on their own.
+        async let reviews = entries("pulls/\(number)/reviews",
+            ".[] | select(.state != \"PENDING\" and (.state != \"COMMENTED\" or ((.body // \"\") != \"\"))) | {\(user), createdAt: .submitted_at, label: .state, html: (.body_html // \"\")}")
+        async let code = entries("pulls/\(number)/comments",
+            ".[] | {\(user), createdAt: .created_at, label: (.path + \":\" + ((.line // .original_line // 0) | tostring)), html: (.body_html // \"\")}")
+        let all = try await comments + reviews + code
+        return GHIssueHTML(body: body.trimmingCharacters(in: .newlines),
+                           comments: all.sorted { ($0.createdAt ?? "") < ($1.createdAt ?? "") })
     }
 
     /// Check the pull request out into the working copy (`gh pr checkout`).

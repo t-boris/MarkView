@@ -243,6 +243,7 @@ struct ContentView: View {
                 workspaceManager.layout.navigatorTab = .git
                 switch item {
                 case .issue: workspaceManager.layout.gitSection = .issues
+                case .pullRequest: workspaceManager.layout.gitSection = .pullRequests
                 case .run: workspaceManager.layout.gitSection = .actions
                 }
                 workspaceManager.terminalVisible = true
