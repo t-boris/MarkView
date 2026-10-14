@@ -105,6 +105,12 @@ final class BrowserSession: NSObject, ObservableObject {
     var previewTerminalID: UUID?
     var startWebApp: ((WebAppTarget) -> Void)?
     var showTerminal: (() -> Void)?
+    /// The user is choosing an element on the page (Pick Element).
+    @Published private(set) var isPicking = false
+    /// A picked element with its screenshot: the workspace pastes it into the agent's input.
+    var onElementPicked: ((PickedElement, URL?) -> Void)?
+    /// The outcome of the last pick ("Pasted into Claude", an error), shown briefly.
+    @Published var pickNotice: String?
     private(set) var isClosed = false
     /// The window's Preview Web App tab (Preview Web App reuses it).
     var isAppPreview = false
@@ -132,6 +138,10 @@ final class BrowserSession: NSObject, ObservableObject {
     static var captureScriptURL = Bundle.main.url(forResource: "markview-page-markdown", withExtension: "js",
                                                   subdirectory: "Editor/vendor/js")
 
+    /// The element picker script, from the editor bundle.
+    static var pickScriptURL = Bundle.main.url(forResource: "markview-pick-element", withExtension: "js",
+                                               subdirectory: "Editor/vendor/js")
+
     init(url: URL?) {
         self.url = url
         super.init()
@@ -154,6 +164,10 @@ final class BrowserSession: NSObject, ObservableObject {
         configuration.userContentController.addUserScript(WKUserScript(
             source: Self.consoleCaptureScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         if let scriptURL = Self.captureScriptURL, let source = try? String(contentsOf: scriptURL, encoding: .utf8) {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        }
+        if let pickURL = Self.pickScriptURL, let source = try? String(contentsOf: pickURL, encoding: .utf8) {
             configuration.userContentController.addUserScript(WKUserScript(
                 source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         }
@@ -310,6 +324,59 @@ final class BrowserSession: NSObject, ObservableObject {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserPasswordScript.handlerName, contentWorld: .defaultClient)
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
+    }
+
+    /// Lets the user choose an element on the page, then hands it over with a screenshot.
+    func pickElement() async {
+        guard !isPicking else { return }
+        isPicking = true
+        defer { isPicking = false }
+        pickNotice = nil
+        do {
+            let result = try await webView.callAsyncJavaScript(
+                "return window.markviewPickElement ? await window.markviewPickElement() : undefined;",
+                arguments: [:], in: nil, contentWorld: .defaultClient)
+            guard let object = result as? [String: Any] else {
+                if result == nil { pickNotice = "This page cannot be picked from yet. Wait for it to load." }
+                return
+            }
+            guard let element = PickedElement(object) else {
+                pickNotice = "That element has no size to capture."
+                return
+            }
+            // The highlight must not be in the screenshot.
+            _ = try? await webView.callAsyncJavaScript(
+                "window.markviewPickHide && window.markviewPickHide();", arguments: [:], in: nil, contentWorld: .defaultClient)
+            try? await Task.sleep(nanoseconds: 60_000_000)
+            let screenshot = await snapshot(of: element)
+            onElementPicked?(element, screenshot)
+        } catch {
+            pickNotice = "The page changed before an element was chosen."
+        }
+    }
+
+    func cancelPick() {
+        Task { _ = try? await webView.callAsyncJavaScript(
+            "window.markviewPickCancel && window.markviewPickCancel();", arguments: [:], in: nil, contentWorld: .defaultClient) }
+    }
+
+    /// The element's pixels as a PNG file (what is visible of it: it is cut at the window's edge).
+    private func snapshot(of element: PickedElement) async -> URL? {
+        let zoom = webView.pageZoom
+        let view = webView.bounds
+        let rect = CGRect(x: element.x * zoom, y: element.y * zoom, width: element.width * zoom, height: element.height * zoom)
+            .intersection(view)
+        guard !rect.isNull, rect.width >= 1, rect.height >= 1 else { return nil }
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = rect
+        configuration.afterScreenUpdates = true
+        let image: NSImage? = await withCheckedContinuation { continuation in
+            webView.takeSnapshot(with: configuration) { image, _ in continuation.resume(returning: image) }
+        }
+        guard let tiff = image?.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return nil }
+        let file = BrowserElementPick.screenshotURL()
+        return (try? png.write(to: file)) != nil ? file : nil
     }
 
     /// The selection or the whole page as Markdown.

@@ -4487,6 +4487,23 @@ class WorkspaceManager: ObservableObject {
 
     // MARK: - Browser and web app preview
 
+    /// A picked page element goes into the AI terminal's input line as text (page, selector,
+    /// screenshot path, HTML) and, for pasting by hand, onto the clipboard as image plus text.
+    func sendPickedElement(_ element: PickedElement, screenshot: URL?, from session: BrowserSession?) {
+        let message = BrowserElementPick.message(for: element, screenshot: screenshot)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        if let screenshot, let image = NSImage(contentsOf: screenshot) { pasteboard.writeObjects([image]) }
+        pasteboard.setString(message, forType: .string)
+        let shot = screenshot == nil ? " (no screenshot: the element is off screen)" : ""
+        if let terminal = aiTerminal {
+            terminal.paste(message + "\n")
+            session?.pickNotice = "Sent \(element.tag) to the AI input\(shot)"
+        } else {
+            session?.pickNotice = "No AI terminal is open — \(element.tag) is on the clipboard\(shot)"
+        }
+    }
+
     /// Open a browser tab (an empty one for nil), next to the files.
     @discardableResult
     func openBrowser(_ url: URL?, activate: Bool = true) -> BrowserSession {
@@ -4494,6 +4511,9 @@ class WorkspaceManager: ObservableObject {
         session.agentName = BrowserAgentTools.nextTabName(taken: browserSessions.map(\.agentName))
         session.onOpenInNewTab = { [weak self] url in self?.openBrowser(url) }
         session.onSaveMarkdown = { [weak session] mode in session?.saveRequest = mode }
+        session.onElementPicked = { [weak self, weak session] element, screenshot in
+            self?.sendPickedElement(element, screenshot: screenshot, from: session)
+        }
         let base = rootNode?.url ?? FileManager.default.temporaryDirectory
         var tab = OpenTab(url: base.appendingPathComponent(".markview-browser-" + session.id.uuidString),
                           content: "", originalContent: "")
