@@ -356,10 +356,18 @@ struct GitHubPullRequestsView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .contentShape(Rectangle())
+        .onTapGesture { openTab(pr) }
+    }
+
+    /// The pull request in its own tab: description, comments, reviews, checks, reply box.
+    private func openTab(_ pr: GHPullRequest) {
+        guard let repo = gitHub.selectedRepo?.slug else { return }
+        workspaceManager.openGitHubTab(.pullRequest(number: pr.number, repo: repo, title: "#\(pr.number) \(pr.title)"))
     }
 
     private func menu(_ pr: GHPullRequest) -> some View {
         Menu {
+            Button("Open") { openTab(pr) }
             Button("Open on GitHub") { openInBrowser(pr.url) }
             Button("Copy Link") { copyToPasteboard(pr.url) }
             Divider()
@@ -842,6 +850,10 @@ struct GitHubTabView: View {
                 if let model = workspaceManager.gitHub.issueModel(number, repo: repo) {
                     GitHubIssueView(model: model, gitHub: workspaceManager.gitHub)
                 } else { unavailable }
+            case .pullRequest(let number, let repo, _):
+                if let model = workspaceManager.gitHub.pullRequestModel(number, repo: repo) {
+                    GitHubPullRequestView(model: model)
+                } else { unavailable }
             }
         }
         .background(VSDark.bg)
@@ -1204,27 +1216,46 @@ enum GitHubIssueDocument {
     /// scale (card headers).
     static func html(issue: GHIssue, rendered: GHIssueHTML, dark: Bool,
                      textSize: Double = EditorTextSize.defaultSize, uiScale: CGFloat = 1) -> String {
+        html(author: issue.author?.login, createdAt: issue.createdAt, rendered: rendered, dark: dark,
+             textSize: textSize, uiScale: uiScale)
+    }
+
+    /// What a review entry says it did.
+    static func verb(for label: String?) -> String {
+        switch label?.uppercased() {
+        case nil: return "commented"
+        case "APPROVED": return "approved"
+        case "CHANGES_REQUESTED": return "requested changes"
+        case "DISMISSED": return "had a review dismissed"
+        case "COMMENTED": return "reviewed"
+        default: return "commented on <code>\(label ?? "")</code>"
+        }
+    }
+
+    static func html(author: String?, createdAt: String?, rendered: GHIssueHTML, dark: Bool,
+                     textSize: Double = EditorTextSize.defaultSize, uiScale: CGFloat = 1) -> String {
         let bodySize = 14 * EditorTextSize.validated(textSize) / EditorTextSize.defaultSize
         let headerSize = 13 * Double(uiScale)
         func escape(_ text: String) -> String {
             text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
                 .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
         }
-        func card(author: String?, avatar: String?, date: String?, html: String, first: Bool) -> String {
+        func card(author: String?, avatar: String?, date: String?, html: String, first: Bool, label: String? = nil) -> String {
             let who = escape(author ?? "someone")
             let picture = avatar.flatMap { URL(string: $0) }.map { "<img class=\"avatar\" src=\"\(escape($0.absoluteString))&s=48\" alt=\"\">" } ?? ""
             let body = html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "<p class=\"muted\"><em>No description provided.</em></p>" : html
             return """
             <section class="card\(first ? " first" : "")">
-              <header>\(picture)<b>\(who)</b> <span class="muted">\(first ? "opened" : "commented") \(escape(GHDate.ago(date)))</span></header>
+              <header>\(picture)<b>\(who)</b> <span class="muted">\(first ? "opened" : verb(for: label.map { $0.contains(":") ? escape($0) : $0 })) \(escape(GHDate.ago(date)))</span></header>
               <div class="markdown-body">\(body)</div>
             </section>
             """
         }
-        var cards = card(author: issue.author?.login, avatar: nil, date: issue.createdAt, html: rendered.body, first: true)
+        var cards = card(author: author, avatar: nil, date: createdAt, html: rendered.body, first: true)
         for comment in rendered.comments {
-            cards += card(author: comment.author, avatar: comment.avatar, date: comment.createdAt, html: comment.html, first: false)
+            cards += card(author: comment.author, avatar: comment.avatar, date: comment.createdAt, html: comment.html,
+                          first: false, label: comment.label)
         }
         let c = dark
             ? (bg: "#1e1e1e", card: "#252526", text: "#d4d4d4", muted: "#8b949e", border: "#3c3c3c", link: "#58a6ff", code: "#2d2d2d")
@@ -1431,5 +1462,160 @@ struct GitHubSettingsSection: View {
         } catch {
             showError("Could not prepare the login script", error.localizedDescription)
         }
+    }
+}
+
+// MARK: Pull request tab
+
+/// A pull request in an editor tab: details, checks, the conversation as on GitHub, and a box to
+/// answer, approve or ask for changes.
+struct GitHubPullRequestView: View {
+    @ObservedObject var model: GitHubPullRequestModel
+    @EnvironmentObject var workspaceManager: WorkspaceManager
+    @EnvironmentObject var themeManager: ThemeManager
+    @Environment(\.appFontScale) private var fontScale
+    @AppStorage(EditorTextSize.mirrorKey) private var editorTextSize = EditorTextSize.defaultSize
+    @State private var comment = ""
+    @State private var checkingOut = false
+    @State private var confirm: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let pr = model.pullRequest {
+                header(pr)
+                if let error = model.error { errorBanner(error) }
+                Divider().background(VSDark.border)
+                if let html = model.html {
+                    GitHubHTMLView(document: GitHubIssueDocument.html(author: pr.author?.login, createdAt: pr.createdAt,
+                                                                       rendered: html, dark: themeManager.effectiveTheme == .dark,
+                                                                       textSize: editorTextSize, uiScale: fontScale))
+                } else {
+                    emptyList("Loading…")
+                }
+                if pr.state.uppercased() == "OPEN" {
+                    Divider().background(VSDark.border)
+                    replyBox(pr).padding(.horizontal, 16).padding(.vertical, 8)
+                }
+            } else if let error = model.error {
+                errorBanner(error)
+                Spacer()
+            } else {
+                emptyList("Loading…")
+            }
+        }
+        .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } })) {
+            if let kind = confirm {
+                Button(kind == "close" ? "Close pull request" : "Merge", role: kind == "close" ? .destructive : nil) {
+                    model.act(kind == "close" ? "Close" : "Merge") { client in
+                        if kind == "close" { try await client.closePR(model.number) }
+                        else { try await client.merge(model.number, method: kind) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var confirmTitle: String {
+        guard let pr = model.pullRequest, let kind = confirm else { return "" }
+        switch kind {
+        case "close": return "Close #\(pr.number) without merging?"
+        case "squash": return "Squash and merge #\(pr.number) into \(pr.baseRefName)?"
+        case "rebase": return "Rebase and merge #\(pr.number) into \(pr.baseRefName)?"
+        default: return "Merge #\(pr.number) into \(pr.baseRefName)?"
+        }
+    }
+
+    private func header(_ pr: GHPullRequest) -> some View {
+        let state = pr.state.uppercased()
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(pr.title).uiFont(size: 16, weight: .semibold).foregroundColor(VSDark.textBright).textSelection(.enabled)
+                Text("#\(pr.number)").uiFont(size: 14).foregroundColor(VSDark.textDim)
+                Spacer()
+                if model.busy || checkingOut { ProgressView().scaleEffect(0.5) }
+            }
+            HStack(spacing: 6) {
+                let (label, color) = pr.isDraft == true && state == "OPEN" ? ("Draft", VSDark.textDim)
+                    : state == "OPEN" ? ("Open", VSDark.green) : state == "MERGED" ? ("Merged", VSDark.purple) : ("Closed", VSDark.red)
+                Text(label).uiFont(size: 10, weight: .semibold).padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(color.opacity(0.25)).cornerRadius(8)
+                Text("\(pr.author?.login ?? "") · \(pr.headRefName) → \(pr.baseRefName) · \(GHDate.ago(pr.updatedAt))")
+                    .uiFont(size: 11).foregroundColor(VSDark.textDim).lineLimit(1)
+                switch pr.reviewDecision {
+                case "APPROVED": Text("approved").uiFont(size: 10).foregroundColor(VSDark.green)
+                case "CHANGES_REQUESTED": Text("changes requested").uiFont(size: 10).foregroundColor(VSDark.red)
+                case "REVIEW_REQUIRED": Text("review required").uiFont(size: 10).foregroundColor(VSDark.orange)
+                default: EmptyView()
+                }
+                if pr.mergeable == "CONFLICTING" { Text("conflicts").uiFont(size: 10).foregroundColor(VSDark.red) }
+            }
+            if !pr.checks.isEmpty { checks(pr) }
+            HStack(spacing: 12) {
+                Button { workspaceManager.reviewPullRequest(pr.number) } label: { Label("Review with AI", systemImage: "sparkles") }
+                    .help("Open this pull request in the PR X-Ray and start the AI review")
+                if state == "OPEN" {
+                    Button {
+                        checkingOut = true
+                        Task {
+                            let error = await workspaceManager.checkoutPullRequest(pr.number)
+                            checkingOut = false
+                            showError("Checkout #\(pr.number)", error)
+                        }
+                    } label: { Label("Checkout", systemImage: "arrow.down.to.line") }
+                        .help("Check out the branch of this pull request (refused while there are uncommitted changes)")
+                        .disabled(checkingOut)
+                    Menu("Merge") {
+                        Button("Squash and Merge…") { confirm = "squash" }
+                        Button("Create a Merge Commit…") { confirm = "merge" }
+                        Button("Rebase and Merge…") { confirm = "rebase" }
+                    }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    Button("Close") { confirm = "close" }
+                }
+                Button("Open on GitHub") { openInBrowser(pr.url) }
+                Spacer()
+                Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh")
+            }
+            .buttonStyle(.link).uiFont(size: 11).disabled(model.busy)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    /// The checks, one chip each (hover for the verdict).
+    private func checks(_ pr: GHPullRequest) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Array(pr.checks.enumerated()), id: \.offset) { _, check in
+                    HStack(spacing: 3) {
+                        GitHubOutcomeIcon(outcome: check.outcome, size: 10)
+                        Text(check.title).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                    }
+                    .help("\(check.title): \(check.conclusion ?? check.state ?? check.status ?? "")")
+                }
+            }
+        }
+    }
+
+    private func replyBox(_ pr: GHPullRequest) -> some View {
+        let text = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .leading, spacing: 6) {
+            TextEditor(text: $comment)
+                .uiFont(size: 12).frame(minHeight: 60, maxHeight: 120)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(VSDark.border))
+            HStack {
+                Spacer()
+                Button("Request Changes") { send { try await $0.review(pr.number, action: "request-changes", body: text) } }
+                    .disabled(text.isEmpty || model.busy)
+                Button("Approve") { send { try await $0.review(pr.number, action: "approve", body: text) } }
+                    .disabled(model.busy)
+                Button("Comment") { send { try await $0.commentPR(pr.number, body: text) } }
+                    .disabled(text.isEmpty || model.busy)
+            }
+        }
+    }
+
+    private func send(_ action: @escaping (GitHubClient) async throws -> Void) {
+        comment = ""
+        model.act("Send", action)
     }
 }

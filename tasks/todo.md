@@ -2693,3 +2693,9 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] `WorkspaceManager.sendPickedElement`: pastes page, selector, screenshot path and HTML (cut at 8000 chars) into the AI terminal; also puts image + text on the clipboard.
 - [x] Toolbar button in the browser tab; `tools/tests/browser-element-pick-tests.sh`.
 - Verified: picker and snapshot in a real WKWebView (page sees no click). Not verified: the toolbar button and the paste into a live agent tab.
+
+## Task 129: Pull request tab with the conversation and a reply box (4.44.0)
+- [x] `GitHubItem.pullRequest`; clicking a PR in the Git panel opens its tab (was: only the X-Ray review or the external browser).
+- [x] `GitHubClient.pullRequestHTML`: description, comments, reviews (verdict) and code comments (file:line) as GitHub renders them, oldest first.
+- [x] `GitHubPullRequestView`: state, checks, review decision, Review with AI, Checkout, Merge/Close, and Comment / Approve / Request Changes.
+- Verified: the `gh api` queries against real PRs. Not verified: the tab in the app; replying to a single code comment (only a general comment is sent).
