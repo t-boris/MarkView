@@ -21,7 +21,8 @@ enum BrowserAgentTools {
     for credentials. Tabs have names (T1, T2… or names the user gave, like "Jira"): when the user says \
     which tab to use, pass it as `tab`; browser_tabs lists them, browser_open_tab opens a new one. \
     Start with browser_snapshot (or browser_navigate) to see the page and the element refs that \
-    browser_click and browser_type take. If a tool says the user stopped a tab, do not retry it.
+    browser_click and browser_type take. If a tool says the user stopped a tab, do not retry it. \
+    Pass project_folder (the absolute path of the folder you work in) with every call.
     """
 
     /// Outside a MarkView terminal: no tools, and this note.
@@ -34,10 +35,39 @@ enum BrowserAgentTools {
         let required: [String]
 
         var json: [String: Any] {
-            ["name": name, "description": description,
-             "inputSchema": ["type": "object", "properties": properties, "required": required] as [String: Any]]
+            let all = properties.merging([folderArgument: ["type": "string", "description": folderDescription]]) { $1 }
+            return ["name": name, "description": description,
+                    "inputSchema": ["type": "object", "properties": all, "required": required] as [String: Any]]
         }
     }
+
+    /// Every tool takes the folder the agent works in. Cline runs all its sessions' tool servers from one shared
+    /// background process started in one project's folder, so the server's own folder says nothing about which
+    /// project is asking: the agent says it.
+    static let folderArgument = "project_folder"
+    static let folderDescription = "Absolute path of the project folder you are working in (your current working directory). Always pass it: MarkView uses it to pick the right project window."
+
+    /// A process whose command line says it is a shared background daemon (Cline's `--cline-hub-daemon`):
+    /// the folder of the servers it starts is the daemon's, not the asking agent's.
+    static func isSharedDaemon(command: String) -> Bool {
+        command.lowercased().contains("daemon")
+    }
+
+    /// The folder a request is about: the one the agent declared, else this server's own.
+    static func requestFolder(declared: Any?, fallback: String) -> (folder: String, declared: Bool) {
+        if let text = (declared as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+            return ((text as NSString).expandingTildeInPath, true)
+        }
+        return (fallback, false)
+    }
+
+    /// Whether the app must ask the agent for its folder instead of guessing a window: the server's folder is not
+    /// trustworthy (a shared daemon started it), the agent gave none, and more than one window could be meant.
+    static func needsFolder(declared: Bool, cwdTrusted: Bool, windowCount: Int) -> Bool {
+        !declared && !cwdTrusted && windowCount > 1
+    }
+
+    static let folderRequired = "MarkView cannot tell which project this agent works in: its tools run in a shared background process, not in the project's folder. Call this tool again with project_folder set to the absolute path of the folder you are working in."
 
     /// What an MCP server of this binary offers: the browser tools, or the project tools (`ProjectAgentTools`).
     /// `rechecksApp`: look for the app again with every message, so that quitting MarkView takes the tools away.
@@ -204,6 +234,8 @@ enum BrowserAgentTools {
         var ancestors: [Int32]
         var viaAncestors: Bool
         var window: String
+        /// The server was started by a shared background daemon: its working folder is the daemon's.
+        var sharedDaemon = false
     }
 
     static func locateApp(arguments: [String]) -> AppLocation {
@@ -220,7 +252,22 @@ enum BrowserAgentTools {
         let fallbacks = given == nil && fromAncestors == nil ? runningAppSockets() : []
         let socket = given ?? fromAncestors ?? fallbacks.first ?? ""
         return AppLocation(socket: socket, fallbacks: fallbacks, ancestors: ancestors,
-                           viaAncestors: fromAncestors != nil || given != nil, window: value("--window") ?? "")
+                           viaAncestors: fromAncestors != nil || given != nil, window: value("--window") ?? "",
+                           sharedDaemon: parentCommand().map(isSharedDaemon) ?? false)
+    }
+
+    /// The command line of this process's parent (what started the server).
+    static func parentCommand() -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-o", "command=", "-p", String(getppid())]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// The MarkView process a control socket belongs to (`mv-browser-<pid>.sock`) still runs.
@@ -233,8 +280,12 @@ enum BrowserAgentTools {
 
     /// One tool call to the app that `location` names; with several running MarkViews, each is asked until one has the agent's folder open.
     static func forward(_ tool: String, _ args: [String: Any], to location: AppLocation) -> Reply {
+        var args = args
+        let (folder, declared) = requestFolder(declared: args.removeValue(forKey: folderArgument),
+                                               fallback: FileManager.default.currentDirectoryPath)
         let payload: [String: Any] = ["window": location.window, "pids": location.ancestors.map(Int.init),
-                                      "cwd": FileManager.default.currentDirectoryPath, "tool": tool, "arguments": args]
+                                      "cwd": folder, "folderDeclared": declared, "cwdTrusted": !location.sharedDaemon,
+                                      "tool": tool, "arguments": args]
         for candidate in location.fallbacks.dropLast() {
             let reply = request(socket: candidate, payload: payload)
             if !(reply.isError && reply.text.hasPrefix(noWindowPrefix)) { return reply }

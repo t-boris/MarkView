@@ -618,3 +618,6 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 
 ## A new control in a view must be clicked once in the running app
 `ImageViewerView` used `@EnvironmentObject` that its parent never injected; it built and rendered, and only crashed on the first click. A build and a screenshot do not exercise actions: click every new control in a second instance, and check that the view's parent supplies every environment object it reads.
+
+## A server's working folder is not the agent's when a shared daemon starts it (Cline hub, 2026-10-14)
+BUG-027 routed agent tools by the MCP server's cwd. Cline starts every session's servers from one hub daemon whose cwd is the first project's, so all Cline sessions landed in one window, and project tools could write into the wrong project. Check `ps -o ppid`/`lsof -d cwd` of the live server before trusting its cwd; when the process cannot know, make the agent say it (a tool argument) and refuse to guess between windows.

@@ -46,6 +46,21 @@ check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/a", "/w/b"]
 check(BrowserAgentTools.windowIndex(forFolder: "/tmp/x", roots: ["/w/garden"], strict: true) == nil
       && BrowserAgentTools.windowIndex(forFolder: "/w/garden/src", roots: ["/w/other", "/w/garden"], strict: true) == 1, "strict: the only window is not enough, a project holding the folder is")
 check(BrowserAgentTools.windowIndex(forFolder: "/w/gardening", roots: ["/w/garden", "/w/b"]) == nil, "a name prefix is not a parent folder")
+
+// The folder an agent works in: declared by the agent, since a shared background daemon's own folder is not its.
+check(BrowserAgentTools.isSharedDaemon(command: "/x/.cline --cline-hub-daemon --cwd /w/a --port 1"), "Cline's hub is a shared daemon")
+check(!BrowserAgentTools.isSharedDaemon(command: "/x/bin/claude --model opus"), "an agent is not a daemon")
+check(BrowserAgentTools.requestFolder(declared: "/w/sealine", fallback: "/w/hub") == ("/w/sealine", true), "the declared folder wins")
+check(BrowserAgentTools.requestFolder(declared: "  ", fallback: "/w/hub") == ("/w/hub", false), "a blank folder is none")
+check(BrowserAgentTools.requestFolder(declared: nil, fallback: "/w/hub") == ("/w/hub", false), "no folder: the server's own")
+check(BrowserAgentTools.requestFolder(declared: "~/p", fallback: "/").folder == NSHomeDirectory() + "/p", "a home folder is expanded")
+check(BrowserAgentTools.needsFolder(declared: false, cwdTrusted: false, windowCount: 3), "daemon, no folder, several windows: ask")
+check(!BrowserAgentTools.needsFolder(declared: true, cwdTrusted: false, windowCount: 3), "a declared folder needs no asking")
+check(!BrowserAgentTools.needsFolder(declared: false, cwdTrusted: true, windowCount: 3), "an agent's own folder is trusted")
+check(!BrowserAgentTools.needsFolder(declared: false, cwdTrusted: false, windowCount: 1), "one window is not ambiguous")
+let schema = BrowserAgentTools.tools[0].json["inputSchema"] as? [String: Any]
+check((schema?["properties"] as? [String: Any])?["project_folder"] != nil, "every tool takes project_folder")
+check(!((schema?["required"] as? [String]) ?? []).contains("project_folder"), "project_folder is not required")
 check(BrowserAgentTools.reportsPolicyBlock("\u{1b}[31m✗ MCP server was blocked by policy: \"markview-browser\"\u{1b}[0m"),
       "Copilot's policy block is recognised")
 check(!BrowserAgentTools.reportsPolicyBlock("MCP server was blocked by policy: \"github\"") && !BrowserAgentTools.reportsPolicyBlock("markview-browser ready"),

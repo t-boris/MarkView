@@ -2706,3 +2706,10 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] Slideshow: play/pause (Space), interval 2/3/5/10/30 s (remembered), wraps from the last image to the first.
 - [x] Fix: the image tab had no `workspaceManager` in its environment (a drop of files onto it would have crashed too).
 - Verified live in a second instance: arrows, counter, end of folder, slideshow wrap.
+
+## Task 131: Cline's shared hub sends every project's agent tools to one window (4.45.1)
+- Root cause: Cline starts all MCP servers (`--mcp-browser`, `--mcp-project`) from one background hub daemon (`--cline-hub-daemon --cwd <first project>`), so the server's cwd, which BUG-027 routes by, is the hub's project. A Cline in SeaLine reached the vivaa-platform window, and the project tools could have written there.
+- [x] Every tool takes `project_folder` (the agent's folder; instructions say always pass it); the app routes by it.
+- [x] Server started by a daemon + no folder + several project windows: the app answers with an error asking for `project_folder` instead of guessing.
+- [x] Tests in `BrowserAgentToolsTests`; checked in a second instance with two project windows through the control socket.
+- Not verified: a real Cline in two projects (the model has to pass the folder).
