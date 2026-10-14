@@ -12,7 +12,7 @@ enum ProjectAgentTools {
     static let serverName = "markview"
 
     static let instructions = """
-    MarkView project tools: MarkView is the documentation environment of this project. These tools read \
+    MarkView project tools: pass project_folder (the absolute path of the folder you work in) with every call. MarkView is the documentation environment of this project. These tools read \
     and extend its features, bugs and prototypes in the project of the window you work in. Call \
     markview_guide first (topic "overview") to learn what features, requirements, decisions, questions, \
     bugs and prototypes are and how they are written. Always add features and bugs with the markview_add_* \

@@ -108,10 +108,13 @@ enum BrowserControlServer {
         let window = (request["window"] as? String).flatMap(UUID.init(uuidString:))
         let pids = (request["pids"] as? [Int] ?? []).map(Int32.init)
         let cwd = request["cwd"] as? String ?? ""
+        let declared = request["folderDeclared"] as? Bool ?? false
+        // Older servers do not say; their folder counts.
+        let trusted = request["cwdTrusted"] as? Bool ?? true
         let tool = request["tool"] as? String ?? ""
         nonisolated(unsafe) let arguments = request["arguments"] as? [String: Any] ?? [:]
         Task { @MainActor in
-            let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd)
+            let reply = await perform(tool, arguments, window: window, pids: pids, cwd: cwd, declared: declared, cwdTrusted: trusted)
             let data = (try? JSONSerialization.data(withJSONObject: reply.json)) ?? Data()
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = BrowserAgentTools.writeAll(client, data + Data("\n".utf8))
@@ -122,13 +125,19 @@ enum BrowserControlServer {
 
     // MARK: - Tools
 
-    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String) async -> BrowserAgentTools.Reply {
+    private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String,
+                                 declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
         let isProjectTool = ProjectAgentTools.toolNames.contains(tool)
         guard isProjectTool || TerminalBrowserBridge.isEnabled else {
             return .error("MarkView's browser for terminals is turned off (globe menu → Open Terminal Links in MarkView).")
         }
-        let windowID = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
-            ?? windowForFolder(cwd, strict: isProjectTool)
+        let known = id.flatMap { windows[$0] != nil ? $0 : nil } ?? TerminalBrowserBridge.windowID(forAncestors: pids)
+        // A shared background daemon's folder says nothing about the asking agent: without the folder the agent
+        // gave, with several windows open, ask for it rather than pick one (the project tools would write to it).
+        if known == nil, BrowserAgentTools.needsFolder(declared: declared, cwdTrusted: cwdTrusted, windowCount: windows.values.filter { $0.root() != nil }.count) {
+            return .error(BrowserAgentTools.folderRequired)
+        }
+        let windowID = known ?? windowForFolder(cwd, strict: isProjectTool)
         guard let windowID, let window = windows[windowID] else {
             let open = windows.values.compactMap { $0.root()?.path }.sorted()
             return .error(BrowserAgentTools.noWindowPrefix + " this agent works in (\(cwd.isEmpty ? "unknown" : cwd)) open."
