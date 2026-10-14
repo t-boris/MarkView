@@ -615,3 +615,6 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 - The AI-activity chip (4.38.0) showed "Thinking" and appeared once in the toolbar for a window with several agent tabs. Boris: "Thinking" means nothing; each tab needs its own status; show the task and what is being done.
 - Rule: a status text names the task and the concrete step (the agent's own last sentence, else the tool and its target); a bare state word ("Thinking", "Working") is never enough. A status for several items (tabs, files, jobs) belongs on each item, with the toolbar only summarising.
 - Check a new indicator against the multi-item case (two tabs, two windows) before calling it done, not only the single-item one.
+
+## A new control in a view must be clicked once in the running app
+`ImageViewerView` used `@EnvironmentObject` that its parent never injected; it built and rendered, and only crashed on the first click. A build and a screenshot do not exercise actions: click every new control in a second instance, and check that the view's parent supplies every environment object it reads.

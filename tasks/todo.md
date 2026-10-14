@@ -2699,3 +2699,10 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] `GitHubClient.pullRequestHTML`: description, comments, reviews (verdict) and code comments (file:line) as GitHub renders them, oldest first.
 - [x] `GitHubPullRequestView`: state, checks, review decision, Review with AI, Checkout, Merge/Close, and Comment / Approve / Request Changes.
 - Verified: the `gh api` queries against real PRs. Not verified: the tab in the app; replying to a single code comment (only a general comment is sent).
+
+## Task 130: Image viewer: arrows and slideshow (4.45.0)
+- [x] `ImageSiblings`: the folder's images in Finder order; neighbour / position; test `tools/tests/image-siblings-tests.sh`.
+- [x] Arrows at the window edges (only where there is a picture to go to), ←/→ keys, "n / total" in the header; the tab shows the next image in place.
+- [x] Slideshow: play/pause (Space), interval 2/3/5/10/30 s (remembered), wraps from the last image to the first.
+- [x] Fix: the image tab had no `workspaceManager` in its environment (a drop of files onto it would have crashed too).
+- Verified live in a second instance: arrows, counter, end of folder, slideshow wrap.

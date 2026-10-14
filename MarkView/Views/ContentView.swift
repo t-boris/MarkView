@@ -599,7 +599,9 @@ struct ContentView: View {
                        let session = workspaceManager.terminalSession(id) {
                         TerminalTabView(session: session)
                     } else if case .image = activeTab.kind {
-                        ImageViewerView(url: activeTab.url).id(activeTab.id)
+                        ImageViewerView(url: activeTab.url)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .deployments = activeTab.kind {
                         DeploymentsView(store: workspaceManager.deployments)
                             .environmentObject(workspaceManager)
