@@ -19,7 +19,7 @@ enum HandoffPrompt {
         + "and add every new answer from me to its ## Clarifications before you finish."
 
     enum GoalBackend: String {
-        case claude, codex, cline, copilot
+        case claude, codex, cline, copilot, gemini
     }
 
     /// Establish a goal using the command or task model of the receiving assistant.
@@ -29,6 +29,7 @@ enum HandoffPrompt {
         switch backend {
         case .claude, .codex: return "/goal \(objective)"
         case .copilot: return "/autopilot \(objective)"
+        case .gemini: return objective + " Continue until the implementation is verified."
         case .cline: return "Goal for this Cline task: \(objective) Continue until the implementation is verified."
         }
     }

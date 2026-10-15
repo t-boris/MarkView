@@ -2713,3 +2713,9 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] Server started by a daemon + no folder + several project windows: the app answers with an error asking for `project_folder` instead of guessing.
 - [x] Tests in `BrowserAgentToolsTests`; checked in a second instance with two project windows through the control socket.
 - Not verified: a real Cline in two projects (the model has to pass the folder).
+
+## Task 132: Gemini CLI as an assistant (4.46.0)
+- [x] `CLITool.gemini` / `TerminalProfile.gemini`: terminal (`gemini --yolo`, `--resume latest`, `-m`), model and assistant pickers, Settings path/probe, X-Ray and Fix with AI (read-only runs over `gemini --acp`, Plan mode).
+- [x] Browser/project tools: `~/.gemini/settings.json` `mcpServers` (registered before a Gemini terminal starts and by "Connect Agents…"), skill in `~/.gemini/skills/markview`, "Browser Tools for Agents" toggle.
+- Verified: `gemini --acp` initialize + session/new on this Mac (modes incl. plan, 8 models); app builds.
+- Not verified: a Gemini terminal and a Gemini X-Ray run inside the app; no live activity panel for Gemini (no session reader yet); `--resume latest` with no earlier session.

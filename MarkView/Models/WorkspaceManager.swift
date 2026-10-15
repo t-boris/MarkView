@@ -3768,7 +3768,7 @@ class WorkspaceManager: ObservableObject {
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
-        case .codex, .cline, .copilot: return run
+        case .codex, .cline, .copilot, .gemini: return run
         }
     }
 
@@ -3812,6 +3812,10 @@ class WorkspaceManager: ObservableObject {
         case .cline:
             // Cline has no per-session option: its own settings must list the servers (BUG-026).
             AgentBrowserRegistration.ensureCline(executable: servers[0].command)
+            return []
+        case .gemini:
+            // Gemini CLI has no per-session option either: ~/.gemini/settings.json must list the servers.
+            AgentBrowserRegistration.ensureGemini(executable: servers[0].command)
             return []
         }
     }

@@ -183,6 +183,7 @@ struct ContentView: View {
     @AppStorage(BrowserControlServer.agentToolsKey(.claude)) private var browserToolsClaude = true
     @AppStorage(BrowserControlServer.agentToolsKey(.codex)) private var browserToolsCodex = true
     @AppStorage(BrowserControlServer.agentToolsKey(.copilot)) private var browserToolsCopilot = true
+    @AppStorage(BrowserControlServer.agentToolsKey(.gemini)) private var browserToolsGemini = true
 
     var body: some View {
         let _ = themeToken // force re-render of entire tree on theme change
@@ -387,7 +388,7 @@ struct ContentView: View {
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
-                .help("Agents (⌘3): terminals for Claude Code, Codex, Cline, Copilot, or a shell")
+                .help("Agents (⌘3): terminals for Claude Code, Codex, Cline, Copilot, Gemini, or a shell")
                 .accessibilityLabel("Agents (⌘3)")
                 headerDivider
                 ForEach(WorkspaceArea.allCases) { area in
@@ -516,10 +517,11 @@ struct ContentView: View {
                 Toggle("Claude Code", isOn: $browserToolsClaude)
                 Toggle("Codex", isOn: $browserToolsCodex)
                 Toggle("Copilot", isOn: $browserToolsCopilot)
+                Toggle("Gemini", isOn: $browserToolsGemini)
                 Text("For agents started from the AI panel (restart them after a change). Turn one off when its organisation's policy blocks MCP servers.")
             }
             Button("Connect Agents to MarkView…") { AgentBrowserRegistration.connectInteractively() }
-                .help("Let Claude Code, Codex, Copilot and Cline drive these browser tabs even when started by hand in a MarkView terminal")
+                .help("Let Claude Code, Codex, Copilot, Cline and Gemini drive these browser tabs even when started by hand in a MarkView terminal")
         } label: {
             Image(systemName: "globe")
         }
