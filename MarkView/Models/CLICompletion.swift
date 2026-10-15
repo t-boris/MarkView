@@ -154,7 +154,7 @@ enum CLICompletion {
         var input = request.prompt
         var schemaFile: URL?
         switch tool {
-        case .cline, .copilot:
+        case .cline, .copilot, .gemini:
             preconditionFailure("\(tool.displayName) runs through ACPAssistant")
         case .claude:
             arguments = ["-p", "--safe-mode", "--no-session-persistence",
@@ -393,7 +393,7 @@ private final class Invocation: @unchecked Sendable {
             switch tool {
             case .claude: handleClaude(type, json)
             case .codex: handleCodex(type, json)
-            case .cline, .copilot: break   // ACPAssistant has its own connection
+            case .cline, .copilot, .gemini: break   // ACPAssistant has its own connection
             }
         }
     }

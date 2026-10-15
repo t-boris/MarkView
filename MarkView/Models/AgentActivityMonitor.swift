@@ -90,8 +90,8 @@ final class AgentActivityMonitor: ObservableObject {
                     guard let turn = AgentActivityLog.copilotTurn(directory: job.directory) else { continue }
                     results.append((job.id, job.name, job.directory, 0, Date(),
                                     AgentActivityParser.copilot(userMessage: turn.user, response: turn.response, busy: job.printing)))
-                case .shell:
-                    break
+                case .shell, .gemini:
+                    break   // no activity reader for Gemini yet
                 }
             }
             await self?.apply(results)
