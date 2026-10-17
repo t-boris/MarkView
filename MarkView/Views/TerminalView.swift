@@ -227,7 +227,7 @@ struct AITerminalPanel: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("New terminal: Claude Code, Codex, Cline, Copilot, Gemini, Antigravity, or shell")
+        .help("New terminal: Claude Code, Codex, Cline, Copilot, Antigravity, or shell")
     }
 
     private var placeholder: some View {

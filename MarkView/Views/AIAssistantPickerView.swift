@@ -40,7 +40,7 @@ struct AIAssistantPickerView: View {
         let _ = refresh
         VStack(alignment: .leading, spacing: 8) {
             Picker("Assistant", selection: backendRaw) {
-                ForEach(CLITool.allCases.filter(\.supportsCompletions), id: \.self) { tool in
+                ForEach(CLITool.allCases, id: \.self) { tool in
                     Text(tool.displayName).tag(tool.rawValue)
                 }
             }

@@ -65,5 +65,22 @@ AssistantChoice(project: nil).setTool("codex")
 check("no project writes defaults", UserDefaults.standard.string(forKey: AIAssistantPreferences.backendKey), "codex")
 check("beta follows the new default", AIAssistantPreferences.backend(project: b).rawValue, "codex")
 
+// Antigravity one-shot completion through its print mode (live: needs `agy` signed in; skipped without it).
+if CLIToolLocator.resolve(.antigravity) != nil {
+    check("antigravity binary name", CLITool.antigravity.binaryName, "agy")
+    let schema: [String: Any] = ["type": "object", "properties": ["answer": ["type": "number"]], "required": ["answer"]]
+    let request = CLICompletion.Request(project: nil, prompt: "What is 2+2? Answer with the number.", jsonSchema: schema,
+                                        toolOverride: .antigravity)
+    let semaphore = DispatchSemaphore(value: 0)
+    var answer: Double?
+    Task {
+        let result = try? await CLICompletion.run(request)
+        answer = ((result?.structured as? [String: Any])?["answer"] as? NSNumber)?.doubleValue
+        semaphore.signal()
+    }
+    semaphore.wait()
+    check("antigravity structured answer", answer.map { String(Int($0)) }, "4")
+}
+
 print(failures == 0 ? "All project AI choice checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)
