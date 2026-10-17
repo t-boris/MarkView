@@ -4,7 +4,7 @@
 import Foundation
 
 /// Stand-ins for app types the checked modules mention but never exercise here.
-enum CLITool { case claude, codex, cline, copilot }
+enum CLITool { case claude, codex, cline, copilot, antigravity }
 enum SemanticDatabase {
     nonisolated static func documentId(for fileURL: URL, root: URL) -> String {
         let rootPath = root.standardizedFileURL.path

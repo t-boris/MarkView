@@ -9,5 +9,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/LinkedFoldersTests.swift "$out/main.swift"
 swiftc -O -o "$out/linked-folders-tests" MarkView/Models/LinkedFolders.swift MarkView/Models/ProjectColor.swift \
-    MarkView/Models/ProjectSearch.swift "$out/main.swift"
+    MarkView/Models/ProjectSearch.swift MarkView/Models/ArchiveSupport.swift "$out/main.swift"
 "$out/linked-folders-tests"
