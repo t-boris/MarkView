@@ -3768,7 +3768,7 @@ class WorkspaceManager: ObservableObject {
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
-        case .codex, .cline, .copilot, .gemini: return run
+        case .codex, .cline, .copilot, .gemini, .antigravity: return run
         }
     }
 
@@ -3816,6 +3816,10 @@ class WorkspaceManager: ObservableObject {
         case .gemini:
             // Gemini CLI has no per-session option either: ~/.gemini/settings.json must list the servers.
             AgentBrowserRegistration.ensureGemini(executable: servers[0].command)
+            return []
+        case .antigravity:
+            // Antigravity keeps its servers in its own configuration, added with `agy mcp add`.
+            AgentBrowserRegistration.ensureAntigravity(executable: servers[0].command)
             return []
         }
     }

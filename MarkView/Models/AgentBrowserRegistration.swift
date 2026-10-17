@@ -39,7 +39,7 @@ enum AgentBrowserRegistration {
         let missing = { (agent: String) in Outcome(agent: agent, ok: false, detail: "not found — set its path in Settings (⌘⇧,) and connect again") }
         let claude = CLIToolLocator.resolve(.claude), codex = CLIToolLocator.resolve(.codex)
         let copilot = CLIToolLocator.resolve(.copilot) != nil, cline = CLIToolLocator.resolve(.cline) != nil
-        let gemini = CLIToolLocator.resolve(.gemini) != nil
+        let gemini = CLIToolLocator.resolve(.gemini) != nil, agy = CLIToolLocator.resolve(.antigravity)
         for server in servers {
             let suffix = " (\(server.label) tools)"
             if let claude {
@@ -64,6 +64,12 @@ enum AgentBrowserRegistration {
             if gemini {
                 outcomes.append(addServer(geminiEntry(executable: executable, flag: server.flag), to: geminiConfig, agent: "Gemini" + suffix, name: server.name))
             } else if server.flag == "--mcp-browser" { outcomes.append(missing("Gemini")) }
+            if let agy {
+                _ = await CLIToolLocator.run(agy, ["mcp", "remove", server.name], timeout: 30)
+                let result = await CLIToolLocator.run(agy, ["mcp", "add", server.name, "--", executable, server.flag], timeout: 30)
+                outcomes.append(Outcome(agent: "Antigravity" + suffix, ok: result.exitCode == 0,
+                                        detail: result.exitCode == 0 ? "agy mcp" : (result.stderr + result.stdout).trimmingCharacters(in: .whitespacesAndNewlines)))
+            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Antigravity")) }
         }
         return outcomes
     }
@@ -86,6 +92,21 @@ enum AgentBrowserRegistration {
                 }
                 let outcome = addServer(geminiEntry(executable: executable, flag: server.flag), to: geminiConfig, agent: "Gemini", name: server.name)
                 NSLog("[MarkView] Gemini \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
+            }
+        }
+    }
+
+    /// Antigravity CLI: make sure `agy mcp list` shows the servers with this copy of MarkView
+    /// before it starts; off the main thread.
+    static func ensureAntigravity(executable: String) {
+        guard let agy = CLIToolLocator.resolve(.antigravity) else { return }
+        Task.detached(priority: .userInitiated) {
+            let listed = await CLIToolLocator.run(agy, ["mcp", "list"], timeout: 30)
+            let text = listed.stdout + listed.stderr
+            for server in servers where !(text.contains(server.name) && text.contains(executable)) {
+                _ = await CLIToolLocator.run(agy, ["mcp", "remove", server.name], timeout: 30)
+                let result = await CLIToolLocator.run(agy, ["mcp", "add", server.name, "--", executable, server.flag], timeout: 30)
+                NSLog("[MarkView] Antigravity \(server.label) tools: \(result.exitCode == 0 ? "registered" : "not registered")")
             }
         }
     }
@@ -164,7 +185,7 @@ enum AgentBrowserRegistration {
         let ask = NSAlert()
         ask.messageText = "Connect agents to MarkView?"
         ask.informativeText = """
-        Claude Code, Codex, Copilot, Cline and Gemini (those installed) get two tool sets in their own settings: \
+        Claude Code, Codex, Copilot, Cline, Gemini and Antigravity (those installed) get two tool sets in their own settings: \
         "markview-browser" (drive this window's browser tabs) and "markview" (read and extend the project's \
         features, bugs and prototypes, written by MarkView in its own format, only in the window's project). \
         They work when MarkView is running; otherwise the tools stay hidden.
@@ -174,7 +195,7 @@ enum AgentBrowserRegistration {
         `MarkView --project-call`.
 
         Claude Code: user-scope MCP server · Codex: ~/.codex/config.toml · Copilot: ~/.copilot/mcp-config.json · \
-        Cline: its MCP settings · Gemini: ~/.gemini/settings.json. Remove the servers later with each agent's "mcp remove" and delete the \
+        Cline: its MCP settings · Gemini: ~/.gemini/settings.json · Antigravity: agy mcp. Remove the servers later with each agent's "mcp remove" and delete the \
         markview skill folders.
         """
         ask.addButton(withTitle: "Connect")

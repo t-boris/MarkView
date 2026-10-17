@@ -154,6 +154,8 @@ enum CLICompletion {
         var input = request.prompt
         var schemaFile: URL?
         switch tool {
+        case .antigravity:
+            throw Failure.failed(tool, "it runs only in AI-panel terminals; pick another assistant for this request")
         case .cline, .copilot, .gemini:
             preconditionFailure("\(tool.displayName) runs through ACPAssistant")
         case .claude:
@@ -393,6 +395,7 @@ private final class Invocation: @unchecked Sendable {
             switch tool {
             case .claude: handleClaude(type, json)
             case .codex: handleCodex(type, json)
+            case .antigravity: break
             case .cline, .copilot, .gemini: break   // ACPAssistant has its own connection
             }
         }

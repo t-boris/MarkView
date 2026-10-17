@@ -19,6 +19,10 @@ enum CLITool: String, CaseIterable {
     case copilot
     /// Google Gemini CLI, driven over the Agent Client Protocol (`gemini --acp`, `ACPAssistant`).
     case gemini
+    /// Google Antigravity CLI (`agy`), the successor of Gemini CLI for personal Google accounts. It has no
+    /// ACP mode and its print mode is an agent that writes plan files, so it runs only in AI-panel terminals
+    /// (`supportsCompletions` is false).
+    case antigravity
 
     var displayName: String {
         switch self {
@@ -27,14 +31,18 @@ enum CLITool: String, CaseIterable {
         case .cline: return "Cline"
         case .copilot: return "Copilot"
         case .gemini: return "Gemini"
+        case .antigravity: return "Antigravity"
         }
     }
+
+    /// Can answer one-shot requests (X-Ray, selection actions); Antigravity only runs in terminals.
+    var supportsCompletions: Bool { self != .antigravity }
 
     /// Driven over the Agent Client Protocol (`ACPAssistant`) rather than a one-shot CLI run.
     var usesACP: Bool { self == .cline || self == .copilot || self == .gemini }
 
     /// Executable name as installed on disk.
-    var binaryName: String { rawValue }
+    var binaryName: String { self == .antigravity ? "agy" : rawValue }
 
     /// UserDefaults key holding the user's explicit path override ("" = auto-detect).
     var overrideKey: String { "settings.cli.\(rawValue)Path" }
@@ -48,7 +56,7 @@ enum CLITool: String, CaseIterable {
         case .claude: return ["auth", "status"]
         case .codex: return ["login", "status"]
         // No status command that works without a terminal; see `probeACP`.
-        case .cline, .copilot, .gemini: return []
+        case .cline, .copilot, .gemini, .antigravity: return []
         }
     }
 
@@ -60,7 +68,7 @@ enum CLITool: String, CaseIterable {
         case .cline: return "auth"
         case .copilot: return "login"
         // Gemini signs in on first start (Google account or API key); there is no login command.
-        case .gemini: return ""
+        case .gemini, .antigravity: return ""
         }
     }
 
@@ -73,6 +81,7 @@ enum CLITool: String, CaseIterable {
         case .cline: return ["--auto-approve", "true"]
         case .copilot: return ["--allow-all"]
         case .gemini: return ["--yolo"]
+        case .antigravity: return ["--dangerously-skip-permissions"]
         }
     }
 
@@ -81,7 +90,7 @@ enum CLITool: String, CaseIterable {
     /// Cline resumes a session only by its id.
     var continueArgs: [String] {
         switch self {
-        case .claude, .copilot: return ["--continue"]
+        case .claude, .copilot, .antigravity: return ["--continue"]
         case .codex: return ["resume", "--last"]
         case .gemini: return ["--resume", "latest"]
         case .cline: return []
@@ -92,7 +101,7 @@ enum CLITool: String, CaseIterable {
     func modelArgs(_ model: String?) -> [String] {
         guard let model else { return [] }
         switch self {
-        case .claude, .copilot: return ["--model", model]
+        case .claude, .copilot, .antigravity: return ["--model", model]
         case .codex, .cline, .gemini: return ["-m", model]
         }
     }
@@ -212,7 +221,7 @@ enum AIAssistantPreferences {
         switch tool {
         case .claude: return "sonnet"
         case .codex: return "gpt-5.6-luna"
-        case .cline, .copilot, .gemini: return ""
+        case .cline, .copilot, .gemini, .antigravity: return ""
         }
     }
     /// The default X-Ray model for `tool` as stored ("" = the assistant's model).
@@ -264,6 +273,13 @@ enum AIAssistantPreferences {
         case .gemini:
             return [AIModelOption(id: "", name: "Default", detail: "Gemini's configured model")]
                 + ACPAssistant.cachedModels(.gemini)
+        case .antigravity:
+            // A few of `agy models`; any other id can be typed as a custom model name.
+            return [AIModelOption(id: "", name: "Default", detail: "Antigravity's configured model"),
+                    AIModelOption(id: "gemini-4-argon-medium", name: "Gemini 4 Argon (Medium)", detail: ""),
+                    AIModelOption(id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)", detail: ""),
+                    AIModelOption(id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)", detail: ""),
+                    AIModelOption(id: "claude-sonnet-5-5-medium", name: "Claude Sonnet 5.5 (Medium)", detail: "")]
         }
     }
 
@@ -278,7 +294,7 @@ enum AIAssistantPreferences {
                   let model = (object["model"] as? String)?.trimmingCharacters(in: .whitespaces), !model.isEmpty else { return nil }
             return model
         case .codex: return codexConfiguredModel()
-        case .cline, .copilot, .gemini: return nil
+        case .cline, .copilot, .gemini, .antigravity: return nil
         }
     }
 
@@ -463,7 +479,7 @@ enum CLIToolLocator {
             } else {
                 loggedIn = authOutput.localizedCaseInsensitiveContains("logged in") ? true : nil
             }
-        case .cline, .copilot, .gemini:
+        case .cline, .copilot, .gemini, .antigravity:
             loggedIn = nil
         case .codex:
             // `codex login status` prints e.g. "Logged in using ChatGPT".

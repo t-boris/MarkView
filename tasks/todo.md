@@ -2719,3 +2719,10 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] Browser/project tools: `~/.gemini/settings.json` `mcpServers` (registered before a Gemini terminal starts and by "Connect Agents…"), skill in `~/.gemini/skills/markview`, "Browser Tools for Agents" toggle.
 - Verified: `gemini --acp` initialize + session/new on this Mac (modes incl. plan, 8 models); app builds.
 - Not verified: a Gemini terminal and a Gemini X-Ray run inside the app; no live activity panel for Gemini (no session reader yet); `--resume latest` with no earlier session.
+
+## Task 133: Antigravity CLI (`agy`) in AI-panel terminals (4.47.0)
+- Why: Gemini CLI refuses Google sign-in for personal accounts ("migrate to Antigravity"); `agy` is its successor.
+- [x] `CLITool.antigravity` (binary `agy`): terminal (`--dangerously-skip-permissions`, `--continue`, `--model`), model menu, Settings probe, browser/project tools through `agy mcp add` (checked with `agy mcp list` before a terminal starts, and by "Connect Agents…"), toggle.
+- [x] `supportsCompletions` is false: `agy` has no ACP and its print mode is an agent that writes plan files, so X-Ray and selection actions cannot use it; it is hidden from the assistant pickers, and a forced request fails with a clear message.
+- Checked: `agy -p` stream-json (input `{"event":"user","message":{"content":…}}`), `agy mcp add/list/remove`.
+- Not verified: an Antigravity terminal in the app; no activity panel for it.
