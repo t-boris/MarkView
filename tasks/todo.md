@@ -2732,3 +2732,10 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] Antigravity is in every assistant picker again and runs one-shot requests (X-Ray, selection actions) through `agy --input-format stream-json --output-format stream-json --sandbox -p=`: prompt as `{"event":"user","message":{"content":…}}`, schema answer from `structured_output`. No `--mode plan` (it writes plan files and pollutes the answer); the default mode cannot approve anything, so writes and shell commands are denied (checked).
 - [x] `project-ai-choice-tests.sh` fixed (needs `AgentProcesses.swift`) and gains a live Antigravity structured-answer check.
 - Not verified in the app: an X-Ray run through Antigravity; activity panel for Antigravity terminals does not exist.
+
+## Task 135: Antigravity activity panel (4.49.0)
+- [x] Checked live: `agy` sees MarkView's MCP servers (`markview-browser`, `markview`), calls `browser_tabs` with `project_folder`, and the app answers (routing by folder works; with no matching window it lists the open ones). In a terminal the tools run with `--dangerously-skip-permissions`; in print mode with `--sandbox` MCP calls are denied.
+- [x] Activity panel for Antigravity terminals: newest conversation of the folder from `~/.gemini/antigravity-cli/conversation_summaries.db` (title, first request, run status; working also while the terminal prints). Parser tests added.
+- [x] Test stubs fixed (`CLITool` stubs lacked `antigravity`; `linked-folders-tests.sh` lacked `ArchiveSupport.swift`).
+- Not done: token/limit usage for Antigravity. Per-call token counts sit in undocumented protobuf blobs (`gen_metadata`) and no remaining-quota data exists locally; X-Ray / selection runs still log their tokens to the AI call log.
+- Skill (SKILL.md) not written: `agy` speaks MCP, so it does not need it.

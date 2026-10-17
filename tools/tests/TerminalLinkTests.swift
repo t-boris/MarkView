@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 // The terminal's unrelated assistant/dictation dependencies are not exercised here.
-enum CLITool { case claude, codex, cline, copilot }
+enum CLITool { case claude, codex, cline, copilot, antigravity }
 final class WhisperClient {}
 
 @MainActor final class TerminalLinkTests: NSObject, WKScriptMessageHandler {

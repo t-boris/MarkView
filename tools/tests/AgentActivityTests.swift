@@ -111,6 +111,11 @@ let cp = AgentActivityParser.copilot(userMessage: "Open the page", response: "Op
 check(cp?.state == .idle && cp?.task == "Open the page" && cp?.detail == "Opened the page", "copilot idle")
 check(AgentActivityParser.copilot(userMessage: "Open the page", response: nil, busy: true)?.state == .working, "copilot working while its terminal prints")
 check(AgentActivityParser.copilot(userMessage: nil, response: nil, busy: true) == nil, "copilot without data")
+let ag = AgentActivityParser.antigravity(title: "List tabs", preview: "List MarkView Browser Tabs", status: "CASCADE_RUN_STATUS_IDLE", busy: false)
+check(ag?.state == .idle && ag?.topic == "List tabs" && ag?.task == "List MarkView Browser Tabs", "antigravity idle")
+check(AgentActivityParser.antigravity(title: "T", preview: "P", status: "CASCADE_RUN_STATUS_RUNNING", busy: false)?.state == .working, "antigravity running by status")
+check(AgentActivityParser.antigravity(title: "T", preview: "P", status: "CASCADE_RUN_STATUS_IDLE", busy: true)?.state == .working, "antigravity working while its terminal prints")
+check(AgentActivityParser.antigravity(title: nil, preview: nil, status: "", busy: true) == nil, "antigravity without data")
 check(ProcessTree.isDescendant(getpid(), of: getppid()) && ProcessTree.isDescendant(getpid(), of: getpid()) && !ProcessTree.isDescendant(getpid(), of: 999_999), "process tree")
 
 let wrapped = #"{"messages":[{"role":"user","content":[{"type":"text","text":"<user_input mode=\"act\"><mode_notice>The user switched.\nSecond line.</mode_notice>\nReview old branches</user_input>"}]}]}"#

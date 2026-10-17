@@ -1,6 +1,6 @@
 import Foundation
 
-/// Watches the assistants running in a window's AI terminals (Claude Code, Codex, Cline, Copilot)
+/// Watches the assistants running in a window's AI terminals (Claude Code, Codex, Cline, Copilot, Antigravity)
 /// and publishes what each one is doing, for the tabs and the toolbar. Reads each one's own session
 /// store off the main thread every few seconds, and only while an assistant terminal is running.
 @MainActor
@@ -90,8 +90,13 @@ final class AgentActivityMonitor: ObservableObject {
                     guard let turn = AgentActivityLog.copilotTurn(directory: job.directory) else { continue }
                     results.append((job.id, job.name, job.directory, 0, Date(),
                                     AgentActivityParser.copilot(userMessage: turn.user, response: turn.response, busy: job.printing)))
-                case .shell, .antigravity:
-                    break   // no activity reader for Antigravity yet
+                case .antigravity:
+                    guard let conversation = AgentActivityLog.antigravityConversation(directory: job.directory) else { continue }
+                    results.append((job.id, job.name, job.directory, 0, Date(),
+                                    AgentActivityParser.antigravity(title: conversation.title, preview: conversation.preview,
+                                                                    status: conversation.status, busy: job.printing)))
+                case .shell:
+                    break
                 }
             }
             await self?.apply(results)

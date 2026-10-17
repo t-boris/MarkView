@@ -251,6 +251,21 @@ enum AgentActivityParser {
         return AgentActivity(state: .idle, text: "Waiting for you", detail: said, task: task, topic: nil)
     }
 
+    // MARK: Antigravity
+
+    /// Antigravity keeps one summary row per conversation: its title, the first request and whether
+    /// a run is active. Like Copilot, it does not say what it is doing; the terminal's output
+    /// (`busy`) tells whether it works now.
+    static func antigravity(title: String?, preview: String?, status: String, busy: Bool) -> AgentActivity? {
+        guard title != nil || preview != nil else { return nil }
+        let topic = title.map { clip($0, 60) }
+        let task = preview.map { clip($0, 90) }
+        if busy || status.hasSuffix("_RUNNING") {
+            return AgentActivity(state: .working, text: task.map { "Working on: " + $0 } ?? "Working", detail: nil, task: task, topic: topic)
+        }
+        return AgentActivity(state: .idle, text: "Waiting for you", detail: nil, task: task, topic: topic)
+    }
+
     // MARK: Text
 
     /// A readable phrase for a tool call. The command line of a shell call is not used (it can
@@ -408,6 +423,20 @@ enum AgentActivityLog {
             let rows = SQLiteRead.rows(db, "SELECT t.user_message, t.assistant_response FROM turns t JOIN sessions s ON s.id = t.session_id WHERE s.cwd = ?1 ORDER BY t.id DESC LIMIT 1",
                                        args: [spelling.path], columns: 2)
             if let row = rows.first { return (row[0].isEmpty ? nil : row[0], row[1].isEmpty ? nil : row[1]) }
+        }
+        return nil
+    }
+
+    /// The newest top-level Antigravity conversation whose workspace is this folder.
+    static func antigravityConversation(directory: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser)
+        -> (title: String?, preview: String?, status: String)? {
+        let db = home.appendingPathComponent(".gemini/antigravity-cli/conversation_summaries.db").path
+        for spelling in spellings(directory) {
+            var uri = spelling.absoluteString
+            if uri.hasSuffix("/") { uri.removeLast() }
+            let rows = SQLiteRead.rows(db, "SELECT title, preview, status FROM conversation_summaries WHERE workspace_uris LIKE ?1 AND parent_conversation_id = '' ORDER BY last_modified_time DESC LIMIT 1",
+                                       args: ["%\"" + uri + "\"%"], columns: 3)
+            if let row = rows.first { return (row[0].isEmpty ? nil : row[0], row[1].isEmpty ? nil : row[1], row[2]) }
         }
         return nil
     }
