@@ -1,7 +1,7 @@
 import Foundation
 
 /// Assistants driven over the Agent Client Protocol (`<cli> --acp`): JSON-RPC 2.0 over
-/// stdio — Cline, GitHub Copilot and Gemini.
+/// stdio — Cline and GitHub Copilot.
 ///
 /// Why ACP: every tool call that needs approval asks the client
 /// (`session/request_permission`, with the tool's kind), which makes a read-only run
@@ -32,9 +32,6 @@ enum ACPAssistant {
             if let effort { arguments += ["--reasoning-effort", effort] }
             arguments += ["--available-tools", "view", "grep", "glob"]
             return Profile(arguments: arguments, readOnlyMode: nil, noticePrefix: "Info: Disabled tools:")
-        case .gemini:
-            // Plan mode is Gemini's read-only mode; it has no thinking-effort flag.
-            return Profile(arguments: ["--acp"], readOnlyMode: "plan", noticePrefix: nil)
         default:
             var arguments = ["--acp"]
             if let effort { arguments += ["--thinking", effort] }

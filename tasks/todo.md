@@ -2726,3 +2726,9 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] `supportsCompletions` is false: `agy` has no ACP and its print mode is an agent that writes plan files, so X-Ray and selection actions cannot use it; it is hidden from the assistant pickers, and a forced request fails with a clear message.
 - Checked: `agy -p` stream-json (input `{"event":"user","message":{"content":…}}`), `agy mcp add/list/remove`.
 - Not verified: an Antigravity terminal in the app; no activity panel for it.
+
+## Task 134: Antigravity as a full assistant; Gemini CLI removed (4.48.0)
+- Gemini CLI (Tasks 132) removed at Boris's request: it refuses Google sign-in for personal accounts.
+- [x] Antigravity is in every assistant picker again and runs one-shot requests (X-Ray, selection actions) through `agy --input-format stream-json --output-format stream-json --sandbox -p=`: prompt as `{"event":"user","message":{"content":…}}`, schema answer from `structured_output`. No `--mode plan` (it writes plan files and pollutes the answer); the default mode cannot approve anything, so writes and shell commands are denied (checked).
+- [x] `project-ai-choice-tests.sh` fixed (needs `AgentProcesses.swift`) and gains a live Antigravity structured-answer check.
+- Not verified in the app: an X-Ray run through Antigravity; activity panel for Antigravity terminals does not exist.

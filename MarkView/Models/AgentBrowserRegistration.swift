@@ -15,7 +15,6 @@ enum AgentBrowserRegistration {
     }
 
     static let copilotConfig = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot/mcp-config.json")
-    static let geminiConfig = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/settings.json")
     static let clineConfig = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".cline/data/settings/cline_mcp_settings.json")
 
@@ -39,7 +38,7 @@ enum AgentBrowserRegistration {
         let missing = { (agent: String) in Outcome(agent: agent, ok: false, detail: "not found — set its path in Settings (⌘⇧,) and connect again") }
         let claude = CLIToolLocator.resolve(.claude), codex = CLIToolLocator.resolve(.codex)
         let copilot = CLIToolLocator.resolve(.copilot) != nil, cline = CLIToolLocator.resolve(.cline) != nil
-        let gemini = CLIToolLocator.resolve(.gemini) != nil, agy = CLIToolLocator.resolve(.antigravity)
+        let agy = CLIToolLocator.resolve(.antigravity)
         for server in servers {
             let suffix = " (\(server.label) tools)"
             if let claude {
@@ -61,9 +60,6 @@ enum AgentBrowserRegistration {
             if cline {
                 outcomes.append(addServer(clineEntry(executable: executable, flag: server.flag), to: clineConfig, agent: "Cline" + suffix, name: server.name))
             } else if server.flag == "--mcp-browser" { outcomes.append(missing("Cline")) }
-            if gemini {
-                outcomes.append(addServer(geminiEntry(executable: executable, flag: server.flag), to: geminiConfig, agent: "Gemini" + suffix, name: server.name))
-            } else if server.flag == "--mcp-browser" { outcomes.append(missing("Gemini")) }
             if let agy {
                 _ = await CLIToolLocator.run(agy, ["mcp", "remove", server.name], timeout: 30)
                 let result = await CLIToolLocator.run(agy, ["mcp", "add", server.name, "--", executable, server.flag], timeout: 30)
@@ -72,28 +68,6 @@ enum AgentBrowserRegistration {
             } else if server.flag == "--mcp-browser" { outcomes.append(missing("Antigravity")) }
         }
         return outcomes
-    }
-
-    /// Gemini CLI's `mcpServers` entry; `trust` skips its per-call confirmations (the terminal already runs `--yolo`).
-    static func geminiEntry(executable: String, flag: String = "--mcp-browser") -> [String: Any] {
-        ["command": executable, "args": [flag], "trust": true]
-    }
-
-    /// Gemini CLI has no per-session MCP option, like Cline: before it starts, make sure
-    /// `~/.gemini/settings.json` lists the servers. Writes only when an entry is missing or points
-    /// at another copy of MarkView; off the main thread.
-    static func ensureGemini(executable: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let settings = (try? Data(contentsOf: geminiConfig)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
-            for server in servers {
-                if let entry = (settings?["mcpServers"] as? [String: Any])?[server.name] as? [String: Any],
-                   entry["command"] as? String == executable {
-                    continue
-                }
-                let outcome = addServer(geminiEntry(executable: executable, flag: server.flag), to: geminiConfig, agent: "Gemini", name: server.name)
-                NSLog("[MarkView] Gemini \(server.label) tools: \(outcome.ok ? "registered" : "not registered: " + outcome.detail)")
-            }
-        }
     }
 
     /// Antigravity CLI: make sure `agy mcp list` shows the servers with this copy of MarkView
@@ -164,7 +138,6 @@ enum AgentBrowserRegistration {
             ("Claude Code", CLIToolLocator.resolve(.claude) != nil, ".claude/skills/markview/SKILL.md"),
             ("Copilot", CLIToolLocator.resolve(.copilot) != nil, ".copilot/skills/markview/SKILL.md"),
             ("Codex", CLIToolLocator.resolve(.codex) != nil, ".codex/skills/markview/SKILL.md"),
-            ("Gemini", CLIToolLocator.resolve(.gemini) != nil, ".gemini/skills/markview/SKILL.md"),
         ]
         return targets.filter(\.1).map { agent, _, path in
             let file = home.appendingPathComponent(path)
@@ -185,7 +158,7 @@ enum AgentBrowserRegistration {
         let ask = NSAlert()
         ask.messageText = "Connect agents to MarkView?"
         ask.informativeText = """
-        Claude Code, Codex, Copilot, Cline, Gemini and Antigravity (those installed) get two tool sets in their own settings: \
+        Claude Code, Codex, Copilot, Cline and Antigravity (those installed) get two tool sets in their own settings: \
         "markview-browser" (drive this window's browser tabs) and "markview" (read and extend the project's \
         features, bugs and prototypes, written by MarkView in its own format, only in the window's project). \
         They work when MarkView is running; otherwise the tools stay hidden.
@@ -195,7 +168,7 @@ enum AgentBrowserRegistration {
         `MarkView --project-call`.
 
         Claude Code: user-scope MCP server · Codex: ~/.codex/config.toml · Copilot: ~/.copilot/mcp-config.json · \
-        Cline: its MCP settings · Gemini: ~/.gemini/settings.json · Antigravity: agy mcp. Remove the servers later with each agent's "mcp remove" and delete the \
+        Cline: its MCP settings · Antigravity: agy mcp. Remove the servers later with each agent's "mcp remove" and delete the \
         markview skill folders.
         """
         ask.addButton(withTitle: "Connect")
