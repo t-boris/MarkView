@@ -171,6 +171,25 @@ check(servers.map(\.name).contains("Dev (Contabo)") && servers.map(\.name).conta
 let onlyPackage = DeploymentDiscovery.scan(root: { let r = FileManager.default.temporaryDirectory.appendingPathComponent("discovery3-\(UUID().uuidString)"); try? FileManager.default.createDirectory(at: r, withIntermediateDirectories: true); try? "{\"dependencies\":{\"@supabase/supabase-js\":\"2\"}}".write(to: r.appendingPathComponent("package.json"), atomically: true, encoding: .utf8); return r }())
 check(onlyPackage.first?.provider == "supabase" && onlyPackage.first?.name.contains("library found") == true && onlyPackage.first?.checks.isEmpty == true && onlyPackage.first?.cloudCommands.first?.command == "supabase projects list", "a dependency alone suggests the service, without inventing a host")
 
+// A project that runs locally: console script + port named in the README.
+let localRoot = FileManager.default.temporaryDirectory.appendingPathComponent("discovery-local-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: localRoot.appendingPathComponent(".venv/bin"), withIntermediateDirectories: true)
+try? "[project]\nname = \"app\"\n[project.scripts]\ntitanium-platform = \"app.cli:main\"\ntitanium-research-mcp = \"app.mcp:main\"\n[tool.pytest]\n".write(to: localRoot.appendingPathComponent("pyproject.toml"), atomically: true, encoding: .utf8)
+try? "Run `.venv/bin/titanium-platform`, then open http://127.0.0.1:8765/#/research. Postgres on localhost:5432.\n".write(to: localRoot.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+let local = DeploymentDiscovery.scan(root: localRoot).first { $0.id == "this-mac" }
+check(local?.kind == .local && local?.checks.contains { $0.kind == .http && $0.target == "http://127.0.0.1:8765/" } == true, "a localhost port in the README becomes a local http check: \(String(describing: local?.checks.map(\.target)))")
+check(local?.checks.allSatisfy { !$0.target.contains("5432") } == true, "a database port is not the app")
+check(local?.missing.first?.contains("`.venv/bin/titanium-platform`") == true && local?.missing.first?.contains("mcp") == false, "start command from console scripts, the MCP server left out: \(String(describing: local?.missing))")
+
+let nodeRoot = FileManager.default.temporaryDirectory.appendingPathComponent("discovery-node-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: nodeRoot, withIntermediateDirectories: true)
+try? "{\"scripts\":{\"dev\":\"vite --port 4321\",\"build\":\"vite build\"}}".write(to: nodeRoot.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+let node = DeploymentDiscovery.scan(root: nodeRoot).first { $0.id == "this-mac" }
+check(node?.missing.first?.contains("npm run dev") == true && node?.checks.first?.target == "http://127.0.0.1:4321/", "package.json dev script and its --port")
+let plain = FileManager.default.temporaryDirectory.appendingPathComponent("discovery-plain-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+check(DeploymentDiscovery.scan(root: plain).first { $0.id == "this-mac" } == nil, "nothing to run, nothing suggested")
+
 // Hints for a missing CLI.
 check(ProviderHints.tool(of: "sudo -n neonctl projects list") == "neonctl", "the tool of a command")
 check(ProviderHints.advice(command: "neonctl projects list", stderr: "sh: neonctl: command not found", status: 127)?.contains("brew install neonctl") == true, "a missing CLI says how to install it")

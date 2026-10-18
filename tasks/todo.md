@@ -2739,3 +2739,10 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] Test stubs fixed (`CLITool` stubs lacked `antigravity`; `linked-folders-tests.sh` lacked `ArchiveSupport.swift`).
 - Not done: token/limit usage for Antigravity. Per-call token counts sit in undocumented protobuf blobs (`gen_metadata`) and no remaining-quota data exists locally; X-Ray / selection runs still log their tokens to the AI call log.
 - Skill (SKILL.md) not written: `agy` speaks MCP, so it does not need it.
+
+## Task 136: Deployments finds local runs
+
+- [x] Cause: discovery only looked for remote places (workflows, platform files, SSH hosts); localhost addresses were dropped as placeholders and `package.json` / `pyproject.toml` were not read for a start command.
+- [x] `DeploymentDiscovery.localRun` suggests "This Mac (local run)": start command (package.json dev/start/serve, pyproject console scripts without MCP servers, manage.py), localhost ports from docs and scripts (database ports skipped), http and port checks. It starts nothing.
+- [x] Tests in `tools/tests/DeploymentDiscoveryTests.swift`; checked on the Titanium project (port 8765, `.venv/bin/titanium-platform`).
+- Not done: Start/Stop buttons in the tab (needs process and log design; not requested).
