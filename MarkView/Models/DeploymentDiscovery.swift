@@ -105,6 +105,8 @@ enum DeploymentDiscovery {
         var docText: [(String, String)] = []
         var compose: [(String, String)] = []
         var packages: [(String, String)] = []
+        var pyprojects: [(String, String)] = []
+        var hasVenv = false
         for url in files {
             let path = rel(url), name = url.lastPathComponent.lowercased()
             guard let text = read(url) else { continue }
@@ -125,6 +127,8 @@ enum DeploymentDiscovery {
             else if name.hasSuffix(".tf") { if let s = terraform(text, path: path) { merge(s) } }
             else if name.hasPrefix("docker-compose") || name.hasPrefix("compose.") { compose.append((path, text)) }
             else if name == "package.json" { packages.append((path, text)) }
+            else if name == "pyproject.toml" { pyprojects.append((path, text)) }
+            else if name == "manage.py" { pyprojects.append((path, "# django\n")) }
             if name.hasSuffix(".md") || name.hasSuffix(".sh") || name == "makefile" || name.hasPrefix("deploy") || path.hasPrefix("scripts/") { docText.append((path, text)) }
         }
 
@@ -141,6 +145,9 @@ enum DeploymentDiscovery {
                 found["firebase"] = nil
             }
         }
+
+        hasVenv = FileManager.default.fileExists(atPath: root.appendingPathComponent(".venv/bin").path)
+        if let local = localRun(docs: docText, packages: packages, pyprojects: pyprojects, hasVenv: hasVenv) { merge(local) }
 
         // Managed services (a database in the cloud) and the hosting vendors the docs name.
         for s in managedServices(docs: docText + compose, packages: packages) { merge(s) }
@@ -192,6 +199,71 @@ enum DeploymentDiscovery {
                                        evidence: ["`~/.ssh/config`: Host \(host.alias), named in the project's docs"], confidence: 70))
         }
         return found.values.sorted { $0.confidence != $1.confidence ? $0.confidence > $1.confidence : $0.name < $1.name }
+    }
+
+    // MARK: local run
+
+    /// Databases and caches that docs name on localhost; they are services, not the app.
+    private static let serviceLocalPorts: Set<Int> = [5432, 3306, 6379, 27017, 9200, 5672]
+
+    /// How the project runs on this Mac: the command that starts it (package.json scripts, console scripts of
+    /// pyproject.toml, manage.py) and the localhost ports the docs and scripts name. It starts nothing: the person or
+    /// an agent does, and the checks show whether it is up.
+    static func localRun(docs: [(String, String)], packages: [(String, String)], pyprojects: [(String, String)], hasVenv: Bool) -> DeploymentSuggestion? {
+        var commands: [(command: String, evidence: String)] = []
+        var ports: [Int] = []
+        var evidence: [String] = []
+        func addPort(_ port: Int, _ source: String) {
+            guard (1024...65535).contains(port), !serviceLocalPorts.contains(port), !ports.contains(port) else { return }
+            ports.append(port); evidence.append("\(source): port \(port)")
+        }
+        for (path, text) in packages {
+            let depth = path.split(separator: "/").count
+            guard depth <= 2, let data = text.data(using: .utf8),
+                  let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let scripts = json["scripts"] as? [String: String] else { continue }
+            let prefix = depth == 2 ? "--prefix \(path.split(separator: "/")[0]) " : ""
+            for key in ["dev", "start", "serve"] {
+                guard let body = scripts[key] else { continue }
+                commands.append(("npm \(prefix)run \(key)", "`\(path)`: script \(key)"))
+                if let port = matches(#"(?:--port[= ]|-p |PORT=)(\d{4,5})"#, in: body).first.flatMap({ Int($0[1]) }) { addPort(port, "`\(path)` script \(key)") }
+                else if body.contains("vite") { addPort(5173, "`\(path)` (vite default)") }
+                else if body.contains("next ") { addPort(3000, "`\(path)` (next default)") }
+                else if body.contains("react-scripts") { addPort(3000, "`\(path)` (react-scripts default)") }
+            }
+        }
+        let allDocs = docs.map { $0.1 }.joined(separator: "\n")
+        for (path, text) in pyprojects {
+            if text.hasPrefix("# django") {
+                commands.append(("python manage.py runserver", "`\(path)`")); addPort(8000, "`\(path)` (Django default)"); continue
+            }
+            guard let section = text.range(of: "[project.scripts]") else { continue }
+            let tail = text[section.upperBound...]
+            let body = tail.range(of: "\n[").map { String(tail[..<$0.lowerBound]) } ?? String(tail)
+            let names = matches(#"^\s*([A-Za-z0-9_.-]+)\s*="#, in: body).map { $0[1] }.filter { !$0.lowercased().contains("mcp") }
+            // The script the docs mention comes first.
+            for name in names.sorted(by: { allDocs.contains($0) && !allDocs.contains($1) }) {
+                commands.append(((hasVenv ? ".venv/bin/" : "") + name, "`\(path)`: console script \(name)"))
+            }
+        }
+        for (path, text) in docs {
+            for m in matches(#"(?:localhost|127\.0\.0\.1|0\.0\.0\.0):(\d{4,5})\b"#, in: text).prefix(6) { if let port = Int(m[1]) { addPort(port, "`\(path)`") } }
+            for m in matches(#"(?:uvicorn|flask run|http\.server|--port)[^\n]*?(?:--port[= ]|-p |--port |\s)(\d{4,5})\b"#, in: text).prefix(3) { if let port = Int(m[1]) { addPort(port, "`\(path)`") } }
+        }
+        guard !commands.isEmpty || !ports.isEmpty else { return nil }
+        var s = DeploymentSuggestion(id: "this-mac", name: "This Mac (local run)", kind: .local, confidence: !commands.isEmpty && !ports.isEmpty ? 75 : 55)
+        for port in ports.prefix(3) {
+            s.checks.append(DeploymentCheck(id: "http-\(port)", title: "App answers on port \(port)", kind: .http, target: "http://127.0.0.1:\(port)/"))
+            s.checks.append(DeploymentCheck(id: "port-\(port)", title: "Port \(port) is listening", kind: .port, target: "127.0.0.1:\(port)"))
+        }
+        s.evidence = Array((commands.map(\.evidence) + evidence).prefix(8))
+        if let first = commands.first {
+            s.missing.append("Start it from the project folder with `\(first.command)`" + (commands.count > 1 ? " (other options: " + commands.dropFirst().prefix(3).map { "`\($0.command)`" }.joined(separator: ", ") + ")." : "."))
+        } else {
+            s.missing.append("No start command found in package.json or pyproject.toml: the docs name a local port, so check how the app is started.")
+        }
+        if ports.isEmpty { s.missing.append("No local port found: add a port check in Edit once you know it.") }
+        return s
     }
 
     // MARK: managed services
