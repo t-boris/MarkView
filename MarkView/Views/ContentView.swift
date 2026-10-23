@@ -230,7 +230,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .archive, .deployments, .terminal, .browser, .data, .prototype:
+            case .file, .image, .archive, .deployments, .discussions, .terminal, .browser, .data, .prototype:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -438,6 +438,10 @@ struct ContentView: View {
                                  selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDeployments()
                     }
+                    headerButton("bubble.left.and.text.bubble.right", help: "Discussions (⌃⌘I): think an idea through before it is a feature", width: controlWidth,
+                                 selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openDiscussions()
+                    }
                 }
                 browserMenu.frame(width: controlWidth, height: controlWidth)
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {
@@ -604,6 +608,10 @@ struct ContentView: View {
                         ImageViewerView(url: activeTab.url)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
+                    } else if case .discussions = activeTab.kind {
+                        DiscussionsView(store: workspaceManager.discussions)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .deployments = activeTab.kind {
                         DeploymentsView(store: workspaceManager.deployments)
                             .environmentObject(workspaceManager)
@@ -647,7 +655,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .archive, .deployments, .terminal, .browser, .prototype: return true
+                case .file, .image, .archive, .deployments, .discussions, .terminal, .browser, .prototype: return true
                 default: return false
                 }
             }) {
@@ -1081,6 +1089,7 @@ struct AIToolsMenu: View {
             }
             Section("Operations") {
                 Button("Deployments…") { workspaceManager.openDeployments() }
+                Button("Discussions…") { workspaceManager.openDiscussions() }
                     .disabled(workspaceManager.rootNode == nil)
             }
             Section("Analysis") {

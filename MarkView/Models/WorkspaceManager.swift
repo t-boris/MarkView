@@ -396,6 +396,8 @@ class WorkspaceManager: ObservableObject {
     @Published var gitClient = GitClient()
     /// Where the project runs and how each place is doing (the Deployments tab).
     let deployments = DeploymentStore()
+    /// Questions asked before there is a feature, answered as pages (the Discussions tab).
+    let discussions = DiscussionStore()
     /// Answers to questions about an environment, read from state and logs by the project's own assistant.
     let deploymentAdvisor = DeploymentAdvisor()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
@@ -757,6 +759,7 @@ class WorkspaceManager: ObservableObject {
             setUpGitHub(at: url)
             setUpFeatures(at: url)
             deployments.setRoot(url)
+            discussions.setRoot(url)
             Self.debugLog("initDDE: git setup done")
 
             // Load cached diagrams and analysis results from database
@@ -1035,6 +1038,7 @@ class WorkspaceManager: ObservableObject {
             case .image: saved = .image(tab.url)
             case .archive: saved = .archive(tab.url)
             case .deployments: saved = .deployments
+            case .discussions: saved = .discussions
             case .data: saved = .data(tab.url)
             case .github(let item): saved = .github(item)
             case .architecture(let scope): saved = .architecture(scope)
@@ -1094,6 +1098,7 @@ class WorkspaceManager: ObservableObject {
                     tab.scrollPosition = scroll.isFinite ? CGFloat(max(0, scroll)) : 0
                 }
             case .deployments: openDeployments()
+            case .discussions: openDiscussions()
             case .image(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
@@ -2001,6 +2006,7 @@ class WorkspaceManager: ObservableObject {
         gitHub.reset()
         features.reset()
         deployments.setRoot(nil)
+        discussions.setRoot(nil)
         indexingProgress = nil
         structuralIndexProgress = nil
         analysisStage = nil
@@ -2734,7 +2740,7 @@ class WorkspaceManager: ObservableObject {
     /// API call directly here.
     /// Recursive Insight of the open folder, or — from the file tree — of one of its folders
     /// (`target` a directory) or of a single document (`target` a Markdown file).
-    func startRecursiveInsight(at target: URL? = nil) {
+    func startRecursiveInsight(at target: URL? = nil, title: String? = nil) {
         // 1. A folder must be open.
         guard let rootURL = rootNode?.url else {
             let alert = NSAlert()
@@ -2802,7 +2808,7 @@ class WorkspaceManager: ObservableObject {
             graphRAG: graphRAG,
             cache: cache,
             project: aiProject,
-            title: targetIsFile ? target.deletingPathExtension().lastPathComponent : nil
+            title: title ?? (targetIsFile ? target.deletingPathExtension().lastPathComponent : nil)
         )
 
         // 6. Build placeholder URL (never written to disk — exists only so
@@ -4584,6 +4590,63 @@ class WorkspaceManager: ObservableObject {
         layout.workspaceArea = .files
         showCenter = true
         tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// The Discussions tab: questions asked before there is a feature, each answered as a page.
+    func openDiscussions() {
+        guard let root = rootNode?.url else { return }
+        discussions.setRoot(root)
+        for index in openTabs.indices {
+            if case .discussions = openTabs[index].kind { activeTabIndex = index; layout.workspaceArea = .files; return }
+        }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-discussions"), content: "", originalContent: "")
+        tab.kind = .discussions
+        layout.workspaceArea = .files
+        showCenter = true
+        tabsStore.appendTab(tab, activate: true)
+    }
+
+    /// Discussions → ask: the project's assistant reads the project and answers; the answer is saved as a note and
+    /// opens as an Insight page, with its decisions and open questions added to the discussion.
+    func askDiscussion(_ slug: String, question: String) {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let root = rootNode?.url, !text.isEmpty, discussions.asking == nil,
+              let discussion = discussions.discussions.first(where: { $0.slug == slug }) else { return }
+        discussions.asking = slug
+        discussions.lastError = nil
+        var request = CLICompletion.Request(
+            project: aiProject ?? root,
+            prompt: DiscussionPrompt.prompt(discussion: discussion, question: text, language: ActionOutputLanguage.explanationLine()),
+            systemPrompt: DiscussionPrompt.system, jsonSchema: DiscussionPrompt.schema, readableFolder: root)
+        request.effort = "medium"
+        request.timeout = 600
+        request.label = "discussion"
+        Task { [weak self] in
+            do {
+                let result = try await CLICompletion.run(request)
+                guard let self else { return }
+                guard let answer = DiscussionPrompt.parse(structured: result.structured, text: result.text),
+                      let turn = self.discussions.addTurn(slug, question: text, answer: answer.answer, followUps: answer.followUps,
+                                                          decisions: answer.decisions, openQuestions: answer.openQuestions) else {
+                    self.discussions.lastError = "The assistant gave no answer."
+                    self.discussions.asking = nil
+                    return
+                }
+                self.discussions.asking = nil
+                if let note = self.discussions.noteURL(slug, turn: turn.id) { self.startRecursiveInsight(at: note, title: text) }
+            } catch {
+                self?.discussions.lastError = error.localizedDescription
+                self?.discussions.asking = nil
+            }
+        }
+    }
+
+    /// Opens the note of an earlier answer as an Insight page again (it is generated anew from the note).
+    func openDiscussionAnswer(_ slug: String, turn: Int, asNote: Bool) {
+        guard let note = discussions.noteURL(slug, turn: turn), FileManager.default.fileExists(atPath: note.path) else { return }
+        if asNote { openFile(note) } else {
+            startRecursiveInsight(at: note, title: discussions.discussions.first { $0.slug == slug }?.turns.first { $0.id == turn }?.question)
+        }
     }
 
     /// Deployments → "Ask AI to find where it runs": the assistant reads the project and proposes environments.

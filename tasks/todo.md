@@ -2746,3 +2746,33 @@ Request: the status must work in all environments, not only Claude Code.
 - [x] `DeploymentDiscovery.localRun` suggests "This Mac (local run)": start command (package.json dev/start/serve, pyproject console scripts without MCP servers, manage.py), localhost ports from docs and scripts (database ports skipped), http and port checks. It starts nothing.
 - [x] Tests in `tools/tests/DeploymentDiscoveryTests.swift`; checked on the Titanium project (port 8765, `.venv/bin/titanium-platform`).
 - Not done: Start/Stop buttons in the tab (needs process and log design; not requested).
+
+## Task 137: Discussion — a formal place to think before a feature (plan, awaiting approval)
+
+Boris: no concept of a "discussion" between an idea and a feature. Wants it formalized and as a UI: questions answered
+as drill-down Insight pages, decisions kept, then "make a feature of this" or "make 20 bugs of this".
+
+Findings (see research): Recursive Insight is hard-wired to a folder of `.md` files (`InsightSession.generateRoot`
+returns on empty `mdFiles`); feature discussion is `discussion.md` per feature; `IntakeRequest.text` can be prefilled to
+start New Feature; `GitHubClient.createIssue` exists, the plan review UI (`IssuePlanCard`) is tied to a feature slug;
+`PrototypeFiles` is the template for `.dde/<kind>/<slug>/`; `Deployments` tab shows how a tab kind is registered.
+
+Design
+- Storage: `.dde/discussions/<slug>/discussion.json` (topic, turns, decisions, open questions, drafts) + one HTML per
+  answer (`answers/<n>.html`). No new engine; the project's assistant answers (`CLICompletion`, `project:` set).
+- PR 1 (4.51.0): model + store (`Discussion`, `DiscussionStore`, pure, tests in `tools/tests/discussion-tests.sh`);
+  Discussions tab (list, new, ask); answer = Insight page from a question (`InsightSession` gets an optional
+  `questionContext`, no required `.md` files; drill-down through the existing deep-dive topics); decisions and
+  open questions extracted per answer, edited by hand.
+- PR 2: "Make a feature" -> prefilled `IntakeRequest` (topic, decisions, open questions, answers as context).
+- PR 3: "Break into tasks" -> draft list (title, body, labels) reviewed and edited by Boris; GitHub creation only on
+  explicit click and only when the GitHub integration is on (`GitHubSettings.enabled`, `gitHub.client`).
+- Not in scope: a separate chat engine, auto-created issues, new libraries.
+
+### Task 137, PR 1 (4.51.0, `feat/discussions`)
+- [x] `Discussion` / `DiscussionStore` (`.dde/discussions/<slug>/discussion.json`, answers as `notes/NNN.md`), `DiscussionPrompt` (schema, parse); tests `tools/tests/discussion-tests.sh`.
+- [x] Discussions tab (⌃⌘I, header button, Operations menu, session restore): list, ask, answer cards ("Open as page" = Insight on the note, "Open note"), follow-up questions, decisions / open questions / rejected (move, edit by hand).
+- [x] `askDiscussion`: the project's assistant reads the project (read-only), answers by schema; note saved; Insight page opens. Checked live with the real assistant (structured answer, read the project).
+- Limits: the Insight page is generated again when reopened (not stored); drill-down sees the note, not the code.
+- [ ] Discussions tab clicked through in the running app.
+- Next: PR 2 "Make a feature", PR 3 "Break into tasks".
