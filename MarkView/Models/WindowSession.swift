@@ -39,6 +39,8 @@ enum WorkspaceTabState: Codable {
     case archive(URL)
     /// The Deployments tab; added in 4.25.
     case deployments
+    /// The Discussions tab; added in 4.51.
+    case discussions
     case github(GitHubItem)
     case architecture(String)
     case terminal(URL)
