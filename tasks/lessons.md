@@ -631,3 +631,6 @@ BUG-027 routed agent tools by the MCP server's cwd. Cline starts every session's
   that named it ("answers as Insight pages") without checking that the picture in his head matched.
 - Rule: when a request is a new concept built from words like "formalize", "UI-ize", describe the experience in one concrete
   scene (what he types, what he sees) and confirm it before choosing which existing feature to reuse.
+
+## An empty array passes every `as? [T]` cast (Discussion crash, 2026-10-24)
+A helper taking `Any` and testing `value as? [DiscussionTurn]` matched the empty `[[String:String]]` it had just built, so it recursed until the stack overflowed (4.52.0 crashed on a discussion with no turns). Never dispatch on `Any` downcasts of collections; give each shape its own typed call.
