@@ -45,7 +45,7 @@ struct DiscussionThreadView: NSViewRepresentable {
             if sentDark != wanted.dark { sentDark = wanted.dark; view.evaluateJavaScript("mvSetTheme(\(wanted.dark))") }
             if sentTurns != wanted.turns {
                 sentTurns = wanted.turns
-                view.evaluateJavaScript("mvSetTurns(\(Self.literal(Self.json(wanted.turns))))")
+                view.evaluateJavaScript("mvSetTurns(\(Self.literal(Self.json(wanted.turns.map { ["question": $0.question, "answer": $0.answer] }))))")
             }
             if sentLive == nil || sentLive! != wanted.live {
                 sentLive = .some(wanted.live)
@@ -57,11 +57,8 @@ struct DiscussionThreadView: NSViewRepresentable {
             }
         }
 
+        /// A plain JSON value as text. Takes no `Any` downcasts: an empty array casts to every array type, which once recursed forever.
         private static func json(_ value: Any) -> String {
-            if let turns = value as? [DiscussionTurn] {
-                let list = turns.map { ["question": $0.question, "answer": $0.answer] }
-                return json(list)
-            }
             guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else { return "[]" }
             return String(data: data, encoding: .utf8) ?? "[]"
         }
