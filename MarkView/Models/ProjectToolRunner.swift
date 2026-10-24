@@ -27,6 +27,15 @@ enum ProjectToolRunner {
             case "markview_create_bug": return try createBug(store, args)
             case "markview_set_status": return try setStatus(store, args)
             case "markview_set_bug_status": return try setBugStatus(store, args)
+            case "markview_update_feature": return try updateFeature(store, args)
+            case "markview_update_object": return try updateObject(store, args)
+            case "markview_answer_question": return try answerQuestion(store, args)
+            case "markview_add_source": return try addSource(store, args)
+            case "markview_add_discussion_note": return try addDiscussionNote(store, args)
+            case "markview_update_bug": return try updateBug(store, args)
+            case "markview_answer_bug_question": return try answerBugQuestion(store, args)
+            case "markview_link_issue": return try linkIssue(store, args)
+            case "markview_open_questions": return try openQuestions(store, args)
             default: return .error("Unknown tool \(tool).")
             }
         } catch let invalid as ProjectAgentTools.Invalid {
@@ -38,7 +47,7 @@ enum ProjectToolRunner {
 
     static let outputLimit = 40_000
 
-    private static func clip(_ text: String) -> String {
+    static func clip(_ text: String) -> String {
         text.count <= outputLimit ? text : String(text.prefix(outputLimit)) + "\n… (cut: \(text.count - outputLimit) more characters)"
     }
 
@@ -51,6 +60,8 @@ enum ProjectToolRunner {
         Features: \(store.features.count)\(statuses.isEmpty ? "" : " (\(statuses))")
         Bugs: \(store.bugs.count) (\(store.bugs.filter { $0.status != "closed" && $0.status != "fixed" }.count) not closed)
         Prototypes: \(PrototypeFiles.existingSlugs(root: root).count)
+        Discussions: \(((try? FileManager.default.contentsOfDirectory(atPath: DiscussionStore.base(root: root).path)) ?? []).filter { !$0.hasPrefix(".") }.count) (markview_discussions)
+        Deployments: markview_deployments
         Features folder: \(FeatureStore.folderName)/
         """
     }
@@ -67,7 +78,7 @@ enum ProjectToolRunner {
         }.joined(separator: "\n"))
     }
 
-    private static func featureNamed(_ store: FeatureStore, _ args: [String: Any]) throws -> Feature {
+    static func featureNamed(_ store: FeatureStore, _ args: [String: Any]) throws -> Feature {
         let slug = try ProjectAgentTools.text(args, "feature", required: true)
         guard ProjectAgentTools.isPlainName(slug), let feature = store.feature(slug) else {
             let known = store.features.map(\.slug).prefix(30).joined(separator: ", ")
@@ -83,7 +94,29 @@ enum ProjectToolRunner {
             guard let object = feature.object(id) else { throw ProjectAgentTools.Invalid(message: "\(feature.slug) has no object \(id).") }
             return .init(text: clip(object.text()))
         }
+        switch try ProjectAgentTools.text(args, "section") {
+        case "plan":
+            let plan = feature.planFront.entries.isEmpty && feature.planBody.isEmpty ? "No implementation plan yet." : feature.planFront.join(body: feature.planBody)
+            return .init(text: clip(plan))
+        case "discussion":
+            let log = store.discussion(feature.slug, limit: outputLimit)
+            return .init(text: log.isEmpty ? "No discussion log yet." : clip(log))
+        case "lifecycle":
+            let events = store.lifecycleEvents(feature.slug)
+            return .init(text: events.isEmpty ? "No lifecycle events recorded." : clip(events.map {
+                "\($0.timestamp.formatted(.iso8601)) \($0.stage.rawValue) (\($0.source.rawValue), \($0.actor))" + ($0.note.map { " — \($0)" } ?? "")
+            }.joined(separator: "\n")))
+        case "readiness":
+            return .init(text: readinessReport(feature))
+        default: break
+        }
         var out = "\(feature.slug) — \(feature.title) [\(feature.status)] readiness \(feature.readiness)%\n"
+        let owner = feature.front.string("owner"), created = feature.front.string("created"), updated = feature.front.string("updated")
+        out += "Owner: \(owner.isEmpty ? "-" : owner) · created \(created.isEmpty ? "-" : created) · updated \(updated.isEmpty ? "-" : updated)\n"
+        if !feature.issueNumbers.isEmpty { out += "GitHub issues: " + feature.issueNumbers.map { "#\($0)" }.joined(separator: " ") + (feature.epic.map { " (epic #\($0))" } ?? "") + "\n" }
+        if !feature.planIssues.isEmpty { out += "Plan: \(feature.planIssues.count) issues (section plan)\n" }
+        if let left = feature.questionsLeft { out += "Questions the AI still expects: \(left)\n" }
+        out += readinessReport(feature) + "\n"
         let understanding = feature.understanding.map { "\($0.dimension): \($0.state)" }.joined(separator: ", ")
         if !understanding.isEmpty { out += "Understanding: \(understanding)\n" }
         out += "\n" + feature.overviewBody.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
@@ -92,6 +125,7 @@ enum ProjectToolRunner {
             for object in feature.list(kind) {
                 let links = object.links.map { "\($0.relation) \($0.target)" }.joined(separator: "; ")
                 out += "- \(object.id) [\(object.status)] \(object.title)" + (links.isEmpty ? "" : " (\(links))") + "\n"
+                if args["full"] as? Bool == true { out += object.body.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n") + "\n" }
             }
         }
         return .init(text: clip(out))
@@ -100,7 +134,15 @@ enum ProjectToolRunner {
     private static func listBugs(_ store: FeatureStore, status: String) -> String {
         let bugs = store.bugs.filter { status.isEmpty || $0.status == status }
         guard !bugs.isEmpty else { return "No bug reports" + (status.isEmpty ? "." : " with status \(status).") }
-        return clip(bugs.map { "\($0.key) — \($0.title) [\($0.status), \($0.severity)]" }.joined(separator: "\n"))
+        return clip(bugs.map { bug in
+            var line = "\(bug.key) — \(bug.title) [\(bug.status), \(bug.severity)]"
+            if !bug.feature.isEmpty { line += " · feature \(bug.feature)" }
+            if !bug.issueNumbers.isEmpty { line += " · issues " + bug.issueNumbers.map { "#\($0)" }.joined(separator: " ") }
+            if !bug.duplicateOf.isEmpty { line += " · duplicate of \(bug.duplicateOf)" }
+            if bug.readyToFix { line += " · ready to fix" }
+            if !bug.openQuestions.isEmpty { line += " · \(bug.openQuestions.count) open question(s)" }
+            return line
+        }.joined(separator: "\n"))
     }
 
     private static func getBug(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
@@ -156,7 +198,7 @@ enum ProjectToolRunner {
 
     // MARK: - Writing
 
-    private static func provenance(_ source: String) -> String {
+    static func provenance(_ source: String) -> String {
         "Created by an AI agent through MarkView" + (source.isEmpty ? "" : " from \(source)")
     }
 
@@ -325,8 +367,8 @@ enum ProjectToolRunner {
         let status = try ProjectAgentTools.text(args, "status", required: true).lowercased()
         let id = try ProjectAgentTools.text(args, "id")
         if id.isEmpty {
-            guard ProjectAgentTools.agentFeatureStatuses.contains(status) else {
-                throw ProjectAgentTools.Invalid(message: "A feature's status can be set to: \(ProjectAgentTools.agentFeatureStatuses.joined(separator: ", ")). The implementation stages are recorded by MarkView.")
+            guard ProjectAgentTools.agentFeatureSetStatuses.contains(status) else {
+                throw ProjectAgentTools.Invalid(message: "A feature's status can be set to: \(ProjectAgentTools.agentFeatureSetStatuses.joined(separator: ", ")). The implementation stages are recorded by MarkView.")
             }
             store.updateFeature(feature.slug) { front, _ in front.set("status", status) }
             return .init(text: "\(feature.slug) is now \(status).")
@@ -335,7 +377,14 @@ enum ProjectToolRunner {
         guard let allowed = ProjectAgentTools.statuses(forObjectID: id), allowed.contains(status) else {
             throw ProjectAgentTools.Invalid(message: "\(id) can be set to: \((ProjectAgentTools.statuses(forObjectID: id) ?? []).joined(separator: ", ")).")
         }
-        store.setStatus(id, in: feature.slug, to: status)
+        if ProjectAgentTools.personsStatuses.contains(status), args["by_user"] as? Bool != true {
+            throw ProjectAgentTools.Invalid(message: "\(status) records the person's decision. Ask them, and call again with by_user: true only when they said so in the conversation.")
+        }
+        if status == "rejected", id.hasPrefix("DEC-") {
+            store.rejectDecision(id, in: feature.slug)
+        } else {
+            store.setStatus(id, in: feature.slug, to: status)
+        }
         return .init(text: "\(id) is now \(status).")
     }
 }

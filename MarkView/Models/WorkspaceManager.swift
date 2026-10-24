@@ -3869,7 +3869,8 @@ class WorkspaceManager: ObservableObject {
                 return session
             },
             features: { [weak self] in self?.features },
-            deployments: { [weak self] in self?.deployments }))
+            deployments: { [weak self] in self?.deployments },
+            discussions: { [weak self] in self?.discussions }))
     }
 
     /// The window's browser tabs, in tab order.

@@ -123,6 +123,7 @@
 		63CEFB40058DD013BF985C51 /* KaTeX_Fraktur-Bold.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = F5052FB2920AFA8A801BF1A3 /* KaTeX_Fraktur-Bold.woff2 */; };
 		644D31913AC7071C24D50ABE /* markview-init.js in Resources */ = {isa = PBXBuildFile; fileRef = 83A467FF2FEC9862D7D5B972 /* markview-init.js */; };
 		655AEBF582AECF54E3EECC62 /* InsightArchiveExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75FC7940299CE6E834BFE230 /* InsightArchiveExporter.swift */; };
+		6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */; };
 		66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */; };
 		6706B449CBD9E1E2DFCF7244 /* KaTeX_Script-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */; };
 		671658A7DC24F4BC565337F7 /* markview-pick-element.js in Resources */ = {isa = PBXBuildFile; fileRef = AE2D1E5946002DCAB54BA616 /* markview-pick-element.js */; };
@@ -197,6 +198,7 @@
 		B2129D7DF44CD7A0AD5CBED9 /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = 374D415A70003378E9635011 /* index.html */; };
 		B237AD4A0A5D93A4F161E5CB /* ImageViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */; };
 		B3CD83BBB6B21765A1064042 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5216E2466E79A0507BEAE8 /* ContentView.swift */; };
+		B424447F3E566D10E4FED971 /* DiscussionAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6499309EBBD52CAA265A206 /* DiscussionAgentTools.swift */; };
 		B434134C7E04BAD9EF1A4CCD /* prism-line-numbers.css in Resources */ = {isa = PBXBuildFile; fileRef = 050417CE286D0AFEA786B2BF /* prism-line-numbers.css */; };
 		B776ABDEC4DEBC3133A3FD1D /* KaTeX_Main-BoldItalic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 4901BB46E719AF40B6110311 /* KaTeX_Main-BoldItalic.woff2 */; };
 		BA33CA169FFA17EBC8CD2BE3 /* prism-yaml.min.js in Resources */ = {isa = PBXBuildFile; fileRef = F58E38B38401EBC2C62DEA97 /* prism-yaml.min.js */; };
@@ -282,6 +284,7 @@
 		FBEE26C2ACD8DA6D055AC11B /* markview-canvas.css in Resources */ = {isa = PBXBuildFile; fileRef = ADA371AF8ACDEABE2F93D359 /* markview-canvas.css */; };
 		FC165556724BC49AFB71FF4E /* PDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4755545E00CAA90E990A42E /* PDFExporter.swift */; };
 		FDEC1C9110BC9238829B7A22 /* BugBasketView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477DD53694435ADC874CA1A0 /* BugBasketView.swift */; };
+		FE65CF5E21B3802C1110F123 /* DiscussionToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35456F1E8AE265DB77CE801 /* DiscussionToolRunner.swift */; };
 		FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E8965BA2170772C6393FB45 /* PrototypeAI.swift */; };
 		FF677307133FE1CCD7D71308 /* WebViewBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */; };
 		FF7727D2E8B03F5B003E70D3 /* KaTeX_Size3-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = CE99F8479F3F1684FB7DAB2A /* KaTeX_Size3-Regular.woff2 */; };
@@ -473,9 +476,11 @@
 		AE2D1E5946002DCAB54BA616 /* markview-pick-element.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-pick-element.js"; sourceTree = "<group>"; };
 		AEC026508553C50ACDA4C8E3 /* ConflictPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConflictPrompt.swift; sourceTree = "<group>"; };
 		AF17AE946068A72B32FC239E /* TOCView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TOCView.swift; sourceTree = "<group>"; };
+		AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProjectToolRunner+Edit.swift"; sourceTree = "<group>"; };
 		B0E1DE65EEA6FFCA20C1BE20 /* HandoffViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandoffViews.swift; sourceTree = "<group>"; };
 		B1896DB2BE326B5758D19B8C /* markview-insight-handlers.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-handlers.js"; sourceTree = "<group>"; };
 		B22463A74DBAA149985AFD0B /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		B35456F1E8AE265DB77CE801 /* DiscussionToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscussionToolRunner.swift; sourceTree = "<group>"; };
 		B3B487FDAD156AA6D3704A2D /* FeatureIntake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureIntake.swift; sourceTree = "<group>"; };
 		B4FFB949AF205D33DC98B5FE /* DeploymentExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentExecutor.swift; sourceTree = "<group>"; };
 		B50F42A001DDEAC85D1AF123 /* KaTeX_Typewriter-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Typewriter-Regular.woff2"; sourceTree = "<group>"; };
@@ -497,6 +502,7 @@
 		C2B2061839C6FC000555491E /* ResearchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchViews.swift; sourceTree = "<group>"; };
 		C4673CD185F2FD3A78E989FE /* InsightCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCache.swift; sourceTree = "<group>"; };
 		C5F677CB2D8103034083F8EF /* AgentActivityChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityChip.swift; sourceTree = "<group>"; };
+		C6499309EBBD52CAA265A206 /* DiscussionAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscussionAgentTools.swift; sourceTree = "<group>"; };
 		C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeImages.swift; sourceTree = "<group>"; };
 		C6D644220A558FD0B83AD5F0 /* KaTeX_SansSerif-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Regular.woff2"; sourceTree = "<group>"; };
 		C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloads.swift; sourceTree = "<group>"; };
@@ -677,7 +683,9 @@
 				CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */,
 				28604B8D1BFD9BF716A5891D /* DictationController.swift */,
 				2AC5CF1253DBEECE6E44967D /* Discussion.swift */,
+				C6499309EBBD52CAA265A206 /* DiscussionAgentTools.swift */,
 				41D2D4F1EA4F7347A199FD69 /* DiscussionPrompt.swift */,
+				B35456F1E8AE265DB77CE801 /* DiscussionToolRunner.swift */,
 				E7E3D6A8144A620B1B335381 /* DocumentState.swift */,
 				B5FE2B5578EB5A351D1AC228 /* EmbeddingClient.swift */,
 				19E031440F6D9721BE887B99 /* FeatureAI.swift */,
@@ -728,6 +736,7 @@
 				8342199E7F182C48ECA2B9C3 /* ProjectOperationsStore.swift */,
 				CED0D034A0CE43C03208CB68 /* ProjectSearch.swift */,
 				50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */,
+				AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */,
 				8E8965BA2170772C6393FB45 /* PrototypeAI.swift */,
 				BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */,
 				C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */,
@@ -1211,8 +1220,10 @@
 				8055E8C72B063DF8AA361E6C /* DictationController.swift in Sources */,
 				5D816BB3AF275CF0801D77B5 /* DictationViews.swift in Sources */,
 				55037F3A705A0F79302C4585 /* Discussion.swift in Sources */,
+				B424447F3E566D10E4FED971 /* DiscussionAgentTools.swift in Sources */,
 				F1ACA906C8851DDE26C3B948 /* DiscussionPrompt.swift in Sources */,
 				DD340657514D81847227AF12 /* DiscussionThreadView.swift in Sources */,
+				FE65CF5E21B3802C1110F123 /* DiscussionToolRunner.swift in Sources */,
 				DFFC9CDE4EB4ECA9FFA0ACC5 /* DiscussionsView.swift in Sources */,
 				565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */,
 				37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */,
@@ -1284,6 +1295,7 @@
 				C5A3AF560E0A3F1732079F2A /* ProjectOperationsStore.swift in Sources */,
 				F278A31184C35394A15B7F96 /* ProjectOperationsView.swift in Sources */,
 				83916360DABE7547F3F6D441 /* ProjectSearch.swift in Sources */,
+				6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */,
 				8F57D15C98A99D233F5E269C /* ProjectToolRunner.swift in Sources */,
 				FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */,
 				BD0E1A552EBABF480B72BB04 /* PrototypeCreatorSheet.swift in Sources */,
@@ -1369,7 +1381,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.53.0;
+				CURRENT_PROJECT_VERSION = 4.54.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1384,7 +1396,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.53.0;
+				MARKETING_VERSION = 4.54.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1448,7 +1460,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.53.0;
+				CURRENT_PROJECT_VERSION = 4.54.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1469,7 +1481,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.53.0;
+				MARKETING_VERSION = 4.54.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

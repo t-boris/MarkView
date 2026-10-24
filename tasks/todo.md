@@ -2790,3 +2790,11 @@ Boris, after trying 4.51.0: a discussion is a talk with the AI (voice too) about
 - [x] New MCP tool `markview_set_bug_status` (id, status open|fixing|fixed|closed, optional `duplicate_of` closes as duplicate and records it in front matter); goes through `FeatureStore.updateBug` like the Bugs panel.
 - [x] `FeatureVocabulary.bugStatuses` is the single list (BugReport.statuses uses it); bug guide updated; tool tests updated (21 tools).
 - [ ] Not exercised against a live app (runner needs a FeatureStore); checked by build and schema tests.
+
+## Task 139: MCP covers everything the app changes and shows (4.54.0)
+Audit (agent) found: agents could create but not correct; no answers, links, issues, discussions; thin reads.
+- [x] Writes: markview_update_feature, update_object (title, sections, links, criteria_done, req_type, severity, dismissed_reason), answer_question, add_source, add_discussion_note, update_bug, answer_bug_question, link_issue; Discussions: create_discussion, discussion_item.
+- [x] Reads: get_feature header + readiness + `full` + `section` (plan, discussion, lifecycle, readiness), list_bugs full line, open_questions, discussions, get_discussion, project counts.
+- [x] Guard: approved/accepted/rejected/answered/superseded and answers need `by_user: true`; a feature can be archived; nothing deletes (deliberate, reversible only).
+- [x] Deliberately not exposed: implementation stages, findings creation, prototype edits, environments (propose only), lifecycle manual marks, delete.
+- [x] Verified live on a scratch project in a second Debug instance (every new tool, errors included); scratch data removed.

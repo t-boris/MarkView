@@ -21,6 +21,8 @@ enum BrowserControlServer {
         var features: () -> FeatureStore? = { nil }
         /// The window's Deployments, for the deployments tools (`DeploymentToolRunner`).
         var deployments: () -> DeploymentStore? = { nil }
+        /// The window's Discussions, for the discussions tools (`DiscussionToolRunner`).
+        var discussions: () -> DiscussionStore? = { nil }
     }
 
     private static var windows: [UUID: Window] = [:]
@@ -146,6 +148,10 @@ enum BrowserControlServer {
         if isProjectTool, DeploymentAgentTools.names.contains(tool) {
             guard let store = window.deployments() else { return .error("This window has no project open.") }
             return await DeploymentToolRunner.run(tool, args, store: store)
+        }
+        if isProjectTool, DiscussionAgentTools.names.contains(tool) {
+            guard let store = window.discussions() else { return .error("This window has no project open.") }
+            return DiscussionToolRunner.run(tool, args, store: store)
         }
         if isProjectTool {
             guard let store = window.features() else { return .error("This window has no project open.") }
