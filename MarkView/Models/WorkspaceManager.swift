@@ -398,6 +398,7 @@ class WorkspaceManager: ObservableObject {
     let deployments = DeploymentStore()
     /// Questions asked before there is a feature, answered as pages (the Discussions tab).
     let discussions = DiscussionStore()
+    private var discussionTask: Task<Void, Never>?
     /// Answers to questions about an environment, read from state and logs by the project's own assistant.
     let deploymentAdvisor = DeploymentAdvisor()
     /// Pull requests, issues and Actions of the folder's GitHub repository.
@@ -4606,46 +4607,105 @@ class WorkspaceManager: ObservableObject {
         tabsStore.appendTab(tab, activate: true)
     }
 
-    /// Discussions → ask: the project's assistant reads the project and answers; the answer is saved as a note and
-    /// opens as an Insight page, with its decisions and open questions added to the discussion.
+    /// Discussions → ask: the project's assistant reads the project (read-only) and answers inside the conversation,
+    /// in the form the question needs. The answer streams into `discussions.live`, then becomes a turn.
     func askDiscussion(_ slug: String, question: String) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let root = rootNode?.url, !text.isEmpty, discussions.asking == nil,
               let discussion = discussions.discussions.first(where: { $0.slug == slug }) else { return }
         discussions.asking = slug
+        discussions.live = DiscussionStore.Live(question: text)
         discussions.lastError = nil
+        let scope = discussionScope(discussion, root: root)
         var request = CLICompletion.Request(
             project: aiProject ?? root,
-            prompt: DiscussionPrompt.prompt(discussion: discussion, question: text, language: ActionOutputLanguage.explanationLine()),
-            systemPrompt: DiscussionPrompt.system, jsonSchema: DiscussionPrompt.schema, readableFolder: root)
+            prompt: DiscussionPrompt.prompt(discussion: discussion, question: text, scope: scope.description,
+                                            language: ActionOutputLanguage.explanationLine()),
+            systemPrompt: DiscussionPrompt.system, readableFolder: scope.readable)
+        if scope.readable.standardizedFileURL != root.standardizedFileURL { request.extraReadableFolders = [root] }
         request.effort = "medium"
-        request.timeout = 600
+        request.timeout = 900
         request.label = "discussion"
-        Task { [weak self] in
+        discussionTask = Task { [weak self] in
+            defer { Task { @MainActor in self?.discussionTask = nil } }
             do {
-                let result = try await CLICompletion.run(request)
-                guard let self else { return }
-                guard let answer = DiscussionPrompt.parse(structured: result.structured, text: result.text),
-                      let turn = self.discussions.addTurn(slug, question: text, answer: answer.answer, followUps: answer.followUps,
-                                                          decisions: answer.decisions, openQuestions: answer.openQuestions) else {
-                    self.discussions.lastError = "The assistant gave no answer."
-                    self.discussions.asking = nil
-                    return
-                }
-                self.discussions.asking = nil
-                if let note = self.discussions.noteURL(slug, turn: turn.id) { self.startRecursiveInsight(at: note, title: text) }
+                let result = try await CLICompletion.run(request, onDelta: { [weak self] delta in
+                    Task { @MainActor in
+                        guard let self, self.discussions.asking == slug else { return }
+                        self.discussions.live?.text += delta
+                        self.discussions.live?.status = "Writing the answer"
+                    }
+                }, onActivity: { [weak self] activity in
+                    Task { @MainActor in
+                        guard let self, self.discussions.asking == slug else { return }
+                        switch activity {
+                        case .read(let path): self.discussions.live?.status = DiscussionPrompt.status(read: path); self.discussions.live?.text = ""
+                        case .search(let pattern): self.discussions.live?.status = "Searching for \(pattern.prefix(40))"; self.discussions.live?.text = ""
+                        case .run: self.discussions.live?.status = "Looking at the project"; self.discussions.live?.text = ""
+                        case .webSearch, .webFetch: self.discussions.live?.status = "Reading the web"; self.discussions.live?.text = ""
+                        case .thinking: self.discussions.live?.status = "Thinking"
+                        case .writing, .answerDelta: break
+                        }
+                    }
+                })
+                try Task.checkCancellation()
+                await self?.finishDiscussionTurn(slug, question: text, text: result.text)
+            } catch is CancellationError {
+                await self?.stopDiscussionTurn(slug, keep: nil)
             } catch {
-                self?.discussions.lastError = error.localizedDescription
-                self?.discussions.asking = nil
+                await self?.failDiscussionTurn(error.localizedDescription)
             }
         }
     }
 
-    /// Opens the note of an earlier answer as an Insight page again (it is generated anew from the note).
-    func openDiscussionAnswer(_ slug: String, turn: Int, asNote: Bool) {
-        guard let note = discussions.noteURL(slug, turn: turn), FileManager.default.fileExists(atPath: note.path) else { return }
-        if asNote { openFile(note) } else {
-            startRecursiveInsight(at: note, title: discussions.discussions.first { $0.slug == slug }?.turns.first { $0.id == turn }?.question)
+    private func finishDiscussionTurn(_ slug: String, question: String, text: String) {
+        defer { discussions.asking = nil; discussions.live = nil }
+        guard let answer = DiscussionPrompt.parse(text),
+              discussions.addTurn(slug, question: question, answer: answer.answer, followUps: [],
+                                  decisions: answer.decisions, openQuestions: answer.openQuestions) != nil else {
+            discussions.lastError = "The assistant gave no answer."
+            return
+        }
+    }
+
+    private func stopDiscussionTurn(_ slug: String, keep: String?) {
+        discussions.asking = nil
+        discussions.live = nil
+    }
+
+    private func failDiscussionTurn(_ message: String) {
+        discussions.lastError = message
+        discussions.asking = nil
+        discussions.live = nil
+    }
+
+    /// Stops the answer being written; what was written so far is dropped.
+    func stopDiscussion() { discussionTask?.cancel() }
+
+    /// Where the conversation looks: the text the assistant is told, and the folder it may read.
+    private func discussionScope(_ discussion: Discussion, root: URL) -> (description: String, readable: URL) {
+        let raw = discussion.scope ?? ""
+        guard !raw.isEmpty else { return ("The whole project (\(root.lastPathComponent))", root) }
+        let url = raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : root.appendingPathComponent(raw)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return ("The whole project (\(root.lastPathComponent)); the chosen path \(raw) no longer exists", root)
+        }
+        let inside = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/")
+        let readable = inside ? root : (isDirectory.boolValue ? url : url.deletingLastPathComponent())
+        return ("\(isDirectory.boolValue ? "The folder" : "The file") `\(raw)`. Stay on it; look elsewhere only when it is needed to answer.", readable)
+    }
+
+    /// File tree → "Discuss…": a discussion about this file or folder.
+    func openDiscussion(about url: URL) {
+        guard let root = rootNode?.url else { return }
+        openDiscussions()
+        let rel = workspaceRelativePath(url)
+        let path = url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/") ? rel : url.path
+        if let existing = discussions.discussions.first(where: { $0.scope == path && $0.turns.isEmpty }) {
+            discussions.selectedSlug = existing.slug
+        } else {
+            discussions.create(title: url.lastPathComponent, scope: path)
         }
     }
 

@@ -621,3 +621,13 @@ alternate screen, mouse mode). Also run the new check against the pre-fix page t
 
 ## A server's working folder is not the agent's when a shared daemon starts it (Cline hub, 2026-10-14)
 BUG-027 routed agent tools by the MCP server's cwd. Cline starts every session's servers from one hub daemon whose cwd is the first project's, so all Cline sessions landed in one window, and project tools could write into the wrong project. Check `ps -o ppid`/`lsof -d cwd` of the live server before trusting its cwd; when the process cannot know, make the agent say it (a tool argument) and refuse to guess between windows.
+
+## Discussion was built as "question -> Insight page", but Boris meant a conversation (2026-10-23)
+
+- Boris: "this is Insight, it is nonsense; a discussion is a talk with the AI (voice too) about a file, folder or the whole
+  project; the answer takes the form the question needs: only text, or an architecture picture, or a pros/cons table, drawn
+  inline while it answers. A visualization of the conversation."
+- Cause: I reused the nearest existing feature (Insight) for a new concept after one short description, and offered a plan
+  that named it ("answers as Insight pages") without checking that the picture in his head matched.
+- Rule: when a request is a new concept built from words like "formalize", "UI-ize", describe the experience in one concrete
+  scene (what he types, what he sees) and confirm it before choosing which existing feature to reuse.

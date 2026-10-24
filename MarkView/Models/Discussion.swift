@@ -43,8 +43,13 @@ struct Discussion: Codable, Identifiable, Equatable {
     var updatedAt: Date
     var turns: [DiscussionTurn] = []
     var items: [DiscussionItem] = []
+    /// What the conversation is about: a path relative to the project folder (or absolute outside it); nil or empty = the whole project.
+    var scope: String?
 
     var id: String { slug }
+
+    /// "Whole project", or the last part of the path with its kind of place.
+    var scopeLabel: String { (scope ?? "").isEmpty ? "Whole project" : ((scope ?? "") as NSString).lastPathComponent }
 
     func items(_ kind: DiscussionItem.Kind) -> [DiscussionItem] { items.filter { $0.kind == kind } }
 
@@ -100,6 +105,14 @@ final class DiscussionStore: ObservableObject {
     @Published var selectedSlug: String?
     /// The question being answered now (the discussion's slug), nil when idle.
     @Published var asking: String?
+    /// The answer being written: shown in the thread while it streams.
+    @Published var live: Live?
+
+    struct Live: Equatable {
+        var question: String
+        var text = ""
+        var status = "Starting"
+    }
     @Published var lastError: String?
 
     private(set) var root: URL?
@@ -112,6 +125,7 @@ final class DiscussionStore: ObservableObject {
         discussions = []
         selectedSlug = nil
         asking = nil
+        live = nil
         lastError = nil
         load()
     }
@@ -134,11 +148,12 @@ final class DiscussionStore: ObservableObject {
     }
 
     @discardableResult
-    func create(title: String, now: Date = Date()) -> String? {
+    func create(title: String, scope: String? = nil, now: Date = Date()) -> String? {
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard root != nil, !name.isEmpty else { return nil }
         let slug = Discussion.slug(for: name, existing: Set(discussions.map(\.slug)))
-        let discussion = Discussion(slug: slug, title: name, createdAt: now, updatedAt: now)
+        var discussion = Discussion(slug: slug, title: name, createdAt: now, updatedAt: now)
+        discussion.scope = (scope ?? "").isEmpty ? nil : scope
         discussions.insert(discussion, at: 0)
         selectedSlug = slug
         save(discussion)
@@ -194,6 +209,10 @@ final class DiscussionStore: ObservableObject {
 
     func remove(_ slug: String, item id: String) {
         change(slug) { $0.items.removeAll { $0.id == id } }
+    }
+
+    func setScope(_ slug: String, to scope: String?) {
+        change(slug) { $0.scope = (scope ?? "").isEmpty ? nil : scope }
     }
 
     func rename(_ slug: String, to title: String) {

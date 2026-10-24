@@ -42,6 +42,7 @@
 		204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13993FF35E01B9904DA7B594 /* ResearchJobs.swift */; };
 		2108259910CC9C7437A43D35 /* DeploymentStore+Databases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11A52E34064E19CA3B2691E2 /* DeploymentStore+Databases.swift */; };
 		21AA8AE285DB8D167B52F9C4 /* markdown-it-footnote.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 663292B1115EE20A8D51CB93 /* markdown-it-footnote.min.js */; };
+		21C3DF680F0AC024445812FC /* markview-discussion.js in Resources */ = {isa = PBXBuildFile; fileRef = A054546375B560E45B265A02 /* markview-discussion.js */; };
 		232FD1AED8C125EA9BAEAB2A /* BrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF2A565576699E172D2ADE1 /* BrowserSession.swift */; };
 		24A5F71CED74B803814EF7F6 /* CloudServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 221F39018C2CA8AA7FA32473 /* CloudServices.swift */; };
 		24CA3B7AAECDBF270D956080 /* ImportanceRater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8AEF205A13BAE60E2DC57A7 /* ImportanceRater.swift */; };
@@ -239,6 +240,7 @@
 		DC1AFFCE9EA17F235032DE55 /* prism.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 75EAFF59D525BADEE5D10341 /* prism.min.js */; };
 		DC5FB06B941F2FAC5FE795D0 /* BUILD_NOTES.md in Resources */ = {isa = PBXBuildFile; fileRef = 6CB6E44E2302C6E3A8508397 /* BUILD_NOTES.md */; };
 		DCB91AFB6ECAD91E5A2A5DBC /* BrowserDownloads.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6F3720D5BC18F678F2F42FB /* BrowserDownloads.swift */; };
+		DD340657514D81847227AF12 /* DiscussionThreadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC22FD03EF5D15C8F08F0491 /* DiscussionThreadView.swift */; };
 		DE8C79F0949DBC49CE793975 /* CodeExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 747C5366B2EBA397F5F91CF7 /* CodeExplainer.swift */; };
 		DE90B95905D50E8BE2A58C9B /* KaTeX_SansSerif-Italic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 0BE4C0AC709F37DFC849F5F9 /* KaTeX_SansSerif-Italic.woff2 */; };
 		DF9A6736013C2EFD1144E302 /* markdown-it.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 795FD366C1490B12B6E18DD4 /* markdown-it.min.js */; };
@@ -257,6 +259,7 @@
 		EB58444FAD0EC3A066EA5D96 /* BugBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C501ACCB7ED2B026E7B473E /* BugBatch.swift */; };
 		ECD969D40C6C1A94488B600D /* HandoffViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E1DE65EEA6FFCA20C1BE20 /* HandoffViews.swift */; };
 		EDB3B2A3C50F91166FEA9DEB /* FeaturePanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 779E8848F94EF650F4B206BD /* FeaturePanelView.swift */; };
+		EE15AC6DFBF5E8C537995A5F /* discussion.html in Resources */ = {isa = PBXBuildFile; fileRef = 35D0DD0A460F4B6F319D51D0 /* discussion.html */; };
 		EEF940F8CC7452E5B0D011FD /* ProjectOperationDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54B88089F2E7416767D42721 /* ProjectOperationDiscoveryService.swift */; };
 		EFD0357B1249A5D014B893E4 /* WorkspaceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC9210ADC47CAF918764DB3 /* WorkspaceManager.swift */; };
 		F02CFF15FB77E319202C89F0 /* terminal.html in Resources */ = {isa = PBXBuildFile; fileRef = 7D11CCE605051BBC0566CA2D /* terminal.html */; };
@@ -338,6 +341,7 @@
 		2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputLanguage.swift; sourceTree = "<group>"; };
 		2EB46759349C74CBC6AA73CF /* KaTeX_SansSerif-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_SansSerif-Bold.woff2"; sourceTree = "<group>"; };
 		3491A3C7B018712298DBB744 /* d3.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = d3.min.js; sourceTree = "<group>"; };
+		35D0DD0A460F4B6F319D51D0 /* discussion.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = discussion.html; sourceTree = "<group>"; };
 		374D415A70003378E9635011 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
 		392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeStudioView.swift; sourceTree = "<group>"; };
 		39597935A465C90AA3271323 /* LifecycleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LifecycleViews.swift; sourceTree = "<group>"; };
@@ -452,6 +456,7 @@
 		9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-typescript.min.js"; sourceTree = "<group>"; };
 		9F4B562671D5CF6D08403DAE /* SelectionActionBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionActionBar.swift; sourceTree = "<group>"; };
 		9F51142258159DFBAE3D4E66 /* GitStatusModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusModel.swift; sourceTree = "<group>"; };
+		A054546375B560E45B265A02 /* markview-discussion.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-discussion.js"; sourceTree = "<group>"; };
 		A1350590278DCEFED8266A2F /* elk.bundled.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = elk.bundled.js; sourceTree = "<group>"; };
 		A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-d3-mermaid.js"; sourceTree = "<group>"; };
 		A440251497E5756568B77B87 /* TerminalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLink.swift; sourceTree = "<group>"; };
@@ -500,6 +505,7 @@
 		C9F34EA5D75C7F75E473333E /* NewProjectFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProjectFlow.swift; sourceTree = "<group>"; };
 		CA7B7306EDD4435E3DCEBAAC /* AgentUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsage.swift; sourceTree = "<group>"; };
 		CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSession.swift; sourceTree = "<group>"; };
+		CC22FD03EF5D15C8F08F0491 /* DiscussionThreadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscussionThreadView.swift; sourceTree = "<group>"; };
 		CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubStore.swift; sourceTree = "<group>"; };
 		CDFBAEE90C4DF2A5A9B2CC83 /* markview-insight-helpers.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-insight-helpers.js"; sourceTree = "<group>"; };
 		CE1EF33F9C88742E6505EC25 /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mermaid.min.js; sourceTree = "<group>"; };
@@ -780,6 +786,7 @@
 				F0746BDFCEB6533D5705C4BC /* DiagnosticsBarView.swift */,
 				7EF62FDEADD2FAE576E0E24D /* DictationViews.swift */,
 				846A676C9FEEE0794E4C125C /* DiscussionsView.swift */,
+				CC22FD03EF5D15C8F08F0491 /* DiscussionThreadView.swift */,
 				3A5536B20A2DD735F6BA815A /* EditorView.swift */,
 				FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */,
 				779E8848F94EF650F4B206BD /* FeaturePanelView.swift */,
@@ -881,6 +888,7 @@
 				A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */,
 				509C73ABFDAE9E3E388138C7 /* markview-data.js */,
 				7D4807224B482E48E25EFFFA /* markview-diagram-viewer.js */,
+				A054546375B560E45B265A02 /* markview-discussion.js */,
 				8E12A0F93CB8CBC21446ABCE /* markview-early.js */,
 				532F3E12BF8941192E531B0B /* markview-edit.js */,
 				415F87E8564AD1DC4D91B47F /* markview-find.js */,
@@ -923,6 +931,7 @@
 		E8077A542DBDB29608BB9BC4 /* Editor */ = {
 			isa = PBXGroup;
 			children = (
+				35D0DD0A460F4B6F319D51D0 /* discussion.html */,
 				374D415A70003378E9635011 /* index.html */,
 				7D11CCE605051BBC0566CA2D /* terminal.html */,
 				A39D7ECCED8305541712FBF2 /* vendor */,
@@ -1041,6 +1050,7 @@
 				40125A43DB1E67123951476C /* cytoscape.min.js in Resources */,
 				EB0EBDBA37EC0F25174ACE18 /* d3.min.js in Resources */,
 				5E06E11F7C45A6F0ED032ABA /* data.bundle.js in Resources */,
+				EE15AC6DFBF5E8C537995A5F /* discussion.html in Resources */,
 				28898C135E4FC09A15FDBC35 /* elk.bundled.js in Resources */,
 				B2129D7DF44CD7A0AD5CBED9 /* index.html in Resources */,
 				18F606AE5BF16CA830AC2654 /* js-yaml.min.js in Resources */,
@@ -1058,6 +1068,7 @@
 				871E76F5861DBF78E9904804 /* markview-d3-mermaid.js in Resources */,
 				49E9BFB3C3A7EBCD4FDDDC10 /* markview-data.js in Resources */,
 				C171BB5EDDA73F9B5FBB160C /* markview-diagram-viewer.js in Resources */,
+				21C3DF680F0AC024445812FC /* markview-discussion.js in Resources */,
 				7AC0EF4F6EE5F54659F1939B /* markview-early.js in Resources */,
 				385FF3231429AC909C3F1914 /* markview-edit.js in Resources */,
 				06679ECC6CA1062ADA1CFA1C /* markview-find.js in Resources */,
@@ -1121,7 +1132,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Editor\"\nmkdir -p \"${DEST}\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/index.html\" \"${DEST}/index.html\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/terminal.html\" \"${DEST}/terminal.html\"\nif [ -d \"${SRCROOT}/MarkView/Resources/Editor/vendor\" ]; then\n  rm -rf \"${DEST}/vendor\"\n  /usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/vendor\" \"${DEST}/vendor\"\nfi\necho \"Copied pre-built Editor bundle\"\n";
+			shellScript = "set -e\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Editor\"\nmkdir -p \"${DEST}\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/index.html\" \"${DEST}/index.html\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/terminal.html\" \"${DEST}/terminal.html\"\n/usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/discussion.html\" \"${DEST}/discussion.html\"\nif [ -d \"${SRCROOT}/MarkView/Resources/Editor/vendor\" ]; then\n  rm -rf \"${DEST}/vendor\"\n  /usr/bin/ditto \"${SRCROOT}/MarkView/Resources/Editor/vendor\" \"${DEST}/vendor\"\nfi\necho \"Copied pre-built Editor bundle\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1201,6 +1212,7 @@
 				5D816BB3AF275CF0801D77B5 /* DictationViews.swift in Sources */,
 				55037F3A705A0F79302C4585 /* Discussion.swift in Sources */,
 				F1ACA906C8851DDE26C3B948 /* DiscussionPrompt.swift in Sources */,
+				DD340657514D81847227AF12 /* DiscussionThreadView.swift in Sources */,
 				DFFC9CDE4EB4ECA9FFA0ACC5 /* DiscussionsView.swift in Sources */,
 				565DC18EC38E186F6A41AA55 /* DocumentState.swift in Sources */,
 				37BFB608EE9C5A7E44349DBD /* EditorView.swift in Sources */,
@@ -1357,7 +1369,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.51.0;
+				CURRENT_PROJECT_VERSION = 4.52.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1372,7 +1384,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.51.0;
+				MARKETING_VERSION = 4.52.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1436,7 +1448,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.51.0;
+				CURRENT_PROJECT_VERSION = 4.52.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1457,7 +1469,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.51.0;
+				MARKETING_VERSION = 4.52.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
