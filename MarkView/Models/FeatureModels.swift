@@ -591,7 +591,7 @@ struct BugReport: Identifiable, Hashable {
     var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
     var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
 
-    static let statuses = ["open", "fixing", "fixed", "closed"]
+    static let statuses = FeatureVocabulary.bugStatuses
 
     static func load(_ url: URL) -> BugReport? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
