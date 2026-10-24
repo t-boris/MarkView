@@ -5,7 +5,7 @@
 <!-- The thread of a Discussion (DiscussionThreadView.swift): the conversation as a web page, each answer drawn in the
      form the question needs (text, table, Mermaid diagram, SVG, chart, styled figure).
      Swift → JS: mvSetTheme(dark), mvSetTurns(json), mvSetLive(json|null), mvScrollToEnd().
-     JS → Swift (message handler "discussion"): {type: ready|save|ask}. AI text never runs as HTML: markdown-it has
+     JS → Swift (message handler "discussion"): {type: ready|save|ask}. A drawing opens full-window on Expand or double-click (wheel zoom, drag, Esc).. AI text never runs as HTML: markdown-it has
      html disabled, SVG is sanitized, a styled figure is a sandboxed frame without scripts. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src about: data:; connect-src 'none'">
 <style>
@@ -36,6 +36,13 @@
     figure.visual .tools { position: absolute; top: 6px; right: 8px; opacity: 0; transition: opacity .15s; }
     figure.visual:hover .tools { opacity: 1; }
     .tools button { font: 11px system-ui; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; }
+    #viewer { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: flex; flex-direction: column; }
+    #viewer .vbar { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    #viewer .vbar button { font: 12px system-ui; padding: 3px 12px; border-radius: 5px; border: 1px solid var(--border); background: var(--card); color: var(--fg); cursor: pointer; }
+    #viewer .vstage { flex: 1; overflow: hidden; cursor: grab; position: relative; }
+    #viewer .vstage.grab { cursor: grabbing; }
+    #viewer .vstage svg { position: absolute; left: 0; top: 0; user-select: none; }
+    figure.visual svg { cursor: zoom-in; }
     .drawing, .status { color: var(--dim); font-size: 12px; }
     .status::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px; border: 2px solid var(--dim); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }

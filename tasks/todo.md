@@ -2798,3 +2798,7 @@ Audit (agent) found: agents could create but not correct; no answers, links, iss
 - [x] Guard: approved/accepted/rejected/answered/superseded and answers need `by_user: true`; a feature can be archived; nothing deletes (deliberate, reversible only).
 - [x] Deliberately not exposed: implementation stages, findings creation, prototype edits, environments (propose only), lifecycle manual marks, delete.
 - [x] Verified live on a scratch project in a second Debug instance (every new tool, errors included); scratch data removed.
+
+## Task 140: Discussion diagrams can be expanded and zoomed (4.55.0)
+- [x] Expand button / double-click opens a drawing full-window; wheel zoom, drag pan, +/−/Fit/100%, Esc closes
+- [ ] Clicked through in the running app (not done: build only)
