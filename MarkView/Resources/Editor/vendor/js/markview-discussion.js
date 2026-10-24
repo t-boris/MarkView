@@ -35,7 +35,7 @@
         const token = tokens[idx];
         const lang = (token.info || '').trim().split(/\s+/)[0].toLowerCase();
         const src = token.content;
-        const tools = (label) => '<div class="tools"><button data-save>' + label + '</button></div>';
+        const tools = (label) => '<div class="tools">' + (label === 'Save PNG' ? '' : '<button data-expand>Expand</button> ') + '<button data-save>' + label + '</button></div>';
         if (lang === 'mermaid') return '<figure class="visual" data-kind="mermaid" data-src="' + encodeURIComponent(src) + '">' + tools('Save SVG') + '<div class="body"></div></figure>';
         if (lang === 'svg') {
             const svg = cleanSVG(src);
@@ -103,7 +103,71 @@
         });
     }
 
+    // ---- Full-window viewer of a drawing: wheel zooms, drag pans, Esc closes ----
+    function openViewer(svg) {
+        const box = svg.viewBox && svg.viewBox.baseVal;
+        const w = (box && box.width) || svg.getBoundingClientRect().width || 800;
+        const h = (box && box.height) || svg.getBoundingClientRect().height || 600;
+        const copy = svg.cloneNode(true);
+        copy.removeAttribute('style');
+        copy.setAttribute('width', w); copy.setAttribute('height', h);
+        copy.style.cssText = 'display:block;max-width:none;max-height:none;';
+        const overlay = document.createElement('div');
+        overlay.id = 'viewer';
+        overlay.innerHTML = '<div class="vbar"><button data-v="in">+</button><button data-v="out">&minus;</button><button data-v="fit">Fit</button><button data-v="one">100%</button><button data-v="close">Close</button></div><div class="vstage"></div>';
+        const stage = overlay.querySelector('.vstage');
+        stage.appendChild(copy);
+        document.body.appendChild(overlay);
+        let k = 1, x = 0, y = 0;
+        const apply = () => { copy.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + k + ')'; };
+        copy.style.transformOrigin = '0 0';
+        const fit = () => {
+            const r = stage.getBoundingClientRect();
+            k = Math.min(r.width / w, r.height / h) * 0.96;
+            x = (r.width - w * k) / 2; y = (r.height - h * k) / 2; apply();
+        };
+        const zoomAt = (factor, cx, cy) => {
+            const nk = Math.min(Math.max(k * factor, 0.05), 20);
+            x = cx - (cx - x) * (nk / k); y = cy - (cy - y) * (nk / k); k = nk; apply();
+        };
+        const center = () => { const r = stage.getBoundingClientRect(); return [r.width / 2, r.height / 2]; };
+        const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey, true); };
+        const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+        document.addEventListener('keydown', onKey, true);
+        stage.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const r = stage.getBoundingClientRect();
+            zoomAt(Math.exp(-e.deltaY * 0.0025), e.clientX - r.left, e.clientY - r.top);
+        }, { passive: false });
+        let drag = null;
+        stage.addEventListener('mousedown', (e) => { drag = { x: e.clientX - x, y: e.clientY - y }; stage.classList.add('grab'); });
+        window.addEventListener('mousemove', (e) => { if (drag) { x = e.clientX - drag.x; y = e.clientY - drag.y; apply(); } });
+        window.addEventListener('mouseup', () => { drag = null; stage.classList.remove('grab'); });
+        stage.addEventListener('dblclick', fit);
+        overlay.querySelector('.vbar').addEventListener('click', (e) => {
+            const a = e.target.dataset && e.target.dataset.v;
+            if (a === 'close') close();
+            else if (a === 'fit') fit();
+            else if (a === 'one') { const c = center(); zoomAt(1 / k, c[0], c[1]); }
+            else if (a === 'in') { const c = center(); zoomAt(1.4, c[0], c[1]); }
+            else if (a === 'out') { const c = center(); zoomAt(1 / 1.4, c[0], c[1]); }
+        });
+        fit();
+    }
+
+    thread.addEventListener('dblclick', (event) => {
+        const fig = event.target.closest('figure.visual');
+        const svg = fig && fig.querySelector('svg');
+        if (svg) openViewer(svg);
+    });
+
     thread.addEventListener('click', (event) => {
+        const expand = event.target.closest('[data-expand]');
+        if (expand) {
+            const svg = expand.closest('figure').querySelector('svg');
+            if (svg) openViewer(svg);
+            return;
+        }
         const button = event.target.closest('[data-save]');
         if (!button) return;
         const fig = button.closest('figure');
