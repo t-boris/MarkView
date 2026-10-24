@@ -45,9 +45,11 @@ enum ProjectAgentTools {
         tool("markview_project", "The project of this window: folder, number of features, bugs and prototypes."),
         tool("markview_list_features", "The features of the project: slug, title, status, readiness, counts.",
              ["status": ["type": "string", "description": "Only features with this status"]]),
-        tool("markview_get_feature", "One feature: overview and every requirement, decision, question and finding with id, title, status and links. With `id`, the full text of that object.",
-             ["feature": feature, "id": ["type": "string", "description": "An object id such as REQ-003 or DEC-002"]], required: ["feature"]),
-        tool("markview_list_bugs", "The bug reports of the project: id, title, status, severity.",
+        tool("markview_get_feature", "One feature: header (owner, dates, GitHub issues, plan), readiness conditions, what is outdated or still to apply, overview and every requirement, decision, question and finding with id, title, status and links. With `id`, the full text of that object; with `full`, the text of all of them; with `section`, the implementation plan, the discussion log, the lifecycle events or the readiness details.",
+             ["feature": feature, "id": ["type": "string", "description": "An object id such as REQ-003 or DEC-002"],
+              "full": ["type": "boolean", "description": "Include the full text of every object"],
+              "section": ["type": "string", "enum": ["plan", "discussion", "lifecycle", "readiness"]]], required: ["feature"]),
+        tool("markview_list_bugs", "The bug reports of the project: id, title, status, severity, the feature and GitHub issues it is linked to, duplicate_of, ready_to_fix and open investigation questions.",
              ["status": ["type": "string"]]),
         tool("markview_get_bug", "One bug report in full.", ["id": ["type": "string", "description": "BUG-007"]], required: ["id"]),
         tool("markview_list_prototypes", "The prototypes made in Prototype Studio: slug, title, version, screens, whether approved."),
@@ -83,13 +85,54 @@ enum ProjectAgentTools {
              ["title": ["type": "string"], "summary": ["type": "string"], "severity": ["type": "string", "enum": ["critical", "high", "medium", "low"]],
               "steps": strings("Steps to reproduce"), "expected": ["type": "string"], "actual": ["type": "string"], "environment": ["type": "string"]],
              required: ["title", "summary"]),
-        tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind.",
-             ["feature": feature, "id": ["type": "string"], "status": ["type": "string"]], required: ["feature", "status"]),
+        tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind. approved, accepted and rejected need by_user: true (the person said so); a feature may also be archived.",
+             ["feature": feature, "id": ["type": "string"], "status": ["type": "string"],
+              "by_user": ["type": "boolean", "description": "true when the person decided this in the conversation"]], required: ["feature", "status"]),
         tool("markview_set_bug_status", "Change the status of a bug report (open, fixing, fixed, closed). A duplicate is closed with `duplicate_of`.",
              ["id": ["type": "string", "description": "BUG-007"], "status": ["type": "string", "enum": FeatureVocabulary.bugStatuses],
               "duplicate_of": ["type": "string", "description": "BUG-006; closes this bug as a duplicate of it"]],
              required: ["id"]),
-    ] + DeploymentAgentTools.tools
+        tool("markview_update_feature", "Change a feature's title, its idea text or its understanding. Status goes through markview_set_status.",
+             ["feature": feature, "title": ["type": "string"], "idea": ["type": "string", "description": "Replaces the Idea section of the overview"],
+              "understanding": ["type": "object", "description": "Dimension → known|partial|unknown|n/a"]],
+             required: ["feature"]),
+        tool("markview_update_object", "Correct a requirement, decision, question or finding: its title, any body section (replaced as a whole), its links, or a few fields. Read it first with markview_get_feature (id). Settling it (approved, accepted, answered) is the person's: see markview_set_status and markview_answer_question.",
+             ["feature": feature, "id": ["type": "string", "description": "REQ-003, DEC-002, Q-004, F-001"], "title": ["type": "string"],
+              "sections": ["type": "object", "description": "Section name → new text, e.g. {\"Statement\": \"The system shall …\", \"Acceptance Criteria\": \"- [ ] one\\n- [ ] two\"}"],
+              "links": ["type": "object", "description": "Link key → ids of this feature, replacing the list. Keys: \(linkKeys.joined(separator: ", "))"],
+              "criteria_done": ["type": "array", "items": ["type": "integer"], "description": "Requirement: 1-based numbers of the acceptance criteria that are met; the rest are unchecked"],
+              "req_type": ["type": "string", "enum": FeatureVocabulary.requirementTypes],
+              "severity": ["type": "string", "enum": FeatureVocabulary.severities, "description": "Finding"],
+              "dismissed_reason": ["type": "string", "description": "Finding: why it is dismissed"]],
+             required: ["feature", "id"]),
+        tool("markview_answer_question", "Record the person's answer to an open question of a feature. Only with by_user: true, when the person gave this answer in the conversation; never answer on their behalf. MarkView's Explore turns answers into decisions and requirement changes.",
+             ["feature": feature, "id": ["type": "string", "description": "Q-004"], "answer": ["type": "string"],
+              "by_user": ["type": "boolean", "description": "true: the person said this"]],
+             required: ["feature", "id", "answer", "by_user"]),
+        tool("markview_add_source", "Add a source to a feature: a note, a link or a quote that the specification rests on.",
+             ["feature": feature, "title": ["type": "string"], "origin": ["type": "string", "description": "Where it comes from: a URL, a document, a person"],
+              "content": ["type": "string"], "role": ["type": "string", "enum": FeatureVocabulary.sourceRoles]],
+             required: ["feature", "title", "origin"]),
+        tool("markview_add_discussion_note", "Append a turn to a feature's discussion log (discussion.md), for a conclusion the person and you reached.",
+             ["feature": feature, "speaker": ["type": "string", "description": "Default: Agent"], "text": ["type": "string"]], required: ["feature", "text"]),
+        tool("markview_update_bug", "Correct a bug report: title, severity, the feature it belongs to, ready_to_fix, or any body section (Summary, Steps to Reproduce, Expected, Actual, Environment, replaced as a whole). Status goes through markview_set_bug_status.",
+             ["id": ["type": "string", "description": "BUG-007"], "title": ["type": "string"],
+              "severity": ["type": "string", "enum": ["critical", "high", "medium", "low"]],
+              "feature": ["type": "string", "description": "Slug of the feature it belongs to; empty to detach"],
+              "ready_to_fix": ["type": "boolean"],
+              "sections": ["type": "object", "description": "Section name → new text"]],
+             required: ["id"]),
+        tool("markview_answer_bug_question", "Answer, or skip, a question MarkView's investigation asked about a bug (see markview_get_bug). Only with by_user: true, when the person gave the answer.",
+             ["id": ["type": "string", "description": "BUG-007"], "question": ["type": "string", "description": "The question's id, as markview_get_bug shows it"],
+              "answer": ["type": "string"], "skip": ["type": "boolean", "description": "The person does not know"], "by_user": ["type": "boolean"]],
+             required: ["id", "question", "by_user"]),
+        tool("markview_link_issue", "Link GitHub issue numbers to a feature (slug) or a bug (BUG-007). The links are kept and shown beside it; nothing is created on GitHub.",
+             ["target": ["type": "string", "description": "A feature slug or BUG-007"], "issues": ["type": "array", "items": ["type": "integer"]],
+              "remove": ["type": "boolean", "description": "Unlink instead of link"]],
+             required: ["target", "issues"]),
+        tool("markview_open_questions", "Every open question of every feature (or of one): id, text, options, recommended answer, whether it blocks. Read-only."  ,
+             ["feature": feature]),
+    ] + DiscussionAgentTools.tools + DeploymentAgentTools.tools
 
     static let toolNames: Set<String> = Set(tools.map(\.name))
 
@@ -152,8 +195,12 @@ enum ProjectAgentTools {
     - Bug: docs/bugs/BUG-nnn-<slug>.md with summary, steps, expected, actual, severity.
     - Prototype: a clickable HTML prototype made in Prototype Studio, in .dde/prototypes/<slug>/ (site/, prototype.json, SPEC.md after approval).
 
-    Rules: never write these files by hand; use the markview_add_* / markview_create_* tools, which write the exact format, \
-    unique ids and valid links. Read before you add (markview_list_features, markview_get_feature) so you do not duplicate \
+    Rules: never write these files by hand; use the markview_add_* / markview_create_* tools to make things and the \
+    markview_update_* / markview_answer_* / markview_set_* / markview_link_issue tools to correct them: they write the exact format, \
+    unique ids and valid links. What records the person's decision (approved, accepted, rejected, an answer) needs by_user: true, \
+    only when the person said it in the conversation. Nothing is deleted through the tools; a feature can be archived. \
+    markview_open_questions and markview_get_feature (full, section) show what is still to settle; markview_discussions and \
+    markview_get_discussion show what the person thought through before a feature existed. Read before you add (markview_list_features, markview_get_feature) so you do not duplicate \
     what exists. Everything you write is for the project of the window you work in. Other topics: \
     \(guideTopics.filter { $0 != "overview" }.joined(separator: ", ")).
     """
@@ -191,7 +238,9 @@ enum ProjectAgentTools {
     static let bugGuide = """
     markview_create_bug: title, summary, severity (critical = data loss, security or outage; high = main flow broken; medium; \
     low), steps (numbered, reproducible), expected, actual, environment. Read markview_list_bugs first to avoid duplicates. \
-    The app writes docs/bugs/BUG-nnn-<slug>.md and numbers it. markview_set_bug_status changes a bug's status \
+    The app writes docs/bugs/BUG-nnn-<slug>.md and numbers it. markview_update_bug corrects its fields and sections, \
+    markview_answer_bug_question records the person's answer to an investigation question, markview_link_issue links GitHub issues. \
+    markview_set_bug_status changes a bug's status \
     (open, fixing, fixed, closed); a duplicate is closed with duplicate_of set to the bug that stays.
     """
 
@@ -330,6 +379,12 @@ enum ProjectAgentTools {
 
     /// Statuses an agent may set on a feature: never the implementation stages, which the app records.
     static let agentFeatureStatuses = ["idea", "exploring", "draft", "review", "ready"]
+    /// A feature can also be shelved; it is reversible, unlike deleting it.
+    static let agentFeatureSetStatuses = agentFeatureStatuses + ["archived"]
+    /// Statuses that record a decision of the person: an agent sets them only when told to.
+    static let personsStatuses: Set<String> = ["approved", "accepted", "rejected", "answered", "superseded"]
+    /// Front matter keys of an object that hold ids of the same feature.
+    static let linkKeys = ["depends_on", "decisions", "supersedes", "related", "blocking", "requirements", "questions", "produces", "refs"]
 
     // MARK: - Command line
 

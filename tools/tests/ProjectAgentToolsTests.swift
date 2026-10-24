@@ -17,12 +17,20 @@ func check(_ condition: Bool, _ message: String, _ detail: String = "", line: In
 
 let tools = ProjectAgentTools.tools
 let names = tools.map(\.name)
-check(names.count == 21 && Set(names).count == 21, "twenty-one distinct tools", "\(names)")
+check(names.count == 34 && Set(names).count == 34, "thirty-four distinct tools", "\(names)")
 check(names.allSatisfy { $0.hasPrefix("markview_") }, "every tool is prefixed")
 check(tools.allSatisfy { !$0.description.isEmpty && $0.required.allSatisfy { $0.isEmpty == false && tools.isEmpty == false } }, "every tool is described")
 check(tools.allSatisfy { tool in tool.required.allSatisfy { tool.properties[$0] != nil } }, "required arguments are declared")
-let readOnly: Set<String> = ["markview_guide", "markview_project", "markview_list_features", "markview_get_feature", "markview_list_bugs", "markview_get_bug", "markview_list_prototypes", "markview_get_prototype"]
-check(readOnly.isSubset(of: Set(names)) && names.count - readOnly.count == 13, "eight readers, seven writers, six deployments tools")
+let readOnly: Set<String> = ["markview_guide", "markview_project", "markview_list_features", "markview_get_feature", "markview_list_bugs", "markview_get_bug", "markview_list_prototypes", "markview_get_prototype", "markview_open_questions", "markview_discussions", "markview_get_discussion"]
+check(readOnly.isSubset(of: Set(names)) && names.count - readOnly.count == 23, "eleven readers, seventeen writers, six deployments tools")
+check(DiscussionAgentTools.names.count == 4 && DiscussionAgentTools.names.isSubset(of: Set(names)), "the discussions tools are among them")
+for name in ["markview_update_feature", "markview_update_object", "markview_answer_question", "markview_add_source", "markview_add_discussion_note", "markview_update_bug", "markview_answer_bug_question", "markview_link_issue"] {
+    check(names.contains(name), "\(name) exists")
+}
+for name in ["markview_answer_question", "markview_answer_bug_question"] {
+    check(tools.first { $0.name == name }!.required.contains("by_user"), "\(name) needs the person's word")
+}
+check(ProjectAgentTools.personsStatuses.isSuperset(of: ["approved", "accepted", "answered"]) && ProjectAgentTools.agentFeatureSetStatuses.contains("archived") && !ProjectAgentTools.agentFeatureSetStatuses.contains("implementing"), "settling statuses need the person; a feature may be archived but not implementing")
 let setBug = tools.first { $0.name == "markview_set_bug_status" }!
 check(setBug.required == ["id"] && (setBug.properties["status"]?["enum"] as? [String]) == ["open", "fixing", "fixed", "closed"], "a bug status is one of the app's four")
 check(ProjectAgentTools.guide("bug").contains("markview_set_bug_status"), "the bug guide names the status tool")
@@ -80,7 +88,7 @@ let initResult = initialize?["result"] as? [String: Any]
 check((initResult?["serverInfo"] as? [String: Any])?["name"] as? String == "markview", "the server is named markview")
 check((initResult?["instructions"] as? String)?.contains("markview_guide") == true, "instructions point to the guide")
 let list = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 2, "method": "tools/list"], profile: profile) { _, _ in .error("") }
-check((((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.count ?? 0) == 21, "tools/list offers the project tools")
+check((((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.count ?? 0) == 34, "tools/list offers the project tools")
 let offline = BrowserAgentTools.handle(["jsonrpc": "2.0", "id": 3, "method": "tools/list"], available: false, profile: profile) { _, _ in .error("") }
 check(((offline?["result"] as? [String: Any])?["tools"] as? [Any])?.isEmpty == true, "without the app: no tools")
 var reached = false
@@ -162,7 +170,7 @@ check(run(["--project-call", "markview_guide", "[1]"]).status == 2, "--project-c
 let app = spawnApp { tool in "reply to \(tool)" }
 let withApp = run(["--mcp-project"], input: rpc(1, "tools/list") + rpc(2, "tools/call", ["name": "markview_add_requirement", "arguments": ["feature": "f", "title": "T"]]))
 let withLines = withApp.out.split(separator: "\n")
-check(withLines.count == 2 && toolCount(withLines[0]) == 21, "with the app running the project tools are offered", withApp.out)
+check(withLines.count == 2 && toolCount(withLines[0]) == 34, "with the app running the project tools are offered", withApp.out)
 check(withLines.last?.contains("reply to markview_add_requirement") == true, "a tool call reaches the app and its reply comes back", withApp.out)
 let callWithApp = run(["--project-call", "markview_get_feature", "{\"feature\":\"orders\"}"])
 check(callWithApp.status == 0 && callWithApp.out.contains("reply to markview_get_feature"), "--project-call reaches the app", callWithApp.out)
@@ -195,7 +203,7 @@ func ask(_ id: Int) -> Int {
     guard let line = BrowserAgentTools.readLine(sOut.fileHandleForReading.fileDescriptor) else { return -2 }
     return toolCount(Substring(String(decoding: line, as: UTF8.self)))
 }
-check(ask(1) == 21, "while MarkView runs the tools are there")
+check(ask(1) == 34, "while MarkView runs the tools are there")
 fakeApp.terminate()
 fakeApp.waitUntilExit()
 check(ask(2) == 0, "when MarkView quits the tools disappear, without restarting the server")

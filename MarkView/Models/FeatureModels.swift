@@ -587,6 +587,8 @@ struct BugReport: Identifiable, Hashable {
     var feature = ""
     var discussion = ""
     var readyToFix = false
+    /// Front matter `duplicate_of`: the bug this one repeats.
+    var duplicateOf = ""
 
     var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
     var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
@@ -608,7 +610,7 @@ struct BugReport: Identifiable, Hashable {
                          modified: fileModificationDate(url), hasStatus: !front.string("status").isEmpty,
                          feature: front.string("feature"),
                          discussion: FeatureAssistant.bugSections(body).first { $0.heading == "Discussion" }?.text ?? "",
-                         readyToFix: front.string("ready_to_fix") == "true")
+                         readyToFix: front.string("ready_to_fix") == "true", duplicateOf: front.string("duplicate_of"))
     }
 }
 
