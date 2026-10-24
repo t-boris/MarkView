@@ -8,6 +8,10 @@ struct DiscussionsView: View {
     @State private var creating = false
     @State private var newTitle = ""
     @State private var question = ""
+    @FocusState private var questionFocused: Bool
+    @StateObject private var dictation = DictationController()
+    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
+    @Environment(\.colorScheme) private var colorScheme
     @State private var newItem = ""
     @State private var newKind: DiscussionItem.Kind = .question
     @State private var confirmDelete: Discussion?
@@ -84,7 +88,7 @@ struct DiscussionsView: View {
         VStack(spacing: 10) {
             Image(systemName: "bubble.left.and.text.bubble.right").font(.system(size: 34)).foregroundColor(VSDark.textDim)
             Text("Think an idea through before it is a feature").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
-            Text("Start a discussion, ask questions about the project, and get each answer as a page you can dig into. Decisions and open questions are kept, so the idea can later become a feature or a list of tasks.")
+            Text("Talk to the assistant about the whole project, a folder or a file, by typing or by voice. It answers in the form the question needs (text, a table, a diagram) and keeps the decisions and open questions, so the idea can later become a feature or a list of tasks.")
                 .uiFont(size: 12).foregroundColor(VSDark.textDim).multilineTextAlignment(.center).frame(maxWidth: 420)
             Button("Start a discussion") { creating = true }.buttonStyle(.borderedProminent)
         }.padding(30)
@@ -95,54 +99,49 @@ struct DiscussionsView: View {
     private func detail(_ discussion: Discussion) -> some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                Text(discussion.title).uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 10)
-                Divider().background(VSDark.border)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if discussion.turns.isEmpty {
-                            Text("Ask the first question below. The assistant reads the project, then answers as a page.")
-                                .uiFont(size: 12).foregroundColor(VSDark.textDim)
-                        }
-                        ForEach(discussion.turns) { turn in turnCard(discussion, turn) }
-                    }.padding(16)
+                HStack(spacing: 10) {
+                    Text(discussion.title).uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text).lineLimit(1)
+                    Spacer()
+                    scopeMenu(discussion)
                 }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                Divider().background(VSDark.border)
+                DiscussionThreadView(turns: discussion.turns, live: store.asking == discussion.slug ? store.live : nil, dark: colorScheme == .dark)
                 Divider().background(VSDark.border)
                 composer(discussion)
             }
             .frame(maxWidth: .infinity)
             Divider().background(VSDark.border)
-            itemsPane(discussion).frame(width: 290)
+            itemsPane(discussion).frame(width: 270)
         }
     }
 
-    private func turnCard(_ discussion: Discussion, _ turn: DiscussionTurn) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Q\(turn.id) · \(turn.question)").uiFont(size: 12, weight: .semibold).foregroundColor(VSDark.text)
-            Text(String(turn.answer.prefix(320)) + (turn.answer.count > 320 ? "…" : ""))
-                .uiFont(size: 11).foregroundColor(VSDark.textDim)
-            HStack(spacing: 8) {
-                Button { workspaceManager.openDiscussionAnswer(discussion.slug, turn: turn.id, asNote: false) } label: {
-                    Label("Open as page", systemImage: "doc.richtext")
-                }
-                Button { workspaceManager.openDiscussionAnswer(discussion.slug, turn: turn.id, asNote: true) } label: {
-                    Label("Open note", systemImage: "doc.text")
-                }
-            }.buttonStyle(.bordered).controlSize(.small)
-            if !turn.followUps.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ASK NEXT").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
-                    ForEach(turn.followUps, id: \.self) { follow in
-                        Button { question = follow } label: {
-                            Text("↳ \(follow)").uiFont(size: 11).foregroundColor(VSDark.blue).multilineTextAlignment(.leading)
-                        }.buttonStyle(.plain)
-                    }
-                }
+    private func scopeMenu(_ discussion: Discussion) -> some View {
+        Menu {
+            Button("Whole project") { store.setScope(discussion.slug, to: nil) }
+            if let tab = workspaceManager.activeTab, case .file = tab.kind, tab.url.isFileURL, FileManager.default.fileExists(atPath: tab.url.path) {
+                Button("This document: \(tab.url.lastPathComponent)") { store.setScope(discussion.slug, to: scopePath(tab.url)) }
             }
+            Button("Choose a file or folder…") {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = true
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.directoryURL = store.root
+                if panel.runModal() == .OK, let url = panel.url { store.setScope(discussion.slug, to: scopePath(url)) }
+            }
+        } label: {
+            Label("About: \(discussion.scopeLabel)", systemImage: (discussion.scope ?? "").isEmpty ? "folder" : "scope")
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(VSDark.bgBanner))
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("What this conversation is about: the whole project, one file or one folder")
+    }
+
+    /// A path inside the project is kept relative to it, so the discussion survives a moved project folder.
+    private func scopePath(_ url: URL) -> String {
+        guard let root = store.root?.standardizedFileURL.path else { return url.path }
+        let path = url.standardizedFileURL.path
+        return path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
     }
 
     private func composer(_ discussion: Discussion) -> some View {
@@ -151,28 +150,43 @@ struct DiscussionsView: View {
                 Text(error).uiFont(size: 11).foregroundColor(.red).textSelection(.enabled)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                TextEditor(text: $question)
-                    .uiFont(size: 12).frame(height: 62)
-                    .scrollContentBackground(.hidden).background(VSDark.bgInput).cornerRadius(6)
+                TextField("Ask, or press the microphone and talk…", text: $question, axis: .vertical)
+                    .textFieldStyle(.plain).uiFont(size: 12).lineLimit(1...6)
+                    .focused($questionFocused)
+                    .onSubmit { send(discussion) }
                     .disabled(store.asking != nil)
-                if store.asking == discussion.slug {
-                    VStack(spacing: 4) {
-                        ProgressView().controlSize(.small)
-                        Text("Reading the project…").uiFont(size: 10).foregroundColor(VSDark.textDim)
-                    }.frame(width: 110)
+                if openAIKey.isEmpty {
+                    Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
+                        Image(systemName: "mic").uiFont(size: 14).foregroundColor(VSDark.textDim)
+                    }
+                    .buttonStyle(.plain).help("Set up voice input in DDE Settings").accessibilityLabel("Set up voice input")
                 } else {
-                    Button {
-                        let text = question
-                        question = ""
-                        workspaceManager.askDiscussion(discussion.slug, question: text)
-                    } label: { Label("Ask", systemImage: "paperplane.fill") }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.asking != nil)
-                    .keyboardShortcut(.return, modifiers: [.command])
-                    .help("Ask (⌘↩)")
+                    DictationButton(dictation: dictation) { transcript, window in
+                        DictationInsertion.insert(transcript, window: window, fieldFocused: questionFocused, text: &question)
+                    }
+                }
+                if store.asking == discussion.slug {
+                    Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(VSDark.orange) }
+                        .buttonStyle(.plain).help("Stop the answer")
+                } else {
+                    Button { send(discussion) } label: { Image(systemName: "arrow.up.circle.fill").uiFont(size: 18).foregroundColor(VSDark.blue) }
+                        .buttonStyle(.plain).disabled(question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.asking != nil)
+                        .help("Send (↩)")
                 }
             }
-        }.padding(12)
+            .padding(8).background(VSDark.bgInput).cornerRadius(8)
+            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
+        }
+        .padding(12)
+        .onChange(of: discussion.slug) { _ in dictation.cancel(); question = "" }
+        .onDisappear { dictation.cancel() }
+    }
+
+    private func send(_ discussion: Discussion) {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, store.asking == nil else { return }
+        question = ""
+        workspaceManager.askDiscussion(discussion.slug, question: text)
     }
 
     // MARK: Decisions and open questions

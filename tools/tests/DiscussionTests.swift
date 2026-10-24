@@ -57,12 +57,46 @@ func check(_ condition: Bool, _ message: String, line: Int = #line) {
 
 // The prompt and the answer parser.
 let d = Discussion(slug: "s", title: "Offline mode", createdAt: Date(), updatedAt: Date())
-let prompt = DiscussionPrompt.prompt(discussion: d, question: "What about sync?", language: "Write in German.")
-check(prompt.contains("# Discussion: Offline mode") && prompt.contains("What about sync?") && prompt.contains("Write in German."), "the prompt carries the title, the question and the language line")
-let parsed = DiscussionPrompt.parse(structured: ["answer": " Use a queue. ", "decisions": ["A", " "], "open_questions": ["B"], "follow_ups": ["1", "2", "3", "4", "5"]], text: "")
-check(parsed?.answer == "Use a queue." && parsed?.decisions == ["A"] && parsed?.openQuestions == ["B"] && parsed?.followUps.count == 4, "structured answer: trimmed, blanks dropped, follow-ups capped")
-check(DiscussionPrompt.parse(structured: nil, text: "Plain text answer")?.answer == "Plain text answer", "plain text is accepted when the schema was skipped")
-check(DiscussionPrompt.parse(structured: ["answer": ""], text: "  ") == nil, "nothing to show is nil")
+let prompt = DiscussionPrompt.prompt(discussion: d, question: "What about sync?", scope: "Folder Sources/Sync", language: "Write in German.")
+check(prompt.contains("# Discussion: Offline mode") && prompt.contains("What about sync?") && prompt.contains("Write in German.") && prompt.contains("Folder Sources/Sync"), "the prompt carries the title, the question, the scope and the language line")
+check(DiscussionPrompt.system.contains("```mermaid") && DiscussionPrompt.system.contains("discussion-notes"), "the system prompt names the visuals and the notes block")
+let reply = """
+Short answer.
+
+```mermaid
+flowchart LR
+  A --> B
+```
+
+```discussion-notes
+{"decisions": ["Use a queue", " "], "open_questions": ["Who owns retries?"]}
+```
+"""
+let parsed = DiscussionPrompt.parse(reply)
+check(parsed?.answer.hasSuffix("```") == true && parsed?.answer.contains("discussion-notes") == false, "the notes block is removed from what is shown, the diagram stays")
+check(parsed?.decisions == ["Use a queue"] && parsed?.openQuestions == ["Who owns retries?"], "decisions and open questions are read from the notes block")
+check(DiscussionPrompt.parse("Just text, no notes.")?.answer == "Just text, no notes." && DiscussionPrompt.parse("Just text, no notes.")?.decisions.isEmpty == true, "an answer without notes is still an answer")
+check(DiscussionPrompt.parse("Text\n```discussion-notes\n{broken")?.answer == "Text" && DiscussionPrompt.parse("Text\n```discussion-notes\n{broken")?.decisions.isEmpty == true, "a broken notes block is dropped, not shown")
+check(DiscussionPrompt.parse("   ") == nil && DiscussionPrompt.parse("```discussion-notes\n{}\n```") == nil, "nothing to show is nil")
+check(DiscussionPrompt.status(read: "/a/b/Models/File.swift") == "Reading File.swift", "status line for a file being read")
+
+// Scope.
+@MainActor func scopeChecks() {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("discussion-scope-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = DiscussionStore()
+    store.setRoot(root)
+    let slug = store.create(title: "Sync", scope: "Sources/Sync")!
+    check(store.selected?.scopeLabel == "Sync" && store.selected?.scope == "Sources/Sync", "a discussion remembers its scope")
+    store.setScope(slug, to: "")
+    check(store.selected?.scopeLabel == "Whole project", "an empty scope is the whole project")
+    store.setScope(slug, to: "README.md")
+    let again = DiscussionStore()
+    again.setRoot(root)
+    check(again.selected?.scope == "README.md", "the scope is saved")
+}
+MainActor.assumeIsolated { scopeChecks() }
 
 MainActor.assumeIsolated { run() }
 print(failures == 0 ? "All discussion checks passed." : "\(failures) discussion check(s) failed.")

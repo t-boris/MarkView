@@ -2776,3 +2776,11 @@ Design
 - Limits: the Insight page is generated again when reopened (not stored); drill-down sees the note, not the code.
 - [ ] Discussions tab clicked through in the running app.
 - Next: PR 2 "Make a feature", PR 3 "Break into tasks".
+
+### Task 137, PR 1b (4.52.0, `feat/discussion-conversation`): Discussion is a conversation, not Insight pages
+Boris, after trying 4.51.0: a discussion is a talk with the AI (voice too) about a file, folder or the project, drawn inline in the form the question needs.
+- [x] The thread is one web page (`Editor/discussion.html` + `vendor/js/markview-discussion.js`, offline): Markdown, tables, Mermaid, sanitized SVG, Chart.js, a sandboxed styled figure; hidden `discussion-notes` block feeds decisions and open questions; "Save" on every drawing; streaming with a status line.
+- [x] No schema: the assistant picks the form per question (live: architecture -> one diagram, pros/cons -> table). Scope per discussion (project / this document / chosen file or folder) and "Discuss…" in the file tree menus.
+- [x] Voice: the same dictation button as the feature discussion. Stop button. Insight no longer used here.
+- [x] Checked: thread page in a browser (diagram, table, SVG without script/onclick, chart, hidden notes, unfinished diagram "Drawing…"); live assistant for both forms; `discussion-tests.sh`.
+- [ ] Clicked through in the running app (WKWebView, microphone, scope menu).
