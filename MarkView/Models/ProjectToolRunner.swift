@@ -26,6 +26,7 @@ enum ProjectToolRunner {
             case "markview_add_question": return try addQuestion(store, args)
             case "markview_create_bug": return try createBug(store, args)
             case "markview_set_status": return try setStatus(store, args)
+            case "markview_set_bug_status": return try setBugStatus(store, args)
             default: return .error("Unknown tool \(tool).")
             }
         } catch let invalid as ProjectAgentTools.Invalid {
@@ -295,6 +296,28 @@ enum ProjectToolRunner {
         }
         store.reloadSync()
         return .init(text: "Created \(id) \"\(title)\" [\(severity)] at docs/bugs/\(file.lastPathComponent).")
+    }
+
+    private static func setBugStatus(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
+        let id = try ProjectAgentTools.text(args, "id", required: true).uppercased()
+        guard let bug = store.bugs.first(where: { $0.key.uppercased() == id }) else {
+            throw ProjectAgentTools.Invalid(message: "No bug report \(id).")
+        }
+        let original = try ProjectAgentTools.text(args, "duplicate_of").uppercased()
+        if !original.isEmpty {
+            guard original != id else { throw ProjectAgentTools.Invalid(message: "A bug cannot be a duplicate of itself.") }
+            guard store.bugs.contains(where: { $0.key.uppercased() == original }) else {
+                throw ProjectAgentTools.Invalid(message: "No bug report \(original) to name as the original.")
+            }
+        }
+        let status = original.isEmpty ? try ProjectAgentTools.choice(args, "status", in: FeatureVocabulary.bugStatuses, default: "")
+                                      : "closed"
+        guard !status.isEmpty else { throw ProjectAgentTools.Invalid(message: "`status` is required: \(FeatureVocabulary.bugStatuses.joined(separator: ", ")).") }
+        guard store.updateBug(bug.url, { front, _ in
+            front.set("status", status)
+            if !original.isEmpty { front.set("duplicate_of", original) }
+        }) else { return .error(store.lastError ?? "The bug report could not be updated.") }
+        return .init(text: "\(id) is now \(status)" + (original.isEmpty ? "." : " (duplicate of \(original))."))
     }
 
     private static func setStatus(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {

@@ -2784,3 +2784,9 @@ Boris, after trying 4.51.0: a discussion is a talk with the AI (voice too) about
 - [x] Voice: the same dictation button as the feature discussion. Stop button. Insight no longer used here.
 - [x] Checked: thread page in a browser (diagram, table, SVG without script/onclick, chart, hidden notes, unfinished diagram "Drawing…"); live assistant for both forms; `discussion-tests.sh`.
 - [ ] Clicked through in the running app (WKWebView, microphone, scope menu).
+
+## Task 138: agents can change a bug's status (4.53.0)
+- [x] Bug found by an agent in another project: `markview_set_status` only handles features and their objects, so BUG-001..006 could not be closed.
+- [x] New MCP tool `markview_set_bug_status` (id, status open|fixing|fixed|closed, optional `duplicate_of` closes as duplicate and records it in front matter); goes through `FeatureStore.updateBug` like the Bugs panel.
+- [x] `FeatureVocabulary.bugStatuses` is the single list (BugReport.statuses uses it); bug guide updated; tool tests updated (21 tools).
+- [ ] Not exercised against a live app (runner needs a FeatureStore); checked by build and schema tests.

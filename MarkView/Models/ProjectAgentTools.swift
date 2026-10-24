@@ -85,6 +85,10 @@ enum ProjectAgentTools {
              required: ["title", "summary"]),
         tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind.",
              ["feature": feature, "id": ["type": "string"], "status": ["type": "string"]], required: ["feature", "status"]),
+        tool("markview_set_bug_status", "Change the status of a bug report (open, fixing, fixed, closed). A duplicate is closed with `duplicate_of`.",
+             ["id": ["type": "string", "description": "BUG-007"], "status": ["type": "string", "enum": FeatureVocabulary.bugStatuses],
+              "duplicate_of": ["type": "string", "description": "BUG-006; closes this bug as a duplicate of it"]],
+             required: ["id"]),
     ] + DeploymentAgentTools.tools
 
     static let toolNames: Set<String> = Set(tools.map(\.name))
@@ -187,7 +191,8 @@ enum ProjectAgentTools {
     static let bugGuide = """
     markview_create_bug: title, summary, severity (critical = data loss, security or outage; high = main flow broken; medium; \
     low), steps (numbered, reproducible), expected, actual, environment. Read markview_list_bugs first to avoid duplicates. \
-    The app writes docs/bugs/BUG-nnn-<slug>.md and numbers it.
+    The app writes docs/bugs/BUG-nnn-<slug>.md and numbers it. markview_set_bug_status changes a bug's status \
+    (open, fixing, fixed, closed); a duplicate is closed with duplicate_of set to the bug that stays.
     """
 
     static let prototypeGuide = """

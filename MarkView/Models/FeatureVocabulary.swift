@@ -8,6 +8,7 @@ enum FeatureVocabulary {
     static let requirementTypes = ["functional", "non-functional", "ux", "security", "performance",
                                    "reliability", "privacy", "analytics", "operational", "compliance"]
     static let questionStatuses = ["open", "answered", "deferred"]
+    static let bugStatuses = ["open", "fixing", "fixed", "closed"]
     static let questionTypes = ["product", "technical", "architecture", "ux", "security", "business",
                                 "research", "clarification"]
     static let decisionStatuses = ["proposed", "accepted", "rejected", "superseded"]
