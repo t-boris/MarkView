@@ -2802,3 +2802,62 @@ Audit (agent) found: agents could create but not correct; no answers, links, iss
 ## Task 140: Discussion diagrams can be expanded and zoomed (4.55.0)
 - [x] Expand button / double-click opens a drawing full-window; wheel zoom, drag pan, +/−/Fit/100%, Esc closes
 - [ ] Clicked through in the running app (not done: build only)
+
+## Task 141: MarkView control server — an outside agent runs the app (plan)
+Goal (Boris): connect his own agent to MarkView so it can open the project he cares about, pick and start an agent, send it a
+goal, create a feature, answer all the Explore questions, run Review/Plan/Issues and start the implementation — across several
+MarkView windows. The existing `markview` MCP server reads and writes the specification of the window an agent works in; it
+cannot drive the app itself.
+
+Findings (read-only research, three agents): everything the UI does is already a plain `@MainActor` call —
+`WorkspaceManager.openFolder / openAITerminal / startImplementation`, `TerminalSession.pasteWhenReady`, `FeatureAssistant.newFeature /
+exploreNext / answerBatch / review / decideAllFindings / decompose / createIssues`. Missing: window addressing that does not depend
+on the caller's folder, opening a window for a folder, long runs that outlive the 120 s socket read, terminal output, and a
+per-terminal (not "shown terminal") prompt target.
+
+Design (decisions, no new libraries, same socket and MCP stdio shape as `--mcp-project`):
+- A third MCP profile, `MarkView --mcp-control` (server `markview-control`), registered explicitly by the person for the agent that
+  orchestrates (local scope in its folder). Not added to the `markview` server: in-panel agents keep "no agent calls an agent".
+  The tool list is always shown, even when MarkView is not running (a client caches an empty list).
+- Windows are addressed by `window` (id prefix, title part or project path); one window is the default, several need the argument.
+  `markview_windows` merges every running MarkView process. Every window registers at creation, not only after a folder/terminal.
+- Long AI steps are started and polled: a step returns after 200 ms (or after `wait_s` ≤ 60 s) with its state; the run is a
+  `Task` that survives the socket. State comes from `FeatureAssistant.isRunning/actions`, no second registry.
+- People's decisions: answering a question needs `by_user: true`; `recommended: true` is a confirmation (also by_user);
+  `delegate: true` is the app's own "let the AI decide" (answered_by ai, decisions proposed). Leaving Explore approves the
+  requirements, so it needs by_user too. Starting an implementation checks the terminal is idle and the plan/definition of done exist.
+- Guards: an agent cannot send to its own terminal; only assistant terminals take text/keys; Plan refuses to re-plan over created
+  issues; `open_project` never replaces a window that has content.
+
+Tools: markview_windows, markview_recent_projects, markview_open_project, markview_focus_window · markview_agents,
+markview_agent_start, markview_agent_send, markview_agent_read, markview_agent_wait, markview_agent_key ·
+markview_flow_status, markview_flow_new_feature, markview_flow_answer, markview_flow_run, markview_flow_implement,
+markview_flow_fix_bug, markview_flow_stop · markview_control_guide.
+
+Steps:
+- [x] Declarations `ControlAgentTools.swift` (Foundation only) + guide; profile flag `alwaysListsTools`; `--mcp-control` entry; fan-out across processes
+- [x] App side `ControlToolRunner.swift`: windows/projects, agents/terminals, flow; `BrowserControlServer` dispatch before window resolution
+- [x] Hooks: window registers at creation (+ liveness), `TerminalSession.tail`/readiness, per-terminal send, new window for a folder, socket at launch
+- [x] Tests: `tools/tests/control-agent-tools-tests.sh` (declarations, resolution, MCP answers, real `--mcp-control` process with a stand-in app)
+- [x] Live check in a second Debug instance with a scratch project: open project in a new window, start an agent, send a goal, new feature → answers → review → plan
+- [x] Docs (README, architecture module, guide topic), version 4.56.0, PR, merge, release DMG
+
+Review (Task 141):
+- Built: `MarkView --mcp-control` (server `markview-control`, 18 tools). App side in `ControlToolRunner.swift` (windows, projects),
+  `+Agents.swift` (terminals), `+Flow.swift` (feature flow, jobs that outlive the socket request). Hooks: `WorkspaceManager.hostWindow /
+  isBlank / registerBrowserControl() / sendToAssistant(to:) / startImplementation(in:) / fixBugWithAI(in:)`, `TerminalSession.screenTail /
+  hasPendingPaste` + `window.mvTail` in `terminal.html`, `WindowSessionController.openWorkspaceWindow(folder:)`,
+  `BrowserControlServer.liveWindows()` and the control dispatch, `HandoffPrompt.goal`, socket opened at launch.
+- Verified: standalone suites (handoff 5 new checks, project, browser, control ~90 checks) pass; `swiftc -typecheck` of the whole module
+  passes (xcodebuild is unusable on this Mac: CoreSimulator mismatch, also for the clean tree). Live, in a scratch build (own bundle id,
+  sockets in /tmp/mvctl, writes to the real app data denied by sandbox-exec): two windows (project into the blank window, second project
+  into a new window), ambiguity and guard errors, Claude Code started, trust prompt answered with keys, a goal sent and finished
+  (file made), feature created by the intake AI (33 s), question answered with an option (`by_user`), review, plan (2 issues) with the
+  still-running/single-flight/status-wait paths, implementation handed to the agent as a goal with the definition of done (feature
+  became `implementing`), agent interrupted with Escape.
+- Found live and fixed: `agent_send` refused an agent that had only just redrawn (now waits up to 8 s for quiet); the `delegate` hint
+  was appended to non-answer errors.
+- Not live-tested: `issues` against GitHub (no remote in the scratch project; guard paths checked), `fix_bug` on a real report,
+  the self-terminal guard (needs a caller inside the panel), two MarkView processes at once (covered by the stand-in suite).
+- Blocked here: the signed/notarized DMG (`release.sh` uses xcodebuild) until the Xcode components are repaired.
+

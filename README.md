@@ -384,6 +384,16 @@ flowchart LR
   only while MarkView is running: with the app closed there are no tools and nothing is written.
   Where an organisation blocks MCP servers (Copilot at work, for one), **Connect Agents to MarkView…**
   installs a Skill instead, which calls the same tools through `MarkView --project-call`.
+- **An agent that runs MarkView.** A third local MCP server, *markview-control*, lets an agent outside the
+  app do what you do in it: list the open windows (many can be open, in several MarkView apps) and open a
+  project in one, start Claude Code, Codex and the others in a window's AI panel, give one a prompt or a goal,
+  read its screen and wait for it, press a key it asks for — and take a feature through the whole flow: New
+  Feature, the Explore questions, review, plan, GitHub issues, then the implementation handed to an agent with
+  the project's definition of done. You register it yourself for the agent that orchestrates
+  (`claude mcp add markview-control -- /Applications/MarkView.app/Contents/MacOS/MarkView --mcp-control`);
+  it is not added to the agents in the panel. What is yours to decide — an answer you chose, leaving Explore,
+  filing issues, starting an implementation — happens only when the agent says it asked you (`by_user`);
+  `delegate` is the app's own "let the AI decide", kept as proposed decisions.
 - **Usage at a glance:** quota chips for Claude Code and Codex in the terminal header.
 - **Live reload:** files an agent changes on disk refresh in their tabs.
 - **AI Tools** (✨): architecture, data-flow, pipeline, deployment, sequence and ER

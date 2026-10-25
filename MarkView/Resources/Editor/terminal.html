@@ -242,6 +242,12 @@
         for (let i = 0; i < buffer.length; i++) lines.push(buffer.getLine(i).translateToString(true));
         return lines.join('\n').replace(/\n+$/, '');
     };
+    /** The last n rows of the terminal's text, scrollback included (agents driving the window read it). */
+    window.mvTail = function(n) {
+        const buffer = term.buffer.active, lines = [];
+        for (let i = Math.max(0, buffer.length - n); i < buffer.length; i++) lines.push(buffer.getLine(i).translateToString(true));
+        return lines.join('\n');
+    };
     window.mvSize = function() { return term.cols + 'x' + term.rows; };
     window.mvExited = function(code) {
         readOnly = true;

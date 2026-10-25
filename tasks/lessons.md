@@ -634,3 +634,14 @@ BUG-027 routed agent tools by the MCP server's cwd. Cline starts every session's
 
 ## An empty array passes every `as? [T]` cast (Discussion crash, 2026-10-24)
 A helper taking `Any` and testing `value as? [DiscussionTurn]` matched the empty `[[String:String]]` it had just built, so it recursed until the stack overflowed (4.52.0 crashed on a discussion with no turns). Never dispatch on `Any` downcasts of collections; give each shape its own typed call.
+
+## A Unix socket path over 104 bytes binds nothing, and HOME does not move the app's data (control server live test, 2026-10-25)
+The scratch MarkView launched with `MARKVIEW_SOCKET_DIR` under the session scratchpad listened on nothing: `sun_path` holds 104 bytes and `bind` failed quietly (`listen(at:)` returned false). Use a short directory (`/tmp/mvctl`) for the socket folder. `HOME=…` is also ignored — `NSHomeDirectory()` and the Application Support folder stay the real ones — so a second instance shares `windowSessions.json` and `markview_debug.log` with the running app.
+- Rule: run a test instance with its own bundle id, a short `MARKVIEW_SOCKET_DIR`, and `sandbox-exec -f profile.sb` denying writes to `~/Library/Application Support/MarkView`, `~/Library/Caches/MarkView` and `~/markview_debug.log`; never rely on `HOME`. Kill it only after `ps -o command=` shows the scratch path.
+
+## `xcodebuild` can fail on the machine, not in the code (CoreSimulator mismatch, 2026-10-25)
+`xcodebuild … build` printed "CoreSimulator is out of date (1171.7.0 older than 1174.9.2)" and "Unable to read project" for the untouched main tree too (Xcode 27.1 on macOS 27.0.1). Check the clean tree first; do not edit the project to chase it. Until `sudo xcodebuild -runFirstLaunch` is run, verify with `xcrun swiftc -typecheck -parse-as-library -swift-version 5 -sdk "$(xcrun --show-sdk-path)" -target arm64-apple-macos13.0 $(find MarkView -name '*.swift')` (about 90 s, exit 0 = the module compiles) and build a runnable scratch bundle with the same `swiftc` line plus `-Onone -o App.app/Contents/MacOS/MarkView`, an Info.plist with the `$(…)` variables substituted, `Resources/Editor` copied in, and an ad-hoc `codesign --entitlements MarkView/MarkViewDebug.entitlements`.
+
+## A status heuristic must give a screen redraw time to settle before refusing (agent_send, 2026-10-25)
+`markview_agent_send` refused a Claude that had just come up ("working (printing)"): pressing Enter on its trust prompt redrew the screen, which counted as work for the next 3 s. A refusal based on "printed in the last N seconds" waits for quiet (up to a few seconds) before it says no.
+

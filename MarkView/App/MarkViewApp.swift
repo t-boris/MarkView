@@ -110,6 +110,8 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log("applicationDidFinishLaunching")
+        // Listen for agents from the start, not when the first folder opens: an agent that drives the app opens it.
+        _ = BrowserControlServer.socketPath
         ensureWindowExists()
     }
 
@@ -156,6 +158,9 @@ enum DDEAppEntry {
         }
         if args.contains("--mcp-project") {
             BrowserAgentTools.runServer(arguments: args, profile: ProjectAgentTools.profile)  // never returns
+        }
+        if args.contains("--mcp-control") {
+            BrowserAgentTools.runServer(arguments: args, profile: ControlAgentTools.profile)  // never returns
         }
         if args.contains("--project-call") {
             ProjectAgentTools.runCall(arguments: args)  // never returns

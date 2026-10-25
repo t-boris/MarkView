@@ -482,6 +482,17 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
     }
 
+    /// A prompt is waiting for the terminal to be ready for it.
+    var hasPendingPaste: Bool { !pendingPastes.isEmpty }
+
+    /// The last `lines` rows of what the terminal shows, scrollback included; nil until its page has loaded
+    /// (a terminal that was never shown has no screen yet).
+    func screenTail(lines: Int) async -> String? {
+        guard pageReady else { return nil }
+        let value = try? await webView.evaluateJavaScript("window.mvTail ? window.mvTail(\(max(1, min(lines, 400)))) : ''")
+        return value as? String
+    }
+
     /// The terminal printed something in the last `seconds` (the program in it is working).
     func printed(within seconds: TimeInterval) -> Bool {
         lastOutputAt.map { Date().timeIntervalSince($0) < seconds } ?? false

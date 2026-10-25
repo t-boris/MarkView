@@ -11,6 +11,8 @@ enum BrowserControlServer {
     /// What a window offers agents: its browser tabs, the active one, bringing one to the front,
     /// and opening a new one.
     struct Window {
+        /// The window's workspace, for the control tools (`ControlToolRunner`); nil once the window is gone.
+        var workspace: () -> WorkspaceManager? = { nil }
         /// The window's project folder (agents outside its terminals are matched by their folder).
         var root: () -> URL?
         var tabs: () -> [BrowserSession]
@@ -52,6 +54,16 @@ enum BrowserControlServer {
 
     static func unregister(_ id: UUID) {
         windows[id] = nil
+    }
+
+    /// The windows that exist now, for the control tools: each with the workspace that shows it. A window whose
+    /// workspace is gone (closed) leaves the table here; one that has no host window yet (still being set up) is not listed.
+    static func liveWindows() -> [(id: UUID, window: Window, workspace: WorkspaceManager)] {
+        for (id, window) in windows where window.workspace() == nil { windows[id] = nil }
+        return windows.compactMap { id, window in
+            guard let workspace = window.workspace(), workspace.hostWindow != nil else { return nil }
+            return (id, window, workspace)
+        }
     }
 
     /// The arguments that start this binary as the MCP server for window `id`.
@@ -129,6 +141,10 @@ enum BrowserControlServer {
 
     private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String,
                                  declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
+        // The control tools name their window themselves (`window`), or take the caller's folder when it says one.
+        if ControlAgentTools.names.contains(tool) {
+            return await ControlToolRunner.run(tool, args, caller: .init(pids: pids, folder: declared || cwdTrusted ? cwd : ""))
+        }
         let isProjectTool = ProjectAgentTools.toolNames.contains(tool)
         guard isProjectTool || TerminalBrowserBridge.isEnabled else {
             return .error("MarkView's browser for terminals is turned off (globe menu → Open Terminal Links in MarkView).")

@@ -41,7 +41,21 @@ final class WindowSessionController {
         loadedArchive = Task { await storage.load() }
     }
 
-    func attach(id: UUID, window: NSWindow, workspace: WorkspaceManager, openWindow: (UUID) -> Void) async {
+    /// The scene's way to open a window with a given id: kept from the last window that attached.
+    private var openSceneWindow: ((UUID) -> Void)?
+
+    /// Open a new window for `folder` (agents driving MarkView): its saved state is the folder, which the window restores
+    /// when it attaches. False when no window has attached yet to give the open action, or MarkView is quitting.
+    func openWorkspaceWindow(folder: URL) -> Bool {
+        guard let open = openSceneWindow, !terminating else { return false }
+        let id = UUID()
+        pending[id] = WorkspaceWindowState(id: id, folder: folder)
+        open(id)
+        return true
+    }
+
+    func attach(id: UUID, window: NSWindow, workspace: WorkspaceManager, openWindow: @escaping (UUID) -> Void) async {
+        openSceneWindow = openWindow
         var closedBeforeLoad = false
         let closeObserver = NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .filter { ($0.object as? NSWindow) === window }
