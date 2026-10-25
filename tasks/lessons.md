@@ -645,3 +645,11 @@ The scratch MarkView launched with `MARKVIEW_SOCKET_DIR` under the session scrat
 ## A status heuristic must give a screen redraw time to settle before refusing (agent_send, 2026-10-25)
 `markview_agent_send` refused a Claude that had just come up ("working (printing)"): pressing Enter on its trust prompt redrew the screen, which counted as work for the next 3 s. A refusal based on "printed in the last N seconds" waits for quiet (up to a few seconds) before it says no.
 
+## A file added to project.pbxproj by hand must lint, and a lint failure is not noise (4.56.0, 2026-10-25)
+I added four files to `project.pbxproj` and `plutil -lint` printed "Unexpected character / at line 1". I put it down to the `// !$*UTF8*$!` header without linting the file from before my edit, which says OK. The real cause: `path = ControlToolRunner+Agents.swift;` — a name with `+` must be quoted (`path = "…";`, as `ProjectToolRunner+Edit.swift` is). CI then failed with "Unable to read project". The 4.56.0 merge had to be repaired by 4.56.1.
+- Rule: after editing the project file by hand run `plutil -lint MarkView.xcodeproj/project.pbxproj` (must say OK) and compare any failure with `git show HEAD:MarkView.xcodeproj/project.pbxproj`; quote paths with `+` or other non-alphanumeric characters; check that every new file has its four entries.
+
+## GitHub's compiler (Xcode 16, Swift 6.0) rejects long `+` chains the local one accepts (CI red since 4.54.0)
+`Build & Release` failed on main three times with "the compiler is unable to type-check this expression in reasonable time" (`ProjectToolRunner.swift`: `"…" + list.map { "…" + (cond ? a : b) + "…" }.joined() + "\n"`). `-warn-long-expression-type-checking` on the local Xcode flags nothing, so only CI shows it, and only after the merge (the workflow runs on push to main only).
+- Rule: do not build strings from three or more `+` operands that include a ternary, `??` or a closure; use `var text = …; text += …`, a local for each ternary, and string interpolation. A `map` over a list gets a named closure parameter and an explicit `-> String`.
+

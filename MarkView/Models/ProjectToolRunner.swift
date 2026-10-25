@@ -183,11 +183,20 @@ enum ProjectToolRunner {
         if !m.brief.isEmpty { out += "\nBrief: \(m.brief)\n" }
         out += "Requirement sources: \(m.sources.isEmpty ? "the project folder" : m.sources.joined(separator: ", "))\n"
         out += "\nScreens: \(m.screens.joined(separator: ", "))\n"
-        if !m.assumptions.isEmpty { out += "\nAssumptions:\n" + m.assumptions.map { "- \($0)" }.joined(separator: "\n") + "\n" }
-        if !m.history.isEmpty {
-            out += "\nReview history:\n" + m.history.map { "- v\($0.version): " + ($0.instruction.isEmpty ? "(build)" : $0.instruction) + " → " + $0.summary }.joined(separator: "\n") + "\n"
+        if !m.assumptions.isEmpty {
+            let assumptions = m.assumptions.map { "- \($0)" }
+            out += "\nAssumptions:\n\(assumptions.joined(separator: "\n"))\n"
         }
-        out += "\nFiles (read one with `file`):\n" + PrototypeFiles.read(site: site).map { "- \($0.path) (\($0.content.utf8.count) bytes)" }.joined(separator: "\n") + "\n"
+        if !m.history.isEmpty {
+            // Split up: the Swift 6.0 compiler (CI) cannot type-check this as one concatenation in reasonable time.
+            let entries = m.history.map { entry -> String in
+                let instruction = entry.instruction.isEmpty ? "(build)" : entry.instruction
+                return "- v\(entry.version): \(instruction) → \(entry.summary)"
+            }
+            out += "\nReview history:\n\(entries.joined(separator: "\n"))\n"
+        }
+        let files = PrototypeFiles.read(site: site).map { "- \($0.path) (\($0.content.utf8.count) bytes)" }
+        out += "\nFiles (read one with `file`):\n\(files.joined(separator: "\n"))\n"
         if let spec = try? String(contentsOf: folder.appendingPathComponent("SPEC.md"), encoding: .utf8) {
             out += "\n=== SPEC.md ===\n\(spec)"
         } else {

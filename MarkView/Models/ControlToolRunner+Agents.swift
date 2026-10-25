@@ -53,8 +53,10 @@ extension ControlToolRunner {
         case .one(let index): session = sessions[index]
         case .none: throw Invalid(message: "No agent terminal matches “\(query)”. Terminals:\n" + lines(sessions))
         case .many(let indices):
-            throw Invalid(message: (query.isEmpty ? "The window has several agent terminals" : "“\(query)” matches several terminals")
-                          + ": pass `terminal` (id, tool or a part of the title).\n" + lines(indices.map { sessions[$0] }))
+            var message = query.isEmpty ? "The window has several agent terminals" : "“\(query)” matches several terminals"
+            message += ": pass `terminal` (id, tool or a part of the title).\n"
+            message += lines(indices.map { sessions[$0] })
+            throw Invalid(message: message)
         }
         if forInput, let caller, session.shellPID > 0, caller.pids.contains(session.shellPID) {
             throw Invalid(message: "That is the terminal you run in; an agent does not prompt itself. Start another with markview_agent_start.")
@@ -102,9 +104,13 @@ extension ControlToolRunner {
         let chosen = AIAssistantPreferences.backend(project: workspace.aiProject)
         var out = "Window \(target.shortID) — \(workspace.projectFolder?.path ?? "no project open")\n\nAssistants:\n"
         for tool in CLITool.allCases {
-            let model = AIAssistantPreferences.model(for: tool, project: workspace.aiProject)
-            out += "  \(tool.rawValue) — \(tool.displayName): \(CLIToolLocator.resolve(tool) ?? "not installed")"
-                + (tool == chosen ? "  [the project's assistant" + (model.map { $0.isEmpty ? "]" : ", model \($0)]" } ?? "]") : "") + "\n"
+            let location = CLIToolLocator.resolve(tool) ?? "not installed"
+            var line = "  \(tool.rawValue) — \(tool.displayName): \(location)"
+            if tool == chosen {
+                let model = AIAssistantPreferences.model(for: tool, project: workspace.aiProject) ?? ""
+                line += model.isEmpty ? "  [the project's assistant]" : "  [the project's assistant, model \(model)]"
+            }
+            out += line + "\n"
         }
         out += "\nTerminals:\n"
         let terminals = workspace.aiTerminals
@@ -112,8 +118,9 @@ extension ControlToolRunner {
             out += "  none (markview_agent_start opens one)\n"
         } else {
             for session in terminals {
-                out += "  \(ControlAgentTools.shortID(session.id.uuidString)) · \(session.profile.rawValue) · \"\(session.title)\" · \(state(of: session, in: workspace))"
-                    + (session.id == workspace.activeAITerminalID ? " · shown" : "") + "\n"
+                let shown = session.id == workspace.activeAITerminalID ? " · shown" : ""
+                let id = ControlAgentTools.shortID(session.id.uuidString)
+                out += "  \(id) · \(session.profile.rawValue) · \"\(session.title)\" · \(state(of: session, in: workspace))\(shown)\n"
                 if let task = activity(of: session, in: workspace)?.task, !task.isEmpty { out += "      asked: \(task.prefix(160))\n" }
             }
         }
@@ -124,11 +131,12 @@ extension ControlToolRunner {
         let tool = try tool(named: args["tool"], in: target.workspace)
         let session = try await startTerminal(target, tool: tool, resume: args["resume"] as? Bool == true)
         let id = ControlAgentTools.shortID(session.id.uuidString)
-        let running = session.isRunning
-        return .init(text: "Started \(tool.displayName) in window \(target.shortID): terminal \(id) (\"\(session.title)\")"
-                     + (running ? "." : "; it is not running yet (its panel may be hidden). markview_agent_read shows the screen.")
-                     + "\nA prompt sent now (markview_agent_send { terminal: \"\(id)\" }) is delivered when the agent has come up and is quiet. "
-                     + "A first run in a folder may ask whether to trust it: read the screen, then markview_agent_key { key: \"enter\" }.")
+        var text = "Started \(tool.displayName) in window \(target.shortID): terminal \(id) (\"\(session.title)\")"
+        text += session.isRunning ? "." : "; it is not running yet (its panel may be hidden). markview_agent_read shows the screen."
+        text += "\nA prompt sent now (markview_agent_send { terminal: \"\(id)\" }) is delivered when the agent has come up and is quiet. "
+        text += "A first run in a folder may ask whether to trust it: read the screen, then markview_agent_key { key: \"enter\" } "
+        text += "(arrow keys move the choice first)."
+        return .init(text: text)
     }
 
     static func agentSend(_ target: Target, _ args: [String: Any], caller: Caller) async throws -> Reply {
@@ -152,9 +160,9 @@ extension ControlToolRunner {
         }
         session.pasteWhenReady(prompt, submit: args["submit"] as? Bool ?? true)
         lastSent[session.id] = Date()
-        return .init(text: "Sent \(prompt.count) characters to “\(session.title)” [\(ControlAgentTools.shortID(session.id.uuidString))]"
-                     + (args["goal"] as? Bool == true ? " as a goal" : "")
-                     + "; it is pasted once the agent is ready. Follow it with markview_agent_wait and markview_agent_read.")
+        let id = ControlAgentTools.shortID(session.id.uuidString)
+        let asGoal = args["goal"] as? Bool == true ? " as a goal" : ""
+        return .init(text: "Sent \(prompt.count) characters to “\(session.title)” [\(id)]\(asGoal); it is pasted once the agent is ready. Follow it with markview_agent_wait and markview_agent_read.")
     }
 
     static func agentRead(_ target: Target, _ args: [String: Any]) async throws -> Reply {
@@ -172,7 +180,7 @@ extension ControlToolRunner {
             return out + "(The screen is not available: the terminal's panel has not been shown yet.)"
         }
         let tail = ControlAgentTools.tail(screen, lines: lines)
-        return out + "--- last \(lines) lines ---\n" + (tail.isEmpty ? "(empty)" : tail)
+        return out + "--- last \(lines) lines ---\n\(tail.isEmpty ? "(empty)" : tail)"
     }
 
     static func agentWait(_ target: Target, _ args: [String: Any]) async throws -> Reply {
@@ -192,7 +200,8 @@ extension ControlToolRunner {
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
-        return .init(text: "Stopped waiting after \(Int(Date().timeIntervalSince(started))) s: \(reason).\n" + (await screen(of: session, in: workspace, lines: 15)))
+        let shown = await screen(of: session, in: workspace, lines: 15)
+        return .init(text: "Stopped waiting after \(Int(Date().timeIntervalSince(started))) s: \(reason).\n\(shown)")
     }
 
     static func agentKey(_ target: Target, _ args: [String: Any], caller: Caller) throws -> Reply {
