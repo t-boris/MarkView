@@ -2860,4 +2860,7 @@ Review (Task 141):
 - Not live-tested: `issues` against GitHub (no remote in the scratch project; guard paths checked), `fix_bug` on a real report,
   the self-terminal guard (needs a caller inside the panel), two MarkView processes at once (covered by the stand-in suite).
 - Blocked here: the signed/notarized DMG (`release.sh` uses xcodebuild) until the Xcode components are repaired.
+- Correction (4.56.1): the 4.56.0 merge broke CI ("Unable to read project": unquoted `+` in two pbxproj paths) on top of an existing red
+  `Build & Release` (an over-complex string expression in `ProjectToolRunner.swift`). Fixed both, and simplified the long `+` chains of the
+  new runner files so the Swift 6.0 compiler on the runner type-checks them. See tasks/lessons.md.
 

@@ -63,10 +63,12 @@ extension ControlToolRunner {
         } else {
             let assistant = target.workspace.features.assistant
             let stage = assistant.actions[job.key]?.stage ?? "working"
-            out = "\(job.key) is still running (\(stage), \(Int(Date().timeIntervalSince(job.started))) s). "
-                + "markview_flow_status { wait_s: 60 } waits for it; the result is in MarkView meanwhile."
+            let seconds = Int(Date().timeIntervalSince(job.started))
+            out = "\(job.key) is still running (\(stage), \(seconds) s). "
+            out += "markview_flow_status { wait_s: 60 } waits for it; the result is in MarkView meanwhile."
         }
-        return .init(text: out + (slug.map { "\n\n" + describe(target, $0) } ?? ""))
+        if let slug { out += "\n\n" + describe(target, slug) }
+        return .init(text: out)
     }
 
     /// The keys of the AI steps running for `slug` (or all in the window).
@@ -91,7 +93,9 @@ extension ControlToolRunner {
         if query.isEmpty {
             if let slug = store.activeSlug, let feature = store.feature(slug) { return feature }
             if all.count == 1 { return all[0] }
-            throw Invalid(message: "Name the feature (`feature`: its slug or a part of its title)." + (all.isEmpty ? " There is none yet: markview_flow_new." : "\n" + all.map(featureLine).joined(separator: "\n")))
+            var message = "Name the feature (`feature`: its slug or a part of its title)."
+            message += all.isEmpty ? " There is none yet: markview_flow_new." : "\n" + all.map(featureLine).joined(separator: "\n")
+            throw Invalid(message: message)
         }
         let groups = [all.filter { $0.slug.lowercased() == query },
                       all.filter { $0.slug.lowercased().hasPrefix(query) },
@@ -100,13 +104,16 @@ extension ControlToolRunner {
             if group.count == 1 { return group[0] }
             throw Invalid(message: "“\(query)” matches several features:\n" + group.map(featureLine).joined(separator: "\n"))
         }
-        throw Invalid(message: "No feature matches “\(query)”." + (all.isEmpty ? "" : "\n" + all.map(featureLine).joined(separator: "\n")))
+        var message = "No feature matches “\(query)”."
+        if !all.isEmpty { message += "\n" + all.map(featureLine).joined(separator: "\n") }
+        throw Invalid(message: message)
     }
 
     private static func requirePerson(_ args: [String: Any], _ what: String, answer: Bool = false) throws {
         guard args["by_user"] as? Bool == true else {
-            throw Invalid(message: "\(what) is the person's decision. Ask them, then call again with by_user: true."
-                          + (answer ? " (`delegate` lets the AI decide instead, kept as a proposed decision.)" : ""))
+            var message = "\(what) is the person's decision. Ask them, then call again with by_user: true."
+            if answer { message += " (`delegate` lets the AI decide instead, kept as a proposed decision.)" }
+            throw Invalid(message: message)
         }
     }
 
@@ -129,7 +136,8 @@ extension ControlToolRunner {
     }
 
     private static func questionLines(_ question: FeatureObject) -> String {
-        var out = "\(question.id)" + (question.isBlocking ? " [blocking]" : "") + " — \(question.title)\n"
+        let blocking = question.isBlocking ? " [blocking]" : ""
+        var out = "\(question.id)\(blocking) — \(question.title)\n"
         let text = question.section("Question")
         if !text.isEmpty, text != question.title { out += "    \(text.prefix(400).replacingOccurrences(of: "\n", with: " "))\n" }
         for option in question.front["options"]?.list ?? [] {
@@ -144,22 +152,29 @@ extension ControlToolRunner {
     static func describe(_ target: Target, _ slug: String) -> String {
         guard let feature = target.workspace.features.feature(slug) else { return "Feature \(slug) is gone." }
         let snap = snapshot(target, feature)
-        var out = "\(feature.slug) — \(feature.title)\nStatus: \(feature.status) · readiness \(feature.readiness)% · requirements \(snap.requirements) (\(snap.draftRequirements) draft)"
-            + " · findings open \(snap.openFindings) · plan \(snap.planIssues) issue(s), \(snap.issuesFiled) filed\n"
+        var out = "\(feature.slug) — \(feature.title)\n"
+        out += "Status: \(feature.status) · readiness \(feature.readiness)% · requirements \(snap.requirements) (\(snap.draftRequirements) draft)"
+        out += " · findings open \(snap.openFindings) · plan \(snap.planIssues) issue(s), \(snap.issuesFiled) filed\n"
         if !snap.running.isEmpty {
             let assistant = target.workspace.features.assistant
-            out += "Running: " + snap.running.map { key in
-                assistant.actions[key].map { "\(key) (\($0.stage), \(Int(Date().timeIntervalSince($0.started))) s)" } ?? key
-            }.joined(separator: ", ") + "\n"
+            let labels = snap.running.map { key -> String in
+                guard let action = assistant.actions[key] else { return key }
+                return "\(key) (\(action.stage), \(Int(Date().timeIntervalSince(action.started))) s)"
+            }
+            out += "Running: \(labels.joined(separator: ", "))\n"
         }
         let open = feature.openQuestions
         if !open.isEmpty { out += "\nOpen questions:\n" + open.map(questionLines).joined() }
         let findings = openFindings(feature)
         if !findings.isEmpty {
-            out += "\nOpen findings:\n" + findings.prefix(8).map { "  \($0.id) [\($0.front.string("severity"))] \($0.title)" }.joined(separator: "\n") + "\n"
+            let lines = findings.prefix(8).map { finding -> String in
+                "  \(finding.id) [\(finding.front.string("severity"))] \(finding.title)"
+            }
+            out += "\nOpen findings:\n\(lines.joined(separator: "\n"))\n"
             if findings.count > 8 { out += "  …and \(findings.count - 8) more\n" }
         }
-        return out + "\nNext: " + ControlAgentTools.advice(snap)
+        out += "\nNext: " + ControlAgentTools.advice(snap)
+        return out
     }
 
     // MARK: - Tools
@@ -184,7 +199,8 @@ extension ControlToolRunner {
         for feature in features { out += "  \(featureLine(feature)) · readiness \(feature.readiness)%\n" }
         let running = runningSteps(store.assistant)
         if !running.isEmpty { out += "Running: " + running.joined(separator: ", ") + "\n" }
-        return .init(text: out + (features.isEmpty ? "\nNext: markview_flow_new { idea } starts a feature." : "\nNext: markview_flow_status { feature } for one of them, or markview_flow_new."))
+        out += features.isEmpty ? "\nNext: markview_flow_new { idea } starts a feature." : "\nNext: markview_flow_status { feature } for one of them, or markview_flow_new."
+        return .init(text: out)
     }
 
     static func flowNew(_ target: Target, _ args: [String: Any]) async throws -> Reply {
@@ -197,7 +213,7 @@ extension ControlToolRunner {
         let job = try await start(target, key: quick ? "intake:quick-feature" : "intake:feature") { job in
             let outcome = quick ? await assistant.newQuickFeature(from: idea, attachments: [])
                                 : await assistant.newFeature(from: idea, attachments: [])
-            guard let outcome else { return "The assistant did not write the feature: " + (assistant.error ?? "no answer.") }
+            guard let outcome else { return "The assistant did not write the feature: \(assistant.error ?? "no answer.")" }
             workspace.intakeFinished(kind, outcome: outcome)
             job.slug = outcome.feature
             return "Created feature \(outcome.feature ?? "?")."
@@ -265,7 +281,8 @@ extension ControlToolRunner {
         let next = args["next"] as? Bool ?? true
         let job = try await start(target, key: "answer:" + slug) { _ in
             await assistant.answerBatch(slug, answers: answers, next: next)
-            return "Recorded \(answers.count) answer(s) for \(slug)" + (answers.contains { $0.delegated } ? " (delegated ones are proposed decisions)." : ".")
+            let delegated = answers.contains { $0.delegated }
+            return "Recorded \(answers.count) answer(s) for \(slug)" + (delegated ? " (delegated ones are proposed decisions)." : ".")
         }
         return await settle(target, job, seconds: ControlAgentTools.seconds(args["wait_s"]), slug: slug)
     }
@@ -377,9 +394,10 @@ extension ControlToolRunner {
         workspace.startImplementation(feature.folder, done: done, in: session)
         lastSent[session.id] = Date()
         let id = ControlAgentTools.shortID(session.id.uuidString)
-        return .init(text: "Gave \(feature.slug) to \(session.profile.title) in terminal \(id) as a goal with the project's definition of done; it is pasted once the agent is ready.\n"
-                     + "Follow it: markview_agent_wait { terminal: \"\(id)\" } and markview_agent_read. A first run may ask to trust the folder (markview_agent_key enter). "
-                     + "MarkView records implemented and verified from git and GitHub.")
+        var text = "Gave \(feature.slug) to \(session.profile.title) in terminal \(id) as a goal with the project's definition of done; it is pasted once the agent is ready.\n"
+        text += "Follow it: markview_agent_wait { terminal: \"\(id)\" } and markview_agent_read. A first run may ask to trust the folder (markview_agent_key enter). "
+        text += "MarkView records implemented and verified from git and GitHub."
+        return .init(text: text)
     }
 
     static func flowFixBug(_ target: Target, _ args: [String: Any], caller: Caller) async throws -> Reply {
@@ -387,7 +405,9 @@ extension ControlToolRunner {
         let key = try ProjectAgentTools.text(args, "bug", required: true)
         let store = target.workspace.features
         guard let bug = store.bugs.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame }) else {
-            throw Invalid(message: "No bug report “\(key)”." + (store.bugs.isEmpty ? "" : " Bugs: \(store.bugs.prefix(20).map(\.key).joined(separator: ", "))."))
+            var message = "No bug report “\(key)”."
+            if !store.bugs.isEmpty { message += " Bugs: \(store.bugs.prefix(20).map(\.key).joined(separator: ", "))." }
+            throw Invalid(message: message)
         }
         let session = try await workTerminal(target, args, caller: caller)
         target.workspace.fixBugWithAI(bug.url, in: session)
@@ -400,7 +420,10 @@ extension ControlToolRunner {
         let assistant = target.workspace.features.assistant
         let slug = try ProjectAgentTools.text(args, "feature").isEmpty ? nil : feature(args, in: target).slug
         let keys = runningKeys(assistant, slug: slug)
-        guard !keys.isEmpty else { return .init(text: "Nothing is running" + (slug.map { " for \($0)" } ?? "") + ".") }
+        guard !keys.isEmpty else {
+            let scope = slug.map { " for \($0)" } ?? ""
+            return .init(text: "Nothing is running\(scope).")
+        }
         for key in keys { assistant.stopAction(key) }
         return .init(text: "Asked to stop: \(keys.joined(separator: ", ")).")
     }

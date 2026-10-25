@@ -75,18 +75,23 @@ enum ControlToolRunner {
             return Target(id: live[index].id, workspace: live[index].workspace)
         case .none:
             // The prefix lets the MCP server ask the next running MarkView.
-            throw Invalid(message: BrowserAgentTools.noWindowMatchPrefix + (query.isEmpty ? ": no window is open in this MarkView." : " “\(query)”.")
-                          + (live.isEmpty ? "" : "\n" + windowLines(live)))
+            var message = BrowserAgentTools.noWindowMatchPrefix
+            message += query.isEmpty ? ": no window is open in this MarkView." : " “\(query)”."
+            if !live.isEmpty { message += "\n" + windowLines(live) }
+            throw Invalid(message: message)
         case .many(let indices):
-            throw Invalid(message: (query.isEmpty ? "Several windows are open" : "“\(query)” matches several windows")
-                          + ": pass `window` (id, a part of the title, or the project folder).\n" + windowLines(indices.map { live[$0] }))
+            var message = query.isEmpty ? "Several windows are open" : "“\(query)” matches several windows"
+            message += ": pass `window` (id, a part of the title, or the project folder).\n"
+            message += windowLines(indices.map { live[$0] })
+            throw Invalid(message: message)
         }
     }
 
     private static func windowLines(_ live: [(id: UUID, window: BrowserControlServer.Window, workspace: WorkspaceManager)]) -> String {
-        live.map { entry in
-            "\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(entry.workspace.hostWindow?.title ?? "")\" · "
-                + (entry.workspace.projectFolder?.path ?? "no project open")
+        live.map { entry -> String in
+            let title = entry.workspace.hostWindow?.title ?? ""
+            let project = entry.workspace.projectFolder?.path ?? "no project open"
+            return "\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)"
         }.joined(separator: "\n")
     }
 
@@ -107,12 +112,14 @@ enum ControlToolRunner {
         for entry in sorted {
             let workspace = entry.workspace
             let front = workspace.hostWindow.map { $0 === frontmost } ?? false
-            out += "\n\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(workspace.hostWindow?.title ?? "")\" · "
-                + (workspace.projectFolder?.path ?? "no project open") + (front ? " · in front" : "") + "\n"
-            let terminals = workspace.aiTerminals
-            out += "    agents: " + (terminals.isEmpty ? "none" : terminals.map { "\($0.title) (\(state(of: $0, in: workspace)))" }.joined(separator: ", ")) + "\n"
+            let title = workspace.hostWindow?.title ?? ""
+            let project = workspace.projectFolder?.path ?? "no project open"
+            let marker = front ? " · in front" : ""
+            out += "\n\(ControlAgentTools.shortID(entry.id.uuidString)) · \"\(title)\" · \(project)\(marker)\n"
+            let described = workspace.aiTerminals.map { "\($0.title) (\(state(of: $0, in: workspace)))" }
+            out += "    agents: \(described.isEmpty ? "none" : described.joined(separator: ", "))\n"
             let running = runningSteps(workspace.features.assistant)
-            if !running.isEmpty { out += "    running: " + running.joined(separator: ", ") + "\n" }
+            if !running.isEmpty { out += "    running: \(running.joined(separator: ", "))\n" }
         }
         return out
     }
