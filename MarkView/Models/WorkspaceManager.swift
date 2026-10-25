@@ -3851,9 +3851,17 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Offer this window's browser tabs to agents (`BrowserControlServer`).
-    private func registerBrowserControl() {
+    /// The window this workspace is shown in; set by its view. Control tools list, focus and name windows by it.
+    weak var hostWindow: NSWindow?
+
+    /// A window with nothing open: no folder, no tab. Agents may open a project in it; they never replace a project.
+    var isBlank: Bool { rootNode == nil && openTabs.isEmpty }
+
+    /// Offer this window to agents (`BrowserControlServer`): its browser tabs, its project's features, and the
+    /// workspace itself for the control tools. Called when the window is shown, a folder opens or a terminal starts.
+    func registerBrowserControl() {
         BrowserControlServer.register(browserControlID, .init(
+            workspace: { [weak self] in self },
             root: { [weak self] in self?.rootNode?.url },
             tabs: { [weak self] in self?.browserSessions ?? [] },
             active: { [weak self] in
@@ -4018,11 +4026,12 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// Build a backend-specific prompt only after choosing the actual receiving terminal.
+    /// `terminal`: the one to send to (an agent driving the window names it); else the usual choice.
     @discardableResult
-    func sendToAssistant(submit: Bool = true, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
+    func sendToAssistant(submit: Bool = true, to terminal: TerminalSession? = nil, promptFor: (TerminalSession) -> String?) -> TerminalSession? {
         showAIConsole()
         restoreAITerminals()
-        guard let session = assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject))) else { return nil }
+        guard let session = terminal ?? assistantTerminal ?? openAITerminal(TerminalProfile(AIAssistantPreferences.backend(project: aiProject))) else { return nil }
         activeAITerminalID = session.id
         guard let prompt = promptFor(session) else { return nil }
         session.pasteWhenReady(prompt, submit: submit)
@@ -4231,9 +4240,9 @@ class WorkspaceManager: ObservableObject {
     /// Hand a document to the AI to implement, establishing a goal in the receiving assistant. The goal
     /// carries the definition of done. The feature is recorded as "implementation started" with the CLI
     /// that got it.
-    func startImplementation(_ url: URL, done: DefinitionOfDone) {
+    func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {
         let path = workspaceRelativePath(url)
-        guard let session = sendToAssistant(submit: true, promptFor: { session in
+        guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { session in
             guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
             return HandoffPrompt.feature(path, backend: backend, done: done)
         }) else { return }
@@ -4261,10 +4270,12 @@ class WorkspaceManager: ObservableObject {
     }
 
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
-    func fixBugWithAI(_ url: URL) {
+    /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
+    func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
         features.updateBug(url) { front, _ in front.set("status", "fixing") }
-        let prompt = HandoffPrompt.bug(workspaceRelativePath(url), claude: AIAssistantPreferences.backend(project: aiProject) == .claude)
-        sendToAssistant(prompt, submit: true)
+        let claude = terminal.map { $0.profile.tool == .claude } ?? (AIAssistantPreferences.backend(project: aiProject) == .claude)
+        let prompt = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
+        sendToAssistant(submit: true, to: terminal) { _ in prompt }
     }
 
     /// Batch Fix with AI (issue #31): the basket's open bugs go to the assistant in one prompt —

@@ -25,6 +25,10 @@
 		0D0E7699A94DA632F228BFC7 /* GitStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F51142258159DFBAE3D4E66 /* GitStatusModel.swift */; };
 		0D1620D4F638BFBE26F57280 /* IncrementalCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE23AFAF75C072899E5648F /* IncrementalCompiler.swift */; };
 		1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */; };
+		FF4D883EE7D71F7C9DB60BCF /* ControlAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C37EFAF209D9B83CAADA645 /* ControlAgentTools.swift */; };
+		3BD06F3FA93765D618613F14 /* ControlToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5FA696071BBD1926BC7A60F /* ControlToolRunner.swift */; };
+		EC0F94914984C4B3EDF8A6BB /* ControlToolRunner+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4BA03C78E11FC5189F89F71 /* ControlToolRunner+Agents.swift */; };
+		749D707936E5A564069463A3 /* ControlToolRunner+Flow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37243532B3D1D4C11E6537B1 /* ControlToolRunner+Flow.swift */; };
 		114407D9EFB092F23A6F9E12 /* BrowserPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 007C5A3FE30FBBE5A71A6FA8 /* BrowserPasswords.swift */; };
 		11C3C1C4E28EB8CB51AB48F6 /* IssueSyncRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */; };
 		13930BD202A1F632A683E466 /* StructuralIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534BBEA6C51F184621BBDE91 /* StructuralIndexer.swift */; };
@@ -437,6 +441,10 @@
 		85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeReview.swift; sourceTree = "<group>"; };
 		8617D6996AEA0B711F366A7C /* CLICompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletion.swift; sourceTree = "<group>"; };
 		89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAgentTools.swift; sourceTree = "<group>"; };
+		9C37EFAF209D9B83CAADA645 /* ControlAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlAgentTools.swift; sourceTree = "<group>"; };
+		D5FA696071BBD1926BC7A60F /* ControlToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunner.swift; sourceTree = "<group>"; };
+		E4BA03C78E11FC5189F89F71 /* ControlToolRunner+Agents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunner+Agents.swift; sourceTree = "<group>"; };
+		37243532B3D1D4C11E6537B1 /* ControlToolRunner+Flow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunner+Flow.swift; sourceTree = "<group>"; };
 		89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureVocabulary.swift; sourceTree = "<group>"; };
 		8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureStore.swift; sourceTree = "<group>"; };
 		8DE180277E01B9DBC61C4110 /* FeatureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureModels.swift; sourceTree = "<group>"; };
@@ -726,6 +734,10 @@
 				2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */,
 				85A5D63235ACB47FEA0FF70C /* PanelLayout.swift */,
 				89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */,
+				9C37EFAF209D9B83CAADA645 /* ControlAgentTools.swift */,
+				D5FA696071BBD1926BC7A60F /* ControlToolRunner.swift */,
+				E4BA03C78E11FC5189F89F71 /* ControlToolRunner+Agents.swift */,
+				37243532B3D1D4C11E6537B1 /* ControlToolRunner+Flow.swift */,
 				6CB25CF391C44897DD4AF564 /* ProjectBootstrap.swift */,
 				85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */,
 				BA8F968A66CC85F478E65280 /* ProjectColor.swift */,
@@ -1283,6 +1295,10 @@
 				E479DD4A1D4057828DE86630 /* PTYWriter.swift in Sources */,
 				7793396F1E2AD46E05AEC4DE /* PanelLayout.swift in Sources */,
 				1024E357E18DFF4E233DC275 /* ProjectAgentTools.swift in Sources */,
+				FF4D883EE7D71F7C9DB60BCF /* ControlAgentTools.swift in Sources */,
+				3BD06F3FA93765D618613F14 /* ControlToolRunner.swift in Sources */,
+				EC0F94914984C4B3EDF8A6BB /* ControlToolRunner+Agents.swift in Sources */,
+				749D707936E5A564069463A3 /* ControlToolRunner+Flow.swift in Sources */,
 				A24B49057B4B87E4278B429F /* ProjectBootstrap.swift in Sources */,
 				D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */,
 				415531DA77449F4A0EFBA98F /* ProjectChangeReviewView.swift in Sources */,
@@ -1381,7 +1397,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.55.0;
+				CURRENT_PROJECT_VERSION = 4.56.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1396,7 +1412,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.55.0;
+				MARKETING_VERSION = 4.56.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1460,7 +1476,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.55.0;
+				CURRENT_PROJECT_VERSION = 4.56.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1481,7 +1497,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.55.0;
+				MARKETING_VERSION = 4.56.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

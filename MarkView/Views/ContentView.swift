@@ -684,6 +684,9 @@ struct ContentView: View {
         hostWindow?.representedURL = root
         projectKey = workspaceManager.projectFolder.map(ProjectColor.projectKey(for:))
         workspaceManager.projectOperations?.window = hostWindow
+        // Agents driving MarkView see every window, also one with nothing open yet.
+        workspaceManager.hostWindow = hostWindow
+        if hostWindow != nil { workspaceManager.registerBrowserControl() }
     }
 
     private func attachWindowSession() {

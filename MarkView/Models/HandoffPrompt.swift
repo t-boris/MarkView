@@ -34,6 +34,16 @@ enum HandoffPrompt {
         }
     }
 
+    /// A goal of the person's own words (`markview_agent_send` with goal), in the receiving assistant's form.
+    static func goal(_ text: String, backend: GoalBackend) -> String {
+        switch backend {
+        case .claude, .codex: return "/goal \(text)"
+        case .copilot: return "/autopilot \(text)"
+        case .antigravity: return text + " Continue until it is done and verified."
+        case .cline: return "Goal for this Cline task: \(text) Continue until it is done and verified."
+        }
+    }
+
     /// Fix with AI for one bug report.
     static func bug(_ path: String, claude: Bool) -> String {
         claude

@@ -31,6 +31,12 @@ check("codex feature prompt is a /goal", HandoffPrompt.feature(path, backend: .c
 check("copilot feature prompt is an autopilot objective", HandoffPrompt.feature(path, backend: .copilot).hasPrefix("/autopilot "))
 check("cline feature prompt sets a task goal", HandoffPrompt.feature(path, backend: .cline).hasPrefix("Goal for this Cline task:"))
 check("claude bug prompt is a /goal", HandoffPrompt.bug("x.md", claude: true).hasPrefix("/goal fix the bug"))
+// A goal of the person's own words, for markview_agent_send.
+check("claude goal is /goal <text>", HandoffPrompt.goal("tests pass", backend: .claude) == "/goal tests pass")
+check("codex goal is /goal <text>", HandoffPrompt.goal("tests pass", backend: .codex) == "/goal tests pass")
+check("copilot goal is /autopilot <text>", HandoffPrompt.goal("tests pass", backend: .copilot) == "/autopilot tests pass")
+check("antigravity goal is the text, asked to continue", HandoffPrompt.goal("tests pass", backend: .antigravity).hasPrefix("tests pass ") && !HandoffPrompt.goal("tests pass", backend: .antigravity).hasPrefix("/"))
+check("cline goal is a task goal", HandoffPrompt.goal("tests pass", backend: .cline).hasPrefix("Goal for this Cline task: tests pass"))
 
 print(failures == 0 ? "All handoff prompt checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)

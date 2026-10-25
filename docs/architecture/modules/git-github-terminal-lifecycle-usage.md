@@ -355,6 +355,36 @@ for this when a folder opens. A
 Copilot terminal printing `MCP server was blocked by policy: "markview-browser"` (an organisation that lists its
 allowed MCP servers) turns it off for Copilot and offers to restart Copilot without it (BUG-025).
 
+#### Driving the app from outside (`markview-control`)
+
+A third MCP server, `MarkView --mcp-control` (`Models/ControlAgentTools.swift`, same stdio server and socket as
+`--mcp-browser`), is for the agent that orchestrates MarkView rather than works in one of its windows. It is
+registered by the person (`claude mcp add markview-control -- …/MarkView --mcp-control`), never by
+`AgentBrowserRegistration`, and always lists its tools (`MCPProfile.alwaysListsTools`): with no MarkView running they
+answer that it is not running. The app side is `Models/ControlToolRunner.swift` (windows, projects),
+`ControlToolRunner+Agents.swift` (terminals) and `ControlToolRunner+Flow.swift` (the feature flow); the socket
+server dispatches the control tools before it resolves a window.
+
+- **Windows.** A tool names its window with `window` (an id, the project folder or its name, a part of the title);
+  without it, the only window, else the one whose project holds the agent's working folder, else the call is
+  ambiguous and lists the windows. `markview_windows` is answered by every running MarkView and merged
+  (`BrowserAgentTools.fanOutTools`); other calls go to the first MarkView that has the window. A window registers when
+  it is shown (`ContentView.updateWindowIdentity` → `WorkspaceManager.registerBrowserControl`) and is listed while its
+  workspace lives (`BrowserControlServer.liveWindows`). `markview_open_project` opens a folder in a window that has
+  nothing open, else in a new one (`WindowSessionController.openWorkspaceWindow`: the folder becomes the new window's
+  saved state, which it restores when it attaches); it never replaces a project that is open.
+- **Agents.** `markview_agent_start` opens a terminal with `openAITerminal` after `showAIConsole` (the PTY starts when
+  the terminal page has loaded); `markview_agent_send` uses `pasteWhenReady` (waits for the assistant's prompt), with
+  `goal: true` as `/goal …` for Claude and Codex, `/autopilot …` for Copilot (`HandoffPrompt.goal`). A busy terminal is
+  refused without `force`, a shell never takes text, and an agent cannot prompt its own terminal (its process
+  ancestors are matched with `TerminalSession.shellPID`). The screen comes from xterm.js (`window.mvTail`,
+  `TerminalSession.screenTail`); `markview_agent_wait` returns when the output has been quiet and the agent's log
+  does not say it is working.
+- **Flow.** The tools call what the Feature panel calls (`FeatureAssistant.newFeature`, `answerBatch`, `exploreNext`,
+  `review`, `decompose`, `createIssues`, `WorkspaceManager.startImplementation`). An AI step takes minutes, so it runs as
+  a `Job` that outlives the request; the request waits `wait_s` (up to 90 s, under the socket's 120 s) and
+  `markview_flow_status` picks the result up. The person's decisions need `by_user: true`.
+
 ### B.2 Files
 
 | File | Role |
@@ -364,6 +394,7 @@ allowed MCP servers) turns it off for Copilot and offers to restart Copilot with
 | `Models/TerminalBrowserBridge.swift` | `BROWSER` / `open` wrappers, spool watcher, routing of web addresses and files |
 | `Models/BrowserAgentTools.swift`, `Models/BrowserControlServer.swift` | MCP server for agents (`--mcp-browser`) and the app-side socket that runs its tools in a browser tab |
 | `Models/AgentBrowserRegistration.swift` | One-time registration of the MCP server in the agents' own settings |
+| `Models/ControlAgentTools.swift`, `Models/ControlToolRunner*.swift` | The `markview-control` MCP server (`--mcp-control`) and the app-side runner for windows, agents and the feature flow |
 | `Views/TerminalView.swift` | `TerminalHostView`, dictation/restart buttons, `AITerminalPanel`, prompt bar, PR picker, `TerminalTabView` |
 | `Resources/Editor/terminal.html` | xterm.js page and JS side of the bridge |
 | `Resources/Editor/vendor/js/xterm.bundle.js`, `vendor/css/xterm.css` | Bundled `@xterm/xterm` 6.0.0 + fit 0.11.0 + web-links 0.12.0 (`tools/web-vendor/package.json:31-33`, `tools/web-vendor/build.sh:11-13`) |

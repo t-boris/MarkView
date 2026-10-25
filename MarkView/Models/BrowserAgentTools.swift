@@ -33,9 +33,11 @@ enum BrowserAgentTools {
         let description: String
         let properties: [String: [String: Any]]
         let required: [String]
+        /// The folder argument names the window of the project tools; control tools address a window by `window`.
+        var addsFolder = true
 
         var json: [String: Any] {
-            let all = properties.merging([folderArgument: ["type": "string", "description": folderDescription]]) { $1 }
+            let all = addsFolder ? properties.merging([folderArgument: ["type": "string", "description": folderDescription]]) { $1 } : properties
             return ["name": name, "description": description,
                     "inputSchema": ["type": "object", "properties": all, "required": required] as [String: Any]]
         }
@@ -78,6 +80,9 @@ enum BrowserAgentTools {
         let tools: [Tool]
         let probeTool: String
         var rechecksApp = false
+        /// Show the tools even while MarkView is not running: a client keeps the list it first saw, and an empty
+        /// one would hide the tools for the whole session. A call then says that MarkView is not running.
+        var alwaysListsTools = false
     }
 
     static let browserProfile = MCPProfile(serverName: serverName, instructions: instructions, unavailableNote: unavailableNote,
@@ -184,12 +189,12 @@ enum BrowserAgentTools {
                 "protocolVersion": params?["protocolVersion"] as? String ?? protocolVersion,
                 "capabilities": ["tools": [String: Any]()],
                 "serverInfo": ["name": profile.serverName, "version": "1"],
-                "instructions": available ? profile.instructions : profile.unavailableNote,
+                "instructions": available || profile.alwaysListsTools ? profile.instructions : profile.unavailableNote,
             ])
         case "ping":
             return result([:])
         case "tools/list":
-            return result(["tools": available ? profile.tools.map(\.json) : []])
+            return result(["tools": available || profile.alwaysListsTools ? profile.tools.map(\.json) : []])
         case "tools/call":
             let params = message["params"] as? [String: Any] ?? [:]
             guard available else { return result(Reply.error(profile.unavailableNote).mcpResult) }
@@ -286,9 +291,15 @@ enum BrowserAgentTools {
         let payload: [String: Any] = ["window": location.window, "pids": location.ancestors.map(Int.init),
                                       "cwd": folder, "folderDeclared": declared, "cwdTrusted": !location.sharedDaemon,
                                       "tool": tool, "arguments": args]
+        // Each running MarkView knows only its own windows: a list is the sum of what every one of them says.
+        if fanOutTools.contains(tool), location.fallbacks.count > 1 {
+            let replies = location.fallbacks.map { request(socket: $0, payload: payload) }
+            let shown = replies.filter { !$0.isError }
+            return shown.isEmpty ? replies[0] : Reply(text: shown.map(\.text).joined(separator: "\n\n"))
+        }
         for candidate in location.fallbacks.dropLast() {
             let reply = request(socket: candidate, payload: payload)
-            if !(reply.isError && reply.text.hasPrefix(noWindowPrefix)) { return reply }
+            if !(reply.isError && isNoWindow(reply.text)) { return reply }
         }
         return request(socket: location.fallbacks.last ?? location.socket, payload: payload)
     }
@@ -337,8 +348,18 @@ enum BrowserAgentTools {
         ProcessInfo.processInfo.environment["MARKVIEW_SOCKET_DIR"] ?? FileManager.default.temporaryDirectory.path
     }
 
+    /// Tools the MCP server asks every running MarkView, then merges (`markview_windows`).
+    static let fanOutTools: Set<String> = ["markview_windows"]
+
     /// How the app's reply starts when no window has the agent's folder (another MarkView may have it).
     static let noWindowPrefix = "No MarkView window has the folder"
+    /// How a control tool's reply starts when no window matches the `window` it was given.
+    static let noWindowMatchPrefix = "No MarkView window matches"
+
+    /// Whether a reply says this MarkView has no such window, so that another running MarkView may.
+    static func isNoWindow(_ text: String) -> Bool {
+        text.hasPrefix(noWindowPrefix) || text.hasPrefix(noWindowMatchPrefix)
+    }
 
     /// Control sockets of MarkView processes that are running, newest process first.
     static func runningAppSockets() -> [String] {
