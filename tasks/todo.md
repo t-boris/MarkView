@@ -2849,7 +2849,7 @@ Review (Task 141):
   hasPendingPaste` + `window.mvTail` in `terminal.html`, `WindowSessionController.openWorkspaceWindow(folder:)`,
   `BrowserControlServer.liveWindows()` and the control dispatch, `HandoffPrompt.goal`, socket opened at launch.
 - Verified: standalone suites (handoff 5 new checks, project, browser, control ~90 checks) pass; `swiftc -typecheck` of the whole module
-  passes (xcodebuild is unusable on this Mac: CoreSimulator mismatch, also for the clean tree). Live, in a scratch build (own bundle id,
+  passes (xcodebuild looked unusable at first, but that was my hand-edited project file; see the correction below). Live, in a scratch build (own bundle id,
   sockets in /tmp/mvctl, writes to the real app data denied by sandbox-exec): two windows (project into the blank window, second project
   into a new window), ambiguity and guard errors, Claude Code started, trust prompt answered with keys, a goal sent and finished
   (file made), feature created by the intake AI (33 s), question answered with an option (`by_user`), review, plan (2 issues) with the
@@ -2859,8 +2859,10 @@ Review (Task 141):
   was appended to non-answer errors.
 - Not live-tested: `issues` against GitHub (no remote in the scratch project; guard paths checked), `fix_bug` on a real report,
   the self-terminal guard (needs a caller inside the panel), two MarkView processes at once (covered by the stand-in suite).
-- Blocked here: the signed/notarized DMG (`release.sh` uses xcodebuild) until the Xcode components are repaired.
 - Correction (4.56.1): the 4.56.0 merge broke CI ("Unable to read project": unquoted `+` in two pbxproj paths) on top of an existing red
   `Build & Release` (an over-complex string expression in `ProjectToolRunner.swift`). Fixed both, and simplified the long `+` chains of the
   new runner files so the Swift 6.0 compiler on the runner type-checks them. See tasks/lessons.md.
+- Correction (2): xcodebuild was never broken; the "Unable to read project" came from the unquoted `+` paths. After 4.56.1 the Debug build
+  from CLAUDE.md passes (`BUILD SUCCEEDED`). The earlier "CoreSimulator mismatch, also on the clean tree" note was a wrong conclusion drawn from
+  truncated output (tasks/lessons.md).
 
