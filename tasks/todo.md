@@ -43,7 +43,9 @@ GitHub). The original shared checkout was not switched or modified.
 - [x] Initial branch CI at `7d1f45e` passed full Unix bridge integration and macOS app build:
       https://github.com/t-boris/MarkView/actions/runs/40569580734 . The local tool sandbox denies
       bind with `Operation not permitted`; `--core-only` explicitly excludes that local test.
-      Following framing/Vercel changes must pass their own new CI run before acceptance.
+      Current Vercel/framing/cache code at `5ae9268` also passed both jobs, including the normal
+      macOS build, full Unix bridge and real Redis integration (zero Redis skips):
+      https://github.com/t-boris/MarkView/actions/runs/40576812904 .
 - [ ] Actual HTTPS relay deployment and two-Mac connection. Boris needs a new hosting option.
       Cloudflare Worker packaging is ready (Wrangler 4.90.0 dry-run); authenticated publication
       and external connectivity are not yet verified. A saved Cloudflare login exists, but
@@ -61,16 +63,19 @@ GitHub). The original shared checkout was not switched or modified.
       https://github.com/t-boris/MarkView/actions/runs/40575967102 . Local Node tests explicitly
       skip these without REDIS_TEST_PORT. That run's macOS test assumed Git finished within
       its initial one-second yield; it now polls the returned session before checking its files.
-      Follow-up native/macOS CI is required. Socket lifecycle review also retained each accepted
+      The follow-up run above passed native/macOS checks. Socket lifecycle review also retained each accepted
       descriptor through its queued reader and keeps accepting after the client capacity is reached.
 - [ ] Live Claude and Codex: read a work-only sentinel, edit/create work files, run tests/Git,
       prove the home namesakes unchanged, continue a conversation, disconnect/revoke and
       verify child processes stop. Check native tool guard and interactive CLI escape paths.
-- [ ] Running app UI verification and final long-running process/lifecycle review.
+- [ ] Running app UI verification and final long-running process/lifecycle review. A separate
+      bundle-ID test copy was prepared with a profile denying access to the real app's data.
+      This environment rejected `sandbox-exec` with `sandbox_apply: Operation not permitted`
+      before startup. No unprotected launch was attempted; the unused test copy was removed.
 - [x] Version bumped from 4.56.1 to 4.57.0; Debug build passes with the compiler workaround above.
 - [x] Draft PR opened: https://github.com/t-boris/MarkView/pull/193 . Branch pushed as `7d1f45e`.
-- [ ] Push following Vercel/framing/liveness changes, verify current checks, ready review/merge,
-      then signed Release/DMG from merged
+- [x] Push following Vercel/framing/liveness/cache changes and verify current checks (`5ae9268`).
+- [ ] Complete live acceptance, ready review/merge, then signed Release/DMG from merged
       `origin/main` and required Build & Release/notarization verification.
 
 Do not claim completion until the live acceptance and repository completion workflow pass.
