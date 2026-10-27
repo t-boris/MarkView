@@ -12,7 +12,7 @@ body.midnight { --paper:#17222b; --ink:#e9e6de; --muted:#b0bfc5; --accent:#80cbc
 .running-head span { max-width:65%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .running-foot { bottom:29px; border-top:1px solid var(--line); padding-top:8px; display:flex; justify-content:space-between; }
 .cover { padding-top:115px; border-left:12px solid var(--accent); }
-.cover .page-content { height:600px; display:flex; flex-direction:column; }
+.cover .page-content { height:calc(var(--h) - 242px); display:flex; flex-direction:column; }
 .cover-kicker,.chapter-kicker { font:9px/1.5 -apple-system,BlinkMacSystemFont,sans-serif; letter-spacing:1.5px; text-transform:uppercase; color:var(--accent); }
 .cover h1 { font-size:43px; line-height:1.15; letter-spacing:-1px; margin:38px 0 25px; font-weight:500; overflow-wrap:anywhere; }
 .cover .author { font:15px/1.5 -apple-system,BlinkMacSystemFont,sans-serif; color:var(--muted); }

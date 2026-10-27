@@ -54,9 +54,13 @@ final class BookPDFExportModel: ObservableObject {
 
     func move(_ id: String, by offset: Int) {
         guard !isBusy, let i = chapters.firstIndex(where: { $0.id == id }), chapters.indices.contains(i + offset) else { return }
-        chapters.swapAt(i, i + offset); savedURL = nil
+        chapters.swapAt(i, i + offset); edited()
     }
-    func remove(_ id: String) { guard !isBusy else { return }; chapters.removeAll { $0.id == id }; savedURL = nil }
+    func remove(_ id: String) { guard !isBusy else { return }; chapters.removeAll { $0.id == id }; edited() }
+    private func edited() {
+        savedURL = nil; error = nil; progress = 0
+        status = chapters.isEmpty ? "Choose files or folders for your book." : "\(chapters.count) chapters ready. Arrange them in reading order."
+    }
 
     func export() {
         guard !isBusy, !chapters.isEmpty, !options.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

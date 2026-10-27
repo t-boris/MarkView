@@ -131,6 +131,19 @@ enum BookPDFTests {
         precondition(extendedPDF.page(at: 0)!.bounds(for: .mediaBox).size == CGSize(width: 612,height:792))
         precondition(extended.warnings.isEmpty, "HTML container anchors must survive pagination.")
         try extended.data.write(to: root.appendingPathComponent("extended-contents.pdf"))
+        options.paper = "a4Landscape"; options.theme = "midnight"; options.title = "A wide table"
+        let wide = root.appendingPathComponent("wide.md")
+        try "# A wide table\n\n中文排版保持清晰。\n\n| One | Two | Three | Four | Five | Six | Seven |\n|---|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 | 7 |\n\nWIDE_SENTINEL\n".write(to: wide, atomically: true, encoding: .utf8)
+        let landscape = try BookPDFRenderer(entry: URL(fileURLWithPath: CommandLine.arguments[1]))
+        _ = try await landscape.prepare(BookPDFSource.collect([wide]).chapters, options: options)
+        let wideResult = try await landscape.render(options: options, labels: ["book":"BOOK", "edition":"Complete", "contents":"Contents"]) { _, _ in }
+        let widePDF = PDFDocument(data: wideResult.data)!
+        try wideResult.data.write(to: root.appendingPathComponent("landscape.pdf"))
+        precondition(widePDF.page(at: 0)!.bounds(for: .mediaBox).size == CGSize(width:842,height:595))
+        let wideText = (0..<widePDF.pageCount).compactMap { widePDF.page(at:$0)?.string }.joined(separator:"\n")
+        // System CJK fonts can emit compatibility radicals in PDF ToUnicode.
+        let normalizedWideText = wideText.precomposedStringWithCompatibilityMapping.filter { !$0.isWhitespace }
+        precondition(wideText.contains("WIDE_SENTINEL") && normalizedWideText.contains("中文"), "Landscape pages must retain body and normalized CJK text.")
         let cancellation = try BookPDFRenderer(entry: URL(fileURLWithPath: CommandLine.arguments[1]))
         let cancelled = Task { try await cancellation.prepare(many, options: options) }; cancelled.cancel()
         do { _ = try await cancelled.value; preconditionFailure("Cancellation must finish without producing a PDF.") } catch {}

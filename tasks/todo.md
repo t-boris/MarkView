@@ -20,12 +20,13 @@ The book needs linked contents, page numbers, cross-references, images and prope
       Uses the existing project assistant/model and cancellation-aware CLICompletion, not a new API key.
 - [x] Native checks: complete source/drafts, overlapping selections, folder order, 16-page fixture,
       Cyrillic, complete table rows and very tall cells, 102 links, bookmarks, multi-page contents,
-      Letter paper, sanitized HTML/container anchors and cancellation. All 16 fixture pages visually reviewed.
+      Letter/landscape paper, CJK text, sanitized HTML/container anchors and cancellation during long layout. All 16 fixture pages visually reviewed.
 - [x] Live Claude checks through the production assistant path: complete Russian translation,
       unchanged source/code/table/link structure, 50% shortening retained 122/227 words (53.7%).
       Opt-in `tools/tests/book-pdf-live.sh`; normal provider allowance applies.
 - [x] Protected separate-app UI: single-file context action, multi-selection button, title, chapter
-      reordering, shortening slider, theme selection, actual 16-page Save, Open PDF and Show in Finder.
+      reordering/removal, shortening slider, theme/page/language selection, actual 16-page Save, Open PDF and Show in Finder.
+      Final app also passed current-folder/add-folder deduplication and immediate cancellation of a 1.2 MB source.
 - [x] Debug build and generated project lint pass; version bumped to 4.58.0.
 - [ ] Final native/CI checks, PR merge and signed/notarized Release/DMG from merged main.
 
