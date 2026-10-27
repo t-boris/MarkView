@@ -130,6 +130,7 @@ struct AITerminalPanel: View {
     /// This window's project choice when last seen ("tool|model"): the terminal follows only its own
     /// project's changes, never another window's (BUG-021).
     @State private var seenChoice: (tool: String, model: String)?
+    @State private var showRemoteConnections = false
     @AppStorage("layout.terminalPromptsExpanded.v3") private var promptsExpanded = false
 
     var body: some View {
@@ -142,8 +143,8 @@ struct AITerminalPanel: View {
                 if let session = workspaceManager.aiTerminal {
                     HStack(spacing: 7) {
                         Image(systemName: "exclamationmark.shield")
-                        Text(compact ? "Unrestricted · \(session.title)" :
-                             "Unrestricted · \(session.title) · \(session.directory.path)")
+                        Text(compact ? "\(session.isRemote ? "Home assistant · Local commands" : "Unrestricted") · \(session.title)" :
+                             "\(session.isRemote ? "Home assistant · Local commands" : "Unrestricted") · \(session.title) · \(session.directory.path)")
                             .lineLimit(1).truncationMode(.middle)
                             .help(session.directory.path)
                         Spacer(minLength: 0)
@@ -166,6 +167,7 @@ struct AITerminalPanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(VSDark.bg)
+        .sheet(isPresented: $showRemoteConnections) { RemoteConnectionsView() }
         .onAppear {
             workspaceManager.ensureAITerminal()
             seenChoice = currentChoice()
@@ -210,7 +212,7 @@ struct AITerminalPanel: View {
             TerminalRestartButton(help: "Start the shown terminal again (with the model chosen in the toolbar)", compact: compact) {
                 workspaceManager.restartAITerminal()
             }
-            .disabled(workspaceManager.aiTerminal == nil)
+            .disabled(workspaceManager.aiTerminal == nil || workspaceManager.aiTerminal?.isRemote == true)
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(VSDark.bgSidebar)
@@ -221,6 +223,8 @@ struct AITerminalPanel: View {
             ForEach(TerminalProfile.allCases) { profile in
                 Button { workspaceManager.openAITerminal(profile) } label: { Label(profile.title, systemImage: profile.icon) }
             }
+            Divider()
+            Button { showRemoteConnections = true } label: { Label("Connect to Home…", systemImage: "network") }
         } label: {
             Image(systemName: "plus").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textDim)
         }

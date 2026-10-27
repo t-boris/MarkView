@@ -1,0 +1,31 @@
+name: Remote Workspace Checks
+
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Models/Remote/**'
+      - 'MarkView/Models/TerminalSession.swift'
+      - 'tools/remote-relay/**'
+      - 'tools/tests/Remote*'
+      - 'tools/tests/remote-workspace-tests.sh'
+      - '.github/workflows/remote-workspace.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workspace-and-relay:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check work-computer files, commands, encryption, HTTPS and the live Unix bridge
+        run: bash tools/tests/remote-workspace-tests.sh
+      - name: Build macOS application
+        run: >-
+          xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug
+          -derivedDataPath /tmp/MarkViewRemoteCI CODE_SIGNING_ALLOWED=NO build

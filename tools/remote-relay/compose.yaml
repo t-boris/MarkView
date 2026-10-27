@@ -1,0 +1,26 @@
+services:
+  relay:
+    build: .
+    restart: unless-stopped
+    environment:
+      REGISTRATION_TOKEN: ${REGISTRATION_TOKEN:?Set a private relay access key}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+  https:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      RELAY_HOST: ${RELAY_HOST:?Set RELAY_HOST to your relay DNS hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - certificates:/data
+      - caddy_config:/config
+    depends_on: [relay]
+volumes:
+  certificates:
+  caddy_config:

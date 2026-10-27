@@ -1,5 +1,56 @@
 # MarkView — Follow-up Tasks
 
+## Task 142: Remote home assistants with a work-computer workspace (active, 2026-10-27)
+
+Acceptance: MarkView on a work laptop connects to Claude Code or Codex on the home computer;
+the assistant reads and changes the selected work folder, runs Git/builds/tests on the work
+computer and can continue its home conversation. The work computer needs no additional
+client, VPN, SSH or inbound ports. Do not mark this task complete on protocol/unit checks alone.
+
+Work is isolated in `/private/tmp/MarkView-remote-workspace`, branch `feat/remote-workspace`,
+based on `origin/main` `11be58053ae2201dd07a6c90f665e1432a4a7a4e` (also verified through
+GitHub). The original shared checkout was not switched or modified.
+
+- [x] Separate wire/encryption, HTTPS channel, work-computer executor, provider configuration,
+      home coordinator, MCP bridge and terminal-connection interface.
+- [x] AES-GCM encrypted, role-authenticated messages; acknowledged delivery, bounded queues,
+      idempotent sends and work-computer operations; revocation and peer liveness.
+- [x] Work-computer file listing, text/images, file creation, exact edits, shell commands,
+      command polling/input/termination. Native home tools are disabled/guarded to prevent
+      fallback to the wrong disk. Provider credentials remain with the home CLIs.
+- [x] Settings and terminal-plus connection UI; home opt-in and connection code; stable
+      per-workspace home conversation directory. Invitations are not saved in preferences.
+- [x] Dependency-free Node relay, HTTPS Docker Compose/Caddy deployment, operator README.
+      After Boris requested new hosting, added the same relay's Cloudflare Worker/Durable Object
+      adapter and deployment configuration. Eight relay/Worker checks and Wrangler dry-run pass.
+      Managed registration requires a private relay access key before allocating room objects;
+      the work-computer code contains only that connection's key, not the relay provisioning key.
+- [x] Debug build succeeds with this environment's compiler invocation workaround:
+      `OTHER_SWIFT_FLAGS='$(inherited) -Xfrontend -disable-sandbox'`. The normal invocation's
+      SwiftUI macro process fails under the outer sandbox; no project build flag was changed.
+- [x] `bash tools/tests/remote-workspace-tests.sh --core-only`: 37 workspace checks, HTTPS
+      encryption/retry/acknowledgement failure injection, and 8 relay/Worker handler tests pass.
+      Large stdin drains before EOF; app termination stops remote workspace commands through
+      AgentProcesses. Four guard calls through the built app reject native home tools and allow MCP.
+- [x] Installed Codex 0.164.0 parses the generated configuration (`features list` confirms
+      native shell/view-image/apps/plugins/subagents off and hooks on). Claude 2.1.311 parses
+      the generated flags with `--help`. These are not live provider acceptance runs.
+- [ ] Full local Unix bridge integration: this tool sandbox denies bind with
+      `Operation not permitted`; `--core-only` explicitly excludes it. New CI runs the full test.
+- [ ] Actual HTTPS relay deployment and two-Mac connection. Boris needs a new hosting option.
+      Cloudflare Worker packaging is ready (Wrangler 4.90.0 dry-run); authenticated publication
+      and external connectivity are not yet verified. A saved Cloudflare login exists, but
+      `wrangler whoami` fails because this execution sandbox cannot resolve/reach the service.
+- [ ] Live Claude and Codex: read a work-only sentinel, edit/create work files, run tests/Git,
+      prove the home namesakes unchanged, continue a conversation, disconnect/revoke and
+      verify child processes stop. Check native tool guard and interactive CLI escape paths.
+- [ ] Running app UI verification and final long-running process/lifecycle review.
+- [x] Version bumped from 4.56.1 to 4.57.0; Debug build passes with the compiler workaround above.
+- [ ] Draft PR/checks, ready review/merge, then signed Release/DMG from merged
+      `origin/main` and required Build & Release/notarization verification.
+
+Do not claim completion until the live acceptance and repository completion workflow pass.
+
 ## Task 95: Prototype Studio — images in the conversation, screenshot of the pointed-at element (2026-10-07, 4.14.0)
 
 Boris: paste images into the AI chat of a prototype; Point should send either the HTML (as now) or the HTML plus a
