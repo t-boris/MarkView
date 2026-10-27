@@ -1,5 +1,19 @@
 # MarkView — Follow-up Tasks
 
+## Task 144: Remote assistant mode labels collapse (2026-10-27, 4.58.1)
+
+Boris's installed-app screenshot shows the native TabView labels compressed into an unreadable
+control above the connection form. Replace it with an explicit, full-width segmented picker and
+one scrollable form. Preserve work/home state and transport behavior.
+
+- [x] Explicit Connect to Home / Allow This Mac mode selection, stable intrinsic height and
+      scrollable content for larger interface text; no connection/provider changes.
+- [x] Debug build and project lint pass. Protected app UI checked at 100% and 150%: both full
+      mode labels, switching, retained model/relay/key fields and scrolling to the bottom action.
+      Remote hosting was not enabled during the layout check.
+- [ ] PR/CI/merge, signed/notarized DMG and reinstall the corrected version.
+
+
 ## Task 143: PDF books from selected files and folders (2026-10-27, 4.58.0)
 
 Boris: select one/multiple files or folders and export a polished book in a requested language,
@@ -28,7 +42,10 @@ The book needs linked contents, page numbers, cross-references, images and prope
       reordering/removal, shortening slider, theme/page/language selection, actual 16-page Save, Open PDF and Show in Finder.
       Final app also passed current-folder/add-folder deduplication and immediate cancellation of a 1.2 MB source.
 - [x] Debug build and generated project lint pass; version bumped to 4.58.0.
-- [ ] Final native/CI checks, PR merge and signed/notarized Release/DMG from merged main.
+- [x] PR https://github.com/t-boris/MarkView/pull/194 merged at `895f25f`; final PR CI and merge-commit Build & Release passed.
+      Signed/notarized/stapled v4.58.0: https://github.com/t-boris/MarkView/releases/tag/v4.58.0 .
+      Installed from the verified DMG at Boris’s request, preserving window state and previous app rollback.
+      Codex also passed complete Russian translation and shortening: 118/227 prose words (52.0%).
 
 
 ## Task 142: Remote home assistants with a work-computer workspace (active, 2026-10-27)
