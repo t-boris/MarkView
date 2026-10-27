@@ -265,6 +265,10 @@ struct ContentView: View {
             showFolderPicker = true
         }
         .overlay(alignment: .bottomTrailing) { AIToolJobsBanner(jobs: workspaceManager.aiJobs) }
+        .sheet(item: $workspaceManager.pdfBookSelection) { selection in
+            BookPDFExportView(selection: selection, project: workspaceManager.aiProject,
+                              drafts: workspaceManager.pdfBookDrafts, database: workspaceManager.semanticDatabase)
+        }
         .sheet(isPresented: graphCreatorSheetBinding) {
             GraphCreatorSheet(
                 workspaceManager: workspaceManager,

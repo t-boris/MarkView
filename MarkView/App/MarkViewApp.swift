@@ -309,6 +309,9 @@ struct MarkViewApp: App {
             }
 
             CommandGroup(after: .saveItem) {
+                Button("Export PDF Book…") { activeWorkspace?.presentPDFBook() }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
+                    .disabled(activeWorkspace == nil)
                 Button("Export PDF...") {
                     exportPDF()
                 }
