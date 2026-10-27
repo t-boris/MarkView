@@ -313,6 +313,7 @@ struct FileTreeView: View {
                         Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: here) }
                         Divider()
                         Button("Link Folder…") { workspaceManager.chooseFoldersToLink() }
+                        Button { workspaceManager.presentPDFBook([here]) } label: { Label("Export This Folder as PDF Book…", systemImage: "book.closed") }
                     }
                 }
                 .background(VSDark.bgSidebar)
@@ -529,6 +530,7 @@ struct FileTreeView: View {
                 Divider()
             }
             Button("New File...") { createNewFile(in: url) }
+            Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             if git.isGitRepo { Button("New File (Ignored by Git)...") { createNewFile(in: url, ignored: true) } }
             Button("New Folder...") { createNewFolder(in: url) }
             Button("New Graph Diagram...") { workspaceManager.presentGraphCreator(in: url) }
@@ -608,6 +610,7 @@ struct FileTreeView: View {
                 }
             }
             Button { workspaceManager.implementWithAI(url) } label: { Label("Implement with AI", systemImage: "hammer") }
+            Button { workspaceManager.presentPDFBook([url]) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
             Divider()
             if Archive.isArchive(url) {
                 Button("Extract Here") { extractArchive(url, askFolder: false) }
@@ -661,6 +664,8 @@ struct FileTreeView: View {
         HStack(spacing: 8) {
             Text("\(selection.count) selected").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
             Spacer()
+            Button { workspaceManager.presentPDFBook(selection.ordered(filteredContents.map(\.url))) } label: { Image(systemName: "book.closed").uiFont(size: 11) }
+                .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Export selected files and folders as a PDF book")
             Button { moveAsking(selectedItems) } label: { Image(systemName: "folder").uiFont(size: 11) }
                 .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Move to…")
             Button { trash(selectedItems) } label: { Image(systemName: "trash").uiFont(size: 11) }
@@ -678,6 +683,7 @@ struct FileTreeView: View {
     @ViewBuilder private var selectionMenu: some View {
         let items = selectedItems
         let changed = items.compactMap { fileGitStatus($0) }
+        Button { workspaceManager.presentPDFBook(selection.ordered(filteredContents.map(\.url))) } label: { Label("Export PDF Book…", systemImage: "book.closed") }
         Button("Move \(items.count) Items to…") { moveAsking(items) }
         if !changed.isEmpty {
             Divider()

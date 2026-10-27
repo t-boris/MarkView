@@ -15,8 +15,8 @@ settings:
     SUPPORTS_MACCATALYST: false
     CODE_SIGN_STYLE: Automatic
     PRODUCT_NAME: MarkView
-    MARKETING_VERSION: "4.57.0"
-    CURRENT_PROJECT_VERSION: "4.57.0"
+    MARKETING_VERSION: "4.58.0"
+    CURRENT_PROJECT_VERSION: "4.58.0"
     INFOPLIST_FILE: MarkView/Info.plist
     GENERATE_INFOPLIST_FILE: false
 
@@ -44,6 +44,7 @@ targets:
           /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/index.html" "${DEST}/index.html"
           /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/terminal.html" "${DEST}/terminal.html"
           /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/discussion.html" "${DEST}/discussion.html"
+          /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/book.html" "${DEST}/book.html"
           if [ -d "${SRCROOT}/MarkView/Resources/Editor/vendor" ]; then
             rm -rf "${DEST}/vendor"
             /usr/bin/ditto "${SRCROOT}/MarkView/Resources/Editor/vendor" "${DEST}/vendor"

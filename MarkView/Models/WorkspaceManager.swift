@@ -391,6 +391,21 @@ class WorkspaceManager: ObservableObject {
     }
 
     @Published var semanticDatabase: SemanticDatabase?
+    @Published var pdfBookSelection: BookPDFSelection?
+
+    func presentPDFBook(_ urls: [URL]? = nil) {
+        let sources: [URL]
+        if let urls { sources = urls }
+        else if openTabs.indices.contains(activeTabIndex), case .file = openTabs[activeTabIndex].kind { sources = [openTabs[activeTabIndex].url] }
+        else { sources = [] }
+        pdfBookSelection = BookPDFSelection(urls: sources)
+    }
+
+    var pdfBookDrafts: [String: String] {
+        var result: [String: String] = [:]
+        for tab in openTabs where tab.isModified { if case .file = tab.kind { result[tab.url.path] = tab.content } }
+        return result
+    }
     @Published var incrementalCompiler: IncrementalCompiler?
     @Published var embeddingClient = EmbeddingClient()
     @Published var gitClient = GitClient()

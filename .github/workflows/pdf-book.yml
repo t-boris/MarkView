@@ -1,0 +1,21 @@
+name: PDF Book Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/**'
+      - 'project.yml'
+      - 'tools/tests/BookPDF*'
+      - 'tools/tests/book-pdf-tests.sh'
+      - '.github/workflows/pdf-book.yml'
+permissions:
+  contents: read
+jobs:
+  pdf-book:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native PDF content, pagination, links and bookmarks
+        run: bash tools/tests/book-pdf-tests.sh
+      - name: Build application
+        run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewBookCI CODE_SIGNING_ALLOWED=NO build

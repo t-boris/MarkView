@@ -64,6 +64,23 @@ in a clean window: WYSIWYG or source, Mermaid diagrams, math, task lists, front 
 `[[wikilinks]]`. Export to PDF. Nothing else is required: no project, no AI, no account.
 → [Reading and writing](#reading-and-writing)
 
+**PDF books.** Select files and folders in Files (⌘-click or ⇧-click), then choose **Export PDF Book…**
+from the context menu or the selection bar. A single file/folder has the same command;
+right-click empty space to export the current folder, or use **File → Export PDF Book…** (⌘⇧E).
+Add sources and arrange chapters before exporting. Books include a cover, linked contents with page
+numbers, native PDF bookmarks, internal/cross-document links, external links, footnotes, images,
+Mermaid diagrams and formulas. Tables repeat their headers across pages; long cells continue
+without clipping. Choose warm paper, classic white or midnight, and A4, landscape A4 or Letter.
+
+At **0% shortening** and **Document language**, the complete source text is typeset locally without
+an assistant, including unsaved editor drafts. Translation and shortening use the project's existing
+CLI assistant/model. **50% shortening** targets about half the prose; tables, code, formulas and
+illustrations stay complete. The app measures the result, retries a missed word budget and reports
+the actual retained prose volume. PDF bytes and page count also depend on images and layout.
+Source files are never rewritten. Supported sources are Markdown, HTML, UTF-8/UTF-16 text, source
+code, CSV/TSV and system-decodable images; unsupported files found inside folders are listed.
+Links to local documents outside the selected book are listed as notices.
+
 **2. Browse a folder as a project.** Open a folder to get a file tree, full-text search
 (**⌘⇧K**), git status, a code viewer for 45 languages, and viewers for images, JSON, YAML,
 CSV, Parquet, SQLite, Excel, logs and HTML.

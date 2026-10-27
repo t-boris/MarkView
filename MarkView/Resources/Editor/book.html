@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src data:; connect-src 'none'">
+<link rel="stylesheet" href="vendor/css/katex.min.css">
+<link rel="stylesheet" href="vendor/css/markview-book.css">
+<script src="vendor/js/markdown-it.min.js"></script>
+<script src="vendor/js/markdown-it-footnote.min.js"></script>
+<script src="vendor/js/markdown-it-task-lists.min.js"></script>
+<script src="vendor/js/katex.min.js"></script>
+<script src="vendor/js/mermaid.min.js"></script>
+<script>var md = markdownit({html:true, linkify:true, typographer:false}); md.use(markdownitFootnote); md.use(markdownitTaskLists);</script>
+<script src="vendor/js/markview-mdext.js"></script>
+<script defer src="vendor/js/markview-book.js"></script>
+</head><body><div id="pages"></div><div id="source"></div></body></html>

@@ -1,5 +1,35 @@
 # MarkView — Follow-up Tasks
 
+## Task 143: PDF books from selected files and folders (2026-10-27, 4.58.0)
+
+Boris: select one/multiple files or folders and export a polished book in a requested language,
+with full text by default or semantic shortening (0% = complete, 50% = approximately half the prose).
+The book needs linked contents, page numbers, cross-references, images and proper tables.
+
+- [x] Per-workspace export sheet, file/folder/selection menus, current-folder action and File menu (Cmd-Shift-E).
+      Add sources, natural recursive order, canonical deduplication, reorder/remove chapters and editor drafts.
+      Unsupported binary sources are reported. Source files are never rewritten.
+- [x] Isolated native WebKit renderer with bundled Markdown/Mermaid/KaTeX engines, three paper themes,
+      A4/landscape/Letter, cover, chapter starts, running heads/feet and page numbers.
+      Content-aware pagination, repeated table heads and safe continuation of very long cells.
+- [x] PDFKit assembly with native bookmark hierarchy, correctly numbered multi-page contents,
+      internal/cross-file/footnote destinations and external URL annotations. Missing local targets are listed.
+- [x] Original-language 0% export has no AI dependency. Translation protects rendered structure,
+      links/code/math/images; condensation edits body prose separately and preserves complete tables.
+      Word budgets are independently measured with bounded correction attempts and actual retained volume.
+      Uses the existing project assistant/model and cancellation-aware CLICompletion, not a new API key.
+- [x] Native checks: complete source/drafts, overlapping selections, folder order, 16-page fixture,
+      Cyrillic, complete table rows and very tall cells, 102 links, bookmarks, multi-page contents,
+      Letter paper, sanitized HTML/container anchors and cancellation. All 16 fixture pages visually reviewed.
+- [x] Live Claude checks through the production assistant path: complete Russian translation,
+      unchanged source/code/table/link structure, 50% shortening retained 122/227 words (53.7%).
+      Opt-in `tools/tests/book-pdf-live.sh`; normal provider allowance applies.
+- [x] Protected separate-app UI: single-file context action, multi-selection button, title, chapter
+      reordering, shortening slider, theme selection, actual 16-page Save, Open PDF and Show in Finder.
+- [x] Debug build and generated project lint pass; version bumped to 4.58.0.
+- [ ] Final native/CI checks, PR merge and signed/notarized Release/DMG from merged main.
+
+
 ## Task 142: Remote home assistants with a work-computer workspace (active, 2026-10-27)
 
 Acceptance: MarkView on a work laptop connects to Claude Code or Codex on the home computer;
