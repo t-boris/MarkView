@@ -41,10 +41,16 @@ final class BookPDFExportModel: ObservableObject {
                 let collection = try await withTaskCancellationHandler { try await reading.value } onCancel: { reading.cancel() }
                 try Task.checkCancellation()
                 var known = Set(chapters.map { $0.url.resolvingSymlinksInPath().path })
+                var combined = chapters
                 for var chapter in collection.chapters where known.insert(chapter.url.resolvingSymlinksInPath().path).inserted {
                     chapter.id = "c" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-                    chapters.append(chapter)
+                    combined.append(chapter)
                 }
+                guard combined.count <= BookPDFSource.maximumChapters,
+                      combined.reduce(0, { $0 + $1.text.utf8.count }) <= BookPDFSource.maximumBytes else {
+                    throw BookPDFError.invalid("The combined book exceeds 1,000 chapters or 12 MB of text. Remove some chapters before adding more; the existing selection was preserved.")
+                }
+                chapters = combined
                 warnings += collection.skipped.map { "Skipped unsupported file or symbolic link: " + $0 }
                 if options.title.isEmpty { options.title = chapters.count == 1 ? chapters[0].title : project?.lastPathComponent ?? "Collected writings" }
                 status = chapters.isEmpty ? "No supported documents in this selection." : "\(chapters.count) chapters ready. Arrange them in reading order."
