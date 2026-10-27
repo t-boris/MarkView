@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct RemoteConnectionsView: View {
+    private enum ConnectionMode: Hashable { case work, home }
     @EnvironmentObject var workspace: WorkspaceManager
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var host = RemoteHostController.shared
@@ -13,6 +14,7 @@ struct RemoteConnectionsView: View {
     @State private var error: String?
     @State private var connecting = false
     @State private var relayAccessKey = ""
+    @State private var connectionMode = ConnectionMode.work
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -21,10 +23,23 @@ struct RemoteConnectionsView: View {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
-            TabView {
-                work.padding(12).tabItem { Text("Connect to Home") }
-                home.padding(12).tabItem { Text("Allow This Mac") }
+            Picker("Connection direction", selection: $connectionMode) {
+                Text("Connect to Home").tag(ConnectionMode.work)
+                Text("Allow This Mac").tag(ConnectionMode.home)
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: .infinity)
+            .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                Group {
+                    if connectionMode == .work { work } else { home }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.25)))
             if let error { Text(error).foregroundColor(.red).textSelection(.enabled) }
         }
         .padding(20).frame(width: 610, height: 440)
