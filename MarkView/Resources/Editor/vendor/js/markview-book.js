@@ -376,6 +376,9 @@
             if (!p.classList.contains('cover')) {
                 const body=p.querySelector('.page-content'), br=body.getBoundingClientRect();
                 for(const el of body.querySelectorAll('*')) {
+                    // KaTeX keeps a clipped MathML copy for accessibility. Its descendants
+                    // report their full intrinsic size despite being visually hidden.
+                    if (el.closest('.katex-mathml')) continue;
                     const r=el.getBoundingClientRect(); if(r.width && (r.right>br.right+2 || r.bottom>br.bottom+2)) overflow++;
                 }
             }

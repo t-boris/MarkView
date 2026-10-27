@@ -53,6 +53,12 @@ enum BookPDFTests {
 
         The formula is $E = mc^2$.
 
+        A display formula must be checked by its visible typesetting, without counting the hidden accessibility copy as overflow.
+
+        $$
+        \\text{Operating result} = \\text{Incoming amount} - \\text{Outgoing amount}
+        $$
+
         ```mermaid
         graph LR
           Source --> Book
@@ -104,6 +110,7 @@ enum BookPDFTests {
         precondition(pdf.pageCount > 6)
         precondition(text.contains("LAST_SENTINEL_FIRST") && text.contains("LAST_SENTINEL_SECOND"), "Both chapter endings must survive pagination.")
         precondition(text.contains("Кириллица должна читаться правильно"))
+        precondition(text.contains("Operating") && text.contains("Outgoing"), "Display formulas must remain visible in the completed PDF.")
         precondition(text.components(separatedBy: "Table content stays readable.").count - 1 == 150, "Table rows must not lose or duplicate their text.")
         precondition(text.components(separatedBy: "exceptionally").count - 1 == 85 && text.components(separatedBy: "losing").count - 1 == 85,
                      "Tall cells must be split without losing or duplicating text, including sentences crossing a page boundary.")
@@ -111,6 +118,17 @@ enum BookPDFTests {
         let links = (0..<pdf.pageCount).flatMap { pdf.page(at: $0)!.annotations }
         precondition(links.contains { $0.action is PDFActionGoTo } && links.contains { $0.action is PDFActionURL })
         precondition(result.warnings.isEmpty, "All selected local references should resolve: \(result.warnings)")
+        let oversizedMath = root.appendingPathComponent("oversized-math.md")
+        try ("# Oversized formula\n\n$$\n\\text{" + String(repeating: "An unbreakable expression ", count: 20) + "}\n$$\n")
+            .write(to: oversizedMath, atomically: true, encoding: .utf8)
+        let overflowRenderer = try BookPDFRenderer(entry: URL(fileURLWithPath: CommandLine.arguments[1]))
+        _ = try await overflowRenderer.prepare(BookPDFSource.collect([oversizedMath]).chapters, options: options)
+        do {
+            _ = try await overflowRenderer.render(options: options, labels: ["book":"BOOK", "edition":"Complete", "contents":"Contents"]) { _, _ in }
+            preconditionFailure("Visible oversized formulas must still fail instead of being clipped.")
+        } catch {
+            precondition(error.localizedDescription.contains("overflowing content"), "The actual layout error must reach the user: \(error.localizedDescription)")
+        }
         let folder = root.appendingPathComponent("selection", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data("Ten".utf8).write(to: folder.appendingPathComponent("10.txt")); try Data("Two".utf8).write(to: folder.appendingPathComponent("02.txt"))
