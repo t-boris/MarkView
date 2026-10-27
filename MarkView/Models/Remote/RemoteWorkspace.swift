@@ -15,10 +15,16 @@ actor RemoteWorkspace {
     private let deviceID: String
     private var commands: [String: RemoteCommand] = [:]
     private var results: [UUID: RemoteJSON] = [:]
+    private var resultSizes: [UUID: Int] = [:]
+    private var resultOrder: [UUID] = []
+    private var resultHead = 0
+    private var resultBytes = 0
+    private let resultCacheBytes: Int
+    private var seen: Set<UUID> = []
     private var inFlight: [UUID: Task<RemoteJSON, Never>] = [:]
     private var closed = false
 
-    init(root: URL, deviceID: String? = nil) async throws {
+    init(root: URL, deviceID: String? = nil, resultCacheBytes: Int = 32 * 1024 * 1024) async throws {
         let root = root.standardizedFileURL.resolvingSymlinksInPath()
         var directory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &directory), directory.boolValue else {
@@ -26,6 +32,7 @@ actor RemoteWorkspace {
         }
         self.root = root
         self.deviceID = deviceID ?? Self.persistentDeviceID
+        self.resultCacheBytes = max(0, resultCacheBytes)
     }
 
     func describe() -> RemoteJSON {
@@ -47,17 +54,42 @@ actor RemoteWorkspace {
     func call(id: UUID, name: String, arguments: RemoteJSON) async -> RemoteJSON {
         if let result = results[id] { return result }
         if let operation = inFlight[id] { return await operation.value }
+        guard !seen.contains(id) else { return .textResult("This request already completed, but its cached result expired. Reconnect before continuing.", error: true) }
         guard !closed else { return .textResult("The workspace was disconnected.", error: true) }
-        guard results.count < 100000 else { return .textResult("Reconnect to continue this workspace session.", error: true) }
+        guard seen.count < 100000 else { return .textResult("Reconnect to continue this workspace session.", error: true) }
+        seen.insert(id)
         let operation = Task { () -> RemoteJSON in
-            do { return try await perform(name, arguments) }
+            do {
+                let result = try await perform(name, arguments)
+                guard try JSONEncoder().encode(RemoteMessage("toolResult", result, id: id)).count <= RemoteMessage.maxBytes else {
+                    throw RemoteFailure.invalid("Tool result exceeds 4 MB. Read a smaller portion or limit command output.")
+                }
+                return result
+            }
             catch { return .textResult(error.localizedDescription, error: true) }
         }
         inFlight[id] = operation
         let result = await operation.value
         inFlight.removeValue(forKey: id)
-        results[id] = result
+        cache(result, id: id)
         return result
+    }
+
+    /// Bound retained file/command contents while preserving every completed ID. Evicting a result
+    /// can refuse a very old retry, but can never execute an already completed write a second time.
+    private func cache(_ result: RemoteJSON, id: UUID) {
+        let bytes = (try? JSONEncoder().encode(result).count) ?? RemoteMessage.maxBytes
+        guard bytes <= resultCacheBytes else { return }
+        while resultBytes + bytes > resultCacheBytes, resultHead < resultOrder.count {
+            let previous = resultOrder[resultHead]; resultHead += 1
+            results.removeValue(forKey: previous)
+            resultBytes -= resultSizes.removeValue(forKey: previous) ?? 0
+        }
+        if resultHead > 1024, resultHead * 2 >= resultOrder.count {
+            resultOrder.removeFirst(resultHead); resultHead = 0
+        }
+        results[id] = result; resultSizes[id] = bytes
+        resultBytes += bytes; resultOrder.append(id)
     }
 
     private func perform(_ name: String, _ args: RemoteJSON) async throws -> RemoteJSON {

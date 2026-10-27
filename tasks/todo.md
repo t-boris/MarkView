@@ -28,13 +28,15 @@ GitHub). The original shared checkout was not switched or modified.
 - [x] Debug build succeeds with this environment's compiler invocation workaround:
       `OTHER_SWIFT_FLAGS='$(inherited) -Xfrontend -disable-sandbox'`. The normal invocation's
       SwiftUI macro process fails under the outer sandbox; no project build flag was changed.
-- [x] `bash tools/tests/remote-workspace-tests.sh --core-only`: 44 workspace checks, HTTPS
+- [x] `bash tools/tests/remote-workspace-tests.sh --core-only`: 46 workspace checks, HTTPS
       encryption/retry/acknowledgement failure injection, and 14 relay/Worker/Vercel/Redis-HTTP checks pass
       (two real-Redis checks explicitly skip locally).
       Large stdin drains before EOF; app termination stops remote workspace commands through
       AgentProcesses. Tool requests release timeout tasks on completion/disconnect; duplicate IDs
-      cannot replace another caller's continuation. Four guard calls through the initial built app
-      reject native home tools and allow MCP; the unique namespace is also covered by core checks.
+      cannot replace another caller's continuation. Seven current guard calls through the built app
+      reject native home tools, the old generic MCP namespace and malformed names, and allow work MCP.
+      Cached tool results have a 32 MB byte budget; evicted IDs never replay completed operations.
+      Results are checked after JSON escaping so an oversized payload returns a tool error.
 - [x] Installed Codex 0.164.0 parses the generated configuration (`features list` confirms
       native shell/view-image/apps/plugins/subagents off and hooks on). Claude 2.1.311 parses
       the generated flags with `--help`. These are not live provider acceptance runs.

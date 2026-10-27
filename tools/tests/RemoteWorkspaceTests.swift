@@ -99,6 +99,18 @@ enum RemoteWorkspaceTests {
         _ = await call("write_file", ["path": .string("new/file.txt"), "content": .string("alpha alpha")], id: writeID)
         check(try String(contentsOf: workRoot.appendingPathComponent("new/file.txt"), encoding: .utf8) == "beta beta", "Retrying a previous write must not overwrite subsequent edits.")
 
+        let bounded = try await RemoteWorkspace(root: workRoot, deviceID: UUID().uuidString, resultCacheBytes: 0)
+        let oldID = UUID()
+        _ = await bounded.call(id: oldID, name: "write_file", arguments: .object(["path": .string("cache.txt"), "content": .string("first")]))
+        _ = await bounded.call(id: UUID(), name: "write_file", arguments: .object(["path": .string("cache.txt"), "content": .string("second")]))
+        let expiredRetry = await bounded.call(id: oldID, name: "write_file", arguments: .object(["path": .string("cache.txt"), "content": .string("first")]))
+        let afterExpiredRetry = try String(contentsOf: workRoot.appendingPathComponent("cache.txt"), encoding: .utf8)
+        check(expiredRetry["isError"].bool == true && afterExpiredRetry == "second", "Evicting a cached result must never replay a completed write.")
+        await bounded.close()
+        try Data(repeating: 1, count: 1024 * 1024).write(to: workRoot.appendingPathComponent("control-characters.txt"))
+        let oversized = await call("read_file", ["path": .string("control-characters.txt")])
+        check(oversized["isError"].bool == true && text(oversized).contains("Read a smaller portion"), "JSON escaping must not turn a bounded file into an oversized transport message.")
+
         let shell = await call("exec_command", ["cmd": .string("pwd; cat identity.txt; printf built > build.txt; /usr/bin/git init -q"), "yield_time_ms": .int(1000)])
         let shellOutput = await commandOutputUntilExit(shell)
         check(shellOutput.contains("WORK ONLY") && shellOutput.contains(workRoot.path), "Commands must execute in the work-computer root.")
