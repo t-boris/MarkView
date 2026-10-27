@@ -9,6 +9,7 @@
     const slug = text => text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/ /g, '-');
     const node = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
     const canonical = value => { const u = new URL(value); u.hash = ''; u.search = ''; return decodeURIComponent(u.href); };
+    const yieldLayout = () => new Promise(resolve => setTimeout(resolve, 0));
     const aliasKey = (url, anchor = '') => canonical(url) + '#' + anchor;
     function sanitize(root) {
         root.querySelectorAll('script,style,iframe,object,embed,video,audio,link,meta,base,form,button,textarea,select').forEach(n => n.remove());
@@ -97,7 +98,7 @@
         }
         return points[lo];
     }
-    function flow(element, inherited = []) {
+    async function flow(element, inherited = []) {
         if (element.nodeType === Node.TEXT_NODE) {
             if (!element.textContent.trim()) return;
             element = node('p', '', element.textContent);
@@ -106,12 +107,12 @@
         if (['DIV','SECTION','ARTICLE','MAIN','HEADER','FOOTER'].includes(element.tagName) && !element.classList.contains('chapter-header') && !element.classList.contains('mermaid') && !element.classList.contains('math-block')) {
             const children = [...element.childNodes].filter(x => x.nodeType === 1 || x.textContent.trim());
             const ids = [...inherited, ...(element.id ? [element.id] : [])];
-            children.forEach((child, index) => flow(child, index === 0 ? ids : []));
+            for (let index=0; index<children.length; index++) await flow(children[index], index === 0 ? ids : []);
             return;
         }
         if (inherited.length) { element = element.cloneNode(true); element.dataset.aliasIds = JSON.stringify(inherited); }
-        if (element.tagName === 'TABLE') { flowTable(element); return; }
-        if (element.tagName === 'UL' || element.tagName === 'OL') { flowList(element); return; }
+        if (element.tagName === 'TABLE') { await flowTable(element); return; }
+        if (element.tagName === 'UL' || element.tagName === 'OL') { await flowList(element); return; }
         let remaining = element.cloneNode(true);
         while (remaining) {
             current.append(remaining);
@@ -120,17 +121,17 @@
             remaining.remove();
             // Move an ordinary block intact before considering a split. Long paragraphs/code
             // still split at real text boundaries, preserving markup and all characters.
-            if (current.childNodes.length && !oversized) { page(); continue; }
+            if (current.childNodes.length && !oversized) { page(); await yieldLayout(); continue; }
             const at = prefixThatFits(remaining, current);
             if (at <= 0 || at >= remaining.textContent.length) {
-                if (current.childNodes.length) { page(); continue; }
+                if (current.childNodes.length) { page(); await yieldLayout(); continue; }
                 throw Error('A block cannot fit on a page without clipping. Try a landscape page or simplify an oversized formula/image.');
             }
             const [first, rest] = splitAt(remaining, at);
-            current.append(first); remaining = rest; remaining.classList.add('continuation'); page();
+            current.append(first); remaining = rest; remaining.classList.add('continuation'); page(); await yieldLayout();
         }
     }
-    function flowList(list) {
+    async function flowList(list) {
         let count = Number(list.getAttribute('start') || 1), fragment = null;
         for (const item of [...list.children]) {
             if (!fragment || fragment.parentElement !== current) { fragment = list.cloneNode(false); if (list.tagName === 'OL') fragment.start = count; current.append(fragment); }
@@ -141,17 +142,17 @@
                 remaining.remove();
                 if (fragment.children.length || current.children.length > 1) {
                     if (!fragment.children.length) fragment.remove();
-                    page(); fragment = list.cloneNode(false); if (list.tagName === 'OL') fragment.start = count; current.append(fragment); continue;
+                    page(); await yieldLayout(); fragment = list.cloneNode(false); if (list.tagName === 'OL') fragment.start = count; current.append(fragment); continue;
                 }
                 const at = prefixThatFits(remaining, fragment, () => fits());
                 if (!at || at >= remaining.textContent.length) throw Error('An oversized list item cannot be laid out without clipping.');
                 const [first, rest] = splitAt(remaining, at); fragment.append(first);
-                remaining = rest; remaining.classList.add('continuation'); page(); fragment = list.cloneNode(false); current.append(fragment);
+                remaining = rest; remaining.classList.add('continuation'); page(); await yieldLayout(); fragment = list.cloneNode(false); current.append(fragment);
             }
             count++;
         }
     }
-    function flowTable(table) {
+    async function flowTable(table) {
         if (table.querySelector('[rowspan]:not([rowspan="1"])')) {
             const test = table.cloneNode(true); current.append(test);
             if (fits()) return;
@@ -173,7 +174,7 @@
                 body.append(row);
                 if (fits()) break;
                 row.remove();
-                if (body.children.length || current.children.length > 1) { if (!body.children.length) fragment.remove(); page(); start(); continue; }
+                if (body.children.length || current.children.length > 1) { if (!body.children.length) fragment.remove(); page(); await yieldLayout(); start(); continue; }
                 // One exceptionally long row: split EACH cell at a line boundary and preserve
                 // the column grid across continuation rows, rather than cropping the table.
                 body.append(row);
@@ -200,7 +201,7 @@
                 body.append(first);
                 if (!fits()) throw Error('A split table row still exceeds the page. Try landscape pages.');
                 if (!hasRest) break;
-                page(); start(); row = rest;
+                page(); await yieldLayout(); start(); row = rest;
             }
         }
     }
@@ -325,7 +326,7 @@
         if (current.scrollHeight > height - 150) throw Error('The cover title is too long for this page. Shorten the title or use a taller page.');
         const outline = [];
         for (const c of chapters) {
-            currentTitle = c.root.querySelector('.chapter-header h1').textContent; page();
+            currentTitle = c.root.querySelector('.chapter-header h1').textContent; page(); await yieldLayout();
             const blocks = [...c.root.childNodes];
             for (let i = 0; i < blocks.length; i++) {
                 const b = blocks[i];
@@ -337,7 +338,7 @@
                     const needed = Math.min(nextHeight + 20, bodyHeight / 3);
                     clone.remove(); if ((!fits() || used > bodyHeight || room < needed) && current.children.length) page();
                 }
-                flow(b);
+                await flow(b);
             }
             outline.push({id:c.id, title:currentTitle, level:1});
             const headings = [...c.root.querySelectorAll('h1,h2,h3,h4,h5,h6')].filter(h => !h.closest('.chapter-header'));
@@ -347,10 +348,10 @@
         // Pagination of the contents is independent of page numbers: a fixed-width number
         // column reserves five digits before the chapter page indices are known.
         const firstTOC = pages.children.length; currentTitle = labels.contents; page();
-        const heading = node('h1','toc-heading',labels.contents); heading.id = 'book-contents'; flow(heading);
+        const heading = node('h1','toc-heading',labels.contents); heading.id = 'book-contents'; await flow(heading);
         for (const entry of outline.filter(x => x.level <= 3)) {
             const row = node('a', 'toc-row level-' + entry.level); row.dataset.target = entry.id; row.href = '#' + entry.id;
-            row.append(node('span','toc-title',entry.title),node('span','dots'),node('span','toc-number','99999')); flow(row);
+            row.append(node('span','toc-title',entry.title),node('span','dots'),node('span','toc-number','99999')); await flow(row);
         }
         const tocPages = [...pages.children].slice(firstTOC);
         const insertion = pages.children[1]; for (const p of tocPages) pages.insertBefore(p, insertion);

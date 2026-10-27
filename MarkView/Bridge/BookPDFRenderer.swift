@@ -12,6 +12,7 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
     private let entry: URL
     private var navigation: CheckedContinuation<Void, Error>?
     private var navigationTimeout: Task<Void, Never>?
+    private var operations: [UUID: () -> Void] = [:]
 
     init(entry: URL? = nil) throws {
         guard let entry = entry ?? Bundle.main.url(forResource: "book", withExtension: "html", subdirectory: "Editor") else {
@@ -92,7 +93,7 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
             progress(index + 1, count)
             let configuration = WKPDFConfiguration()
             configuration.rect = CGRect(x: 0, y: Double(index) * height, width: width, height: height)
-            let data = try await webView.pdf(configuration: configuration)
+            let data: Data = try await perform { completion in webView.createPDF(configuration: configuration, completionHandler: completion) }
             guard let page = PDFDocument(data: data)?.page(at: 0) else { throw BookPDFError.invalid("Page \(index + 1) could not be rendered.") }
             // WebKit's internal file:// links are not portable after assembling separate pages.
             for annotation in page.annotations { page.removeAnnotation(annotation) }
@@ -135,6 +136,8 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
     }
 
     func cancel() {
+        let waiting = Array(operations.values); operations.removeAll()
+        waiting.forEach { $0() }
         webView.stopLoading()
         finishNavigation(.failure(CancellationError()))
         webView.loadHTMLString("", baseURL: nil)
@@ -142,7 +145,28 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
 
     private func call(_ script: String, _ arguments: [String: Any] = [:]) async throws -> Any? {
         try Task.checkCancellation()
-        return try await webView.callAsyncJavaScript(script, arguments: arguments, in: nil, contentWorld: .page)
+        let value: Any = try await perform { completion in
+            webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page, completionHandler: completion)
+        }
+        return value
+    }
+
+    /// WebKit does not reliably resume its async-JavaScript completion when navigation destroys
+    /// a pending Promise. Own each continuation and retire it exactly once on cancellation.
+    private func perform<T>(_ start: (@escaping @Sendable (Swift.Result<T, Error>) -> Void) -> Void) async throws -> T {
+        let id = UUID()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                operations[id] = { continuation.resume(throwing: CancellationError()) }
+                start { [weak self] result in
+                    Task { @MainActor in
+                        guard self?.operations.removeValue(forKey: id) != nil else { return }
+                        continuation.resume(with: result)
+                    }
+                }
+            }
+        } onCancel: { Task { @MainActor [weak self] in self?.operations.removeValue(forKey: id)?() } }
     }
 
     private func load() async throws {

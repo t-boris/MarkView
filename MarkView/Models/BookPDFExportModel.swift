@@ -120,7 +120,7 @@ final class BookPDFExportModel: ObservableObject {
         }
     }
 
-    func cancel() { task?.cancel(); renderer?.cancel() }
+    func cancel() { if isBusy { status = "Stopping export…" }; task?.cancel(); renderer?.cancel() }
 
     private func bookLabels(options: BookPDFOptions, chapters: [BookPDFChapter]) async throws -> [String: String] {
         let known: [String: [String]] = [

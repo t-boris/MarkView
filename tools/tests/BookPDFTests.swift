@@ -134,8 +134,18 @@ enum BookPDFTests {
         let cancellation = try BookPDFRenderer(entry: URL(fileURLWithPath: CommandLine.arguments[1]))
         let cancelled = Task { try await cancellation.prepare(many, options: options) }; cancelled.cancel()
         do { _ = try await cancelled.value; preconditionFailure("Cancellation must finish without producing a PDF.") } catch {}
+        let longFile = root.appendingPathComponent("layout-cancellation.md")
+        try ("# Long layout\n\n" + String(repeating: "A long book must stay cancellable while the renderer paginates its chapters.\n\n", count: 9000)).write(to: longFile, atomically: true, encoding: .utf8)
+        let longRenderer = try BookPDFRenderer(entry: URL(fileURLWithPath: CommandLine.arguments[1]))
+        _ = try await longRenderer.prepare(BookPDFSource.collect([longFile]).chapters, options: options)
+        let job = Task { try await longRenderer.render(options: options, labels: ["book":"BOOK", "edition":"Complete", "contents":"Contents"]) { _, _ in } }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let stoppedAt = Date(); job.cancel(); longRenderer.cancel()
+        do { _ = try await job.value; preconditionFailure("A cancelled layout must not return a PDF.") } catch {}
+        precondition(Date().timeIntervalSince(stoppedAt) < 10, "Cancellation must yield promptly during a long layout.")
+        try FileManager.default.removeItem(at: longFile)
         print("Book PDF: source/draft/deduplication, protected transformation, \(pdf.pageCount) pages, Cyrillic, complete tables, bookmarks and \(links.count) links passed.")
-        print("Folder selection, long contents, Letter pages, sanitized HTML anchors and cancellation passed.")
+        print("Folder selection, long contents, Letter pages, sanitized HTML anchors and cancellation during long layout passed.")
         print("Artifact: \(root.appendingPathComponent("book.pdf").path)")
     }
 }
