@@ -51,6 +51,8 @@ enum RemoteProviderConfiguration {
             override(serverKey + ".command", toml(app))
             override(serverKey + ".args", "[" + ["--remote-workspace-mcp", "--socket", socket].map(toml).joined(separator: ",") + "]")
             override(serverKey + ".tool_timeout_sec", "120")
+            override(serverKey + ".required", "true")
+            override(serverKey + ".default_tools_approval_mode", toml("approve"))
             override("developer_instructions", toml(instructions))
             override("hooks.PreToolUse", "[{matcher=\".*\",hooks=[{type=\"command\",command=" + toml(guardCommand) + ",timeout=5}]}]")
             if resume { args += ["resume", "--last"] }

@@ -143,10 +143,15 @@ struct AITerminalPanel: View {
                 if let session = workspaceManager.aiTerminal {
                     HStack(spacing: 7) {
                         Image(systemName: "exclamationmark.shield")
-                        Text(compact ? "\(session.isRemote ? "Home assistant · Local commands" : "Unrestricted") · \(session.title)" :
-                             "\(session.isRemote ? "Home assistant · Local commands" : "Unrestricted") · \(session.title) · \(session.directory.path)")
-                            .lineLimit(1).truncationMode(.middle)
-                            .help(session.directory.path)
+                        if session.isRemote {
+                            Text("Local files and commands").fixedSize()
+                            Text(session.directory.path).lineLimit(1).truncationMode(.middle)
+                                .help(session.directory.path)
+                        } else {
+                            Text(compact ? "Unrestricted · \(session.title)" : "Unrestricted · \(session.title) · \(session.directory.path)")
+                                .lineLimit(1).truncationMode(.middle)
+                                .help(session.directory.path)
+                        }
                         Spacer(minLength: 0)
                         if !compact { Text("Changes: review below") }
                     }
@@ -193,19 +198,48 @@ struct AITerminalPanel: View {
     }
 
     private func tabBar(compact: Bool) -> some View {
-        HStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(workspaceManager.aiTerminals) { session in
-                        TerminalPanelTab(session: session,
-                                         monitor: workspaceManager.agentActivity,
-                                         compact: compact,
-                                         isActive: session.id == workspaceManager.aiTerminal?.id,
-                                         select: { workspaceManager.activeAITerminalID = session.id },
-                                         close: { workspaceManager.closeAITerminal(session.id) })
+        Group {
+            if workspaceManager.aiTerminals.count == 1, let session = workspaceManager.aiTerminals.first {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        terminalTab(session, compact: false).fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 0)
+                        terminalControls(compact: compact)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        terminalTab(session, compact: false)
+                        HStack {
+                            Spacer(minLength: 0)
+                            terminalControls(compact: compact)
+                        }
                     }
                 }
+            } else {
+                HStack(spacing: 6) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 2) {
+                            ForEach(workspaceManager.aiTerminals) { session in
+                                terminalTab(session, compact: compact)
+                            }
+                        }
+                    }
+                    terminalControls(compact: compact)
+                }
             }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(VSDark.bgSidebar)
+    }
+
+    private func terminalTab(_ session: TerminalSession, compact: Bool) -> some View {
+        TerminalPanelTab(session: session, monitor: workspaceManager.agentActivity,
+                         compact: compact, isActive: session.id == workspaceManager.aiTerminal?.id,
+                         select: { workspaceManager.activeAITerminalID = session.id },
+                         close: { workspaceManager.closeAITerminal(session.id) })
+    }
+
+    private func terminalControls(compact: Bool) -> some View {
+        HStack(spacing: 6) {
             newTerminalMenu
             TerminalDictationButton(session: workspaceManager.aiTerminal)
             if let session = workspaceManager.aiTerminal { TerminalStopButton(session: session, compact: compact) }
@@ -214,8 +248,7 @@ struct AITerminalPanel: View {
             }
             .disabled(workspaceManager.aiTerminal == nil || workspaceManager.aiTerminal?.isRemote == true)
         }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(VSDark.bgSidebar)
+        .fixedSize()
     }
 
     private var newTerminalMenu: some View {
@@ -271,7 +304,7 @@ private struct TerminalPanelTab: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: session.profile.icon).uiFont(size: 9).help(session.title)
-            Text(compact && session.profile == .claude ? "Claude" : session.title)
+            Text(compact && session.profile == .claude && !session.isRemote ? "Claude" : session.title)
                 .uiFont(size: 10, weight: isActive ? .semibold : .regular)
                 .lineLimit(1)
                 .help(session.title)

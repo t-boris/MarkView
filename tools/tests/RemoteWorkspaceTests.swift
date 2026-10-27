@@ -139,6 +139,12 @@ enum RemoteWorkspaceTests {
 
         let listed = RemoteWorkspaceTools.response(to: .object(["id": .int(1), "method": .string("tools/list")])) { _, _, _ in .null }
         check(listed?["result"]["tools"].array?.count == RemoteWorkspaceTools.names.count, "Both providers must discover the complete workspace interface.")
+        check(["Bash", "Read", "apply_patch", "mcp__work__read_file", ""].allSatisfy {
+            RemoteUnixRPC.guardResponse(for: $0)["hookSpecificOutput"]["permissionDecision"].string == "deny"
+        }, "Both providers must receive a supported denial for native home tools and malformed names.")
+        check([RemoteWorkspaceTools.toolPrefix + "read_file", "AskUserQuestion", "update_plan"].allSatisfy {
+            RemoteUnixRPC.guardResponse(for: $0) == .object([:])
+        }, "Allowed tools must use a neutral hook result accepted by both Claude and Codex.")
         let context = await workspace.describe()
         for provider in RemoteProviderConfiguration.Provider.allCases {
             let command = try RemoteProviderConfiguration.command(provider: provider, executable: "/test/agent", app: "/test/MarkView's App",
@@ -146,6 +152,10 @@ enum RemoteWorkspaceTests {
             check(command.contains("--remote-workspace-guard") || provider == .claude, "Codex must configure the native-tool guard.")
             check(!command.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex native execution must retain its sandbox.")
             check(command.contains("'model; touch /unwanted'"), "Model values must remain one quoted argument.")
+            if provider == .codex {
+                let server = "mcp_servers." + RemoteWorkspaceTools.serverName
+                check(command.contains(server + ".required=true") && command.contains(server + ".default_tools_approval_mode=\"approve\""), "Codex must require and authorize the owned work MCP server without prompting in never-approval mode.")
+            }
         }
         let settings = try JSONDecoder().decode(RemoteJSON.self, from: Data(contentsOf: fixture.appendingPathComponent("claude-settings.json")))
         check(settings["hooks"]["PreToolUse"].array?.count == 1, "Claude must have the same fail-closed native-tool guard.")

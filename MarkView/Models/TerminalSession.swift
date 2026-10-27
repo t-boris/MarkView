@@ -370,9 +370,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
         let exit = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         exit.setEventHandler { [weak self] in
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            MainActor.assumeIsolated { self?.processExited(status: status) }
+            MainActor.assumeIsolated {
+                guard let self, self.childPID == pid else { return }
+                var status: Int32 = 0
+                guard waitpid(pid, &status, 0) == pid else { return }
+                self.processExited(status: status)
+            }
         }
         exit.resume()
         exitSource = exit
@@ -443,12 +446,15 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// End the shell and everything started in it.
     func terminate() {
         connection?.stop()
-        if childPID > 0 { kill(-childPID, SIGHUP); kill(childPID, SIGHUP) }
+        let stoppedPID = childPID
+        childPID = 0
         readSource?.cancel(); readSource = nil
         exitSource?.cancel(); exitSource = nil
         input?.cancel(); input = nil
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
-        childPID = 0
+        if stoppedPID > 0 {
+            _ = TerminalChildProcess.stopAndReap(stoppedPID)
+        }
         isRunning = false
         exitCode = 130
         if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }

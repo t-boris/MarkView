@@ -19,6 +19,16 @@ routes the protocol to `api/relay.js`, a Node 22 Function. The function requires
 Upstash-compatible Redis store; never deploy the in-memory Node server as a substitute.
 Use the project's existing Redis integration or provision one through Vercel Marketplace.
 
+For a new project, the CLI can provision a dedicated free Redis resource and connect it
+only to production. Complete any Marketplace terms prompt in the account before retrying:
+
+```sh
+vercel link --yes --project markview-remote-relay --cwd tools/remote-relay
+vercel integration add upstash/upstash-kv --name markview-remote-relay --plan free \
+  --metadata primaryRegion=iad1 --metadata autoUpgrade=false --metadata eviction=false \
+  --metadata prodPack=false --environment production --no-env-pull --cwd tools/remote-relay
+```
+
 Configure server-side environment variables:
 
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, or the Marketplace-provided
@@ -120,6 +130,20 @@ bash tools/tests/remote-workspace-tests.sh   # macOS; includes a real Unix bridg
 The `durable-relay` CI job also supplies an isolated Redis service and runs the production
 Lua scripts with `REDIS_TEST_PORT` set. Without that explicit test-service port, native
 Redis integration checks are reported as skipped, never run against a developer's DB.
+
+An opt-in live check uses the installed home CLIs and their existing logins against a
+published relay, with separate generated work/home folders. It verifies file reads,
+creation, exact edits, Git, home-file isolation and conversation continuation:
+
+```sh
+bash tools/tests/remote-workspace-live.sh https://your-relay.vercel.app \
+  /path/to/private-access-key /path/to/MarkView.app both
+```
+
+Use `claude` or `codex` instead of `both` to select one provider. The private relay key is
+read from its file and never printed or passed to a provider. Test conversations use the
+normal provider allowance and history. Fixtures and diagnostic logs stay in the printed
+temporary folder; production work folders are never selected by this check.
 
 For a sandbox that forbids binding Unix listeners, pass `--core-only` to the Swift
 check. This runs file, command, encryption, deduplication and configuration checks,

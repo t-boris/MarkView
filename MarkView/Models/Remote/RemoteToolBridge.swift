@@ -145,11 +145,18 @@ enum RemoteUnixRPC {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input = try? JSONDecoder().decode(RemoteJSON.self, from: data)
         let name = input?["tool_name"].string ?? ""
-        let allowed = name.hasPrefix(RemoteWorkspaceTools.toolPrefix) || ["AskUserQuestion", "TodoWrite", "update_plan", "request_user_input"].contains(name)
-        let output: RemoteJSON = .object(["hookSpecificOutput": .object([
-            "hookEventName": .string("PreToolUse"), "permissionDecision": .string(allowed ? "allow" : "deny"),
-            "permissionDecisionReason": .string(allowed ? "Work-computer tool." : "This native tool would act on the home computer. Use the work MCP workspace tools instead.")])])
+        let output = guardResponse(for: name)
         if let data = try? JSONEncoder().encode(output) { FileHandle.standardOutput.write(data + Data([10])) }
         exit(0)
+    }
+
+    static func guardResponse(for name: String) -> RemoteJSON {
+        let allowed = name.hasPrefix(RemoteWorkspaceTools.toolPrefix) || ["AskUserQuestion", "TodoWrite", "update_plan", "request_user_input"].contains(name)
+        // A neutral result preserves the CLI's scoped MCP approval configuration. Codex rejects
+        // a bare "allow" without rewritten input; an empty object is accepted by both providers.
+        if allowed { return .object([:]) }
+        return .object(["hookSpecificOutput": .object([
+            "hookEventName": .string("PreToolUse"), "permissionDecision": .string("deny"),
+            "permissionDecisionReason": .string("This native tool would act on the home computer. Use the work MCP workspace tools instead.")])])
     }
 }

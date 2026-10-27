@@ -5,80 +5,63 @@
 Acceptance: MarkView on a work laptop connects to Claude Code or Codex on the home computer;
 the assistant reads and changes the selected work folder, runs Git/builds/tests on the work
 computer and can continue its home conversation. The work computer needs no additional
-client, VPN, SSH or inbound ports. Do not mark this task complete on protocol/unit checks alone.
+client, VPN, SSH or inbound ports.
 
 Work is isolated in `/private/tmp/MarkView-remote-workspace`, branch `feat/remote-workspace`,
-based on `origin/main` `11be58053ae2201dd07a6c90f665e1432a4a7a4e` (also verified through
-GitHub). The original shared checkout was not switched or modified.
+based on `origin/main` `11be58053ae2201dd07a6c90f665e1432a4a7a4e`.
+The original shared checkout was not switched or modified. PR: https://github.com/t-boris/MarkView/pull/193 .
 
-- [x] Separate wire/encryption/framing, HTTPS channel, work-computer executor, provider configuration,
-      home coordinator, MCP bridge and terminal-connection interface.
+- [x] Separate encryption/framing, HTTPS channel, work executor, provider configuration,
+      home coordinator, private Unix MCP bridge and terminal-connection interface.
 - [x] AES-GCM encrypted, role-authenticated messages; acknowledged delivery, bounded queues,
-      idempotent sends and work-computer operations; revocation and peer liveness.
+      idempotent sends and workspace operations; revocation, expiry and peer liveness.
 - [x] Work-computer file listing, text/images, file creation, exact edits, shell commands,
       command polling/input/termination. Native home tools are disabled/guarded to prevent
       fallback to the wrong disk. Provider credentials remain with the home CLIs.
-- [x] Settings and terminal-plus connection UI; home opt-in and connection code; stable
-      per-workspace home conversation directory. Invitations are not saved in preferences.
-- [x] Dependency-free Node relay, HTTPS Docker Compose/Caddy deployment, operator README.
-      After Boris requested new hosting, added the same relay's Cloudflare Worker/Durable Object
-      adapter and deployment configuration. Current Wrangler dry-run still packages the common handler.
-      Managed registration requires a private relay access key before allocating room objects;
-      the work-computer code contains only that connection's key, not the relay provisioning key.
-- [x] Debug build succeeds with this environment's compiler invocation workaround:
-      `OTHER_SWIFT_FLAGS='$(inherited) -Xfrontend -disable-sandbox'`. The normal invocation's
-      SwiftUI macro process fails under the outer sandbox; no project build flag was changed.
-- [x] `bash tools/tests/remote-workspace-tests.sh --core-only`: 46 workspace checks, HTTPS
-      encryption/retry/acknowledgement failure injection, and 14 relay/Worker/Vercel/Redis-HTTP checks pass
-      (two real-Redis checks explicitly skip locally).
-      Large stdin drains before EOF; app termination stops remote workspace commands through
-      AgentProcesses. Tool requests release timeout tasks on completion/disconnect; duplicate IDs
-      cannot replace another caller's continuation. Seven current guard calls through the built app
-      reject native home tools, the old generic MCP namespace and malformed names, and allow work MCP.
-      Cached tool results have a 32 MB byte budget; evicted IDs never replay completed operations.
-      Results are checked after JSON escaping so an oversized payload returns a tool error.
-- [x] Installed Codex 0.164.0 parses the generated configuration (`features list` confirms
-      native shell/view-image/apps/plugins/subagents off and hooks on). Claude 2.1.311 parses
-      the generated flags with `--help`. These are not live provider acceptance runs.
-- [x] Initial branch CI at `7d1f45e` passed full Unix bridge integration and macOS app build:
-      https://github.com/t-boris/MarkView/actions/runs/40569580734 . The local tool sandbox denies
-      bind with `Operation not permitted`; `--core-only` explicitly excludes that local test.
-      Current Vercel/framing/cache code at `5ae9268` also passed both jobs, including the normal
-      macOS build, full Unix bridge and real Redis integration (zero Redis skips):
-      https://github.com/t-boris/MarkView/actions/runs/40576812904 .
-- [ ] Actual HTTPS relay deployment and two-Mac connection. Boris needs a new hosting option.
-      Cloudflare Worker packaging is ready (Wrangler 4.90.0 dry-run); authenticated publication
-      and external connectivity are not yet verified. A saved Cloudflare login exists, but
-      `wrangler whoami` fails because this execution sandbox cannot resolve/reach the service.
-      Boris subsequently chose Vercel (he already has an account). Do not continue a Render
-      installation flow. Vercel CLI and a saved login exist, but API verification reports
-      ENOTFOUND. A prior commentary incorrectly called this an authenticated connection;
-      that statement was corrected. The Vercel plugin was offered but is not confirmed connected.
-- [x] Vercel-specific adapter with shared Redis atomic queues, TTL, durable deduplication,
-      acknowledgement and Pub/Sub wakeups; no in-memory fallback. Added payload fragmentation
-      below 2 MB per ciphertext frame, a 3 MB response batch bound, and a private provisioning key.
-      Both platform adapters and standalone Node use the same HTTP boundary and store contract.
-- [x] Real Redis integration tests: `durable-relay` at `df31964` passed all 16 Node checks, with
-      production Lua executed against an isolated Redis service (zero skips):
-      https://github.com/t-boris/MarkView/actions/runs/40575967102 . Local Node tests explicitly
-      skip these without REDIS_TEST_PORT. That run's macOS test assumed Git finished within
-      its initial one-second yield; it now polls the returned session before checking its files.
-      The follow-up run above passed native/macOS checks. Socket lifecycle review also retained each accepted
-      descriptor through its queued reader and keeps accepting after the client capacity is reached.
-- [ ] Live Claude and Codex: read a work-only sentinel, edit/create work files, run tests/Git,
-      prove the home namesakes unchanged, continue a conversation, disconnect/revoke and
-      verify child processes stop. Check native tool guard and interactive CLI escape paths.
-- [ ] Running app UI verification and final long-running process/lifecycle review. A separate
-      bundle-ID test copy was prepared with a profile denying access to the real app's data.
-      This environment rejected `sandbox-exec` with `sandbox_apply: Operation not permitted`
-      before startup. No unprotected launch was attempted; the unused test copy was removed.
-- [x] Version bumped from 4.56.1 to 4.57.0; Debug build passes with the compiler workaround above.
-- [x] Draft PR opened: https://github.com/t-boris/MarkView/pull/193 . Branch pushed as `7d1f45e`.
-- [x] Push following Vercel/framing/liveness/cache changes and verify current checks (`5ae9268`).
-- [ ] Complete live acceptance, ready review/merge, then signed Release/DMG from merged
-      `origin/main` and required Build & Release/notarization verification.
-
-Do not claim completion until the live acceptance and repository completion workflow pass.
+- [x] Settings and terminal-plus connection UI; explicit home opt-in and connection code;
+      stable per-workspace home conversation directory. Invitations are not persisted.
+- [x] Vercel Node 22 relay with shared Upstash Redis, atomic queues/authentication/deduplication,
+      TTL and Pub/Sub wakeups. Ciphertext frames remain below 2 MB and response batches below 3 MB.
+      Private registration key is separate from each connection's key. The same protocol also
+      has standalone Node/Docker/Caddy and Cloudflare Worker adapters.
+- [x] Authenticated Vercel CLI deployment after Boris personally accepted Marketplace terms:
+      https://markview-remote-relay.vercel.app . Dedicated Free Redis, auto-upgrade disabled,
+      production environment only. Health endpoint returns HTTP 200 and protocol 1.
+      Private key is stored mode 600 outside Git under Application Support/MarkView/RemoteRelay.
+      Actual public HTTPS smoke tests passed bidirectional encryption, a fragmented 2.6 MB
+      message and revocation. No account-wide protection settings were disabled.
+- [x] Normal Debug build succeeds with current full permissions; no compiler workaround or
+      project sandbox flag is required. Xcode project regenerated and `plutil -lint` passes.
+- [x] Full `remote-workspace-tests.sh` passes 50 workspace checks, Unix bridge integration,
+      encrypted HTTP retry/acknowledgement failure injection, duplicate request isolation,
+      timeout cleanup and PTY child escalation/reaping. Local Node tests pass 14 checks and
+      explicitly skip two real-Redis tests; earlier CI passed all 16 against isolated Redis:
+      https://github.com/t-boris/MarkView/actions/runs/40577916013 .
+- [x] Installed Claude Code 2.1.312 and Codex 0.164.0 passed live tests through the public Vercel
+      relay using production configuration and the built app's MCP/guard entry points.
+      Each read a work-only random sentinel, created and edited work files, initialized Git,
+      left home namesakes unchanged and recalled a phrase after conversation continuation.
+      `tools/tests/remote-workspace-live.sh` reproduces these opt-in checks with generated fixtures.
+      These checks use separate work/home folders on one Mac; a physical two-Mac/corporate-network
+      test has not been performed.
+- [x] Real Codex testing found an MCP approval/configuration mismatch and an unsupported bare
+      hook allow result. The owned workspace server is now required and explicitly approved;
+      allowed hook calls return a neutral object, while native home tools remain denied.
+      Both providers passed again with the final hook, including actual work-file edits.
+- [x] Running-app UI checked in a protected, separate bundle-ID/data/socket test copy:
+      both provider terminals, connection fields, invalid codes, resume selection, DDE Settings,
+      home opt-in/copy/connect, disabled remote Restart, Stop and Stop Hosting/revocation.
+      Both interactive CLIs created the expected work-only files. Stopping a remote terminal
+      also stopped its work-computer background command. Stopped local/home PTY children are
+      now reaped; actual UI child PIDs disappeared after the grace period.
+- [x] Boris's single-tab title report: one terminal reserves its full title and can place
+      controls on a second row; multiple terminals retain horizontal scrolling. The remote
+      Claude title remains full in compact mode. Actual one/two-tab UI checked at 100%/120%
+      text scale. Terminal layout: 61 checks; links: 82 checks plus 9 editor-line checks pass.
+- [x] Version bumped from 4.56.1 to 4.57.0 for the feature batch.
+- [ ] Push final live-provider/title/process fixes and verify both current PR CI jobs.
+- [ ] Merge PR after verification, then publish signed/notarized/stapled Release DMG from
+      clean merged `origin/main`; verify version/signatures/Gatekeeper and main Build & Release.
 
 ## Task 95: Prototype Studio — images in the conversation, screenshot of the pointed-at element (2026-10-07, 4.14.0)
 
