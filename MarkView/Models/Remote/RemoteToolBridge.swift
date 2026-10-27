@@ -15,8 +15,9 @@ final class RemoteToolBridge: @unchecked Sendable {
     init(handler: @escaping @Sendable (UUID, String, RemoteJSON) async -> RemoteJSON) throws {
         self.handler = handler
         path = FileManager.default.temporaryDirectory.appendingPathComponent("mvr-" + UUID().uuidString.prefix(16) + ".sock").path
+        guard var address = RemoteUnixRPC.address(path) else { throw RemoteFailure.invalid("The workspace bridge address is too long.") }
         listener = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listener >= 0, var address = RemoteUnixRPC.address(path) else { throw RemoteFailure.invalid("Could not create the workspace bridge.") }
+        guard listener >= 0 else { throw RemoteFailure.invalid("Could not create the workspace bridge.") }
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
         guard bound == 0, chmod(path, 0o600) == 0, listen(listener, 16) == 0 else {
             let reason = String(cString: strerror(errno))
@@ -27,8 +28,10 @@ final class RemoteToolBridge: @unchecked Sendable {
             while true {
                 let client = accept(fd, nil, nil)
                 guard client >= 0 else { return }
-                guard let self, self.add(client) else { close(client); return }
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in self?.serve(client) }
+                guard let self else { close(client); return }
+                guard self.add(client) else { close(client); continue }
+                // The queued reader owns this accepted descriptor until serve/finish releases it.
+                DispatchQueue.global(qos: .userInitiated).async { self.serve(client) }
             }
         }
     }

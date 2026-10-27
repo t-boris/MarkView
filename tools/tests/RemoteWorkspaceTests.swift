@@ -73,6 +73,15 @@ enum RemoteWorkspaceTests {
         @Sendable func call(_ name: String, _ args: [String: RemoteJSON] = [:], id: UUID = UUID()) async -> RemoteJSON {
             await workspace.call(id: id, name: name, arguments: .object(args))
         }
+        func commandOutputUntilExit(_ first: RemoteJSON) async -> String {
+            var current = first, output = text(first)
+            for _ in 0..<10 {
+                guard let id = session(current) else { return output }
+                current = await call("write_stdin", ["session_id": .string(id), "yield_time_ms": .int(1000)])
+                output += "\n" + text(current)
+            }
+            fatalError("The test command did not finish: \(output)")
+        }
         let read = await call("read_file", ["path": .string("identity.txt")])
         check(text(read).contains("WORK ONLY") && !text(read).contains("HOME ONLY"), "The workspace must read the work file, never its home namesake.")
         let absolute = await call("read_file", ["path": .string(workRoot.appendingPathComponent("identity.txt").path)])
@@ -91,8 +100,9 @@ enum RemoteWorkspaceTests {
         check(try String(contentsOf: workRoot.appendingPathComponent("new/file.txt"), encoding: .utf8) == "beta beta", "Retrying a previous write must not overwrite subsequent edits.")
 
         let shell = await call("exec_command", ["cmd": .string("pwd; cat identity.txt; printf built > build.txt; /usr/bin/git init -q"), "yield_time_ms": .int(1000)])
-        check(text(shell).contains("WORK ONLY") && text(shell).contains(workRoot.path), "Commands must execute in the work-computer root.")
-        check(FileManager.default.fileExists(atPath: workRoot.appendingPathComponent(".git").path), "Git must run on the work computer.")
+        let shellOutput = await commandOutputUntilExit(shell)
+        check(shellOutput.contains("WORK ONLY") && shellOutput.contains(workRoot.path), "Commands must execute in the work-computer root.")
+        check(shellOutput.contains("Exit code: 0") && FileManager.default.fileExists(atPath: workRoot.appendingPathComponent(".git").path), "Git must run on the work computer: \(shellOutput)")
         check(!FileManager.default.fileExists(atPath: homeRoot.appendingPathComponent("build.txt").path), "Commands must leave the home fixture unchanged.")
         let dedupeID = UUID()
         let dedupeArgs: [String: RemoteJSON] = ["cmd": .string("printf x >> once.txt; sleep 0.1"), "yield_time_ms": .int(1000)]

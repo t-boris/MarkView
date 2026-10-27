@@ -54,8 +54,13 @@ GitHub). The original shared checkout was not switched or modified.
       acknowledgement and Pub/Sub wakeups; no in-memory fallback. Added payload fragmentation
       below 2 MB per ciphertext frame, a 3 MB response batch bound, and a private provisioning key.
       Both platform adapters and standalone Node use the same HTTP boundary and store contract.
-- [ ] Real Redis integration tests: new `durable-relay` CI job runs production Lua against an
-      isolated Redis service. Local Node tests explicitly skip these without REDIS_TEST_PORT.
+- [x] Real Redis integration tests: `durable-relay` at `df31964` passed all 16 Node checks, with
+      production Lua executed against an isolated Redis service (zero skips):
+      https://github.com/t-boris/MarkView/actions/runs/40575967102 . Local Node tests explicitly
+      skip these without REDIS_TEST_PORT. That run's macOS test assumed Git finished within
+      its initial one-second yield; it now polls the returned session before checking its files.
+      Follow-up native/macOS CI is required. Socket lifecycle review also retained each accepted
+      descriptor through its queued reader and keeps accepting after the client capacity is reached.
 - [ ] Live Claude and Codex: read a work-only sentinel, edit/create work files, run tests/Git,
       prove the home namesakes unchanged, continue a conversation, disconnect/revoke and
       verify child processes stop. Check native tool guard and interactive CLI escape paths.
