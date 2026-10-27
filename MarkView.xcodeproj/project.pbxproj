@@ -52,6 +52,7 @@
 		28898C135E4FC09A15FDBC35 /* elk.bundled.js in Resources */ = {isa = PBXBuildFile; fileRef = A1350590278DCEFED8266A2F /* elk.bundled.js */; };
 		2C960A38A358C2B2CCAA2E23 /* AgentActivityChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F677CB2D8103034083F8EF /* AgentActivityChip.swift */; };
 		2C983A776888C75A45C42CEC /* prism-diff-highlight.css in Resources */ = {isa = PBXBuildFile; fileRef = F43C1666D920639C5EE347C0 /* prism-diff-highlight.css */; };
+		2DE08563095A28F0F19331AE /* RemoteFraming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */; };
 		2E476CE6A3046AAAF2B1D631 /* DiagnosticsBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0746BDFCEB6533D5705C4BC /* DiagnosticsBarView.swift */; };
 		2EA8BD7113E8A11E3198C036 /* markview-insight-handlers.js in Resources */ = {isa = PBXBuildFile; fileRef = B1896DB2BE326B5758D19B8C /* markview-insight-handlers.js */; };
 		2FA409A1B784ECDB6359C349 /* markview-panels.js in Resources */ = {isa = PBXBuildFile; fileRef = 4B79AFECAF59E74251EEB369 /* markview-panels.js */; };
@@ -598,6 +599,7 @@
 		F5052FB2920AFA8A801BF1A3 /* KaTeX_Fraktur-Bold.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Bold.woff2"; sourceTree = "<group>"; };
 		F58E38B38401EBC2C62DEA97 /* prism-yaml.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-yaml.min.js"; sourceTree = "<group>"; };
 		F5CBBFE5D52362BCDB63DB22 /* KaTeX_Caligraphic-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Caligraphic-Regular.woff2"; sourceTree = "<group>"; };
+		F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteFraming.swift; sourceTree = "<group>"; };
 		F9700BEC91B54521286648B4 /* codemirror.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = codemirror.bundle.js; sourceTree = "<group>"; };
 		FA0D993DC9B6612A4012A73F /* KaTeX_Main-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Regular.woff2"; sourceTree = "<group>"; };
 		FA31302DC2D267B205E5A3F6 /* cytoscape-elk.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "cytoscape-elk.js"; sourceTree = "<group>"; };
@@ -914,6 +916,7 @@
 			children = (
 				6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */,
 				5C41B9BB6F1B879525F97C0A /* RemoteCommand.swift */,
+				F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */,
 				14124D16ECA72DA14417C7DB /* RemoteHostController.swift */,
 				D3F6450186269BACA35C1C25 /* RemoteProtocol.swift */,
 				EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */,
@@ -1364,6 +1367,7 @@
 				E4180A4A4BFB984356C01CEC /* RemoteChannel.swift in Sources */,
 				88D8F1643C5D169079C29F52 /* RemoteCommand.swift in Sources */,
 				3A43CF8E02C2DF872B9AE1CC /* RemoteConnectionsView.swift in Sources */,
+				2DE08563095A28F0F19331AE /* RemoteFraming.swift in Sources */,
 				32F37CA5A1ABDF262C564C78 /* RemoteHostController.swift in Sources */,
 				C0114F0946F42F23FC90E205 /* RemoteProtocol.swift in Sources */,
 				774025BBB9B6D66ED956E9ED /* RemoteProviderConfiguration.swift in Sources */,

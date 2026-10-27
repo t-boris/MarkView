@@ -96,3 +96,17 @@ test('queues apply backpressure without discarding or acknowledging commands', a
         assert.equal(first.body.messages.length, 8);
     } finally { f.relay.close(); }
 });
+
+test('Encrypted frames and response batches stay below serverless payload limits', async () => {
+    const f = await fixture();
+    try {
+        const body = 'A'.repeat(2 * 1024 * 1024), consumer = randomUUID();
+        for (let i = 0; i < 2; i++) assert.equal((await request(f.relay, 'POST', f.path + '/home', f.home, { id: randomUUID(), body })).status, 200);
+        const first = await request(f.relay, 'GET', f.path + `/work?after=0&consumer=${consumer}`, f.work);
+        assert.equal(first.body.messages.length, 1);
+        assert.ok(Buffer.byteLength(JSON.stringify(first.body)) < 4.5 * 1000 * 1000);
+        const second = await request(f.relay, 'GET', f.path + `/work?after=1&consumer=${consumer}`, f.work);
+        assert.equal(second.body.messages[0].seq, 2);
+        assert.equal((await request(f.relay, 'POST', f.path + '/home', f.home, { id: randomUUID(), body: body + 'A' })).status, 400);
+    } finally { f.relay.close(); }
+});

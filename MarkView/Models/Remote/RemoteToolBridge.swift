@@ -142,7 +142,7 @@ enum RemoteUnixRPC {
         let data = FileHandle.standardInput.readDataToEndOfFile()
         let input = try? JSONDecoder().decode(RemoteJSON.self, from: data)
         let name = input?["tool_name"].string ?? ""
-        let allowed = name.hasPrefix("mcp__work__") || ["AskUserQuestion", "TodoWrite", "update_plan", "request_user_input"].contains(name)
+        let allowed = name.hasPrefix(RemoteWorkspaceTools.toolPrefix) || ["AskUserQuestion", "TodoWrite", "update_plan", "request_user_input"].contains(name)
         let output: RemoteJSON = .object(["hookSpecificOutput": .object([
             "hookEventName": .string("PreToolUse"), "permissionDecision": .string(allowed ? "allow" : "deny"),
             "permissionDecisionReason": .string(allowed ? "Work-computer tool." : "This native tool would act on the home computer. Use the work MCP workspace tools instead.")])])

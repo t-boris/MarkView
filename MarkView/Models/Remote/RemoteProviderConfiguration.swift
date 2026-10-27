@@ -14,7 +14,7 @@ enum RemoteProviderConfiguration {
                         context: RemoteJSON, directory: URL, model: String?, resume: Bool) throws -> String {
         let server: RemoteJSON = .object(["command": .string(app),
             "args": .array([.string("--remote-workspace-mcp"), .string("--socket"), .string(socket)])])
-        let mcp = RemoteJSON.object(["mcpServers": .object(["work": server])])
+        let mcp = RemoteJSON.object(["mcpServers": .object([RemoteWorkspaceTools.serverName: server])])
         let config = directory.appendingPathComponent("mcp.json")
         try write(mcp, to: config)
         let guardCommand = quote(app) + " --remote-workspace-guard"
@@ -36,7 +36,7 @@ enum RemoteProviderConfiguration {
             try write(.object(["hooks": hooks]), to: settings)
             args = ["--tools", "", "--strict-mcp-config", "--mcp-config", config.path,
                     "--settings", settings.path, "--setting-sources", "", "--append-system-prompt", instructions,
-                    "--allowedTools", "mcp__work__*", "--dangerously-skip-permissions"]
+                    "--allowedTools", RemoteWorkspaceTools.toolPrefix + "*", "--dangerously-skip-permissions"]
             if resume { args.insert("--continue", at: 0) }
         } else {
             func override(_ key: String, _ value: String) { args += ["-c", key + "=" + value] }
@@ -47,9 +47,10 @@ enum RemoteProviderConfiguration {
             override("features.hooks", "true")
             override("features.non_prefixed_mcp_tool_names", "false")
             override("features.skip_host_skill_discovery", "true")
-            override("mcp_servers.work.command", toml(app))
-            override("mcp_servers.work.args", "[" + ["--remote-workspace-mcp", "--socket", socket].map(toml).joined(separator: ",") + "]")
-            override("mcp_servers.work.tool_timeout_sec", "120")
+            let serverKey = "mcp_servers." + RemoteWorkspaceTools.serverName
+            override(serverKey + ".command", toml(app))
+            override(serverKey + ".args", "[" + ["--remote-workspace-mcp", "--socket", socket].map(toml).joined(separator: ",") + "]")
+            override(serverKey + ".tool_timeout_sec", "120")
             override("developer_instructions", toml(instructions))
             override("hooks.PreToolUse", "[{matcher=\".*\",hooks=[{type=\"command\",command=" + toml(guardCommand) + ",timeout=5}]}]")
             if resume { args += ["resume", "--last"] }

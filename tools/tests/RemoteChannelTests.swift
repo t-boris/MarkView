@@ -86,5 +86,32 @@ enum RemoteChannelTests {
         precondition(log.cursors == [0, 0], "A failed handler must not acknowledge the message.")
         precondition(log.bodies.count == 1 && !log.bodies[0].contains("work file contents"), "Retries must not duplicate encrypted commands or expose plaintext.")
         print("Remote HTTPS channel: encryption, ambiguous-send retry, delivery and acknowledgement checks passed.")
+
+        let requestChannel = RemoteChannel(invitation: invitation, role: .home, session: session())
+        let requests = RemoteToolRequests(channel: requestChannel)
+        func waitForSend(_ id: UUID) async throws {
+            for _ in 0..<200 {
+                if RelayURLProtocol.relay.snapshot().ids.contains(id.uuidString) { return }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            throw URLError(.timedOut)
+        }
+        let id = UUID()
+        let first = Task { await requests.call(id: id, name: "workspace_info", arguments: .object([:])) }
+        try await waitForSend(id)
+        let duplicate = await requests.call(id: id, name: "workspace_info", arguments: .object([:]))
+        precondition(duplicate["isError"] == .bool(true), "Duplicate request IDs must not overwrite a waiting caller.")
+        await requests.finish(id, result: .textResult("done"))
+        let completed = await first.value
+        precondition(completed == .textResult("done"), "The original caller must still receive its result.")
+        let closingID = UUID()
+        let closing = Task { await requests.call(id: closingID, name: "workspace_info", arguments: .object([:])) }
+        try await waitForSend(closingID)
+        await requests.close()
+        let disconnected = await closing.value
+        precondition(disconnected["isError"] == .bool(true), "Disconnect must release outstanding tool callers.")
+        await requests.finish(closingID, result: .textResult("late"))
+        await requestChannel.close()
+        print("Remote tool requests: duplicate-ID isolation, response correlation and disconnect checks passed.")
     }
 }

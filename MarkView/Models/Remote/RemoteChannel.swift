@@ -11,6 +11,7 @@ actor RemoteChannel {
     private var closed = false
     private var pending: [(RemoteMessage, CheckedContinuation<Void, Error>)] = []
     private var sending = false
+    private var reassembler = RemoteReassembler()
 
     init(invitation: RemoteInvitation, role: RemoteRole, session: URLSession? = nil) {
         self.invitation = invitation; self.role = role
@@ -26,10 +27,25 @@ actor RemoteChannel {
     }
 
     func register(accessKey: String = "") async throws {
-        _ = try await request("POST", path: "v1/rooms", body: .object([
+        guard accessKey.utf8.count <= 1024, !accessKey.contains("\r"), !accessKey.contains("\n"), !accessKey.contains("\0") else {
+            throw RemoteFailure.invalid("The relay access key is invalid. Paste the key without a line break.")
+        }
+        let body = RemoteJSON.object([
             "room": .string(invitation.room.uuidString.lowercased()),
             "homeToken": .string(invitation.token(for: .home)),
-            "workToken": .string(invitation.token(for: .work))]), registrationKey: accessKey)
+            "workToken": .string(invitation.token(for: .work))])
+        // Managed free services may need a cold start. Retrying registration is safe because the
+        // same invitation and credentials are retained; an existing room returns success.
+        for attempt in 0..<3 {
+            do { _ = try await request("POST", path: "v1/rooms", body: body, registrationKey: accessKey); return }
+            catch {
+                if Task.isCancelled { throw CancellationError() }
+                if case RemoteFailure.invalid = error { throw error }
+                if case RemoteFailure.expired = error { throw error }
+                if attempt == 2 { throw error }
+                try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 1_000_000_000)
+            }
+        }
     }
 
     func send(_ message: RemoteMessage) async throws {
@@ -45,21 +61,23 @@ actor RemoteChannel {
         while !pending.isEmpty && !closed {
             let (message, continuation) = pending.removeFirst()
             do {
-                let body = try invitation.seal(message, sender: role)
-                var lastError: Error = RemoteFailure.disconnected
-                var delivered = false
-                for attempt in 0..<4 {
-                    do {
-                        _ = try await request("POST", path: mailbox, body: .object([
-                            "id": .string(message.id.uuidString), "body": .string(body)]))
-                        delivered = true; break
-                    } catch {
-                        lastError = error
-                        if case RemoteFailure.expired = error { break }
-                        try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 500_000_000)
+                for frame in try RemoteFraming.frames(for: message) {
+                    let body = try invitation.seal(frame, sender: role)
+                    var lastError: Error = RemoteFailure.disconnected
+                    var delivered = false
+                    for attempt in 0..<4 {
+                        do {
+                            _ = try await request("POST", path: mailbox, body: .object([
+                                "id": .string(frame.id.uuidString), "body": .string(body)]))
+                            delivered = true; break
+                        } catch {
+                            lastError = error
+                            if case RemoteFailure.expired = error { break }
+                            try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 500_000_000)
+                        }
                     }
+                    if !delivered { throw lastError }
                 }
-                if !delivered { throw lastError }
                 continuation.resume()
             } catch { continuation.resume(throwing: error) }
         }
@@ -79,8 +97,11 @@ actor RemoteChannel {
                 for value in messages {
                     guard let sequence = value["seq"].integer, sequence > cursor,
                           let body = value["body"].string else { throw RemoteFailure.invalid("Invalid message sequence.") }
-                    let message = try invitation.open(body, sender: role.peer)
-                    try await handle(message)
+                    let frame = try invitation.open(body, sender: role.peer)
+                    if let message = try reassembler.accept(frame) {
+                        try await handle(message)
+                        reassembler.acknowledge(message.id)
+                    }
                     cursor = sequence
                 }
                 failures = 0
@@ -99,6 +120,7 @@ actor RemoteChannel {
         closed = true
         for (_, continuation) in pending { continuation.resume(throwing: RemoteFailure.disconnected) }
         pending.removeAll()
+        reassembler = RemoteReassembler()
         session.invalidateAndCancel()
     }
 
@@ -124,6 +146,9 @@ actor RemoteChannel {
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw RemoteFailure.invalid("Invalid relay response.") }
+        if method == "POST", path == "v1/rooms", [401, 403].contains(http.statusCode) {
+            throw RemoteFailure.invalid("The relay access key was rejected. Check the home connection settings.")
+        }
         guard ![401, 403, 404, 410].contains(http.statusCode) else { throw RemoteFailure.expired }
         guard (200..<300).contains(http.statusCode) else { throw RemoteFailure.relay(http.statusCode) }
         guard data.count <= RemoteMessage.maxBytes * 3 else { throw RemoteFailure.invalid("Relay response is too large.") }

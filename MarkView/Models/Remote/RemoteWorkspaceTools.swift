@@ -2,6 +2,8 @@ import Foundation
 
 /// The complete workspace interface is advertised to both providers through the same MCP server.
 enum RemoteWorkspaceTools {
+    static let serverName = "markview_remote_workspace"
+    static let toolPrefix = "mcp__" + serverName + "__"
     static let names: Set<String> = ["workspace_info", "list_directory", "read_file", "write_file", "edit_file", "exec_command", "write_stdin"]
     static let instructions = """
     Your execution environment is the WORK computer connected through MarkView. All project files, Git,

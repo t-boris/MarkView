@@ -14,6 +14,8 @@ final class RemoteTerminalConnection: TerminalConnection {
     private var readyToSend = false
     private var outgoing: [RemoteMessage] = []
     private var sending: Task<Void, Never>?
+    private var watchdog: Task<Void, Never>?
+    private var lastHomeMessage = Date()
     private var size = (cols: 120, rows: 30)
 
     init(invitation: RemoteInvitation, root: URL, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool) async throws {
@@ -33,6 +35,17 @@ final class RemoteTerminalConnection: TerminalConnection {
                     "resume": .bool(resume), "cols": .int(size.cols), "rows": .int(size.rows)])))
                 readyToSend = true
                 drain()
+                lastHomeMessage = Date()
+                watchdog = Task { [weak self] in
+                    while !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 15_000_000_000)
+                        guard let self, !Task.isCancelled else { return }
+                        if Date().timeIntervalSince(lastHomeMessage) > 75 {
+                            onOutput?(Data("\r\nThe home computer stopped responding. Local command sessions were stopped. Reconnect before continuing.\r\n".utf8))
+                            finish(1); return
+                        }
+                    }
+                }
                 try await channel.receive { [weak self] message in await self?.receive(message) }
             } catch {
                 if !stopped { onOutput?(Data(("\r\nRemote connection: " + error.localizedDescription + "\r\n").utf8)); finish(1) }
@@ -41,6 +54,7 @@ final class RemoteTerminalConnection: TerminalConnection {
     }
     private func receive(_ message: RemoteMessage) async {
         guard !stopped else { return }
+        lastHomeMessage = Date()
         switch message.kind {
         case "output":
             if let value = message.payload.string, let data = Data(base64Encoded: value), data.count <= 65536 { onOutput?(data) }
@@ -92,6 +106,7 @@ final class RemoteTerminalConnection: TerminalConnection {
     func stop() {
         guard !stopped else { return }
         stopped = true; task?.cancel(); task = nil
+        watchdog?.cancel(); watchdog = nil
         sending?.cancel(); sending = nil; outgoing.removeAll()
         Task {
             await workspace.close()

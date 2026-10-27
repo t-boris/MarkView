@@ -11,7 +11,7 @@ Work is isolated in `/private/tmp/MarkView-remote-workspace`, branch `feat/remot
 based on `origin/main` `11be58053ae2201dd07a6c90f665e1432a4a7a4e` (also verified through
 GitHub). The original shared checkout was not switched or modified.
 
-- [x] Separate wire/encryption, HTTPS channel, work-computer executor, provider configuration,
+- [x] Separate wire/encryption/framing, HTTPS channel, work-computer executor, provider configuration,
       home coordinator, MCP bridge and terminal-connection interface.
 - [x] AES-GCM encrypted, role-authenticated messages; acknowledged delivery, bounded queues,
       idempotent sends and work-computer operations; revocation and peer liveness.
@@ -22,31 +22,48 @@ GitHub). The original shared checkout was not switched or modified.
       per-workspace home conversation directory. Invitations are not saved in preferences.
 - [x] Dependency-free Node relay, HTTPS Docker Compose/Caddy deployment, operator README.
       After Boris requested new hosting, added the same relay's Cloudflare Worker/Durable Object
-      adapter and deployment configuration. Eight relay/Worker checks and Wrangler dry-run pass.
+      adapter and deployment configuration. Current Wrangler dry-run still packages the common handler.
       Managed registration requires a private relay access key before allocating room objects;
       the work-computer code contains only that connection's key, not the relay provisioning key.
 - [x] Debug build succeeds with this environment's compiler invocation workaround:
       `OTHER_SWIFT_FLAGS='$(inherited) -Xfrontend -disable-sandbox'`. The normal invocation's
       SwiftUI macro process fails under the outer sandbox; no project build flag was changed.
-- [x] `bash tools/tests/remote-workspace-tests.sh --core-only`: 37 workspace checks, HTTPS
-      encryption/retry/acknowledgement failure injection, and 8 relay/Worker handler tests pass.
+- [x] `bash tools/tests/remote-workspace-tests.sh --core-only`: 44 workspace checks, HTTPS
+      encryption/retry/acknowledgement failure injection, and 14 relay/Worker/Vercel/Redis-HTTP checks pass
+      (two real-Redis checks explicitly skip locally).
       Large stdin drains before EOF; app termination stops remote workspace commands through
-      AgentProcesses. Four guard calls through the built app reject native home tools and allow MCP.
+      AgentProcesses. Tool requests release timeout tasks on completion/disconnect; duplicate IDs
+      cannot replace another caller's continuation. Four guard calls through the initial built app
+      reject native home tools and allow MCP; the unique namespace is also covered by core checks.
 - [x] Installed Codex 0.164.0 parses the generated configuration (`features list` confirms
       native shell/view-image/apps/plugins/subagents off and hooks on). Claude 2.1.311 parses
       the generated flags with `--help`. These are not live provider acceptance runs.
-- [ ] Full local Unix bridge integration: this tool sandbox denies bind with
-      `Operation not permitted`; `--core-only` explicitly excludes it. New CI runs the full test.
+- [x] Initial branch CI at `7d1f45e` passed full Unix bridge integration and macOS app build:
+      https://github.com/t-boris/MarkView/actions/runs/40569580734 . The local tool sandbox denies
+      bind with `Operation not permitted`; `--core-only` explicitly excludes that local test.
+      Following framing/Vercel changes must pass their own new CI run before acceptance.
 - [ ] Actual HTTPS relay deployment and two-Mac connection. Boris needs a new hosting option.
       Cloudflare Worker packaging is ready (Wrangler 4.90.0 dry-run); authenticated publication
       and external connectivity are not yet verified. A saved Cloudflare login exists, but
       `wrangler whoami` fails because this execution sandbox cannot resolve/reach the service.
+      Boris subsequently chose Vercel (he already has an account). Do not continue a Render
+      installation flow. Vercel CLI and a saved login exist, but API verification reports
+      ENOTFOUND. A prior commentary incorrectly called this an authenticated connection;
+      that statement was corrected. The Vercel plugin was offered but is not confirmed connected.
+- [x] Vercel-specific adapter with shared Redis atomic queues, TTL, durable deduplication,
+      acknowledgement and Pub/Sub wakeups; no in-memory fallback. Added payload fragmentation
+      below 2 MB per ciphertext frame, a 3 MB response batch bound, and a private provisioning key.
+      Both platform adapters and standalone Node use the same HTTP boundary and store contract.
+- [ ] Real Redis integration tests: new `durable-relay` CI job runs production Lua against an
+      isolated Redis service. Local Node tests explicitly skip these without REDIS_TEST_PORT.
 - [ ] Live Claude and Codex: read a work-only sentinel, edit/create work files, run tests/Git,
       prove the home namesakes unchanged, continue a conversation, disconnect/revoke and
       verify child processes stop. Check native tool guard and interactive CLI escape paths.
 - [ ] Running app UI verification and final long-running process/lifecycle review.
 - [x] Version bumped from 4.56.1 to 4.57.0; Debug build passes with the compiler workaround above.
-- [ ] Draft PR/checks, ready review/merge, then signed Release/DMG from merged
+- [x] Draft PR opened: https://github.com/t-boris/MarkView/pull/193 . Branch pushed as `7d1f45e`.
+- [ ] Push following Vercel/framing/liveness changes, verify current checks, ready review/merge,
+      then signed Release/DMG from merged
       `origin/main` and required Build & Release/notarization verification.
 
 Do not claim completion until the live acceptance and repository completion workflow pass.

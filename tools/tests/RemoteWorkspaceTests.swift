@@ -53,6 +53,21 @@ enum RemoteWorkspaceTests {
         expectFailure("Credentials in a URL must be rejected.") { _ = try RemoteInvitation(relay: URL(string: "https://user:password@relay.example.com")!) }
         expectFailure("Invalid codes must be rejected.") { _ = try RemoteInvitation(code: "not a connection") }
         _ = try RemoteInvitation(relay: URL(string: "http://127.0.0.1:8787")!)
+        let largeMessage = RemoteMessage("toolResult", .string(String(repeating: "large image or file data;", count: 100000)))
+        let frames = try RemoteFraming.frames(for: largeMessage)
+        check(frames.count > 1, "Large tool results must be framed for serverless payload limits.")
+        var assembler = RemoteReassembler(), assembled: RemoteMessage?
+        for frame in frames {
+            let box = try invitation.seal(frame, sender: .home)
+            check(box.utf8.count <= RemoteFraming.maxEncryptedBytes, "Every encrypted frame must fit the serverless request limit.")
+            assembled = try assembler.accept(invitation.open(box, sender: .home))
+        }
+        check(assembled?.id == largeMessage.id && assembled?.payload == largeMessage.payload, "Framing must retain the original tool ID and complete contents.")
+        let retried = try assembler.accept(frames.last!)
+        check(retried?.id == largeMessage.id, "The final frame must remain retryable until the application acknowledges it.")
+        assembler.acknowledge(largeMessage.id)
+        let replayed = try assembler.accept(frames[0])
+        check(replayed == nil, "A completed operation must not be delivered again under new transport retries.")
 
         let workspace = try await RemoteWorkspace(root: workRoot, deviceID: UUID().uuidString)
         @Sendable func call(_ name: String, _ args: [String: RemoteJSON] = [:], id: UUID = UUID()) async -> RemoteJSON {
@@ -113,7 +128,7 @@ enum RemoteWorkspaceTests {
         let settings = try JSONDecoder().decode(RemoteJSON.self, from: Data(contentsOf: fixture.appendingPathComponent("claude-settings.json")))
         check(settings["hooks"]["PreToolUse"].array?.count == 1, "Claude must have the same fail-closed native-tool guard.")
         let config = try JSONDecoder().decode(RemoteJSON.self, from: Data(contentsOf: fixture.appendingPathComponent("mcp.json")))
-        check(config["mcpServers"]["work"]["args"].array?.first?.string == "--remote-workspace-mcp", "MCP configuration must use this app's embedded bridge.")
+        check(config["mcpServers"][RemoteWorkspaceTools.serverName]["args"].array?.first?.string == "--remote-workspace-mcp", "MCP configuration must use this app's embedded bridge.")
         let quitCommand = await call("exec_command", ["cmd": .string("sleep 30"), "yield_time_ms": .int(0)])
         AgentProcesses.terminateAll(grace: 0.2)
         let quitResult = await call("write_stdin", ["session_id": .string(session(quitCommand)!), "yield_time_ms": .int(1000)])

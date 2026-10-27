@@ -1,0 +1,7 @@
+{
+  "name": "markview-remote-relay",
+  "description": "Encrypted HTTPS relay for MarkView remote workspaces",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "22.x" }
+}

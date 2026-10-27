@@ -5,10 +5,42 @@ It requires Node 22 or later and no npm packages. No extra client, VPN, inbound 
 SSH connection is required on the work computer. The public endpoint must be HTTPS;
 plain HTTP is accepted by MarkView only for a loopback development endpoint.
 
-The relay stores bounded encrypted mailboxes in memory. It never receives the shared
-encryption key, provider credentials, file paths or plaintext terminal/file contents.
-Restarting it revokes its invitations. Invitations also expire after eight hours.
+The relay stores bounded encrypted mailboxes. It never receives the shared encryption
+key, provider credentials, file paths or plaintext terminal/file contents. Standalone
+and Worker deployments keep mailboxes in memory; Vercel uses atomic shared Redis state.
+Invitations expire after eight hours. Restarting an in-memory deployment revokes them;
+Vercel function cold starts retain the Redis mailboxes and deduplication records.
 Do not enable request-body or Authorization-header logging in a reverse proxy.
+
+## Managed hosting with Vercel
+
+Deploy `tools/remote-relay` as a Vercel project with no frontend framework. `vercel.json`
+routes the protocol to `api/relay.js`, a Node 22 Function. The function requires a shared
+Upstash-compatible Redis store; never deploy the in-memory Node server as a substitute.
+Use the project's existing Redis integration or provision one through Vercel Marketplace.
+
+Configure server-side environment variables:
+
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, or the Marketplace-provided
+  `KV_REST_API_URL` and `KV_REST_API_TOKEN`.
+- `REGISTRATION_TOKEN`: a private random access key, also entered in MarkView's home
+  **Relay access key** field. It is not included in the work-computer pairing code.
+
+After linking the Vercel project and configuring its environment:
+
+```sh
+vercel deploy --prod --cwd tools/remote-relay
+```
+
+Use its production HTTPS `vercel.app` URL in MarkView. Keep deployment protection
+compatible with non-browser authenticated clients; the protocol authenticates both
+endpoints and encrypts application messages. Do not remove account-wide protections.
+Health checks fail with 503 when configuration or Redis is unavailable.
+
+Atomic Redis scripts authenticate and deduplicate each operation, retain delivery IDs
+through acknowledgement, and expire the entire room. Redis Pub/Sub wakes HTTP long polls
+without continuous store polling. The app fragments large tool results below 2 MB of
+ciphertext per frame to fit Vercel's request limits while preserving complete results.
 
 ## Managed hosting with Cloudflare Workers
 
@@ -81,9 +113,13 @@ this feature is complete. Use the acceptance record in `tasks/todo.md` for curre
 ## Verify
 
 ```sh
-node --test tools/remote-relay/server.test.mjs  # from repository root
+node --test tools/remote-relay/*.test.mjs     # from repository root
 bash tools/tests/remote-workspace-tests.sh   # macOS; includes a real Unix bridge
 ```
+
+The `durable-relay` CI job also supplies an isolated Redis service and runs the production
+Lua scripts with `REDIS_TEST_PORT` set. Without that explicit test-service port, native
+Redis integration checks are reported as skipped, never run against a developer's DB.
 
 For a sandbox that forbids binding Unix listeners, pass `--core-only` to the Swift
 check. This runs file, command, encryption, deduplication and configuration checks,
