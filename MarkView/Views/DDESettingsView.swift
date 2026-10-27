@@ -196,6 +196,8 @@ struct DDESettingsView: View {
 
             GitHubSettingsSection()
 
+            RemoteSettingsSection()
+
             GroupBox("Implement with AI") {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("What “done” means for an implementation goal: a fresh branch from origin/main, up-to-date records and GitHub issues, everything committed, a pull request with green CI, tests, deploy… Each item can be required, asked about or skipped; you can also change it just before a run.")

@@ -93,6 +93,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     /// Quitting for real (not when a save error keeps the windows open): stop the assistants of headless runs
     /// so none keeps working, and spending tokens, for a window that is gone.
     func applicationWillTerminate(_ notification: Notification) {
+        RemoteHostController.shared.stop()
         AgentProcesses.terminateAll()
     }
 
@@ -153,6 +154,8 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
 enum DDEAppEntry {
     static func main() {
         let args = CommandLine.arguments
+        if args.contains("--remote-workspace-mcp") { RemoteUnixRPC.runMCP(arguments: args) }
+        if args.contains("--remote-workspace-guard") { RemoteUnixRPC.runGuard() }
         if args.contains("--mcp-browser") {
             BrowserAgentTools.runServer(arguments: args)  // never returns
         }

@@ -2,6 +2,18 @@ import AppKit
 import Darwin
 import WebKit
 
+/// An alternate process endpoint. The terminal renderer and prompt delivery do not depend on
+/// whether bytes come from a local PTY or an authenticated remote connection.
+@MainActor
+protocol TerminalConnection: AnyObject {
+    var onOutput: ((Data) -> Void)? { get set }
+    var onExit: ((Int32) -> Void)? { get set }
+    func start()
+    func write(_ text: String)
+    func resize(cols: Int, rows: Int)
+    func stop()
+}
+
 /// What a terminal in the AI panel runs: an assistant inside the user's shell, or the
 /// shell alone.
 enum TerminalProfile: String, CaseIterable, Identifiable {
@@ -61,6 +73,8 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
 /// batches; keystrokes and size changes come back through the "terminal" handler.
 @MainActor
 final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler {
+    var connection: TerminalConnection?
+    var isRemote: Bool { connection != nil }
     let id = UUID()
     let directory: URL
     /// Typed into the shell once it is up (e.g. "claude --model sonnet"), or nil.
@@ -263,6 +277,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     /// Start the user's login shell in `directory` on a new PTY.
     func start() {
+        if let connection {
+            guard !isRunning else { flush(); return }
+            exitCode = nil; isRunning = true; startedAt = Date()
+            connection.onOutput = { [weak self] data in self?.deliver(data) }
+            connection.onExit = { [weak self] code in
+                guard let self else { return }
+                isRunning = false; exitCode = code; exitMarkerPending = code
+                flush(); onExit?(code)
+            }
+            connection.resize(cols: Int(size.ws_col), rows: Int(size.ws_row))
+            connection.start()
+            return
+        }
         guard masterFD < 0 else { return }
         if operationCommand != nil {
             guard !operationStartedOnce else { return }
@@ -343,9 +370,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
         let exit = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         exit.setEventHandler { [weak self] in
-            var status: Int32 = 0
-            waitpid(pid, &status, 0)
-            MainActor.assumeIsolated { self?.processExited(status: status) }
+            MainActor.assumeIsolated {
+                guard let self, self.childPID == pid else { return }
+                var status: Int32 = 0
+                guard waitpid(pid, &status, 0) == pid else { return }
+                self.processExited(status: status)
+            }
         }
         exit.resume()
         exitSource = exit
@@ -400,6 +430,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private func restartProcess() {
+        guard connection == nil else {
+            deliver(Data("\r\nTo reconnect, create a new connection code on the home computer and choose Connect to Home… here. Your assistant conversation is kept on the home computer.\r\n".utf8))
+            return
+        }
         resumeCommand = nil
         terminate()
         pendingOutput.removeAll()
@@ -411,12 +445,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     /// End the shell and everything started in it.
     func terminate() {
-        if childPID > 0 { kill(-childPID, SIGHUP); kill(childPID, SIGHUP) }
+        connection?.stop()
+        let stoppedPID = childPID
+        childPID = 0
         readSource?.cancel(); readSource = nil
         exitSource?.cancel(); exitSource = nil
         input?.cancel(); input = nil
         if masterFD >= 0 { close(masterFD); masterFD = -1 }
-        childPID = 0
+        if stoppedPID > 0 {
+            _ = TerminalChildProcess.stopAndReap(stoppedPID)
+        }
         isRunning = false
         exitCode = 130
         if pageReady { webView.evaluateJavaScript("window.mvExited && window.mvExited(130)") }
@@ -427,6 +465,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Keystrokes or text into the terminal, as if typed. Text longer than the PTY takes at
     /// once is sent as the program reads it (`PTYWriter`), never cut off.
     func write(_ text: String) {
+        if let connection { connection.write(text); return }
         input?.write(Data(text.utf8))
     }
 
@@ -499,7 +538,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private var readyForPaste: Bool {
-        guard masterFD >= 0, let startedAt else { return false }
+        guard (masterFD >= 0 || (connection != nil && isRunning)), let startedAt else { return false }
         let now = Date()
         let settled = startupCommand?.isEmpty ?? true
             ? now.timeIntervalSince(startedAt) > 1
@@ -525,12 +564,19 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private func resize(cols: Int, rows: Int) {
-        size.ws_col = UInt16(max(2, cols))
-        size.ws_row = UInt16(max(2, rows))
+        size.ws_col = UInt16(max(2, min(1000, cols)))
+        size.ws_row = UInt16(max(2, min(1000, rows)))
+        if let connection { connection.resize(cols: Int(size.ws_col), rows: Int(size.ws_row)); return }
         guard masterFD >= 0 else { return }
         var windowSize = size
         _ = ioctl(masterFD, TIOCSWINSZ, &windowSize)
     }
+
+    /// The host uses the same PTY resizing path as its web view; validate network dimensions here.
+    func resizeForConnection(cols: Int, rows: Int) { resize(cols: cols, rows: rows) }
+
+    /// Preserve UTF-8 and terminal escape bytes across network chunk boundaries.
+    func writeBytesForConnection(_ data: Data) { input?.write(data) }
 
     /// Output to the page, batched per frame; the startup command goes in once the
     /// shell has printed its prompt.

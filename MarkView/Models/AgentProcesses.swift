@@ -1,20 +1,23 @@
 import Foundation
 
-/// The assistant CLI processes of headless runs (`CLICompletion`, `ACPAssistant`) that are running now.
+/// The assistant CLI processes of headless runs and remote-workspace commands that are running now.
 /// They are children of the app but not of its terminal tabs, so quitting the app left them running with no
 /// one to take their answer (a prototype build kept spending tokens for half an hour). The app stops them on quit.
 enum AgentProcesses {
     private static let lock = NSLock()
     private static var running: [ObjectIdentifier: Process] = [:]
+    private static var stopHandlers: [ObjectIdentifier: () -> Void] = [:]
 
-    static func add(_ process: Process) {
+    static func add(_ process: Process, stop: (() -> Void)? = nil) {
         lock.lock(); defer { lock.unlock() }
         running[ObjectIdentifier(process)] = process
+        stopHandlers[ObjectIdentifier(process)] = stop
     }
 
     static func remove(_ process: Process) {
         lock.lock(); defer { lock.unlock() }
         running[ObjectIdentifier(process)] = nil
+        stopHandlers[ObjectIdentifier(process)] = nil
     }
 
     static var count: Int {
@@ -27,9 +30,13 @@ enum AgentProcesses {
     static func terminateAll(grace: TimeInterval = 1.0) {
         lock.lock()
         let processes = Array(running.values)
+        let handlers = stopHandlers
         lock.unlock()
         let live = processes.filter { $0.isRunning }
-        live.forEach { $0.terminate() }
+        live.forEach { process in
+            if let stop = handlers[ObjectIdentifier(process)] { stop() }
+            else { process.terminate() }
+        }
         let deadline = Date().addingTimeInterval(grace)
         while Date() < deadline, live.contains(where: { $0.isRunning }) {
             Thread.sleep(forTimeInterval: 0.05)

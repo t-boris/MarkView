@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "api/relay.js": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/healthz", "destination": "/api/relay?relayPath=/healthz" },
+    { "source": "/v1/:path*", "destination": "/api/relay?relayPath=/v1/:path*" }
+  ]
+}

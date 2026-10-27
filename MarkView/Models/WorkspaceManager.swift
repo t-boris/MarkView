@@ -3937,6 +3937,24 @@ class WorkspaceManager: ObservableObject {
         return session
     }
 
+    /// Connect a home assistant while preserving this window's work-computer root.
+    @discardableResult
+    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool) async throws -> TerminalSession {
+        guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
+        let invitation = try RemoteInvitation(code: code)
+        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, provider: provider, model: model, resume: resume)
+        guard (aiWorkspaceRoot ?? rootNode?.url) == root else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
+        let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
+                                      title: "Home · " + provider.title)
+        session.connection = connection
+        session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
+        session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
+        aiTerminals.append(session)
+        activeAITerminalID = session.id
+        showAIConsole()
+        return session
+    }
+
     /// The first AI terminal (the toolbar's assistant) once a folder is open.
     @discardableResult
     func ensureAITerminal() -> TerminalSession? {
@@ -3954,8 +3972,10 @@ class WorkspaceManager: ObservableObject {
     /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
     private func saveAITerminals() {
         guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return }
-        let shown = aiTerminals.firstIndex { $0.id == activeAITerminalID } ?? 0
-        UserDefaults.standard.set(["profiles": aiTerminals.map(\.profile.rawValue), "shown": shown],
+        // Remote invitations stay in memory. Never restore a remote terminal as a local assistant.
+        let local = aiTerminals.filter { !$0.isRemote }
+        let shown = local.firstIndex { $0.id == activeAITerminalID } ?? 0
+        UserDefaults.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shown],
                                   forKey: Self.aiTerminalsKey(directory))
     }
 
@@ -3982,6 +4002,7 @@ class WorkspaceManager: ObservableObject {
     /// Start the shown terminal again, with the model chosen for its assistant now.
     func restartAITerminal() {
         guard let session = aiTerminal else { ensureAITerminal(); return }
+        guard !session.isRemote else { return }
         session.restart(profile: session.profile, startupCommand: startupCommand(for: session.profile),
                         title: terminalTitle(for: session.profile, excluding: session))
     }
@@ -3989,6 +4010,7 @@ class WorkspaceManager: ObservableObject {
     /// The toolbar's assistant changed: show a terminal running it — an open one, or the
     /// shown assistant terminal restarted with it, or a new one next to a plain shell.
     func aiBackendChanged() {
+        guard aiTerminal?.isRemote != true else { return }
         let profile = TerminalProfile(AIAssistantPreferences.backend(project: aiProject))
         if let existing = aiTerminals.first(where: { $0.profile == profile }) {
             activeAITerminalID = existing.id
@@ -4007,7 +4029,7 @@ class WorkspaceManager: ObservableObject {
     /// A model changed in the toolbar: the shown terminal restarts when it runs that
     /// assistant with another model; other terminals keep their session.
     func aiModelChanged() {
-        guard let session = aiTerminal, session.profile != .shell else { return }
+        guard let session = aiTerminal, session.profile != .shell, !session.isRemote else { return }
         let command = startupCommand(for: session.profile)
         guard session.startupCommand != command else { return }
         session.restart(profile: session.profile, startupCommand: command,
