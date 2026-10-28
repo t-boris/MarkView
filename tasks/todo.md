@@ -1,5 +1,20 @@
 # MarkView — Follow-up Tasks
 
+## Task 147: DDE Settings clips its contents (2026-10-27, 4.58.4)
+
+Boris's screenshot shows the settings content extending beyond the left edge of its window.
+The SwiftUI root imposed a fixed 520 by 700 size while its native window was resizable. Give the
+window a screen-fitting default and useful minimum, and constrain the scroll content to its actual
+viewport instead of a fixed root size. Wide GitHub polling controls stack when needed.
+
+- [x] Window owns its size; reopening/rebinding preserves it. Settings content follows the viewport
+      with consistent padding and vertical scrolling; no fixed root width or height.
+- [x] Debug build, project lint and diff checks pass. Protected UI checked at 100% and 200%:
+      normal window, zoom/restore, settings close/reopen, assistant choices, adaptive GitHub controls
+      (including opening their menu), and lower sections/buttons reached by scrolling.
+      Test font and GitHub preferences restored; no user project settings changed.
+- [ ] PR/CI/merge, signed/notarized release and reinstall.
+
 ## Task 146: Relay access key disappears after settings close (2026-10-27, 4.58.3)
 
 Boris entered the registration key, but the field was empty after reopening settings/reinstalling.
@@ -15,7 +30,9 @@ settings or quitting. No connection invitation or assistant credential is persis
 - [x] Debug build, project lint and existing remote suite pass (workspace/commands, channel, PTY,
       Unix bridge and local relay tests). Protected UI confirms save, sheet reopen, full-process restart,
       separate relay URLs and durable clearing. Test-only Keychain item removed; no hosting enabled.
-- [ ] PR/CI/merge, signed/notarized release and reinstall with the existing saved registration key.
+- [x] PR https://github.com/t-boris/MarkView/pull/197 merged at `acfd82f`; PR and merge-commit CI pass.
+      Signed/notarized/stapled v4.58.3 was installed. The existing local registration key was restored
+      into Keychain and confirmed populated in the masked field in the installed app; no hosting enabled.
 
 ## Task 145: PDF book fails on display mathematics (2026-10-27, 4.58.2)
 
