@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */; };
 		023FAE1186C4AD4AC90AB021 /* markview-structured.js in Resources */ = {isa = PBXBuildFile; fileRef = D2BCF00DE367D3BF705F3135 /* markview-structured.js */; };
 		026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */; };
 		02D2C5DE37AF106D3C661314 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = CE1EF33F9C88742E6505EC25 /* mermaid.min.js */; };
@@ -64,7 +65,6 @@
 		32C4F78110B5EE395C72E2B5 /* DiagramAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF4BDCBD84C68089E10F1CCC /* DiagramAI.swift */; };
 		32D260F63092277E130CA096 /* GitHubPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01DB1D3BC3146A00A3212838 /* GitHubPublisher.swift */; };
 		32DF2292CC64688344D3A07B /* ContentsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */; };
-		5FA2F546C1A623C199A3D41E /* RemoteRelaySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32299043750EE951F84435B9 /* RemoteRelaySettings.swift */; };
 		32F37CA5A1ABDF262C564C78 /* RemoteHostController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14124D16ECA72DA14417C7DB /* RemoteHostController.swift */; };
 		33134280169E08459FF88E35 /* FeatureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4AFC52AD5122C2A42B6749 /* FeatureStore.swift */; };
 		34AF3B699235B8FBA506BC50 /* markview-book.js in Resources */ = {isa = PBXBuildFile; fileRef = 00957E10407CD88C7C573C38 /* markview-book.js */; };
@@ -104,6 +104,7 @@
 		4D5E9CBFD185E53AEC3A9A9E /* GitHubStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5BAB7F45A97C4849A8C549 /* GitHubStore.swift */; };
 		4D698ACA5087AA8BD07F2A04 /* AgentActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9352C3EC3E8CCF2B38B41AF /* AgentActivity.swift */; };
 		4DFE55644DF8A088AD8C6688 /* KaTeX_Typewriter-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = B50F42A001DDEAC85D1AF123 /* KaTeX_Typewriter-Regular.woff2 */; };
+		51C77BD7462326A12025316B /* RemoteConnectionsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */; };
 		52D267AB5AD1B443C3C84F6A /* BrowserPasswordScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE52195632D08967C57105E7 /* BrowserPasswordScript.swift */; };
 		535F56C5E9AED7F130C90B75 /* markview-canvas.js in Resources */ = {isa = PBXBuildFile; fileRef = B5602C568336324C646AC72E /* markview-canvas.js */; };
 		55037F3A705A0F79302C4585 /* Discussion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC5CF1253DBEECE6E44967D /* Discussion.swift */; };
@@ -153,6 +154,7 @@
 		6FB910979981EED49A926F3F /* ConflictPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC026508553C50ACDA4C8E3 /* ConflictPrompt.swift */; };
 		730F23C5B6F4B2F9CC919D04 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADCB63E2DE221E14BDFEC7C /* TabBarView.swift */; };
 		74509776B2E78308C373196C /* WikiLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 237DD0835DF06F9CC7A08573 /* WikiLinkResolver.swift */; };
+		7520B7671FB1C71B40EC8211 /* RemoteConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */; };
 		76A3C4055647AC8EE0D50BFE /* prism-json.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 53EE48E0FB60C63546A10ED0 /* prism-json.min.js */; };
 		774025BBB9B6D66ED956E9ED /* RemoteProviderConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */; };
 		776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCFD48E5B70D7745B61B76D4 /* ArchiveTabView.swift */; };
@@ -340,7 +342,6 @@
 		11A52E34064E19CA3B2691E2 /* DeploymentStore+Databases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeploymentStore+Databases.swift"; sourceTree = "<group>"; };
 		11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityMonitor.swift; sourceTree = "<group>"; };
 		13993FF35E01B9904DA7B594 /* ResearchJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchJobs.swift; sourceTree = "<group>"; };
-		32299043750EE951F84435B9 /* RemoteRelaySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelaySettings.swift; sourceTree = "<group>"; };
 		14124D16ECA72DA14417C7DB /* RemoteHostController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteHostController.swift; sourceTree = "<group>"; };
 		145EBE59BDFE2F25DB8F1068 /* markview-page-markdown.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-page-markdown.js"; sourceTree = "<group>"; };
 		14DA99E32A3358E5851D585A /* AgentProcesses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcesses.swift; sourceTree = "<group>"; };
@@ -369,6 +370,7 @@
 		2813544220B3EBEC33B10F32 /* SystemProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProbe.swift; sourceTree = "<group>"; };
 		2844310A95C80FBE1E88187C /* AgentUsageTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageTracker.swift; sourceTree = "<group>"; };
 		28604B8D1BFD9BF716A5891D /* DictationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationController.swift; sourceTree = "<group>"; };
+		28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelaySettings.swift; sourceTree = "<group>"; };
 		297DFB300C5D61C4F3F7D68D /* IssueSyncRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSyncRun.swift; sourceTree = "<group>"; };
 		2A3A204E8B25C86013385877 /* book.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = book.html; sourceTree = "<group>"; };
 		2AC5CF1253DBEECE6E44967D /* Discussion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discussion.swift; sourceTree = "<group>"; };
@@ -498,6 +500,7 @@
 		988AFD95FBA47411ED7C0508 /* SharedSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedSearchView.swift; sourceTree = "<group>"; };
 		9A1BAC4896C73C835E150997 /* BrowserElementPick.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserElementPick.swift; sourceTree = "<group>"; };
 		9A4D926B6E77144DA360543F /* ArchitectureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureStore.swift; sourceTree = "<group>"; };
+		9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConnectionsStore.swift; sourceTree = "<group>"; };
 		9BD5813E43B8EA8DD4CE8C0F /* ArchitectureScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchitectureScanner.swift; sourceTree = "<group>"; };
 		9C2274FA0138402D44C1B4ED /* NewProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewProject.swift; sourceTree = "<group>"; };
 		9C501ACCB7ED2B026E7B473E /* BugBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBatch.swift; sourceTree = "<group>"; };
@@ -508,6 +511,7 @@
 		9F51142258159DFBAE3D4E66 /* GitStatusModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusModel.swift; sourceTree = "<group>"; };
 		A054546375B560E45B265A02 /* markview-discussion.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-discussion.js"; sourceTree = "<group>"; };
 		A1350590278DCEFED8266A2F /* elk.bundled.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = elk.bundled.js; sourceTree = "<group>"; };
+		A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConnectionState.swift; sourceTree = "<group>"; };
 		A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-d3-mermaid.js"; sourceTree = "<group>"; };
 		A440251497E5756568B77B87 /* TerminalLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLink.swift; sourceTree = "<group>"; };
 		A5375DCBA15D7800DBB3F459 /* FileInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileInfo.swift; sourceTree = "<group>"; };
@@ -945,11 +949,13 @@
 			children = (
 				6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */,
 				5C41B9BB6F1B879525F97C0A /* RemoteCommand.swift */,
+				9A7D6D41319CC3068C3A8F1A /* RemoteConnectionsStore.swift */,
+				A29090EAC22CD958E5209927 /* RemoteConnectionState.swift */,
 				F60C9C4C8059F94B3523B916 /* RemoteFraming.swift */,
-				32299043750EE951F84435B9 /* RemoteRelaySettings.swift */,
 				14124D16ECA72DA14417C7DB /* RemoteHostController.swift */,
 				D3F6450186269BACA35C1C25 /* RemoteProtocol.swift */,
 				EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */,
+				28D8F327CF62CE717D060C3A /* RemoteRelaySettings.swift */,
 				173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */,
 				78E7E3873B311E1D57458AEB /* RemoteToolBridge.swift */,
 				1DC151AE2DE4181D9A046CD1 /* RemoteToolRequests.swift */,
@@ -1408,12 +1414,14 @@
 				CB8A7A969D11FF1E22842A89 /* ProviderHints.swift in Sources */,
 				E4180A4A4BFB984356C01CEC /* RemoteChannel.swift in Sources */,
 				88D8F1643C5D169079C29F52 /* RemoteCommand.swift in Sources */,
+				7520B7671FB1C71B40EC8211 /* RemoteConnectionState.swift in Sources */,
+				51C77BD7462326A12025316B /* RemoteConnectionsStore.swift in Sources */,
 				3A43CF8E02C2DF872B9AE1CC /* RemoteConnectionsView.swift in Sources */,
 				2DE08563095A28F0F19331AE /* RemoteFraming.swift in Sources */,
-				5FA2F546C1A623C199A3D41E /* RemoteRelaySettings.swift in Sources */,
 				32F37CA5A1ABDF262C564C78 /* RemoteHostController.swift in Sources */,
 				C0114F0946F42F23FC90E205 /* RemoteProtocol.swift in Sources */,
 				774025BBB9B6D66ED956E9ED /* RemoteProviderConfiguration.swift in Sources */,
+				00CA6729A7DBFA482D057D61 /* RemoteRelaySettings.swift in Sources */,
 				9CE756F50996950EE520D986 /* RemoteTerminalConnection.swift in Sources */,
 				D13E4C82CFA5BE915F41FFB0 /* RemoteToolBridge.swift in Sources */,
 				7AFDB6B984500B2530F38FA0 /* RemoteToolRequests.swift in Sources */,
@@ -1497,7 +1505,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.59.1;
+				CURRENT_PROJECT_VERSION = 4.60.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1512,7 +1520,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.59.1;
+				MARKETING_VERSION = 4.60.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1576,7 +1584,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 4.59.1;
+				CURRENT_PROJECT_VERSION = 4.60.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1597,7 +1605,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 4.59.1;
+				MARKETING_VERSION = 4.60.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -146,7 +146,7 @@ enum BrowserControlServer {
             return .textResult("Browser tools for this assistant are turned off in the globe menu.", error: true)
         }
         guard RemoteWorkspaceTools.browserNames.contains(tool), let window = windows[id],
-              let workspace = window.workspace(), (workspace.aiWorkspaceRoot ?? workspace.rootNode?.url) == root else {
+              let workspace = window.workspace(), (workspace.aiWorkspaceRoot ?? workspace.rootNode?.url)?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else {
             return .textResult("The connected project window was closed or changed. Reconnect before using its browser.", error: true)
         }
         guard let data = try? JSONEncoder().encode(arguments == .null ? .object([:]) : arguments),

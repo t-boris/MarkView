@@ -47,7 +47,7 @@ export function createRelay(options = {}) {
             const url = new URL(req.url, 'http://relay.local');
             if (url.pathname === '/healthz' && req.method === 'GET') {
                 await store.health?.();
-                return reply(res, 200, { protocol: 1 });
+                return reply(res, 200, { protocol: 2, persistentConnections: true });
             }
             const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
             if (!bearer) return reply(res, 401);
@@ -57,7 +57,13 @@ export function createRelay(options = {}) {
                 const data = await body(req);
                 if (!data || !uuid.test(data.room) || !token.test(data.homeToken) || !token.test(data.workToken) || data.homeToken === data.workToken) return reply(res, 400);
                 if (!equal(bearer, data.homeToken)) return reply(res, 401);
-                return send(res, await store.register(data.room, digest(data.homeToken), digest(data.workToken)));
+                return send(res, await store.register(data.room, digest(data.homeToken), digest(data.workToken), data.persistent === true));
+            }
+            const sessionMatch = /^\/v1\/rooms\/([0-9a-f-]+)\/session\/(home|work)$/.exec(url.pathname);
+            if (sessionMatch && uuid.test(sessionMatch[1]) && ['GET', 'POST'].includes(req.method)) {
+                const next = req.method === 'POST' ? (await body(req)).session : undefined;
+                if (req.method === 'POST' && !uuid.test(next ?? '')) return reply(res, 400);
+                return send(res, await store.session(sessionMatch[1], sessionMatch[2], authHash, next));
             }
             const match = /^\/v1\/rooms\/([0-9a-f-]+)(?:\/(home|work))?$/.exec(url.pathname);
             if (!match || !uuid.test(match[1])) return reply(res, 404);
@@ -69,13 +75,13 @@ export function createRelay(options = {}) {
                 if (!raw || !Number.isSafeInteger(after) || after < 0 || !uuid.test(consumer ?? '')) return reply(res, 400);
                 const cancellation = new AbortController(), abort = () => cancellation.abort();
                 res.on('close', abort);
-                try { return send(res, await store.receive(room, role, authHash, after, consumer, cancellation.signal)); }
+                try { return send(res, await store.receive(room, role, authHash, after, consumer, cancellation.signal, req.headers['x-markview-session'])); }
                 finally { res.removeListener('close', abort); }
             }
             if (req.method === 'POST') {
                 const data = await body(req);
                 if (!data || !uuid.test(data.id) || typeof data.body !== 'string' || data.body.length < 32 || data.body.length > 2 * 1024 * 1024 || !/^[A-Za-z0-9+/=]+$/.test(data.body)) return reply(res, 400);
-                return send(res, await store.append(room, role, authHash, { id: data.id, body: data.body, hash: digest(data.body) }));
+                return send(res, await store.append(room, role, authHash, { id: data.id, body: data.body, hash: digest(data.body) }, req.headers['x-markview-session']));
             }
             reply(res, 405);
         } catch (error) { reply(res, error.status ?? 500); }

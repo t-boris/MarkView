@@ -110,3 +110,33 @@ test('Encrypted frames and response batches stay below serverless payload limits
         assert.equal((await request(f.relay, 'POST', f.path + '/home', f.home, { id: randomUUID(), body: body + 'A' })).status, 400);
     } finally { f.relay.close(); }
 });
+
+test('saved pairings survive eight hours, isolate new epochs and cannot be resurrected after either peer revokes', async () => {
+    let now = 0;
+    const relay = createRelay({ ttl: 10, now: () => now, pollTimeout: 5 });
+    const room = randomUUID(), home = randomBytes(32).toString('base64url'), work = randomBytes(32).toString('base64url');
+    const path = `/v1/rooms/${room}`;
+    const registration = { room, homeToken: home, workToken: work, persistent: true };
+    try {
+        assert.equal((await request(relay, 'GET', '/healthz', home)).body.persistentConnections, true);
+        assert.equal((await request(relay, 'POST', '/v1/rooms', home, registration)).status, 201);
+        now = 9 * 60 * 60 * 1000;
+        const epoch1 = randomUUID(), epoch2 = randomUUID();
+        assert.equal((await request(relay, 'POST', path + '/session/work', home, { session: epoch1 })).status, 401);
+        assert.equal((await request(relay, 'POST', path + '/session/home', home, { session: epoch1 })).body.session, epoch1);
+        const header1 = { 'x-markview-session': epoch1 }, header2 = { 'x-markview-session': epoch2 };
+        const old = payload();
+        assert.equal((await request(relay, 'POST', path + '/home', home, old, header1)).status, 200);
+        assert.equal((await request(relay, 'POST', path + '/session/work', work, { session: epoch2 })).status, 200);
+        assert.equal((await request(relay, 'POST', path + '/work', work, payload(), header1)).status, 409);
+        assert.equal((await request(relay, 'GET', path + `/work?after=0&consumer=${randomUUID()}`, work, undefined, header2)).body.messages.length, 0);
+        const next = payload();
+        assert.equal((await request(relay, 'POST', path + '/home', home, next, header2)).body.seq, 1);
+        assert.equal((await request(relay, 'POST', path + '/session/work', work, { session: epoch2 })).status, 200);
+        assert.equal((await request(relay, 'POST', path + '/session/home', home, { session: epoch1 })).status, 409);
+        assert.equal((await request(relay, 'GET', path + '/session/home', home)).body.session, epoch2);
+        assert.equal((await request(relay, 'DELETE', path, work)).status, 200);
+        assert.equal((await request(relay, 'POST', '/v1/rooms', home, registration)).status, 410);
+        assert.equal((await request(relay, 'GET', path + '/session/home', home)).status, 410);
+    } finally { relay.close(); }
+});

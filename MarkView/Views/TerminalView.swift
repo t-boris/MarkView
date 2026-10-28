@@ -308,7 +308,11 @@ private struct TerminalPanelTab: View {
                 .uiFont(size: 10, weight: isActive ? .semibold : .regular)
                 .lineLimit(1)
                 .help(session.title)
-            if !session.isRunning {
+            if let remote = session.remoteConnectionState {
+                Circle().fill(remote.phase == .online ? Color.green : Color.orange).frame(width: 6, height: 6)
+                    .help(remote.detail)
+                Text(remote.detail).uiFont(size: 9).lineLimit(1).frame(maxWidth: 170).help(remote.detail)
+            } else if !session.isRunning {
                 Circle().fill(VSDark.textDim).frame(width: 5, height: 5).help("Exited")
             } else {
                 AgentTabDot(monitor: monitor, terminalID: session.id)

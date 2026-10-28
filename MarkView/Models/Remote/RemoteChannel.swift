@@ -7,6 +7,7 @@ actor RemoteChannel {
     private let role: RemoteRole
     private let session: URLSession
     private let consumer = UUID().uuidString
+    private var epoch: String?
     private var cursor = 0
     private var closed = false
     private var pending: [(RemoteMessage, CheckedContinuation<Void, Error>)] = []
@@ -30,8 +31,15 @@ actor RemoteChannel {
         guard accessKey.utf8.count <= 1024, !accessKey.contains("\r"), !accessKey.contains("\n"), !accessKey.contains("\0") else {
             throw RemoteFailure.invalid("The relay access key is invalid. Paste the key without a line break.")
         }
+        if invitation.isPersistent {
+            let health = try await request("GET", path: "healthz")
+            guard health["persistentConnections"].bool == true else {
+                throw RemoteFailure.invalid("Update the MarkView relay service to support saved connections.")
+            }
+        }
         let body = RemoteJSON.object([
             "room": .string(invitation.room.uuidString.lowercased()),
+            "persistent": .bool(invitation.isPersistent),
             "homeToken": .string(invitation.token(for: .home)),
             "workToken": .string(invitation.token(for: .work))])
         // Managed free services may need a cold start. Retrying registration is safe because the
@@ -46,6 +54,19 @@ actor RemoteChannel {
                 try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 1_000_000_000)
             }
         }
+    }
+
+    /// A new epoch discards old transport queues before either endpoint can execute more tools.
+    func prepareSession(reset: Bool) async throws {
+        guard invitation.isPersistent else { return }
+        let path = "v1/rooms/" + invitation.room.uuidString.lowercased() + "/session/" + role.rawValue
+        let next = UUID().uuidString.lowercased()
+        let value = try await request(reset ? "POST" : "GET", path: path,
+                                      body: reset ? .object(["session": .string(next)]) : nil)
+        guard let value = value["session"].string, UUID(uuidString: value) != nil else {
+            throw RemoteFailure.invalid("Waiting for the other Mac to start this connection.")
+        }
+        epoch = value; cursor = 0; reassembler = RemoteReassembler()
     }
 
     func send(_ message: RemoteMessage) async throws {
@@ -73,6 +94,7 @@ actor RemoteChannel {
                         } catch {
                             lastError = error
                             if case RemoteFailure.expired = error { break }
+                            if case RemoteFailure.sessionChanged = error { break }
                             try await Task.sleep(nanoseconds: UInt64(attempt + 1) * 500_000_000)
                         }
                     }
@@ -109,6 +131,7 @@ actor RemoteChannel {
             catch {
                 if closed { return }
                 if case RemoteFailure.expired = error { throw error }
+                if case RemoteFailure.sessionChanged = error { throw error }
                 failures += 1
                 guard failures < 5 else { throw error }
                 try await Task.sleep(nanoseconds: UInt64(min(failures, 4)) * 1_000_000_000)
@@ -124,6 +147,12 @@ actor RemoteChannel {
         session.invalidateAndCancel()
     }
 
+    func revokeAccess() async throws {
+        do { _ = try await request("DELETE", path: "v1/rooms/" + invitation.room.uuidString.lowercased()) }
+        catch RemoteFailure.expired { /* Already revoked is success. */ }
+        close()
+    }
+
     func revoke() async {
         _ = try? await request("DELETE", path: "v1/rooms/" + invitation.room.uuidString.lowercased())
         close()
@@ -137,6 +166,7 @@ actor RemoteChannel {
         if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!)
         request.httpMethod = method
+        if let epoch { request.setValue(epoch, forHTTPHeaderField: "X-MarkView-Session") }
         request.setValue("Bearer " + invitation.token(for: role), forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if !registrationKey.isEmpty { request.setValue(registrationKey, forHTTPHeaderField: "X-Registration-Token") }
@@ -149,6 +179,7 @@ actor RemoteChannel {
         if method == "POST", path == "v1/rooms", [401, 403].contains(http.statusCode) {
             throw RemoteFailure.invalid("The relay access key was rejected. Check the home connection settings.")
         }
+        if http.statusCode == 409, invitation.isPersistent { throw RemoteFailure.sessionChanged }
         guard ![401, 403, 404, 410].contains(http.statusCode) else { throw RemoteFailure.expired }
         guard (200..<300).contains(http.statusCode) else { throw RemoteFailure.relay(http.statusCode) }
         guard data.count <= RemoteMessage.maxBytes * 3 else { throw RemoteFailure.invalid("Relay response is too large.") }

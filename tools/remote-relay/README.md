@@ -8,8 +8,10 @@ plain HTTP is accepted by MarkView only for a loopback development endpoint.
 The relay stores bounded encrypted mailboxes. It never receives the shared encryption
 key, provider credentials, file paths or plaintext terminal/file contents. Standalone
 and Worker deployments keep mailboxes in memory; Vercel uses atomic shared Redis state.
-Invitations expire after eight hours. Restarting an in-memory deployment revokes them;
-Vercel function cold starts retain the Redis mailboxes and deduplication records.
+Legacy invitations expire after eight hours. Saved connections (protocol 2) have no time limit;
+they remain authorized until either peer explicitly revokes them. Vercel persists pairings and
+revocation tombstones in Redis, including across function cold starts. In-memory deployments lose
+pairings on a server restart and are intended for development. Use shared Redis for saved access.
 Do not enable request-body or Authorization-header logging in a reverse proxy.
 
 ## Managed hosting with Vercel
@@ -48,7 +50,11 @@ endpoints and encrypts application messages. Do not remove account-wide protecti
 Health checks fail with 503 when configuration or Redis is unavailable.
 
 Atomic Redis scripts authenticate and deduplicate each operation, retain delivery IDs
-through acknowledgement, and expire the entire room. Redis Pub/Sub wakes HTTP long polls
+through acknowledgement, and expire legacy rooms. Saved pairings have no TTL and retain a small
+authentication tombstone after revocation so an old code cannot register again. Authenticated session
+epochs clear transport queues and consumer bindings on reconnect; stale epochs cannot enqueue or
+acknowledge new work. Each connection owns its own room and session; neither peer needs another code
+after a network interruption, sleep or application restart. Redis Pub/Sub wakes HTTP long polls
 without continuous store polling. The app fragments large tool results below 2 MB of
 ciphertext per frame to fit Vercel's request limits while preserving complete results.
 

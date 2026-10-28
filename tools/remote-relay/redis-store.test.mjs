@@ -90,3 +90,24 @@ test('Redis room expiry removes credentials and queued ciphertext', { skip: !por
     await new Promise(resolve => setTimeout(resolve, 100));
     assert.equal((await store.read(room, 'home', hash('home'), 0, randomUUID())).status, 410);
 });
+
+test('Redis saved pairing is durable across store instances, resets stale commands and keeps revocation tombstones', { skip: !port }, async () => {
+    const first = new RedisRelayStore(connection, { ttl: 50, pollTimeout: 50 });
+    const second = new RedisRelayStore(connection, { ttl: 50, pollTimeout: 50 });
+    const room = randomUUID(), home = hash('home-' + room), work = hash('work-' + room);
+    const epoch1 = randomUUID(), epoch2 = randomUUID(), body = Buffer.from('encrypted').toString('base64');
+    try {
+        assert.equal((await first.register(room, home, work, true)).status, 201);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        assert.equal((await second.session(room, 'home', home, epoch1)).session, epoch1);
+        assert.equal((await first.append(room, 'home', home, { id: randomUUID(), body, hash: hash(body) }, epoch1)).status, 200);
+        assert.equal((await second.session(room, 'work', work, epoch2)).session, epoch2);
+        assert.equal((await first.append(room, 'home', home, { id: randomUUID(), body, hash: hash(body) }, epoch1)).status, 409);
+        assert.deepEqual((await second.read(room, 'work', work, 0, randomUUID(), epoch2)).messages, []);
+        assert.equal((await first.session(room, 'home', home, epoch1)).status, 409);
+        assert.equal((await second.session(room, 'work', work)).session, epoch2);
+        assert.equal((await second.revoke(room, work)).status, 200);
+        assert.equal((await first.register(room, home, work, true)).status, 410);
+        assert.equal((await first.session(room, 'home', home, randomUUID())).status, 410);
+    } finally { await connection.command(['DEL', first.key(room)]); }
+});

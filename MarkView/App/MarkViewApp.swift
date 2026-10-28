@@ -80,6 +80,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
                 await RemoteRelaySettings.finishBeforeQuit()
+                await RemoteConnectionsStore.shared.finishPendingChanges()
                 try await WindowSessionController.shared.saveBeforeTermination()
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
@@ -94,7 +95,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
     /// Quitting for real (not when a save error keeps the windows open): stop the assistants of headless runs
     /// so none keeps working, and spending tokens, for a window that is gone.
     func applicationWillTerminate(_ notification: Notification) {
-        RemoteHostController.shared.stop()
+        RemoteConnectionsStore.shared.suspend()
         AgentProcesses.terminateAll()
     }
 
@@ -220,6 +221,7 @@ struct MarkViewApp: App {
     static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
 
     init() {
+        _ = RemoteConnectionsStore.shared
     }
 
     var body: some Scene {

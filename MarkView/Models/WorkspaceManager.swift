@@ -429,7 +429,12 @@ class WorkspaceManager: ObservableObject {
     /// Where the AI terminal starts: the open folder, or a single file's folder.
     @Published private(set) var aiWorkspaceRoot: URL? {
         // After a relaunch the folder's AI terminals come back even while the panel is hidden.
-        didSet { if aiWorkspaceRoot != nil, aiWorkspaceRoot != oldValue { restoreAITerminals() } }
+        didSet {
+            if aiWorkspaceRoot != nil, aiWorkspaceRoot != oldValue {
+                restoreAITerminals()
+                RemoteConnectionsStore.shared.attach(self)
+            }
+        }
     }
     /// The AI panel's terminals, in tab order: Claude Code, Codex or a plain shell each.
     @Published private(set) var aiTerminals: [TerminalSession] = []
@@ -3954,14 +3959,18 @@ class WorkspaceManager: ObservableObject {
 
     /// Connect a home assistant while preserving this window's work-computer root.
     @discardableResult
-    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool) async throws -> TerminalSession {
+    func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool, savedConnectionID: UUID? = nil) async throws -> TerminalSession {
         guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
         let invitation = try RemoteInvitation(code: code)
         registerBrowserControl()
-        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume)
-        guard (aiWorkspaceRoot ?? rootNode?.url) == root else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
+        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume, savedConnectionID: savedConnectionID)
+        guard (aiWorkspaceRoot ?? rootNode?.url)?.standardizedFileURL.resolvingSymlinksInPath() == root.standardizedFileURL.resolvingSymlinksInPath() else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
         let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
                                       title: "Home · " + provider.title)
+        connection.onState = { [weak session] phase, text in
+            session?.remoteConnectionState = .init(phase: phase, detail: text, lastSeen: phase == .online ? Date() : nil)
+            if let savedConnectionID { RemoteConnectionsStore.shared.update(savedConnectionID, phase, text) }
+        }
         session.connection = connection
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
@@ -3988,7 +3997,7 @@ class WorkspaceManager: ObservableObject {
     /// Remember the folder's AI terminals: what each runs, in tab order, and the shown one.
     private func saveAITerminals() {
         guard let directory = aiWorkspaceRoot ?? rootNode?.url else { return }
-        // Remote invitations stay in memory. Never restore a remote terminal as a local assistant.
+        // Saved remote pairings are restored by RemoteConnectionsStore, never as local assistant profiles.
         let local = aiTerminals.filter { !$0.isRemote }
         let shown = local.firstIndex { $0.id == activeAITerminalID } ?? 0
         UserDefaults.standard.set(["profiles": local.map(\.profile.rawValue), "shown": shown],

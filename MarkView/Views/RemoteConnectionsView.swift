@@ -5,8 +5,9 @@ struct RemoteConnectionsView: View {
     private enum ConnectionMode: Hashable { case work, home }
     @EnvironmentObject var workspace: WorkspaceManager
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var host = RemoteHostController.shared
+    @ObservedObject private var connections = RemoteConnectionsStore.shared
     @ObservedObject private var relaySettings = RemoteRelaySettings.shared
+    @State private var connectionName = ""
     @State private var connectionCode = ""
     @State private var provider = RemoteProviderConfiguration.Provider.claude
     @State private var model = ""
@@ -21,7 +22,7 @@ struct RemoteConnectionsView: View {
                 Text("Remote Assistants").uiFont(.title2, weight: .semibold)
                 Spacer()
                 Button("Done") {
-                    Task { await relaySettings.finishPendingChanges(); dismiss() }
+                    Task { await relaySettings.finishPendingChanges(); await connections.finishPendingChanges(); dismiss() }
                 }.keyboardShortcut(.cancelAction)
             }
             Picker("Connection direction", selection: $connectionMode) {
@@ -34,7 +35,10 @@ struct RemoteConnectionsView: View {
             .fixedSize(horizontal: false, vertical: true)
             ScrollView {
                 Group {
-                    if connectionMode == .work { work } else { home }
+                    VStack(alignment: .leading, spacing: 16) {
+                        savedConnections
+                        if connectionMode == .work { work } else { home }
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -43,17 +47,64 @@ struct RemoteConnectionsView: View {
             .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.25)))
             if let error { Text(error).foregroundColor(.red).textSelection(.enabled) }
         }
-        .padding(20).frame(width: 610, height: 440)
+        .padding(20).frame(width: 680, height: 600)
         .onAppear {
             if AIAssistantPreferences.backend(project: workspace.aiProject) == .codex { provider = .codex }
+        }
+    }
+
+    private var savedConnections: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if connections.isLoading { ProgressView("Loading saved connections…") }
+            if let storageError = connections.storageError { Text(storageError).foregroundColor(.red) }
+            ForEach(connections.entries.filter { $0.role == (connectionMode == .work ? .work : .home) }) { entry in
+                let state = connections.state(entry.id)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Circle().fill(state.phase == .online ? Color.green : state.phase == .waiting ? Color.blue : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(entry.name).uiFont(.headline)
+                        Spacer()
+                        if entry.role == .home, !entry.revoking, state.phase == .waiting || state.phase == .online {
+                            Button("Copy Code") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(entry.code, forType: .string)
+                            }
+                        }
+                        if state.phase == .offline, !entry.revoking {
+                            Button("Reconnect") {
+                                Task {
+                                    do { try await connections.reconnect(entry, workspace: workspace) }
+                                    catch { self.error = error.localizedDescription }
+                                }
+                            }
+                        }
+                        Button(entry.revoking ? "Revoking…" : "Disconnect Access") {
+                            Task {
+                                do { try await connections.disconnect(entry) }
+                                catch { self.error = error.localizedDescription }
+                            }
+                        }.disabled(entry.revoking)
+                    }
+                    Text(state.detail).uiFont(.caption).foregroundColor(.secondary).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let root = entry.rootPath { Text(root).uiFont(.caption).lineLimit(1).truncationMode(.middle) }
+                    if let seen = state.lastSeen {
+                        HStack(spacing: 4) { Text("Last response:"); Text(seen, style: .relative) }.uiFont(.caption).foregroundColor(.secondary)
+                    }
+                }
+                .padding(10).background(Color.secondary.opacity(0.08)).cornerRadius(8)
+            }
+            if !connections.entries.isEmpty { Divider() }
         }
     }
 
     private var work: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Use your home assistant in the folder open on this Mac.").uiFont(.headline)
-            Text("On the home computer, open Allow This Mac and copy its connection code. Both computers must stay awake with MarkView running.")
+            Text("On the home computer, open Allow This Mac and copy its connection code. The connection is saved on this Mac and reconnects automatically when this project opens.")
                 .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("Connection name (for example, Home Mac)", text: $connectionName).textFieldStyle(.roundedBorder)
             SecureField("Connection code", text: $connectionCode).textFieldStyle(.roundedBorder)
             HStack {
                 Picker("Assistant", selection: $provider) {
@@ -73,13 +124,13 @@ struct RemoteConnectionsView: View {
                     Task {
                         defer { connecting = false }
                         do {
-                            _ = try await workspace.openRemoteAITerminal(code: connectionCode, provider: provider,
-                                model: model.isEmpty ? nil : model, resume: resume)
-                            connectionCode = ""; dismiss()
+                            try await connections.connect(name: connectionName, code: connectionCode, provider: provider,
+                                model: model.isEmpty ? nil : model, resume: resume, workspace: workspace)
+                            connectionCode = ""; connectionName = ""
                         } catch { self.error = error.localizedDescription }
                     }
                 }
-                .disabled(connecting || connectionCode.isEmpty || (workspace.aiWorkspaceRoot == nil && workspace.rootNode == nil))
+                .disabled(connections.isLoading || connecting || connectionCode.isEmpty || (workspace.aiWorkspaceRoot == nil && workspace.rootNode == nil))
                 .keyboardShortcut(.defaultAction)
             }
             Spacer(minLength: 0)
@@ -91,29 +142,28 @@ struct RemoteConnectionsView: View {
             Text("Let your work computer use this Mac’s assistant.").uiFont(.headline)
             Text("Claude Code or Codex must already be installed and signed in on this Mac. Enter the HTTPS address of your MarkView relay.")
                 .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextField("https://relay.example.com", text: $relaySettings.relayURL).textFieldStyle(.roundedBorder).disabled(host.isHosting)
+            TextField("https://relay.example.com", text: $relaySettings.relayURL).textFieldStyle(.roundedBorder)
             SecureField("Relay access key", text: Binding(get: { relaySettings.accessKey }, set: { relaySettings.setAccessKey($0) }))
                 .textFieldStyle(.roundedBorder)
-                .disabled(host.isHosting || relaySettings.isLoading || (try? RemoteRelayKeychain.account(for: relaySettings.relayURL)) == nil)
+                .disabled(relaySettings.isLoading || (try? RemoteRelayKeychain.account(for: relaySettings.relayURL)) == nil)
             if let message = relaySettings.storageError {
                 Text(message).uiFont(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
             } else if let status = relaySettings.storageStatus {
                 Text(status).uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            HStack {
-                Button(host.isHosting ? "Stop Hosting" : "Allow Connection") {
-                    if host.isHosting { host.stop() } else { host.start(relay: relaySettings.relayURL, accessKey: relaySettings.accessKey) }
-                }
-                .disabled(!host.isHosting && relaySettings.isLoading)
-                if !host.connectionCode.isEmpty {
-                    Button("Copy Connection Code") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(host.connectionCode, forType: .string)
-                    }
+            TextField("Connection name (for example, Work Mac)", text: $connectionName).textFieldStyle(.roundedBorder)
+            Button(connecting ? "Saving…" : "Add Connection") {
+                connecting = true; error = nil
+                Task {
+                    defer { connecting = false }
+                    do {
+                        try await connections.allow(name: connectionName, relay: relaySettings.relayURL)
+                        connectionName = ""
+                    } catch { self.error = error.localizedDescription }
                 }
             }
-            Text(host.status).uiFont(.caption).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Text("The code allows one work-computer terminal to connect. Share it only with your other device. Stop Hosting revokes access. Connections expire after eight hours.")
+            .disabled(connections.isLoading || connecting || relaySettings.isLoading)
+            Text("Each named connection has its own code. Copy it once to your other Mac. Saved access stays available until Disconnect Access is confirmed by the relay; sleep, network interruptions and app restarts do not require another code. Both Macs need MarkView running to use an assistant.")
                 .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

@@ -6,8 +6,11 @@ import Security
 /// Serial Keychain calls run off the main actor and update an existing item in place.
 actor RemoteRelayKeychain {
     private let service: String
+    private let maxBytes: Int
 
-    init(service: String = "MarkView remote relay access key") { self.service = service }
+    init(service: String = "MarkView remote relay access key", maxBytes: Int = 1024) {
+        self.service = service; self.maxBytes = maxBytes
+    }
 
     static func account(for relay: String) throws -> String {
         guard let url = URL(string: relay.trimmingCharacters(in: .whitespacesAndNewlines)) else {
@@ -39,7 +42,7 @@ actor RemoteRelayKeychain {
     }
 
     func save(_ value: String, account: String) throws {
-        guard value.utf8.count <= 1024, !value.contains("\r"), !value.contains("\n"), !value.contains("\0") else {
+        guard value.utf8.count <= maxBytes, !value.contains("\r"), !value.contains("\n"), !value.contains("\0") else {
             throw RemoteFailure.invalid("The relay access key is invalid. Paste the key without a line break.")
         }
         let query = query(account)
