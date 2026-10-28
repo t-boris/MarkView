@@ -4,7 +4,9 @@ import Foundation
 enum RemoteWorkspaceTools {
     static let serverName = "markview_remote_workspace"
     static let toolPrefix = "mcp__" + serverName + "__"
-    static let names: Set<String> = ["workspace_info", "list_directory", "read_file", "write_file", "edit_file", "exec_command", "write_stdin"]
+    private static let fileNames: Set<String> = ["workspace_info", "list_directory", "read_file", "write_file", "edit_file", "exec_command", "write_stdin"]
+    static let browserNames = Set(BrowserAgentTools.tools.map(\.name))
+    static let names = fileNames.union(browserNames)
     static let instructions = """
     Your execution environment is the WORK computer connected through MarkView. All project files, Git,
     commands, tests and development servers belong to that computer. Use these workspace tools for EVERY
@@ -13,6 +15,12 @@ enum RemoteWorkspaceTools {
     in prompts and tool results refer to the work computer. Read AGENTS.md and CLAUDE.md through read_file
     when present. Commands have normal local user permissions. exec_command can return a running session;
     use write_stdin to wait, send input, interrupt or terminate it. Read image files through read_file.
+    The browser_* tools control the browser tabs in the WORK computer's connected MarkView window,
+    including tabs already open and the user's signed-in pages. For web work use these tools, including
+    localhost development servers on the work computer. Start with browser_tabs to find the user's tab,
+    then browser_snapshot to read it and get element refs for browser_click and browser_type.
+    browser_screenshot returns a page image. Respect tabs stopped by the user; do not retry them.
+    The window is fixed by this connection; project_folder is unnecessary. Never automate the home browser.
     """
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: RemoteJSON], required: [String] = []) -> RemoteJSON {
@@ -22,6 +30,13 @@ enum RemoteWorkspaceTools {
     }
     private static func field(_ type: String, _ description: String) -> RemoteJSON {
         .object(["type": .string(type), "description": .string(description)])
+    }
+    /// Reuse the shipping browser schemas, without the local MCP server's folder-routing argument.
+    static let browserTools: [RemoteJSON] = BrowserAgentTools.tools.map { definition in
+        var definition = definition
+        definition.addsFolder = false
+        let data = try! JSONSerialization.data(withJSONObject: definition.json)
+        return try! JSONDecoder().decode(RemoteJSON.self, from: data)
     }
     static let tools: [RemoteJSON] = [
         tool("workspace_info", "Actual work-computer working directory, OS, shell, hostname and project instructions.", [:]),
@@ -44,7 +59,7 @@ enum RemoteWorkspaceTools {
             "session_id": field("string", "Session returned by exec_command"), "chars": field("string", "Input to send"),
             "yield_time_ms": field("integer", "Wait 0–30000 ms; default 1000"),
             "close_stdin": field("boolean", "Close command stdin"), "terminate": field("boolean", "Stop the process")], required: ["session_id"]),
-    ]
+    ] + browserTools
 
     static func response(to request: RemoteJSON, call: (UUID, String, RemoteJSON) -> RemoteJSON) -> RemoteJSON? {
         let id = request["id"]

@@ -5,9 +5,12 @@ on:
     paths:
       - 'MarkView/Models/Remote/**'
       - 'MarkView/Models/TerminalSession.swift'
+      - 'MarkView/Models/BrowserAgentTools.swift'
+      - 'MarkView/Models/BrowserControlServer.swift'
       - 'tools/remote-relay/**'
       - 'tools/tests/Remote*'
       - 'tools/tests/remote-workspace-tests.sh'
+      - 'tools/tests/remote-browser-tests.sh'
       - 'tools/tests/remote-relay-settings-tests.sh'
       - '.github/workflows/remote-workspace.yml'
   workflow_dispatch:

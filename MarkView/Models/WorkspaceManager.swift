@@ -3957,7 +3957,8 @@ class WorkspaceManager: ObservableObject {
     func openRemoteAITerminal(code: String, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool) async throws -> TerminalSession {
         guard let root = aiWorkspaceRoot ?? rootNode?.url else { throw RemoteFailure.invalid("Open the folder you want the home assistant to work in.") }
         let invitation = try RemoteInvitation(code: code)
-        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, provider: provider, model: model, resume: resume)
+        registerBrowserControl()
+        let connection = try await RemoteTerminalConnection(invitation: invitation, root: root, browserWindowID: browserControlID, provider: provider, model: model, resume: resume)
         guard (aiWorkspaceRoot ?? rootNode?.url) == root else { connection.stop(); throw RemoteFailure.invalid("The open folder changed. Connect again for the new folder.") }
         let session = TerminalSession(directory: root, profile: provider == .claude ? .claude : .codex,
                                       title: "Home · " + provider.title)

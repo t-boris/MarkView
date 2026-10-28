@@ -137,8 +137,52 @@ enum RemoteWorkspaceTests {
         let stopped = await call("write_stdin", ["session_id": .string(session(sleeper)!), "terminate": .bool(true), "yield_time_ms": .int(1000)])
         check(text(stopped).contains("Exit code:"), "Stopping a command must terminate it.")
 
+        // Browser calls use the work endpoint and the same retry/size/disconnect rules as writes.
+        actor BrowserFixture {
+            var clicks = 0
+            func call(_ name: String, _ args: RemoteJSON) -> RemoteJSON {
+                if name == "browser_click" { clicks += 1 }
+                if name == "browser_screenshot" {
+                    return .object(["content": .array([.object(["type": .string("image"),
+                        "mimeType": .string("image/png"), "data": .string("work-image")])]), "isError": .bool(false)])
+                }
+                return .textResult("WORK tab T2: " + name + " " + (args["tab"].string ?? "active"))
+            }
+            func count() -> Int { clicks }
+        }
+        let browser = BrowserFixture()
+        let browserWorkspace = try await RemoteWorkspace(root: workRoot, browserCall: { name, args in
+            await browser.call(name, args)
+        })
+        let tabs = await browserWorkspace.call(id: UUID(), name: "browser_tabs", arguments: .object([:]))
+        check(text(tabs).contains("WORK tab T2"), "Browser discovery must reach the work endpoint.")
+        let clickID = UUID(), clickArgs = RemoteJSON.object(["tab": .string("T2"), "ref": .string("e1")])
+        async let clickA = browserWorkspace.call(id: clickID, name: "browser_click", arguments: clickArgs)
+        async let clickB = browserWorkspace.call(id: clickID, name: "browser_click", arguments: clickArgs)
+        let clicks = await (clickA, clickB)
+        let clickCount = await browser.count()
+        check(clicks.0 == clicks.1 && text(clicks.0).contains("T2") && clickCount == 1, "Retried browser mutations must execute once and retain the target tab.")
+        let screenshot = await browserWorkspace.call(id: UUID(), name: "browser_screenshot", arguments: .object([:]))
+        check(screenshot["content"].array?.first?["data"].string == "work-image", "Screenshot MCP image blocks must survive unchanged.")
+        let noBrowser = await call("browser_tabs")
+        check(noBrowser["isError"].bool == true, "Missing window bindings must fail without using a home browser.")
+        await browserWorkspace.close()
+        let afterClose = await browserWorkspace.call(id: UUID(), name: "browser_click", arguments: clickArgs)
+        let closedClicks = await browser.count()
+        check(afterClose["isError"].bool == true && closedClicks == 1, "Disconnected browser calls must not execute.")
+
         let listed = RemoteWorkspaceTools.response(to: .object(["id": .int(1), "method": .string("tools/list")])) { _, _, _ in .null }
         check(listed?["result"]["tools"].array?.count == RemoteWorkspaceTools.names.count, "Both providers must discover the complete workspace interface.")
+        let advertised = listed?["result"]["tools"].array ?? []
+        check(Set(advertised.compactMap { $0["name"].string }).isSuperset(of: BrowserAgentTools.tools.map(\.name)), "Both providers must discover every shipping browser tool.")
+        check(advertised.filter { $0["name"].string?.hasPrefix("browser_") == true }.allSatisfy {
+            $0["inputSchema"]["properties"]["project_folder"] == .null
+        }, "Remote browser tools must not route using an agent's home folder.")
+        let browserRPC = RemoteWorkspaceTools.response(to: .object(["id": .int(7), "method": .string("tools/call"),
+            "params": .object(["name": .string("browser_snapshot"), "arguments": .object(["tab": .string("T2")])])])) { _, name, args in
+                .textResult(name + " " + (args["tab"].string ?? ""))
+            }
+        check(text(browserRPC?["result"] ?? .null) == "browser_snapshot T2", "The stdio MCP dispatcher must forward browser calls and arguments.")
         check(["Bash", "Read", "apply_patch", "mcp__work__read_file", ""].allSatisfy {
             RemoteUnixRPC.guardResponse(for: $0)["hookSpecificOutput"]["permissionDecision"].string == "deny"
         }, "Both providers must receive a supported denial for native home tools and malformed names.")
@@ -172,6 +216,12 @@ enum RemoteWorkspaceTests {
             let viaBridge = await Task.detached {
                 RemoteUnixRPC.call(socket: bridge.path, id: UUID(), name: "read_file", arguments: .object(["path": .string("identity.txt")]))
             }.value
+            let browserBridge = try RemoteToolBridge { _, name, args in await browser.call(name, args) }
+            defer { browserBridge.stop() }
+            let viaBrowserBridge = await Task.detached {
+                RemoteUnixRPC.call(socket: browserBridge.path, id: UUID(), name: "browser_snapshot", arguments: .object(["tab": .string("T2")]))
+            }.value
+            check(text(viaBrowserBridge).contains("browser_snapshot T2"), "The real Unix bridge must accept browser tool names.")
             check(text(viaBridge).contains("WORK ONLY"), "The real per-session Unix bridge must reach the selected workspace.")
         } else { print("Unix bridge integration not run (--core-only).") }
         await workspace.close()

@@ -23,13 +23,16 @@ actor RemoteWorkspace {
     private var seen: Set<UUID> = []
     private var inFlight: [UUID: Task<RemoteJSON, Never>] = [:]
     private var closed = false
+    private let browserCall: (@Sendable (String, RemoteJSON) async -> RemoteJSON)?
 
-    init(root: URL, deviceID: String? = nil, resultCacheBytes: Int = 32 * 1024 * 1024) async throws {
+    init(root: URL, deviceID: String? = nil, resultCacheBytes: Int = 32 * 1024 * 1024,
+         browserCall: (@Sendable (String, RemoteJSON) async -> RemoteJSON)? = nil) async throws {
         let root = root.standardizedFileURL.resolvingSymlinksInPath()
         var directory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &directory), directory.boolValue else {
             throw RemoteFailure.invalid("Choose an existing project folder.")
         }
+        self.browserCall = browserCall
         self.root = root
         self.deviceID = deviceID ?? Self.persistentDeviceID
         self.resultCacheBytes = max(0, resultCacheBytes)
@@ -94,6 +97,10 @@ actor RemoteWorkspace {
 
     private func perform(_ name: String, _ args: RemoteJSON) async throws -> RemoteJSON {
         guard !closed else { throw RemoteFailure.disconnected }
+        if RemoteWorkspaceTools.browserNames.contains(name) {
+            guard let browserCall else { throw RemoteFailure.invalid("This remote session has no connected browser window. Reconnect from MarkView.") }
+            return await browserCall(name, args)
+        }
         switch name {
         case "workspace_info":
             return .textResult(String(data: try JSONEncoder().encode(describe()), encoding: .utf8)!)
