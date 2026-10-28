@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 /// The conversation of a discussion as a web page (`Editor/discussion.html`): each answer drawn in the form that fits it.
-/// Swift sends the turns and the live answer; the page sends back "save this drawing".
+/// Swift sends the turns and the live answer; the page requests drawing saves and Markdown copies.
 struct DiscussionThreadView: NSViewRepresentable {
     var turns: [DiscussionTurn]
     var live: DiscussionStore.Live?
@@ -76,6 +76,10 @@ struct DiscussionThreadView: NSViewRepresentable {
                 ready = true
                 sentTurns = nil; sentLive = nil; sentDark = nil
                 flush()
+            case "copy":
+                guard let text = body["text"] as? String, !text.isEmpty else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
             case "save":
                 guard let name = body["name"] as? String, let data = body["data"] as? String else { return }
                 let bytes = (body["base64"] as? Bool == true) ? Data(base64Encoded: data) : data.data(using: .utf8)
