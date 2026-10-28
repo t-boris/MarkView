@@ -145,10 +145,20 @@ final class BookPDFRenderer: NSObject, WKNavigationDelegate {
 
     private func call(_ script: String, _ arguments: [String: Any] = [:]) async throws -> Any? {
         try Task.checkCancellation()
-        let value: Any = try await perform { completion in
-            webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page, completionHandler: completion)
+        do {
+            let value: Any = try await perform { completion in
+                webView.callAsyncJavaScript(script, arguments: arguments, in: nil, in: .page, completionHandler: completion)
+            }
+            return value
+        } catch {
+            let failure = error as NSError
+            if failure.domain == WKError.errorDomain,
+               failure.code == WKError.javaScriptExceptionOccurred.rawValue,
+               let detail = failure.userInfo["WKJavaScriptExceptionMessage"] as? String, !detail.isEmpty {
+                throw BookPDFError.invalid("The book could not be rendered: \(detail)")
+            }
+            throw error
         }
-        return value
     }
 
     /// WebKit does not reliably resume its async-JavaScript completion when navigation destroys

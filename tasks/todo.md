@@ -1,5 +1,22 @@
 # MarkView — Follow-up Tasks
 
+## Task 145: PDF book fails on display mathematics (2026-10-27, 4.58.2)
+
+Boris reported an unhelpful JavaScript exception when exporting three Markdown chapters to Russian
+with no shortening. Reproduced the layout failure on the same sources before translation: KaTeX's
+clipped accessibility-only MathML descendants were incorrectly counted as visible page overflow.
+
+- [x] Ignore only KaTeX's hidden MathML subtree in the overflow check; keep validating its visible
+      typesetting and every other page element.
+- [x] Surface the underlying JavaScript exception message instead of WebKit's generic description.
+- [x] Regression: a display formula that failed before now exports; genuinely oversized visible math
+      still fails with the actionable layout error. Full native PDF suite passes (16 pages, tables,
+      links, bookmarks, Cyrillic, selections and cancellation). Original three chapters export to 12 pages.
+- [x] Debug build and project lint pass; the affected formula pages render without clipping.
+- [x] Exact-source Russian translation with zero shortening: 3 complete chapters, 13 pages,
+      linked contents and native bookmarks; all source bytes unchanged. All pages visually reviewed.
+- [ ] PR/CI/merge, signed/notarized release and reinstall including the Remote Assistants fix.
+
 ## Task 144: Remote assistant mode labels collapse (2026-10-27, 4.58.1)
 
 Boris's installed-app screenshot shows the native TabView labels compressed into an unreadable
@@ -11,7 +28,9 @@ one scrollable form. Preserve work/home state and transport behavior.
 - [x] Debug build and project lint pass. Protected app UI checked at 100% and 150%: both full
       mode labels, switching, retained model/relay/key fields and scrolling to the bottom action.
       Remote hosting was not enabled during the layout check.
-- [ ] PR/CI/merge, signed/notarized DMG and reinstall the corrected version.
+- [x] PR https://github.com/t-boris/MarkView/pull/195 merged at `09cf0e2`; PR CI passes.
+- [x] Signed/notarized/stapled v4.58.1 published from the merged commit.
+- [ ] Reinstall together with the follow-up PDF rendering correction in 4.58.2.
 
 
 ## Task 143: PDF books from selected files and folders (2026-10-27, 4.58.0)
