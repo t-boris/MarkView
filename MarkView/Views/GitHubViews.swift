@@ -1369,13 +1369,15 @@ struct GitHubSettingsSection: View {
                         Text("Repository:").uiFont(.caption, weight: .bold)
                         Text(repositoryText).uiFont(.caption).foregroundColor(.secondary)
                     }
-                    HStack(spacing: 16) {
-                        Picker("Check Actions every", selection: $idleInterval) {
-                            Text("1 min").tag(60.0); Text("5 min").tag(300.0); Text("15 min").tag(900.0)
-                        }.fixedSize()
-                        Picker("while running", selection: $activeInterval) {
-                            Text("15 s").tag(15.0); Text("30 s").tag(30.0); Text("1 min").tag(60.0)
-                        }.fixedSize()
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 16) {
+                            idleIntervalPicker
+                            activeIntervalPicker
+                        }.fixedSize(horizontal: true, vertical: false)
+                        VStack(alignment: .leading, spacing: 8) {
+                            idleIntervalPicker
+                            activeIntervalPicker
+                        }
                     }
                     Toggle("Notify when a run on my branches finishes", isOn: $notify)
                     Toggle("Start the AI review when opening a pull request for review", isOn: $autoReview)
@@ -1391,6 +1393,18 @@ struct GitHubSettingsSection: View {
             return repo.slug + (workspaceManager.gitHub.repos.count > 1 ? " (+ \(workspaceManager.gitHub.repos.count - 1) more)" : "")
         }
         return workspaceManager.rootNode == nil ? "Open a folder with a GitHub remote." : "This folder has no GitHub remote."
+    }
+
+    private var idleIntervalPicker: some View {
+        Picker("Check Actions every", selection: $idleInterval) {
+            Text("1 min").tag(60.0); Text("5 min").tag(300.0); Text("15 min").tag(900.0)
+        }.fixedSize()
+    }
+
+    private var activeIntervalPicker: some View {
+        Picker("while running", selection: $activeInterval) {
+            Text("15 s").tag(15.0); Text("30 s").tag(30.0); Text("1 min").tag(60.0)
+        }.fixedSize()
     }
 
     private var accountRow: some View {

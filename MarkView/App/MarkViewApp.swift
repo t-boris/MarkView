@@ -515,14 +515,17 @@ enum DDESettingsWindow {
     }
 
     private static func makeWindow() -> NSWindow {
+        let screen = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1280, height: 900)
+        let size = NSSize(width: min(640, screen.width - 40), height: min(740, screen.height - 60))
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
+            contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
         window.isRestorable = false
+        window.contentMinSize = NSSize(width: min(600, size.width), height: min(440, size.height))
         window.center()
         self.window = window
         return window
@@ -531,11 +534,16 @@ enum DDESettingsWindow {
     /// Show `workspace`'s settings: opened from another window, the content is rebuilt for it.
     private static func bind(_ window: NSWindow, to workspace: WorkspaceManager) {
         shownWorkspace = workspace
-        window.contentView = NSHostingView(
+        let size = window.contentLayoutRect.size
+        let hosting = NSHostingView(
             rootView: DDESettingsView()
                 .environmentObject(workspace)
                 .appFontScaled()
         )
+        // The window owns its dimensions; the scroll view follows the available viewport.
+        hosting.sizingOptions = []
+        window.contentView = hosting
+        window.setContentSize(size)
     }
 }
 

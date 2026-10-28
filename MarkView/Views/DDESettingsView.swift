@@ -35,6 +35,7 @@ struct DDESettingsView: View {
     enum KeyStatus { case unknown, checking, valid, invalid(String) }
 
     var body: some View {
+        GeometryReader { geometry in
         ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             Text("DDE Settings")
@@ -241,9 +242,10 @@ struct DDESettingsView: View {
 
             Spacer()
         }
-        }
+        .frame(width: max(0, geometry.size.width - 40), alignment: .leading)
         .padding(20)
-        .frame(width: 520, height: 700)
+        }
+        }
         .onAppear {
             openaiKey = EmbeddingClient.loadKey() ?? ""
             // Log presence and length only — never any part of the key itself.
