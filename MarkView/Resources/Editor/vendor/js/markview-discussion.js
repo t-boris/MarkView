@@ -162,6 +162,17 @@
     });
 
     thread.addEventListener('click', (event) => {
+        const copy = event.target.closest('[data-copy]');
+        if (copy) {
+            const source = copy.dataset.copy === 'live' ? live && live.text : turns[Number(copy.dataset.copy)]?.answer;
+            const text = visibleText(source || '', copy.dataset.copy === 'live').text;
+            if (text) {
+                post({ type: 'copy', text });
+                copy.textContent = 'Copied';
+                setTimeout(() => { copy.textContent = 'Copy Markdown'; }, 1500);
+            }
+            return;
+        }
         const expand = event.target.closest('[data-expand]');
         if (expand) {
             const svg = expand.closest('figure').querySelector('svg');
@@ -187,12 +198,12 @@
         const stick = nearBottom();
         let html = '';
         if (!turns.length && !live) html = '<div id="empty">Ask a question about the project. The answer comes in the form that fits it: text, a table, a diagram.</div>';
-        for (const turn of turns) {
-            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(turn.question) + '</div><div class="who">Assistant</div><div class="a">' + md.render(visibleText(turn.answer, false).text) + '</div></div>';
+        for (const [index, turn] of turns.entries()) {
+            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(turn.question) + '</div><div class="answer-header"><div class="who">Assistant</div><button data-copy="' + index + '">Copy Markdown</button></div><div class="a">' + md.render(visibleText(turn.answer, false).text) + '</div></div>';
         }
         if (live) {
             const v = visibleText(live.text || '', true);
-            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(live.question) + '</div><div class="who">Assistant</div><div class="a">' + md.render(v.text) +
+            html += '<div class="turn"><div class="who">You</div><div class="q">' + esc(live.question) + '</div><div class="answer-header"><div class="who">Assistant</div>' + (v.text ? '<button data-copy="live">Copy Markdown</button>' : '') + '</div><div class="a">' + md.render(v.text) +
                 (v.drawing ? '<p class="drawing">Drawing…</p>' : '') + '</div><div class="status">' + esc(live.status || 'Working') + '</div>' +
                 (live.error ? '<div class="error">' + esc(live.error) + '</div>' : '') + '</div>';
         }

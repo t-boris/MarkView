@@ -5,7 +5,7 @@
 <!-- The thread of a Discussion (DiscussionThreadView.swift): the conversation as a web page, each answer drawn in the
      form the question needs (text, table, Mermaid diagram, SVG, chart, styled figure).
      Swift → JS: mvSetTheme(dark), mvSetTurns(json), mvSetLive(json|null), mvScrollToEnd().
-     JS → Swift (message handler "discussion"): {type: ready|save|ask}. A drawing opens full-window on Expand or double-click (wheel zoom, drag, Esc).. AI text never runs as HTML: markdown-it has
+     JS → Swift (message handler "discussion"): {type: ready|save|copy}. A drawing opens full-window on Expand or double-click (wheel zoom, drag, Esc).. AI text never runs as HTML: markdown-it has
      html disabled, SVG is sanitized, a styled figure is a sandboxed frame without scripts. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-src about: data:; connect-src 'none'">
 <style>
@@ -16,6 +16,9 @@
     .turn { margin-bottom: 22px; }
     .q { background: var(--user); border-radius: 10px; padding: 8px 12px; margin: 0 0 10px 40px; white-space: pre-wrap; }
     .who { font-size: 10px; letter-spacing: .06em; color: var(--dim); text-transform: uppercase; margin: 0 0 3px 2px; }
+    .answer-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px; }
+    .answer-header .who { margin-bottom: 0; }
+    .answer-header button { font: 11px system-ui; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg); color: var(--fg); cursor: pointer; }
     .a > :first-child { margin-top: 0; }
     .a h1, .a h2, .a h3 { margin: 16px 0 6px; line-height: 1.25; }
     .a h1 { font-size: 18px; } .a h2 { font-size: 15px; } .a h3 { font-size: 13px; }
