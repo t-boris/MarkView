@@ -13,7 +13,8 @@ clipped accessibility-only MathML descendants were incorrectly counted as visibl
       still fails with the actionable layout error. Full native PDF suite passes (16 pages, tables,
       links, bookmarks, Cyrillic, selections and cancellation). Original three chapters export to 12 pages.
 - [x] Debug build and project lint pass; the affected formula pages render without clipping.
-- [ ] Exact-source Russian translation check.
+- [x] Exact-source Russian translation with zero shortening: 3 complete chapters, 13 pages,
+      linked contents and native bookmarks; all source bytes unchanged. All pages visually reviewed.
 - [ ] PR/CI/merge, signed/notarized release and reinstall including the Remote Assistants fix.
 
 ## Task 144: Remote assistant mode labels collapse (2026-10-27, 4.58.1)
