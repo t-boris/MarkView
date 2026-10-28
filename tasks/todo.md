@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## Relay browser tabs (2026-10-28, 4.59.1)
+
+Remote assistants received only file/command tools, so an already open browser tab was invisible.
+Advertise the existing browser schemas through the remote workspace MCP server and execute them in
+its bound work-computer window. Reuse local browser execution, stop controls and per-agent settings;
+keep retry deduplication, result bounds and disconnect handling in RemoteWorkspace.
+
+- [x] Debug build and existing browser/remote suites pass. New checks cover MCP discovery/forwarding,
+      real Unix bridge calls, duplicate clicks, image blocks, disconnects, and a real WKWebView page.
+- [x] Browser integration checks cover multiple windows, explicit tab/ref clicks, screenshots, stopped
+      tabs, both browser opt-outs, missing arguments, changed projects and closed windows.
+- [ ] PR/CI/merge and signed/notarized release from the merged commit.
+
 ## Task 147: DDE Settings clips its contents (2026-10-27, 4.58.4)
 
 Boris's screenshot shows the settings content extending beyond the left edge of its window.

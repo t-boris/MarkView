@@ -18,9 +18,12 @@ final class RemoteTerminalConnection: TerminalConnection {
     private var lastHomeMessage = Date()
     private var size = (cols: 120, rows: 30)
 
-    init(invitation: RemoteInvitation, root: URL, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool) async throws {
+    init(invitation: RemoteInvitation, root: URL, browserWindowID: UUID, provider: RemoteProviderConfiguration.Provider, model: String?, resume: Bool) async throws {
         channel = RemoteChannel(invitation: invitation, role: .work)
-        workspace = try await RemoteWorkspace(root: root)
+        workspace = try await RemoteWorkspace(root: root, browserCall: { name, arguments in
+            await BrowserControlServer.performRemoteBrowser(name, arguments: arguments, window: browserWindowID,
+                                                           root: root, agent: provider == .claude ? .claude : .codex)
+        })
         self.provider = provider; self.model = model; self.resume = resume
     }
 

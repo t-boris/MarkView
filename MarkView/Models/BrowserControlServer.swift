@@ -139,6 +139,28 @@ enum BrowserControlServer {
 
     // MARK: - Tools
 
+    /// Relay sessions address only their work-computer window, never a folder or process on the home Mac.
+    static func performRemoteBrowser(_ tool: String, arguments: RemoteJSON, window id: UUID,
+                                     root: URL, agent: CLITool) async -> RemoteJSON {
+        guard BrowserControlServer.agentToolsEnabled(agent) else {
+            return .textResult("Browser tools for this assistant are turned off in the globe menu.", error: true)
+        }
+        guard RemoteWorkspaceTools.browserNames.contains(tool), let window = windows[id],
+              let workspace = window.workspace(), (workspace.aiWorkspaceRoot ?? workspace.rootNode?.url) == root else {
+            return .textResult("The connected project window was closed or changed. Reconnect before using its browser.", error: true)
+        }
+        guard let data = try? JSONEncoder().encode(arguments == .null ? .object([:]) : arguments),
+              let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return .textResult("Browser arguments must be an object.", error: true)
+        }
+        let reply = await perform(tool, args, window: id, pids: [], cwd: root.path)
+        guard let result = try? JSONSerialization.data(withJSONObject: reply.mcpResult),
+              let json = try? JSONDecoder().decode(RemoteJSON.self, from: result) else {
+            return .textResult("Could not encode the browser result.", error: true)
+        }
+        return json
+    }
+
     private static func perform(_ tool: String, _ args: [String: Any], window id: UUID?, pids: [Int32], cwd: String,
                                  declared: Bool = false, cwdTrusted: Bool = true) async -> BrowserAgentTools.Reply {
         // The control tools name their window themselves (`window`), or take the caller's folder when it says one.

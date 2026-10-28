@@ -10,6 +10,7 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/Remote/RemoteCommand.swift \
     MarkView/Models/PTYWriter.swift \
     MarkView/Models/AgentProcesses.swift \
+    MarkView/Models/BrowserAgentTools.swift \
     MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteToolBridge.swift \
     MarkView/Models/Remote/RemoteProviderConfiguration.swift \
@@ -22,3 +23,5 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
 bash tools/tests/remote-relay-settings-tests.sh
 bash tools/tests/terminal-child-tests.sh
 node --test tools/remote-relay/*.test.mjs
+
+bash tools/tests/remote-browser-tests.sh
