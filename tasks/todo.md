@@ -1,5 +1,23 @@
 # MarkView — Follow-up Tasks
 
+## Saved remote connections (2026-10-28, 4.60.0)
+
+Replace eight-hour, single-terminal invitations with multiple named saved pairings. Keep pairing
+records in Keychain, show live/available/reconnecting/revoked states and last peer response, restore
+home hosts and work sessions after app restart, and reconnect after network loss without another code.
+Explicit Disconnect Access persists revocation intent, retries it while offline, and requires a new code.
+
+- [x] Persistent relay rooms with authenticated session epochs, bounded reset history and revocation
+      tombstones; legacy room behavior remains compatible. Shared Redis retains pairings across cold starts.
+- [x] Debug build, project lint, existing remote/browser/terminal checks and real Redis suite pass.
+      Tests cover Keychain restoration in a separate process, multiple pairings, project matching,
+      paused terminals, offline revocation, both real endpoint controllers and encrypted MCP transport,
+      independent concurrent projects/browsers, home restart, network outage and peer revocation.
+- [x] Native UI in two isolated app instances: add/copy/connect, multiple names, home/work restart,
+      canonical project path aliases, connected/paused tab status, reconnect without code, and access
+      revocation/removal. All disposable test pairings were revoked; no user project was connected.
+- [ ] PR/CI/merge, production relay deployment and signed/notarized 4.60.0 release.
+
 ## Relay browser tabs (2026-10-28, 4.59.1)
 
 Remote assistants received only file/command tools, so an already open browser tab was invisible.

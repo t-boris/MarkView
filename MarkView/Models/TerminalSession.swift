@@ -75,6 +75,7 @@ enum TerminalProfile: String, CaseIterable, Identifiable {
 final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler {
     var connection: TerminalConnection?
     var isRemote: Bool { connection != nil }
+    @Published var remoteConnectionState: RemoteConnectionState?
     let id = UUID()
     let directory: URL
     /// Typed into the shell once it is up (e.g. "claude --model sonnet"), or nil.
@@ -431,7 +432,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
 
     private func restartProcess() {
         guard connection == nil else {
-            deliver(Data("\r\nTo reconnect, create a new connection code on the home computer and choose Connect to Home… here. Your assistant conversation is kept on the home computer.\r\n".utf8))
+            deliver(Data("\r\nOpen Remote Assistants and choose Reconnect on the saved connection. Your assistant conversation is kept on the home computer.\r\n".utf8))
             return
         }
         resumeCommand = nil

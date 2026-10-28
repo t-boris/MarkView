@@ -9,6 +9,10 @@ on:
       - 'MarkView/Models/BrowserControlServer.swift'
       - 'tools/remote-relay/**'
       - 'tools/tests/Remote*'
+      - 'tools/tests/SavedRemote*'
+      - 'tools/tests/PersistentRemote*'
+      - 'tools/tests/saved-remote-connections-tests.sh'
+      - 'tools/tests/persistent-remote*'
       - 'tools/tests/remote-workspace-tests.sh'
       - 'tools/tests/remote-browser-tests.sh'
       - 'tools/tests/remote-relay-settings-tests.sh'
@@ -52,6 +56,10 @@ jobs:
           node-version: '22'
       - name: Check work-computer files, commands, encryption, HTTPS and the live Unix bridge
         run: bash tools/tests/remote-workspace-tests.sh
+      - name: Verify saved Keychain pairings and reconnecting concurrent sessions
+        run: |
+          bash tools/tests/saved-remote-connections-tests.sh
+          bash tools/tests/persistent-remote-session-tests.sh
       - name: Build macOS application
         run: >-
           xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug

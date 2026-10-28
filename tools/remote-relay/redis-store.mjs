@@ -1,21 +1,23 @@
 // All room keys, bodies, authentication hashes and delivery IDs share one expiring Redis hash.
 // Every mutation authenticates inside EVAL, so revocation cannot race an append or acknowledgement.
 const auth = `
-if redis.call('EXISTS', KEYS[1]) == 0 then return {410} end
+if redis.call('EXISTS', KEYS[1]) == 0 or redis.call('HGET', KEYS[1], 'revoked') == '1' then return {410} end
 if redis.call('HGET', KEYS[1], 'auth:' .. ARGV[1]) ~= ARGV[2] then return {401} end
 `;
 const register = `
 local ttl = tonumber(ARGV[3])
 if not ttl or ttl <= 0 or ttl > 86400000 or ttl ~= math.floor(ttl) then return {400} end
+if redis.call('HGET', KEYS[1], 'revoked') == '1' then return {410} end
 if redis.call('EXISTS', KEYS[1]) == 1 then
   if redis.call('HGET', KEYS[1], 'auth:home') == ARGV[1] and redis.call('HGET', KEYS[1], 'auth:work') == ARGV[2] then return {200} end
   return {409}
 end
 redis.call('HSET', KEYS[1], 'auth:home', ARGV[1], 'auth:work', ARGV[2])
-redis.call('PEXPIRE', KEYS[1], ttl)
+if ARGV[4] == 'true' then redis.call('HSET', KEYS[1], 'persistent', '1') else redis.call('PEXPIRE', KEYS[1], ttl) end
 return {201}
 `;
 const append = auth + `
+if redis.call('HGET', KEYS[1], 'persistent') == '1' and (ARGV[6] == '' or redis.call('HGET', KEYS[1], 'session') ~= ARGV[6]) then return {409} end
 local role = ARGV[1] == 'home' and 'work' or 'home'
 local previous = redis.call('HGET', KEYS[1], 'id:' .. role .. ':' .. ARGV[3])
 if previous then
@@ -37,6 +39,7 @@ redis.call('PUBLISH', KEYS[1] .. ':notify:' .. role, tostring(seq))
 return {200, seq}
 `;
 const read = auth + `
+if redis.call('HGET', KEYS[1], 'persistent') == '1' and (ARGV[5] == '' or redis.call('HGET', KEYS[1], 'session') ~= ARGV[5]) then return {409} end
 local role = ARGV[1]
 local after = tonumber(ARGV[3])
 local seq = tonumber(redis.call('HGET', KEYS[1], 'seq:' .. role) or '0')
@@ -66,8 +69,41 @@ end
 if #messages == 0 then return {200, '[]'} end
 return {200, cjson.encode(messages)}
 `;
-const revoke = auth + `
-redis.call('DEL', KEYS[1])
+const clearSession = `
+for _, field in ipairs(redis.call('HKEYS', KEYS[1])) do
+  if field ~= 'auth:home' and field ~= 'auth:work' and field ~= 'persistent' and string.sub(field, 1, 6) ~= 'reset:' then redis.call('HDEL', KEYS[1], field) end
+end
+`;
+const session = auth + `
+if redis.call('HGET', KEYS[1], 'persistent') ~= '1' then return {400} end
+local current = redis.call('HGET', KEYS[1], 'session') or ''
+if ARGV[3] ~= '' and ARGV[3] ~= current then
+  if redis.call('HEXISTS', KEYS[1], 'reset:' .. ARGV[3]) == 1 then return {409} end
+` + clearSession + `
+  local counter = redis.call('HINCRBY', KEYS[1], 'reset:counter', 1)
+  redis.call('HSET', KEYS[1], 'reset:' .. ARGV[3], tostring(counter), 'session', ARGV[3])
+  for _, field in ipairs(redis.call('HKEYS', KEYS[1])) do
+    if string.sub(field, 1, 6) == 'reset:' and field ~= 'reset:counter' and tonumber(redis.call('HGET', KEYS[1], field)) <= counter - 256 then redis.call('HDEL', KEYS[1], field) end
+  end
+  redis.call('PUBLISH', KEYS[1] .. ':notify:home', 'reset')
+  redis.call('PUBLISH', KEYS[1] .. ':notify:work', 'reset')
+  current = ARGV[3]
+end
+return {200, current}
+`;
+const revoke = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return {410} end
+local home = redis.call('HGET', KEYS[1], 'auth:home')
+local work = redis.call('HGET', KEYS[1], 'auth:work')
+local persistent = redis.call('HGET', KEYS[1], 'persistent') == '1'
+if home ~= ARGV[1] and not (persistent and work == ARGV[1]) then return {401} end
+if persistent then
+` + clearSession + `
+  for _, field in ipairs(redis.call('HKEYS', KEYS[1])) do
+    if string.sub(field, 1, 6) == 'reset:' then redis.call('HDEL', KEYS[1], field) end
+  end
+  redis.call('HSET', KEYS[1], 'revoked', '1')
+else redis.call('DEL', KEYS[1]) end
 redis.call('PUBLISH', KEYS[1] .. ':notify:home', 'closed')
 redis.call('PUBLISH', KEYS[1] .. ':notify:work', 'closed')
 return {200}
@@ -82,34 +118,38 @@ export class RedisRelayStore {
         if (await this.redis.command(['PING']) !== 'PONG') throw Object.assign(new Error('The relay store is unavailable.'), { status: 503 });
     }
     async evaluate(id, script, ...args) { return this.redis.command(['EVAL', script, '1', this.key(id), ...args.map(String)]); }
-    async register(id, homeHash, workHash) {
-        const result = await this.evaluate(id, register, homeHash, workHash, this.ttl);
+    async register(id, homeHash, workHash, persistent = false) {
+        const result = await this.evaluate(id, register, homeHash, workHash, this.ttl, persistent);
         return { status: result[0] };
     }
-    async append(id, role, hash, message) {
-        const result = await this.evaluate(id, append, role, hash, message.id, message.hash, message.body);
+    async append(id, role, hash, message, session = '') {
+        const result = await this.evaluate(id, append, role, hash, message.id, message.hash, message.body, session);
         return { status: result[0], ...(result[1] === undefined ? {} : { seq: result[1] }) };
     }
-    async read(id, role, hash, after, consumer) {
-        const result = await this.evaluate(id, read, role, hash, after, consumer);
+    async read(id, role, hash, after, consumer, session = '') {
+        const result = await this.evaluate(id, read, role, hash, after, consumer, session);
         return { status: result[0], ...(result[0] === 200 ? { messages: JSON.parse(result[1]) } : {}) };
     }
-    async receive(id, role, hash, after, consumer, signal) {
-        let result = await this.read(id, role, hash, after, consumer);
+    async receive(id, role, hash, after, consumer, signal, session = '') {
+        let result = await this.read(id, role, hash, after, consumer, session);
         if (result.status !== 200 || result.messages.length || signal?.aborted) return result;
         const subscription = await this.redis.subscribe(this.key(id) + ':notify:' + role, this.pollTimeout, signal);
         try {
             // Subscribe before the second read: a publish between the first read and subscription
             // must be observed by the read, or by the subscription, without a lost wake-up.
-            result = await this.read(id, role, hash, after, consumer);
+            result = await this.read(id, role, hash, after, consumer, session);
             if (result.status !== 200 || result.messages.length) return result;
             await subscription.changed;
-            return await this.read(id, role, hash, after, consumer);
+            return await this.read(id, role, hash, after, consumer, session);
         } finally { subscription.close(); }
     }
     async revoke(id, hash) {
-        const result = await this.evaluate(id, revoke, 'home', hash);
+        const result = await this.evaluate(id, revoke, hash);
         return { status: result[0] };
+    }
+    async session(id, role, hash, next = '') {
+        const result = await this.evaluate(id, session, role, hash, next);
+        return { status: result[0], ...(result[0] === 200 ? { session: result[1] || null } : {}) };
     }
     close() {}
 }

@@ -2,10 +2,10 @@ import Foundation
 import Combine
 
 /// App-lifetime home endpoint. Hosting is explicitly enabled by the person and lasts only until
-/// Stop, app exit or connection failure. An invitation controls one work-computer terminal.
+/// explicit revocation. Transport sessions can restart without replacing the saved pairing.
 @MainActor
 final class RemoteHostController: ObservableObject {
-    static let shared = RemoteHostController()
+    var onState: ((RemoteConnectionState.Phase, String) -> Void)?
     @Published private(set) var status = "Remote access is off."
     @Published private(set) var connectionCode = ""
     @Published private(set) var isHosting = false
@@ -19,26 +19,66 @@ final class RemoteHostController: ObservableObject {
     private var outputBuffer = Data()
     private var outputTask: Task<Void, Never>?
 
-    func start(relay: String, accessKey: String = "") {
+    func start(code: String) {
         guard !isHosting else { return }
         do {
-            guard let url = URL(string: relay.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw RemoteFailure.invalid("Enter an HTTPS relay URL.") }
-            let invitation = try RemoteInvitation(relay: url)
-            let channel = RemoteChannel(invitation: invitation, role: .home)
-            self.channel = channel; requests = RemoteToolRequests(channel: channel)
-            isHosting = true; status = "Connecting to relay…"
+            let invitation = try RemoteInvitation(code: code)
+            connectionCode = code; isHosting = true
             task = Task { [weak self] in
                 guard let self else { return }
-                do {
-                    try await channel.register(accessKey: accessKey)
-                    connectionCode = try invitation.code
-                    status = "Waiting for your work computer."
-                    try await channel.receive { [weak self] message in try await self?.receive(message) }
-                } catch {
-                    if !Task.isCancelled { stop(message: error.localizedDescription) }
+                var reset = true
+                while isHosting, !Task.isCancelled {
+                    let channel = RemoteChannel(invitation: invitation, role: .home)
+                    self.channel = channel; requests = RemoteToolRequests(channel: channel)
+                    do {
+                        setState(.connecting, "Connecting to relay…")
+                        let settings = RemoteRelaySettings.shared
+                        await settings.finishPendingChanges()
+                        let sameRelay = (try? RemoteRelayKeychain.account(for: settings.relayURL)) == (try? RemoteRelayKeychain.account(for: invitation.relay.absoluteString))
+                        do { try await channel.prepareSession(reset: reset) }
+                        catch RemoteFailure.expired {
+                            try await channel.register(accessKey: sameRelay ? settings.accessKey : "")
+                            try await channel.prepareSession(reset: reset)
+                        }
+                        setState(.waiting, "Available · waiting for your work Mac")
+                        lastPeerMessage = Date()
+                        startHeartbeat(channel)
+                        try await channel.receive { [weak self] message in try await self?.receive(message) }
+                        reset = true
+                    } catch RemoteFailure.sessionChanged { reset = false }
+                    catch RemoteFailure.expired {
+                        setState(.revoked, "Access was revoked. Create a new connection code.")
+                        await clearTransport(); isHosting = false; return
+                    } catch {
+                        reset = true
+                        if !Task.isCancelled { setState(.reconnecting, "Reconnecting · " + error.localizedDescription) }
+                    }
+                    await clearTransport()
+                    guard isHosting, !Task.isCancelled else { return }
+                    try? await Task.sleep(nanoseconds: reset ? 3_000_000_000 : 100_000_000)
                 }
             }
-        } catch { status = error.localizedDescription }
+        } catch { setState(.offline, error.localizedDescription) }
+    }
+
+    private func setState(_ phase: RemoteConnectionState.Phase, _ text: String) {
+        status = text; onState?(phase, text)
+    }
+
+    private func startHeartbeat(_ channel: RemoteChannel) {
+        heartbeat = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                if terminal != nil, Date().timeIntervalSince(lastPeerMessage) > 75 {
+                    setState(.reconnecting, "Work Mac is offline · reconnecting")
+                    await channel.close(); return
+                }
+                guard terminal != nil else { continue }
+                do { try await channel.send(RemoteMessage("heartbeat")) }
+                catch { await channel.close(); return }
+            }
+        }
     }
 
     private func receive(_ message: RemoteMessage) async throws {
@@ -56,8 +96,9 @@ final class RemoteHostController: ObservableObject {
         case "resize":
             terminal?.resizeForConnection(cols: message.payload["cols"].integer ?? 120, rows: message.payload["rows"].integer ?? 30)
         case "toolResult": await requests?.finish(message.id, result: message.payload)
-        case "heartbeat": break
-        case "disconnect": stop(message: "The work computer disconnected.")
+        case "heartbeat":
+            if terminal != nil { setState(.online, status) }
+        case "disconnect": await channel?.close()
         default: break
         }
     }
@@ -78,7 +119,7 @@ final class RemoteHostController: ObservableObject {
             }
             let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("MarkView/RemoteWorkspaces", isDirectory: true)
-                .appendingPathComponent(String(ContentHash.of(deviceID + "\n" + cwd + "\n" + providerName).prefix(24)), isDirectory: true)
+                .appendingPathComponent(String(ContentHash.of(deviceID + "\n" + cwd + "\n" + providerName + "\n" + (context["connectionID"].string ?? "")).prefix(24)), isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let bridge = try RemoteToolBridge { id, name, arguments in await requests.call(id: id, name: name, arguments: arguments) }
             let resume = payload["resume"].bool == true && (provider == .codex || AgentModelProbe.hasClaudeSession(cwd: root))
@@ -96,46 +137,45 @@ final class RemoteHostController: ObservableObject {
         terminal.onExit = { [weak self] code in
             let drain = self?.outputTask
             Task { await drain?.value; try? await channel.send(RemoteMessage("exited", .int(Int(code)))) }
-            self?.status = "\(provider.title) exited (\(code)). Stop hosting to revoke the connection."
+            self?.setState(.offline, "\(provider.title) exited (\(code)). Reconnect to continue the saved connection.")
         }
-        terminal.onLaunchFailure = { [weak self] _ in self?.stop(message: "Could not start the home assistant.") }
+        terminal.onLaunchFailure = { [weak self] _ in
+            self?.setState(.reconnecting, "Could not start the home assistant.")
+            Task { await channel.close() }
+        }
         terminal.resizeForConnection(cols: payload["cols"].integer ?? 120, rows: payload["rows"].integer ?? 30)
         terminal.start()
-        status = "\(provider.title) connected to \(hostname) · \(cwd)"
+        setState(.online, "\(provider.title) connected to \(hostname) · \(cwd)")
         lastPeerMessage = Date()
-        heartbeat = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                guard let self, !Task.isCancelled else { return }
-                if Date().timeIntervalSince(lastPeerMessage) > 75 { stop(message: "The work computer stopped responding."); return }
-                try? await channel.send(RemoteMessage("heartbeat"))
-            }
-        }
     }
 
     private func sendOutput(_ data: Data, channel: RemoteChannel) {
         outputBuffer.append(data)
-        guard outputBuffer.count <= 8 * 1024 * 1024 else { stop(message: "The remote terminal cannot keep up. Reconnect before continuing."); return }
+        guard outputBuffer.count <= 8 * 1024 * 1024 else { setState(.reconnecting, "Remote terminal paused · reconnecting"); Task { await channel.close() }; return }
         guard outputTask == nil else { return }
         outputTask = Task { [weak self] in
             guard let self else { return }
             while !outputBuffer.isEmpty, !Task.isCancelled {
                 let chunk = Data(outputBuffer.prefix(32768)); outputBuffer.removeFirst(chunk.count)
                 do { try await channel.send(RemoteMessage("output", .string(chunk.base64EncodedString()))) }
-                catch { stop(message: "Could not deliver terminal output. Reconnect before continuing."); return }
+                catch { setState(.reconnecting, "Could not deliver terminal output · reconnecting"); await channel.close(); return }
             }
             outputTask = nil
         }
     }
 
-    func stop(message: String = "Remote access is off.") {
+    private func clearTransport() async {
         heartbeat?.cancel(); heartbeat = nil
         outputTask?.cancel(); outputTask = nil; outputBuffer.removeAll()
-        task?.cancel(); task = nil
         terminal?.onOutput = nil; terminal?.onExit = nil; terminal?.terminate(); terminal = nil
         bridge?.stop(); bridge = nil
-        if let requests { Task { await requests.close() } }; requests = nil
-        if let channel { Task { await channel.revoke() } }; channel = nil
-        connectionCode = ""; isHosting = false; status = message
+        if let requests { await requests.close() }; requests = nil
+        if let channel { await channel.close() }; channel = nil
+    }
+
+    /// App exit and temporary failures preserve the saved pairing. Only the store revokes access.
+    func suspend() {
+        isHosting = false; task?.cancel(); task = nil
+        Task { await clearTransport() }
     }
 }

@@ -51,12 +51,13 @@ enum RemoteJSON: Codable, Equatable, Sendable {
 }
 
 enum RemoteFailure: LocalizedError {
-    case invalid(String), disconnected, relay(Int), expired
+    case invalid(String), disconnected, relay(Int), expired, sessionChanged
     var errorDescription: String? {
         switch self {
         case .invalid(let text): return text
         case .disconnected: return "The remote connection is closed."
         case .relay(let status): return "The relay returned HTTP \(status)."
+        case .sessionChanged: return "The peer started a new remote session."
         case .expired: return "This connection has expired or was revoked. Create a new connection on the home computer."
         }
     }
@@ -71,11 +72,14 @@ struct RemoteInvitation: Codable, Sendable {
     static let prefix = "markview-remote-v1."
     let relay: URL
     let room: UUID
+    let persistent: Bool?
+    var isPersistent: Bool { persistent == true }
     private let secret: Data
 
-    init(relay: URL) throws {
+    init(relay: URL, persistent: Bool = false) throws {
         try Self.validateRelay(relay)
         self.relay = relay
+        self.persistent = persistent ? true : nil
         self.room = UUID()
         self.secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
     }
