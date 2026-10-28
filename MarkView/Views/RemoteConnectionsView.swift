@@ -6,14 +6,13 @@ struct RemoteConnectionsView: View {
     @EnvironmentObject var workspace: WorkspaceManager
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var host = RemoteHostController.shared
-    @AppStorage("remote.relayURL") private var relayURL = ""
+    @ObservedObject private var relaySettings = RemoteRelaySettings.shared
     @State private var connectionCode = ""
     @State private var provider = RemoteProviderConfiguration.Provider.claude
     @State private var model = ""
     @State private var resume = true
     @State private var error: String?
     @State private var connecting = false
-    @State private var relayAccessKey = ""
     @State private var connectionMode = ConnectionMode.work
 
     var body: some View {
@@ -21,7 +20,9 @@ struct RemoteConnectionsView: View {
             HStack {
                 Text("Remote Assistants").uiFont(.title2, weight: .semibold)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Done") {
+                    Task { await relaySettings.finishPendingChanges(); dismiss() }
+                }.keyboardShortcut(.cancelAction)
             }
             Picker("Connection direction", selection: $connectionMode) {
                 Text("Connect to Home").tag(ConnectionMode.work)
@@ -90,12 +91,20 @@ struct RemoteConnectionsView: View {
             Text("Let your work computer use this Mac’s assistant.").uiFont(.headline)
             Text("Claude Code or Codex must already be installed and signed in on this Mac. Enter the HTTPS address of your MarkView relay.")
                 .uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextField("https://relay.example.com", text: $relayURL).textFieldStyle(.roundedBorder).disabled(host.isHosting)
-            SecureField("Relay access key", text: $relayAccessKey).textFieldStyle(.roundedBorder).disabled(host.isHosting)
+            TextField("https://relay.example.com", text: $relaySettings.relayURL).textFieldStyle(.roundedBorder).disabled(host.isHosting)
+            SecureField("Relay access key", text: Binding(get: { relaySettings.accessKey }, set: { relaySettings.setAccessKey($0) }))
+                .textFieldStyle(.roundedBorder)
+                .disabled(host.isHosting || relaySettings.isLoading || (try? RemoteRelayKeychain.account(for: relaySettings.relayURL)) == nil)
+            if let message = relaySettings.storageError {
+                Text(message).uiFont(.caption).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+            } else if let status = relaySettings.storageStatus {
+                Text(status).uiFont(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button(host.isHosting ? "Stop Hosting" : "Allow Connection") {
-                    if host.isHosting { host.stop() } else { host.start(relay: relayURL, accessKey: relayAccessKey) }
+                    if host.isHosting { host.stop() } else { host.start(relay: relaySettings.relayURL, accessKey: relaySettings.accessKey) }
                 }
+                .disabled(!host.isHosting && relaySettings.isLoading)
                 if !host.connectionCode.isEmpty {
                     Button("Copy Connection Code") {
                         NSPasteboard.general.clearContents()

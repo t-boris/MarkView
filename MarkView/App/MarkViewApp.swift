@@ -79,6 +79,7 @@ final class MarkViewAppDelegate: NSObject, NSApplicationDelegate {
                     sender.reply(toApplicationShouldTerminate: false)
                     return
                 }
+                await RemoteRelaySettings.finishBeforeQuit()
                 try await WindowSessionController.shared.saveBeforeTermination()
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {

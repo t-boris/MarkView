@@ -1,5 +1,22 @@
 # MarkView — Follow-up Tasks
 
+## Task 146: Relay access key disappears after settings close (2026-10-27, 4.58.3)
+
+Boris entered the registration key, but the field was empty after reopening settings/reinstalling.
+The view kept it only in ephemeral @State. Persist the key in the login Keychain, scoped to the
+canonical relay URL; retain settings for the app lifetime and finish pending writes before closing
+settings or quitting. No connection invitation or assistant credential is persisted.
+
+- [x] Keychain reads/writes run off the main actor; updates preserve the previous item on failure.
+      URL changes never send a previous relay's key to another server. Explicit clearing removes only
+      the selected relay's key. Storage failures remain visible; preferences contain only the URL.
+- [x] Standalone real-Keychain checks in a throwaway namespace: separate-process restoration,
+      ordered writes, switching races, independent relays, invalid updates and durable clearing.
+- [x] Debug build, project lint and existing remote suite pass (workspace/commands, channel, PTY,
+      Unix bridge and local relay tests). Protected UI confirms save, sheet reopen, full-process restart,
+      separate relay URLs and durable clearing. Test-only Keychain item removed; no hosting enabled.
+- [ ] PR/CI/merge, signed/notarized release and reinstall with the existing saved registration key.
+
 ## Task 145: PDF book fails on display mathematics (2026-10-27, 4.58.2)
 
 Boris reported an unhelpful JavaScript exception when exporting three Markdown chapters to Russian
@@ -15,7 +32,8 @@ clipped accessibility-only MathML descendants were incorrectly counted as visibl
 - [x] Debug build and project lint pass; the affected formula pages render without clipping.
 - [x] Exact-source Russian translation with zero shortening: 3 complete chapters, 13 pages,
       linked contents and native bookmarks; all source bytes unchanged. All pages visually reviewed.
-- [ ] PR/CI/merge, signed/notarized release and reinstall including the Remote Assistants fix.
+- [x] PR https://github.com/t-boris/MarkView/pull/196 merged at `4487aad`; PR and merge-commit CI passed.
+      Signed/notarized/stapled v4.58.2 was published and installed; previous app and window-state backup retained.
 
 ## Task 144: Remote assistant mode labels collapse (2026-10-27, 4.58.1)
 
@@ -30,7 +48,7 @@ one scrollable form. Preserve work/home state and transport behavior.
       Remote hosting was not enabled during the layout check.
 - [x] PR https://github.com/t-boris/MarkView/pull/195 merged at `09cf0e2`; PR CI passes.
 - [x] Signed/notarized/stapled v4.58.1 published from the merged commit.
-- [ ] Reinstall together with the follow-up PDF rendering correction in 4.58.2.
+- [x] Reinstalled together with the PDF correction in 4.58.2; merge-commit CI passed.
 
 
 ## Task 143: PDF books from selected files and folders (2026-10-27, 4.58.0)
