@@ -324,7 +324,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
 
         // Everything the child needs is prepared before fork: after fork only
-        // async-signal-safe calls (chdir, execve, _exit) are allowed.
+        // async-signal-safe calls (close, chdir, execve, _exit) are allowed.
         let argv: [UnsafeMutablePointer<CChar>?] = operationCommand.map {
             [strdup(shell), strdup("-l"), strdup("-c"), strdup($0), nil]
         } ?? [strdup(shell), strdup("-l"), nil]
@@ -339,8 +339,10 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         }
         var master: Int32 = -1
         var windowSize = size
+        let descriptorLimit = getdtablesize()
         let pid = forkpty(&master, nil, nil, &windowSize)
         if pid == 0 {
+            TerminalChildProcess.closeInheritedDescriptors(upTo: descriptorLimit)
             guard chdir(directoryPath!) == 0 else { _exit(126) }
             _ = execve(shellPath!, argv, envp)
             _exit(127)

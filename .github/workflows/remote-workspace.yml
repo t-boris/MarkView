@@ -5,6 +5,8 @@ on:
     paths:
       - 'MarkView/Models/Remote/**'
       - 'MarkView/Models/TerminalSession.swift'
+      - 'MarkView/Models/TerminalChildProcess.swift'
+      - 'MarkView/Models/GitHubClient.swift'
       - 'MarkView/Models/BrowserAgentTools.swift'
       - 'MarkView/Models/BrowserControlServer.swift'
       - 'tools/remote-relay/**'
@@ -14,6 +16,9 @@ on:
       - 'tools/tests/saved-remote-connections-tests.sh'
       - 'tools/tests/persistent-remote*'
       - 'tools/tests/remote-workspace-tests.sh'
+      - 'tools/tests/GitHubCommandTests.swift'
+      - 'tools/tests/github-command-tests.sh'
+      - 'tools/tests/TerminalChildProcessTests.swift'
       - 'tools/tests/remote-codex-context-tests.sh'
       - 'tools/tests/remote-browser-tests.sh'
       - 'tools/tests/remote-relay-settings-tests.sh'
@@ -57,6 +62,8 @@ jobs:
           node-version: '22'
       - name: Check work-computer files, commands, encryption, HTTPS and the live Unix bridge
         run: bash tools/tests/remote-workspace-tests.sh
+      - name: Verify bounded GitHub requests and inherited pipe handling
+        run: bash tools/tests/github-command-tests.sh
       - name: Verify saved Keychain pairings and reconnecting concurrent sessions
         run: |
           bash tools/tests/saved-remote-connections-tests.sh

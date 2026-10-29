@@ -4,6 +4,23 @@ import Darwin
 @main
 enum TerminalChildProcessTests {
     static func main() async throws {
+        let pipe = Pipe()
+        let witnessFD = min(512, getdtablesize() - 1)
+        let inheritedFD = fcntl(pipe.fileHandleForWriting.fileDescriptor, F_DUPFD, witnessFD)
+        precondition(inheritedFD >= witnessFD && inheritedFD > 2)
+        let limit = getdtablesize()
+        var inheritedMaster: Int32 = -1
+        let child = forkpty(&inheritedMaster, nil, nil, nil)
+        if child == 0 {
+            TerminalChildProcess.closeInheritedDescriptors(upTo: limit)
+            _exit(fcntl(inheritedFD, F_GETFD) == -1 && fcntl(STDOUT_FILENO, F_GETFD) >= 0 ? 0 : 1)
+        }
+        precondition(child > 0)
+        var childStatus: Int32 = 0
+        while waitpid(child, &childStatus, 0) < 0 && errno == EINTR {}
+        close(inheritedFD)
+        close(inheritedMaster)
+        precondition(childStatus == 0, "PTY children must close high-numbered inherited pipes while retaining standard I/O.")
         for script in ["trap '' HUP; printf READY; exec sleep 30", "printf READY; exit 0"] {
             let argv: [UnsafeMutablePointer<CChar>?] = [strdup("/bin/sh"), strdup("-c"), strdup(script), nil]
             defer { argv.forEach { free($0) } }
@@ -27,6 +44,6 @@ enum TerminalChildProcessTests {
             precondition(waitpid(pid, &status, WNOHANG) == -1 && errno == ECHILD, "Stopped PTY children must be reaped, including a child that ignores HUP and one that already exited.")
         }
         await TerminalChildProcess.stopAndReap(0, graceNanoseconds: 0)?.value
-        print("Terminal children: escalation, exited-child reaping and invalid-PID checks passed.")
+        print("Terminal children: descriptor isolation, escalation, exited-child reaping and invalid-PID checks passed.")
     }
 }
