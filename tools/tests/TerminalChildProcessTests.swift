@@ -5,8 +5,9 @@ import Darwin
 enum TerminalChildProcessTests {
     static func main() async throws {
         let pipe = Pipe()
-        let inheritedFD = fcntl(pipe.fileHandleForWriting.fileDescriptor, F_DUPFD, 512)
-        precondition(inheritedFD >= 512)
+        let witnessFD = min(512, getdtablesize() - 1)
+        let inheritedFD = fcntl(pipe.fileHandleForWriting.fileDescriptor, F_DUPFD, witnessFD)
+        precondition(inheritedFD >= witnessFD && inheritedFD > 2)
         let limit = getdtablesize()
         var inheritedMaster: Int32 = -1
         let child = forkpty(&inheritedMaster, nil, nil, nil)
@@ -19,7 +20,7 @@ enum TerminalChildProcessTests {
         while waitpid(child, &childStatus, 0) < 0 && errno == EINTR {}
         close(inheritedFD)
         close(inheritedMaster)
-        precondition(childStatus == 0, "PTY children must close inherited pipes above fd 255 while retaining standard I/O.")
+        precondition(childStatus == 0, "PTY children must close high-numbered inherited pipes while retaining standard I/O.")
         for script in ["trap '' HUP; printf READY; exec sleep 30", "printf READY; exit 0"] {
             let argv: [UnsafeMutablePointer<CChar>?] = [strdup("/bin/sh"), strdup("-c"), strdup(script), nil]
             defer { argv.forEach { free($0) } }

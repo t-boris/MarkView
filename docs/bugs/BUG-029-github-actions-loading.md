@@ -43,7 +43,8 @@ the loading flag. No GitHub credentials, repository settings or workflow runs ar
 
 `bash tools/tests/github-command-tests.sh` covers inherited writers after process exit, full stdout
 and stderr, nonzero exit status, SIGTERM resistance, reaping, parallel requests and failed launches.
-`bash tools/tests/terminal-child-tests.sh` also checks descriptor isolation above fd 255 while
+`bash tools/tests/terminal-child-tests.sh` also checks a high-numbered inherited descriptor (fd 512
+when the process limit permits it) while
 preserving standard I/O, in addition to its existing termination checks.
 
 Debug app build and focused live GitHub request checks are part of release verification. Native UI
