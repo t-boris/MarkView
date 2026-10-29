@@ -384,48 +384,20 @@ enum PrototypeAI {
 
     // MARK: - Runs
 
-    /// What a run does, in words for an error message, and how long it may take. Planning reads the whole set of
-    /// requirement sources, which can be a large folder, so it gets the most time; the writing runs are short.
-    static func budget(for label: String) -> (what: String, limit: TimeInterval) {
-        switch label {
-        case "prototype:plan": return ("planning the screens (reading the requirements)", 2400)
-        case "prototype:foundation:shell": return ("writing the shell and styles", 1200)
-        case "prototype:foundation:data": return ("writing the sample data", 1200)
-        case "prototype:revise": return ("your change", 1800)
-        case "prototype:spec": return ("writing the specification", 1500)
-        default:
-            if label.hasPrefix("prototype:screen:") { return ("writing the screen \(label.dropFirst("prototype:screen:".count))", 900) }
-            return ("this step", 900)
-        }
-    }
-
-    struct StepTimeout: LocalizedError {
-        let what: String
-        let seconds: TimeInterval
-        var errorDescription: String? {
-            "The assistant did not finish \(what) within \(Int(seconds / 60)) minutes. What was already saved is kept; "
-                + "try again, or choose fewer or smaller requirement files."
-        }
-    }
-
     /// One structured run. `record` receives the finished run for the usage counter.
     private static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
                              effort: String = "medium", images: [URL] = [], record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
-        let budget = budget(for: label)
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
         request.images = images
         request.jsonSchema = schema
         request.effort = effort
-        request.timeout = budget.limit
+        // A prototype's work varies with the requirements and provider. Keep it running until
+        // completion, a provider error or the studio's Stop action, rather than discarding it at a deadline.
+        request.timeout = nil
         request.label = label
         stage(.log("Started the assistant"))
         let tracker = ProgressTracker(root: root, emit: stage)
-        let result: CLICompletion.Result
-        do {
-            result = try await CLICompletion.run(request, onActivity: { tracker.handle($0) })
-        } catch CLICompletion.Failure.timedOut(_, let seconds) {
-            throw StepTimeout(what: budget.what, seconds: seconds)
-        }
+        let result = try await CLICompletion.run(request, onActivity: { tracker.handle($0) })
         stage(.log("The assistant finished"))
         await record(result)
         return result

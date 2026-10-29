@@ -23,7 +23,8 @@ enum CLICompletion {
         /// Further folders the CLI may read (a folder X-Ray's whole project); paths in the answer
         /// stay relative to `readableFolder`.
         var extraReadableFolders: [URL] = []
-        var timeout: TimeInterval = 180
+        /// Wall-clock limit; nil for long-running user-controlled work with explicit cancellation.
+        var timeout: TimeInterval? = 180
         /// Set only to force a CLI (translation); otherwise `tool` is the project's assistant.
         var toolOverride: CLITool? = nil
         /// nil = the model selected for `tool` for the project (or the CLI default).
@@ -288,7 +289,7 @@ private final class Invocation: @unchecked Sendable {
     private let tool: CLITool
     private let process = Process()
     private let input: String
-    private let timeout: TimeInterval
+    private let timeout: TimeInterval?
     private let onDelta: (@Sendable (String) -> Void)?
     private let onActivity: (@Sendable (CLICompletion.Activity) -> Void)?
     /// Tool of the content block being streamed (Claude), so tool input is not counted as answer.
@@ -309,7 +310,7 @@ private final class Invocation: @unchecked Sendable {
     private var continuation: CheckedContinuation<Output, Error>?
 
     init(tool: CLITool, executable: String, arguments: [String], workDir: URL,
-         input: String, timeout: TimeInterval, onDelta: (@Sendable (String) -> Void)?,
+         input: String, timeout: TimeInterval?, onDelta: (@Sendable (String) -> Void)?,
          onActivity: (@Sendable (CLICompletion.Activity) -> Void)?) {
         self.tool = tool
         self.input = input
@@ -389,10 +390,12 @@ private final class Invocation: @unchecked Sendable {
             try? stdin.fileHandleForWriting.close()
         }
 
-        queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
-            guard let self, self.process.isRunning else { return }
-            self.timedOut = true
-            self.process.terminate()
+        if let timeout {
+            queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
+                guard let self, self.process.isRunning else { return }
+                self.timedOut = true
+                self.process.terminate()
+            }
         }
     }
 
@@ -588,7 +591,7 @@ private final class Invocation: @unchecked Sendable {
         self.continuation = nil
         if cancelled {
             continuation.resume(throwing: CancellationError())
-        } else if timedOut {
+        } else if timedOut, let timeout {
             continuation.resume(throwing: CLICompletion.Failure.timedOut(tool, timeout))
         } else if let message = output.errorMessage {
             continuation.resume(throwing: CLICompletion.Failure.failed(tool, message))

@@ -122,12 +122,6 @@ check(lines.logs.filter { $0 == "Thinking" }.count == 1, "progress: repeated thi
 check(lines.logs.contains("Writing index.html"), "progress: file path split across chunks")
 check(lines.logs.contains("Writing app.js"), "progress: second file")
 
-// Limits and the timeout message: planning reads the sources, so it may take longest.
-check(PrototypeAI.budget(for: "prototype:plan").limit > PrototypeAI.budget(for: "prototype:screen:tickets").limit, "planning has the longest limit")
-check(PrototypeAI.budget(for: "prototype:screen:tickets").what == "writing the screen tickets", "screen run is named")
-let timeoutText = PrototypeAI.StepTimeout(what: "planning the screens (reading the requirements)", seconds: 2400).errorDescription ?? ""
-check(timeoutText.contains("planning the screens") && timeoutText.contains("40 minutes"), "timeout message names the step and the limit")
-
 // Images sent with a request are named in the prompt, by project-relative path.
 let withImages = PrototypeAI.revisePrompt(instruction: "make it like this", pick: nil, siteRelative: "site", files: [],
     runtimeErrors: [], priorFailure: nil,
@@ -137,7 +131,6 @@ check(withImages.contains(".dde/prototypes/x/attachments/a1.png: image 1 from th
 check(!PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
         .contains("Images the reviewer sent"), "no images, no image section")
 
-check(PrototypeAI.budget(for: "prototype:revise").limit == 1800, "a change may take 30 minutes")
 do {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("conv-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: dir) }

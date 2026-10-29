@@ -1,5 +1,15 @@
 # Lessons
 
+## 2026-10-29 — Long prototype runs need explicit cancellation, not stage stopwatches
+
+**Context:** BUG-030. Prototype Studio terminated foundation work after 20 minutes, including Copilot
+ACP calls. Stage deadlines discarded productive work whose duration depended on the requirements.
+
+**Rule:** Make request deadlines explicit and optional. User-controlled prototype runs continue
+until completion, Stop or a provider error; short app features retain their existing deadlines.
+Verify the policy at every prototype stage and test both ACP and native process transports for
+unbounded completion, bounded calls and cancellation. A check through one provider is insufficient.
+
 ## 2026-10-29 — Process completion and pipe EOF have different owners
 
 **Context:** BUG-029. GitHub workers were still reading stdout after gh exited because terminal
