@@ -1,0 +1,30 @@
+name: Prototype Studio Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Models/Prototype*.swift'
+      - 'MarkView/Models/CLICompletion.swift'
+      - 'MarkView/Models/ACPAssistant.swift'
+      - 'MarkView/Models/AgentProcesses.swift'
+      - 'tools/tests/Prototype*'
+      - 'tools/tests/CLICompletion*'
+      - 'tools/tests/prototype*.sh'
+      - 'tools/tests/cli-completion-timeout-tests.sh'
+      - '.github/workflows/prototype.yml'
+permissions:
+  contents: read
+jobs:
+  prototype-studio:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check prototype files and complete build/revision/specification deadline policy
+        run: |
+          bash tools/tests/prototype-tests.sh
+          bash tools/tests/prototype-deadline-tests.sh
+          bash tools/tests/prototype-images-tests.sh
+      - name: Check Copilot ACP and native CLI completion, timeout and Stop
+        run: bash tools/tests/cli-completion-timeout-tests.sh
+      - name: Build application
+        run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewPrototypeCI CODE_SIGNING_ALLOWED=NO build

@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## BUG-030: Prototype generation hits a fixed deadline (2026-10-29, 4.60.3)
+
+Copilot prototype generation on another computer was reportedly stopped after about 20 minutes.
+The source has a 1200-second foundation limit. Remove all fixed prototype stage deadlines through
+an optional CLI request timeout, retaining existing default limits for other app features and Stop.
+
+- [x] Source call path checked through PrototypeAI, CLICompletion and Copilot ACP. No remote logs
+      were available; the local log contains no Copilot prototype run.
+- [x] Real signed-in Copilot structured request without a deadline passes. Complete prototype
+      build/revision/specification fixture and both transports' bounded/unbounded/cancel checks pass.
+- [x] Debug build, prototype file/image checks, project/spec validation and diff checks pass.
+- [ ] PR/CI/merge and signed/notarized 4.60.3 release.
+
 ## BUG-029: Git → Actions loads forever (2026-10-29, 4.60.2)
 
 GitHub command workers waited for pipe EOF after gh exited; terminal children could retain the

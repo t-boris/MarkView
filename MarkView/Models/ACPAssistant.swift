@@ -74,11 +74,13 @@ enum ACPAssistant {
         return try await withTaskCancellationHandler {
             try await connection.start()
             defer { connection.close() }
-            let timeout = Task.detached {
-                try? await Task.sleep(nanoseconds: UInt64(request.timeout * 1_000_000_000))
-                if !Task.isCancelled { connection.fail(.timedOut(tool, request.timeout)) }
+            let timeout = request.timeout.map { seconds in
+                Task.detached {
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    if !Task.isCancelled { connection.fail(.timedOut(tool, seconds)) }
+                }
             }
-            defer { timeout.cancel() }
+            defer { timeout?.cancel() }
 
             _ = try await connection.request("initialize", [
                 "protocolVersion": 1,
