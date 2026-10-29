@@ -1,5 +1,15 @@
 # Lessons
 
+## 2026-10-29 — Process completion and pipe EOF have different owners
+
+**Context:** BUG-029. GitHub workers were still reading stdout after gh exited because terminal
+children retained pipe descriptors. A timeout guarded by process.isRunning could not release them.
+
+**Rule:** Collect process stacks and pipe owners before blaming the network. Close unrelated file
+descriptors in forked terminal children. A bounded command runner must observe the requested process
+exit independently of EOF, drain both streams without blocking, and escalate an ignored termination.
+Test a successful child whose descendant keeps stdout open as well as a genuinely hung child.
+
 ## 2026-10-28 — Verify remote edits in both fresh and resumed conversations
 
 **Context:** BUG-028. Codex's HOME CLI sandbox was read-only while its WORK MCP tools could write.

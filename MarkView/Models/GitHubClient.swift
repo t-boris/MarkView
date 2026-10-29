@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// A GitHub repository the workspace talks to: `origin`, or the repository it was forked from.
 struct GitHubRepo: Hashable, Sendable {
@@ -319,41 +320,77 @@ struct GitHubClient: Sendable {
         env["GIT_TERMINAL_PROMPT"] = "0"
         process.environment = env
         let out = Pipe(), err = Pipe()
+        // A PTY can fork concurrently with Process.run. Do not leave our pipe ends open
+        // after another child's exec, and never depend on EOF from an inherited writer.
+        for handle in [out.fileHandleForReading, out.fileHandleForWriting, err.fileHandleForReading, err.fileHandleForWriting] {
+            let fd = handle.fileDescriptor
+            guard fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC) == 0 else {
+                return Output(status: -1, stdout: "", stderr: "Could not prepare GitHub command output.")
+            }
+        }
+        let outputFD = out.fileHandleForReading.fileDescriptor, errorFD = err.fileHandleForReading.fileDescriptor
+        for fd in [outputFD, errorFD] {
+            guard fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) == 0 else {
+                return Output(status: -1, stdout: "", stderr: "Could not prepare GitHub command output.")
+            }
+        }
+        defer { try? out.fileHandleForReading.close(); try? err.fileHandleForReading.close() }
         process.standardOutput = out
         process.standardError = err
         process.standardInput = FileHandle.nullDevice
         do { try process.run() } catch {
             return Output(status: -1, stdout: "", stderr: error.localizedDescription)
         }
-        let timedOut = TimeoutFlag()
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-            guard process.isRunning else { return }
-            timedOut.set()
-            process.terminate()
+        var data = Data(), errData = Data()
+        var buffer = [UInt8](repeating: 0, count: 16384)
+        let limit = 64 * 1024 * 1024
+        // A bounded drain lets both pipes progress even when one is continuously producing.
+        func drain(_ fd: Int32, into output: inout Data) {
+            for _ in 0..<16 {
+                let count = read(fd, &buffer, buffer.count)
+                if count > 0 {
+                    output.append(contentsOf: buffer.prefix(count))
+                    if output.count >= limit { return }
+                } else if count < 0 && errno == EINTR { continue }
+                else { return }
+            }
         }
-        // Drain stderr concurrently so neither pipe can fill up and block the process.
-        var errData = Data()
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .utility).async {
-            errData = err.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
+        let deadline = ProcessInfo.processInfo.systemUptime + max(0.05, timeout)
+        var timedOut = false, oversized = false
+        var stoppedAt: TimeInterval?
+        while true {
+            drain(outputFD, into: &data); drain(errorFD, into: &errData)
+            oversized = oversized || data.count >= limit || errData.count >= limit
+            let now = ProcessInfo.processInfo.systemUptime
+            let running = process.isRunning
+            if !running {
+                // The process, rather than every possible inheritor of its stdout, owns this
+                // request. Collect its final buffered bytes and finish without waiting for EOF.
+                drain(outputFD, into: &data); drain(errorFD, into: &errData)
+                oversized = oversized || data.count >= limit || errData.count >= limit
+                break
+            }
+            if stoppedAt == nil, now >= deadline || oversized {
+                timedOut = !oversized
+                stoppedAt = now
+                process.terminate()
+            }
+            if let stoppedAt, now - stoppedAt >= 0.2 {
+                _ = kill(process.processIdentifier, SIGKILL)
+                // SIGKILL normally exits immediately. A broken process must not hold a UI
+                // loading flag forever even if the OS has not delivered its exit callback.
+                if now - stoppedAt >= 2 { break }
+            }
+            usleep(10_000)
         }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        group.wait()
-        process.waitUntilExit()
-        if timedOut.isSet {
+        if oversized {
+            return Output(status: -1, stdout: "", stderr: "GitHub response exceeded 64 MB. Request a smaller log or fewer results.")
+        }
+        if timedOut {
             return Output(status: -1, stdout: "", stderr: "GitHub did not answer within \(Int(timeout)) s (offline?).")
         }
         return Output(status: process.terminationStatus, stdout: String(decoding: data, as: UTF8.self),
                       stderr: String(decoding: errData, as: UTF8.self))
-    }
-
-    private final class TimeoutFlag: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = false
-        func set() { lock.lock(); value = true; lock.unlock() }
-        var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
     }
 
     /// `gh …` for this repository; throws with gh's own message when it fails.

@@ -1,5 +1,19 @@
 # MarkView — Follow-up Tasks
 
+## BUG-029: Git → Actions loads forever (2026-10-29, 4.60.2)
+
+GitHub command workers waited for pipe EOF after gh exited; terminal children could retain the
+writers, bypassing the old timeout. Complete requests on process exit, drain both pipes without
+blocking, enforce termination deadlines and close unrelated descriptors before terminal exec.
+
+- [x] Collected live process sample and pipe ownership evidence; GitHub itself answers normally.
+- [x] Reproduced an exited CLI held open by an inherited writer. Regression checks cover both
+      streams, hard timeout, parallel requests, reaping and PTY descriptor isolation.
+- [x] Debug build, remote/browser/terminal, Git status and 71 lifecycle checks pass. The updated
+      production client fetches 50 runs and three workflows from GitHub in 2.49 seconds.
+      Native UI automation is unavailable, so the panel was not visually rechecked.
+- [ ] PR/CI/merge and signed/notarized 4.60.2 release.
+
 ## BUG-028: Remote Codex refuses work-file edits as read-only (2026-10-28, 4.60.1)
 
 Separate HOME native sandbox permissions from WORK MCP file access. Refresh saved Codex developer
