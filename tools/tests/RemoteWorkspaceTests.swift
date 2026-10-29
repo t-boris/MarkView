@@ -183,13 +183,17 @@ enum RemoteWorkspaceTests {
                 .textResult(name + " " + (args["tab"].string ?? ""))
             }
         check(text(browserRPC?["result"] ?? .null) == "browser_snapshot T2", "The stdio MCP dispatcher must forward browser calls and arguments.")
-        check(["Bash", "Read", "apply_patch", "mcp__work__read_file", ""].allSatisfy {
+        check(["Bash", "Read", "Write", "Edit", "apply_patch", "exec_command", "shell_command", "mcp__work__read_file", ""].allSatisfy {
             RemoteUnixRPC.guardResponse(for: $0)["hookSpecificOutput"]["permissionDecision"].string == "deny"
         }, "Both providers must receive a supported denial for native home tools and malformed names.")
         check([RemoteWorkspaceTools.toolPrefix + "read_file", "AskUserQuestion", "update_plan"].allSatisfy {
             RemoteUnixRPC.guardResponse(for: $0) == .object([:])
         }, "Allowed tools must use a neutral hook result accepted by both Claude and Codex.")
         let context = await workspace.describe()
+        check(context["computer"].string == "work" && context["file_tools"]["root_writable"].bool == true,
+              "Workspace info must identify the work computer and report its actual writable root.")
+        check(context["file_tools"]["write_operations"].array == [.string("write_file"), .string("edit_file")],
+              "The work endpoint must advertise its file-edit capabilities independently of the home sandbox.")
         for provider in RemoteProviderConfiguration.Provider.allCases {
             let command = try RemoteProviderConfiguration.command(provider: provider, executable: "/test/agent", app: "/test/MarkView's App",
                 socket: fixture.appendingPathComponent("bridge.sock").path, context: context, directory: fixture, model: "model; touch /unwanted", resume: false)
@@ -197,6 +201,8 @@ enum RemoteWorkspaceTests {
             check(!command.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex native execution must retain its sandbox.")
             check(command.contains("'model; touch /unwanted'"), "Model values must remain one quoted argument.")
             if provider == .codex {
+                check(command.contains("'--sandbox' 'read-only'") && command.contains("'--cd' " + RemoteProviderConfiguration.quote(fixture.path)),
+                      "Codex must retain native read-only access in the transport directory.")
                 let server = "mcp_servers." + RemoteWorkspaceTools.serverName
                 check(command.contains(server + ".required=true") && command.contains(server + ".default_tools_approval_mode=\"approve\""), "Codex must require and authorize the owned work MCP server without prompting in never-approval mode.")
             }

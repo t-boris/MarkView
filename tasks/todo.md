@@ -1,5 +1,19 @@
 # MarkView — Follow-up Tasks
 
+## BUG-028: Remote Codex refuses work-file edits as read-only (2026-10-28, 4.60.1)
+
+Separate HOME native sandbox permissions from WORK MCP file access. Refresh saved Codex developer
+context through the app-server before resuming the same thread; retain the native read-only sandbox
+and the tool guard. Advertise the work endpoint's actual file capabilities and root writability.
+
+- [x] Reproduced a read followed by an edit refusal with no write-tool call. New instructions alone
+      fix fresh threads; old refused threads need a model-visible context refresh.
+- [x] Real signed-in Codex over production HTTPS: natural absolute-path read, resumed file edit,
+      work file saved, home file untouched. The exact legacy refusal fixture also recovers with the
+      production context helper. Context API protocol/deduplication/failure checks pass.
+- [x] Final Debug build, remote/browser suite, concurrent reconnect checks and project validation.
+- [ ] PR/CI/merge and signed/notarized 4.60.1 release from the merged commit.
+
 ## Saved remote connections (2026-10-28, 4.60.0)
 
 Replace eight-hour, single-terminal invitations with multiple named saved pairings. Keep pairing

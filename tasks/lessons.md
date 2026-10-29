@@ -1,5 +1,17 @@
 # Lessons
 
+## 2026-10-28 — Verify remote edits in both fresh and resumed conversations
+
+**Context:** BUG-028. Codex's HOME CLI sandbox was read-only while its WORK MCP tools could write.
+The model refused a natural file-edit request without attempting a tool. Clearer developer context
+fixed new threads, but a resumed thread retained the earlier developer messages and refusal.
+
+**Rule:** Distinguish the process host from the tool execution host and report each host's actual
+permissions. Verify a natural read-then-edit request by inspecting the saved file, including a thread
+that previously refused. Refresh saved context through the provider's supported API; command-line
+configuration changes alone do not prove the old model-visible history has changed. Preserve the
+native sandbox rather than widening it to solve a remote-routing misunderstanding.
+
 ## 2026-10-07 — A diagram is useful when it answers one question and can be checked
 
 **Context:** AI diagrams (Graph Creator, code map, audit) were produced by pasting a prompt into the

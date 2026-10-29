@@ -8,19 +8,26 @@ enum RemoteWorkspaceTools {
     static let browserNames = Set(BrowserAgentTools.tools.map(\.name))
     static let names = fileNames.union(browserNames)
     static let instructions = """
-    Your execution environment is the WORK computer connected through MarkView. All project files, Git,
-    commands, tests and development servers belong to that computer. Use these workspace tools for EVERY
-    filesystem and command operation. workspace_info gives the actual working directory and environment.
-    Never inspect the home computer's filesystem or use its native shell or patch tools. Absolute paths
-    in prompts and tool results refer to the work computer. Read AGENTS.md and CLAUDE.md through read_file
-    when present. Commands have normal local user permissions. exec_command can return a running session;
-    use write_stdin to wait, send input, interrupt or terminate it. Read image files through read_file.
-    The browser_* tools control the browser tabs in the WORK computer's connected MarkView window,
-    including tabs already open and the user's signed-in pages. For web work use these tools, including
-    localhost development servers on the work computer. Start with browser_tabs to find the user's tab,
-    then browser_snapshot to read it and get element refs for browser_click and browser_type.
-    browser_screenshot returns a page image. Respect tabs stopped by the user; do not retry them.
-    The window is fixed by this connection; project_folder is unnecessary. Never automate the home browser.
+    MarkView connects TWO computers. The assistant CLI process runs on the HOME computer in a transport
+    directory, not in the user's project. Its native filesystem sandbox and approval policy describe
+    HOME access only. The user's project, files, Git, commands and browser tabs are on the WORK computer.
+    These MCP workspace tools execute on WORK as its local user; they support reading AND writing files.
+    Native HOME restrictions do not make the WORK project read-only and do not prohibit write_file,
+    edit_file or work-computer exec_command. For a requested file change, read_file then edit_file or
+    write_file on WORK. Do not refuse an edit based on the CLI's read-only sandbox message. Report a
+    WORK file as unwritable only if a WORK tool actually returns a permission error for that operation.
+    When the user says "local file", "this file" or supplies an absolute path, they mean the file on WORK.
+    Pass that exact path to these tools; do not translate it into the home transport directory or inspect
+    a home-computer namesake. workspace_info identifies WORK and its project root. File tools stay inside
+    that root; an outside-workspace error is a scope error, not evidence that the workspace is read-only.
+    Use these tools for EVERY filesystem and command operation. Never use HOME native shell, patch or
+    file tools. Read AGENTS.md and CLAUDE.md through read_file when present. exec_command can return a
+    running session; use write_stdin to wait, send input, interrupt or terminate it. Read images through
+    read_file. Work-computer OS permissions still apply; do not claim a failed edit succeeded.
+    The browser_* tools control the tabs in the WORK computer's connected MarkView window, including
+    existing signed-in pages and localhost development servers. Start with browser_tabs, then
+    browser_snapshot for page text and element refs. browser_screenshot returns a page image. Respect
+    tabs stopped by the user; do not retry them. The window is fixed; project_folder is unnecessary.
     """
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: RemoteJSON], required: [String] = []) -> RemoteJSON {

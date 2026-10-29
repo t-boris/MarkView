@@ -1,14 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-if [[ $# -lt 3 || $# -gt 4 ]]; then
-    echo 'Usage: remote-workspace-live.sh <HTTPS relay URL> <access-key file> <MarkView.app> [claude|codex|both]' >&2
+if [[ $# -lt 3 || $# -gt 5 ]]; then
+    echo 'Usage: remote-workspace-live.sh <HTTPS relay URL> <access-key file> <MarkView.app> [claude|codex|both] [--natural-edit]' >&2
     exit 64
 fi
 relay=$1
 key_file=$2
 app=$3/Contents/MacOS/MarkView
 selection=${4:-both}
+scenario=""
+if [[ $# -eq 5 ]]; then
+    [[ "$5" == '--natural-edit' ]] || { echo 'Unknown scenario.' >&2; exit 64; }
+    scenario="--natural-edit"
+fi
 if [[ ! -x "$app" || ! -r "$key_file" ]]; then
     echo 'Provide a built MarkView.app and a readable private relay access-key file.' >&2
     exit 64
@@ -26,8 +31,10 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/Remote/RemoteCommand.swift MarkView/Models/PTYWriter.swift \
     MarkView/Models/AgentProcesses.swift MarkView/Models/BrowserAgentTools.swift MarkView/Models/Remote/RemoteWorkspaceTools.swift \
     MarkView/Models/Remote/RemoteToolBridge.swift MarkView/Models/Remote/RemoteToolRequests.swift \
-    MarkView/Models/Remote/RemoteProviderConfiguration.swift tools/tests/RemoteProviderLiveChecks.swift
+    MarkView/Models/Remote/RemoteProviderConfiguration.swift MarkView/Models/Remote/RemoteCodexContext.swift tools/tests/RemoteProviderLiveChecks.swift
 for provider in "${providers[@]}"; do
     executable=$(command -v "$provider")
-    "$out/remote-provider-live" "$provider" "$executable" "$app" "$relay" "$key_file"
+    arguments=("$provider" "$executable" "$app" "$relay" "$key_file")
+    if [[ -n "$scenario" ]]; then arguments+=("$scenario"); fi
+    "$out/remote-provider-live" "${arguments[@]}"
 done
