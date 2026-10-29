@@ -14,6 +14,7 @@ on:
       - 'tools/tests/saved-remote-connections-tests.sh'
       - 'tools/tests/persistent-remote*'
       - 'tools/tests/remote-workspace-tests.sh'
+      - 'tools/tests/remote-codex-context-tests.sh'
       - 'tools/tests/remote-browser-tests.sh'
       - 'tools/tests/remote-relay-settings-tests.sh'
       - '.github/workflows/remote-workspace.yml'

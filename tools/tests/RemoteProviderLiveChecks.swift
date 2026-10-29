@@ -17,15 +17,25 @@ enum RemoteProviderLiveChecks {
     }
 
     private static func check() async throws {
-        guard CommandLine.arguments.count == 6,
+        guard (6...7).contains(CommandLine.arguments.count),
               let provider = RemoteProviderConfiguration.Provider(rawValue: CommandLine.arguments[1]),
               let relay = URL(string: CommandLine.arguments[4]) else {
             throw RemoteFailure.invalid("Usage: remote-provider-live <claude|codex> <executable> <MarkView executable> <relay URL> <access-key file>")
         }
+        let naturalEdit = CommandLine.arguments.last == "--natural-edit"
         let executable = CommandLine.arguments[2]
         let app = CommandLine.arguments[3]
-        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent("mv-provider-live-" + UUID().uuidString)
+        let resumeFixture = ProcessInfo.processInfo.environment["MARKVIEW_LIVE_RESUME_FIXTURE"].map { URL(fileURLWithPath: $0) }
+        let fixture = resumeFixture ?? FileManager.default.temporaryDirectory.appendingPathComponent("mv-provider-live-" + UUID().uuidString)
         let workRoot = fixture.appendingPathComponent("work"), homeRoot = fixture.appendingPathComponent("home")
+        if resumeFixture != nil {
+            guard naturalEdit, fixture.lastPathComponent.hasPrefix("mv-provider-live-"),
+                  fixture.deletingLastPathComponent().resolvingSymlinksInPath() == FileManager.default.temporaryDirectory.resolvingSymlinksInPath(),
+                  try String(contentsOf: homeRoot.appendingPathComponent("identity.txt"), encoding: .utf8) == "HOME-UNTOUCHED\n",
+                  try String(contentsOf: workRoot.appendingPathComponent("identity.txt"), encoding: .utf8).hasPrefix("WORK-") else {
+                throw RemoteFailure.invalid("Resume only an existing temporary live-check fixture.")
+            }
+        }
         for root in [workRoot, homeRoot] { try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true) }
         let marker = "WORK-" + UUID().uuidString
         let memory = "remember-" + UUID().uuidString
@@ -56,18 +66,47 @@ enum RemoteProviderLiveChecks {
         }
         do {
             let context = await workspace.describe()
-            func batchCommand(_ prompt: String, resume: Bool) throws -> String {
+            func batchCommand(_ prompt: String, resume: Bool) async throws -> String {
+                let threadID = provider == .codex && resume
+                    ? try await RemoteCodexContext.prepare(executable: executable, directory: homeRoot, context: context) : nil
                 var command = try RemoteProviderConfiguration.command(provider: provider, executable: executable, app: app,
-                    socket: bridge.path, context: context, directory: homeRoot, model: nil, resume: resume)
+                    socket: bridge.path, context: context, directory: homeRoot, model: ProcessInfo.processInfo.environment["MARKVIEW_LIVE_MODEL"], resume: resume,
+                    resumeThreadID: threadID)
                 // Exercise the production MCP and hook settings with the providers' batch interfaces.
                 if provider == .claude {
                     command += " --print --output-format json --max-turns 16 " + RemoteProviderConfiguration.quote(prompt)
                 } else {
-                    if resume { command = command.replacingOccurrences(of: "'resume' '--last'", with: "'exec' 'resume' '--last' '--skip-git-repo-check' '--json'") }
+                    if resume {
+                        let selector = RemoteProviderConfiguration.quote(threadID ?? "--last")
+                        command = command.replacingOccurrences(of: "'resume' " + selector, with: "'exec' 'resume' " + selector + " '--skip-git-repo-check' '--json'")
+                    }
                     else { command += " exec --skip-git-repo-check --json" }
                     command += " " + RemoteProviderConfiguration.quote(prompt)
                 }
                 return command
+            }
+            if naturalEdit {
+                let target = workRoot.appendingPathComponent("notes.md")
+                if resumeFixture == nil {
+                    try Data("# Architecture notes\n\nInitial draft.\n".utf8).write(to: target)
+                    try await run(try await batchCommand("Read my local file at " + target.path + " and tell me its heading.", resume: false), directory: homeRoot)
+                }
+                try await run(try await batchCommand("Update that same local file: replace Initial draft. with Revised draft. and save the file. Please make the change directly.", resume: true), directory: homeRoot)
+                let contents = try String(contentsOf: target, encoding: .utf8)
+                print("Observed work tools: \(await audit.names().sorted())")
+                guard contents.contains("Revised draft."), !contents.contains("Initial draft.") else {
+                    throw RemoteFailure.invalid("The provider did not edit the user's work-computer file from a natural request.")
+                }
+                guard try String(contentsOf: homeRoot.appendingPathComponent("identity.txt"), encoding: .utf8) == "HOME-UNTOUCHED\n",
+                      !FileManager.default.fileExists(atPath: homeRoot.appendingPathComponent("notes.md").path),
+                      !(await audit.names()).isDisjoint(with: ["edit_file", "write_file", "exec_command"]) else {
+                    throw RemoteFailure.invalid("A natural file-edit request must use WORK tools and leave HOME untouched.")
+                }
+                print("\(provider.title): natural absolute-path request and resumed file edit passed.")
+                await requests.close(); await workspace.close(); await home.revoke(); await work.close()
+                homeReceiver.cancel(); workReceiver.cancel()
+                print("Fixture: \(fixture.path)")
+                return
             }
             let prompt = """
             This is an end-to-end work-computer test. Use ONLY the markview_remote_workspace MCP tools.
@@ -79,7 +118,7 @@ enum RemoteProviderLiveChecks {
             the CLI transport directory or any native home file. Remember this phrase for our next
             conversation turn, without writing it into any file: \(memory). Finish with LIVE_CHECK_DONE.
             """
-            try await run(try batchCommand(prompt, resume: false), directory: homeRoot)
+            try await run(try await batchCommand(prompt, resume: false), directory: homeRoot)
             FileHandle.standardOutput.write(Data(("Observed work tools: \(await audit.names().sorted())\n").utf8))
             let result = try String(contentsOf: workRoot.appendingPathComponent("result.txt"), encoding: .utf8)
             guard result.trimmingCharacters(in: .whitespacesAndNewlines) == marker,
@@ -92,7 +131,7 @@ enum RemoteProviderLiveChecks {
                   try String(contentsOf: workRoot.appendingPathComponent("edit.txt"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) == "beta" else { throw RemoteFailure.invalid("The provider did not exercise all required work-computer tools.") }
             print("\(provider.title): real login, HTTPS MCP, work-file read/write, Git and home-file isolation passed.")
             let resumePrompt = "Use the work-computer write_file tool to create resumed.txt containing only the phrase I asked you to remember in our previous turn. Do not read any files or logs to recover it. Then finish."
-            try await run(try batchCommand(resumePrompt, resume: true), directory: homeRoot)
+            try await run(try await batchCommand(resumePrompt, resume: true), directory: homeRoot)
             let recalled = try String(contentsOf: workRoot.appendingPathComponent("resumed.txt"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
             guard recalled == memory else { throw RemoteFailure.invalid("The provider did not continue its previous conversation.") }
             print("\(provider.title): conversation continuation passed.")

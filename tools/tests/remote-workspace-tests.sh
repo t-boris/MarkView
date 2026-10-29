@@ -20,6 +20,7 @@ swiftc -parse-as-library -module-cache-path "${TMPDIR:-/tmp}/markview-remote-tes
     MarkView/Models/Remote/RemoteProtocol.swift MarkView/Models/Remote/RemoteFraming.swift \
     MarkView/Models/Remote/RemoteChannel.swift MarkView/Models/Remote/RemoteToolRequests.swift tools/tests/RemoteChannelTests.swift
 "$out/remote-channel-tests"
+bash tools/tests/remote-codex-context-tests.sh
 bash tools/tests/remote-relay-settings-tests.sh
 bash tools/tests/terminal-child-tests.sh
 node --test tools/remote-relay/*.test.mjs

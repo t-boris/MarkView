@@ -45,6 +45,11 @@ actor RemoteWorkspace {
                let text = String(data: data, encoding: .utf8) { instructions.append("\(name):\n\(text)") }
         }
         return .object([
+            "computer": .string("work"),
+            "file_tools": .object(["scope": .string("workspace"),
+                "root_writable": .bool(FileManager.default.isWritableFile(atPath: root.path)),
+                "write_operations": .array([.string("write_file"), .string("edit_file")]),
+                "permissions_source": .string("Work-computer OS permissions; the home CLI sandbox does not apply.")]),
             "cwd": .string(root.path), "hostname": .string(ProcessInfo.processInfo.hostName),
             "deviceID": .string(deviceID),
             "os": .string(ProcessInfo.processInfo.operatingSystemVersionString),

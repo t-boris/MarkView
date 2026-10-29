@@ -11,7 +11,8 @@ enum RemoteProviderConfiguration {
     }
 
     static func command(provider: Provider, executable: String, app: String, socket: String,
-                        context: RemoteJSON, directory: URL, model: String?, resume: Bool) throws -> String {
+                        context: RemoteJSON, directory: URL, model: String?, resume: Bool,
+                        resumeThreadID: String? = nil) throws -> String {
         let server: RemoteJSON = .object(["command": .string(app),
             "args": .array([.string("--remote-workspace-mcp"), .string("--socket"), .string(socket)])])
         let mcp = RemoteJSON.object(["mcpServers": .object([RemoteWorkspaceTools.serverName: server])])
@@ -21,15 +22,7 @@ enum RemoteProviderConfiguration {
         let hooks: RemoteJSON = .object(["PreToolUse": .array([.object([
             "matcher": .string(".*"), "hooks": .array([.object([
                 "type": .string("command"), "command": .string(guardCommand), "timeout": .int(5)])])])])])
-        let environment = String(data: try JSONEncoder().encode(context), encoding: .utf8)!
-        let instructions = """
-        \(RemoteWorkspaceTools.instructions)
-
-        Actual execution environment (authoritative; the CLI transport's own cwd is NOT the project):
-        \(environment)
-
-        Begin by using workspace_info and reading the project's instructions on the work computer.
-        """
+        let instructions = try instructions(context: context)
         var args: [String] = []
         if provider == .claude {
             let settings = directory.appendingPathComponent("claude-settings.json")
@@ -40,7 +33,8 @@ enum RemoteProviderConfiguration {
             if resume { args.insert("--continue", at: 0) }
         } else {
             func override(_ key: String, _ value: String) { args += ["-c", key + "=" + value] }
-            args = ["--no-daemon", "--dangerously-bypass-hook-trust", "--sandbox", "read-only", "--ask-for-approval", "never"]
+            args = ["--no-daemon", "--dangerously-bypass-hook-trust", "--cd", directory.path,
+                    "--sandbox", "read-only", "--ask-for-approval", "never"]
             for name in ["shell_tool", "view_image", "multi_agent", "apps", "plugins", "computer_use", "browser_use", "image_generation"] {
                 override("features." + name, "false")
             }
@@ -55,10 +49,24 @@ enum RemoteProviderConfiguration {
             override(serverKey + ".default_tools_approval_mode", toml("approve"))
             override("developer_instructions", toml(instructions))
             override("hooks.PreToolUse", "[{matcher=\".*\",hooks=[{type=\"command\",command=" + toml(guardCommand) + ",timeout=5}]}]")
-            if resume { args += ["resume", "--last"] }
+            if resume { args += ["resume", resumeThreadID ?? "--last"] }
         }
         if let model, !model.isEmpty { args += ["--model", model] }
         return ([executable] + args).map(quote).joined(separator: " ")
+    }
+
+    static func instructions(context: RemoteJSON) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let environment = String(decoding: try encoder.encode(context), as: UTF8.self)
+        return """
+        \(RemoteWorkspaceTools.instructions)
+
+        WORK computer environment (these tools target this computer; native CLI sandbox permissions belong to HOME):
+        \(environment)
+
+        Begin by using workspace_info and reading the project's instructions on the work computer.
+        """
     }
 
     static func quote(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }

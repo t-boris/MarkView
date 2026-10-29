@@ -122,10 +122,18 @@ final class RemoteHostController: ObservableObject {
                 .appendingPathComponent(String(ContentHash.of(deviceID + "\n" + cwd + "\n" + providerName + "\n" + (context["connectionID"].string ?? "")).prefix(24)), isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let bridge = try RemoteToolBridge { id, name, arguments in await requests.call(id: id, name: name, arguments: arguments) }
-            let resume = payload["resume"].bool == true && (provider == .codex || AgentModelProbe.hasClaudeSession(cwd: root))
-            let command = try RemoteProviderConfiguration.command(provider: provider, executable: executable, app: app,
-                socket: bridge.path, context: context, directory: root, model: payload["model"].string, resume: resume)
-            return (root, bridge, command)
+            do {
+                var resume = payload["resume"].bool == true && (provider == .codex || AgentModelProbe.hasClaudeSession(cwd: root))
+                let threadID: String?
+                if provider == .codex, resume {
+                    threadID = try await RemoteCodexContext.prepare(executable: executable, directory: root, context: context)
+                    resume = threadID != nil
+                } else { threadID = nil }
+                let command = try RemoteProviderConfiguration.command(provider: provider, executable: executable, app: app,
+                    socket: bridge.path, context: context, directory: root, model: payload["model"].string,
+                    resume: resume, resumeThreadID: threadID)
+                return (root, bridge, command)
+            } catch { bridge.stop(); throw error }
         }.value
         guard isHosting, self.channel === channel else { prepared.1.stop(); throw RemoteFailure.disconnected }
         self.bridge = prepared.1

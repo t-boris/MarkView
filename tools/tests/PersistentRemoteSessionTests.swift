@@ -8,6 +8,9 @@ struct TerminalProfile { init(_ tool: CLITool) {} }
 enum ContentHash { static func of(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() } }
 enum CLIToolLocator { static func resolveThorough(_ tool: CLITool) async -> String? { "/test/inert-agent" } }
 enum AgentModelProbe { static func hasClaudeSession(cwd: URL) -> Bool { true } }
+enum RemoteCodexContext {
+    static func prepare(executable: String, directory: URL, context: RemoteJSON) async throws -> String? { nil }
+}
 @MainActor final class RemoteRelaySettings {
     static let shared = RemoteRelaySettings()
     var relayURL = "http://127.0.0.1:16393", accessKey = ""
