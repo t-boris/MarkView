@@ -371,9 +371,16 @@ flowchart LR
 - **Real terminals** (**⌘3**): xterm.js on a pseudo-terminal owned by the app. Open
   Claude Code, Codex, Cline, Copilot or a plain shell — several at once — in the project
   folder; Claude Code and Codex sessions resume when you reopen the project.
-- **One-click prompts:** *Review PR…*, *Review changes*, *Docs ↔ code*, *Explain file*,
+- **One-click prompts:** *GitHub → MarkView…*, *Review PR…*, *Review changes*, *Docs ↔ code*, *Explain file*,
   *Find bugs*, *Write tests*, *Run tests*, *Security review*, *Update docs*,
   *Commit message*. ⌥-click types a prompt without sending it.
+- **GitHub → MarkView…** checks recent issue activity, creates missing local features and bugs,
+  updates existing records, and reports recommended priorities. Choose weekdays, calendar hours,
+  or exact dates and preview the bounds before sending. The default is 48 weekday hours:
+  Monday at 09:00 starts on Thursday at 09:00 the previous week. Saturday and Sunday extend
+  the lookback; all activity inside the resulting interval is included, including weekends.
+  Holidays count as weekdays. The agent updates records without starting implementation or
+  modifying GitHub issues.
 - **Per-project assistant and model**, plus a separate fast model for X-Ray, filters and
   explanations. AI output can follow the document's language or use one of eight others.
 - **Pages and files open in MarkView.** When an agent runs `open https://…`, `open notes.md`

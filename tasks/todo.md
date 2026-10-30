@@ -1,5 +1,21 @@
 # MarkView — Follow-up Tasks
 
+## GitHub activity prompt (2026-10-30, 4.61.0)
+
+Add GitHub → MarkView to the agent prompt bar. Reconcile recent issue activity into local
+features and bugs and report priorities, without starting implementation or changing GitHub.
+
+- [x] Configurable weekdays, calendar hours, and exact date range with a preview before sending.
+- [x] Default: 48 weekday hours; Monday 09:00 starts Thursday 09:00. Weekends extend the
+      lookback, and all events inside the continuous interval remain in scope; no holiday calendar.
+- [x] Prompt covers pagination, older issues with recent activity, historical windows with later
+      updates, duplicate avoidance, evidence-backed status reconciliation, and a complete work report.
+- [x] Standalone checks pass for weekday arithmetic, weekends, both DST transitions, custom bounds,
+      invalid input, language, and existing prompt substitutions; Debug build passes.
+- [x] Isolated QA app: button, default preview, weekday stepper, calendar hours, and custom range
+      checked live. Fixed custom-range popover truncation and verified the full text visually.
+Delivery: merge through the feature PR, then publish signed/notarized release `v4.61.0`.
+
 ## BUG-030: Prototype generation hits a fixed deadline (2026-10-29, 4.60.3)
 
 Copilot prototype generation on another computer was reportedly stopped after about 20 minutes.

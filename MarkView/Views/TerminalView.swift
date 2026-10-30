@@ -339,6 +339,8 @@ private struct TerminalPromptBar: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @Binding var expanded: Bool
     @State private var pickingPullRequest = false
+    @State private var pickingGitHubActivity = false
+    @State private var activityTypeOnly = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -374,6 +376,9 @@ private struct TerminalPromptBar: View {
         let chip = Button {
             if prompt.input == .pullRequest {
                 pickingPullRequest = true
+            } else if prompt.input == .githubActivity {
+                activityTypeOnly = NSEvent.modifierFlags.contains(.option)
+                pickingGitHubActivity = true
             } else {
                 send(prompt, pullRequest: nil)
             }
@@ -398,6 +403,14 @@ private struct TerminalPromptBar: View {
                     send(prompt, pullRequest: choice)
                 }
             }
+        } else if prompt.input == .githubActivity {
+            chip.popover(isPresented: $pickingGitHubActivity, arrowEdge: .bottom) {
+                GitHubActivityPicker(typeOnly: activityTypeOnly) { window in
+                    pickingGitHubActivity = false
+                    let text = prompt.text(file: nil, pullRequest: nil, activityWindow: window)
+                    workspaceManager.sendToAssistant(text, submit: !activityTypeOnly)
+                }
+            }
         } else {
             chip
         }
@@ -406,6 +419,75 @@ private struct TerminalPromptBar: View {
     private func send(_ prompt: TerminalPrompt, pullRequest: String?) {
         let typeOnly = NSEvent.modifierFlags.contains(.option)
         workspaceManager.sendToAssistant(prompt.text(file: activeFile, pullRequest: pullRequest), submit: !typeOnly)
+    }
+}
+
+/// Preview the actual bounds before handing the synchronization request to the current agent.
+private struct GitHubActivityPicker: View {
+    let typeOnly: Bool
+    let choose: (GitHubActivityWindow) -> Void
+    @State private var period: GitHubActivityPeriod = .weekdays
+    @State private var weekdays = 2
+    @State private var hours = 48
+    @State private var anchor: Date
+    @State private var customStart: Date
+    @State private var customEnd: Date
+
+    init(typeOnly: Bool, choose: @escaping (GitHubActivityWindow) -> Void) {
+        self.typeOnly = typeOnly
+        self.choose = choose
+        let now = Date()
+        _anchor = State(initialValue: now)
+        _customStart = State(initialValue: Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now)
+        _customEnd = State(initialValue: now)
+    }
+
+    private var window: GitHubActivityWindow? {
+        GitHubActivityWindow.make(period: period, count: period == .hours ? hours : weekdays,
+                                  customStart: customStart, customEnd: customEnd, now: anchor)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("GitHub → MarkView").uiFont(size: 12, weight: .semibold)
+            Picker("Period", selection: $period) {
+                ForEach(GitHubActivityPeriod.allCases) { value in
+                    Text(value.rawValue).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            switch period {
+            case .weekdays:
+                Stepper("\(weekdays) weekdays (\(weekdays * 24) hours)", value: $weekdays, in: 1...30)
+                Text("Weekdays count as 24 hours; Saturday and Sunday extend the lookback. Monday 09:00 → Thursday 09:00 for two weekdays. No holiday calendar.")
+                    .uiFont(size: 10).foregroundColor(.secondary)
+            case .hours:
+                Stepper("Last \(hours) calendar hours", value: $hours, in: 1...720)
+            case .custom:
+                DatePicker("From", selection: $customStart, in: ...anchor, displayedComponents: [.date, .hourAndMinute])
+                DatePicker("Through", selection: $customEnd, in: ...anchor, displayedComponents: [.date, .hourAndMinute])
+            }
+            if let window {
+                Text("From: \(window.start.formatted(date: .abbreviated, time: .shortened))\nThrough: \(window.end.formatted(date: .abbreviated, time: .shortened))\nTimezone: \(TimeZone.current.identifier)")
+                    .uiFont(size: 11).textSelection(.enabled)
+                Text("Includes all GitHub activity within these dates, including weekends. Creates or updates local features and bugs, then reports priorities.")
+                    .uiFont(size: 10).foregroundColor(.secondary)
+            } else {
+                Text("Choose an end after the start, no later than now.")
+                    .uiFont(size: 10).foregroundColor(.red)
+            }
+            HStack {
+                Spacer()
+                Button(typeOnly ? "Insert prompt" : "Sync and report") {
+                    if let window { choose(window) }
+                }
+                .disabled(window == nil)
+            }
+        }
+        .padding(12)
+        .frame(width: 390)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
