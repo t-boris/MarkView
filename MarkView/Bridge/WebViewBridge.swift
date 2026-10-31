@@ -284,7 +284,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         // happens in WorkspaceManager.
         // Architecture tab: { action: "openFile" | "rescan" | "analyze" | "showPR" |
         //                     "reviewPR" | "refreshPRSources", …action fields }
-        // Code viewer margin notes: { action: "explain" | "rate", filter? }
+        // File margin notes: { action: "explain" | "rate" | "notesView", filter?, show?, explain? }
         case "code":
             if let payload = data, let action = payload["action"] as? String {
                 delegate?.bridge(self, didReceiveCodeAction: action, payload: payload)
@@ -412,8 +412,8 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     }
 
     /// Show source code read-only in the code viewer (markview-code.js).
-    func loadCodeContent(_ content: String, language: String, fileName: String, into webView: WKWebView) {
-        guard let data = try? JSONSerialization.data(withJSONObject: [content, language, fileName]),
+    func loadCodeContent(_ content: String, language: String, fileName: String, returnLabel: String = "", into webView: WKWebView) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [content, language, fileName, returnLabel]),
               let args = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.setCodeContent.apply(null, \(args))") { _, error in
             if let error { NSLog("Error setting code content: \(error)") }

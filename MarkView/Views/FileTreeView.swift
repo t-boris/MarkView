@@ -48,10 +48,6 @@ struct FileTreeView: View {
         guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return [] }
 
         let items: [Entry] = contents.compactMap { itemURL in
-            let name = itemURL.lastPathComponent
-            // Dot files and folders are shown (.claude, .github, .gitignore…), except the
-            // repository's and MarkView's own and Finder's.
-            guard !Self.hiddenNames.contains(name) else { return nil }
             let vals = try? itemURL.resourceValues(forKeys: Set(keys))
             let isDir = vals?.isDirectory ?? false
             guard isDir || FileType.isOpenable(itemURL) else { return nil }
@@ -390,8 +386,7 @@ struct FileTreeView: View {
         var target = request.standardizedFileURL
         // The project, or the linked folder, the item is in (Task 59).
         guard let root = workspaceManager.containerRoot(for: target)?.standardizedFileURL else { return }
-        while target.path != root.path,
-              !FileManager.default.fileExists(atPath: target.path) || Self.hiddenNames.contains(target.lastPathComponent) {
+        while target.path != root.path, !FileManager.default.fileExists(atPath: target.path) {
             target = target.deletingLastPathComponent()
         }
         guard target.path != projectRoot.path else {
@@ -424,9 +419,6 @@ struct FileTreeView: View {
     }
 
     // MARK: - Row Views
-
-    /// Never listed: git's and MarkView's own data, Finder's files.
-    static let hiddenNames: Set<String> = [".git", ".dde", ".DS_Store", ".Trash", ".localized"]
 
     /// "now", "5m", "3h", "2d", "4w", "2025-03-01".
     private func shortDate(_ date: Date?) -> String {
