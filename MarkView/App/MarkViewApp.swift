@@ -420,7 +420,7 @@ struct MarkViewApp: App {
 
     private func openFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.markdownText, .plainText]
+        panel.showsHiddenFiles = true
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 

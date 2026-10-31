@@ -219,6 +219,17 @@ return [document.getElementById('status-mode').textContent, document.querySelect
 """)
 check(text.contains("YAML|← Viewer|true") && text.contains("HTTP listener") && text.contains("Database pool") && text.hasSuffix("|4"),
       "YAML: highlighted source, line-aligned section notes and return to viewer", text)
+text = js("""
+document.querySelector('.code-notes-close').click();
+const hiddenBefore = document.querySelector('.code-notes').hidden;
+window.explainCurrentFile();
+window.setCodeContent('server: 8080', 'yaml', 'reopened.yaml', 'Viewer');
+window.setCodeNotes({ explanation: { summary: 'Server settings', sections: [
+  { startLine: 1, endLine: 1, title: 'Server', explanation: 'Port setting.', importance: 'normal' }
+] }, filters: [] });
+return hiddenBefore + '|' + document.querySelector('.code-notes').hidden;
+""")
+check(text == "true|false", "Explain from source/data reopens notes after they were hidden", text)
 bridge.messages.removeAll()
 _ = js("document.querySelector('.code-document-btn').click(); return 'ok';")
 spin(0.1)

@@ -29,7 +29,10 @@
             docExplainButton.className = 'code-explain-btn doc-explain-btn'; docExplainButton.textContent = '✦ Explain';
             docExplainButton.title = 'Explain this file section by section, with importance, freshness and filters';
             DOM.previewPane.appendChild(docExplainButton);
-            window.explainCurrentFile = function() { postCode('notesView', { show: true, explain: true }); };
+            window.explainCurrentFile = function() {
+                notesHidden = false;
+                postCode('notesView', { show: true, explain: true });
+            };
             const sourceExplainButton = docExplainButton.cloneNode(true);
             sourceExplainButton.classList.remove('doc-explain-btn');
             DOM.editorPane.appendChild(sourceExplainButton);
