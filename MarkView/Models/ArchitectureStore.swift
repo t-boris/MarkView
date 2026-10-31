@@ -926,39 +926,9 @@ final class ArchitectureStore: ObservableObject {
         return applyLogical(next)
     }
 
-    /// Rebuild the Logical view and the component/tags of Modules-view nodes from
-    /// the AI assignments and the user's overrides. Deterministic; no AI.
-    private static let tagFolders: [String: Set<String>] = [
-        "tests": ["test", "tests", "__tests__", "spec", "specs", "testing", "e2e", "uitests", "unittests", "fixtures", "__mocks__", "mocks"],
-        "docs": ["docs", "doc", "documentation"],
-        "config": ["config", "configs", ".github", ".vscode", ".idea", "settings"],
-        "build": ["build", "dist", "out", ".build", "target", "deploy", "docker", "ci"],
-        "generated": ["generated", "__generated__", "gen", "vendor", "third_party", "thirdparty"],
-        "scripts": ["scripts", "script", "tools", "tooling", "bin"],
-        "examples": ["examples", "example", "samples", "sample", "demo", "demos"],
-    ]
-
-    /// Kind tags of a folder or file from its path alone — deterministic, so hiding works
-    /// the same with or without an AI analysis. A test file next to code counts as a test.
+    /// Shared deterministic path facts, also available to Code before AI analysis.
     nonisolated static func pathTags(_ path: String, isFile: Bool, language: String?) -> [String] {
-        let lower = path.lowercased()
-        let parts = lower.split(separator: "/").map(String.init)
-        let folders = Set(isFile ? Array(parts.dropLast()) : parts)
-        let name = isFile ? (parts.last ?? "") : ""
-        var tags: [String] = []
-        for (tag, names) in tagFolders.sorted(by: { $0.key < $1.key }) where !folders.isDisjoint(with: names) { tags.append(tag) }
-        if isFile {
-            if ArchitectureScanner.isTestPath(path), !tags.contains("tests") { tags.append("tests") }
-            if language == "markdown", !tags.contains("docs") { tags.append("docs") }
-            if name.contains(".generated.") || name.hasSuffix(".g.dart") || name.hasSuffix(".pb.go") || name.hasSuffix(".min.js"),
-               !tags.contains("generated") { tags.append("generated") }
-            let isConfig = name.hasPrefix(".") || name.contains(".config.") || name.hasSuffix("config.json") || name.hasSuffix("rc")
-                || ["package.json", "tsconfig.json", "project.yml", "podfile", "gemfile", "cargo.toml", "go.mod", "pyproject.toml"].contains(name)
-            if isConfig, !tags.contains("config") { tags.append("config") }
-            if ["dockerfile", "makefile", "procfile", "jenkinsfile"].contains(name) || name.hasSuffix(".gradle"),
-               !tags.contains("build") { tags.append("build") }
-        }
-        return tags
+        CodePathTags.tags(path, isFile: isFile, language: language)
     }
 
     /// Above this many files, a component in the Logical view lists its folders instead.
@@ -1088,8 +1058,10 @@ final class ArchitectureStore: ObservableObject {
         let signature = modules.nodes.first { $0.id == "m:" }?.signature
         analysisTask = Task {
             defer { busy = false; progress = nil; analysisTask = nil; setStatus(nil) }
-            let prompt = CodeArchitecture.prompt(root: root, files: files)
             do {
+                let evidence = await Task.detached(priority: .userInitiated) { CodeArchitecture.sourceEvidence(root: root, modules: modules) }.value
+                try Task.checkCancellation()
+                let prompt = CodeArchitecture.prompt(root: root, files: files, evidence: evidence)
                 var attempt = prompt
                 var model: CodeArchitectureModel?
                 for round in 0...1 {
@@ -1117,7 +1089,13 @@ final class ArchitectureStore: ObservableObject {
                         model = parsed; break
                     } catch {
                         if round == 1 { throw error }
-                        attempt = prompt + "\nYour previous answer was invalid. Correct these problems: " + error.localizedDescription
+                        let answer: String
+                        if let object = result.structured, JSONSerialization.isValidJSONObject(object),
+                           let data = try? JSONSerialization.data(withJSONObject: object) {
+                            answer = String(decoding: data, as: UTF8.self)
+                        } else { answer = result.text }
+                        attempt = CodeArchitecture.repairPrompt(base: prompt, answer: answer, error: error)
+                        progress?.current = "Refining component ownership and source evidence"
                     }
                 }
                 try Task.checkCancellation()

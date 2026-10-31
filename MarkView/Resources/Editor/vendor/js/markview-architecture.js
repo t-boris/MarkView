@@ -50,6 +50,8 @@
                 overlay: 'none',
                 onlyFlagged: false,
                 hidden: new Set(),
+                codeHidden: new Set(),
+                codeFilterInitialized: false,
                 ratingRequested: new Set(),   // parents whose children were sent for AI importance
                 describeRequested: new Set(),
                 expanded: { code: new Set(), logical: new Set(), modules: new Set(), deployment: new Set(), docs: new Set(), pr: new Set() },
@@ -279,7 +281,7 @@
              *  about the document or section it stands for. Whole, so a box tells what the thing
              *  is; cut only when very long. */
             function nodeDescription(node) {
-                if (!node || node.kind === 'change' || node.kind === 'changePart') return null;
+                if (!node || node.kind === 'change' || node.kind === 'changePart' || (ui.view === 'code' && node.kind === 'layer')) return null;
                 const book = bookText(node);
                 const text = node.summary || (book && book.summary);
                 if (!text) return null;
@@ -373,15 +375,17 @@
                 while (cur) { if (cur.tags && cur.tags.length) return cur.tags; cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
                 return [];
             }
+            function hiddenTags() { return ui.view === 'code' ? ui.codeHidden : ui.hidden; }
             function isHidden(node, idx) {
-                if (!ui.hidden.size || node.kind === 'root') return false;
-                if (tagsOf(node, idx).some(function(t) { return ui.hidden.has(t); })) return true;
+                const hidden = hiddenTags();
+                if (!hidden.size || node.kind === 'root') return false;
+                if (tagsOf(node, idx).some(function(t) { return hidden.has(t); })) return true;
                 // A container whose files are all hidden goes too (no empty "Tests" box).
                 const kids = idx.children.get(node.id) || [];
                 if (!kids.length) return false;
                 const files = descendantsFiles(node.id, idx, []).map(function(id) { return idx.byId.get(id); })
                     .filter(function(n) { return n && (n.kind === 'file' || n.kind === 'doc'); });
-                return files.length > 0 && files.every(function(f) { return tagsOf(f, idx).some(function(t) { return ui.hidden.has(t); }); });
+                return files.length > 0 && files.every(function(f) { return tagsOf(f, idx).some(function(t) { return hidden.has(t); }); });
             }
 
             // Importance is rated by the AI (ArchitectureStore.rateImportance) and stored
@@ -636,6 +640,12 @@
                 // Long names (dated notes, generated files) are cut; the details panel has them whole.
                 let label = node.name || node.id;
                 if (label.length > 40) label = label.slice(0, 38) + '…';
+                if (ui.view === 'code' && node.kind === 'layer' && !isBox) {
+                    const first = (node.summary || '').split(' · ')[0];
+                    if (first) label += '\n' + (first.length > 48 ? first.slice(0, 46) + '…' : first);
+                    if (node.files) label += '\n' + formatCount(node.files) + ' files';
+                    return label;
+                }
                 // Every described box says what it is, under its name: a component's purpose, a
                 // folder's or file's AI description, a chapter's or section's annotation. Documents
                 // and their sections drawn in other views borrow the Book's texts.
@@ -717,7 +727,7 @@
                     const w = Math.min(described ? 340 : 260, Math.max(70, longest * perChar + 22)) * grow;
                     const rows = label.split('\n').reduce(function(a, l) { return a + Math.max(1, Math.ceil((l.length * perChar) / Math.max(40, w - 24))); }, 0);
                     elements.push({ group: 'nodes', data: {
-                        id: node.id, parent: parent, label: label, kind: node.kind,
+                        id: node.id, parent: parent, label: label, kind: node.kind, role: node.role || '',
                         w: w, tw: Math.max(40, w - 14),
                         h: (rows > 2 ? 12 + (described ? 11 : 12) * rows : rows > 1 ? 38 : 26) * grow,
                         fill: (prImpact(node) ? { high: c.bad, medium: c.warn, low: c.ok }[prImpact(node).risk] : null)
@@ -808,10 +818,10 @@
                     { selector: 'node:active, edge:active', style: { 'overlay-opacity': 0 } },
                     { selector: 'edge', style: {
                         'width': 'mapData(weight, 1, 20, 1, 3.5)', 'line-color': c.line, 'target-arrow-color': c.line,
-                        'target-arrow-shape': 'triangle', 'arrow-scale': 0.7, 'curve-style': 'bezier', 'opacity': 0.85 } },
+                        'target-arrow-shape': 'triangle', 'arrow-scale': 0.7, 'curve-style': 'bezier', 'opacity': ui.view === 'code' ? 0 : 0.85, 'events': ui.view === 'code' ? 'no' : 'yes' } },
                     { selector: 'edge[label != ""]', style: { 'label': 'data(label)', 'font-size': 9, 'color': c.mute,
                         'text-background-color': c.bg, 'text-background-opacity': 1, 'text-background-padding': 2 } },
-                    { selector: 'edge.faded', style: { 'opacity': 0.12 } },
+                    { selector: 'edge.faded', style: { 'opacity': ui.view === 'code' ? 0 : 0.12 } },
                     { selector: 'node.appearing', style: { 'opacity': 0 } },
                     // Links a pull request adds (green) or removes (red, dashed).
                     { selector: 'edge[kind = "added"]', style: { 'line-color': c.ok, 'target-arrow-color': c.ok, 'width': 2.5, 'opacity': 1 } },
@@ -819,7 +829,7 @@
                     { selector: 'node[provisional = 1]', style: { 'border-style': 'dashed' } },
                     // Related sections the AI found in the Book: dashed, muted, their reason in the panel.
                     { selector: 'edge[kind = "related"]', style: { 'line-style': 'dashed', 'line-color': c.mute, 'target-arrow-color': c.mute, 'label': '', 'opacity': 0.7 } },
-                    { selector: 'edge.hot', style: { 'line-color': c.accent, 'target-arrow-color': c.accent, 'opacity': 1 } },
+                    { selector: 'edge.hot', style: { 'line-color': c.accent, 'target-arrow-color': c.accent, 'opacity': 1, 'events': 'yes' } },
                 ];
             }
 
@@ -827,6 +837,27 @@
             function layout(fitTo, keepView) {
                 if (!cy) return;
                 const count = cy.nodes().length;
+                if (ui.view === 'code' && count && cy.nodes().every(function(n) { return n.data('kind') === 'layer' || n.data('kind') === 'externalGroup'; })) {
+                    // The overview is a stable set of layers, not a dependency hairball.
+                    // Selecting a layer reveals its arrows without moving the other layers.
+                    const roles = ['presentation', 'application', 'domain', 'data', 'integration', 'infrastructure', 'platform', 'tooling', 'tests', 'other'];
+                    const ordered = cy.nodes().sort(function(a, b) {
+                        const rank = function(n) { const i = roles.indexOf(n.data('role')); return i < 0 ? roles.length : i; };
+                        return rank(a) - rank(b);
+                    });
+                    const core = ordered.filter(function(n) { return ['presentation', 'application', 'domain', 'data'].indexOf(n.data('role')) >= 0; });
+                    const support = ordered.not(core);
+                    const columns = cy.width() >= 640 && core.length && support.length ? [core, support] : [ordered];
+                    let left = 0;
+                    columns.forEach(function(nodes) {
+                        const width = nodes.reduce(function(m, n) { return Math.max(m, n.width()); }, 0);
+                        let top = 0;
+                        nodes.forEach(function(n) { n.position({x: left + width / 2, y: top + n.height() / 2}); top += n.height() + 28; });
+                        left += width + 100;
+                    });
+                    if (!keepView) cy.fit(cy.nodes(), 28);
+                    return;
+                }
                 // Every box is laid out on its own: children with few links between them (a
                 // notes folder, a list of files) are packed into a rectangle instead of one tall
                 // column; linked ones follow the flow of their links. The top level is packed to
@@ -892,6 +923,14 @@
                     el.empty.textContent = 'No source code was found in this folder. Structure and Book show its other files.';
                     return;
                 }
+                if (ui.view === 'code' && currentView() && currentView().nodes.some(function(n) { return n.kind === 'file'; })) {
+                    const view = currentView(), idx = indexView(view);
+                    if (view.nodes.filter(function(n) { return n.kind === 'file'; }).every(function(n) { return isHidden(n, idx); })) {
+                        el.empty.hidden = false;
+                        el.empty.textContent = 'All source code is hidden by the current filter. Choose Show all to see it.';
+                        return;
+                    }
+                }
                 const bookView = isBook() && !missing && currentView();
                 if (bookView && !bookView.nodes.some(function(n) { return n.kind === 'doc'; })) {
                     el.empty.hidden = false;
@@ -933,7 +972,8 @@
                 cy.style(stylesheet());
                 cy.endBatch();
                 if (ui.selected && cy.getElementById(ui.selected).length) cy.getElementById(ui.selected).select();
-                showRelated(ui.selected);
+                if (ui.view === 'code') highlightNeighbourhood(ui.selected ? cy.getElementById(ui.selected) : null);
+                else showRelated(ui.selected);
                 layout(fitTo);
                 renderCrumbs();
                 renderLegend();
@@ -1247,7 +1287,7 @@
                 });
                 const hint = document.createElement('span');
                 hint.className = 'arch-hint';
-                hint.textContent = 'Double-click to zoom in or open';
+                hint.textContent = ui.view === 'code' ? 'Select a box for dependencies · Double-click to zoom in or open' : 'Double-click to zoom in or open';
                 el.legend.appendChild(hint);
             }
 
@@ -1523,7 +1563,8 @@
                 const note = document.createElement('p'); note.className = 'arch-muted';
                 note.textContent = 'Layers → components → files → symbols. Double-click to explore. ' +
                     (!snap.codeModel && (snap.logicalDraft || !(snap.components || []).length) ? 'Draft layers use file paths; Analyze refines components from source. ' : '') +
-                    'A sequence is an AI interpretation of one code path, with source evidence; it is not a runtime trace.';
+                    'A sequence is an AI interpretation of one code path, with source evidence; it is not a runtime trace.' +
+                    (ui.codeHidden.size ? ' Use Show all to include filtered source code.' : '');
                 section.appendChild(note);
                 const moduleRoot = ((snap.views.find(function(v) { return v.id === 'modules'; }) || {}).nodes || []).find(function(n) { return n.id === 'm:'; });
                 if (snap.codeModel && moduleRoot && snap.codeModel.signature !== moduleRoot.signature) {
@@ -2114,7 +2155,7 @@
                 }
                 ui.onlyFlagged = false;
                 ui.selectedEdge = null;
-                ui.hidden.clear();
+                hiddenTags().clear();
                 window.architectureFocus(node.id, view.id);
                 renderToolbar();
             }
@@ -2639,6 +2680,7 @@
                 el.flagged.checked = ui.onlyFlagged;
                 el.flagged.parentElement.hidden = !overlayApplies() || ui.overlay === 'size';
                 el.hide.hidden = !codeViews[ui.view];
+                el.hide.value = Array.from(hiddenTags()).join(',');
                 const sources = p.prSources || [];
                 const selected = p.pr ? p.pr.source.id : '';
                 el.prSource.textContent = '';
@@ -2704,6 +2746,9 @@
                 const view = currentView(); if (!view) return false;
                 const idx = indexView(view);
                 let node = idx.byId.get(id); if (!node) return false;
+                if (ui.view === 'code' && isHidden(node, idx)) {
+                    ui.codeHidden.clear(); ui.codeFilterInitialized = true; renderToolbar();
+                }
                 const expanded = ui.expanded[ui.view];
                 if ((idx.children.get(id) || []).length) expanded.add(id);
                 let parent = node.parent != null ? idx.byId.get(node.parent) : null;
@@ -2724,6 +2769,7 @@
             /** Another X-Ray (the project's or a folder's) in the same web view: start fresh. */
             function resetForRoot(root) {
                 ui.root = root;
+                ui.codeFilterInitialized = false; ui.codeHidden.clear();
                 ui.codeQuestions = {}; ui.codeAwaitingScope = null; ui.selectedEdge = null; hideCodeSequence();
                 ui.operations = null;
                 Object.keys(ui.expanded).forEach(function(k) { ui.expanded[k].clear(); });
@@ -2771,6 +2817,18 @@
                     ui.view = 'modules';
                     ui.graphKey = null;
                     renderToolbar();
+                }
+                if (ui.view === 'code' && !ui.codeFilterInitialized) {
+                    const view = currentView();
+                    const files = view ? view.nodes.filter(function(n) { return n.kind === 'file'; }) : [];
+                    if (files.length) {
+                        const defaults = ['tests'];
+                        // A tests-only folder is still a code project: show it rather than an empty map.
+                        const product = files.some(function(n) { return !(n.tags || []).some(function(t) { return defaults.indexOf(t) >= 0; }); });
+                        ui.codeHidden = new Set(product ? defaults : []);
+                        ui.codeFilterInitialized = true;
+                        renderToolbar();
+                    }
                 }
                 loadLibraries().then(function() {
                     ensureCy();
@@ -2851,7 +2909,8 @@
             });
             el.flagged.addEventListener('change', function() { ui.onlyFlagged = el.flagged.checked; render(); });
             el.hide.addEventListener('change', function() {
-                ui.hidden = new Set(el.hide.value ? el.hide.value.split(',') : []);
+                const hidden = new Set(el.hide.value ? el.hide.value.split(',') : []);
+                if (ui.view === 'code') { ui.codeHidden = hidden; ui.codeFilterInitialized = true; } else ui.hidden = hidden;
                 render();
             });
             // ------------------------------------------------------------ analysis progress

@@ -1,5 +1,20 @@
 # MarkView — Follow-up Tasks
 
+## Code architecture on real source projects (2026-10-31, 4.62.1)
+
+The first MarkView self-analysis (450 source files) returned a flat 21-component catalogue,
+used glob patterns for ownership and omitted data storage. Dense overview arrows and missing
+pre-Logical tags also obscured the map.
+
+- [x] Feed bounded line-numbered implementation excerpts, balanced by folder/language and source centrality, to the read-only analysis. Request nested responsibilities, exact ownership paths and separate storage/domain components when present.
+- [x] Repair receives the previous JSON model and all affected evidence/ownership issues, rather than only the three user-facing errors. Dependency citations must belong to an endpoint or its nested implementation.
+- [x] Share deterministic path/test tags; Code filtering works before Logical analysis. Start with tests hidden, preserve Show all, show tests-only folders, explain an all-hidden filter, and reveal explicitly requested files.
+- [x] Stable, readable layer cards; dependencies appear around the selected box. Preserve full component/file/symbol drill-down and source evidence.
+- [x] Match CRLF evidence/excerpt lines to the editor. Standalone regressions cover source context, ownership, repair, deep hierarchy, filters and the shipping WebKit graph.
+- [x] Debug build and the Code/diagram/content harnesses passed. Real read-only Sonnet run on MarkView: 450 files retained, 47 components, 33 dependencies, depth 3; the ownership repair corrected three citations from unrelated components. The rendered overview was inspected.
+- Release follow-through: merge the fix PR, then publish its signed/notarized DMG from merged origin/main and report the merge/release CI evidence.
+
+
 ## Code architecture — layers, nested components and source-backed sequences (2026-10-31)
 
 - [x] Code view inside X-Ray; draft layers available after scanning; source files only, nested components, symbols and source navigation.

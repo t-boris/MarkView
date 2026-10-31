@@ -61,12 +61,51 @@ var badDependency = model; badDependency.dependencies![0].target = "invented"
 check((try? CodeArchitecture.validateModel(badDependency, modules: modules, root: fixture)) == nil, "dependencies to invented components rejected")
 badDependency = model; badDependency.dependencies![0].evidence = "schema.sql:9999"
 check((try? CodeArchitecture.validateModel(badDependency, modules: modules, root: fixture)) == nil, "dependencies with invalid citations rejected")
+badDependency = model; badDependency.dependencies![1].evidence = "web/app.js:2"
+check((try? CodeArchitecture.validateModel(badDependency, modules: modules, root: fixture)) == nil, "a real file in an unrelated component cannot prove a dependency")
+var subsystemDependency = model
+subsystemDependency.dependencies = [.init(source: "web", target: "server", label: "posts order", evidence: "api.py:9")]
+check((try? CodeArchitecture.validateModel(subsystemDependency, modules: modules, root: fixture)) != nil, "a nested implementation can support its containing subsystem's dependency")
 var badModel = model; badModel.components[0].paths = ["missing.py"]
 check((try? CodeArchitecture.validateModel(badModel, modules: modules, root: fixture)) == nil, "invented component paths rejected")
 badModel = model; badModel.components[0].evidence = "api.py:99999"
 check((try? CodeArchitecture.validateModel(badModel, modules: modules, root: fixture)) == nil, "invalid component source lines rejected")
 badModel = model; badModel.components[0].id = "api"
 check((try? CodeArchitecture.validateModel(badModel, modules: modules, root: fixture)) == nil, "duplicate component ids rejected")
+let excerpts = CodeArchitecture.sourceEvidence(root: fixture, modules: modules)
+check(excerpts.contains("FILE repository.py") && excerpts.contains("INSERT INTO orders"), "analysis receives storage implementation evidence, not only file names")
+check(excerpts.contains("9:         return self.repository.save"), "source excerpts preserve exact implementation line numbers")
+check(CodeArchitecture.sourceEvidence(root: fixture, modules: modules, limit: 350).count <= 350, "source evidence respects the analysis context budget")
+var incompletePaths = model
+for i in incompletePaths.components.indices { incompletePaths.components[i].paths = ["missing-\(i).py"] }
+do {
+    try CodeArchitecture.validateModel(incompletePaths, modules: modules, root: fixture)
+    check(false, "invalid ownership must request repair")
+} catch {
+    let feedback = CodeArchitecture.repairFeedback(for: error)
+    check((0..<model.components.count).allSatisfy { feedback.contains("missing-\($0).py") }, "repair feedback includes affected paths beyond the three user-facing errors")
+    let previous = String(decoding: try JSONEncoder().encode(incompletePaths), as: UTF8.self)
+    let repair = CodeArchitecture.repairPrompt(base: "Read the source", answer: previous, error: error)
+    check(repair.contains(previous) && repair.contains("missing-4.py"), "the repair request retains the complete prior model and its component identities")
+}
+var deeper = snapshot
+var deeperModel = model
+deeperModel.components.append(.init(id: "order-logic", name: "Order processing", purpose: "Coordinates rules and persistence", parent: "server", layer: "application", paths: ["service.py", "repository.py", "schema.sql"], evidence: "service.py:5"))
+for i in deeperModel.components.indices where ["service", "data"].contains(deeperModel.components[i].id) { deeperModel.components[i].parent = "order-logic" }
+deeper.codeModel = deeperModel
+let deeperView = CodeArchitecture.view(deeper)
+let deeperIndex = Dictionary(deeperView.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+var cursor = deeperView.nodes.first { $0.kind == "file" && $0.path == "service.py" }?.parent
+var componentDepth = 0
+while let id = cursor, let node = deeperIndex[id] { if node.kind == "component" { componentDepth += 1 }; cursor = node.parent }
+check(treeIsValid(deeperView) && componentDepth == 3, "three nested responsibility levels survive the layer projection")
+var untagged = snapshot
+untagged.codeModel = nil
+untagged.views[0].nodes.append(ArchNode(id: "m:tests/order_test.py", parent: "m:", kind: "file", name: "order_test.py", path: "tests/order_test.py", language: "python"))
+let tagged = CodeArchitecture.view(untagged)
+check(tagged.nodes.first { $0.path == "tests/order_test.py" && $0.kind == "file" }?.tags?.contains("tests") == true, "tests can be hidden before Logical analysis has assigned any tags")
+check(CodePathTags.tags("src/OrderTests.swift", isFile: true, language: "swift").contains("tests"), "tests beside production code keep their shared path classification")
+check(CodePathTags.tags("vendor/glue.js", isFile: true, language: "javascript").contains("generated"), "unminified vendor glue is classified as generated code")
 var withSymbols = snapshot
 withSymbols.views[0].nodes += [ArchNode(id: "symbol:type", parent: "m:service.py", kind: "group", name: "OrderService", path: "service.py"),
                               ArchNode(id: "symbol:method", parent: "symbol:type", kind: "entity", name: "place_order", path: "service.py", line: 5)]
@@ -78,6 +117,12 @@ let symlinkRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
 try FileManager.default.createDirectory(at: symlinkRoot, withIntermediateDirectories: true)
 try FileManager.default.createSymbolicLink(at: symlinkRoot.appendingPathComponent("outside.py"), withDestinationURL: fixture.appendingPathComponent("api.py"))
 check(CodeArchitecture.sourceLocation("outside.py:1", root: symlinkRoot) == nil, "symlink escaping the project rejected")
+let escaping = ArchView(id: "modules", nodes: [ArchNode(id: "m:outside.py", kind: "file", name: "outside.py", path: "outside.py", language: "python")], edges: [])
+check(CodeArchitecture.sourceEvidence(root: symlinkRoot, modules: escaping).isEmpty, "source excerpts do not follow a symlink outside the selected root")
+try "let first = 1\r\nlet second = 2\r\n".write(to: symlinkRoot.appendingPathComponent("lines.swift"), atomically: true, encoding: .utf8)
+let crlf = ArchView(id: "modules", nodes: [ArchNode(id: "m:lines.swift", kind: "file", name: "lines.swift", path: "lines.swift", language: "swift")], edges: [])
+check(CodeArchitecture.sourceEvidence(root: symlinkRoot, modules: crlf).contains("2: let second = 2"), "CRLF source excerpts use the editor's physical line numbers")
+check(CodeArchitecture.sourceLocation("lines.swift:4", root: symlinkRoot) == nil, "CRLF evidence cannot cite a line past the editor's file end")
 try FileManager.default.removeItem(at: symlinkRoot)
 var diagram = DiagramSpec(title: "Place an order", question: "How is an order saved?", takeaway: "The API validates quantity through OrderService and persists the order through OrderRepository.", direction: "LR", nodes: [
     .init(id: "api", label: "Order API", kind: "api", source: "api.py:9"),

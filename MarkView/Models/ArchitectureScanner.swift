@@ -742,18 +742,7 @@ struct ArchitectureScanner {
         return chars.count
     }
 
-    static func isTestPath(_ path: String) -> Bool {
-        let lower = path.lowercased()
-        let parts = lower.split(separator: "/").dropLast()
-        if parts.contains(where: { ["test", "tests", "__tests__", "spec", "specs", "testing", "e2e", "uitests", "unittests"].contains(String($0)) }) {
-            return true
-        }
-        let name = (path as NSString).lastPathComponent
-        let stem = (name as NSString).deletingPathExtension
-        let lowerName = name.lowercased()
-        return lowerName.hasPrefix("test_") || stem.lowercased().hasSuffix("_test") || lowerName.contains(".test.")
-            || lowerName.contains(".spec.") || stem.hasSuffix("Tests") || stem.hasSuffix("Test") || stem.hasSuffix("Spec")
-    }
+    static func isTestPath(_ path: String) -> Bool { CodePathTags.isTestPath(path) }
 
     /// The name a test file is about: `FooTests.swift`, `test_foo.py`, `foo.spec.ts` → "foo".
     private static func testedStem(_ path: String) -> String {

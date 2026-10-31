@@ -84,9 +84,47 @@ if let snapshotPath = ProcessInfo.processInfo.environment["CODE_ARCHITECTURE_SNA
     spin(10) { finished }
 }
 check(!text.contains("null") && text.contains("\"opaque\":true") && text.contains("\"nodes\":4"), "layer canvas has finite rendered geometry", text)
+text=js("""
+const cy=document.getElementById('arch-graph')._cyreg.cy;
+const order=['presentation','application','domain','data'].map(role=>cy.getElementById('code:layer:'+role).position('y'));
+return String(order.every((y,i)=>i===0 || order[i-1]<y))+'|'+String(cy.edges().every(e=>Number(e.style('opacity'))===0));
+""")
+check(text == "true|true", "overview layers stay in semantic order with dependencies revealed on selection", text)
 text = js("""
+const view=window.testPayload.snapshot.views.find(v=>v.id==='code');
+view.nodes.push({id:'code:layer:tests',parent:'code:',kind:'layer',name:'Tests',role:'tests'},
+    {id:'code:f:tests/order_test.py',parent:'code:layer:tests',kind:'file',name:'order_test.py',path:'tests/order_test.py',language:'python',tags:['tests']});
+window.showArchitecture(window.testPayload);
+await new Promise(r=>setTimeout(r,500));
+const cy=document.getElementById('arch-graph')._cyreg.cy;
+return document.getElementById('arch-hide').value+'|'+String(cy.getElementById('code:layer:tests').length);
+""")
+check(text == "tests|0", "Code defaults to a product map without test noise", text)
+text=js("""
+const picker=document.getElementById('arch-hide');picker.value='';picker.dispatchEvent(new Event('change'));
+await new Promise(r=>setTimeout(r,400));
+const cy=document.getElementById('arch-graph')._cyreg.cy;
+return String(cy.getElementById('code:layer:tests').length);
+""")
+check(text == "1", "Show all restores the tests layer", text)
+text=js("""
+const picker=document.getElementById('arch-hide');picker.value='tests,config,build,generated';picker.dispatchEvent(new Event('change'));
+await new Promise(r=>setTimeout(r,400));
+return String(document.getElementById('arch-graph')._cyreg.cy.getElementById('code:layer:tests').length);
+""")
+check(text == "0", "Hide tests works without a Logical view", text)
+text=js("""
+window.architectureFocus('code:f:tests/order_test.py','code');
+return document.getElementById('arch-hide').value+'|'+String(document.getElementById('arch-graph')._cyreg.cy.getElementById('code:f:tests/order_test.py').length);
+""")
+check(text == "|1", "revealing a filtered code file makes its source visible", text)
+text=js("""
+document.querySelector('[data-arch-view="code"]').click();
 const cy = document.getElementById('arch-graph')._cyreg.cy;
-cy.edges().filter(e => e.data('evidence').includes('web/app.js:2')).first().emit('tap');
+cy.getElementById('code:layer:presentation').emit('tap');
+const edge=cy.edges().filter(e => e.data('evidence').includes('web/app.js:2')).first();
+if (Number(edge.style('opacity')) !== 1) return 'selected dependency is hidden';
+edge.emit('tap');
 return document.getElementById('arch-details').innerText;
 """)
 check(text.contains("source-backed dependency") && text.contains("web/app.js:2"), "component dependency explains its source evidence", text)
@@ -166,5 +204,21 @@ await new Promise(r => setTimeout(r, 200));
 return document.getElementById('arch-empty').textContent + '|' + String(document.getElementById('arch-code-sequence').hidden);
 """)
 check(text.contains("No source code was found") && text.hasSuffix("|true"), "documents-only folders show an honest empty state", text)
+text=js("""
+window.testPayload.root='/tests-only';
+const view=window.testPayload.snapshot.views.find(v=>v.id==='code');
+view.nodes=[{id:'code:',kind:'root',name:'Tests'},{id:'code:layer:tests',parent:'code:',kind:'layer',name:'Tests',role:'tests'},
+    {id:'code:f:test.py',parent:'code:layer:tests',kind:'file',name:'test.py',path:'test.py',language:'python',tags:['tests']}];
+window.showArchitecture(window.testPayload);
+document.querySelector('[data-arch-view="code"]').click();
+await new Promise(r=>setTimeout(r,400));
+return document.getElementById('arch-hide').value+'|'+String(document.getElementById('arch-graph')._cyreg.cy.getElementById('code:layer:tests').length);
+""")
+check(text == "|1", "a tests-only folder starts with its code visible", text)
+text=js("""
+const picker=document.getElementById('arch-hide');picker.value='tests';picker.dispatchEvent(new Event('change'));
+return document.getElementById('arch-empty').textContent;
+""")
+check(text.contains("All source code is hidden"), "an explicit filter hiding every source file explains how to restore the map", text)
 print("\(failures) WebKit failures")
 exit(failures == 0 ? 0 : 1)

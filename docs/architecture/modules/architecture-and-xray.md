@@ -11,8 +11,11 @@ the AI Importance rating, user AI filters, the ⚡ search and a pull-request rev
 The **Code** view is a source-only architecture explorer (`CodeArchitecture.swift`). It is
 selected initially when the scan finds code. Before analysis it projects the source tree
 into explicitly labelled draft layers. **Analyze code** asks the project's read-only CLI
-assistant to inspect actual source files and infer a nested responsibility tree, with
-layer, owned paths and a source citation for each component, plus cited component dependencies. This model is separate from
+assistant to infer a nested responsibility tree from actual source. Before the call, a worker
+collects up to 90,000 characters of line-numbered implementation excerpts, balancing source
+centrality with folder/language coverage and leaving complete-file inspection to the assistant.
+The model records layers, exact owned paths, component citations and cited dependencies; it
+uses more component levels for larger projects and distinguishes persistence from its consumers. This model is separate from
 the document-oriented Logical grouping. Duplicate ids, cycles, missing paths, outside
 paths/symlinks and invalid citation lines are rejected. Unassigned source files stay visible.
 Layers contain components, files and available local/AI symbol outlines; source dependencies
@@ -24,6 +27,13 @@ be ordered and have valid `path:line` evidence; each evidence link opens the sou
 This is an inferred static path, not a recorded runtime execution. The code model and up to
 30 scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
 snapshots readable. Source signatures mark saved architecture/scenarios stale after a rescan.
+A dependency citation must be owned by an endpoint or one of its child components, using the
+same most-specific-path/deepest-owner rule as the diagram. A repair call receives the prior JSON
+and up to 40 validation problems, preserving valid component identities. CRLF line numbers
+match the editor. Shared `CodePathTags` makes Code filtering available without a Logical pass.
+The overview uses stable layer positions and concise cards; selecting a box reveals its arrows.
+Tests start hidden on mixed projects and remain available through Show all. Tests-only folders
+start visible, and revealing a hidden file clears the Code filter.
 Analysis failure or cancellation preserves previous results. The sequence and architecture
 calls use the project's assistant and X-Ray model. Tests: `tools/tests/code-architecture-tests.sh`.
 
