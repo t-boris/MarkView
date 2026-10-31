@@ -1011,7 +1011,7 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
-        openTextFile(url)
+        Task { await openTextFile(url) }
     }
 
     /// The image viewer's arrows and slideshow: the image tab of `url` shows `target` instead.
@@ -1025,13 +1025,15 @@ class WorkspaceManager: ObservableObject {
         if let index = tabsStore.firstIndex(of: url), case .image = openTabs[index].kind {
             tabsStore.removeTab(at: index)
         }
-        openTextFile(url)
+        Task { await openTextFile(url) }
     }
 
-    private func openTextFile(_ url: URL) {
-        // Load file content
+    private func openTextFile(_ url: URL) async {
+        guard tabsStore.selectTab(matching: url) == nil else { return }
+        let openingRoot = rootNode?.url
         do {
-            let content = try String(contentsOf: url, encoding: .utf8)
+            let content = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
+            guard rootNode?.url == openingRoot, tabsStore.selectTab(matching: url) == nil else { return }
             var tab = OpenTab(url: url, content: content, originalContent: content)
 
             // Extract headings from markdown
@@ -1042,8 +1044,17 @@ class WorkspaceManager: ObservableObject {
             tabsStore.appendTab(tab)
             addRecentFile(url)
         } catch {
-            NSLog("Error opening file: \(error)")
+            showTextReadError(error, url: url)
         }
+    }
+
+    private func showTextReadError(_ error: Error, url: URL) {
+        let alert = NSAlert()
+        alert.messageText = "Cannot show \(url.lastPathComponent) as text"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Open in Default App")
+        if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.open(url) }
     }
 
     // MARK: - Window session
@@ -1101,7 +1112,7 @@ class WorkspaceManager: ObservableObject {
             switch saved {
             case .file(let url, let draft, let notes, let scroll):
                 guard url.isFileURL else { continue }
-                if fm.fileExists(atPath: url.path) { openTextFile(url) }
+                if fm.fileExists(atPath: url.path) { await openTextFile(url) }
                 if openTabs.count == before, let draft {
                     // A removed file must not take the unsaved editor text with it.
                     var tab = OpenTab(url: url, content: draft.content, originalContent: draft.original)
@@ -1323,11 +1334,36 @@ class WorkspaceManager: ObservableObject {
         if let id = ImportanceRater.temporaryFilter?.id { architecture.activate(filterId: id) }
     }
 
-    /// Show the active markdown document with Explain notes (like code), or back as a document.
-    func setNotesView(_ show: Bool) {
-        tabsStore.updateActiveTab { tab in
-            guard tab.isFileBacked else { return }
-            tab.notesView = show
+    /// Show a text file's Explain notes, or return to its dedicated viewer.
+    func setNotesView(_ show: Bool, explain: Bool = false) {
+        guard let tab = activeTab else { return }
+        if case .data = tab.kind {
+            guard FileType.hasTextSource(tab.url) else { return }
+            if show {
+                let url = tab.url
+                Task {
+                    do {
+                        let text = try await Task.detached(priority: .userInitiated) { try FileType.readText(at: url) }.value
+                        guard activeTab?.url == url, let index = tabsStore.firstIndex(of: url) else { return }
+                        tabsStore.updateTab(at: index) { tab in
+                            tab.content = text
+                            tab.originalContent = text
+                            tab.notesView = true
+                        }
+                        if explain { explainIfNeeded(url) }
+                    } catch { showTextReadError(error, url: url) }
+                }
+            } else { tabsStore.updateActiveTab { $0.notesView = false } }
+        } else if tab.isFileBacked {
+            tabsStore.updateActiveTab { $0.notesView = show }
+            if show && explain { explainIfNeeded(tab.url) }
+        }
+    }
+
+    private func explainIfNeeded(_ url: URL) {
+        prepareCodeNotes(for: url)
+        if codeExplain.explanations[codePath(for: url)] == nil {
+            handleCodeAction("explain", payload: [:], url: url)
         }
     }
 
@@ -1562,14 +1598,19 @@ class WorkspaceManager: ObservableObject {
 
     /// Open a file with its Explain notes, starting an explanation if there is none yet.
     private func explainFile(_ url: URL) {
-        openFile(url)
-        if FileType.from(url: url) == .markdown { setNotesView(true) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self else { return }
-            self.prepareCodeNotes(for: url)
-            if self.codeExplain.explanations[self.workspaceRelativePath(url)] == nil {
-                self.handleCodeAction("explain", payload: [:], url: url)
+        layout.workspaceArea = .files
+        guard !FileType.isImage(url), !Archive.isArchive(url), FileType.hasTextSource(url) else {
+            openFile(url)
+            return
+        }
+        Task {
+            if FileType.isData(url) {
+                openFile(url)
+            } else {
+                await openTextFile(url)
             }
+            guard activeTab?.url == url else { return }
+            setNotesView(true, explain: true)
         }
     }
 
@@ -5000,6 +5041,9 @@ class WorkspaceManager: ObservableObject {
             defer { openFileDates[url] = date }
             guard let seen = openFileDates[url], date > seen else { continue }
             tabsStore.updateTab(at: index) { $0.dataRevision += 1 }
+            if openTabs[index].notesView {
+                refreshDataNotes(url, revision: openTabs[index].dataRevision)
+            }
         }
         for index in openTabs.indices where openTabs[index].isFileBacked && !openTabs[index].isModified {
             let url = openTabs[index].url
@@ -5018,6 +5062,23 @@ class WorkspaceManager: ObservableObject {
             changed = true
         }
         if changed { refreshFileTree() }
+    }
+
+    /// Keep a data file's textual Explain source in step with the viewer's reloads.
+    private func refreshDataNotes(_ url: URL, revision: Int) {
+        Task {
+            let text = try? await Task.detached(priority: .utility) { try FileType.readText(at: url) }.value
+            guard let index = tabsStore.firstIndex(of: url), case .data = openTabs[index].kind,
+                  openTabs[index].notesView, openTabs[index].dataRevision == revision else { return }
+            tabsStore.updateTab(at: index) { tab in
+                if let text {
+                    tab.content = text
+                    tab.originalContent = text
+                } else {
+                    tab.notesView = false
+                }
+            }
+        }
     }
 
     /// The open document, whole: the terminal writer delivers pastes of any length (BUG-002).

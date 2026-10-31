@@ -23,7 +23,10 @@ final class DataFiles: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 }
 final class Bridge: NSObject, WKScriptMessageHandler {
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {}
+    var messages: [[String: Any]] = []
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let body = message.body as? [String: Any] { messages.append(body) }
+    }
 }
 final class Loaded: NSObject, WKNavigationDelegate {
     var done = false
@@ -193,6 +196,61 @@ await new Promise(r => setTimeout(r, 400));
 return ok + '|' + document.getElementById('struct-source-status').className;
 """)
 check(text == "Valid JSON|struct-source-status bad", "JSON: the source view checks the syntax as you type", text)
+
+// All text-file viewers use the same Explain request and line-aligned notes.
+bridge.messages.removeAll()
+structured("config.yaml", "yaml")
+_ = js("document.querySelector('.doc-explain-btn').click(); return 'ok';")
+spin(0.2)
+var request = bridge.messages.last { $0["type"] as? String == "code" }?["payload"] as? [String: Any]
+check(request?["action"] as? String == "notesView" && request?["show"] as? Bool == true && request?["explain"] as? Bool == true,
+      "YAML: Explain requests its own source notes and starts AI")
+text = js("""
+window.setCodeContent('server:\\n  port: 8080\\ndatabase:\\n  pool: 5', 'yaml', 'config.yaml', 'Viewer');
+for (let i = 0; i < 100 && !document.querySelector('.code-main .cm-content'); i++) await new Promise(r => setTimeout(r, 30));
+window.setCodeNotes({ explanation: { summary: 'Service settings', sections: [
+  { startLine: 1, endLine: 2, title: 'HTTP listener', explanation: 'Sets the server port.', importance: 'high' },
+  { startLine: 3, endLine: 4, title: 'Database pool', explanation: 'Sets the connection pool size.', importance: 'normal' }
+] }, filters: [] });
+await new Promise(r => setTimeout(r, 150));
+return [document.getElementById('status-mode').textContent, document.querySelector('.code-document-btn').textContent,
+        document.querySelector('.code-edit-btn').hidden, document.querySelector('.code-notes-track').textContent,
+        document.querySelectorAll('.code-main .cm-line').length].join('|');
+""")
+check(text.contains("YAML|← Viewer|true") && text.contains("HTTP listener") && text.contains("Database pool") && text.hasSuffix("|4"),
+      "YAML: highlighted source, line-aligned section notes and return to viewer", text)
+bridge.messages.removeAll()
+_ = js("document.querySelector('.code-document-btn').click(); return 'ok';")
+spin(0.1)
+request = bridge.messages.last { $0["type"] as? String == "code" }?["payload"] as? [String: Any]
+check(request?["action"] as? String == "notesView" && request?["show"] as? Bool == false, "notes return to the dedicated viewer")
+text = js("""
+window.setCodeContent('# just text\\nkey=value', '', 'anything.mystery');
+await new Promise(r => setTimeout(r, 150));
+return [document.getElementById('status-mode').textContent, document.querySelector('.code-main .cm-content').textContent,
+        document.querySelector('.code-edit-btn').hidden, document.querySelector('.code-document-btn').hidden].join('|');
+""")
+check(text.hasPrefix("TEXT|# just textkey=value|false|true"), "unknown files are plain editable text with Explain", text)
+bridge.messages.removeAll()
+_ = js("document.querySelector('.code-main .code-explain-btn').click(); return 'ok';")
+spin(0.1)
+request = bridge.messages.last { $0["type"] as? String == "code" }?["payload"] as? [String: Any]
+check(request?["action"] as? String == "explain", "plain text Explain reaches the shared AI action")
+structured("config.json", "json")
+_ = js("toggleStructMode(); document.querySelector('#editor-pane .code-explain-btn').click(); return 'ok';")
+spin(0.1)
+request = bridge.messages.last { $0["type"] as? String == "code" }?["payload"] as? [String: Any]
+check(request?["action"] as? String == "notesView" && request?["explain"] as? Bool == true, "structured source mode also exposes Explain")
+_ = open("plants.csv", "table")
+bridge.messages.removeAll()
+text = js("const b = document.querySelector('.dv-explain'); if (b) b.click(); return String(!!b);")
+spin(0.1)
+request = bridge.messages.last { $0["type"] as? String == "code" }?["payload"] as? [String: Any]
+check(text == "true" && request?["explain"] as? Bool == true, "CSV: Explain opens the original textual source")
+_ = open("app.log", "log")
+check(js("return String(!!document.querySelector('.dv-explain'))") == "true", "logs expose Explain")
+_ = open("plants.parquet", "parquet")
+check(js("return String(!!document.querySelector('.dv-explain'))") == "false", "binary data is not offered as textual source")
 
 print(failures == 0 ? "All data viewer checks passed." : "\(failures) data viewer check(s) failed.")
 exit(failures == 0 ? 0 : 1)

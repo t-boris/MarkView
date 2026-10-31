@@ -347,6 +347,10 @@ struct EditorView: NSViewRepresentable {
                 return
             case .data:
                 guard let documentURL else { return }
+                if tab?.notesView == true {
+                    currentLineRevealURL = documentURL.standardizedFileURL
+                    break
+                }
                 currentCodeURL = nil
                 architectureCancellable = nil
                 let loadKey = "data\u{1}\(tab?.dataRevision ?? 0)"
@@ -379,7 +383,7 @@ struct EditorView: NSViewRepresentable {
             // The mode is part of the key: switching a document to its notes view (or back)
             // reloads even though the text is the same.
             let fileType = documentURL.map { FileType.from(url: $0) } ?? .markdown
-            let asNotes = fileType == .markdown && tab?.notesView == true
+            let asNotes = tab?.notesView == true
             let loadKey = asNotes ? "notes\u{1}" + markdown : markdown
             guard loadKey != lastLoadedContent || documentURL?.standardizedFileURL != lastLoadedDocumentURL else {
                 applyPendingCodeReveal()
@@ -391,11 +395,13 @@ struct EditorView: NSViewRepresentable {
             // Route by file type
             currentCodeURL = nil
             if fileType == .code || asNotes, let documentURL {
-                let language = asNotes ? "markdown" : FileType.codeLanguage(for: documentURL) ?? ""
+                let language = FileType.sourceLanguage(for: documentURL)
                 // Formatted notes view: images resolved like the document view (same lines).
-                let text = asNotes ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL) : markdown
+                let text = asNotes && fileType == .markdown
+                    ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL) : markdown
+                let returnLabel = asNotes && fileType != .code ? (fileType == .markdown ? "Document" : "Viewer") : ""
                 bridge.loadCodeContent(text, language: language,
-                                       fileName: documentURL.lastPathComponent, into: webView)
+                                       fileName: documentURL.lastPathComponent, returnLabel: returnLabel, into: webView)
                 currentCodeURL = documentURL.standardizedFileURL
                 applyPendingCodeReveal()
                 routeCodeNotes(url: documentURL, webView: webView)
@@ -802,7 +808,8 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridge(_ bridge: WebViewBridge, didReceiveCodeAction action: String, payload: [String: Any]) {
         Task { @MainActor in
             if action == "notesView" {
-                self.parent.workspaceManager.setNotesView(payload["show"] as? Bool ?? false)
+                self.parent.workspaceManager.setNotesView(payload["show"] as? Bool ?? false,
+                                                         explain: payload["explain"] as? Bool ?? false)
                 return
             }
             guard let url = self.currentCodeURL else { return }

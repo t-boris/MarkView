@@ -1,5 +1,14 @@
 # MarkView — Follow-up Tasks
 
+## All files and file-aware Explain (2026-10-31, 4.63.0)
+
+- [x] List all regular files and dotfolders, including `.env.local`, unknown extensions and extensionless names, in both file trees. Unknown formats default to plain text; only recognized formats receive syntax highlighting. `.txt` uses the text viewer.
+- [x] Bound generic text reads to 32 MB off the main thread, decode UTF-8/BOM Unicode, reject binary/control data clearly and offer the default app. Keep existing image/archive/data viewers.
+- [x] Explain from structured tree/source, Markdown, code, plain text, textual tables and logs. Return to the dedicated viewer, preserve original line numbers, and refresh data-file source after disk changes.
+- [x] Configuration prompts explain blocks, keys, values, visible dependencies and effects of changes; distinguish uncertainty and describe secrets without echoing values. Other text is explained according to its contents.
+- [x] Pure file/tree/decoding/prompt checks and shipping WKWebView regressions pass. Native isolated QA opened hidden/unknown files and a real assistant explained synthetic YAML server/database/logging responsibilities with line-aligned notes; CSV source Explain also opened correctly.
+- Release follow-through: PR into main, then signed/notarized DMG from the merged commit and successful Build & Release CI.
+
 ## Code architecture on real source projects (2026-10-31, 4.62.1)
 
 The first MarkView self-analysis (450 source files) returned a flat 21-component catalogue,

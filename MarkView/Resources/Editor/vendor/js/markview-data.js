@@ -152,6 +152,18 @@
                 if (current !== mine) return;
                 mine.viewer = await TableViewer(container, info, bytes, lib);
             }
+            // Explain the original textual source, keeping its exact line numbers.
+            if (current === mine && /\.(csv|tsv|tab|psv|jsonl|ndjson|har|log|out)$/i.test(info.name)) {
+                const bar = container.querySelector('.dv-bar');
+                if (bar) {
+                    const button = document.createElement('button');
+                    button.className = 'dv-btn dv-explain';
+                    button.textContent = '✦ Explain';
+                    button.title = 'Explain this file section by section (AI)';
+                    button.addEventListener('click', function() { window.explainCurrentFile(); });
+                    bar.appendChild(button);
+                }
+            }
         } catch (error) {
             if (current === mine) message(String(error && error.message || error), true);
         }

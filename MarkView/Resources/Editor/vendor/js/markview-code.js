@@ -18,7 +18,7 @@
             editButton.title = 'Edit this file (⌘S saves it)';
             editButton.hidden = true;
             main.appendChild(editButton);
-            // A markdown document opened with its notes: the way back to the document.
+            // A file opened with its notes: the way back to its dedicated viewer.
             const documentButton = document.createElement('button');
             documentButton.className = 'code-document-btn'; documentButton.textContent = '← Document';
             documentButton.title = 'Back to the formatted document (editable)';
@@ -27,9 +27,13 @@
             // In the markdown document itself: open the same notes as for code.
             const docExplainButton = document.createElement('button');
             docExplainButton.className = 'code-explain-btn doc-explain-btn'; docExplainButton.textContent = '✦ Explain';
-            docExplainButton.title = 'Explain this document section by section, with importance, freshness and filters';
+            docExplainButton.title = 'Explain this file section by section, with importance, freshness and filters';
             DOM.previewPane.appendChild(docExplainButton);
-            let explainOnOpen = false;   // the document's Explain was pressed: start it once the notes view is up
+            window.explainCurrentFile = function() { postCode('notesView', { show: true, explain: true }); };
+            const sourceExplainButton = docExplainButton.cloneNode(true);
+            sourceExplainButton.classList.remove('doc-explain-btn');
+            DOM.editorPane.appendChild(sourceExplainButton);
+            sourceExplainButton.addEventListener('click', function() { window.explainCurrentFile(); });
             // Zoom: shrink the code (down to a minimap) while the notes compact but stay readable.
             const zoomBar = document.createElement('div'); zoomBar.className = 'code-zoom';
             zoomBar.innerHTML = '<button data-z="out" title="Zoom out">−</button><span class="code-zoom-level">100%</span>'
@@ -224,14 +228,16 @@
             };
 
             /** Show `text` read-only with syntax highlighting for `language`. */
-            window.setCodeContent = function(text, language, fileName) {
+            window.setCodeContent = function(text, language, fileName, returnLabel) {
                 if (window.closeCodeFloating) window.closeCodeFloating();
                 if (fileName !== currentFile && typeof closeAI === 'function') closeAI();
                 currentFile = fileName || null;
                 enterCodeView(language);
-                documentButton.hidden = language !== 'markdown';
+                documentButton.hidden = !returnLabel && language !== 'markdown';
+                documentButton.textContent = '← ' + (returnLabel || 'Document');
+                documentButton.title = 'Back to the file viewer';
                 setEditing(false);
-                editButton.hidden = language === 'markdown';
+                editButton.hidden = language === 'markdown' || !!returnLabel;
                 main.classList.toggle('code-md', language === 'markdown');
                 state.markdown = text;
                 docPending = true;
@@ -810,10 +816,6 @@
                 if (temp && document.activeElement !== tempForm.querySelector('input')) tempForm.querySelector('input').value = temp.criterion;
                 if (!temp && lens.value.indexOf('tmp-') === 0) { renderLensOptions(); lens.value = lensBeforeTemp; }
                 if (pendingTemp && temp && temp.criterion === pendingTemp) { pendingTemp = null; renderLensOptions(); lens.value = temp.id; }
-                if (explainOnOpen && notesState) {
-                    explainOnOpen = false;
-                    if (!notesState.explanation && !notesState.working) { notesHidden = false; postCode('explain'); }
-                }
                 if (pendingLens && notesState) {
                     const made = (notesState.filters || []).find(function(f) { return f.criterion === pendingLens; });
                     if (made) { pendingLens = null; renderLensOptions(); lens.value = made.id; }
@@ -823,9 +825,8 @@
 
             documentButton.addEventListener('click', function() { postCode('notesView', { show: false }); });
             docExplainButton.addEventListener('click', function() {
-                explainOnOpen = true;
                 notesHidden = false;
-                postCode('notesView', { show: true });
+                window.explainCurrentFile();
             });
             explainButton.addEventListener('click', function() {
                 notesHidden = false;

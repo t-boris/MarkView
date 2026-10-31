@@ -22,7 +22,13 @@ enum FileType: String {
                                                      "arrow", "feather", "ipc", "arrows", "avro"]
     static let parquetExtensions: Set<String> = ["parquet", "pq"]
     static let sqliteExtensions: Set<String> = ["sqlite", "sqlite3", "db", "db3"]
-    static let logExtensions: Set<String> = ["log", "out", "txt"]
+    static let logExtensions: Set<String> = ["log", "out"]
+
+    /// Data viewers whose original bytes can also be explained as line-numbered text.
+    static func hasTextSource(_ url: URL) -> Bool {
+        !isData(url) || ["csv", "tsv", "tab", "psv", "jsonl", "ndjson", "har", "log", "out"]
+            .contains(url.pathExtension.lowercased())
+    }
 
     /// A data file: opened without reading it as text, shown by the page's data viewers.
     static func isData(_ url: URL) -> Bool {
@@ -44,7 +50,7 @@ enum FileType: String {
         "canvas"
     ]).union(tableExtensions).union(parquetExtensions).union(sqliteExtensions).union(logExtensions)
 
-    /// Whether the app can open `url` as text — a dedicated viewer or the code viewer.
+    /// Whether the filename identifies a known text format (unknown formats still open as text).
     static func isSupported(_ url: URL) -> Bool {
         supportedExtensions.contains(url.pathExtension.lowercased()) || codeLanguage(for: url) != nil
     }
@@ -56,10 +62,11 @@ enum FileType: String {
         return type.conforms(to: .image)
     }
 
-    /// Whether the app opens `url` at all: as text, in the image viewer or in the archive view. The file
-    /// tree lists only what opens, so an archive missing here is missing from the tree.
+    /// Every regular file is visible/openable, independent of its name or extension.
+    /// Unknown formats are attempted as text; binary content is rejected by `readText`.
     static func isOpenable(_ url: URL) -> Bool {
-        isSupported(url) || isImage(url) || Archive.isArchive(url)
+        guard url.isFileURL else { return false }
+        return (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
     }
 
     /// Determine file type from URL extension
@@ -75,20 +82,69 @@ enum FileType: String {
         case _ where parquetExtensions.contains(ext): return .parquet
         case _ where sqliteExtensions.contains(ext): return .sqlite
         case _ where logExtensions.contains(ext): return .log
-        default: return codeLanguage(for: url) != nil ? .code : .markdown
+        default: return .code
         }
     }
 
-    /// CodeMirror language id for a source file ("" = plain text), or nil when the
-    /// file is not code. Ids match `languages` in tools/web-vendor/codemirror-entry.js.
+    /// CodeMirror language id for a recognized source file ("" = known plain text),
+    /// or nil when the filename has no known highlighter. Ids match `languages` in tools/web-vendor/codemirror-entry.js.
     static func codeLanguage(for url: URL) -> String? {
         if let byName = codeFileNames[url.lastPathComponent] { return byName }
-        // Dot files without an extension (.gitignore, .env, .npmrc…) and well-known plain files.
+        // Only recognized names get highlighting; arbitrary dotfiles stay plain text.
+        let name = url.lastPathComponent.lowercased()
+        if name == ".env" || name.hasPrefix(".env.") || name.hasSuffix(".env") { return "properties" }
+        if [".npmrc", ".yarnrc", ".editorconfig", ".gitconfig", ".gitattributes"].contains(name) { return "properties" }
         if url.pathExtension.isEmpty {
-            if url.lastPathComponent.hasPrefix(".") { return "properties" }
             if plainFileNames.contains(url.lastPathComponent) { return "" }
         }
         return codeExtensions[url.pathExtension.lowercased()]
+    }
+
+    /// Language for the source/Explain view, including formats with dedicated viewers.
+    static func sourceLanguage(for url: URL) -> String {
+        switch from(url: url) {
+        case .markdown: return "markdown"
+        case .json, .canvas: return "json"
+        case .xml: return "xml"
+        case .yaml: return "yaml"
+        default: return codeLanguage(for: url) ?? ""
+        }
+    }
+
+    /// Bounded text loading for the generic viewer. Call off the main thread.
+    /// BOM-tagged Unicode is accepted; binary/control bytes are never silently replaced.
+    static func readText(at url: URL) throws -> String {
+        let values = try url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        guard values.isRegularFile == true else { throw TextReadError.notRegular }
+        let limit = 32 * 1024 * 1024
+        guard (values.fileSize ?? 0) <= limit else { throw TextReadError.tooLarge }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: limit + 1) ?? Data()
+        guard data.count <= limit else { throw TextReadError.tooLarge }
+        let text: String?
+        if data.starts(with: [0xFF, 0xFE, 0x00, 0x00]) || data.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
+            text = String(data: data, encoding: .utf32)
+        } else if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
+            text = String(data: data, encoding: .utf16)
+        } else {
+            text = String(data: data.starts(with: [0xEF, 0xBB, 0xBF]) ? data.dropFirst(3) : data, encoding: .utf8)
+        }
+        guard let text, !text.unicodeScalars.contains(where: {
+            $0.value < 32 && ![9, 10, 12, 13, 27].contains($0.value)
+        }) else { throw TextReadError.binary }
+        return text
+    }
+
+    enum TextReadError: LocalizedError {
+        case notRegular, binary, tooLarge
+        var errorDescription: String? {
+            switch self {
+            case .notRegular: return "This item is not a regular file."
+            case .binary: return "This file contains binary data or an unsupported text encoding."
+            case .tooLarge: return "This file is larger than the text viewer's 32 MB limit."
+            }
+        }
     }
 
     private static let plainFileNames: Set<String> = ["LICENSE", "LICENCE", "COPYING", "CODEOWNERS", "AUTHORS",
@@ -236,7 +292,7 @@ struct OpenTab: Identifiable {
     var headings: [HeadingItem] = []
     var activeHeadingId: String?
     var scrollPosition: CGFloat = 0
-    /// A markdown document shown like code, with the Explain margin notes.
+    /// A text file shown with line-aligned Explain notes instead of its dedicated viewer.
     var notesView = false
     /// Bumped when a data tab's file changes on disk: its viewer reads it again (a log follows).
     var dataRevision = 0

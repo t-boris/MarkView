@@ -53,8 +53,6 @@ class FileNode: Identifiable, ObservableObject, Hashable {
             let contents = try fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: prefetchKeys)
 
             let items: [(url: URL, isDir: Bool, modDate: Date?)] = contents.compactMap { itemURL in
-                let name = itemURL.lastPathComponent
-                guard !name.hasPrefix(".") else { return nil }
                 let vals = try? itemURL.resourceValues(forKeys: Set(prefetchKeys))
                 let isDir = vals?.isDirectory ?? false
                 guard isDir || FileType.isOpenable(itemURL) else { return nil }
