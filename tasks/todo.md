@@ -1,5 +1,10 @@
 # MarkView — Follow-up Tasks
 
+## Reopen hidden Explain notes (2026-10-31, 4.63.1)
+
+- [x] Explicit Explain requests from source/data viewers reopen notes hidden on an earlier file. The shipping WebKit regression hides notes, reopens another YAML source and checks that cached section notes are visible.
+- Release follow-through: patch PR and signed/notarized DMG from the merged commit.
+
 ## All files and file-aware Explain (2026-10-31, 4.63.0)
 
 - [x] List all regular files and dotfolders, including `.env.local`, unknown extensions and extensionless names, in both file trees. Unknown formats default to plain text; only recognized formats receive syntax highlighting. `.txt` uses the text viewer.
