@@ -1190,7 +1190,15 @@
         .arch-graph-wrap { flex: 1; min-width: 0; position: relative; display: flex; }
         .arch-graph { flex: 1; min-width: 0; position: relative; }
         .arch-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; color: var(--text-secondary); font-size: calc(13px * var(--ui-scale, 1)); line-height: 1.5; pointer-events: none; }
-        .arch-empty[hidden], .arch-progress[hidden] { display: none; }
+        .arch-empty[hidden], .arch-progress[hidden], .arch-code-sequence[hidden] { display: none; }
+        .arch-code-sequence { position: absolute; inset: 0; z-index: 5; overflow: auto; padding: 12px 20px; background: var(--bg-primary); }
+        .arch-code-sequence .arch-toolbar { position: sticky; top: -12px; background: var(--bg-primary); justify-content: space-between; }
+        #arch-code-sequence-svg { min-height: 200px; overflow: auto; }
+        #arch-code-sequence-svg svg { max-width: none !important; height: auto; }
+        .arch-code-question { width: 100%; min-height: 58px; box-sizing: border-box; resize: vertical; padding: 8px; margin: 6px 0; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-secondary); color: var(--text-primary); font: inherit; }
+        .arch-code-traces { margin: 10px 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
+        .arch-code-traces .arch-action { display: block; margin: 6px 0; text-align: left; }
+        #arch-code-sequence-sources .arch-path { display: block; text-align: left; margin: 5px 0; }
         .arch-progress { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary); font-size: calc(11.5px * var(--ui-scale, 1)); }
         .arch-progress-steps { display: flex; gap: 3px; flex: none; }
         .arch-progress-steps span { width: 34px; height: 6px; border-radius: 3px; background: var(--border-color); overflow: hidden; position: relative; }
@@ -1450,6 +1458,7 @@
             <div class="arch-container" id="arch-container">
                 <div class="arch-toolbar">
                     <div class="arch-seg" role="tablist">
+                        <button data-arch-view="code" title="Source code: layers, components, files, symbols and scenario sequences">Code</button>
                         <button data-arch-view="logical" class="on" title="Logical components (AI)">Logical</button>
                         <button data-arch-view="modules" title="Folders and files as they are on disk">Structure</button>
                         <button data-arch-view="deployment">Deployment</button>
@@ -1488,6 +1497,7 @@
                     <div class="arch-actions">
                         <button class="arch-btn" id="arch-deploy" hidden title="Run a discovered deployment operation">Deploy</button>
                         <select id="arch-deploy-picker" hidden aria-label="Choose deployment operation"></select>
+                        <button class="arch-btn" id="arch-code-trace" hidden title="Trace a code scenario as a sequence diagram">Sequence…</button>
                         <button class="arch-btn" id="arch-analyze" title="Describe modules and map deployment with the selected AI assistant">Analyze</button>
                         <button class="arch-btn" id="arch-rescan" title="Scan the folder again (no AI)" aria-label="Rescan">↻</button>
                         <button class="arch-btn" id="arch-fit" title="Fit to window" aria-label="Fit to window">⛶</button>
@@ -1508,6 +1518,13 @@
                     <div class="arch-graph-wrap">
                         <div class="arch-graph" id="arch-graph"></div>
                         <div class="arch-empty" id="arch-empty" hidden></div>
+                        <section id="arch-code-sequence" class="arch-code-sequence" hidden aria-label="Code sequence diagram">
+                            <div class="arch-toolbar"><strong id="arch-code-sequence-title"></strong><button class="arch-btn" id="arch-code-sequence-close">Back to layers</button></div>
+                            <p id="arch-code-sequence-takeaway"></p>
+                            <div id="arch-code-sequence-svg"></div>
+                            <p id="arch-code-sequence-omitted" class="arch-muted"></p>
+                            <div id="arch-code-sequence-sources"></div>
+                        </section>
                     </div>
                     <div class="mv-resizer" id="arch-details-resizer"></div>
                     <div class="arch-details" id="arch-details"></div>

@@ -8,6 +8,7 @@ enum CLICompletion {
         var jsonSchema: [String: Any]? = nil
         var readableFolder: URL? = nil
         var timeout: TimeInterval = 180
+        var model: String? = nil
         var effort: String? = nil
         var label = ""
     }

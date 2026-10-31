@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## Code architecture — layers, nested components and source-backed sequences (2026-10-31)
+
+- [x] Code view inside X-Ray; draft layers available after scanning; source files only, nested components, symbols and source navigation.
+- [x] Dedicated read-only Analyze code: inspect actual source in any scanned language, infer nested responsibilities and layers, validate paths, citations and acyclic hierarchy; preserve the previous map on failure.
+- [x] Trace a named scenario for a layer/component/file/symbol; render a real Mermaid sequence with message evidence and line links. Persist maps/scenarios and mark them stale after source changes.
+- [x] Pure model checks and shipping-page WKWebView interaction checks (`tools/tests/code-architecture-tests.sh`); existing X-Ray content and diagram harnesses.
+- [x] Native QA in an isolated app and mixed Python/JS/SQL folder: real assistant produced 7 nested components, 5 source-backed dependencies and a 9-message sequence; evidence opened the source; results survived restart in SQLite. Debug build passed.
+- Release follow-through: PR #207; merge after checks, then publish the signed/notarized DMG from merged `origin/main` and report its CI and local artifact evidence.
+
+
 ## GitHub activity prompt (2026-10-30, 4.61.0)
 
 Add GitHub → MarkView to the agent prompt bar. Reconcile recent issue activity into local
