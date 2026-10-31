@@ -287,6 +287,8 @@ final class ArchitectureStore: ObservableObject {
             snapshot = stored
             revision += 1
         }
+        // Local cached/declaration outlines restore drill-down without starting AI.
+        outlineContents(root: root)
     }
 
     /// Deterministic scan (no AI). Keeps AI descriptions and the Deployment view
@@ -345,7 +347,8 @@ final class ArchitectureStore: ObservableObject {
                                                 Self.keepBookRatings(Self.keepCurrentRatings($0, modules: modules), docs: result.docs)
                                             },
                                             deploymentHints: result.deploymentHints, scannedAt: Date(),
-                                            enrichedAt: previous?.enrichedAt, gitHead: result.gitHead)
+                                            enrichedAt: previous?.enrichedAt, gitHead: result.gitHead,
+                                            codeSequences: previous?.codeSequences, codeModel: previous?.codeModel)
             pendingDeploymentSignature = result.deploymentSignature
             next = Self.applyLogical(next)
             commit(next, db: db)
@@ -1067,11 +1070,140 @@ final class ArchitectureStore: ObservableObject {
         commit(next, db: db)
     }
 
+    private func withCodeArchitecture(_ snapshot: ArchitectureSnapshot) -> ArchitectureSnapshot {
+        var next = snapshot
+        next.views.removeAll { $0.id == "code" }
+        next.views.append(CodeArchitecture.view(snapshot))
+        return next
+    }
+
+    /// Read the code itself to infer responsibilities, rather than treating the
+    /// document/commit clusters as architectural layers.
+    func analyzeCode(root: URL, db: SemanticDatabase?) {
+        guard !busy, let current = snapshot, let modules = current.view("modules") else { return }
+        let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path).sorted()
+        guard !files.isEmpty else { return }
+        busy = true; error = nil
+        beginStep(1, "Reading the code architecture", started: Date(), steps: 1)
+        let signature = modules.nodes.first { $0.id == "m:" }?.signature
+        analysisTask = Task {
+            defer { busy = false; progress = nil; analysisTask = nil; setStatus(nil) }
+            let prompt = CodeArchitecture.prompt(root: root, files: files)
+            do {
+                var attempt = prompt
+                var model: CodeArchitectureModel?
+                for round in 0...1 {
+                    try Task.checkCancellation()
+                    var request = CLICompletion.Request(project: project, prompt: attempt,
+                        systemPrompt: "You explain architecture grounded in source code. Read files, do not modify them. Return only the schema JSON.\n" + Self.graphLanguageLine,
+                        jsonSchema: CodeArchitecture.schema, readableFolder: root)
+                    request.timeout = 900; request.effort = "medium"; request.label = "code-architecture"
+                    let tool = AIAssistantPreferences.backend(project: project)
+                    request.model = AIAssistantPreferences.xrayModel(for: tool, project: project)
+                    let result = try await CLICompletion.run(request, onActivity: activityHandler(root: root))
+                    result.record(in: db)
+                    do {
+                        let parsed: CodeArchitectureModel
+                        if let object = result.structured, JSONSerialization.isValidJSONObject(object) {
+                            parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: JSONSerialization.data(withJSONObject: object))
+                        } else {
+                            let text = result.text
+                            guard let open = text.firstIndex(of: "{"), let last = text.lastIndex(of: "}"), open < last else {
+                                throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
+                            }
+                            parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
+                        }
+                        try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
+                        model = parsed; break
+                    } catch {
+                        if round == 1 { throw error }
+                        attempt = prompt + "\nYour previous answer was invalid. Correct these problems: " + error.localizedDescription
+                    }
+                }
+                try Task.checkCancellation()
+                guard var model, rootPath == root.standardizedFileURL.path, var next = snapshot else { return }
+                model.signature = signature
+                model.analyzedAt = Date()
+                next.codeModel = model
+                commit(next, db: db)
+            } catch is CancellationError {
+                // Keep the previous architecture when stopped.
+            } catch { self.error = "Could not analyze the code: \(error.localizedDescription)" }
+        }
+    }
+
+    /// Trace one scenario with the project's existing read-only assistant. A failed
+    /// or cancelled attempt keeps the last successful diagram for this scope.
+    func traceCode(scope: String, question: String, root: URL, db: SemanticDatabase?) {
+        guard !busy, let current = snapshot else { return }
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, question.count <= 4000 else { return }
+        let view = CodeArchitecture.view(withContents(current))
+        guard let selected = view.nodes.first(where: { $0.id == scope }) else { return }
+        let byID = Dictionary(view.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let paths = view.nodes.filter { node in
+            guard node.kind == "file" else { return false }
+            var cursor: String? = node.id
+            var seen = Set<String>()
+            while let id = cursor, seen.insert(id).inserted {
+                if id == scope { return true }
+                cursor = byID[id]?.parent
+            }
+            return node.path == selected.path && selected.path != nil
+        }.compactMap(\.path).sorted()
+        guard !paths.isEmpty else { return }
+        let signature = current.view("modules")?.nodes.first(where: { $0.id == "m:" })?.signature ?? ""
+        busy = true
+        error = nil
+        let started = Date()
+        beginStep(1, "Tracing " + selected.name, started: started, steps: 1)
+        setProgressScope(question)
+        analysisTask = Task {
+            defer { busy = false; progress = nil; analysisTask = nil; setStatus(nil) }
+            do {
+                let prompt = DiagramAI.prompt(kind: .sequence, instruction: """
+                Trace this scenario in source code: \(question)
+                Start in this scope: \(selected.name).
+                Candidate source files (follow calls outside this set when needed):
+                \(paths.prefix(150).joined(separator: "\n"))
+                Use 2-12 participants and at most 24 messages. Return edges in execution order,
+                labelled "1. ...", "2. ...", etc. Repeated calls between participants are allowed.
+                Every internal participant's source and every message's evidence MUST be a real
+                project-relative source file with a valid :line suffix. Read the actual code;
+                do not derive execution order from imports. Describe one possible static path,
+                not an observed runtime trace. State conditions, uncertainty and omitted branches
+                in takeaway/omitted. Never invent an interaction to complete a scenario.
+                """, sources: [], root: root)
+                let tool = AIAssistantPreferences.backend(project: project)
+                let diagram = try await DiagramAI.generate(prompt: prompt, root: root, label: "code-sequence",
+                    project: project, model: AIAssistantPreferences.xrayModel(for: tool, project: project), onStage: { [weak self] stage in
+                    Task { @MainActor in
+                        guard let self, self.rootPath == root.standardizedFileURL.path else { return }
+                        self.progress?.current = "Tracing \(selected.name): \(stage)"
+                    }
+                }, record: { result in Task { @MainActor in result.record(in: db) } })
+                try await Task.detached(priority: .utility) { try CodeArchitecture.validateSequence(diagram, root: root) }.value
+                try Task.checkCancellation()
+                guard rootPath == root.standardizedFileURL.path, var next = snapshot else { return }
+                var sequences = next.codeSequences ?? []
+                sequences.removeAll { $0.scope == scope && $0.diagram.question == diagram.question }
+                sequences.append(CodeSequence(scope: scope, signature: signature, diagram: diagram, createdAt: Date()))
+                next.codeSequences = Array(sequences.suffix(30))
+                commit(next, db: db)
+            } catch is CancellationError {
+                // Previously saved traces stay available.
+            } catch {
+                self.error = "Could not trace the scenario: \(error.localizedDescription)"
+            }
+        }
+    }
+
     // MARK: - Contents
 
     /// The snapshot with each file's contents under its Logical-view box.
     private func withContents(_ snapshot: ArchitectureSnapshot) -> ArchitectureSnapshot {
-        guard !outlines.isEmpty, let index = snapshot.views.firstIndex(where: { $0.id == "logical" }) else { return snapshot }
+        guard !outlines.isEmpty, let index = snapshot.views.firstIndex(where: { $0.id == "logical" })
+            ?? snapshot.views.firstIndex(where: { $0.id == "modules" }) else { return snapshot }
         var next = snapshot
         var added: [ArchNode] = []
         // What the assistant read first, then declarations; within a budget so a large
@@ -1093,7 +1225,7 @@ final class ArchitectureStore: ObservableObject {
 
     /// Files of the Logical view with their language and size.
     private var contentFiles: [(path: String, language: String?)] {
-        (snapshot?.view("logical")?.nodes ?? []).compactMap { node in
+        (snapshot?.view("logical")?.nodes ?? snapshot?.view("modules")?.nodes ?? []).compactMap { node in
             guard node.kind == "file", let path = node.path else { return nil }
             return (path, node.language)
         }
@@ -3493,13 +3625,15 @@ final class ArchitectureStore: ObservableObject {
             let understandingAnswers: [String: UnderstandingState]
             /// The AI's explanations of links (arrows), by "view|source|target".
             let edgeNotes: [String: EdgeNote]
+            let codeSequenceDiagrams: [String]
         }
-        let payload = Payload(mode: mode, snapshot: snapshot.map { withContents(withUnderstandingEvidence($0)) }, status: status, error: error,
+        let payload = Payload(mode: mode, snapshot: snapshot.map { withCodeArchitecture(withContents(withUnderstandingEvidence($0))) }, status: status, error: error,
                               prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
                               searchSummaries: searchSummaries, searchAnswers: searchAnswers,
-                              understandingAnswers: understandingAnswers, edgeNotes: edgeNotes)
+                              understandingAnswers: understandingAnswers, edgeNotes: edgeNotes,
+                              codeSequenceDiagrams: (snapshot?.codeSequences ?? []).map { CodeArchitecture.sequenceMermaid($0.diagram) })
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

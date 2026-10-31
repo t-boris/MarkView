@@ -1,12 +1,31 @@
 # Architecture map and X-Ray
 
 The X-Ray tab (called "Architecture" in older code and "explanations" when people mean its
-details panel) draws a project as a map you can zoom into. There are five views. Logical
+details panel) draws a project as a map you can zoom into. There are six views, including Code and the PR X-Ray. Logical
 shows AI-named components and subsystems. Structure (view id `modules`) shows folders, files
 and their imports. Deployment is AI-mapped from build and deploy config files. Docs shows
 markdown files, their sections and the links between them. The PR X-Ray shows one change
 inside that structure. On top of the views sit overlays: metrics, documentation coverage,
 the AI Importance rating, user AI filters, the ⚡ search and a pull-request review.
+
+The **Code** view is a source-only architecture explorer (`CodeArchitecture.swift`). It is
+selected initially when the scan finds code. Before analysis it projects the source tree
+into explicitly labelled draft layers. **Analyze code** asks the project's read-only CLI
+assistant to inspect actual source files and infer a nested responsibility tree, with
+layer, owned paths and a source citation for each component, plus cited component dependencies. This model is separate from
+the document-oriented Logical grouping. Duplicate ids, cycles, missing paths, outside
+paths/symlinks and invalid citation lines are rejected. Unassigned source files stay visible.
+Layers contain components, files and available local/AI symbol outlines; source dependencies
+are lifted to visible ancestors as the reader drills down.
+
+**Trace a scenario** takes a question and selected Code scope, follows the source with
+`DiagramAI`, and renders a real Mermaid `sequenceDiagram` in the graph area. Messages must
+be ordered and have valid `path:line` evidence; each evidence link opens the source line.
+This is an inferred static path, not a recorded runtime execution. The code model and up to
+30 scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
+snapshots readable. Source signatures mark saved architecture/scenarios stale after a rescan.
+Analysis failure or cancellation preserves previous results. The sequence and architecture
+calls use the project's assistant and X-Ray model. Tests: `tools/tests/code-architecture-tests.sh`.
 
 Screenshots: `docs/images/xray-overview.png` (Logical view with the details panel),
 `docs/images/xray-component.png` and `docs/images/xray-contents.png`.

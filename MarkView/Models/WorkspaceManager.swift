@@ -1820,6 +1820,11 @@ class WorkspaceManager: ObservableObject {
             architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
                                      kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
                                      root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
+        case "analyzeCode":
+            architecture.analyzeCode(root: root, db: semanticDatabase)
+        case "traceCode":
+            guard let scope = payload["scope"] as? String, let question = payload["question"] as? String else { return }
+            architecture.traceCode(scope: scope, question: question, root: root, db: semanticDatabase)
         case "describe":
             architecture.describe(viewId: payload["view"] as? String ?? "modules", nodeId: payload["id"] as? String ?? "",
                                   root: root, db: semanticDatabase)

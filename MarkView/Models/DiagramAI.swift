@@ -223,14 +223,16 @@ enum DiagramAI {
     /// Asks the agent for a diagram, validates it against the project and, when it has problems,
     /// asks again with the problems listed (twice at most). Returns the checked diagram.
     static func generate(prompt: String, root: URL, label: String,
+                         project: URL? = nil, model: String? = nil,
                          onStage: @escaping @Sendable (String) -> Void,
                          record: @escaping @Sendable (CLICompletion.Result) -> Void) async throws -> DiagramSpec {
         var attempt = prompt
         var lastProblems: [String] = []
         for round in 0...2 {
             try Task.checkCancellation()
-            var request = CLICompletion.Request(project: root, prompt: attempt, systemPrompt: system,
+            var request = CLICompletion.Request(project: project ?? root, prompt: attempt, systemPrompt: system,
                                                 jsonSchema: schema, readableFolder: root)
+            request.model = model
             request.effort = "medium"
             request.timeout = 600
             request.label = round == 0 ? label : "\(label):repair\(round)"

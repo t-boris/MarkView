@@ -44,6 +44,8 @@ struct ArchEdge: Codable, Hashable {
     var kind: String
     var weight: Int = 1
     var label: String?
+    /// Code-model dependency citation; scanner edges need not have one.
+    var evidence: String? = nil
 }
 
 struct ArchView: Codable {
@@ -137,6 +139,9 @@ struct ArchitectureSnapshot: Codable {
     var scannedAt: Date
     var enrichedAt: Date?
     var gitHead: String?
+    /// Source-grounded scenarios; optional for snapshots saved before the Code view.
+    var codeSequences: [CodeSequence]? = nil
+    var codeModel: CodeArchitectureModel? = nil
 
     func view(_ id: String) -> ArchView? { views.first { $0.id == id } }
 }

@@ -11,6 +11,7 @@ enum CLICompletion {
         var readableFolder: URL? = nil
         var images: [URL] = []
         var timeout: TimeInterval? = 180
+        var model: String? = nil
         var effort: String? = nil
         var label = ""
     }

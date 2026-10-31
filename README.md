@@ -148,11 +148,16 @@ flowchart LR
 | <img src="docs/images/xray-overview.png" alt="Subsystems" width="400"> | <img src="docs/images/xray-contents.png" alt="Drilling down into a document's contents" width="400"> |
 | **Logical view**: subsystems and their dependencies, coloured by role. | **Double-click to zoom in**: component → file → its sections → a single item. |
 
-- **Four views:** *Logical* (AI-named components and subsystems), *Structure* (folders and
-  imports), *Deployment* (mapped from build and deploy files) and *Book* (documents only).
+- **Five views:** *Code* (source-derived layers and nested components), *Logical* (AI-named
+  components and subsystems), *Structure* (folders and imports), *Deployment* (mapped from
+  build and deploy files) and *Book* (documents only).
+- **Code architecture:** open X-Ray in a code folder, then **Analyze code** to infer layers,
+  responsibilities and dependencies from actual source. Drill into components, files and
+  symbols. **Sequence…** traces a named scenario for the selected scope, with a sequence
+  diagram and clickable source evidence. Saved maps and scenarios show when source changes.
 - **Built from facts, named by AI.** The scan reads imports, note links, git co-changes,
-  size and complexity, then clusters files (Louvain). AI only names and describes what the
-  structure already shows. Results are cached by input, so re-analysis redoes only what
+  size and complexity, then clusters files (Louvain). In Logical, AI names and describes what
+  the structure already shows. Code uses a separate read-only source analysis. Results are cached by input, so re-analysis redoes only what
   changed.
 - **Inside every file.** Documents split into collections of like things (issues,
   requirements, decisions, endpoints), long code files into responsibilities and every type

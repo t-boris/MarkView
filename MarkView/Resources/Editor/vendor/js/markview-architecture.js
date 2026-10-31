@@ -29,6 +29,7 @@
                 prNumber: document.getElementById('arch-pr-number'),
                 review: document.getElementById('arch-review'),
                 analyze: document.getElementById('arch-analyze'),
+                codeTrace: document.getElementById('arch-code-trace'),
                 rescan: document.getElementById('arch-rescan'),
                 fit: document.getElementById('arch-fit'),
                 progress: document.getElementById('arch-progress'),
@@ -44,13 +45,15 @@
             const ui = {
                 payload: null,
                 view: 'logical',
+                codeQuestions: {},
+                codeSequenceIndex: null,
                 overlay: 'none',
                 onlyFlagged: false,
                 hidden: new Set(),
                 ratingRequested: new Set(),   // parents whose children were sent for AI importance
                 describeRequested: new Set(),
-                expanded: { logical: new Set(), modules: new Set(), deployment: new Set(), docs: new Set(), pr: new Set() },
-                focus: { logical: null, modules: null, deployment: null, docs: null, pr: null },
+                expanded: { code: new Set(), logical: new Set(), modules: new Set(), deployment: new Set(), docs: new Set(), pr: new Set() },
+                focus: { code: null, logical: null, modules: null, deployment: null, docs: null, pr: null },
                 prView: null,       // the PR X-Ray's own view, built from the X-Ray and the change
                 selected: null,
                 graphKey: null,     // view + snapshot version the canvas was built from
@@ -104,10 +107,10 @@
                         info: '#2f7fd1', dim: 0.3 };
             }
             // With no overlay, boxes are coloured by the role the AI gave them (legend below).
-            const roleNames = { ui: 'UI', api: 'API', domain: 'Domain logic', data: 'Data', infra: 'Infrastructure',
+            const roleNames = { presentation: 'Presentation', application: 'Application', infrastructure: 'Infrastructure', platform: 'Shared platform', other: 'Unclassified', ui: 'UI', api: 'API', domain: 'Domain logic', data: 'Data', infra: 'Infrastructure',
                 integration: 'Integration', tooling: 'Tooling', tests: 'Tests', docs: 'Docs', config: 'Config',
                 shared: 'Shared', app: 'App' };
-            const roleColor = { ui: '#6c8cff', api: '#b07cff', domain: '#2fa37a', data: '#d9822b', infra: '#8a94a6',
+            const roleColor = { presentation: '#6c8cff', application: '#b07cff', infrastructure: '#8a94a6', platform: '#5bb3a8', other: '#9aa3b2', ui: '#6c8cff', api: '#b07cff', domain: '#2fa37a', data: '#d9822b', infra: '#8a94a6',
                 integration: '#b98ad6', tooling: '#8a94a6', tests: '#a0a7b1', docs: '#4aa3c4', config: '#a0a7b1',
                 shared: '#5bb3a8', app: '#6c8cff' };
 
@@ -238,7 +241,7 @@
 
             /** Metrics, coverage and changes are keyed by the Structure-view id of a file. */
             function fileKey(node) { return node && node.path != null ? 'm:' + node.path : null; }
-            const codeViews = { modules: 1, logical: 1, pr: 1 };
+            const codeViews = { code: 1, modules: 1, logical: 1, pr: 1 };
             /** The Book view: the documents as parts, chapters and sections. */
             function isBook() { return ui.view === 'docs'; }
             const bookKinds = { root: 'book', dir: 'part', doc: 'chapter', entity: 'item' };
@@ -739,8 +742,12 @@
                     if (e.kind === 'related') return;
                     const key = s + '→' + t + (e.kind === 'added' || e.kind === 'removed' ? '|' + e.kind : '');
                     const cur = agg.get(key);
-                    if (cur) { cur.weight += e.weight || 1; }
-                    else agg.set(key, { id: 'e:' + key, source: s, target: t, weight: e.weight || 1, label: e.label || '', kind: e.kind });
+                    if (cur) {
+                        cur.weight += e.weight || 1;
+                        if (!cur.label && e.label) cur.label = e.label;
+                        if (e.evidence && cur.evidence.indexOf(e.evidence) < 0 && cur.evidence.length < 20) cur.evidence.push(e.evidence);
+                    }
+                    else agg.set(key, { id: 'e:' + key, source: s, target: t, weight: e.weight || 1, label: e.label || '', kind: e.kind, evidence: e.evidence ? [e.evidence] : [] });
                 });
                 agg.forEach(function(e) { elements.push({ group: 'edges', data: e }); });
                 if (ui.onlyFlagged && overlayApplies() && ui.overlay !== 'size') return keepFlagged(elements, c);
@@ -839,7 +846,7 @@
                              'elk.padding': '[top=30,left=14,bottom=14,right=14]' };
                 };
                 const layered = {
-                    'elk.algorithm': 'layered', 'elk.direction': 'RIGHT',
+                    'elk.algorithm': 'layered', 'elk.direction': ui.view === 'code' && cy.nodes().every(function(n) { return n.data('kind') === 'layer' || n.data('kind') === 'externalGroup'; }) ? 'DOWN' : 'RIGHT',
                     'elk.layered.spacing.nodeNodeBetweenLayers': 46, 'elk.spacing.nodeNode': 18,
                     'elk.padding': '[top=30,left=14,bottom=14,right=14]',
                     'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
@@ -847,7 +854,7 @@
                     'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
                 };
                 cy.layout({
-                    name: 'elk', fit: !fitTo && !keepView, padding: 28, animate: count < 200, animationDuration: 420,
+                    name: 'elk', fit: !fitTo && !keepView, padding: 28, animate: ui.view !== 'code' && count < 200, animationDuration: 420,
                     nodeDimensionsIncludeLabels: false,
                     elk: Object.assign({ 'elk.hierarchyHandling': 'SEPARATE_CHILDREN' },
                         topSparse ? packed(Math.max(0.5, cy.width() / Math.max(1, cy.height()))) : layered),
@@ -861,7 +868,11 @@
                         } });
                         if (fitTo) {
                             const target = cy.getElementById(fitTo);
-                            if (target.length) cy.animate({ fit: { eles: target.union(target.descendants()).union(target.neighborhood()), padding: 40 }, duration: 260 });
+                            if (target.length) {
+                                const elements = target.union(target.descendants()).union(target.neighborhood());
+                                if (ui.view === 'code') cy.fit(elements, 40);
+                                else cy.animate({ fit: { eles: elements, padding: 40 }, duration: 260 });
+                            }
                         }
                     },
                 }).run();
@@ -876,6 +887,11 @@
                     return;
                 }
                 const missing = snap && !snap.views.some(function(v) { return v.id === ui.view; });
+                if (ui.view === 'code' && currentView() && !currentView().nodes.some(function(n) { return n.kind === 'file'; })) {
+                    el.empty.hidden = false;
+                    el.empty.textContent = 'No source code was found in this folder. Structure and Book show its other files.';
+                    return;
+                }
                 const bookView = isBook() && !missing && currentView();
                 if (bookView && !bookView.nodes.some(function(n) { return n.kind === 'doc'; })) {
                     el.empty.hidden = false;
@@ -911,7 +927,7 @@
                         let at = previous[n.id()];
                         for (let p = n.parent(); !at && p.length; p = p.parent()) at = previous[p.id()];
                         if (at) n.position(at);
-                        if (!previous[n.id()]) n.addClass('appearing');
+                        if (!previous[n.id()] && ui.view !== 'code') n.addClass('appearing');
                     });
                 }
                 cy.style(stylesheet());
@@ -965,10 +981,10 @@
                     const e = evt.target;
                     ui.selected = null;
                     ui.selectedEdge = { view: ui.view, source: e.data('source'), target: e.data('target'),
-                                        kind: e.data('kind') || 'uses', label: e.data('label') || '' };
+                                        kind: e.data('kind') || 'uses', label: e.data('label') || '', evidence: e.data('evidence') || [] };
                     cy.edges().removeClass('faded hot'); cy.edges().not(e).addClass('faded'); e.addClass('hot');
                     renderDetails();
-                    if (ui.selectedEdge.kind !== 'related') post('explainEdge', { view: ui.view, source: ui.selectedEdge.source, target: ui.selectedEdge.target,
+                    if (ui.view !== 'code' && ui.selectedEdge.kind !== 'related') post('explainEdge', { view: ui.view, source: ui.selectedEdge.source, target: ui.selectedEdge.target,
                                           kind: ui.selectedEdge.kind, label: ui.selectedEdge.label || undefined });
                 });
                 cy.on('tap', function(evt) {
@@ -1103,7 +1119,7 @@
                 while (cur) { if (!isTransparent(cur)) chain.unshift(cur); cur = cur.parent != null ? idx.byId.get(cur.parent) : null; }
                 const top = document.createElement('button');
                 top.className = 'arch-crumb';
-                top.textContent = ({ logical: 'Logical', modules: 'Modules', deployment: 'Deployment', docs: 'Book', pr: 'Pull request' })[ui.view];
+                top.textContent = ({ code: 'Code architecture', logical: 'Logical', modules: 'Modules', deployment: 'Deployment', docs: 'Book', pr: 'Pull request' })[ui.view];
                 // The top level: the details panel goes back to the view's overview (the PR panel
                 // in the PR X-Ray) — nothing stays selected.
                 top.onclick = function() {
@@ -1204,7 +1220,7 @@
                         return node && node.role && roleColor[node.role] ? node.role : null;
                     }).filter(Boolean));
                     if (present.size) {
-                        const title = document.createElement('span'); title.innerHTML = '<b>Colour = role (AI)</b>';
+                        const title = document.createElement('span'); const roleTitle = document.createElement('b'); roleTitle.textContent = ui.view === 'code' ? 'Colour = layer' : 'Colour = role (AI)'; title.appendChild(roleTitle);
                         el.legend.appendChild(title);
                         Object.keys(roleNames).filter(function(r) { return present.has(r); }).forEach(function(r) {
                             const span = document.createElement('span');
@@ -1497,6 +1513,81 @@
                 }
             }
 
+            function codeScope(node) { return node ? node.id : 'code:'; }
+
+            function renderCodeTraces(d, node, view, snap) {
+                if (!view.nodes.some(function(n) { return n.kind === 'file'; })) return;
+                const scope = codeScope(node);
+                const section = document.createElement('div'); section.className = 'arch-code-traces';
+                const title = document.createElement('h5'); title.textContent = 'Trace a scenario' + (node ? ' in ' + node.name : ' in the code'); section.appendChild(title);
+                const note = document.createElement('p'); note.className = 'arch-muted';
+                note.textContent = 'Layers → components → files → symbols. Double-click to explore. ' +
+                    (!snap.codeModel && (snap.logicalDraft || !(snap.components || []).length) ? 'Draft layers use file paths; Analyze refines components from source. ' : '') +
+                    'A sequence is an AI interpretation of one code path, with source evidence; it is not a runtime trace.';
+                section.appendChild(note);
+                const moduleRoot = ((snap.views.find(function(v) { return v.id === 'modules'; }) || {}).nodes || []).find(function(n) { return n.id === 'm:'; });
+                if (snap.codeModel && moduleRoot && snap.codeModel.signature !== moduleRoot.signature) {
+                    const warning = document.createElement('p'); warning.className = 'arch-muted'; warning.textContent = 'Source changed since the architecture analysis. Analyze code to refresh components.'; section.appendChild(warning);
+                }
+                const component = snap.codeModel && node && snap.codeModel.components.find(function(c) { return c.id === node.component; });
+                if (component) {
+                    const match = /^(.*):(\d+)$/.exec(component.evidence);
+                    if (match) section.appendChild(linkButton('Source: ' + component.evidence, function() { post('openFile', { path: match[1], line: Number(match[2]) }); }, 'arch-path'));
+                }
+                const input = document.createElement('textarea'); input.className = 'arch-code-question'; input.maxLength = 4000;
+                input.setAttribute('aria-label', 'Scenario to trace'); input.placeholder = 'e.g. How is a document saved?';
+                input.value = ui.codeQuestions[scope] || '';
+                const submit = linkButton(ui.payload.busy ? 'Analysis in progress…' : 'Draw sequence', function() {
+                    const question = input.value.trim(); if (!question || ui.payload.busy) return;
+                    ui.codeAwaitingScope = scope;
+                    ui.codePreviousTime = (snap.codeSequences || []).map(function(s) { return s.createdAt; }).join('|');
+                    post('traceCode', { scope: scope, question: question });
+                }, 'arch-action');
+                submit.disabled = ui.payload.busy || !input.value.trim();
+                input.oninput = function() { ui.codeQuestions[scope] = input.value; submit.disabled = ui.payload.busy || !input.value.trim(); };
+                section.appendChild(input); section.appendChild(submit);
+                (snap.codeSequences || []).forEach(function(trace, i) {
+                    if (trace.scope !== scope) return;
+                    const signature = ((snap.views.find(function(v) { return v.id === 'modules'; }) || {}).nodes || []).find(function(n) { return n.id === 'm:'; });
+                    const stale = signature && signature.signature !== trace.signature;
+                    section.appendChild(linkButton(trace.diagram.title + (stale ? ' · source changed' : ''), function() { showCodeSequence(i); }, 'arch-action'));
+                });
+                d.appendChild(section);
+            }
+
+            let sequenceRenderToken = 0;
+            function hideCodeSequence() {
+                ++sequenceRenderToken;
+                ui.codeSequenceIndex = null;
+                document.getElementById('arch-code-sequence').hidden = true;
+            }
+            document.getElementById('arch-code-sequence-close').onclick = hideCodeSequence;
+            function showCodeSequence(i) {
+                const trace = ((ui.payload.snapshot || {}).codeSequences || [])[i];
+                const source = (ui.payload.codeSequenceDiagrams || [])[i];
+                if (!trace || !source) return;
+                ui.codeSequenceIndex = i;
+                const token = ++sequenceRenderToken;
+                const panel = document.getElementById('arch-code-sequence'); panel.hidden = false;
+                document.getElementById('arch-code-sequence-title').textContent = trace.diagram.title;
+                document.getElementById('arch-code-sequence-takeaway').textContent = trace.diagram.takeaway;
+                document.getElementById('arch-code-sequence-omitted').textContent = trace.diagram.omitted || '';
+                const sources = document.getElementById('arch-code-sequence-sources'); sources.textContent = '';
+                const subtitle = document.createElement('h4'); subtitle.textContent = 'Messages and source evidence'; sources.appendChild(subtitle);
+                trace.diagram.edges.forEach(function(edge) {
+                    const row = document.createElement('p'); row.textContent = edge.label; sources.appendChild(row);
+                    const match = /^(.*):(\d+)$/.exec(edge.evidence || '');
+                    if (match) sources.appendChild(linkButton(edge.evidence, function() { post('openFile', { path: match[1], line: Number(match[2]) }); }, 'arch-path'));
+                });
+                const body = document.getElementById('arch-code-sequence-svg'); body.textContent = 'Drawing sequence…';
+                try {
+                    mermaid.render('code-sequence-' + token, source).then(function(result) {
+                        if (token !== sequenceRenderToken) return;
+                        body.innerHTML = result.svg;
+                    }).catch(function() { if (token === sequenceRenderToken) body.textContent = 'The sequence could not be rendered. Its messages and source evidence are listed below.'; });
+                } catch (e) { body.textContent = 'The sequence could not be rendered. Its messages and source evidence are listed below.'; }
+            }
+
             function renderDetails() {
                 const d = el.details;
                 const oldAnswerBody = d.querySelector('.arch-understanding-body');
@@ -1520,6 +1611,7 @@
                 }
                 const idx = indexView(view);
                 const node = ui.selected ? idx.byId.get(ui.selected) : null;
+                if (ui.view === 'code') renderCodeTraces(d, node, view, snap);
 
                 if (!node && ui.selectedEdge && ui.selectedEdge.view === ui.view) { renderEdgeDetails(d, idx, ui.selectedEdge); return; }
                 if (!understanding && !node && isSearch(currentFilter()) && overlayApplies() && (ui.payload.searchAnswers || {})[currentFilter().id]) {
@@ -1538,8 +1630,9 @@
                 }
                 if (!node && isBook()) { renderBookOverview(d, view, idx, snap); return; }
                 if (!node) {
-                    const h = document.createElement('h4'); h.textContent = ui.view === 'logical' && snap.systemName ? snap.systemName : 'Overview';
+                    const h = document.createElement('h4'); h.textContent = ui.view === 'code' && snap.codeModel ? snap.codeModel.name : ui.view === 'logical' && snap.systemName ? snap.systemName : 'Overview';
                     d.appendChild(h);
+                    if (ui.view === 'code' && snap.codeModel) { const p = document.createElement('p'); p.textContent = snap.codeModel.purpose; d.appendChild(p); }
                     if (ui.view === 'logical' && snap.systemPurpose) { const p = document.createElement('p'); p.textContent = snap.systemPurpose; d.appendChild(p); }
                     renderReport(d, view, idx);
                     const active = currentFilter();
@@ -1552,7 +1645,8 @@
                     addRow(d, ui.view === 'docs' ? 'Documents' : 'Files', files ? String(files) : '');
                     addRow(d, 'Connections', String(view.edges.length));
                     addRow(d, 'Scanned', snap.scannedAt ? new Date(snap.scannedAt).toLocaleString() : '');
-                    addRow(d, 'AI analysis', snap.enrichedAt ? new Date(snap.enrichedAt).toLocaleString() : 'not run');
+                    const analyzedAt = ui.view === 'code' && snap.codeModel ? snap.codeModel.analyzedAt : snap.enrichedAt;
+                    addRow(d, 'AI analysis', analyzedAt ? new Date(analyzedAt).toLocaleString() : snap.codeModel && ui.view === 'code' ? 'available' : 'not run');
                     if (overlayApplies() && ui.overlay === 'pr' && ui.payload.pr) {
                         const pr = ui.payload.pr;
                         const sec = document.createElement('h5'); sec.textContent = pr.source.title; d.appendChild(sec);
@@ -1603,7 +1697,7 @@
                     d.appendChild(p);
                     if (!ui.describeRequested.has(node.id)) {
                         ui.describeRequested.add(node.id);
-                        post('describe', { view: ui.view, id: node.id });
+                        post('describe', { view: ui.view === 'code' ? 'modules' : ui.view, id: ui.view === 'code' ? 'm:' + node.path : node.id });
                         p.textContent = 'Describing…';
                     }
                 }
@@ -1614,7 +1708,7 @@
                 }
                 // Logical component of a folder or file; the user can move it.
                 const comps = snap.components || [];
-                if (codeViews[ui.view] && comps.length && ['dir', 'package', 'file'].indexOf(node.kind) >= 0 && node.path != null) {
+                if (ui.view !== 'code' && codeViews[ui.view] && comps.length && ['dir', 'package', 'file'].indexOf(node.kind) >= 0 && node.path != null) {
                     const structural = ui.view === 'logical'
                         ? ((snap.views.find(function(v) { return v.id === 'modules'; }) || { nodes: [] }).nodes
                             .find(function(n) { return n.path === node.path && n.kind === node.kind; }) || node)
@@ -1656,7 +1750,7 @@
                     }, 'arch-path' + (openable ? '' : ' arch-reveal')));
                 }
                 // Local contents are available immediately; request a deeper AI outline.
-                if (ui.view === 'logical' && node.kind === 'file' && node.path) {
+                if ((ui.view === 'logical' || ui.view === 'code') && node.kind === 'file' && node.path) {
                     const reading = (ui.payload.outlining || []).indexOf(node.path) >= 0;
                     const hasContents = (idx.children.get(node.id) || []).length > 0;
                     const button = linkButton(reading ? 'Outlining with AI…' : hasContents ? 'Deepen with AI' : 'Outline with AI',
@@ -1955,6 +2049,15 @@
                     const why = document.createElement('p'); why.className = 'arch-answer';
                     why.textContent = (edge.label ? edge.label + ' ' : '') + '(related content found by the AI while annotating the book)';
                     d.appendChild(why);
+                    return;
+                }
+                if (edge.view === 'code') {
+                    const text = document.createElement('p'); text.textContent = edge.evidence.length ? 'A source-backed dependency inferred by the code analysis.' : 'A static dependency found by the source scanner. Trace a scenario to inspect execution order.'; d.appendChild(text);
+                    edge.evidence.forEach(function(source) {
+                        const match = /^(.*):(\d+)$/.exec(source);
+                        if (match) d.appendChild(linkButton(source, function() { post('openFile', { path: match[1], line: Number(match[2]) }); }, 'arch-path'));
+                    });
+                    [a, b].forEach(function(n) { if (n && n.path) d.appendChild(linkButton(n.path, function() { post('openFile', { path: n.path }); }, 'arch-path')); });
                     return;
                 }
                 const note = (ui.payload.edgeNotes || {})[edge.view + '|' + edge.source + '|' + edge.target];
@@ -2567,7 +2670,10 @@
                 el.review.title = p.pr && p.pr.reviewed
                     ? 'Reload the change as it is now and review it again (no cached answers)'
                     : 'AI review of every changed file';
+                el.codeTrace.hidden = ui.view !== 'code' || p.mode === 'pr';
                 el.analyze.disabled = !!p.busy || !p.snapshot;
+                el.analyze.textContent = ui.view === 'code' ? 'Analyze code' : 'Analyze';
+                el.analyze.title = ui.view === 'code' ? 'Read source code and infer nested components and layers' : 'Describe modules and map deployment with the selected AI assistant';
                 el.rescan.disabled = !!p.busy;
                 renderDeployButton();
                 // The progress bar shows the analysis; the status line covers everything else.
@@ -2618,6 +2724,7 @@
             /** Another X-Ray (the project's or a folder's) in the same web view: start fresh. */
             function resetForRoot(root) {
                 ui.root = root;
+                ui.codeQuestions = {}; ui.codeAwaitingScope = null; ui.selectedEdge = null; hideCodeSequence();
                 ui.operations = null;
                 Object.keys(ui.expanded).forEach(function(k) { ui.expanded[k].clear(); });
                 Object.keys(ui.focus).forEach(function(k) { ui.focus[k] = null; });
@@ -2647,9 +2754,17 @@
                 renderToolbar();
                 renderDetails();
                 const snap = ui.payload.snapshot;
+                const traces = snap && snap.codeSequences || [];
+                if (ui.view === 'code' && ui.codeAwaitingScope && !ui.payload.busy && traces.map(function(s) { return s.createdAt; }).join('|') !== ui.codePreviousTime) {
+                    const latest = traces.length - 1;
+                    if (latest >= 0 && traces[latest].scope === ui.codeAwaitingScope) { showCodeSequence(latest); ui.codeAwaitingScope = null; }
+                }
                 if (!snap) {
                     if (cy) cy.elements().remove();
                     return;
+                }
+                if (!ui.viewChosen && snap.views.some(function(v) { return v.id === 'code' && v.nodes.some(function(n) { return n.kind === 'file'; }); })) {
+                    ui.view = 'code'; renderToolbar(); renderDetails();
                 }
                 // No logical grouping yet: show the Structure view until the analysis lands.
                 if (!ui.viewChosen && ui.view === 'logical' && !snap.views.some(function(v) { return v.id === 'logical'; })) {
@@ -2661,6 +2776,7 @@
                     ensureCy();
                     // The structure grows live during an analysis: redraw when it changes.
                     const shape = (snap.components || []).map(function(c) { return c.id + '<' + c.parent; }).join(',')
+                        + '|' + (snap.codeModel ? JSON.stringify(snap.codeModel) : '')
                         + '|' + Object.keys(snap.assignments || {}).length
                         + '|' + snap.views.map(function(v) { return v.id + ':' + v.nodes.length; }).join(',');
                     const pr = ui.payload.pr;
@@ -2678,8 +2794,10 @@
 
             el.views.forEach(function(b) {
                 b.addEventListener('click', function() {
+                    hideCodeSequence();
                     ui.view = b.getAttribute('data-arch-view');
                     ui.viewChosen = true;
+                    ui.selectedEdge = null;
                     ui.selected = null;
                     if (ui.view === 'deployment' && !isSearch(currentFilter())) ui.overlay = 'none';
                     ui.graphKey = null;
@@ -2814,6 +2932,11 @@
                 if (saved !== null) { detailsHidden = saved === '1'; detailsUserChoice = true; }
             } catch (e) {}
             setDetailsHidden(detailsHidden, false);
+            el.codeTrace.addEventListener('click', function() {
+                setDetailsHidden(false, false);
+                const input = el.details.querySelector('.arch-code-question');
+                if (input) input.focus();
+            });
             el.detailsToggle.addEventListener('click', function() {
                 detailsUserChoice = true;
                 setDetailsHidden(!el.details.hidden, true);
@@ -2845,9 +2968,9 @@
                 const pr = ui.payload && ui.payload.pr;
                 post('reviewPR', { again: !!(pr && pr.reviewed) });
             });
-            el.analyze.addEventListener('click', function() { post('analyze'); });
+            el.analyze.addEventListener('click', function() { post(ui.view === 'code' ? 'analyzeCode' : 'analyze'); });
             el.rescan.addEventListener('click', function() { post('rescan'); });
-            el.fit.addEventListener('click', function() { if (cy) cy.animate({ fit: { eles: cy.elements(), padding: 28 }, duration: 240 }); });
+            el.fit.addEventListener('click', function() { if (!cy) return; if (ui.view === 'code') cy.fit(cy.elements(), 28); else cy.animate({ fit: { eles: cy.elements(), padding: 28 }, duration: 240 }); });
 
             // Other content types take over the editor area.
             ['setContent', 'setStructuredContent', 'setCodeContent'].forEach(function(name) {
