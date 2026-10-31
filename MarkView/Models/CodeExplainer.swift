@@ -286,11 +286,8 @@ final class CodeExplainStore: ObservableObject {
               db: SemanticDatabase?) {
         guard let explanation = explanations[path], explanation.ratings[filter.id] == nil,
               !working.contains(path) else { return }
-        guard !isStale(path: path, content: content) else {
-            errors[path] = "File changed — explain again before applying filters."
-            revision += 1
-            return
-        }
+        // The panel already asks for a fresh explanation; do not rate obsolete line ranges.
+        guard !isStale(path: path, content: content) else { return }
         working.insert(path)
         activity[path] = "Rating: \(filter.name)…"
         revision += 1
