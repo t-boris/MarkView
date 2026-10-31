@@ -157,8 +157,8 @@ flowchart LR
   diagram and clickable source evidence. Saved maps and scenarios show when source changes.
 - **Built from facts, named by AI.** The scan reads imports, note links, git co-changes,
   size and complexity, then clusters files (Louvain). In Logical, AI names and describes what
-  the structure already shows. Code uses a separate read-only source analysis. Results are cached by input, so re-analysis redoes only what
-  changed.
+  the structure already shows; its naming results are cached by input. Code uses a separate
+  read-only source analysis and saves the resulting model and scenarios.
 - **Inside every file.** Documents split into collections of like things (issues,
   requirements, decisions, endpoints), long code files into responsibilities and every type
   and function. Every leaf opens the file at that exact line.

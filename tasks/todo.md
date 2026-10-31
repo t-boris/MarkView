@@ -7,7 +7,7 @@
 - [x] Trace a named scenario for a layer/component/file/symbol; render a real Mermaid sequence with message evidence and line links. Persist maps/scenarios and mark them stale after source changes.
 - [x] Pure model checks and shipping-page WKWebView interaction checks (`tools/tests/code-architecture-tests.sh`); existing X-Ray content and diagram harnesses.
 - [x] Native QA in an isolated app and mixed Python/JS/SQL folder: real assistant produced 7 nested components, 5 source-backed dependencies and a 9-message sequence; evidence opened the source; results survived restart in SQLite. Debug build passed.
-- [ ] PR merge, signed/notarized Release and DMG.
+- Release follow-through: PR #207; merge after checks, then publish the signed/notarized DMG from merged `origin/main` and report its CI and local artifact evidence.
 
 
 ## GitHub activity prompt (2026-10-30, 4.61.0)
