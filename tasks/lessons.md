@@ -687,3 +687,14 @@ I added four files to `project.pbxproj` and `plutil -lint` printed "Unexpected c
 `Build & Release` failed on main three times with "the compiler is unable to type-check this expression in reasonable time" (`ProjectToolRunner.swift`: `"…" + list.map { "…" + (cond ? a : b) + "…" }.joined() + "\n"`). `-warn-long-expression-type-checking` on the local Xcode flags nothing, so only CI shows it, and only after the merge (the workflow runs on push to main only).
 - Rule: do not build strings from three or more `+` operands that include a ternary, `??` or a closure; use `var text = …; text += …`, a local for each ternary, and string interpolation. A `map` over a list gets a named closure parameter and an explicit `-> String`.
 
+
+## A source map must be checked on a real codebase, not just a small fixture (2026-10-31)
+
+Code architecture 4.62.0 worked on a five-file shop, but its MarkView self-analysis produced a
+flat catalogue, glob ownership and file-header citations. An inventory plus permission to read
+files does not ensure that the answer uses implementation evidence. Supply bounded, numbered
+source excerpts; balance languages/folders; request responsibility depth and exact paths; give
+repairs the complete prior model and all affected issues. Validate dependency evidence against
+the actual endpoint ownership. Inspect the first rendered overview on real data: show stable,
+readable layers and reveal dense dependencies around a selection. Test Hide tests before any
+Logical enrichment, since that pass used to be the only producer of path tags.

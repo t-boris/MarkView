@@ -154,7 +154,8 @@ flowchart LR
 - **Code architecture:** open X-Ray in a code folder, then **Analyze code** to infer layers,
   responsibilities and dependencies from actual source. Drill into components, files and
   symbols. **Sequence…** traces a named scenario for the selected scope, with a sequence
-  diagram and clickable source evidence. Saved maps and scenarios show when source changes.
+  diagram and clickable source evidence. Select a box to see its dependencies; Show all includes
+  tests. Saved maps and scenarios show when source changes.
 - **Built from facts, named by AI.** The scan reads imports, note links, git co-changes,
   size and complexity, then clusters files (Louvain). In Logical, AI names and describes what
   the structure already shows; its naming results are cached by input. Code uses a separate

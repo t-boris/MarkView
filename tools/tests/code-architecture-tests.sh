@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/CodeArchitectureTests.swift "$out/main.swift"
-swiftc -O -o "$out/check" MarkView/Models/ArchitectureModel.swift MarkView/Models/CodeArchitecture.swift \
+swiftc -O -o "$out/check" MarkView/Models/ArchitectureModel.swift MarkView/Models/CodeArchitecture.swift MarkView/Models/CodePathTags.swift \
   MarkView/Models/DiagramAI.swift tools/tests/DiagramCLIStub.swift tools/tests/CodeArchitectureTestSupport.swift "$out/main.swift"
 "$out/check" "$PWD/tools/tests/fixtures/code-architecture" "$out"
 if [[ "${1:-}" == "--model-only" ]]; then exit 0; fi
