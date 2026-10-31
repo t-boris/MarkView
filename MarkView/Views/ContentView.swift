@@ -823,11 +823,7 @@ struct ContentView: View {
 
     private func openFile() {
         let panel = NSOpenPanel()
-        var types: [UTType] = [.markdownText, .plainText]
-        if let canvasType = UTType(filenameExtension: "canvas") {
-            types.append(canvasType)
-        }
-        panel.allowedContentTypes = types
+        panel.showsHiddenFiles = true
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
