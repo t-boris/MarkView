@@ -737,7 +737,9 @@
                         // "Only flagged": the top two levels of an AI filter, else anything not green/neutral.
                         flag: overlayFlag(info) ? 1 : 0,
                         expandable: kids.length && !isBox ? 1 : 0,
-                    }, classes: [node.kind, isBox ? 'box' : 'leaf', kids.length && !isBox ? 'expandable' : '', described ? 'described' : ''].join(' ') });
+                    }, classes: [node.kind, isBox ? 'box' : 'leaf', kids.length && !isBox ? 'expandable' : '', described ? 'described' : '',
+                        // Draft layers (REQ-004): guessed from file paths until the code analysis names components.
+                        ui.view === 'code' && node.kind === 'layer' && !codeModelOf(ui.payload.snapshot) ? 'draft' : ''].join(' ') });
                 });
                 const agg = new Map();
                 const prEdges = ui.view !== 'pr' && overlayApplies() && ui.overlay === 'pr'
@@ -758,7 +760,8 @@
                     }
                     else agg.set(key, { id: 'e:' + key, source: s, target: t, weight: e.weight || 1, label: e.label || '', kind: e.kind, evidence: e.evidence ? [e.evidence] : [] });
                 });
-                agg.forEach(function(e) { elements.push({ group: 'edges', data: e }); });
+                // A dependency with a citation is the AI's inference; one without is a scanner fact (REQ-004).
+                agg.forEach(function(e) { elements.push({ group: 'edges', data: e, classes: e.evidence.length ? 'inference' : '' }); });
                 if (ui.onlyFlagged && overlayApplies() && ui.overlay !== 'size') return keepFlagged(elements, c);
                 return elements;
             }
@@ -826,6 +829,9 @@
                     { selector: 'edge[kind = "added"]', style: { 'line-color': c.ok, 'target-arrow-color': c.ok, 'width': 2.5, 'opacity': 1 } },
                     { selector: 'edge[kind = "removed"]', style: { 'line-color': c.bad, 'target-arrow-color': c.bad, 'width': 2.5, 'line-style': 'dashed', 'opacity': 1 } },
                     { selector: 'node[provisional = 1]', style: { 'border-style': 'dashed' } },
+                    // Code view: draft layers dotted, AI-inferred dependencies dashed; scanner facts stay solid.
+                    { selector: 'node.draft', style: { 'border-style': 'dotted' } },
+                    { selector: 'edge.inference', style: { 'line-style': 'dashed' } },
                     // Related sections the AI found in the Book: dashed, muted, their reason in the panel.
                     { selector: 'edge[kind = "related"]', style: { 'line-style': 'dashed', 'line-color': c.mute, 'target-arrow-color': c.mute, 'label': '', 'opacity': 0.7 } },
                     { selector: 'edge.hot', style: { 'line-color': c.accent, 'target-arrow-color': c.accent, 'opacity': 1, 'events': 'yes' } },
@@ -1284,6 +1290,11 @@
                     span.appendChild(document.createTextNode(item[1]));
                     el.legend.appendChild(span);
                 });
+                if (ui.view === 'code' && !scale && !filter) {
+                    const span = document.createElement('span'); span.className = 'arch-muted';
+                    span.textContent = 'Solid arrow = fact (scanner) · dashed = inference (AI, cited)' + (codeModelOf(ui.payload.snapshot) ? '' : ' · dotted layer = draft from paths');
+                    el.legend.appendChild(span);
+                }
                 const hint = document.createElement('span');
                 hint.className = 'arch-hint';
                 hint.textContent = ui.view === 'code' ? 'Select a box for dependencies · Double-click to zoom in or open' : 'Double-click to zoom in or open';
@@ -1520,21 +1531,145 @@
             }
 
             function codeScope(node) { return node ? node.id : 'code:'; }
+            function codeModelOf(snap) { return snap && snap.codeModel ? snap.codeModel : null; }
+            function moduleRoot(snap) {
+                return ((snap.views.find(function(v) { return v.id === 'modules'; }) || {}).nodes || []).find(function(n) { return n.id === 'm:'; });
+            }
+
+            /** "5 minutes ago" for the status line; the date once it is a week old. */
+            function relativeTime(iso) {
+                const date = new Date(iso); if (isNaN(date.getTime())) return '';
+                const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);
+                if (seconds < 60) return 'just now';
+                const minutes = Math.round(seconds / 60);
+                if (minutes < 60) return minutes + (minutes === 1 ? ' minute ago' : ' minutes ago');
+                const hours = Math.round(minutes / 60);
+                if (hours < 24) return hours + (hours === 1 ? ' hour ago' : ' hours ago');
+                const days = Math.round(hours / 24);
+                if (days < 7) return days === 1 ? 'yesterday' : days + ' days ago';
+                return 'on ' + date.toLocaleDateString();
+            }
+
+            /** The automatic analysis in one line (REQ-002, DEC-004). Older payloads carry no
+             *  state: a model's own date then, nothing without one. */
+            function codeStatusText(snap) {
+                const state = ui.payload.automaticState || { kind: 'idle' };
+                switch (state.kind) {
+                case 'scanning': case 'analyzing': return 'Analyzing code in the background…' + (state.step ? ' ' + state.step : '');
+                case 'done': return 'Analyzed ' + relativeTime(state.date);
+                case 'off': return 'Automatic analysis is off';
+                case 'unavailable': return 'AI analysis unavailable: ' + (state.reason || 'no assistant');
+                case 'tooLarge': return 'Project too large for automatic analysis (' + (state.files || 0) + ' files); use Refresh';
+                case 'skipped': return state.reason || '';
+                default: return snap.codeModel && snap.codeModel.analyzedAt ? 'Analyzed ' + relativeTime(snap.codeModel.analyzedAt) : '';
+                }
+            }
+
+            /** What the scenario list shows for sequence `i`: from the payload, or derived
+             *  from the snapshot for payloads without `codeSequenceInfo`. */
+            function sequenceInfo(snap, i) {
+                const info = (ui.payload.codeSequenceInfo || [])[i];
+                if (info) return info;
+                const trace = snap.codeSequences[i];
+                const root = moduleRoot(snap);
+                return { title: trace.diagram.title, scope: trace.scope, auto: !!trace.auto,
+                    stale: !!(root && root.signature !== trace.signature), createdAt: trace.createdAt };
+            }
+
+            /** One scenario: its title opens the sequence; automatic or manual, and stale when a cited file changed. */
+            function sequenceRow(snap, i) {
+                const info = sequenceInfo(snap, i);
+                const row = document.createElement('div'); row.className = 'arch-sequence';
+                row.appendChild(linkButton(info.title, function() { showCodeSequence(i); }, 'arch-action'));
+                const badges = document.createElement('span'); badges.className = 'arch-badges';
+                const kind = document.createElement('span'); kind.textContent = info.auto ? 'Automatic' : 'Manual';
+                kind.title = info.auto ? 'Chosen and traced by the automatic analysis' : 'Traced from your question; kept across automatic refreshes';
+                badges.appendChild(kind);
+                if (info.stale) {
+                    const stale = document.createElement('span'); stale.className = 'arch-warn'; stale.textContent = 'stale';
+                    stale.title = 'A cited source file changed since this trace'; badges.appendChild(stale);
+                }
+                row.appendChild(badges);
+                return row;
+            }
+
+            const LEVEL_NAMES = { full: 'full', partial: 'partial', notAnalyzed: 'not analyzed' };
+            /** "What was understood" (REQ-003): per language the level and file counts, the
+             *  reasons and the unassigned files. Collapsed when every language is full. */
+            function renderCoverage(d, snap) {
+                const report = snap.codeCoverage; if (!report) return;
+                const languages = report.languages || [];
+                const details = document.createElement('details'); details.className = 'arch-coverage';
+                details.open = languages.some(function(l) { return l.level !== 'full'; });
+                const summary = document.createElement('summary'); summary.textContent = 'What was understood'; details.appendChild(summary);
+                if (languages.length) {
+                    const table = document.createElement('table');
+                    const head = table.createTHead().insertRow();
+                    ['Language', 'Level', 'Full', 'Partial', 'Not analyzed'].forEach(function(text) {
+                        const cell = document.createElement('th'); cell.textContent = text; head.appendChild(cell);
+                    });
+                    const body = table.createTBody();
+                    languages.forEach(function(l) {
+                        const row = body.insertRow(); row.className = 'arch-level-' + l.level;
+                        [l.language, LEVEL_NAMES[l.level] || l.level, l.full, l.partial, l.notAnalyzed].forEach(function(value, i) {
+                            const cell = row.insertCell(); cell.textContent = String(value == null ? '' : value); if (i >= 2) cell.className = 'arch-num';
+                        });
+                    });
+                    details.appendChild(table);
+                } else {
+                    const p = document.createElement('p'); p.className = 'arch-muted'; p.textContent = 'No source files were scanned.'; details.appendChild(p);
+                }
+                addRow(details, 'Files outside the components', String(report.unassignedFiles || 0));
+                if (!report.hasModel) {
+                    const p = document.createElement('p'); p.className = 'arch-muted';
+                    p.textContent = 'Local scan only: the AI analysis assigns files to components.'; details.appendChild(p);
+                }
+                if ((report.reasons || []).length) {
+                    const list = document.createElement('ul'); list.className = 'arch-coverage-reasons';
+                    report.reasons.forEach(function(reason) { const item = document.createElement('li'); item.textContent = reason; list.appendChild(item); });
+                    details.appendChild(list);
+                }
+                d.appendChild(details);
+            }
+
+            /** Fact, inference and draft (REQ-004), as the graph draws them. */
+            function renderFactLegend(d) {
+                const legend = document.createElement('div'); legend.className = 'arch-fact-legend';
+                [['arch-fact', 'Fact', 'found in the source by the scanner (solid arrow)'],
+                 ['arch-inference', 'Inference', 'read from the code by the AI, with a citation (dashed arrow)'],
+                 ['arch-draft', 'Draft', 'layers guessed from file paths until the analysis runs (dotted box)']].forEach(function(item) {
+                    const span = document.createElement('span');
+                    const mark = document.createElement('i'); mark.className = item[0]; span.appendChild(mark);
+                    const name = document.createElement('b'); name.textContent = item[1]; span.appendChild(name);
+                    span.appendChild(document.createTextNode(' ' + item[2]));
+                    legend.appendChild(span);
+                });
+                d.appendChild(legend);
+            }
 
             function renderCodeTraces(d, node, view, snap) {
                 if (!view.nodes.some(function(n) { return n.kind === 'file'; })) return;
                 const scope = codeScope(node);
                 const section = document.createElement('div'); section.className = 'arch-code-traces';
+                const sequences = snap.codeSequences || [];
+                if (!node) {
+                    // The overview: the automatic analysis, its scenarios, then the manual trace.
+                    const status = codeStatusText(snap);
+                    if (status) { const line = document.createElement('p'); line.className = 'arch-code-status'; line.textContent = status; section.appendChild(line); }
+                    const heading = document.createElement('h5'); heading.textContent = 'Scenarios'; section.appendChild(heading);
+                    if (sequences.length) sequences.forEach(function(trace, i) { section.appendChild(sequenceRow(snap, i)); });
+                    else { const p = document.createElement('p'); p.className = 'arch-muted'; p.textContent = 'No scenarios traced yet.'; section.appendChild(p); }
+                }
                 const title = document.createElement('h5'); title.textContent = 'Trace a scenario' + (node ? ' in ' + node.name : ' in the code'); section.appendChild(title);
                 const note = document.createElement('p'); note.className = 'arch-muted';
                 note.textContent = 'Layers → components → files → symbols. Double-click to explore. ' +
-                    (!snap.codeModel && (snap.logicalDraft || !(snap.components || []).length) ? 'Draft layers use file paths; Analyze refines components from source. ' : '') +
+                    (!snap.codeModel && (snap.logicalDraft || !(snap.components || []).length) ? 'Draft layers use file paths; the analysis refines components from source. ' : '') +
                     'A sequence is an AI interpretation of one code path, with source evidence; it is not a runtime trace.' +
                     (ui.codeHidden.size ? ' Use Show all to include filtered source code.' : '');
                 section.appendChild(note);
-                const moduleRoot = ((snap.views.find(function(v) { return v.id === 'modules'; }) || {}).nodes || []).find(function(n) { return n.id === 'm:'; });
-                if (snap.codeModel && moduleRoot && snap.codeModel.signature !== moduleRoot.signature) {
-                    const warning = document.createElement('p'); warning.className = 'arch-muted'; warning.textContent = 'Source changed since the architecture analysis. Analyze code to refresh components.'; section.appendChild(warning);
+                const root = moduleRoot(snap);
+                if (snap.codeModel && root && snap.codeModel.signature !== root.signature) {
+                    const warning = document.createElement('p'); warning.className = 'arch-muted'; warning.textContent = 'Source changed since the architecture analysis. Refresh to update the components.'; section.appendChild(warning);
                 }
                 const component = snap.codeModel && node && snap.codeModel.components.find(function(c) { return c.id === node.component; });
                 if (component) {
@@ -1553,12 +1688,9 @@
                 submit.disabled = ui.payload.busy || !input.value.trim();
                 input.oninput = function() { ui.codeQuestions[scope] = input.value; submit.disabled = ui.payload.busy || !input.value.trim(); };
                 section.appendChild(input); section.appendChild(submit);
-                (snap.codeSequences || []).forEach(function(trace, i) {
-                    if (trace.scope !== scope) return;
-                    const signature = ((snap.views.find(function(v) { return v.id === 'modules'; }) || {}).nodes || []).find(function(n) { return n.id === 'm:'; });
-                    const stale = signature && signature.signature !== trace.signature;
-                    section.appendChild(linkButton(trace.diagram.title + (stale ? ' · source changed' : ''), function() { showCodeSequence(i); }, 'arch-action'));
-                });
+                // A selected box lists the scenarios traced inside it; the overview listed them all above.
+                if (node) sequences.forEach(function(trace, i) { if (trace.scope === scope) section.appendChild(sequenceRow(snap, i)); });
+                else { renderCoverage(section, snap); renderFactLegend(section); }
                 d.appendChild(section);
             }
 
@@ -2059,7 +2191,7 @@
                     return;
                 }
                 if (edge.view === 'code') {
-                    const text = document.createElement('p'); text.textContent = edge.evidence.length ? 'A source-backed dependency inferred by the code analysis.' : 'A static dependency found by the source scanner. Trace a scenario to inspect execution order.'; d.appendChild(text);
+                    const text = document.createElement('p'); text.textContent = edge.evidence.length ? 'Inference: a source-backed dependency inferred by the code analysis.' : 'Fact: a static dependency found by the source scanner. Trace a scenario to inspect execution order.'; d.appendChild(text);
                     edge.evidence.forEach(function(source) {
                         const match = /^(.*):(\d+)$/.exec(source);
                         if (match) d.appendChild(linkButton(source, function() { post('openFile', { path: match[1], line: Number(match[2]) }); }, 'arch-path'));
@@ -2680,8 +2812,8 @@
                     : 'AI review of every changed file';
                 el.codeTrace.hidden = ui.view !== 'code' || p.mode === 'pr';
                 el.analyze.disabled = !!p.busy || !p.snapshot;
-                el.analyze.textContent = ui.view === 'code' ? 'Analyze code' : 'Analyze';
-                el.analyze.title = ui.view === 'code' ? 'Read source code and infer nested components and layers' : 'Describe modules and map deployment with the selected AI assistant';
+                el.analyze.textContent = ui.view === 'code' ? 'Refresh' : 'Analyze';
+                el.analyze.title = ui.view === 'code' ? 'Analyze the code again now: components, layers and automatic scenarios (manual traces are kept)' : 'Describe modules and map deployment with the selected AI assistant';
                 el.rescan.disabled = !!p.busy;
                 renderDeployButton();
                 // The progress bar shows the analysis; the status line covers everything else.
@@ -2993,7 +3125,7 @@
                 const pr = ui.payload && ui.payload.pr;
                 post('reviewPR', { again: !!(pr && pr.reviewed) });
             });
-            el.analyze.addEventListener('click', function() { post(ui.view === 'code' ? 'analyzeCode' : 'analyze'); });
+            el.analyze.addEventListener('click', function() { post(ui.view === 'code' ? 'refreshCode' : 'analyze'); });
             el.rescan.addEventListener('click', function() { post('rescan'); });
             el.fit.addEventListener('click', function() { if (!cy) return; if (ui.view === 'code') cy.fit(cy.elements(), 28); else cy.animate({ fit: { eles: cy.elements(), padding: 28 }, duration: 240 }); });
 

@@ -138,7 +138,87 @@ text = js("""
 document.getElementById('arch-analyze').click();
 return document.getElementById('arch-analyze').textContent;
 """)
-check(text == "Analyze code" && bridge.messages.contains { ($0["payload"] as? [String: Any])?["action"] as? String == "analyzeCode" }, "Analyze code sends the dedicated source analysis action", text)
+check(text == "Refresh" && bridge.messages.contains { ($0["payload"] as? [String: Any])?["action"] as? String == "refreshCode" }, "Refresh runs the automatic code pipeline now", text)
+
+// Automatic Code Architecture, step 5: the status line, "What was understood", the legend and the scenario markers.
+text = js("""
+document.querySelector('[data-arch-view="code"]').click();
+document.getElementById('arch-graph')._cyreg.cy.emit('tap');
+const states = [{kind:'analyzing', step:'Tracing scenarios'}, {kind:'done', date:new Date(Date.now() - 5 * 60 * 1000).toISOString()},
+    {kind:'off'}, {kind:'unavailable', reason:'Claude Code is signed out'}, {kind:'tooLarge', files:6100}, {kind:'scanning'}];
+return states.map(state => {
+    window.testPayload.automaticState = state;
+    window.showArchitecture(window.testPayload);
+    const line = document.querySelector('.arch-code-status');
+    return line ? line.textContent : 'none';
+}).join('|');
+""")
+check(text == "Analyzing code in the background… Tracing scenarios|Analyzed 5 minutes ago|Automatic analysis is off|AI analysis unavailable: Claude Code is signed out|Project too large for automatic analysis (6100 files); use Refresh|Analyzing code in the background…",
+      "the Code panel's status line covers every automatic state in one line", text)
+text = js("""
+window.testPayload.automaticState = {kind:'done', date:new Date().toISOString()};
+window.testPayload.snapshot.codeCoverage = {version:1, hasModel:true, unassignedFiles:2, computedAt:new Date().toISOString(),
+    languages:[{language:'python', level:'full', full:3, partial:0, notAnalyzed:0}, {language:'javascript', level:'partial', full:0, partial:1, notAnalyzed:2}, {language:'toml', level:'notAnalyzed', full:0, partial:0, notAnalyzed:4}],
+    skipped:[], reasons:['2 javascript files: larger than the 512 KB parse limit', '4 toml files: configuration, build or plain-text formats without a dependency graph']};
+window.showArchitecture(window.testPayload);
+const details = document.querySelector('.arch-coverage');
+const rows = [...details.querySelectorAll('tbody tr')].map(r => [...r.cells].map(c => c.textContent).join(','));
+return String(details.open) + '|' + details.querySelector('summary').textContent + '|' + rows.join(';') + '|' + details.querySelectorAll('.arch-coverage-reasons li').length + '|' + (details.querySelector('.arch-row').textContent === 'Files outside the components2');
+""")
+check(text == "true|What was understood|python,full,3,0,0;javascript,partial,0,1,2;toml,not analyzed,0,0,4|2|true", "What was understood lists every language with its level, counts, reasons and unassigned files", text)
+text = js("""
+window.testPayload.snapshot.codeCoverage.languages = [{language:'python', level:'full', full:3, partial:0, notAnalyzed:0}];
+window.testPayload.snapshot.codeCoverage.reasons = []; window.testPayload.snapshot.codeCoverage.unassignedFiles = 0;
+window.showArchitecture(window.testPayload);
+return String(document.querySelector('.arch-coverage').open);
+""")
+check(text == "false", "the coverage section starts collapsed when every language was fully understood", text)
+text = js("""
+const panel = document.querySelector('.arch-fact-legend');
+const cy = document.getElementById('arch-graph')._cyreg.cy;
+cy.getElementById('code:layer:presentation').emit('tap');
+const inferred = cy.edges('.inference').filter(e => e.data('evidence').length).length;
+const facts = cy.edges().not('.inference').filter(e => e.data('evidence').length).length;
+const dashed = cy.edges('.inference').every(e => e.style('line-style') === 'dashed');
+cy.emit('tap');
+return [panel ? panel.innerText.replace(/\\s+/g, ' ') : 'none', document.getElementById('arch-legend').innerText.replace(/\\s+/g, ' '), inferred > 0, facts === 0, dashed, cy.nodes('.draft').length === 0].join('|');
+""")
+check(text.contains("Fact") && text.contains("Inference") && text.contains("Draft") && text.contains("Solid arrow = fact (scanner) · dashed = inference (AI, cited)") && text.hasSuffix("|true|true|true|true"),
+      "the panel and legend bar tell facts from inferences, and cited dependencies are drawn dashed", text)
+text = js("""
+window.testPayload.codeSequenceInfo = [{title:'Place an order', scope:'code:', auto:true, stale:false, createdAt:new Date().toISOString()},
+    {title:'Cancel an order', scope:'code:', auto:false, stale:true, createdAt:new Date().toISOString()}];
+window.showArchitecture(window.testPayload);
+const rows = [...document.querySelectorAll('.arch-sequence')].map(r => r.querySelector('button').textContent + ':' + [...r.querySelectorAll('.arch-badges span')].map(s => s.textContent).join(','));
+rows[0] && document.querySelectorAll('.arch-sequence button')[0].click();
+await new Promise(r => setTimeout(r, 200));
+const opened = !document.getElementById('arch-code-sequence').hidden && document.getElementById('arch-code-sequence-title').textContent;
+document.getElementById('arch-code-sequence-close').click();
+return rows.join(';') + '|' + opened;
+""")
+check(text == "Place an order:Automatic;Cancel an order:Manual,stale|Place an order", "the scenario list marks automatic and stale sequences and opens the sequence panel", text)
+text = js("""
+const cy = document.getElementById('arch-graph')._cyreg.cy;
+const draftPayload = JSON.parse(JSON.stringify(window.testPayload));
+delete draftPayload.snapshot.codeModel; delete draftPayload.automaticState; delete draftPayload.codeSequenceInfo; delete draftPayload.snapshot.codeCoverage;
+draftPayload.snapshot.views.find(v => v.id === 'code').edges = [];
+window.showArchitecture(draftPayload);
+await new Promise(r => setTimeout(r, 400));
+const drafted = cy.nodes('.draft').length > 0 && cy.nodes('.draft').every(n => n.style('border-style') === 'dotted');
+const text = document.getElementById('arch-details').innerText;
+const plain = [text.toLowerCase().includes('trace a scenario'), !text.includes('What was understood'), !document.querySelector('.arch-code-status')].join(',');
+window.showArchitecture(window.testPayload);
+await new Promise(r => setTimeout(r, 400));
+return String(drafted) + '|' + String(cy.nodes('.draft').length === 0) + '|' + plain + '|' + text.slice(0, 400);
+""")
+check(text.hasPrefix("true|true|true,true,true|"), "without a code model the layers are drawn as a dotted draft and a payload without the new fields still renders", text)
+text = js("""
+delete window.testPayload.automaticState; delete window.testPayload.codeSequenceInfo;
+window.showArchitecture(window.testPayload);
+const rows = [...document.querySelectorAll('.arch-sequence')].map(r => [...r.querySelectorAll('.arch-badges span')].map(s => s.textContent).join(','));
+return document.querySelector('.arch-code-status').textContent.replace(/\\d+/, 'N') + '|' + rows.join(';');
+""")
+check(text.hasPrefix("Analyzed ") && text.hasSuffix("|Manual;Automatic"), "an older payload falls back to the model's date and the snapshot's own flags", text)
 text = js("""
 window.architectureFocus('code:f:service.py');
 await new Promise(r => setTimeout(r, 200));
@@ -190,7 +270,7 @@ window.testPayload.snapshot.views.find(v => v.id === 'modules').nodes.find(n => 
 window.showArchitecture(window.testPayload);
 return document.getElementById('arch-details').innerText;
 """)
-check(text.contains("Source changed") && text.contains("source changed"), "changed source marks both architecture and sequences stale", text)
+check(text.contains("Source changed") && text.contains("stale"), "changed source marks both architecture and sequences stale", text)
 text = js("""
 document.querySelector('[data-arch-view="docs"]').click();
 await new Promise(r => setTimeout(r, 100));

@@ -1201,6 +1201,24 @@
         .arch-code-traces { margin: 10px 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); }
         .arch-code-traces .arch-action { display: block; margin: 6px 0; text-align: left; }
         #arch-code-sequence-sources .arch-path { display: block; text-align: left; margin: 5px 0; }
+        .arch-code-status { font-size: calc(11.5px * var(--ui-scale, 1)); color: var(--text-secondary); }
+        .arch-sequence { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; margin: 4px 0; }
+        .arch-sequence .arch-action { display: inline; width: auto; margin: 0; }
+        .arch-sequence .arch-badges { margin: 0; }
+        .arch-coverage { margin: 12px 0 8px; font-size: calc(11.5px * var(--ui-scale, 1)); }
+        .arch-coverage summary { cursor: pointer; font-size: calc(11px * var(--ui-scale, 1)); text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); }
+        .arch-coverage table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: calc(11px * var(--ui-scale, 1)); }
+        .arch-coverage th, .arch-coverage td { padding: 2px 4px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        .arch-coverage th { font-weight: 600; color: var(--text-secondary); }
+        .arch-coverage td.arch-num, .arch-coverage th:nth-child(n+3) { text-align: right; }
+        .arch-coverage tr.arch-level-partial td:nth-child(2) { color: #c9892a; }
+        .arch-coverage tr.arch-level-notAnalyzed td:nth-child(2) { color: #d9534f; }
+        .arch-coverage-reasons { margin: 4px 0; padding-left: 18px; color: var(--text-secondary); font-size: calc(11px * var(--ui-scale, 1)); }
+        .arch-fact-legend { display: flex; flex-direction: column; gap: 3px; margin: 10px 0 4px; font-size: calc(11px * var(--ui-scale, 1)); color: var(--text-secondary); }
+        .arch-fact-legend span { display: flex; gap: 6px; align-items: baseline; }
+        .arch-fact-legend i { flex: none; width: 18px; height: 0; border-top: 2px solid var(--text-secondary); position: relative; top: -3px; }
+        .arch-fact-legend i.arch-inference { border-top-style: dashed; }
+        .arch-fact-legend i.arch-draft { width: 14px; height: 8px; border: 1px dotted var(--text-secondary); top: 0; }
         .arch-progress { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary); font-size: calc(11.5px * var(--ui-scale, 1)); }
         .arch-progress-steps { display: flex; gap: 3px; flex: none; }
         .arch-progress-steps span { width: 34px; height: 6px; border-radius: 3px; background: var(--border-color); overflow: hidden; position: relative; }

@@ -10,7 +10,10 @@ the AI Importance rating, user AI filters, the ⚡ search and a pull-request rev
 
 The **Code** view is a source-only architecture explorer (`CodeArchitecture.swift`). It is
 selected initially when the scan finds code. Before analysis it projects the source tree
-into explicitly labelled draft layers. **Analyze code** asks the project's read-only CLI
+into explicitly labelled draft layers. The automatic pipeline (below) and the Code view's
+**Refresh** (`refreshCode`: the pipeline forced — with the switch off, above the size cap,
+inside the 15 min interval, and re-reading an unchanged model; a folder X-Ray re-runs
+`analyzeCode` instead) ask the project's read-only CLI
 assistant to infer a nested responsibility tree from actual source. Before the call, a worker
 collects up to 90,000 characters of line-numbered implementation excerpts, balancing source
 centrality with folder/language coverage and leaving complete-file inspection to the assistant.
@@ -42,8 +45,10 @@ another through the same path as a manual trace and replaces only the automatic 
 the pipeline in one task without the X-Ray tab: local scan → size cap (DEC-003) → unchanged
 root signature means done → `CLIToolLocator.probe` of the project's assistant (absent or
 signed out: `automaticState = .unavailable`, DEC-004) → code analysis → automatic traces.
-`automaticState` (idle, scanning, analyzing, done, unavailable, skipped) is the published
-state for the Code view. File-tree reloads caused by the folder changing on disk call
+`automaticState` (idle, scanning, analyzing, done, unavailable, off, tooLarge, skipped) is
+the published state for the Code view; a change bumps `revision`, and the payload carries it
+as `automaticState {kind, step?, reason?, date?, files?}` next to `codeSequenceInfo`
+(per sequence: title, scope, `auto`, `stale` from `CodeSequence.isStale`, createdAt). File-tree reloads caused by the folder changing on disk call
 `noteProjectChanged`; the pure `AutoAnalysisScheduler` (`tools/tests/auto-analysis-scheduler-tests.sh`)
 decides from timestamps: 60 s of quiet, one local rescan per change inside the 15 min AI
 interval, the AI run once it is allowed, nothing while a run is active. Every scan and
@@ -57,7 +62,17 @@ extraction, declaration outline and model ownership), `partial` (recognized, som
 missing; the most any language reaches without a model) or `notAnalyzed` (configuration
 formats, bundles, oversized files, files no component owns) — with file counts per level,
 the number of unassigned files and plain-text reasons; it is stored as the optional
-`codeCoverage` snapshot field (`CodeCoverage`, versioned). No UI reads it yet.
+`codeCoverage` snapshot field (`CodeCoverage`, versioned).
+The Code panel of the X-Ray (overview, nothing selected) shows, in order: one status line
+from `automaticState` ("Analyzing code in the background…", "Analyzed 5 minutes ago",
+"Automatic analysis is off", "AI analysis unavailable: …", "Project too large for automatic
+analysis (N files); use Refresh"), the scenario list (every sequence, an Automatic or Manual
+badge and a `stale` badge), the manual "Trace a scenario" field, the collapsible "What was
+understood" table (per language: level and file counts, the unassigned files and the
+reasons; collapsed when every language is `full`) and a fact/inference/draft legend. On the
+graph a dependency with a citation (the AI's inference) is drawn dashed, a scanner fact
+solid, and layers without a code model dotted (REQ-004). Payloads without the new fields
+still render: the status falls back to the model's date and staleness to the root signature.
 A dependency citation must be owned by an endpoint or one of its child components, using the
 same most-specific-path/deepest-owner rule as the diagram. A repair call receives the prior JSON
 and up to 40 validation problems, preserving valid component identities. CRLF line numbers

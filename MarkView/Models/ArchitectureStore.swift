@@ -43,7 +43,7 @@ final class ArchitectureStore: ObservableObject {
     private var runToken = 0
 
     /// What the automatic code analysis of the project is doing (REQ-002 of
-    /// automatic-code-architecture); shown by the Code view later.
+    /// automatic-code-architecture); the Code view shows it as one status line.
     enum AutomaticState: Equatable {
         case idle
         case scanning
@@ -51,10 +51,17 @@ final class ArchitectureStore: ObservableObject {
         case done(Date)
         /// No CLI agent, or it is signed out (DEC-004).
         case unavailable(reason: String)
-        /// The switch is off or the project exceeds the size cap (DEC-001, DEC-003).
+        /// The `xray.autoAnalyze` switch is off (DEC-001).
+        case off
+        /// The project exceeds the size cap (DEC-003); only the manual Refresh analyzes it.
+        case tooLarge(files: Int)
+        /// Nothing to analyze (for example no source files).
         case skipped(reason: String)
     }
-    @Published private(set) var automaticState: AutomaticState = .idle
+    /// A change re-renders the web view: the status line is part of the payload.
+    @Published private(set) var automaticState: AutomaticState = .idle {
+        didSet { if oldValue != automaticState { revision += 1 } }
+    }
     /// Timestamps behind the automatic refresh; `AutoAnalysisScheduler` decides, this store acts.
     private var scheduler = AutoAnalysisScheduler()
     /// Where the automatic analysis runs, set by `startAutomaticCodeAnalysis`; nil until then,
@@ -1424,11 +1431,14 @@ final class ArchitectureStore: ObservableObject {
     /// switch) cancels the run, and a cancelled run commits nothing. Nothing starts with the
     /// `xray.autoAnalyze` switch off (DEC-001); the size cap (DEC-003) and a missing or
     /// signed-out agent (DEC-004) end the run after the local scan, in `automaticState`.
-    func startAutomaticCodeAnalysis(root: URL, db: SemanticDatabase?) {
+    /// `force` is the Code view's Refresh (DEC-002): it runs now, with the switch off, above
+    /// the size cap and inside the 15 min interval, and reads the model again even when the
+    /// source did not change (cached answers make that free).
+    func startAutomaticCodeAnalysis(root: URL, db: SemanticDatabase?, force: Bool = false) {
         guard projectRoot == nil else { return }
         automaticContext = (root, db)
-        guard AIAssistantPreferences.autoAnalyze else {
-            automaticState = .skipped(reason: AutoAnalysisScheduler.switchOffReason)
+        guard AIAssistantPreferences.autoAnalyze || force else {
+            automaticState = .off
             return
         }
         guard !busy else { return }
@@ -1439,12 +1449,23 @@ final class ArchitectureStore: ObservableObject {
         let token = beginRun()
         analysisTask = Task {
             defer { endRun(token) }
-            await runAutomaticPipeline(root: root, db: db)
+            await runAutomaticPipeline(root: root, db: db, force: force)
+        }
+    }
+
+    /// The Code view's Refresh: the automatic pipeline, forced, for the project; a folder
+    /// X-Ray (outside the pipeline) re-runs its manual code analysis.
+    func refreshCode(root: URL, db: SemanticDatabase?) {
+        guard !busy else { return }
+        if projectRoot == nil {
+            startAutomaticCodeAnalysis(root: root, db: db, force: true)
+        } else {
+            analyzeCode(root: root, db: db)
         }
     }
 
     /// The stages, chained explicitly inside one task so that cancellation reaches each.
-    private func runAutomaticPipeline(root: URL, db: SemanticDatabase?) async {
+    private func runAutomaticPipeline(root: URL, db: SemanticDatabase?, force: Bool) async {
         automaticState = .scanning
         guard let result = await performScan(root: root, db: db) else {
             automaticState = .idle
@@ -1452,8 +1473,8 @@ final class ArchitectureStore: ObservableObject {
         }
         if !Task.isCancelled { outlineContents(root: root) }
         scheduler.sourceFileCount = result.sourceFileCount
-        if AutoAnalysisScheduler.exceedsSizeCap(result.sourceFileCount) {
-            automaticState = .skipped(reason: AutoAnalysisScheduler.sizeCapReason(result.sourceFileCount))
+        if !force, AutoAnalysisScheduler.exceedsSizeCap(result.sourceFileCount) {
+            automaticState = .tooLarge(files: result.sourceFileCount)
             return
         }
         guard let code = Self.codeFiles(in: snapshot) else {
@@ -1464,7 +1485,7 @@ final class ArchitectureStore: ObservableObject {
         let model = snapshot?.codeModel
         let modelIsCurrent = model != nil && signature != nil && model?.signature == signature
         let tracesMissing = !(model?.scenarios ?? []).isEmpty && snapshot?.codeSequences?.contains(where: \.auto) != true
-        if modelIsCurrent, !tracesMissing {
+        if modelIsCurrent, !tracesMissing, !force {
             automaticState = .done(model?.analyzedAt ?? Date())
             return
         }
@@ -1484,7 +1505,7 @@ final class ArchitectureStore: ObservableObject {
         }
 
         scheduler.lastAIRun = Date()
-        if !modelIsCurrent {
+        if !modelIsCurrent || force {
             automaticState = .analyzing(step: "Reading the code architecture")
             switch await performCodeAnalysis(root: root, db: db) {
             case .analyzed: break
@@ -3913,6 +3934,43 @@ final class ArchitectureStore: ObservableObject {
 
     // MARK: - Web view payload
 
+    /// `AutomaticState` as the page reads it: a `kind` plus the case's detail.
+    struct AutomaticStatePayload: Encodable {
+        /// idle | scanning | analyzing | done | unavailable | off | tooLarge | skipped
+        let kind: String
+        let step: String?
+        let reason: String?
+        let date: Date?
+        let files: Int?
+
+        init(_ state: AutomaticState) {
+            switch state {
+            case .idle: self.init(kind: "idle")
+            case .scanning: self.init(kind: "scanning")
+            case .analyzing(let step): self.init(kind: "analyzing", step: step)
+            case .done(let date): self.init(kind: "done", date: date)
+            case .unavailable(let reason): self.init(kind: "unavailable", reason: reason)
+            case .off: self.init(kind: "off")
+            case .tooLarge(let files): self.init(kind: "tooLarge", files: files)
+            case .skipped(let reason): self.init(kind: "skipped", reason: reason)
+            }
+        }
+
+        private init(kind: String, step: String? = nil, reason: String? = nil, date: Date? = nil, files: Int? = nil) {
+            self.kind = kind; self.step = step; self.reason = reason; self.date = date; self.files = files
+        }
+    }
+
+    /// A scenario of the Code view's list: automatic or manual, and stale when a cited
+    /// file changed since the trace.
+    struct CodeSequenceInfo: Encodable {
+        let title: String
+        let scope: String
+        let auto: Bool
+        let stale: Bool
+        let createdAt: Date
+    }
+
     /// Scans and analysis may finish while the answer runs. Keep transient evidence
     /// outside their persisted snapshots, and project it onto the current graph.
     private func withUnderstandingEvidence(_ value: ArchitectureSnapshot) -> ArchitectureSnapshot {
@@ -3971,14 +4029,25 @@ final class ArchitectureStore: ObservableObject {
             /// The AI's explanations of links (arrows), by "view|source|target".
             let edgeNotes: [String: EdgeNote]
             let codeSequenceDiagrams: [String]
+            /// The automatic code analysis, for the Code view's status line.
+            let automaticState: AutomaticStatePayload
+            /// One entry per `snapshot.codeSequences`, in the same order: what the scenario
+            /// list shows (the snapshot's own sequences carry the diagram and citations).
+            let codeSequenceInfo: [CodeSequenceInfo]
         }
+        let modules = snapshot?.view("modules")
         let payload = Payload(mode: mode, snapshot: snapshot.map { withCodeArchitecture(withContents(withUnderstandingEvidence($0))) }, status: status, error: error,
                               prSources: prSources, pr: prOverlay.map(withChangeNotes), busy: busy, describing: Array(describing),
                               filters: Array(ImportanceRater.allFilters.dropFirst()),
                               root: rootPath, outlining: Array(outlining), activateFilter: activateFilter,
                               searchSummaries: searchSummaries, searchAnswers: searchAnswers,
                               understandingAnswers: understandingAnswers, edgeNotes: edgeNotes,
-                              codeSequenceDiagrams: (snapshot?.codeSequences ?? []).map { CodeArchitecture.sequenceMermaid($0.diagram) })
+                              codeSequenceDiagrams: (snapshot?.codeSequences ?? []).map { CodeArchitecture.sequenceMermaid($0.diagram) },
+                              automaticState: AutomaticStatePayload(automaticState),
+                              codeSequenceInfo: (snapshot?.codeSequences ?? []).map { sequence in
+                                  CodeSequenceInfo(title: sequence.diagram.title, scope: sequence.scope, auto: sequence.auto,
+                                                   stale: modules.map { sequence.isStale(modules: $0) } ?? false, createdAt: sequence.createdAt)
+                              })
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(payload)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"

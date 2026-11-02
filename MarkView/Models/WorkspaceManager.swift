@@ -1903,6 +1903,9 @@ class WorkspaceManager: ObservableObject {
                                      root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
         case "analyzeCode":
             architecture.analyzeCode(root: root, db: semanticDatabase)
+        case "refreshCode":
+            // The Code view's Refresh (DEC-002): the automatic pipeline now, forced.
+            architecture.refreshCode(root: root, db: semanticDatabase)
         case "traceCode":
             guard let scope = payload["scope"] as? String, let question = payload["question"] as? String else { return }
             architecture.traceCode(scope: scope, question: question, root: root, db: semanticDatabase)
