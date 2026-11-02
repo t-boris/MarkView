@@ -593,7 +593,9 @@ private struct PullRequestPicker: View {
         .frame(width: 320)
         .task {
             guard let root else { loading = false; return }
-            open = await Task.detached { ArchitectureStore.openPullRequests(root: root) }.value
+            // The list needs `gh`, which only the opt-in GitHub integration may run.
+            let gitHub = GitHubSettings.enabled
+            open = await Task.detached { ArchitectureStore.openPullRequests(root: root, gitHub: gitHub) }.value
             loading = false
         }
     }
