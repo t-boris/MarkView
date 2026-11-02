@@ -97,6 +97,25 @@ enum LifecycleDuration: Equatable, Sendable {
 }
 
 enum LifecycleAnalytics {
+    /// The events of the feature as it exists now. `events` are those of one project and one slug,
+    /// in the order they were recorded (the log is append-only, so file order is recording order).
+    ///
+    /// A slug can be given out again: deleting a feature moves its folder to the Trash but its
+    /// events stay in the log (REQ-001, DEC-005, DEC-012), and the next feature to take the slug
+    /// records its own `idea_created`. Everything recorded before the latest `idea_created`
+    /// belongs to an earlier feature and is left out. Events with no `idea_created` at all
+    /// (a feature created elsewhere or before the log existed, DEC-012) are all kept.
+    static func currentHistory(_ events: [LifecycleEvent]) -> [LifecycleEvent] {
+        guard let start = events.lastIndex(where: { $0.stage == .ideaCreated }) else { return events }
+        return Array(events[start...])
+    }
+
+    /// The current history of every feature in `events` (one project's events in recording
+    /// order), by feature slug.
+    static func histories(_ events: [LifecycleEvent]) -> [String: [LifecycleEvent]] {
+        Dictionary(grouping: events, by: \.feature).mapValues(currentHistory)
+    }
+
     /// Earliest event of `start` to latest event of `end`, calendar time (DEC-009, DEC-014).
     static func duration(from start: LifecycleStage, to end: LifecycleStage, in events: [LifecycleEvent]) -> LifecycleDuration {
         guard let first = events.filter({ $0.stage == start }).map(\.timestamp).min(),

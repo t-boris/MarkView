@@ -33,13 +33,19 @@ final class LifecycleLog: ObservableObject {
 
     // MARK: Reading
 
-    func events(project: String) -> [LifecycleEvent] {
-        events.filter { $0.project == project }
+    // The log keeps every event ever recorded, including those of deleted features. Both readers
+    // below go through `LifecycleAnalytics.currentHistory`, so a feature that reuses the slug of a
+    // deleted one starts with its own `idea_created` and never inherits the older events (BUG-041).
+
+    /// The current history of every feature of a project, by feature slug.
+    func histories(project: String) -> [String: [LifecycleEvent]] {
+        LifecycleAnalytics.histories(events.filter { $0.project == project })
     }
 
     /// A feature's events, oldest first.
     func events(project: String, feature: String) -> [LifecycleEvent] {
-        events.filter { $0.project == project && $0.feature == feature }.sorted { $0.timestamp < $1.timestamp }
+        LifecycleAnalytics.currentHistory(events.filter { $0.project == project && $0.feature == feature })
+            .sorted { $0.timestamp < $1.timestamp }
     }
 
     /// Lines that do not decode (damaged, or a stage that does not exist) are skipped.

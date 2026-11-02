@@ -217,10 +217,10 @@ struct CycleTimeSummarySheet: View {
     let close: () -> Void
 
     var body: some View {
-        // Events of deleted or renamed features are not shown (DEC-012).
+        // Events of deleted or renamed features are not shown (DEC-012); a feature that reuses the
+        // slug of a deleted one counts only from its own `idea_created` (`LifecycleLog.histories`).
         let slugs = Set(store.features.map(\.slug))
-        let events = store.lifecycleProject.map { log.events(project: $0) } ?? []
-        let grouped = Dictionary(grouping: events.filter { slugs.contains($0.feature) }, by: \.feature)
+        let grouped = (store.lifecycleProject.map { log.histories(project: $0) } ?? [:]).filter { slugs.contains($0.key) }
         let summary = LifecycleAnalytics.summary(grouped)
         let ci = LifecycleCI.summary(grouped)
         VStack(alignment: .leading, spacing: 10) {
