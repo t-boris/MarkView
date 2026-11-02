@@ -181,9 +181,9 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             break
         }
 
-        // All other messages
+        // All other messages. `doc` names the tab whose document the page was showing when it sent this.
         let data = payload as? [String: Any]
-        handleMessage(type: messageType, data: data)
+        handleMessage(type: messageType, data: data, documentID: EditorDocumentRouting.documentID(from: dict["doc"]))
     }
 
     // MARK: - v2 insight payload validation
@@ -244,13 +244,13 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
 
     // MARK: - Message Handling
 
-    private func handleMessage(type: String, data: [String: Any]?) {
+    private func handleMessage(type: String, data: [String: Any]?, documentID: UUID?) {
         switch type {
 
         // JS sends: { markdown: "...", html: "..." }
         case "contentChanged":
             if let markdown = data?["markdown"] as? String {
-                delegate?.bridge(self, didUpdateContent: markdown)
+                delegate?.bridge(self, didUpdateContent: markdown, documentID: documentID)
             }
 
         // JS sends: payload is the array directly (not nested in "headings" key)
@@ -308,7 +308,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             }
 
         case "saveRequested":
-            delegate?.bridgeSaveRequested(self)
+            delegate?.bridgeSaveRequested(self, documentID: documentID)
 
         case "translateRequested":
             if let markdown = data?["markdown"] as? String,
@@ -371,8 +371,20 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
 
     // MARK: - Commands to JavaScript
 
-    /// Load markdown content into the editor
-    func loadContent(_ markdown: String, into webView: WKWebView, completion: @escaping () -> Void) {
+    /// Script that tells the page which tab its next document belongs to; the page names it in every message
+    /// (`sendToSwift`). It runs in the same script as the load so no message can pair the new id with the old
+    /// document. An empty id means the page shows no tab's document.
+    private static func documentIDScript(_ id: UUID?) -> String {
+        "window.mvDocumentId = \"\(id?.uuidString ?? "")\"; "
+    }
+
+    /// Tell the page that no tab's document is on screen (an insight or the X-Ray replaces it).
+    func clearDocument(in webView: WKWebView) {
+        webView.evaluateJavaScript(Self.documentIDScript(nil))
+    }
+
+    /// Load markdown content into the editor; `documentID` is the tab that owns it.
+    func loadContent(_ markdown: String, documentID: UUID?, into webView: WKWebView, completion: @escaping () -> Void) {
         // Wrap string in an array for valid JSON serialization (bare strings cause NSInvalidArgumentException),
         // then extract the escaped string element for safe JavaScript embedding
         guard let jsonData = try? JSONSerialization.data(withJSONObject: [markdown], options: []),
@@ -383,7 +395,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
         }
         // ["escaped content"] -> "escaped content"
         let jsonString = String(jsonArrayString.dropFirst().dropLast())
-        let js = "window.setContent(\(jsonString))"
+        let js = Self.documentIDScript(documentID) + "window.setContent(\(jsonString))"
 
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -412,10 +424,10 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     }
 
     /// Show source code read-only in the code viewer (markview-code.js).
-    func loadCodeContent(_ content: String, language: String, fileName: String, returnLabel: String = "", into webView: WKWebView) {
+    func loadCodeContent(_ content: String, language: String, fileName: String, returnLabel: String = "", documentID: UUID?, into webView: WKWebView) {
         guard let data = try? JSONSerialization.data(withJSONObject: [content, language, fileName, returnLabel]),
               let args = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("window.setCodeContent.apply(null, \(args))") { _, error in
+        webView.evaluateJavaScript(Self.documentIDScript(documentID) + "window.setCodeContent.apply(null, \(args))") { _, error in
             if let error { NSLog("Error setting code content: \(error)") }
         }
     }
@@ -448,14 +460,14 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
 
     /// Show a data file (table, Parquet, SQLite, log): the page fetches it from `markview-data:`.
     /// `reload`: the same file changed on disk (a followed log keeps following).
-    func loadDataContent(_ url: URL, fileType: String, reload: Bool, into webView: WKWebView) {
+    func loadDataContent(_ url: URL, fileType: String, reload: Bool, documentID: UUID?, into webView: WKWebView) {
         let source = DataFileSchemeHandler.address(of: url)
         let payload: [String: Any] = ["src": source, "kind": fileType, "name": url.lastPathComponent, "reload": reload]
         guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else { return }
-        webView.evaluateJavaScript("window.setDataContent && window.setDataContent(\(json))")
+        webView.evaluateJavaScript(Self.documentIDScript(documentID) + "window.setDataContent && window.setDataContent(\(json))")
     }
 
-    func loadStructuredContent(_ content: String, fileType: String, into webView: WKWebView, completion: @escaping () -> Void) {
+    func loadStructuredContent(_ content: String, fileType: String, documentID: UUID?, into webView: WKWebView, completion: @escaping () -> Void) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: [content], options: []),
               let jsonArrayString = String(data: jsonData, encoding: .utf8) else {
             NSLog("Error encoding structured content")
@@ -463,7 +475,7 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
             return
         }
         let jsonString = String(jsonArrayString.dropFirst().dropLast())
-        let js = "window.setStructuredContent(\(jsonString), '\(fileType)')"
+        let js = Self.documentIDScript(documentID) + "window.setStructuredContent(\(jsonString), '\(fileType)')"
 
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
@@ -716,7 +728,7 @@ extension HeadingItem {
 // MARK: - Bridge Delegate Protocol
 
 protocol WebViewBridgeDelegate: AnyObject {
-    func bridge(_ bridge: WebViewBridge, didUpdateContent content: String)
+    func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?)
     func bridge(_ bridge: WebViewBridge, didExtractHeadings headings: [HeadingItem])
     func bridge(_ bridge: WebViewBridge, didSelectHeading headingId: String)
     func bridge(_ bridge: WebViewBridge, didClickLink href: String)
@@ -724,7 +736,7 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didReceiveBlocksDelta delta: BlocksDelta)
     func bridge(_ bridge: WebViewBridge, didChangeCursorBlock blockId: String)
     func bridgeEditorReady(_ bridge: WebViewBridge)
-    func bridgeSaveRequested(_ bridge: WebViewBridge)
+    func bridgeSaveRequested(_ bridge: WebViewBridge, documentID: UUID?)
     func bridge(_ bridge: WebViewBridge, didRequestTranslation markdown: String, targetLang: String)
     func bridge(_ bridge: WebViewBridge, didRequestSelectionAction action: String, text: String)
     func bridge(_ bridge: WebViewBridge, didRequestFeatureAction action: String, text: String, question: String)

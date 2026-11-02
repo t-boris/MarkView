@@ -82,6 +82,9 @@ struct EditorView: NSViewRepresentable {
         private var currentDocumentBaseURL: URL?
         private var lastLoadedContent: String = ""
         private var lastLoadedDocumentURL: URL?
+        /// Tab whose document the page shows. The page names it in its messages (BUG-031), so a tab that
+        /// replaces another with the same file and text (closed and reopened) must reload to take the id.
+        private var lastLoadedTabID: UUID?
         /// File whose content is in the code viewer, and a line to reveal once it is.
         private var currentCodeURL: URL?
         private var pendingCodeReveal: (url: URL, line: Int, endLine: Int?)?
@@ -336,10 +339,14 @@ struct EditorView: NSViewRepresentable {
                 currentCodeURL = nil
                 architectureCancellable = nil
                 webView.evaluateJavaScript("window.leaveCodeView && window.leaveCodeView(); window.leaveArchitectureView && window.leaveArchitectureView(); window.leaveDataView && window.leaveDataView()")
+                lastLoadedTabID = nil
+                bridge.clearDocument(in: webView)
                 routeInsight(session: session, webView: webView)
                 return
             case .architecture(let scope):
                 webView.evaluateJavaScript("window.leaveDataView && window.leaveDataView()")
+                lastLoadedTabID = nil
+                bridge.clearDocument(in: webView)
                 routeArchitecture(scope: scope, webView: webView)
                 return
             case .terminal, .image, .archive, .deployments, .discussions, .github, .browser, .prototype:
@@ -354,11 +361,14 @@ struct EditorView: NSViewRepresentable {
                 currentCodeURL = nil
                 architectureCancellable = nil
                 let loadKey = "data\u{1}\(tab?.dataRevision ?? 0)"
-                guard loadKey != lastLoadedContent || documentURL.standardizedFileURL != lastLoadedDocumentURL else { return }
+                guard loadKey != lastLoadedContent || documentURL.standardizedFileURL != lastLoadedDocumentURL
+                        || tab?.id != lastLoadedTabID else { return }
                 let reload = documentURL.standardizedFileURL == lastLoadedDocumentURL
                 lastLoadedContent = loadKey
                 lastLoadedDocumentURL = documentURL.standardizedFileURL
-                bridge.loadDataContent(documentURL, fileType: FileType.from(url: documentURL).rawValue, reload: reload, into: webView)
+                lastLoadedTabID = tab?.id
+                bridge.loadDataContent(documentURL, fileType: FileType.from(url: documentURL).rawValue, reload: reload,
+                                       documentID: tab?.id, into: webView)
                 return
             case .file:
                 currentLineRevealURL = documentURL?.standardizedFileURL
@@ -385,12 +395,14 @@ struct EditorView: NSViewRepresentable {
             let fileType = documentURL.map { FileType.from(url: $0) } ?? .markdown
             let asNotes = tab?.notesView == true
             let loadKey = asNotes ? "notes\u{1}" + markdown : markdown
-            guard loadKey != lastLoadedContent || documentURL?.standardizedFileURL != lastLoadedDocumentURL else {
+            guard loadKey != lastLoadedContent || documentURL?.standardizedFileURL != lastLoadedDocumentURL
+                    || tab?.id != lastLoadedTabID else {
                 applyPendingCodeReveal()
                 return
             }
             lastLoadedContent = loadKey
             lastLoadedDocumentURL = documentURL?.standardizedFileURL
+            lastLoadedTabID = tab?.id
 
             // Route by file type
             currentCodeURL = nil
@@ -401,14 +413,15 @@ struct EditorView: NSViewRepresentable {
                     ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL) : markdown
                 let returnLabel = asNotes && fileType != .code ? (fileType == .markdown ? "Document" : "Viewer") : ""
                 bridge.loadCodeContent(text, language: language,
-                                       fileName: documentURL.lastPathComponent, returnLabel: returnLabel, into: webView)
+                                       fileName: documentURL.lastPathComponent, returnLabel: returnLabel,
+                                       documentID: tab?.id, into: webView)
                 currentCodeURL = documentURL.standardizedFileURL
                 applyPendingCodeReveal()
                 routeCodeNotes(url: documentURL, webView: webView)
                 return
             }
             if fileType != .markdown {
-                bridge.loadStructuredContent(markdown, fileType: fileType.rawValue, into: webView) {}
+                bridge.loadStructuredContent(markdown, fileType: fileType.rawValue, documentID: tab?.id, into: webView) {}
                 applyPendingCodeReveal()
                 return
             }
@@ -418,7 +431,7 @@ struct EditorView: NSViewRepresentable {
             let resolved = documentURL != nil
                 ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL!)
                 : markdown
-            bridge.loadContent(resolved, into: webView) {}
+            bridge.loadContent(resolved, documentID: tab?.id, into: webView) {}
             applyPendingCodeReveal()
         }
 
@@ -786,10 +799,10 @@ struct EditorView: NSViewRepresentable {
 // MARK: - WebViewBridge Delegate
 
 extension EditorView.Coordinator: WebViewBridgeDelegate {
-    func bridge(_ bridge: WebViewBridge, didUpdateContent content: String) {
+    func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?) {
         Task { @MainActor in
             self.lastLoadedContent = content  // Prevent re-sending
-            self.parent.workspaceManager.updateActiveTabContent(content)
+            self.parent.workspaceManager.updateTabContent(content, documentID: documentID)
         }
     }
 
@@ -878,18 +891,12 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
         }
     }
 
-    func bridgeSaveRequested(_ bridge: WebViewBridge) {
-        // Insight tabs have their own Save flow (didRequestInsightSave) — the
-        // generic save bridge must not touch them. WorkspaceManager.saveActiveFile
-        // also guards the placeholder URL as defense-in-depth.
+    func bridgeSaveRequested(_ bridge: WebViewBridge, documentID: UUID?) {
+        // Saves the tab whose document the page showed when it asked, which is not always the selected
+        // tab (BUG-031). Insight tabs have their own Save flow (didRequestInsightSave) — the generic
+        // save bridge must not touch them; `saveEditorDocument` skips every tab that is not file-backed.
         Task { @MainActor in
-            let wm = self.parent.workspaceManager
-            let idx = wm.activeTabIndex
-            if idx >= 0, idx < wm.openTabs.count,
-               !wm.openTabs[idx].isFileBacked {
-                return
-            }
-            wm.saveActiveFile()
+            self.parent.workspaceManager.saveEditorDocument(documentID: documentID)
         }
     }
 
@@ -967,7 +974,8 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             if let content = wm.reloadActiveTabFromDisk() {
                 self.lastLoadedContent = content
                 if let webView = self.webView {
-                    self.bridge.loadContent(content, into: webView) {}
+                    self.lastLoadedTabID = wm.openTabs[idx].id
+                    self.bridge.loadContent(content, documentID: wm.openTabs[idx].id, into: webView) {}
                 }
             }
         }

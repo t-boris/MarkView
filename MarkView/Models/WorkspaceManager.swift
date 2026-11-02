@@ -2328,6 +2328,15 @@ class WorkspaceManager: ObservableObject {
         saveFile(at: activeTabIndex)
     }
 
+    /// Save the tab the editor page asked to save (`documentID`), which is not always the selected tab: the
+    /// page names the document it shows, and only that tab's file is written (BUG-031). A page that names no
+    /// document saves the selected tab, as before.
+    func saveEditorDocument(documentID: UUID?) {
+        guard let index = editorTabIndex(documentID: documentID, event: "save"),
+              openTabs[index].isFileBacked else { return }
+        saveFile(at: index)
+    }
+
     /// Handle selection actions: translate or explain selected text via the selected AI CLI.
     /// Result is shown in a popup — see `translateDocument` for the whole-document
     /// path, which produces a translated copy in a new tab instead.
@@ -3494,13 +3503,31 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// Update the content of the active tab.
+    /// Index of the tab a message from the editor page belongs to (see `EditorDocumentRouting`), or nil when
+    /// the message must be dropped. Logs when the page's document is not the selected tab: that is the state
+    /// that once let one file's text be saved over another (BUG-031).
+    private func editorTabIndex(documentID: UUID?, event: String) -> Int? {
+        guard let index = EditorDocumentRouting.targetIndex(documentID: documentID, tabIDs: openTabs.map(\.id),
+                                                            activeIndex: activeTabIndex) else {
+            if documentID != nil { Self.debugLog("[Editor] \(event) dropped: the tab it belongs to is closed") }
+            return nil
+        }
+        if documentID != nil, index != activeTabIndex {
+            let active = openTabs.indices.contains(activeTabIndex) ? openTabs[activeTabIndex].displayName : "none"
+            Self.debugLog("[Editor] \(event) for \(openTabs[index].displayName) while \(active) is selected")
+        }
+        return index
+    }
+
+    /// Update the content of the tab the editor page is showing (`documentID`); a page that names no document
+    /// updates the selected tab, as before.
     /// Insight tabs own their content via `InsightSession`; the JS bridge must
     /// not write back into `tab.content` because (a) it would race with the SSE
     /// stream, and (b) `isModified` would flip true and prime an unwanted Cmd+S
     /// write to the placeholder URL.
-    func updateActiveTabContent(_ content: String) {
-        tabsStore.updateActiveTab { tab in
+    func updateTabContent(_ content: String, documentID: UUID?) {
+        guard let index = editorTabIndex(documentID: documentID, event: "content update") else { return }
+        tabsStore.updateTab(at: index) { tab in
             if !tab.isFileBacked { return }
             tab.content = content
             tab.isModified = (content != tab.originalContent)
