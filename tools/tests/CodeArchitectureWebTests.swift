@@ -220,5 +220,94 @@ const picker=document.getElementById('arch-hide');picker.value='tests';picker.di
 return document.getElementById('arch-empty').textContent;
 """)
 check(text.contains("All source code is hidden"), "an explicit filter hiding every source file explains how to restore the map", text)
+
+// BUG-037 / REQ-010: the Deployment details panel lists every project operation, grouped by kind.
+let operationsSetup = """
+const op = (id, label, kind, extra) => Object.assign({id, label, kind, command:'run ' + id, cwd:'.', origin:'discovered',
+    confidence:'high', nodes:[], prerequisites:[], provenance:[], remoteTrigger:false, deleted:false}, extra || {});
+window.testOperations = {
+    // Five operations are "primary" in the payload (as the app still sends them); the panel must not depend on that.
+    operations: [
+        op('restart-web', 'Restart web', 'restart'), op('deploy-prod', 'Deploy prod', 'deploy', {environment:'prod', nodes:[{id:'d:api', name:'api'}]}),
+        op('build-all', 'Build all', 'build'), op('clean-all', 'Clean', 'clean'), op('deploy-stage', 'Deploy stage', 'deploy', {environment:'stage', remoteTrigger:true}),
+        op('install-deps', 'Install dependencies', 'install'), op('lint', 'Lint', 'other', {confidence:'low'}),
+        op('build-docs', 'Build docs', 'build', {nodes:[{id:'gone', name:'db'}]}), op('seed', 'Seed data', 'seeding', {nodes:[{id:'x', name:'nothing'}]}),
+        op('a-deploy', 'Add worker', 'deploy'),
+    ],
+    primary: ['deploy-prod', 'build-all', 'install-deps', 'clean-all', 'restart-web'],
+    states: {'build-all': {state:'running'}}, unavailable: {}, hasFile: true, readOnly: false, sourcesChanged: false,
+};
+window.showArchitecture({root:'/ops', busy:false, filters:[], prSources:[], snapshot:{views:[
+    {id:'modules', nodes:[{id:'m:', kind:'root', name:'Ops'}], edges:[]},
+    {id:'deployment', nodes:[{id:'d:', kind:'root', name:'Deployment'}, {id:'d:api', parent:'d:', kind:'service', name:'api'},
+        {id:'d:db', parent:'d:', kind:'database', name:'db'}, {id:'d:cache', parent:'d:', kind:'service', name:'cache'}], edges:[]}],
+    components:[], assignments:{}, coverage:{}, metrics:{}, scannedAt:'2026-10-31T00:00:00Z'}});
+window.setProjectOperations(window.testOperations);
+document.querySelector('[data-arch-view="deployment"]').click();
+await new Promise(r => setTimeout(r, 400));
+const details = document.getElementById('arch-details');
+// What the person can see: an element inside a [hidden] ancestor is not shown.
+const shown = selector => [...details.querySelectorAll(selector)].filter(e => !e.closest('[hidden]'));
+"""
+text = js(operationsSetup + """
+return JSON.stringify({
+    headings: [...details.querySelectorAll('h5')].map(h => h.textContent),
+    rows: shown('.arch-operation').map(r => r.querySelector('strong').textContent),
+    controls: shown('button').map(b => b.textContent).filter(t => /show all|hide the list/i.test(t)).length,
+    search: shown('input').length,
+    badges: shown('.arch-badges span').map(s => s.textContent),
+    buttons: shown('button').map(b => b.textContent),
+});
+""")
+let noNode = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
+let noNodeButtons = noNode["buttons"] as? [String] ?? []
+let noNodeBadges = noNode["badges"] as? [String] ?? []
+check(noNode["headings"] as? [String] == ["Project operations", "Deploy (3)", "Install (1)", "Build (2)", "Restart (1)", "Clean (1)", "Other (1)", "Seeding (1)"],
+      "no node selected: one heading per kind in a fixed order, an unknown kind after the known ones", text)
+check((noNode["rows"] as? [String])?.count == 10 && (noNode["rows"] as? [String]).map({ Set($0).count }) == 10,
+      "no node selected: every project operation is listed once, not only the primary ones", text)
+check((noNode["rows"] as? [String]).map({ Array($0.prefix(3)) }) == ["Add worker · deploy", "Deploy prod · prod · deploy", "Deploy stage · stage · deploy"],
+      "operations inside a kind are ordered by label", text)
+check((noNode["headings"] as? [String])?.contains("Main operations") == false && noNode["controls"] as? Int == 0 && noNode["search"] as? Int == 0,
+      "the Main operations list, the Show all toggle and the search box are gone", text)
+check(noNodeButtons.filter { $0 == "Open output" }.count == 1 && noNodeButtons.filter { $0 == "Run" }.count == 9
+      && noNodeBadges.contains("running") && noNodeBadges.contains("Remote trigger") && noNodeBadges.contains("low"),
+      "running, remote-trigger and low-confidence marks and the Run and Open output actions are kept", text)
+text = js(operationsSetup + """
+window.architectureFocus('d:api', 'deployment');
+await new Promise(r => setTimeout(r, 300));
+return JSON.stringify({
+    headings: [...details.querySelectorAll('h5')].map(h => h.textContent),
+    rows: shown('.arch-operation').map(r => r.className + '|' + r.querySelector('strong').textContent),
+});
+""")
+let withNode = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
+let nodeRows = withNode["rows"] as? [String] ?? []
+check(withNode["headings"] as? [String] == ["Project operations", "Related to api", "Deploy (2)", "Install (1)", "Build (2)", "Restart (1)", "Clean (1)", "Other (1)", "Seeding (1)"],
+      "node selected: related operations first, then the remaining ones by kind", text)
+check(nodeRows.count == 10 && nodeRows.first == "arch-operation related|Deploy prod · prod · deploy"
+      && nodeRows.dropFirst().allSatisfy { !$0.hasPrefix("arch-operation related") }, "node selected: only the related operation is highlighted and none is dropped or repeated", text)
+text = js(operationsSetup + """
+window.architectureFocus('d:db', 'deployment');
+await new Promise(r => setTimeout(r, 300));
+return JSON.stringify({headings: [...details.querySelectorAll('h5')].slice(0, 2).map(h => h.textContent), rows: shown('.arch-operation').length,
+    related: [...details.querySelectorAll('.arch-operation.related strong')].map(r => r.textContent)});
+""")
+check(text.contains("\"headings\":[\"Project operations\",\"Related to db\"]") && text.contains("\"related\":[\"Build docs · build\"]") && text.contains("\"rows\":10"),
+      "a relation whose node id is gone resolves by node name (DEC-027)", text)
+text = js(operationsSetup + """
+window.architectureFocus('d:cache', 'deployment');
+await new Promise(r => setTimeout(r, 300));
+return JSON.stringify({headings: [...details.querySelectorAll('h5')].slice(0, 2).map(h => h.textContent), rows: shown('.arch-operation').length,
+    related: details.querySelectorAll('.arch-operation.related').length});
+""")
+check(text.contains("\"headings\":[\"Project operations\",\"Deploy (3)\"]") && text.contains("\"related\":0") && text.contains("\"rows\":10"),
+      "node without related operations: every operation listed, none highlighted, a relation to an unknown node is ignored", text)
+text = js(operationsSetup + """
+window.setProjectOperations(Object.assign({}, window.testOperations, {operations: [], primary: []}));
+await new Promise(r => setTimeout(r, 100));
+return details.innerText;
+""")
+check(text.contains("No runnable procedure is known for this project.") && !text.contains("Deploy ("), "empty project: the empty-state text is unchanged and no group heading shows", text)
 print("\(failures) WebKit failures")
 exit(failures == 0 ? 0 : 1)
