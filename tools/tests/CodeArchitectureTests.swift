@@ -141,15 +141,58 @@ let mermaid = CodeArchitecture.sequenceMermaid(diagram)
 check(mermaid.hasPrefix("sequenceDiagram\n") && mermaid.contains("p0->>p1: 1. place order"), "sequence is a time-axis Mermaid diagram")
 var unsafe = diagram; unsafe.nodes[0].label = "API\nparticipant evil as <script>;"
 check(!CodeArchitecture.sequenceMermaid(unsafe).contains("<script>") && !CodeArchitecture.sequenceMermaid(unsafe).contains("\nparticipant evil"), "model labels cannot inject Mermaid statements or HTML")
+// Coverage: the shipping tables say python/javascript/swift extract dependencies and
+// outline declarations, java outlines but (here) extracts nothing, sql has neither.
+let capabilities = CodeCoverage.Capabilities(dependencyLanguages: ["python", "javascript", "swift"],
+                                             outlineLanguages: ["python", "javascript", "swift", "java"])
+func language(_ report: CodeCoverage, _ id: String) -> CodeCoverage.Language? { report.languages.first { $0.language == id } }
+let scanOnly = CodeArchitecture.coverage(modules: modules, model: nil, skipped: [], capabilities: capabilities)
+check(scanOnly.version == CodeCoverage.currentVersion && !scanOnly.hasModel, "coverage carries its format version and whether a model informed it")
+check(scanOnly.languages.map(\.language) == ["javascript", "python", "sql"], "coverage lists the project's code languages in a stable order and leaves documents out")
+check(scanOnly.languages.allSatisfy { $0.level == .partial && $0.full == 0 } && language(scanOnly, "python")?.partial == 3, "without a model every language is at most partial")
+check(scanOnly.unassignedFiles == 0 && scanOnly.reasons.contains { $0.hasPrefix("No code model yet") }, "a scan-only report says the model is missing instead of counting files as unassigned")
+check(scanOnly.reasons.contains("sql: no import or type-reference extraction (1 file)") && scanOnly.reasons.contains("sql: no declaration outline (1 file)")
+      && !scanOnly.reasons.contains { $0.hasPrefix("python:") }, "missing scanner capabilities are named per language")
+let analyzed = CodeArchitecture.coverage(modules: modules, model: model, skipped: [], capabilities: capabilities)
+check(language(analyzed, "python")?.level == .full && language(analyzed, "python")?.full == 3
+      && language(analyzed, "javascript")?.level == .full, "languages with dependencies, outlines and component ownership are fully understood")
+check(language(analyzed, "sql")?.level == .partial && language(analyzed, "sql")?.partial == 1, "a language the scanner cannot parse stays partial even when the model owns its files")
+check(analyzed.hasModel && analyzed.unassignedFiles == 0 && !analyzed.reasons.contains { $0.hasPrefix("No code model") }, "a complete model leaves no unassigned files")
+var withStrays = modules
+withStrays.nodes += [ArchNode(id: "m:scripts/tool.py", parent: "m:", kind: "file", name: "tool.py", path: "scripts/tool.py", language: "python"),
+                     ArchNode(id: "m:Model.java", parent: "m:", kind: "file", name: "Model.java", path: "Model.java", language: "java")]
+let strays = CodeArchitecture.coverage(modules: withStrays, model: model, skipped: [], capabilities: capabilities)
+check(language(strays, "python")?.level == .full && language(strays, "python")?.notAnalyzed == 1 && language(strays, "python")?.full == 3,
+      "files outside the model count as not analyzed without hiding the understood ones")
+check(language(strays, "java")?.level == .notAnalyzed && strays.unassignedFiles == 2
+      && strays.reasons.contains("2 scanned files not owned by any component of the code model"), "a language the model ignores entirely is reported as not analyzed")
+let skips = [CodeCoverage.Skipped(language: "javascript", reason: .tooLarge, files: 2),
+             CodeCoverage.Skipped(language: "javascript", reason: .generatedBundle, files: 1),
+             CodeCoverage.Skipped(language: "toml", reason: .configFormat, files: 4)]
+let skipped = CodeArchitecture.coverage(modules: modules, model: model, skipped: skips, capabilities: capabilities)
+check(language(skipped, "javascript")?.level == .full && language(skipped, "javascript")?.notAnalyzed == 3 && language(skipped, "javascript")?.files == 4,
+      "large and bundled files are counted as not analyzed next to the understood files of their language")
+check(language(skipped, "toml")?.level == .notAnalyzed && language(skipped, "toml")?.notAnalyzed == 4, "configuration formats appear as not analyzed languages")
+check(skipped.reasons.contains("2 javascript files: larger than the 512 KB parse limit")
+      && skipped.reasons.contains("1 javascript file: minified or bundled third-party code")
+      && skipped.reasons.contains("4 toml files: configuration, build or plain-text formats without a dependency graph")
+      && skipped.skipped == skips, "skipped files keep their reasons per language and the raw groups for a later recomputation")
+let emptyModules = ArchView(id: "modules", nodes: [ArchNode(id: "m:", kind: "root", name: "Empty")], edges: [])
+let empty = CodeArchitecture.coverage(modules: emptyModules, model: nil, skipped: [], capabilities: capabilities)
+check(empty.languages.isEmpty && empty.unassignedFiles == 0 && empty.reasons.isEmpty, "an empty project has an empty report rather than a missing-model complaint")
 snapshot.codeSequences = [.init(scope: "code:", signature: "sig1", diagram: diagram, createdAt: Date())]
+snapshot.codeCoverage = skipped
 let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
 let encoded = try encoder.encode(snapshot)
 var old = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
-old.removeValue(forKey: "codeSequences"); old.removeValue(forKey: "codeModel")
+old.removeValue(forKey: "codeSequences"); old.removeValue(forKey: "codeModel"); old.removeValue(forKey: "codeCoverage")
 let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-check((try? decoder.decode(ArchitectureSnapshot.self, from: JSONSerialization.data(withJSONObject: old))) != nil, "pre-Code snapshots still decode")
+let legacy = try? decoder.decode(ArchitectureSnapshot.self, from: JSONSerialization.data(withJSONObject: old))
+check(legacy != nil && legacy?.codeCoverage == nil, "pre-Code snapshots still decode, without a coverage report")
 let restored = try decoder.decode(ArchitectureSnapshot.self, from: encoded)
 check(restored.codeModel?.components.count == 5 && restored.codeSequences?.count == 1, "model and sequences survive snapshot encoding")
+check(restored.codeCoverage.map { $0.languages == skipped.languages && $0.reasons == skipped.reasons && $0.skipped == skips && $0.version == skipped.version } == true,
+      "the coverage report survives snapshot encoding")
 snapshot.views.append(CodeArchitecture.view(withSymbols))
 let payload: [String: Any] = ["root": fixture.path, "snapshot": try JSONSerialization.jsonObject(with: encoder.encode(snapshot)),
                             "codeSequenceDiagrams": [mermaid], "busy": false, "filters": [], "prSources": []]

@@ -709,6 +709,7 @@ class SemanticDatabase {
                 "systemPurpose": snapshot.systemPurpose,
                 "codeSequences": try snapshot.codeSequences.map { try json($0) },
                 "codeModel": try snapshot.codeModel.map { try json($0) },
+                "codeCoverage": try snapshot.codeCoverage.map { try json($0) },
                 "components": try json(snapshot.components),
                 "assignments": try json(snapshot.assignments),
                 "overrides": try json(snapshot.overrides),
@@ -860,7 +861,8 @@ class SemanticDatabase {
                                     enrichedAt: meta["enrichedAt"].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)),
                                     gitHead: meta["gitHead"],
                                     codeSequences: decode("codeSequences", [CodeSequence].self),
-                                    codeModel: decode("codeModel", CodeArchitectureModel.self))
+                                    codeModel: decode("codeModel", CodeArchitectureModel.self),
+                                    codeCoverage: decode("codeCoverage", CodeCoverage.self))
     }
 
     // MARK: - Project CRUD

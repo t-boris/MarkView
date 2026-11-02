@@ -349,6 +349,10 @@ final class ArchitectureStore: ObservableObject {
                                             deploymentHints: result.deploymentHints, scannedAt: Date(),
                                             enrichedAt: previous?.enrichedAt, gitHead: result.gitHead,
                                             codeSequences: previous?.codeSequences, codeModel: previous?.codeModel)
+            let model = previous?.codeModel
+            next.codeCoverage = await Task.detached(priority: .userInitiated) {
+                CodeArchitecture.coverage(modules: result.modules, model: model, skipped: result.skipped, capabilities: .current)
+            }.value
             pendingDeploymentSignature = result.deploymentSignature
             next = Self.applyLogical(next)
             commit(next, db: db)
@@ -1103,6 +1107,11 @@ final class ArchitectureStore: ObservableObject {
                 model.signature = signature
                 model.analyzedAt = Date()
                 next.codeModel = model
+                let skipped = next.codeCoverage?.skipped ?? []
+                let analyzed = model
+                next.codeCoverage = await Task.detached(priority: .userInitiated) {
+                    CodeArchitecture.coverage(modules: modules, model: analyzed, skipped: skipped, capabilities: .current)
+                }.value
                 commit(next, db: db)
             } catch is CancellationError {
                 // Keep the previous architecture when stopped.

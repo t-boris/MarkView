@@ -196,6 +196,73 @@ enum CodeArchitecture {
         return assignments
     }
 
+    /// What was and was not understood, per language. Pure: callers run it off the
+    /// main thread after a scan (no model: every language is at most partial) and
+    /// after a code analysis. Levels per file:
+    /// - not analyzed: skipped by the scanner, or not owned by any model component;
+    /// - full: a model owns the file and its language has both a dependency
+    ///   extractor and an outline pattern;
+    /// - partial: otherwise (no model yet, or a scanner capability is missing).
+    /// A language's level is the best level any of its files reached; the counts
+    /// state how many files reached each level.
+    static func coverage(modules: ArchView, model: CodeArchitectureModel?, skipped: [CodeCoverage.Skipped],
+                         capabilities: CodeCoverage.Capabilities, now: Date = Date()) -> CodeCoverage {
+        let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" && $0.language != nil && $0.path != nil }
+        let assignments = model.map { fileAssignments($0, paths: files.map { $0.path! }) } ?? [:]
+        var counts: [String: (full: Int, partial: Int, notAnalyzed: Int)] = [:]
+        var scanned: [String: Int] = [:]
+        var unassigned = 0
+        for file in files {
+            let language = file.language!
+            scanned[language, default: 0] += 1
+            if model != nil && assignments[file.path!] == nil {
+                counts[language, default: (0, 0, 0)].notAnalyzed += 1
+                unassigned += 1
+            } else if model != nil && capabilities.dependencyLanguages.contains(language) && capabilities.outlineLanguages.contains(language) {
+                counts[language, default: (0, 0, 0)].full += 1
+            } else {
+                counts[language, default: (0, 0, 0)].partial += 1
+            }
+        }
+        for skip in skipped { counts[skip.language, default: (0, 0, 0)].notAnalyzed += skip.files }
+        let languages = counts.keys.sorted().map { language -> CodeCoverage.Language in
+            let count = counts[language]!
+            let level: CodeCoverage.Level = count.full > 0 ? .full : count.partial > 0 ? .partial : .notAnalyzed
+            return CodeCoverage.Language(language: language, level: level, full: count.full, partial: count.partial, notAnalyzed: count.notAnalyzed)
+        }
+        var reasons: [String] = []
+        func plural(_ n: Int, _ noun: String) -> String { "\(n) \(noun)" + (n == 1 ? "" : "s") }
+        if model == nil, !files.isEmpty {
+            reasons.append("No code model yet: components and their relationships come from the local scan only")
+        }
+        if unassigned > 0 {
+            reasons.append(plural(unassigned, "scanned file") + " not owned by any component of the code model")
+        }
+        for language in scanned.keys.sorted() {
+            let count = scanned[language]!
+            if !capabilities.dependencyLanguages.contains(language) {
+                reasons.append("\(language): no import or type-reference extraction (" + plural(count, "file") + ")")
+            }
+            if !capabilities.outlineLanguages.contains(language) {
+                reasons.append("\(language): no declaration outline (" + plural(count, "file") + ")")
+            }
+        }
+        let grouped = Dictionary(grouping: skipped) { $0.language + "|" + $0.reason.rawValue }
+        for key in grouped.keys.sorted() {
+            let group = grouped[key]!
+            let total = group.reduce(0) { $0 + $1.files }
+            guard total > 0, let first = group.first else { continue }
+            let what = plural(total, first.language + " file")
+            switch first.reason {
+            case .configFormat: reasons.append(what + ": configuration, build or plain-text formats without a dependency graph")
+            case .generatedBundle: reasons.append(what + ": minified or bundled third-party code")
+            case .tooLarge: reasons.append(what + ": larger than the \(ArchitectureScanner.maxParseBytes / 1024) KB parse limit")
+            }
+        }
+        return CodeCoverage(version: CodeCoverage.currentVersion, languages: languages, unassignedFiles: unassigned,
+                            skipped: skipped, reasons: reasons, hasModel: model != nil, computedAt: now)
+    }
+
     /// Bounded, line-numbered implementation evidence. Runs on the scanning/analysis
     /// worker, never the UI thread. Folder/language rounds keep a busy Swift model
     /// directory from consuming the context before the JS or SQL boundary appears.

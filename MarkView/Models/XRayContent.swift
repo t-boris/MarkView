@@ -117,6 +117,9 @@ enum XRayContent {
         }
     }
 
+    /// Languages `localOutline` can outline: declaration patterns plus HTML regions.
+    static var outlineLanguages: Set<String> { Set(codePatterns.keys).union(["html"]) }
+
     /// Declarations of a code file grouped by kind, or nil when the language has no pattern.
     static func codeOutline(text: String, language: String?, signature: String) -> Outline? {
         guard let language, let regex = codePatterns[language] else { return nil }

@@ -25,12 +25,19 @@ struct ArchitectureScanner {
         var deploymentSignature: String
         var gitHead: String?
         var sourceFileCount: Int
+        /// Recognized code files left out of the Modules view, per language and reason.
+        var skipped: [CodeCoverage.Skipped]
     }
 
     /// Languages drawn in the Modules view; config and plain text are left out.
-    private static let nonGraphLanguages: Set<String> = ["", "properties", "diff", "toml", "cmake", "dockerfile"]
+    static let nonGraphLanguages: Set<String> = ["", "properties", "diff", "toml", "cmake", "dockerfile"]
+    /// Build scripts recognized as shell but never part of the dependency graph.
+    private static let buildScriptNames: Set<String> = ["Makefile", "GNUmakefile", "Procfile"]
     /// Languages whose files depend on each other through type names, not imports.
-    private static let typeReferenceLanguages: Set<String> = ["swift", "java", "kotlin", "scala", "csharp", "dart", "objectivec", "objectivecpp"]
+    static let typeReferenceLanguages: Set<String> = ["swift", "java", "kotlin", "scala", "csharp", "dart", "objectivec", "objectivecpp"]
+    /// Languages whose import statements `ImportResolver.resolve` understands; keep in
+    /// sync with its `switch`.
+    static let importLanguages: Set<String> = ["javascript", "typescript", "html", "python", "go", "rust", "c", "cpp", "objectivec", "objectivecpp", "ruby", "swift"]
     private static let skippedDirectories: Set<String> = [
         "node_modules", "build", "dist", "out", "target", "Pods", "DerivedData", ".build",
         "venv", ".venv", "__pycache__", "coverage", ".next", ".nuxt", ".dde", ".git",
@@ -52,6 +59,7 @@ struct ArchitectureScanner {
         var docs: [String] = []       // Markdown: the Structure and Logical views and the Book
         var textDocs: [String] = []   // other text documents (.txt, .rst, .adoc, .org): the Book only
         var hints: [String] = []
+        var skipped: [String: [CodeCoverage.SkipReason: Int]] = [:]   // language → reason → files
         for path in allFiles {
             let url = root.appendingPathComponent(path)
             let name = url.lastPathComponent
@@ -64,11 +72,16 @@ struct ArchitectureScanner {
                 continue
             }
             if Self.isDeploymentHint(path) { hints.append(path) }
-            guard let language = FileType.codeLanguage(for: url),
-                  !Self.nonGraphLanguages.contains(language),
-                  !["Makefile", "GNUmakefile", "Procfile"].contains(name),
-                  !Self.isGeneratedBundle(name: name, url: url) else { continue }
+            guard let language = FileType.codeLanguage(for: url) else { continue }
+            if let reason = Self.skipReason(name: name, url: url, language: language) {
+                skipped[language.isEmpty ? "text" : language, default: [:]][reason, default: 0] += 1
+                continue
+            }
             sources.append((path, language))
+        }
+        let skips = skipped.keys.sorted().flatMap { language in
+            skipped[language]!.sorted { $0.key.rawValue < $1.key.rawValue }
+                .map { CodeCoverage.Skipped(language: language, reason: $0.key, files: $0.value) }
         }
 
         var contents: [String: String] = [:]
@@ -121,7 +134,7 @@ struct ArchitectureScanner {
         return Result(modules: modules, docs: docsView, coverage: coverage, metrics: metrics,
                       coverageReport: report.name, deploymentHints: hints.sorted(),
                       deploymentSignature: Self.signature(of: hints.sorted().map { fileSignature($0) }),
-                      gitHead: git.head, sourceFileCount: sources.count)
+                      gitHead: git.head, sourceFileCount: sources.count, skipped: skips)
     }
 
     // MARK: - Files
@@ -255,13 +268,15 @@ struct ArchitectureScanner {
         return false
     }
 
-    /// Minified or bundled third-party code (and anything over the parse limit)
-    /// is not part of the project's own architecture.
-    static func isGeneratedBundle(name: String, url: URL) -> Bool {
+    /// Why a recognized code file stays out of the Modules view: configuration and
+    /// build formats have no dependency graph, and minified or bundled third-party
+    /// code (or anything over the parse limit) is not the project's own architecture.
+    static func skipReason(name: String, url: URL, language: String) -> CodeCoverage.SkipReason? {
+        if nonGraphLanguages.contains(language) || buildScriptNames.contains(name) { return .configFormat }
         let lower = name.lowercased()
-        if lower.contains(".min.") || lower.contains(".bundle.") || lower.contains(".bundled.") { return true }
+        if lower.contains(".min.") || lower.contains(".bundle.") || lower.contains(".bundled.") { return .generatedBundle }
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        return size > maxParseBytes
+        return size > maxParseBytes ? .tooLarge : nil
     }
 
     static func isDeploymentHint(_ path: String) -> Bool {
@@ -884,6 +899,13 @@ extension ArchitectureScanner {
         }
         return out
     }
+}
+
+extension CodeCoverage.Capabilities {
+    /// What the shipping scanner and the local outline pass understand.
+    static let current = CodeCoverage.Capabilities(
+        dependencyLanguages: ArchitectureScanner.importLanguages.union(ArchitectureScanner.typeReferenceLanguages),
+        outlineLanguages: XRayContent.outlineLanguages)
 }
 
 // MARK: - Import resolution

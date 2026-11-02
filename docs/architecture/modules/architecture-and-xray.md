@@ -27,6 +27,13 @@ be ordered and have valid `path:line` evidence; each evidence link opens the sou
 This is an inferred static path, not a recorded runtime execution. The code model and up to
 30 scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
 snapshots readable. Source signatures mark saved architecture/scenarios stale after a rescan.
+`CodeArchitecture.coverage` (pure, run off the main thread after every scan and after a code
+analysis) records per language how far the understanding went — `full` (dependency
+extraction, declaration outline and model ownership), `partial` (recognized, something
+missing; the most any language reaches without a model) or `notAnalyzed` (configuration
+formats, bundles, oversized files, files no component owns) — with file counts per level,
+the number of unassigned files and plain-text reasons; it is stored as the optional
+`codeCoverage` snapshot field (`CodeCoverage`, versioned). No UI reads it yet.
 A dependency citation must be owned by an endpoint or one of its child components, using the
 same most-specific-path/deepest-owner rule as the diagram. A repair call receives the prior JSON
 and up to 40 validation problems, preserving valid component identities. CRLF line numbers
@@ -724,7 +731,7 @@ cannot be written, it falls back to `~/Library/Application Support/MarkView/<fol
 | `arch_edges` | `view, source, target, kind` (PK), `weight, label` | Edges |
 | `arch_coverage` | `node_id` PK, `status`, `docs_json` | `CoverageEntry` by `m:<path>` |
 | `arch_metrics` | `node_id` PK, `json` | `FileMetrics` JSON |
-| `arch_meta` | `key` PK, `value` | `systemName, systemPurpose, components, assignments, overrides, logicalSignature, language, logicalDraft ("1"), ratings (without tmp-*), coverageReport, deploymentSignature, scannedAt, enrichedAt (unix seconds as text), gitHead, deploymentHints` |
+| `arch_meta` | `key` PK, `value` | `systemName, systemPurpose, components, assignments, overrides, logicalSignature, language, logicalDraft ("1"), ratings (without tmp-*), coverageReport, deploymentSignature, scannedAt, enrichedAt (unix seconds as text), gitHead, deploymentHints, codeSequences, codeModel, codeCoverage` (the last three are optional JSON) |
 | `arch_reviews` | `diff_hash` PK, `json`, `created_at` | Encoded `PROverlay` after `reviewPR`, including the user's marks (dismissed, commented, issueURL). GitHub `info`, work in progress and `fileDiff` are stripped (`ArchitectureStore.swift:2891-2903`) |
 
 `saveArchitecture` deletes the five snapshot tables and reinserts everything in one
