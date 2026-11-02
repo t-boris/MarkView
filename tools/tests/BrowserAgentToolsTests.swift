@@ -54,6 +54,24 @@ check(BrowserAgentTools.requestFolder(declared: "/w/sealine", fallback: "/w/hub"
 check(BrowserAgentTools.requestFolder(declared: "  ", fallback: "/w/hub") == ("/w/hub", false), "a blank folder is none")
 check(BrowserAgentTools.requestFolder(declared: nil, fallback: "/w/hub") == ("/w/hub", false), "no folder: the server's own")
 check(BrowserAgentTools.requestFolder(declared: "~/p", fallback: "/").folder == NSHomeDirectory() + "/p", "a home folder is expanded")
+// A window that is already fixed takes no other project (BUG-042): a folder is accepted only inside the window's project.
+check(BrowserAgentTools.folder("/w/garden", isInProject: "/w/garden"), "the window's own project folder matches")
+check(BrowserAgentTools.folder("/w/garden/docs/", isInProject: "/w/garden"), "a folder inside the project matches")
+check(!BrowserAgentTools.folder("/w/other", isInProject: "/w/garden"), "another project does not match")
+check(!BrowserAgentTools.folder("/w/gardening", isInProject: "/w/garden"), "a name prefix is not the project")
+check(!BrowserAgentTools.folder("/w", isInProject: "/w/garden"), "a parent of the project does not match")
+check(!BrowserAgentTools.folder("/w/garden", isInProject: ""), "a window without a project matches nothing")
+// A real folder spelled through its symlink (/var is /private/var): both spellings are the same project.
+let projectOnDisk = (NSTemporaryDirectory() as NSString).appendingPathComponent("mv-project-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(atPath: projectOnDisk + "/sub", withIntermediateDirectories: true)
+let otherSpelling = projectOnDisk.hasPrefix("/private") ? String(projectOnDisk.dropFirst("/private".count)) : "/private" + projectOnDisk
+check(BrowserAgentTools.folder(otherSpelling + "/sub", isInProject: projectOnDisk), "a symlinked spelling of the project's folder matches")
+try? FileManager.default.removeItem(atPath: projectOnDisk)
+check(BrowserAgentTools.folder("~/p/sub", isInProject: NSHomeDirectory() + "/p"), "a home folder is expanded")
+let refusal = BrowserAgentTools.wrongProject(declared: "/w/MarkView", root: "/w/Butler")
+check(refusal.contains("/w/MarkView") && refusal.contains("/w/Butler") && refusal.contains("Nothing was done"),
+      "the refusal names both projects and says nothing was done")
+check(!BrowserAgentTools.isNoWindow(refusal), "the refusal is final: no other MarkView is asked")
 check(BrowserAgentTools.needsFolder(declared: false, cwdTrusted: false, windowCount: 3), "daemon, no folder, several windows: ask")
 check(!BrowserAgentTools.needsFolder(declared: true, cwdTrusted: false, windowCount: 3), "a declared folder needs no asking")
 check(!BrowserAgentTools.needsFolder(declared: false, cwdTrusted: true, windowCount: 3), "an agent's own folder is trusted")

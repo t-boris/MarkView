@@ -69,6 +69,25 @@ enum BrowserAgentTools {
         !declared && !cwdTrusted && windowCount > 1
     }
 
+    /// Whether `folder`, the one an agent says it works in, is the project `root` of a window or lies inside it.
+    /// Symlinked spellings of the same place (`/tmp` and `/private/tmp`) count as equal.
+    static func folder(_ folder: String, isInProject root: String) -> Bool {
+        func resolved(_ path: String) -> String {
+            URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath().path
+        }
+        let path = resolved(folder), project = resolved(root)
+        guard !project.isEmpty else { return false }
+        return path == project || path.hasPrefix(project + "/")
+    }
+
+    /// The reply of a project tool whose window is fixed but whose `project_folder` names another project. The
+    /// window's project is the only one the tool may write to, so it refuses rather than write there unnoticed.
+    static func wrongProject(declared: String, root: String) -> String {
+        "project_folder is \(declared), but this window's project is \(root). Nothing was done. "
+        + "The project tools only work on the project of the window the agent runs in: open \(declared) in a window of its own "
+        + "(markview_open_project) and call the tool from an agent there, or edit the files in that folder directly."
+    }
+
     static let folderRequired = "MarkView cannot tell which project this agent works in: its tools run in a shared background process, not in the project's folder. Call this tool again with project_folder set to the absolute path of the folder you are working in."
 
     /// What an MCP server of this binary offers: the browser tools, or the project tools (`ProjectAgentTools`).
