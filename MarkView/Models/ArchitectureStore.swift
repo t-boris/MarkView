@@ -679,12 +679,8 @@ final class ArchitectureStore: ObservableObject {
         var request = request
         request.model = request.xrayModel
         request.effort = "low"
-        let key = [request.tool.rawValue, request.model ?? "", request.systemPrompt ?? "", request.prompt,
-                   (try? JSONSerialization.data(withJSONObject: request.jsonSchema ?? [:], options: .sortedKeys))
-                       .map { String(decoding: $0, as: UTF8.self) } ?? ""].joined(separator: "\u{1}")
-        let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined().prefix(32)
         let cache = answerCache(root)
-        let file = cache.appendingPathComponent(hash + ".json")
+        let file = Self.answerFile(for: request, in: cache)
         let usable = { (object: [String: Any]) in !object.isEmpty && (accept?(object) ?? true) }
         if !fresh, let data = try? Data(contentsOf: file),
            let cached = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], usable(cached) {
@@ -704,6 +700,37 @@ final class ArchitectureStore: ObservableObject {
             break
         }
         return object
+    }
+
+    /// Where the answer to `request` is cached: one key for every X-Ray call, from the
+    /// CLI, model, system prompt, prompt and schema. `context` joins the key when a call
+    /// depends on more than its prompt (the code analysis and traces read the source,
+    /// so they carry the Modules signature); empty, the key of older answers is unchanged.
+    nonisolated private static func answerFile(for request: CLICompletion.Request, context: String = "", in cache: URL) -> URL {
+        var parts = [request.tool.rawValue, request.model ?? "", request.systemPrompt ?? "", request.prompt,
+                     (try? JSONSerialization.data(withJSONObject: request.jsonSchema ?? [:], options: .sortedKeys))
+                         .map { String(decoding: $0, as: UTF8.self) } ?? ""]
+        if !context.isEmpty { parts.append(context) }
+        let key = parts.joined(separator: "\u{1}")
+        let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined().prefix(32)
+        return cache.appendingPathComponent(hash + ".json")
+    }
+
+    /// A validated answer of the code analysis or a trace, cached as the JSON of its
+    /// decoded value under the key of the request that produced it (off the main thread).
+    nonisolated private static func cachedValue<T: Decodable>(_ type: T.Type, at file: URL) async -> T? {
+        await Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: file) else { return nil }
+            return try? JSONDecoder().decode(type, from: data)
+        }.value
+    }
+
+    nonisolated private static func cache<T: Encodable>(_ value: T, at file: URL) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        Task.detached(priority: .utility) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+        }
     }
 
     // MARK: Naming the clusters
@@ -1066,17 +1093,28 @@ final class ArchitectureStore: ObservableObject {
                 let evidence = await Task.detached(priority: .userInitiated) { CodeArchitecture.sourceEvidence(root: root, modules: modules) }.value
                 try Task.checkCancellation()
                 let prompt = CodeArchitecture.prompt(root: root, files: files, evidence: evidence)
-                var attempt = prompt
-                var model: CodeArchitectureModel?
-                for round in 0...1 {
-                    try Task.checkCancellation()
-                    var request = CLICompletion.Request(project: project, prompt: attempt,
-                        systemPrompt: "You explain architecture grounded in source code. Read files, do not modify them. Return only the schema JSON.\n" + Self.graphLanguageLine,
-                        jsonSchema: CodeArchitecture.schema, readableFolder: root)
+                let project = project
+                let tool = AIAssistantPreferences.backend(project: project)
+                let xrayModel = AIAssistantPreferences.xrayModel(for: tool, project: project)
+                let systemPrompt = "You explain architecture grounded in source code. Read files, do not modify them. Return only the schema JSON.\n" + Self.graphLanguageLine
+                func request(_ attempt: String) -> CLICompletion.Request {
+                    var request = CLICompletion.Request(project: project, prompt: attempt, systemPrompt: systemPrompt,
+                                                        jsonSchema: CodeArchitecture.schema, readableFolder: root)
                     request.timeout = 900; request.effort = "medium"; request.label = "code-architecture"
-                    let tool = AIAssistantPreferences.backend(project: project)
-                    request.model = AIAssistantPreferences.xrayModel(for: tool, project: project)
-                    let result = try await CLICompletion.run(request, onActivity: activityHandler(root: root))
+                    request.model = xrayModel
+                    return request
+                }
+                // The same prompt over the same source was answered before: no CLI call.
+                let answerFile = Self.answerFile(for: request(prompt), context: signature ?? "", in: answerCache(root))
+                var model: CodeArchitectureModel?
+                if let cached = await Self.cachedValue(CodeArchitectureModel.self, at: answerFile),
+                   (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
+                    model = cached
+                }
+                var attempt = prompt
+                for round in 0...1 where model == nil {
+                    try Task.checkCancellation()
+                    let result = try await CLICompletion.run(request(attempt), onActivity: activityHandler(root: root))
                     result.record(in: db)
                     do {
                         let parsed: CodeArchitectureModel
@@ -1090,7 +1128,8 @@ final class ArchitectureStore: ObservableObject {
                             parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
                         }
                         try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
-                        model = parsed; break
+                        Self.cache(parsed, at: answerFile)
+                        model = parsed
                     } catch {
                         if round == 1 { throw error }
                         let answer: String
@@ -1104,6 +1143,8 @@ final class ArchitectureStore: ObservableObject {
                 }
                 try Task.checkCancellation()
                 guard var model, rootPath == root.standardizedFileURL.path, var next = snapshot else { return }
+                // Scenarios are filtered, not repaired: a dropped one becomes a coverage reason.
+                model = CodeArchitecture.withAcceptedScenarios(model, modules: modules)
                 model.signature = signature
                 model.analyzedAt = Date()
                 next.codeModel = model
@@ -1138,8 +1179,7 @@ final class ArchitectureStore: ObservableObject {
             }
             return node.path == selected.path && selected.path != nil
         }.compactMap(\.path).sorted()
-        guard !paths.isEmpty else { return }
-        let signature = current.view("modules")?.nodes.first(where: { $0.id == "m:" })?.signature ?? ""
+        guard !paths.isEmpty, let modules = current.view("modules") else { return }
         busy = true
         error = nil
         let started = Date()
@@ -1148,40 +1188,120 @@ final class ArchitectureStore: ObservableObject {
         analysisTask = Task {
             defer { busy = false; progress = nil; analysisTask = nil; setStatus(nil) }
             do {
-                let prompt = DiagramAI.prompt(kind: .sequence, instruction: """
-                Trace this scenario in source code: \(question)
-                Start in this scope: \(selected.name).
-                Candidate source files (follow calls outside this set when needed):
-                \(paths.prefix(150).joined(separator: "\n"))
-                Use 2-12 participants and at most 24 messages. Return edges in execution order,
-                labelled "1. ...", "2. ...", etc. Repeated calls between participants are allowed.
-                Every internal participant's source and every message's evidence MUST be a real
-                project-relative source file with a valid :line suffix. Read the actual code;
-                do not derive execution order from imports. Describe one possible static path,
-                not an observed runtime trace. State conditions, uncertainty and omitted branches
-                in takeaway/omitted. Never invent an interaction to complete a scenario.
-                """, sources: [], root: root)
-                let tool = AIAssistantPreferences.backend(project: project)
-                let diagram = try await DiagramAI.generate(prompt: prompt, root: root, label: "code-sequence",
-                    project: project, model: AIAssistantPreferences.xrayModel(for: tool, project: project), onStage: { [weak self] stage in
-                    Task { @MainActor in
-                        guard let self, self.rootPath == root.standardizedFileURL.path else { return }
-                        self.progress?.current = "Tracing \(selected.name): \(stage)"
-                    }
-                }, record: { result in Task { @MainActor in result.record(in: db) } })
-                try await Task.detached(priority: .utility) { try CodeArchitecture.validateSequence(diagram, root: root) }.value
+                let diagram = try await traceSequence(name: selected.name, question: question, paths: paths,
+                                                      modules: modules, root: root, db: db)
                 try Task.checkCancellation()
                 guard rootPath == root.standardizedFileURL.path, var next = snapshot else { return }
                 var sequences = next.codeSequences ?? []
-                sequences.removeAll { $0.scope == scope && $0.diagram.question == diagram.question }
-                sequences.append(CodeSequence(scope: scope, signature: signature, diagram: diagram, createdAt: Date()))
-                next.codeSequences = Array(sequences.suffix(30))
+                sequences.removeAll { !$0.auto && $0.scope == scope && $0.diagram.question == diagram.question }
+                sequences.append(CodeSequence(scope: scope, diagram: diagram, modules: modules, auto: false))
+                next.codeSequences = Self.boundedSequences(sequences)
                 commit(next, db: db)
             } catch is CancellationError {
                 // Previously saved traces stay available.
             } catch {
                 self.error = "Could not trace the scenario: \(error.localizedDescription)"
             }
+        }
+    }
+
+    /// Manual traces kept per project; automatic ones are bounded by `CodeArchitecture.maxScenarios`.
+    private static let maxManualSequences = 30
+
+    /// Automatic sequences first, then the last `maxManualSequences` manual traces, so
+    /// a new manual trace is always the last entry.
+    private static func boundedSequences(_ sequences: [CodeSequence]) -> [CodeSequence] {
+        sequences.filter(\.auto) + sequences.filter { !$0.auto }.suffix(maxManualSequences)
+    }
+
+    /// The trace itself, shared by the manual action and the automatic run: the
+    /// cached diagram of this question, candidate files and source state (no CLI
+    /// call), or a fresh one from `DiagramAI`. Validated against the project either way.
+    private func traceSequence(name: String, question: String, paths: [String], modules: ArchView,
+                               root: URL, db: SemanticDatabase?) async throws -> DiagramSpec {
+        let prompt = DiagramAI.prompt(kind: .sequence, instruction: """
+        Trace this scenario in source code: \(question)
+        Start in this scope: \(name).
+        Candidate source files (follow calls outside this set when needed):
+        \(paths.prefix(150).joined(separator: "\n"))
+        Use 2-12 participants and at most 24 messages. Return edges in execution order,
+        labelled "1. ...", "2. ...", etc. Repeated calls between participants are allowed.
+        Every internal participant's source and every message's evidence MUST be a real
+        project-relative source file with a valid :line suffix. Read the actual code;
+        do not derive execution order from imports. Describe one possible static path,
+        not an observed runtime trace. State conditions, uncertainty and omitted branches
+        in takeaway/omitted. Never invent an interaction to complete a scenario.
+        """, sources: [], root: root)
+        let tool = AIAssistantPreferences.backend(project: project)
+        let model = AIAssistantPreferences.xrayModel(for: tool, project: project)
+        // The request `DiagramAI.generate` sends, mirrored for the cache key.
+        var mirror = CLICompletion.Request(project: project ?? root, prompt: prompt, systemPrompt: DiagramAI.system,
+                                           jsonSchema: DiagramAI.schema, readableFolder: root)
+        mirror.model = model
+        let signature = modules.nodes.first { $0.id == "m:" }?.signature ?? ""
+        let answerFile = Self.answerFile(for: mirror, context: signature, in: answerCache(root))
+        if let cached = await Self.cachedValue(DiagramSpec.self, at: answerFile),
+           (try? await Task.detached(priority: .utility) { try CodeArchitecture.validateSequence(cached, root: root) }.value) != nil {
+            return cached
+        }
+        let diagram = try await DiagramAI.generate(prompt: prompt, root: root, label: "code-sequence",
+            project: project, model: model, onStage: { [weak self] stage in
+            Task { @MainActor in
+                guard let self, self.rootPath == root.standardizedFileURL.path else { return }
+                self.progress?.current = "Tracing \(name): \(stage)"
+            }
+        }, record: { result in Task { @MainActor in result.record(in: db) } })
+        try await Task.detached(priority: .utility) { try CodeArchitecture.validateSequence(diagram, root: root) }.value
+        Self.cache(diagram, at: answerFile)
+        return diagram
+    }
+
+    /// Trace the scenarios the code analysis chose (`codeModel.scenarios`) one after
+    /// another through the same path as a manual trace, then replace the automatic
+    /// sequences with the result; manual traces are kept (DEC-002). A cancelled run
+    /// changes nothing, and a run in which every scenario failed keeps the previous
+    /// automatic sequences. Nothing schedules this yet: the automatic refresh that
+    /// decides when to run it is a later step.
+    func runAutoScenarios(root: URL, db: SemanticDatabase?) {
+        guard !busy, let current = snapshot, let modules = current.view("modules"),
+              let scenarios = current.codeModel?.scenarios, !scenarios.isEmpty else { return }
+        let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path)
+        busy = true
+        error = nil
+        let started = Date()
+        analysisTask = Task {
+            var traced: [CodeSequence] = []
+            var failures: [String] = []
+            for (index, scenario) in scenarios.enumerated() {
+                if Task.isCancelled { break }
+                beginStep(index + 1, "Tracing " + scenario.title, started: started, steps: scenarios.count)
+                setProgressScope(scenario.question)
+                let paths = files.filter { $0 == scenario.scope || $0.hasPrefix(scenario.scope + "/") }.sorted()
+                guard !paths.isEmpty else {
+                    failures.append("\(scenario.title): no source files under \(scenario.scope)")
+                    continue
+                }
+                do {
+                    let diagram = try await traceSequence(name: scenario.scope, question: scenario.question, paths: paths,
+                                                          modules: modules, root: root, db: db)
+                    // A file scope has a Code-view node of its own; a directory is traced at the root.
+                    let scope = paths == [scenario.scope] ? "code:f:" + scenario.scope : "code:"
+                    traced.append(CodeSequence(scope: scope, diagram: diagram, modules: modules, auto: true))
+                } catch is CancellationError {
+                    break
+                } catch {
+                    failures.append("\(scenario.title): \(error.localizedDescription)")
+                }
+            }
+            if !Task.isCancelled, !traced.isEmpty, rootPath == root.standardizedFileURL.path, var next = snapshot {
+                next.codeSequences = CodeArchitecture.replacingAutoSequences(in: next.codeSequences ?? [], with: traced)
+                commit(next, db: db)
+            }
+            if !Task.isCancelled, !failures.isEmpty {
+                error = "Could not trace \(failures.count) of \(scenarios.count) automatic scenarios: " + failures.joined(separator: "; ")
+            }
+            // Explicit, not deferred: a later step chains the next stage from here.
+            busy = false; progress = nil; analysisTask = nil; setStatus(nil)
         }
     }
 

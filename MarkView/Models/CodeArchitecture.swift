@@ -259,8 +259,67 @@ enum CodeArchitecture {
             case .tooLarge: reasons.append(what + ": larger than the \(ArchitectureScanner.maxParseBytes / 1024) KB parse limit")
             }
         }
+        reasons += model?.scenarioNotes ?? []
         return CodeCoverage(version: CodeCoverage.currentVersion, languages: languages, unassignedFiles: unassigned,
                             skipped: skipped, reasons: reasons, hasModel: model != nil, computedAt: now)
+    }
+
+    // MARK: - Automatic scenarios
+
+    /// How many sequence scenarios the analysis chooses from the entry points (DEC-003).
+    static let expectedScenarios = 3
+    static let maxScenarios = 5
+
+    /// The scenarios of an analysis answer the automatic run may trace: a non-empty
+    /// title and question, one scenario per title, a scope that is an inventory file
+    /// or a directory holding inventory files, and at most `maxScenarios`. Invalid
+    /// ones are dropped, never repaired, and every drop is recorded in
+    /// `scenarioNotes`, which `coverage` reports in the "What was understood" reasons.
+    static func withAcceptedScenarios(_ model: CodeArchitectureModel, modules: ArchView) -> CodeArchitectureModel {
+        let files = Set(modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path))
+        var accepted: [CodeArchitectureModel.Scenario] = []
+        var notes: [String] = []
+        var titles = Set<String>()
+        for raw in model.scenarios ?? [] {
+            let scenario = CodeArchitectureModel.Scenario(
+                title: raw.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                question: raw.question.trimmingCharacters(in: .whitespacesAndNewlines),
+                scope: raw.scope.trimmingCharacters(in: .whitespacesAndNewlines))
+            if scenario.title.isEmpty || scenario.question.isEmpty {
+                notes.append("Dropped a suggested scenario without a title or question")
+                continue
+            }
+            if !titles.insert(scenario.title.lowercased()).inserted {
+                notes.append("Dropped a duplicate scenario: \(scenario.title)")
+                continue
+            }
+            if scenario.scope.isEmpty || scenario.scope.hasPrefix("/") || scenario.scope.split(separator: "/").contains("..")
+                || !files.contains(where: { $0 == scenario.scope || $0.hasPrefix(scenario.scope + "/") }) {
+                notes.append("Dropped the scenario \"\(scenario.title)\": its scope is not a source path of the project: \(scenario.scope)")
+                continue
+            }
+            if accepted.count == maxScenarios {
+                notes.append("Dropped the scenario \"\(scenario.title)\": at most \(maxScenarios) automatic scenarios are traced")
+                continue
+            }
+            accepted.append(scenario)
+        }
+        if accepted.isEmpty {
+            notes.append("The analysis suggested no scenario to trace automatically")
+        } else if accepted.count < expectedScenarios {
+            notes.append("The analysis suggested \(accepted.count) scenario" + (accepted.count == 1 ? "" : "s")
+                         + " to trace automatically; \(expectedScenarios) were expected")
+        }
+        var next = model
+        next.scenarios = accepted
+        next.scenarioNotes = notes
+        return next
+    }
+
+    /// An automatic refresh replaces only the automatic sequences; manual traces stay
+    /// (DEC-002), after the new automatic ones and in their own order.
+    static func replacingAutoSequences(in existing: [CodeSequence], with auto: [CodeSequence]) -> [CodeSequence] {
+        auto.filter(\.auto) + existing.filter { !$0.auto }
     }
 
     /// Bounded, line-numbered implementation evidence. Runs on the scanning/analysis
@@ -364,6 +423,12 @@ enum CodeArchitecture {
         Do not invent links to make
         the graph connected. Name the action (e.g. "stores order"), not just "uses".
         Names should come from the source; summaries explain responsibilities and uncertainty.
+        Also return scenarios: \(expectedScenarios) interaction scenarios (at most \(maxScenarios)) worth a
+        sequence diagram, chosen from the project's entry points (main functions, request
+        handlers, commands, UI actions, jobs). Each has a short title, a question in the form
+        "How is X done?" that a trace of the code answers, and a scope: the exact inventory
+        file or existing directory where that scenario starts. Prefer the main product flows
+        over tests and tooling. Do not repeat a scenario under another title.
         Source file inventory (up to 3000 paths; discover additional files with your tools):
         \(files.prefix(3000).joined(separator: "\n"))
 
@@ -377,11 +442,17 @@ enum CodeArchitecture {
     static var schema: [String: Any] {
         func string() -> [String: Any] { ["type": "string"] }
         return ["type": "object", "additionalProperties": false,
-                "required": ["name", "purpose", "components", "dependencies"], "properties": [
+                "required": ["name", "purpose", "components", "dependencies", "scenarios"], "properties": [
                     "name": string(), "purpose": string(),
                     "dependencies": ["type": "array", "items": ["type": "object", "additionalProperties": false,
                         "required": ["source", "target", "label", "evidence"], "properties": [
                             "source": string(), "target": string(), "label": string(), "evidence": string()
+                        ]]],
+                    "scenarios": ["type": "array", "items": ["type": "object", "additionalProperties": false,
+                        "required": ["title", "question", "scope"], "properties": [
+                            "title": string(),
+                            "question": ["type": "string", "description": "The one question a sequence diagram of this scenario answers."],
+                            "scope": ["type": "string", "description": "Exact project-relative source file or directory where the scenario starts."]
                         ]]],
                     "components": ["type": "array", "items": ["type": "object", "additionalProperties": false,
                         "required": ["id", "name", "purpose", "parent", "layer", "paths", "evidence"], "properties": [
@@ -506,11 +577,89 @@ enum CodeArchitecture {
     }
 }
 
+/// One traced scenario of the Code view. Fields after `createdAt` are additive:
+/// a sequence saved before they existed decodes as a manual trace without cited
+/// paths, whose staleness falls back to the root signature.
 struct CodeSequence: Codable {
+    /// Code-view node id the trace started from ("code:" for the whole project).
     var scope: String
+    /// Root signature of the Modules view when the trace was made.
     var signature: String
     var diagram: DiagramSpec
     var createdAt: Date
+    /// Traced by the automatic run. Manual traces (`false`) are never discarded by an
+    /// automatic refresh (DEC-002).
+    var auto: Bool = false
+    /// Project-relative paths the diagram cites as participant sources and message
+    /// evidence, sorted and unique.
+    var citedPaths: [String] = []
+    /// File signature of each cited path when the trace was made, for the paths the
+    /// Modules view knew. A sequence is stale only when one of these changed.
+    var citedSignatures: [String: String] = [:]
+
+    private enum CodingKeys: String, CodingKey {
+        case scope, signature, diagram, createdAt, auto, citedPaths, citedSignatures
+    }
+
+    init(scope: String, signature: String, diagram: DiagramSpec, createdAt: Date,
+         auto: Bool = false, citedPaths: [String] = [], citedSignatures: [String: String] = [:]) {
+        self.scope = scope
+        self.signature = signature
+        self.diagram = diagram
+        self.createdAt = createdAt
+        self.auto = auto
+        self.citedPaths = citedPaths
+        self.citedSignatures = citedSignatures
+    }
+
+    /// A trace of `diagram` with its citations and their signatures taken from `modules`.
+    init(scope: String, diagram: DiagramSpec, modules: ArchView, auto: Bool, createdAt: Date = Date()) {
+        let signatures = Dictionary(modules.nodes.filter { $0.kind == "file" }.compactMap { node in
+            node.path.flatMap { path in node.signature.map { (path, $0) } }
+        }, uniquingKeysWith: { a, _ in a })
+        let cited = Self.citedPaths(of: diagram)
+        self.init(scope: scope, signature: modules.nodes.first { $0.id == "m:" }?.signature ?? "",
+                  diagram: diagram, createdAt: createdAt, auto: auto, citedPaths: cited,
+                  citedSignatures: Dictionary(cited.compactMap { path in signatures[path].map { (path, $0) } },
+                                              uniquingKeysWith: { a, _ in a }))
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        scope = try container.decode(String.self, forKey: .scope)
+        signature = try container.decode(String.self, forKey: .signature)
+        diagram = try container.decode(DiagramSpec.self, forKey: .diagram)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        auto = try container.decodeIfPresent(Bool.self, forKey: .auto) ?? false
+        citedPaths = try container.decodeIfPresent([String].self, forKey: .citedPaths) ?? []
+        citedSignatures = try container.decodeIfPresent([String: String].self, forKey: .citedSignatures) ?? [:]
+    }
+
+    /// The paths a diagram cites ("path" or "path:line"), sorted and unique.
+    static func citedPaths(of diagram: DiagramSpec) -> [String] {
+        func path(_ citation: String?) -> String? {
+            guard let citation, !citation.isEmpty else { return nil }
+            if let colon = citation.lastIndex(of: ":"), Int(citation[citation.index(after: colon)...]) != nil {
+                let path = String(citation[..<colon])
+                return path.isEmpty ? nil : path
+            }
+            return citation
+        }
+        return Set(diagram.nodes.compactMap { path($0.source) } + diagram.edges.compactMap { path($0.evidence) }).sorted()
+    }
+
+    /// Stale when a cited file changed, appeared in or vanished from `modules` since the
+    /// trace; other changes in the project do not matter. A sequence without cited
+    /// paths (saved before they were recorded) compares the root signature instead.
+    func isStale(modules: ArchView) -> Bool {
+        guard !citedPaths.isEmpty else {
+            return modules.nodes.first { $0.id == "m:" }?.signature != signature
+        }
+        let current = Dictionary(modules.nodes.filter { $0.kind == "file" }.compactMap { node in
+            node.path.flatMap { path in node.signature.map { (path, $0) } }
+        }, uniquingKeysWith: { a, _ in a })
+        return citedPaths.contains { current[$0] != citedSignatures[$0] }
+    }
 }
 
 /// Separate from the document-oriented Logical view: inferred by reading code,
@@ -534,7 +683,19 @@ struct CodeArchitectureModel: Codable {
         var label: String
         var evidence: String
     }
+    /// A scenario the analysis chose from the entry points for an automatic trace.
+    struct Scenario: Codable, Equatable {
+        var title: String
+        var question: String
+        /// Project-relative source file or directory where the scenario starts.
+        var scope: String
+    }
     var signature: String? = nil
     var analyzedAt: Date? = nil
     var dependencies: [Dependency]? = nil
+    /// Accepted by `CodeArchitecture.withAcceptedScenarios`; nil for models saved before
+    /// scenarios existed.
+    var scenarios: [Scenario]? = nil
+    /// Why suggested scenarios were dropped, or that too few were suggested.
+    var scenarioNotes: [String]? = nil
 }

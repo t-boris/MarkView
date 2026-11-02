@@ -25,8 +25,20 @@ are lifted to visible ancestors as the reader drills down.
 `DiagramAI`, and renders a real Mermaid `sequenceDiagram` in the graph area. Messages must
 be ordered and have valid `path:line` evidence; each evidence link opens the source line.
 This is an inferred static path, not a recorded runtime execution. The code model and up to
-30 scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
-snapshots readable. Source signatures mark saved architecture/scenarios stale after a rescan.
+30 manual scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
+snapshots readable. The root source signature marks a saved architecture stale after a rescan;
+a sequence records the paths its participants and messages cite (`citedPaths`) with their
+file signatures and is stale only when one of those files changed or vanished (a sequence saved
+without them falls back to the root signature).
+The analysis answer also proposes `scenarios` (3, at most 5: title, question and a source
+file or directory scope chosen from the entry points). `CodeArchitecture.withAcceptedScenarios`
+drops the invalid ones (empty title or question, duplicate title, unknown or outside scope,
+beyond the cap) and records each reason in the model's `scenarioNotes`, which the coverage
+report repeats. `ArchitectureStore.runAutoScenarios` traces the accepted scenarios one after
+another through the same path as a manual trace and replaces only the automatic sequences
+(`auto: true`); manual traces are never discarded by it (DEC-002). Nothing schedules it yet.
+The code analysis and every trace are cached like the other X-Ray answers (`.dde/cache/xray`,
+keyed by the request plus the Modules signature): a re-run over unchanged source makes no CLI call.
 `CodeArchitecture.coverage` (pure, run off the main thread after every scan and after a code
 analysis) records per language how far the understanding went — `full` (dependency
 extraction, declaration outline and model ownership), `partial` (recognized, something

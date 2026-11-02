@@ -180,7 +180,79 @@ check(skipped.reasons.contains("2 javascript files: larger than the 512 KB parse
 let emptyModules = ArchView(id: "modules", nodes: [ArchNode(id: "m:", kind: "root", name: "Empty")], edges: [])
 let empty = CodeArchitecture.coverage(modules: emptyModules, model: nil, skipped: [], capabilities: capabilities)
 check(empty.languages.isEmpty && empty.unassignedFiles == 0 && empty.reasons.isEmpty, "an empty project has an empty report rather than a missing-model complaint")
-snapshot.codeSequences = [.init(scope: "code:", signature: "sig1", diagram: diagram, createdAt: Date())]
+// Automatic scenarios: the analysis answer proposes them; invalid ones are dropped, each
+// with a reason the coverage report repeats, and at most five are kept.
+check((CodeArchitecture.schema["required"] as? [String])?.contains("scenarios") == true
+      && CodeArchitecture.prompt(root: fixture, files: paths).contains("return scenarios: 3 interaction scenarios (at most 5)"),
+      "the analysis request asks for 3 to 5 scenarios chosen from the entry points")
+var suggested = model
+suggested.scenarios = [
+    .init(title: "Place an order", question: "How is an order saved?", scope: "api.py"),
+    .init(title: " place an ORDER ", question: "How is an order saved, again?", scope: "service.py"),
+    .init(title: "", question: "How is the schema created?", scope: "schema.sql"),
+    .init(title: "Load the page", question: "   ", scope: "web/app.js"),
+    .init(title: "Escape", question: "How does it escape?", scope: "../api.py"),
+    .init(title: "Ghost", question: "How is a ghost traced?", scope: "missing.py"),
+    .init(title: "Submit from the web", question: "How does the browser post an order?", scope: "web"),
+    .init(title: "Validate", question: "How is quantity validated?", scope: "service.py"),
+    .init(title: "Persist", question: "How is a row inserted?", scope: "repository.py"),
+    .init(title: "Create schema", question: "How is the table created?", scope: "schema.sql"),
+    .init(title: "Sixth", question: "How is the sixth flow handled?", scope: "api.py")
+]
+let accepted = CodeArchitecture.withAcceptedScenarios(suggested, modules: modules)
+check(accepted.scenarios?.map(\.title) == ["Place an order", "Submit from the web", "Validate", "Persist", "Create schema"],
+      "scenarios keep their order; duplicates by title, empty fields, outside or unknown scopes and the sixth are dropped")
+check(accepted.scenarios?.allSatisfy { $0.title == $0.title.trimmingCharacters(in: .whitespaces) } == true, "accepted scenario fields are trimmed")
+let notes = accepted.scenarioNotes ?? []
+check(notes.count == 6 && notes.contains("Dropped a duplicate scenario: place an ORDER")
+      && notes.filter { $0 == "Dropped a suggested scenario without a title or question" }.count == 2
+      && notes.contains { $0.hasPrefix("Dropped the scenario \"Escape\"") && $0.hasSuffix("../api.py") }
+      && notes.contains { $0.hasPrefix("Dropped the scenario \"Ghost\"") }
+      && notes.contains("Dropped the scenario \"Sixth\": at most 5 automatic scenarios are traced"),
+      "every dropped scenario is explained once")
+check(!notes.contains { $0.contains("expected") }, "five accepted scenarios raise no shortage note")
+var few = model
+few.scenarios = [.init(title: "One", question: "How is one done?", scope: "api.py"), .init(title: "Two", question: "How is two done?", scope: "web")]
+check(CodeArchitecture.withAcceptedScenarios(few, modules: modules).scenarioNotes == ["The analysis suggested 2 scenarios to trace automatically; 3 were expected"],
+      "fewer than three scenarios are reported, not refused")
+check(CodeArchitecture.withAcceptedScenarios(model, modules: modules).scenarioNotes == ["The analysis suggested no scenario to trace automatically"]
+      && CodeArchitecture.withAcceptedScenarios(model, modules: modules).scenarios == [], "an answer without scenarios is reported as such")
+let scenarioCoverage = CodeArchitecture.coverage(modules: modules, model: accepted, skipped: [], capabilities: capabilities)
+check(scenarioCoverage.reasons.suffix(6) == notes[...] && scenarioCoverage.languages == analyzed.languages,
+      "the coverage report repeats the scenario notes after the language reasons")
+// Sequences: per-sequence staleness through the cited files, automatic ones replaced as a set.
+var signed = modules
+for i in signed.nodes.indices where signed.nodes[i].kind == "file" { signed.nodes[i].signature = "s-" + signed.nodes[i].path! }
+let traced = CodeSequence(scope: "code:", diagram: diagram, modules: signed, auto: true)
+check(traced.auto && traced.signature == "sig1" && traced.citedPaths == ["api.py", "repository.py", "service.py"]
+      && traced.citedSignatures == ["api.py": "s-api.py", "repository.py": "s-repository.py", "service.py": "s-service.py"],
+      "a sequence records the files its participants and messages cite with their signatures")
+var lineless = diagram
+lineless.nodes.append(.init(id: "browser", label: "Browser", kind: "external", source: "web/app.js"))
+check(CodeSequence.citedPaths(of: lineless) == ["api.py", "repository.py", "service.py", "web/app.js"], "citations with and without a line number are both paths")
+check(!traced.isStale(modules: signed), "a sequence is fresh while its cited files are unchanged")
+var elsewhere = signed
+elsewhere.nodes[0].signature = "sig2"
+elsewhere.nodes[signed.nodes.firstIndex { $0.path == "web/app.js" }!].signature = "changed"
+check(!traced.isStale(modules: elsewhere), "a root change caused by an uncited file does not stale the sequence")
+var citedChanged = signed
+citedChanged.nodes[signed.nodes.firstIndex { $0.path == "service.py" }!].signature = "changed"
+check(traced.isStale(modules: citedChanged), "a changed cited file stales the sequence")
+var citedRemoved = signed
+citedRemoved.nodes.removeAll { $0.path == "service.py" }
+check(traced.isStale(modules: citedRemoved), "a vanished cited file stales the sequence")
+let manual = CodeSequence(scope: "code:", signature: "sig1", diagram: diagram, createdAt: Date())
+check(!manual.auto && manual.citedPaths.isEmpty && !manual.isStale(modules: signed) && manual.isStale(modules: elsewhere),
+      "a sequence without cited paths is manual and falls back to the root signature")
+var oldAuto = traced; oldAuto.diagram.title = "Old automatic"
+var newAuto = traced; newAuto.diagram.title = "New automatic"
+let replaced = CodeArchitecture.replacingAutoSequences(in: [oldAuto, manual], with: [newAuto, manual])
+check(replaced.map(\.diagram.title) == ["New automatic", "Place an order"] && replaced.map(\.auto) == [true, false],
+      "an automatic refresh replaces automatic sequences and keeps the manual trace")
+check(CodeArchitecture.replacingAutoSequences(in: [oldAuto, manual], with: []).map(\.diagram.title) == ["Place an order"],
+      "an automatic refresh without results removes nothing manual")
+snapshot.codeSequences = [manual, traced]
+snapshot.codeModel = accepted
 snapshot.codeCoverage = skipped
 let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
 let encoded = try encoder.encode(snapshot)
@@ -189,13 +261,30 @@ old.removeValue(forKey: "codeSequences"); old.removeValue(forKey: "codeModel"); 
 let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
 let legacy = try? decoder.decode(ArchitectureSnapshot.self, from: JSONSerialization.data(withJSONObject: old))
 check(legacy != nil && legacy?.codeCoverage == nil, "pre-Code snapshots still decode, without a coverage report")
+var beforeScenarios = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+beforeScenarios["codeSequences"] = (beforeScenarios["codeSequences"] as! [[String: Any]]).map { sequence in
+    var copy = sequence
+    copy.removeValue(forKey: "auto"); copy.removeValue(forKey: "citedPaths"); copy.removeValue(forKey: "citedSignatures")
+    return copy
+}
+var oldModel = beforeScenarios["codeModel"] as! [String: Any]
+oldModel.removeValue(forKey: "scenarios"); oldModel.removeValue(forKey: "scenarioNotes")
+beforeScenarios["codeModel"] = oldModel
+let preScenario = try? decoder.decode(ArchitectureSnapshot.self, from: JSONSerialization.data(withJSONObject: beforeScenarios))
+check(preScenario?.codeSequences?.map(\.auto) == [false, false] && preScenario?.codeSequences?.allSatisfy { $0.citedPaths.isEmpty && $0.citedSignatures.isEmpty } == true
+      && preScenario?.codeModel?.scenarios == nil && preScenario?.codeModel?.scenarioNotes == nil,
+      "sequences and models saved before scenarios decode as manual traces without scenarios")
 let restored = try decoder.decode(ArchitectureSnapshot.self, from: encoded)
-check(restored.codeModel?.components.count == 5 && restored.codeSequences?.count == 1, "model and sequences survive snapshot encoding")
+check(restored.codeModel?.components.count == 5 && restored.codeSequences?.count == 2, "model and sequences survive snapshot encoding")
+check(restored.codeSequences?.map(\.auto) == [false, true] && restored.codeSequences?[1].citedPaths == traced.citedPaths
+      && restored.codeSequences?[1].citedSignatures == traced.citedSignatures
+      && restored.codeModel?.scenarios == accepted.scenarios && restored.codeModel?.scenarioNotes == notes,
+      "the automatic flag, cited files and scenarios survive snapshot encoding")
 check(restored.codeCoverage.map { $0.languages == skipped.languages && $0.reasons == skipped.reasons && $0.skipped == skips && $0.version == skipped.version } == true,
       "the coverage report survives snapshot encoding")
 snapshot.views.append(CodeArchitecture.view(withSymbols))
 let payload: [String: Any] = ["root": fixture.path, "snapshot": try JSONSerialization.jsonObject(with: encoder.encode(snapshot)),
-                            "codeSequenceDiagrams": [mermaid], "busy": false, "filters": [], "prSources": []]
+                            "codeSequenceDiagrams": [mermaid, mermaid], "busy": false, "filters": [], "prSources": []]
 try JSONSerialization.data(withJSONObject: payload).write(to: output.appendingPathComponent("payload.json"))
 try JSONSerialization.data(withJSONObject: CodeArchitecture.schema).write(to: output.appendingPathComponent("schema.json"))
 try CodeArchitecture.prompt(root: fixture, files: paths).write(to: output.appendingPathComponent("prompt.txt"), atomically: true, encoding: .utf8)
