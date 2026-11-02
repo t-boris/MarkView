@@ -2,6 +2,7 @@ import AppKit
 import WebKit
 
 // BUG-031: the shipped editor page names the tab whose document it shows in every message to Swift.
+// BUG-043: edits typed in the WYSIWYG view are handed to the app, under the old id, when another document replaces them.
 // Run through tools/tests/editor-document-routing-tests.sh (needs the bundled editor folder as argument 1).
 let editor = CommandLine.arguments[1]
 var failures = 0
@@ -64,16 +65,16 @@ spin(30) { loaded.done }
 check(loaded.done, "shipping editor loaded")
 spin(2)
 
-// The app loads a document and names its tab in the same script (WebViewBridge.documentIDScript).
+// The app loads a document and names its tab in the same script (WebViewBridge.documentIDScript: mvSetDocument, then the load).
 var mark = bridge.messages.count
-var result = js("window.mvDocumentId = \"\(tabA)\"; window.setContent('# Alpha\\n\\nfirst document'); return 'ok';")
+var result = js("window.mvSetDocument(\"\(tabA)\"); window.setContent('# Alpha\\n\\nfirst document'); return 'ok';")
 check(result == "ok", "document A loads", result)
 var sent = messages("contentChanged", since: mark)
 check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabA }, "text reported after loading A names tab A", sent.map { $0.doc }.joined(separator: ","))
 check(sent.contains { ($0.payload["markdown"] as? String)?.contains("Alpha") == true }, "that text is document A's")
 
 mark = bridge.messages.count
-result = js("window.mvDocumentId = \"\(tabB)\"; window.setContent('# Beta\\n\\nsecond document'); return 'ok';")
+result = js("window.mvSetDocument(\"\(tabB)\"); window.setContent('# Beta\\n\\nsecond document'); return 'ok';")
 sent = messages("contentChanged", since: mark)
 check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabB }, "after switching to B, text names tab B", sent.map { $0.doc }.joined(separator: ","))
 
@@ -100,9 +101,68 @@ if let a = bridge.messages[mark...].firstIndex(where: { $0.type == "contentChang
 
 // No tab's document (the app clears the id for an insight or the X-Ray): messages carry an empty id.
 mark = bridge.messages.count
-result = js("window.mvDocumentId = ''; window.setContent('# Loose'); return 'ok';")
+result = js("window.mvSetDocument(''); window.setContent('# Loose'); return 'ok';")
 sent = messages("contentChanged", since: mark)
 check(!sent.isEmpty && sent.allSatisfy { $0.doc == "" }, "with the id cleared, messages name no document", sent.map { $0.doc }.joined(separator: ","))
+
+// BUG-043: unsaved WYSIWYG edits survive a switch to another document.
+let tabC = UUID().uuidString
+func load(_ id: String, _ markdown: String) {
+    let result = js("window.mvSetDocument(\"\(id)\"); window.setContent('\(markdown)'); return 'ok';")
+    check(result == "ok", "document \(markdown.prefix(12)) loads", result)
+}
+func typeInWysiwyg(_ text: String) {
+    let result = js("""
+    const rendered = document.getElementById('editor-rendered');
+    rendered.querySelector('h1').textContent = '\(text)';
+    rendered.dispatchEvent(new Event('input', {bubbles: true}));
+    return 'ok';
+    """)
+    check(result == "ok", "typing in the WYSIWYG view", result)
+}
+func markdown(_ message: Message) -> String { (message.payload["markdown"] as? String) ?? "" }
+
+load(tabA, "# Alpha\\n\\nfirst document")
+typeInWysiwyg("Alpha typed, not saved")
+mark = bridge.messages.count
+load(tabB, "# Beta\\n\\nsecond document")
+sent = messages("contentChanged", since: mark)
+check(sent.first.map { $0.doc == tabA && markdown($0).contains("Alpha typed, not saved") } == true,
+      "switching documents first hands over the unsaved edits, under the old id", sent.map { "\($0.doc.prefix(4)):\(markdown($0).prefix(30))" }.joined(separator: " | "))
+check(sent.dropFirst().allSatisfy { $0.doc == tabB && !markdown($0).contains("typed, not saved") },
+      "what follows is the new document's own text, under the new id")
+check(sent.contains { $0.doc == tabB && markdown($0).contains("Beta") }, "the new document is reported")
+
+// Nothing was typed: no hand-over, the first message already belongs to the new document.
+mark = bridge.messages.count
+load(tabC, "# Gamma\\n\\nthird document")
+sent = messages("contentChanged", since: mark)
+check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabC }, "without edits nothing is handed over for the old document", sent.map { $0.doc.prefix(4) }.joined(separator: ","))
+
+// The same document loading again (a refresh from disk) keeps replacing the edits.
+typeInWysiwyg("Gamma typed, then refreshed")
+mark = bridge.messages.count
+load(tabC, "# Gamma\\n\\nfresh from disk")
+sent = messages("contentChanged", since: mark)
+check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabC && !markdown($0).contains("then refreshed") },
+      "reloading the same document does not hand its edits over", sent.map { markdown($0).prefix(30) }.joined(separator: " | "))
+
+// The edits were synced into the Source view and never sent: they still must not be lost.
+load(tabA, "# Alpha\\n\\nfirst document")
+typeInWysiwyg("Alpha typed, then Source")
+_ = js("switchToSource(); return 'ok';")
+mark = bridge.messages.count
+load(tabB, "# Beta\\n\\nsecond document")
+sent = messages("contentChanged", since: mark)
+check(sent.first.map { $0.doc == tabA && markdown($0).contains("Alpha typed, then Source") } == true,
+      "edits seen in the Source view are handed over too", sent.map { "\($0.doc.prefix(4)):\(markdown($0).prefix(30))" }.joined(separator: " | "))
+
+// Edits are handed over once: coming back and leaving again without typing sends nothing for that document.
+_ = js("switchToPreview(); return 'ok';")
+mark = bridge.messages.count
+load(tabC, "# Gamma\\n\\nthird document")
+sent = messages("contentChanged", since: mark)
+check(!sent.isEmpty && sent.allSatisfy { $0.doc == tabC }, "a second switch hands nothing over again", sent.map { $0.doc.prefix(4) }.joined(separator: ","))
 
 print("\(failures) WebKit failures")
 exit(failures == 0 ? 0 : 1)

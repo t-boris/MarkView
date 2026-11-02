@@ -373,9 +373,12 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
 
     /// Script that tells the page which tab its next document belongs to; the page names it in every message
     /// (`sendToSwift`). It runs in the same script as the load so no message can pair the new id with the old
-    /// document. An empty id means the page shows no tab's document.
+    /// document. An empty id means the page shows no tab's document. `mvSetDocument` first hands unsaved WYSIWYG
+    /// edits of the previous document to the app under the previous id (BUG-043); a page that has not defined it
+    /// yet just takes the id.
     private static func documentIDScript(_ id: UUID?) -> String {
-        "window.mvDocumentId = \"\(id?.uuidString ?? "")\"; "
+        let id = id?.uuidString ?? ""
+        return "if (window.mvSetDocument) { window.mvSetDocument(\"\(id)\"); } else { window.mvDocumentId = \"\(id)\"; } "
     }
 
     /// Tell the page that no tab's document is on screen (an insight or the X-Ray replaces it).

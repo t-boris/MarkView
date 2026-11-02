@@ -1,5 +1,22 @@
 # MarkView — Follow-up Tasks
 
+## BUG-043: switching tabs discarded text typed in the WYSIWYG view (2026-11-02, 4.65.4)
+
+Found while fixing BUG-031. Edits typed in the WYSIWYG view live only in the page until Cmd+S or a switch to Source; a tab
+switch loaded the next document over them and no tab remembered them.
+
+- [x] Read the path: `setContent` resets `wysiwygDirty`; the page converts only on Cmd+S, `translateWholeDocument` or Source.
+- [x] `window.mvSetDocument(id)`: on a document change it hands pending edits to the app under the old id (BUG-031 routing applies
+      them to the old tab); `documentIDScript` calls it in the load script. A refresh of the same document still replaces them.
+- [x] `saveFile` clears `wysiwygDirty` after sending; `EditorDocumentRouting.reportsShownDocument` keeps the reload check on the
+      shown document's text.
+- [x] `tools/tests/editor-document-routing-tests.sh`: unit rule + headless WebKit scenarios (fail 2 checks without the hand-over).
+- [x] Debug build passes.
+- [ ] Not exercised: the real app's tab bar by hand.
+- [ ] Open decision, not changed: closing a tab, quitting, or the Save menu / command palette while WYSIWYG edits are pending
+      (see the bug document).
+- [ ] PR, merge, release.
+
 ## BUG-042: project tools ignored a different project_folder (2026-11-02, 4.65.3)
 
 An agent whose window had the Butler's repository open called `markview_create_bug` with `project_folder` set to the MarkView
