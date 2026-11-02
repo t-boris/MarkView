@@ -2,7 +2,7 @@
 type: feature
 id: project-operations-deploy-install-restart-buttons-from-x
 title: "Project operations: Deploy / Install / Restart buttons from X-Ray Deployment"
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-09-29
 provenance: Created from the quick feature intake
