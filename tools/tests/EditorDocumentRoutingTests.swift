@@ -41,6 +41,18 @@ check(EditorDocumentRouting.targetIndex(documentID: nil, tabIDs: [], activeIndex
 check(EditorDocumentRouting.targetIndex(documentID: myDataCenter, tabIDs: [], activeIndex: 0) == nil,
       "no tabs: a named message is dropped")
 
+// BUG-043: text of a document the page was just switched away from must not pass for the shown document's text.
+check(EditorDocumentRouting.reportsShownDocument(documentID: myDataCenter, shown: myDataCenter),
+      "text of the document on screen is remembered by the reload check")
+check(!EditorDocumentRouting.reportsShownDocument(documentID: sirius, shown: myDataCenter),
+      "unsaved text of the document left behind is not remembered as the one on screen")
+check(!EditorDocumentRouting.reportsShownDocument(documentID: sirius, shown: nil),
+      "a named message while no tab's document is shown is not remembered")
+check(EditorDocumentRouting.reportsShownDocument(documentID: nil, shown: myDataCenter),
+      "an unnamed message is remembered, as before")
+check(EditorDocumentRouting.reportsShownDocument(documentID: nil, shown: nil),
+      "an unnamed message with nothing shown is remembered, as before")
+
 // What the page sends.
 check(EditorDocumentRouting.documentID(from: sirius.uuidString) == sirius, "a valid id is parsed")
 check(EditorDocumentRouting.documentID(from: sirius.uuidString.lowercased()) == sirius, "a lowercase id is parsed")

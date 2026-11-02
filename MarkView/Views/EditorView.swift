@@ -801,7 +801,11 @@ struct EditorView: NSViewRepresentable {
 extension EditorView.Coordinator: WebViewBridgeDelegate {
     func bridge(_ bridge: WebViewBridge, didUpdateContent content: String, documentID: UUID?) {
         Task { @MainActor in
-            self.lastLoadedContent = content  // Prevent re-sending
+            // Prevent re-sending: the reload check must see the text of the document on screen. Unsaved text of a
+            // document the page was just switched away from (BUG-043) says nothing about it.
+            if EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
+                self.lastLoadedContent = content
+            }
             self.parent.workspaceManager.updateTabContent(content, documentID: documentID)
         }
     }

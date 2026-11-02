@@ -311,7 +311,25 @@
             }
             sendToSwift('contentChanged', { markdown: DOM.editor.value });
             sendToSwift('saveRequested', {});
+            // The edits are with the app now; a later switch to another document has nothing left to hand over.
+            wysiwygDirty = false;
         }
+
+        // The app names the tab whose document the page is about to show (WebViewBridge.documentIDScript runs this
+        // in the same script as the load). Edits typed in the WYSIWYG view live only in this page until Cmd+S or a
+        // switch to Source, and the next setContent would replace them (BUG-043). When the document changes, they are
+        // handed to the app first, as the unsaved text of the document they were typed in: the old id is still set, so
+        // the app applies them to that tab, which becomes modified and asks about saving when it is closed.
+        // The same document loading again (a refresh from disk) keeps discarding them: that is what a refresh is for.
+        window.mvSetDocument = function(id) {
+            const next = id || '';
+            if (next !== (window.mvDocumentId || '') && wysiwygDirty && state.fileType === 'markdown') {
+                if (state.mode === 'preview') syncWysiwygToMarkdown();
+                sendToSwift('contentChanged', { markdown: DOM.editor.value });
+                wysiwygDirty = false;
+            }
+            window.mvDocumentId = next;
+        };
 
         // Whole-document translation. Sends the raw markdown from the textarea
         // (never the Turndown-converted WYSIWYG DOM) so the source structure

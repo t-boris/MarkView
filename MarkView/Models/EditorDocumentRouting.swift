@@ -27,4 +27,12 @@ enum EditorDocumentRouting {
         if let documentID { return tabIDs.firstIndex(of: documentID) }
         return tabIDs.indices.contains(activeIndex) ? activeIndex : nil
     }
+
+    /// Whether text the page reported is of the document it was last loaded with, so that the editor view may
+    /// remember it as "what the page holds" for its reload check. The unsaved text of a document the page has
+    /// just been switched away from (BUG-043) arrives after the next document was loaded: remembering it would
+    /// make the editor view reload the selected tab for no reason. An unnamed message counts, as before.
+    static func reportsShownDocument(documentID: UUID?, shown: UUID?) -> Bool {
+        documentID == nil || documentID == shown
+    }
 }
