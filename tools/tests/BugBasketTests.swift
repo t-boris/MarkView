@@ -90,5 +90,101 @@ let prompt = SimilarBugs.prompt(basket: [.init(bug: all[0], excerpt: "line one\n
 check("suggest prompt lists basket and candidates", prompt.contains("docs/bugs/B1.md") && prompt.contains("docs/bugs/B5.md")
       && prompt.contains("line one line two"))
 
+// MARK: Starting a batch (REQ-004, DEC-006, BUG-032)
+
+/// A fake report store and assistant: records every call so the order can be checked.
+final class StartRig {
+    var statuses: [String: String]
+    var log: [String] = []
+    var sent: [[String]] = []
+    let failMark: Set<String>      // paths whose "fixing" write fails
+    let failRestore: Set<String>   // paths whose write back fails
+    let sendWorks: Bool
+
+    init(_ bugs: [BasketBug], failMark: Set<String> = [], failRestore: Set<String> = [], sendWorks: Bool = true) {
+        statuses = Dictionary(uniqueKeysWithValues: bugs.map { ($0.path, $0.status) })
+        self.failMark = failMark
+        self.failRestore = failRestore
+        self.sendWorks = sendWorks
+    }
+
+    func run(_ bugs: [BasketBug]) -> BatchStart.Outcome {
+        BatchStart.run(bugs, setStatus: { bug, status in
+            let fails = status == "fixing" ? failMark.contains(bug.path) : failRestore.contains(bug.path)
+            log.append("\(fails ? "failed " : "")set \(bug.key)=\(status)")
+            if !fails { statuses[bug.path] = status }
+            return !fails
+        }, send: { marked in
+            log.append("send")
+            sent.append(marked.map(\.key))
+            return sendWorks
+        })
+    }
+
+    func status(_ bug: BasketBug) -> String? { statuses[bug.path] }
+}
+
+let open1 = bug("BUG-101", "open"), open2 = bug("BUG-102", "Open"), open3 = bug("BUG-103", "open")
+let trio = [open1, open2, open3]
+
+let allGood = StartRig(trio)
+let allGoodOutcome = allGood.run(trio)
+check("start: every write works → started, nobody left out", allGoodOutcome == .started(leftOut: []))
+check("start: every bug is fixing and in the prompt", trio.allSatisfy { allGood.status($0) == "fixing" } && allGood.sent == [["BUG-101", "BUG-102", "BUG-103"]])
+check("start: marks come before the send (the AI writes after them)", allGood.log == ["set BUG-101=fixing", "set BUG-102=fixing", "set BUG-103=fixing", "send"])
+check("start: no notice when all were sent", BatchStart.notice(allGoodOutcome) == nil)
+
+let oneFails = StartRig(trio, failMark: [open2.path])
+let oneFailsOutcome = oneFails.run(trio)
+check("start: a failed write is left out, the rest go", oneFailsOutcome == .started(leftOut: [open2]) && oneFails.sent == [["BUG-101", "BUG-103"]])
+check("start: the left-out bug keeps its status", oneFails.status(open2) == "Open" && oneFails.status(open1) == "fixing" && oneFails.status(open3) == "fixing")
+check("start: the notice names the left-out bug", BatchStart.notice(oneFailsOutcome).map { $0.contains("BUG-102 was left out") && !$0.contains("BUG-101") } == true)
+
+let manyFail = StartRig(trio + [bug("BUG-104", "open")], failMark: [open1.path, open3.path])
+let manyFailNotice = BatchStart.notice(manyFail.run(trio + [bug("BUG-104", "open")]))
+check("start: several left out read in the plural", manyFailNotice.map { $0.contains("BUG-101, BUG-103 were left out") && $0.contains("their reports") } == true)
+
+let twoBugs = [open1, open2]
+let tooFew = StartRig(twoBugs, failMark: [open2.path])
+let tooFewOutcome = tooFew.run(twoBugs)
+check("start: too few marked → nothing is sent", tooFewOutcome == .tooFewMarked(leftOut: [open2], stuck: []) && tooFew.sent.isEmpty && !tooFew.log.contains("send"))
+check("start: too few marked → the marked bug is restored", tooFew.status(open1) == "open" && tooFew.status(open2) == "Open"
+      && tooFew.log == ["set BUG-101=fixing", "failed set BUG-102=fixing", "set BUG-101=open"])
+check("start: too few marked → a notice says why", BatchStart.notice(tooFewOutcome).map {
+    $0.hasPrefix("Nothing was sent") && $0.contains("the report of BUG-102") && $0.contains("at least 2") && $0.contains("basket is unchanged")
+} == true)
+
+let noneMarked = StartRig(twoBugs, failMark: [open1.path, open2.path])
+let noneMarkedOutcome = noneMarked.run(twoBugs)
+check("start: no write works → nothing sent, nothing to restore",
+      noneMarkedOutcome == .tooFewMarked(leftOut: twoBugs, stuck: []) && noneMarked.log == ["failed set BUG-101=fixing", "failed set BUG-102=fixing"])
+check("start: no write works → plural notice", BatchStart.notice(noneMarkedOutcome)?.contains("the reports of BUG-101, BUG-102") == true)
+
+let unsent = StartRig(trio, sendWorks: false)
+let unsentOutcome = unsent.run(trio)
+check("start: prompt not sent → every bug is back to its status", unsentOutcome == .notSent(leftOut: [], stuck: [])
+      && unsent.status(open1) == "open" && unsent.status(open2) == "Open" && unsent.status(open3) == "open")
+check("start: prompt not sent → restore comes after the send attempt", unsent.log == [
+    "set BUG-101=fixing", "set BUG-102=fixing", "set BUG-103=fixing", "send",
+    "set BUG-101=open", "set BUG-102=Open", "set BUG-103=open"])
+check("start: prompt not sent → the notice keeps the basket", BatchStart.notice(unsentOutcome).map {
+    $0.hasPrefix("Nothing was sent") && $0.contains("basket is unchanged") && !$0.contains("However")
+} == true)
+
+let unsentAndLeftOut = StartRig(trio, failMark: [open3.path], sendWorks: false)
+check("start: prompt not sent → only the marked bugs are restored", unsentAndLeftOut.run(trio) == .notSent(leftOut: [open3], stuck: [])
+      && unsentAndLeftOut.status(open1) == "open" && unsentAndLeftOut.status(open2) == "Open" && unsentAndLeftOut.status(open3) == "open")
+
+let stuckRig = StartRig(trio, failRestore: [open2.path, open3.path], sendWorks: false)
+let stuckOutcome = stuckRig.run(trio)
+check("start: a restore that fails is reported", stuckOutcome == .notSent(leftOut: [], stuck: [open2, open3])
+      && stuckRig.status(open2) == "fixing" && stuckRig.status(open1) == "open")
+check("start: the notice names bugs still fixing", BatchStart.notice(stuckOutcome).map {
+    $0.contains("However, BUG-102, BUG-103 could not be set back to open and are still marked fixing") && $0.contains("their status by hand")
+} == true)
+
+let stuckOne = StartRig(twoBugs, failMark: [open2.path], failRestore: [open1.path])
+check("start: too few marked and the restore fails → stuck", stuckOne.run(twoBugs) == .tooFewMarked(leftOut: [open2], stuck: [open1]))
+
 print(failures == 0 ? "All bug basket checks passed" : "\(failures) check(s) failed")
 exit(failures == 0 ? 0 : 1)

@@ -4440,17 +4440,22 @@ class WorkspaceManager: ObservableObject {
 
     /// Batch Fix with AI (issue #31): the basket's open bugs go to the assistant in one prompt —
     /// one branch made by the AI, one commit and one outcome per bug. Each is marked `fixing`
-    /// and the basket is emptied. The app runs no git itself (DEC-002).
+    /// before the prompt is sent (the AI writes `fixed` or `open` afterwards, and a later write
+    /// by the app would overwrite that) and the basket is emptied. A bug whose report cannot be
+    /// marked is left out; when too few remain, or the prompt cannot be sent, the marks are
+    /// undone and the basket is kept (BUG-032). The app runs no git itself (DEC-002).
     func fixBasketWithAI() {
         bugBatch.reconcile()
         let bugs = bugBatch.eligible
         guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, let root = features.root else { return }
-        for bug in bugs {
-            features.updateBug(root.appendingPathComponent(bug.path)) { front, _ in front.set("status", "fixing") }
-        }
-        let prompt = BatchFixPrompt.make(bugs, claude: AIAssistantPreferences.backend(project: aiProject) == .claude)
-        guard sendToAssistant(prompt, submit: true) != nil else { return }
-        bugBatch.clear()
+        let claude = AIAssistantPreferences.backend(project: aiProject) == .claude
+        let outcome = BatchStart.run(bugs, setStatus: { bug, status in
+            features.updateBug(root.appendingPathComponent(bug.path)) { front, _ in front.set("status", status) }
+        }, send: { marked in
+            sendToAssistant(BatchFixPrompt.make(marked, claude: claude), submit: true) != nil
+        })
+        if case .started = outcome { bugBatch.clear() }
+        bugBatch.notice = BatchStart.notice(outcome)
     }
 
     /// An intake finished: open what it made, and for a feature show its workspace.

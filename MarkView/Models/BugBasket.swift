@@ -61,6 +61,78 @@ struct BugBasket: Equatable {
     static let minimumBatch = 2
 }
 
+/// Starting a batch (REQ-004, DEC-006, BUG-032). Every bug is marked `fixing` before the prompt is
+/// sent: the AI writes `fixed` or `open` into each report afterwards, and a later write by the app
+/// would overwrite that. So when the prompt does not go out, the app has to undo its own marks.
+/// The status writes and the send are passed in, which keeps this sequence testable on its own.
+enum BatchStart {
+    enum Outcome: Equatable {
+        /// The prompt went out. `leftOut` could not be marked `fixing`, so they are not in it.
+        case started(leftOut: [BasketBug])
+        /// Fewer than `BugBasket.minimumBatch` bugs could be marked: nothing was sent and the marks
+        /// were undone. `stuck` could not be set back and are still `fixing`.
+        case tooFewMarked(leftOut: [BasketBug], stuck: [BasketBug])
+        /// The prompt could not be sent: the marks were undone. `stuck` as above.
+        case notSent(leftOut: [BasketBug], stuck: [BasketBug])
+    }
+
+    /// `bugs`: what the batch would fix, at least `minimumBatch` of them, in basket order.
+    /// `setStatus` writes a status into a bug's report and says whether it was written.
+    /// `send` hands the prompt for the bugs that were marked to the assistant and says whether it went out.
+    static func run(_ bugs: [BasketBug],
+                    setStatus: (BasketBug, String) -> Bool,
+                    send: ([BasketBug]) -> Bool) -> Outcome {
+        var marked: [BasketBug] = []
+        var leftOut: [BasketBug] = []
+        for bug in bugs {
+            if setStatus(bug, "fixing") { marked.append(bug) } else { leftOut.append(bug) }
+        }
+        guard marked.count >= BugBasket.minimumBatch else {
+            return .tooFewMarked(leftOut: leftOut, stuck: restore(marked, setStatus))
+        }
+        guard send(marked) else {
+            return .notSent(leftOut: leftOut, stuck: restore(marked, setStatus))
+        }
+        return .started(leftOut: leftOut)
+    }
+
+    /// Put the bugs back to the status they had, as written. Returns the ones that could not be put back.
+    private static func restore(_ bugs: [BasketBug], _ setStatus: (BasketBug, String) -> Bool) -> [BasketBug] {
+        bugs.filter { !setStatus($0, $0.status) }
+    }
+
+    /// What the user should be told; nil when the batch started with every bug in it.
+    static func notice(_ outcome: Outcome) -> String? {
+        switch outcome {
+        case .started(let leftOut):
+            guard !leftOut.isEmpty else { return nil }
+            let one = leftOut.count == 1
+            return "\(keys(leftOut)) \(one ? "was" : "were") left out of the batch: \(one ? "its report" : "their reports") "
+                + "could not be updated, so \(one ? "it is" : "they are") still open."
+        case .tooFewMarked(let leftOut, let stuck):
+            return "Nothing was sent: \(reports(leftOut)) could not be updated, and a batch needs at least "
+                + "\(BugBasket.minimumBatch) bugs that can be marked fixing. Any bug already marked was set back to open, "
+                + "and the basket is unchanged." + stuckSentence(stuck)
+        case .notSent(_, let stuck):
+            return "Nothing was sent: the AI terminal could not be opened. The bugs were set back to open "
+                + "and the basket is unchanged." + stuckSentence(stuck)
+        }
+    }
+
+    private static func keys(_ bugs: [BasketBug]) -> String { bugs.map(\.key).joined(separator: ", ") }
+
+    private static func reports(_ bugs: [BasketBug]) -> String {
+        (bugs.count == 1 ? "the report of " : "the reports of ") + keys(bugs)
+    }
+
+    private static func stuckSentence(_ stuck: [BasketBug]) -> String {
+        guard !stuck.isEmpty else { return "" }
+        let one = stuck.count == 1
+        return " However, \(keys(stuck)) could not be set back to open and \(one ? "is" : "are") still marked fixing: "
+            + "change \(one ? "its" : "their") status by hand."
+    }
+}
+
 /// The one prompt of a batch (REQ-002…REQ-005). The app runs no git itself (DEC-002): the AI
 /// makes the branch, one commit per fixed bug, and writes each outcome into the report (DEC-006).
 enum BatchFixPrompt {
