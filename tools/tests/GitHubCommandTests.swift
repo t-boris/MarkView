@@ -41,7 +41,41 @@ enum CLIToolLocator {
         }
         let invalid = await GitHubClient.execute(["--fixture", "success"], in: root.appendingPathComponent("missing"), timeout: 0.1)
         precondition(invalid.status != 0 && !invalid.stderr.isEmpty)
-        print("GitHub commands: inherited writers, concurrent stdout/stderr, exit status, hard timeout, reaping and parallel requests passed.")
+        try await gatedOutput(root: root)
+        print("GitHub commands: inherited writers, concurrent stdout/stderr, exit status, hard timeout, reaping, parallel requests and the opt-in gate passed.")
+    }
+
+    /// BUG-044: the PR X-Ray's `gh` runner (`GitHubClient.output`) must not start `gh` while the GitHub
+    /// integration is off, and with it on must return stdout only on success and give up on a hung `gh`.
+    private static func gatedOutput(root: URL) async throws {
+        let marker = root.appendingPathComponent("started")
+        let off = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: GitHubClient.output(["--fixture", "mark"], in: root, enabled: false, timeout: 2))
+            }
+        }
+        precondition(off == nil, "Integration off: no output.")
+        precondition(!FileManager.default.fileExists(atPath: marker.path), "Integration off: gh must not be started at all.")
+        let on = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: GitHubClient.output(["--fixture", "mark"], in: root, enabled: true, timeout: 2))
+            }
+        }
+        precondition(on == "marked\n", "Integration on: gh runs and its standard output comes back.")
+        precondition(FileManager.default.fileExists(atPath: marker.path), "Integration on: gh was started.")
+        let failed = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: GitHubClient.output(["--fixture", "both-pipes"], in: root, enabled: true, timeout: 5))
+            }
+        }
+        precondition(failed == nil, "A non-zero exit status gives nil, not partial output.")
+        let hungStart = Date()
+        let hung = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: GitHubClient.output(["--fixture", "ignore-term"], in: root, enabled: true, timeout: 1))
+            }
+        }
+        precondition(hung == nil && Date().timeIntervalSince(hungStart) < 3, "A hung gh gives nil within the timeout.")
     }
 
     private static func fixture() throws {
@@ -57,6 +91,10 @@ enum CLIToolLocator {
                 FileHandle.standardError.write(chunk)
             }
             exit(7)
+        case "mark":
+            // Leaves a trace that gh was started, for the opt-in gate check.
+            try Data().write(to: URL(fileURLWithPath: "started"))
+            FileHandle.standardOutput.write(Data("marked\n".utf8))
         case "ignore-term":
             signal(SIGTERM, SIG_IGN)
             try String(getpid()).write(toFile: "hung.pid", atomically: true, encoding: .utf8)

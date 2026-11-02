@@ -299,6 +299,16 @@ struct GitHubClient: Sendable {
         }
     }
 
+    /// `gh` for code that already runs on its own thread (the X-Ray's pull-request sources and
+    /// diffs): the runner of `execute`, called directly. Standard output when `gh` exits with 0,
+    /// nil otherwise. GitHub is opt-in: `enabled` is `GitHubSettings.enabled`, read on the main
+    /// actor by the caller, and while it is false `gh` is not started at all.
+    static func output(_ arguments: [String], in root: URL, enabled: Bool, timeout: TimeInterval = 20) -> String? {
+        guard enabled else { return nil }
+        let output = runBlocking(arguments, in: root, git: false, timeout: timeout)
+        return output.status == 0 ? output.stdout : nil
+    }
+
     private static func runBlocking(_ arguments: [String], in root: URL, git: Bool, timeout: TimeInterval) -> Output {
         let path = CLIToolLocator.subprocessPath(toolPath: nil)
         let process = Process()

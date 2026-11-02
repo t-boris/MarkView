@@ -2151,7 +2151,10 @@ final class ArchitectureStore: ObservableObject {
     func refreshPRSources(root: URL) {
         Task {
             let repo = gitHubRepo
-            let sources = await Task.detached { Self.listPRSources(root: root, repo: repo) }.value
+            // Pull requests on GitHub need `gh`: only the opt-in integration may run it. The switch
+            // is read here, on the main actor, once per refresh.
+            let gitHub = GitHubSettings.enabled
+            let sources = await Task.detached { Self.listPRSources(root: root, repo: repo, gitHub: gitHub) }.value
             // Comparisons the person asked for (a branch against this one) are not in the list git builds.
             let comparisons = prSources.filter { Self.comparison($0.id) != nil && !sources.contains($0) }
             prSources = sources + comparisons
@@ -2165,7 +2168,9 @@ final class ArchitectureStore: ObservableObject {
         }
     }
 
-    nonisolated private static func listPRSources(root: URL, repo: GitHubRepo?) -> [PRSource] {
+    /// The changes the PR X-Ray can show: this checkout against its base (git only), then the
+    /// repository's pull requests when the GitHub integration is on (`gitHub`).
+    nonisolated private static func listPRSources(root: URL, repo: GitHubRepo?, gitHub: Bool) -> [PRSource] {
         guard ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "rev-parse", "--is-inside-work-tree"]) != nil else {
             return []
         }
@@ -2183,9 +2188,10 @@ final class ArchitectureStore: ObservableObject {
         }
         // Every open pull request, then the 30 most recently merged or closed ones (two
         // queries: with one, old open ones fall outside the limit behind recent merges).
+        // With the integration off `runGH` asks nothing and the list has no GitHub entries.
         var prs: [[String: Any]] = []
         for (state, limit) in [("open", "50"), ("closed", "30")] {
-            if let json = runGH(["pr", "list", "--state", state, "--limit", limit, "--json", "number,title,state"], root: root, repo: repo),
+            if let json = runGH(["pr", "list", "--state", state, "--limit", limit, "--json", "number,title,state"], root: root, repo: repo, gitHub: gitHub),
                let data = json.data(using: .utf8),
                let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 prs += list
@@ -2202,9 +2208,10 @@ final class ArchitectureStore: ObservableObject {
         return sources
     }
 
-    /// Open pull requests of the repository at `root` (`gh`), newest first; empty without `gh`.
-    nonisolated static func openPullRequests(root: URL) -> [(number: Int, title: String)] {
-        guard let json = runGH(["pr", "list", "--state", "open", "--limit", "50", "--json", "number,title"], root: root),
+    /// Open pull requests of the repository at `root` (`gh`), newest first; empty without `gh`
+    /// and while the GitHub integration is off (`gitHub`, read on the main actor by the caller).
+    nonisolated static func openPullRequests(root: URL, gitHub: Bool) -> [(number: Int, title: String)] {
+        guard let json = runGH(["pr", "list", "--state", "open", "--limit", "50", "--json", "number,title"], root: root, gitHub: gitHub),
               let list = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]] else { return [] }
         return list.compactMap { pr in
             (pr["number"] as? Int).map { ($0, pr["title"] as? String ?? "") }
@@ -2222,31 +2229,19 @@ final class ArchitectureStore: ObservableObject {
         return nil
     }
 
-    /// `gh` with the same PATH the AI CLIs get (Homebrew and friends).
-    nonisolated private static func runGH(_ arguments: [String], root: URL, repo: GitHubRepo? = nil) -> String? {
-        let path = CLIToolLocator.subprocessPath(toolPath: nil)
-        let directory = path.split(separator: ":").map(String.init)
-            .first { FileManager.default.isExecutableFile(atPath: $0 + "/gh") }
-        guard let directory else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: directory + "/gh")
+    /// `gh` for the PR X-Ray, through `GitHubClient`'s runner (the AI CLIs' PATH, pipes drained
+    /// while it runs, terminated after `timeout` seconds). The only place this file starts `gh`.
+    /// GitHub is opt-in: `gitHub` is `GitHubSettings.enabled`, read on the main actor by the
+    /// caller of each operation; while it is false `gh` is not started and nil comes back, as
+    /// when `gh` is missing or fails.
+    nonisolated private static func runGH(_ arguments: [String], root: URL, repo: GitHubRepo? = nil, gitHub: Bool,
+                                          timeout: TimeInterval = 20) -> String? {
         // Pull requests of the repository chosen in the Git tab (origin or upstream).
         var arguments = arguments
         if arguments.first == "pr", arguments.count >= 2, let repo {
             arguments.insert(contentsOf: ["-R", repo.slug], at: 2)
         }
-        process.arguments = arguments
-        process.currentDirectoryURL = root
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = path
-        process.environment = env
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+        return GitHubClient.output(arguments, in: root, enabled: gitHub, timeout: timeout)
     }
 
     /// A comparison the person chose: `cmp:<ref>` is this checkout (commits and uncommitted changes) against
@@ -2277,7 +2272,9 @@ final class ArchitectureStore: ObservableObject {
         showPR(id, root: root, db: db)
     }
 
-    nonisolated private static func diff(for source: PRSource, root: URL, repo: GitHubRepo?) -> String? {
+    /// The change as a unified diff. Git serves the local checkout and branch comparisons; a
+    /// pull request needs `gh`, which runs only while the GitHub integration is on (`gitHub`).
+    nonisolated private static func diff(for source: PRSource, root: URL, repo: GitHubRepo?, gitHub: Bool) -> String? {
         if let chosen = comparison(source.id) {
             guard let base = mergeBase(with: chosen.ref, root: root) else { return nil }
             if chosen.reverse {
@@ -2297,12 +2294,12 @@ final class ArchitectureStore: ObservableObject {
         default:
             guard source.id.hasPrefix("gh:") else { return nil }
             let number = String(source.id.dropFirst(3))
-            if let checkout = fetchPR(number: number, root: root, repo: repo),
+            if let checkout = fetchPR(number: number, root: root, repo: repo, gitHub: gitHub),
                let diff = ArchitectureScanner.runTool("/usr/bin/env", ["git", "-C", root.path, "diff", checkout.mergeBase, checkout.head, "--no-color", "-U3"]) {
                 return diff
             }
             // Not fetchable (offline, no access): GitHub's diff; files are then the local ones.
-            return runGH(["pr", "diff", number, "--color", "never"], root: root, repo: repo)
+            return runGH(["pr", "diff", number, "--color", "never"], root: root, repo: repo, gitHub: gitHub, timeout: 60)
         }
     }
 
@@ -2315,8 +2312,9 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// Fetch pull request `number` (`pull/<n>/head`) and its base branch, unless already here.
-    nonisolated static func fetchPR(number: String, root: URL, repo: GitHubRepo?) -> PRCheckout? {
-        guard let json = runGH(["pr", "view", number, "--json", "headRefOid,baseRefName"], root: root, repo: repo),
+    /// Nil while the GitHub integration is off (`gitHub`): the lookup needs `gh`.
+    nonisolated static func fetchPR(number: String, root: URL, repo: GitHubRepo?, gitHub: Bool) -> PRCheckout? {
+        guard let json = runGH(["pr", "view", number, "--json", "headRefOid,baseRefName"], root: root, repo: repo, gitHub: gitHub),
               let info = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
               let head = info["headRefOid"] as? String, let baseName = info["baseRefName"] as? String else { return nil }
         func git(_ arguments: [String]) -> String? {
@@ -2509,8 +2507,9 @@ final class ArchitectureStore: ObservableObject {
         setStatus("Loading \(source.title)…")
         // A reload keeps the repository the pull request came from.
         let repo = prOverlay?.source.id == source.id && prRepo != nil ? prRepo : gitHubRepo
+        let gitHub = GitHubSettings.enabled
         let (diff, checkout, base) = await Task.detached { () -> (String?, PRCheckout?, String?) in
-            var checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo) : nil
+            var checkout = source.id.hasPrefix("gh:") ? Self.fetchPR(number: String(source.id.dropFirst(3)), root: root, repo: repo, gitHub: gitHub) : nil
             var base = checkout?.mergeBase ?? (source.id == "local" ? Self.localMergeBase(root: root) : nil)
             if let chosen = Self.comparison(source.id), let mergeBase = Self.mergeBase(with: chosen.ref, root: root) {
                 base = mergeBase
@@ -2520,12 +2519,12 @@ final class ArchitectureStore: ObservableObject {
                     checkout = PRCheckout(number: label, head: head, mergeBase: mergeBase)
                 }
             }
-            return (Self.diff(for: source, root: root, repo: repo), checkout, base)
+            return (Self.diff(for: source, root: root, repo: repo, gitHub: gitHub), checkout, base)
         }.value
         guard let diff else {
-            error = source.id.hasPrefix("gh:")
-                ? "Could not load the pull request. Check that GitHub CLI (gh) is installed and signed in."
-                : "Could not read the changes from git."
+            error = !source.id.hasPrefix("gh:") ? "Could not read the changes from git."
+                : gitHub ? "Could not load the pull request. Check that GitHub CLI (gh) is installed and signed in."
+                : "Could not load the pull request: the GitHub integration is turned off in Settings."
             setStatus(nil)
             return false
         }
@@ -3123,7 +3122,8 @@ final class ArchitectureStore: ObservableObject {
             defer { prOverlay?.analyzing = nil; revision += 1; setStatus(nil) }
             setStatus("Analysing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
-            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo) }.value ?? ""
+            let gitHub = GitHubSettings.enabled
+            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
             // Which component each changed file belongs to, from the X-Ray.
             let fileNodes = Dictionary((current?.view("modules")?.nodes ?? []).filter { $0.kind == "file" }
                 .compactMap { node in node.path.map { ($0, node) } }, uniquingKeysWith: { a, _ in a })
@@ -3238,7 +3238,8 @@ final class ArchitectureStore: ObservableObject {
             defer { busy = false }
             setStatus("Reviewing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
-            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo) }.value ?? ""
+            let gitHub = GitHubSettings.enabled
+            let diff = await Task.detached { Self.diff(for: source, root: root, repo: repo, gitHub: gitHub) }.value ?? ""
             let key = SHA256.hash(data: Data(diff.utf8)).map { String(format: "%02x", $0) }.joined()
             reviewKey = (key, db)
             if !fresh, let cached = db?.loadArchitectureReview(key: key),
