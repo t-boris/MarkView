@@ -37,6 +37,36 @@ check("item linked to several issues keeps each",
 let pullField = IssueSyncLinks.fieldReferences(["https://github.com/t-boris/MarkView/pull/8"], origin: origin)
 check("field PR URL is a pull link", pullField.count == 1 && pullField[0].isPullLink && pullField[0].target == t(8))
 
+// MARK: Explicit fields hold references, not prose (BUG-033, REQ-002)
+// Sync closes issues without a preview, so a number inside an anchor, a version or a sentence must
+// never become a link. A field value is either a list of references or prose; in prose only full
+// issue and pull request URLs count.
+
+func fieldTargets(_ value: String) -> [IssueSyncTarget] { targets(feature("f", "", fields: [value])) }
+let home = "https://github.com/t-boris/MarkView"
+check("field URL with comment anchor links only its issue", fieldTargets("\(home)/issues/41#issuecomment-1234") == [t(41)])
+check("field URL with query links only its issue", fieldTargets("\(home)/issues/9?notification_referrer_id=77") == [t(9)])
+check("field URL with trailing slash", fieldTargets("\(home)/issues/9/") == [t(9)])
+check("field URL without scheme", fieldTargets("github.com/t-boris/MarkView/issues/9") == [t(9)])
+let anchoredPull = IssueSyncLinks.fieldReferences(["\(home)/pull/8#issuecomment-5"], origin: origin)
+check("field PR URL with anchor is one pull link", anchoredPull.count == 1 && anchoredPull[0].isPullLink && anchoredPull[0].target == t(8))
+check("field URL followed by letters is not a link", fieldTargets("\(home)/issues/41abc").isEmpty)
+check("field sentence with a bare number is not a link", fieldTargets("see issue 12 in v2.3").isEmpty)
+check("field version is not a link", fieldTargets("v2.3").isEmpty && fieldTargets("2.3").isEmpty && fieldTargets("1.0.4").isEmpty)
+check("field sentence with #n is not a link", fieldTargets("see #12 for details").isEmpty)
+check("field #n with a note is not a link", fieldTargets("#36 (main)").isEmpty)
+check("field words between references make it prose", fieldTargets("#1 and #2").isEmpty)
+check("field owner/repo#n inside prose is not a link", fieldTargets("part of t-boris/MarkView#7").isEmpty)
+check("field owner/repo#n with a suffix is not a link", fieldTargets("t-boris/MarkView#7.1").isEmpty)
+check("field number with a suffix is not a link", fieldTargets("12abc").isEmpty && fieldTargets("#12abc").isEmpty && fieldTargets("12.").isEmpty)
+check("field URL inside prose still links", fieldTargets("fixed in \(home)/issues/41, released in v2.3") == [t(41)])
+check("field list separators", fieldTargets("#1; #2") == [t(1), t(2)] && fieldTargets("1 2") == [t(1), t(2)]
+      && fieldTargets("1, 2,") == [t(1), t(2)] && fieldTargets("t-boris/MarkView#3, 4") == [t(3), t(4)])
+check("field mixed list keeps its order", fieldTargets("#1, \(home)/issues/2#issuecomment-5, 3") == [t(1), t(2), t(3)])
+check("separate field values are judged apart", targets(feature("f", "", fields: ["#5", "see issue 12", "#6"])) == [t(5), t(6)])
+check("field with prose only leaves the item unlinked",
+      IssueSyncPlan(items: [feature("f", "implemented", fields: ["see issue 12 in v2.3"])], origin: origin).pairs.map(\.target) == [nil])
+
 // MARK: Plan: other repositories, pull links, unlinked (DEC-006, DEC-010)
 
 let plan = IssueSyncPlan(items: [
