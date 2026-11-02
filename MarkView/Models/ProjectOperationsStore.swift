@@ -441,22 +441,12 @@ final class ProjectOperationsStore: ObservableObject {
                 let latest = try await Task.detached { () -> ProjectOperationsDocument in
                     try ProjectOperationsFile.mutate(root: root) { document in
                         for proposal in discovered {
-                        if let index = document.operations.firstIndex(where: { $0.id == proposal.id }) {
-                            let current = document.operations[index]
-                            if current.deleted || current.origin == "user" { continue }
-                            if current.isEdited {
-                                var kept = current
-                                kept.discovered = proposal.discovered
-                                kept.provenance = proposal.provenance
-                                kept.confidence = proposal.confidence
-                                if case .bool(true)? = current.extra["nodesEdited"] {} else { kept.nodes = proposal.nodes }
-                                document.operations[index] = kept
+                            if let index = document.operations.firstIndex(where: { $0.id == proposal.id }) {
+                                document.operations[index] = ProjectOperation.merged(
+                                    stored: document.operations[index], proposal: proposal)
                             } else {
-                                document.operations[index] = proposal
+                                document.operations.append(proposal)
                             }
-                        } else {
-                            document.operations.append(proposal)
-                        }
                         }
                     }
                 }.value
@@ -491,17 +481,8 @@ final class ProjectOperationsStore: ObservableObject {
         guard alert.runModal() == .alertSecondButtonReturn else { return }
         change { document in
             if let index = document.operations.firstIndex(where: { $0.id == operation.id }) {
-                let current = document.operations[index]
-                guard !current.deleted, current.origin != "user" else { return }
-                if current.isEdited {
-                    var kept = current
-                    kept.discovered = operation.discovered
-                    kept.provenance = operation.provenance
-                    kept.confidence = operation.confidence
-                    document.operations[index] = kept
-                } else {
-                    document.operations[index] = operation
-                }
+                document.operations[index] = ProjectOperation.merged(
+                    stored: document.operations[index], proposal: operation)
             } else {
                 document.operations.append(operation)
             }

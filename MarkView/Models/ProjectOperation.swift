@@ -7,6 +7,20 @@ struct ProjectOperation: Codable, Identifiable {
         var cwd: String
     }
 
+    /// The other user-editable fields as discovery last proposed them. Together with `discovered`
+    /// it is the baseline that tells a user edit from a discovery change (BUG-036). Optional and
+    /// written only by discovery: a file from an earlier version has none, and an earlier version
+    /// keeps the `discoveredFields` key untouched in `extra` when it saves. When the object is
+    /// present, a missing `environment` or `target` means discovery proposed none.
+    struct DiscoveredFields: Codable, Equatable {
+        var label: String
+        var kind: String
+        var environment: String?
+        var target: String?
+        var prerequisites: [String]
+        var remoteTrigger: Bool
+    }
+
     struct Node: Codable, Equatable {
         var id: String
         var name: String
@@ -29,6 +43,7 @@ struct ProjectOperation: Codable, Identifiable {
     var cwd: String
     var origin: String
     var discovered: Discovered?
+    var discoveredFields: DiscoveredFields?
     var deleted: Bool
     var confidence: String?
     var prerequisites: [String]
@@ -37,14 +52,30 @@ struct ProjectOperation: Codable, Identifiable {
     /// Preserve fields written by a newer MarkView when this version saves an edit.
     var extra: [String: AnyCodable] = [:]
 
+    /// The command or working directory is the user's, not discovery's. This is what the confidence
+    /// text, the external-source warning and the "Adopt discovered" action key off, so a changed
+    /// label or environment does not count. Re-discovery uses `hasUserChanges(comparedTo:)` instead.
     var isEdited: Bool {
         origin == "user" || (discovered != nil && (command != discovered?.command || cwd != discovered?.cwd))
+    }
+
+    /// The editor sets this when the user picks another deployment node (DEC-027); it lives in
+    /// `extra`, so older versions keep it when they save.
+    var nodesEdited: Bool {
+        if case .bool(true)? = extra["nodesEdited"] { return true }
+        return false
+    }
+
+    /// The values `discoveredFields` records, as they stand now.
+    var currentFields: DiscoveredFields {
+        DiscoveredFields(label: label, kind: kind, environment: environment, target: target,
+                         prerequisites: prerequisites, remoteTrigger: remoteTrigger)
     }
 
     var hasExternalOrigin: Bool { provenance.contains { $0.kind == "external" || $0.kind == "web" } }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case id, label, kind, environment, target, nodes, command, cwd, origin, discovered
+        case id, label, kind, environment, target, nodes, command, cwd, origin, discovered, discoveredFields
         case deleted, confidence, prerequisites, provenance, remoteTrigger
     }
 
@@ -58,12 +89,13 @@ struct ProjectOperation: Codable, Identifiable {
     init(id: String, label: String, kind: String, environment: String? = nil, target: String? = nil,
          nodes: [Node] = [], command: String, cwd: String = ".", origin: String = "user",
          discovered: Discovered? = nil, deleted: Bool = false, confidence: String? = nil,
-         prerequisites: [String] = [], provenance: [Source] = [], remoteTrigger: Bool = false) {
+         prerequisites: [String] = [], provenance: [Source] = [], remoteTrigger: Bool = false,
+         discoveredFields: DiscoveredFields? = nil) {
         self.id = id; self.label = label; self.kind = kind; self.environment = environment
         self.target = target; self.nodes = nodes; self.command = command; self.cwd = cwd
         self.origin = origin; self.discovered = discovered; self.deleted = deleted
         self.confidence = confidence; self.prerequisites = prerequisites; self.provenance = provenance
-        self.remoteTrigger = remoteTrigger
+        self.remoteTrigger = remoteTrigger; self.discoveredFields = discoveredFields
     }
 
     init(from decoder: Decoder) throws {
@@ -78,6 +110,8 @@ struct ProjectOperation: Codable, Identifiable {
         cwd = try c.decode(String.self, forKey: .cwd)
         origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? "discovered"
         discovered = try c.decodeIfPresent(Discovered.self, forKey: .discovered)
+        // A damaged snapshot must not make the whole file unreadable; it only means "not recorded".
+        discoveredFields = try? c.decodeIfPresent(DiscoveredFields.self, forKey: .discoveredFields)
         deleted = try c.decodeIfPresent(Bool.self, forKey: .deleted) ?? false
         confidence = try c.decodeIfPresent(String.self, forKey: .confidence)
         prerequisites = try c.decodeIfPresent([String].self, forKey: .prerequisites) ?? []
@@ -96,6 +130,8 @@ struct ProjectOperation: Codable, Identifiable {
         try c.encode(target, forKey: .target); try c.encode(nodes, forKey: .nodes)
         try c.encode(command, forKey: .command); try c.encode(cwd, forKey: .cwd)
         try c.encode(origin, forKey: .origin); try c.encode(discovered, forKey: .discovered)
+        // Omitted when absent, so a file written before the snapshot existed is saved byte for byte.
+        try c.encodeIfPresent(discoveredFields, forKey: .discoveredFields)
         try c.encode(deleted, forKey: .deleted); try c.encode(confidence, forKey: .confidence)
         try c.encode(prerequisites, forKey: .prerequisites)
         try c.encode(provenance, forKey: .provenance); try c.encode(remoteTrigger, forKey: .remoteTrigger)
@@ -229,6 +265,42 @@ enum ProjectOperationsFile {
 }
 
 extension ProjectOperation {
+    /// True when the user changed any field that discovery would otherwise overwrite: command,
+    /// working directory, label, kind, environment, target, prerequisites, remote-trigger flag or
+    /// deployment node. Each value is compared with what discovery last proposed (`discovered`,
+    /// `discoveredFields`). Where no proposal was recorded (a file from an earlier version), the
+    /// baseline is the proposal being merged: a difference cannot be told from a user edit, so it
+    /// counts as one and the stored value is kept.
+    func hasUserChanges(comparedTo proposal: ProjectOperation) -> Bool {
+        if origin == "user" || nodesEdited { return true }
+        let baseline = discovered ?? proposal.discovered
+        if command != baseline?.command || cwd != baseline?.cwd { return true }
+        return currentFields != (discoveredFields ?? proposal.currentFields)
+    }
+
+    /// Folds a discovery proposal into the stored operation with the same id (REQ-007, DEC-017).
+    /// - A deleted (tombstone) or user-added operation is returned as it is.
+    /// - An operation the user has not changed is replaced by the proposal; fields this version does
+    ///   not know (`extra`) are carried over.
+    /// - An operation the user has changed keeps every value it has. Only discovery metadata is
+    ///   refreshed: `discovered`, `discoveredFields`, `provenance`, `confidence`, and the deployment
+    ///   node relations unless the user set them.
+    static func merged(stored: ProjectOperation, proposal: ProjectOperation) -> ProjectOperation {
+        if stored.deleted || stored.origin == "user" { return stored }
+        guard stored.hasUserChanges(comparedTo: proposal) else {
+            var next = proposal
+            next.extra = stored.extra
+            return next
+        }
+        var kept = stored
+        kept.discovered = proposal.discovered
+        kept.discoveredFields = proposal.discoveredFields
+        kept.provenance = proposal.provenance
+        kept.confidence = proposal.confidence
+        if !stored.nodesEdited { kept.nodes = proposal.nodes }
+        return kept
+    }
+
     /// Operations shown up front; the rest are found by search.
     static let primaryLimit = 5
     /// Kinds in the order they matter for a primary slot.
