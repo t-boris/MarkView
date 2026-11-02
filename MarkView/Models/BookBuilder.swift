@@ -407,10 +407,37 @@ enum BookBuilder {
     private static let wikiLink = try! NSRegularExpression(pattern: #"\[\[([^\]|#]*)(?:#([^\]|]+))?(?:\|[^\]]*)?\]\]"#)
     private static let asciidocLink = try! NSRegularExpression(pattern: #"(?:xref|link):([^\[\s]+)\["#)
     private static let rstLink = try! NSRegularExpression(pattern: #"<([^>\s]+)>`_"#)
+    private static let rstInlineLiteral = try! NSRegularExpression(pattern: #"``.+?``"#)
     private static let codeSpan = try! NSRegularExpression(pattern: #"`[^`]*`"#)
 
+    /// Follows reStructuredText literal blocks line by line. A paragraph ending in `::`, a lone
+    /// `::` and the code-like directives (`.. code-block::`) are followed by indented text that
+    /// is not markup, so it holds no links.
+    private struct RSTLiteralBlocks {
+        private static let directive = try! NSRegularExpression(
+            pattern: #"^\.\.\s+(?:code|code-block|sourcecode|parsed-literal|math|raw)::"#, options: .caseInsensitive)
+        /// Indentation of the line that opened the block being followed.
+        private var opener: Int?
+
+        /// Whether `raw` is inside a literal block; also notes whether this line opens one.
+        mutating func contains(_ raw: String) -> Bool {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let indent = raw.prefix { $0 == " " || $0 == "\t" }.count
+            if let opener {
+                if trimmed.isEmpty || indent > opener { return true }
+                self.opener = nil
+            }
+            let explicitMarkup = trimmed == ".." || trimmed.hasPrefix(".. ")
+            let isDirective = Self.directive.firstMatch(in: trimmed, range: NSRange(trimmed.startIndex..., in: trimmed)) != nil
+            if explicitMarkup ? isDirective : trimmed.hasSuffix("::") { opener = indent }
+            return false
+        }
+    }
+
     /// The links a document makes, with the line each is on. Images, code spans, fenced blocks
-    /// and external targets (`http:`, `mailto:`) are left out.
+    /// and external targets (`http:`, `mailto:`) are left out. In reStructuredText, where an
+    /// embedded hyperlink `` `text <path>`_ `` is itself a backtick span, inline literals
+    /// (``text``) and literal blocks are left out instead.
     static func links(in text: String, format: Format) -> [Link] {
         let lines = text.editorLines.map(String.init)
         var definitions: [String: String] = [:]
@@ -425,6 +452,7 @@ enum BookBuilder {
         }
         var result: [Link] = []
         var fence: Character?
+        var rstBlocks = RSTLiteralBlocks()
         for (index, raw) in lines.enumerated() {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if let marker = trimmed.first, marker == "`" || marker == "~",
@@ -433,6 +461,7 @@ enum BookBuilder {
                 continue
             }
             guard fence == nil else { continue }
+            let inRSTLiteralBlock = format == .rst && rstBlocks.contains(raw)
             let line = codeSpan.stringByReplacingMatches(in: raw, range: NSRange(raw.startIndex..., in: raw), withTemplate: "")
             let range = NSRange(line.startIndex..., in: line)
             func add(_ rawTarget: String, wiki: Bool) {
@@ -462,8 +491,12 @@ enum BookBuilder {
                     if let targetRange = Range(match.range(at: 1), in: line) { add(String(line[targetRange]), wiki: false) }
                 }
             case .rst:
-                for match in rstLink.matches(in: line, range: range) {
-                    if let targetRange = Range(match.range(at: 1), in: line) { add(String(line[targetRange]), wiki: false) }
+                // `line` has lost every backtick span, the embedded hyperlink included, so read
+                // the raw line with only its inline literals removed.
+                guard !inRSTLiteralBlock else { break }
+                let prose = rstInlineLiteral.stringByReplacingMatches(in: raw, range: NSRange(raw.startIndex..., in: raw), withTemplate: "")
+                for match in rstLink.matches(in: prose, range: NSRange(prose.startIndex..., in: prose)) {
+                    if let targetRange = Range(match.range(at: 1), in: prose) { add(String(prose[targetRange]), wiki: false) }
                 }
             case .org, .plain:
                 break
