@@ -53,14 +53,19 @@ enum XRaySearch {
 
     /// Supply history ourselves: Claude's read-only tools have no shell. No tool gets
     /// write access, and lack of git/gh never prevents the repository answer.
-    static func provenance(root: URL, files: [HistoryFile]) async -> ProvenanceContext {
+    /// `includePullRequests`: whether the GitHub integration is on (`GitHubSettings.enabled`).
+    /// Off, `gh` is never started and the context says that no PR data was available.
+    static func provenance(root: URL, files: [HistoryFile], includePullRequests: Bool) async -> ProvenanceContext {
         let repo = await GitHubClient.execute(["rev-parse", "--is-inside-work-tree"], in: root, git: true, timeout: 10)
         guard repo.status == 0 else {
             return .init(text: "Git history unavailable: this folder is not a git repository. PR data unavailable. Use current documents and code; explicitly report provenance limits.", commits: [], pullRequests: [])
         }
         async let history = GitHubClient.execute(["log", "-40", "--format=%H %ad %s%n%b", "--date=short"], in: root, git: true, timeout: 15)
         async let remote = GitHubClient.execute(["remote", "get-url", "origin"], in: root, git: true, timeout: 10)
-        async let prs = GitHubClient.execute(["pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,body,url,mergedAt,mergeCommit"], in: root, timeout: 20)
+        async let pullRequests = PullRequestHistory.section(enabled: includePullRequests) {
+            let output = await GitHubClient.execute(["pr", "list", "--state", "all", "--limit", "50", "--json", "number,title,body,url,mergedAt,mergeCommit"], in: root, timeout: 20)
+            return (output.status, output.stdout)
+        }
         var text = "Read-only git history (recent commits; dates and full hashes):\n"
         let log = await history
         text += log.status == 0 ? String(log.stdout.prefix(24000)) : "Git log unavailable."
@@ -77,23 +82,9 @@ enum XRaySearch {
             text += "\nCommit links use https://github.com/\(slug)/commit/<full hash>."
         } else { text += "\nNo GitHub remote: cite commits with an empty url; they open locally." }
         let commits = Set(text.split(whereSeparator: { !$0.isHexDigit }).filter { $0.count == 40 && $0.contains(where: { $0 != "0" }) }.map(String.init))
-        let pr = await prs
-        var urls = Set<String>()
-        if pr.status == 0, let values = try? JSONSerialization.jsonObject(with: Data(pr.stdout.utf8)) as? [[String: Any]] {
-            // Keep the list bounded without truncating JSON halfway through a record.
-            let records = values.prefix(50).map { value -> [String: Any] in
-                var value = value
-                value["body"] = String((value["body"] as? String ?? "").prefix(1600))
-                if let url = value["url"] as? String { urls.insert(url) }
-                return value
-            }
-            let data = (try? JSONSerialization.data(withJSONObject: records)) ?? Data()
-            text += "\n\nRead-only pull requests:\n" + String(decoding: data, as: UTF8.self)
-            if records.isEmpty { text += "\nNo pull requests found." }
-        } else {
-            text += "\n\nPR data unavailable (gh missing, unauthenticated, offline, or no GitHub repository). Do not invent PRs."
-        }
-        return .init(text: text, commits: commits, pullRequests: urls)
+        let pr = await pullRequests
+        text += pr.text
+        return .init(text: text, commits: commits, pullRequests: pr.urls)
     }
 
     static func understandingRequest(query: String, hints: [String], root: URL, context: ProvenanceContext,

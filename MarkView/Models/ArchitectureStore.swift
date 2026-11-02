@@ -1599,9 +1599,12 @@ final class ArchitectureStore: ObservableObject {
                     }.value
                 }
                 for file in historyFiles { understandingRatings[id, default: [:]]["p:" + file.path] = .init(level: "strong", reason: "Answer evidence candidate", provisional: true) }
-                understandingAnswers[id]?.message = "Reading git history and pull requests…"
+                // Pull requests need `gh`: only the opt-in GitHub integration may run it. Read the
+                // switch once so the progress line and the history agree.
+                let includePullRequests = GitHubSettings.enabled
+                understandingAnswers[id]?.message = includePullRequests ? "Reading git history and pull requests…" : "Reading git history…"
                 revision += 1
-                let context = await XRaySearch.provenance(root: root, files: historyFiles)
+                let context = await XRaySearch.provenance(root: root, files: historyFiles, includePullRequests: includePullRequests)
                 try Task.checkCancellation()
                 guard understandingTokens[id] == token else { return }
                 let components = snapshot?.components ?? []
