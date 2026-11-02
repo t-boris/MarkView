@@ -3,7 +3,8 @@ import AVFoundation
 import Combine
 
 /// Dictation into a text field (the intake sheet): click to record, click again to stop, and the
-/// whole transcript goes to the field once Whisper answers. Adds what a field needs on top of
+/// whole transcript goes to the field once it is transcribed (Whisper with an OpenAI key, macOS's
+/// built-in recognition without one). Adds what a field needs on top of
 /// `WhisperClient`: elapsed time, a warning before the length cap and an automatic stop at it,
 /// cancel without inserting, and the inline status (error, nothing recognized, no permission).
 @MainActor
@@ -22,7 +23,9 @@ final class DictationController: ObservableObject {
     @Published private(set) var message: String?
     /// The message is about microphone access: the field offers to open System Settings.
     @Published private(set) var microphoneDenied = false
-    /// The message is fixed in DDE Settings (API key, model): the field offers to open them.
+    /// The message is about Speech Recognition access (the built-in engine): the field offers to open System Settings.
+    @Published private(set) var speechDenied = false
+    /// The message is fixed in DDE Settings (API key, model, language): the field offers to open them.
     @Published private(set) var opensSettings = false
 
     /// How long before the cap the recording indicator warns.
@@ -57,6 +60,7 @@ final class DictationController: ObservableObject {
             self.insert = insert
             message = nil
             microphoneDenied = false
+            speechDenied = false
             opensSettings = false
             phase = .starting
             whisper.startRecording()
@@ -82,6 +86,7 @@ final class DictationController: ObservableObject {
     func dismissMessage() {
         message = nil
         microphoneDenied = false
+        speechDenied = false
         opensSettings = false
     }
 
@@ -131,6 +136,8 @@ final class DictationController: ObservableObject {
         opensSettings = whisper.errorOpensSettings
         let status = WhisperClient.microphoneStatus
         microphoneDenied = status == .denied || status == .restricted
+        let speech = OnDeviceSpeech.authorization
+        speechDenied = !microphoneDenied && WhisperClient.engine == .onDevice && (speech == .denied || speech == .restricted)
     }
 
     private func startTicker() {

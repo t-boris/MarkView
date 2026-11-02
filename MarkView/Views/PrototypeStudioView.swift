@@ -10,7 +10,6 @@ struct PrototypeStudioView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var draft = ""
     @StateObject private var dictation = DictationController()
-    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
     @AppStorage("prototypeChatWidth") private var chatWidth = 340.0
     /// What Point sends about the element: its HTML, or its HTML and a screenshot of it.
     @AppStorage("prototypePickScreenshot") private var pickScreenshot = true
@@ -245,19 +244,10 @@ struct PrototypeStudioView: View {
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 .disabled(!session.hasSite || session.isBusy)
                 .help("Send an image with your request: paste it (⌘V), drop it here, or choose a file")
-                if openAIKey.isEmpty {
-                    Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
-                        Image(systemName: "mic").uiFont(size: 13).foregroundColor(VSDark.textDim)
-                    }
-                    .buttonStyle(.plain).padding(.top, 4)
-                    .help("Set up voice input in DDE Settings")
-                    .accessibilityLabel("Set up voice input")
-                } else {
-                    DictationButton(dictation: dictation) { transcript, window in
-                        DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
-                    }
-                    .padding(.top, 2)
+                DictationButton(dictation: dictation) { transcript, window in
+                    DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
                 }
+                .padding(.top, 2)
             }
             DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
             HStack {

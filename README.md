@@ -516,8 +516,9 @@ flowchart LR
   matches*, **Next error**, wrap, and **Follow** to watch a growing log.
 - **Search the whole project** (**⌘⇧K**) with an SQLite FTS5 index; find in file (**⌘F**)
   with case and regex.
-- **Dictation** (🎤) in the terminal, intake forms and discussions — speech to text with
-  OpenAI Whisper.
+- **Dictation** (🎤) in the terminal, intake forms and discussions — speech to text. Works
+  without any key through macOS's built-in recognition on your Mac (pick its language in
+  Settings); with an OpenAI key it uses Whisper instead.
 - **PDF export** (**⌘E**).
 
 **Browser and app preview** (🌐)
@@ -577,10 +578,10 @@ The app is signed with a Developer ID and notarized by Apple, so it opens withou
   [GitHub Copilot CLI](https://github.com/github/copilot-cli).
   MarkView uses their sign-in and needs no provider key of its own.
 - **Optional:** `git`; [`gh`](https://cli.github.com) for GitHub; an OpenAI API key
-  (Settings) for dictation only.
+  (Settings) for Whisper dictation — without it, dictation uses macOS's built-in recognition.
 
 Settings (**⌘⇧,**) choose the assistant and model, the X-Ray model, the language of AI
-output, CLI paths and the Whisper model.
+output, CLI paths, the dictation language (built-in recognition) and the Whisper model.
 
 ### Privacy and how AI runs
 
@@ -590,7 +591,8 @@ output, CLI paths and the Whisper model.
   MarkView's own background calls (X-Ray, reviews, explanations) run them read-only. The
   agent terminals run with the agents' full-access flags — they act on your project, as
   they would in any terminal.
-- Dictation sends audio to OpenAI with your key. GitHub is contacted only when you turn the
+- Dictation without a key is recognized on your Mac and sends nothing anywhere; with an
+  OpenAI key it sends the audio to OpenAI. GitHub is contacted only when you turn the
   integration on. Interactive graph diagrams load d3 and dagre from a CDN.
 
 ---
@@ -667,7 +669,7 @@ Architecture notes: [`docs/architecture/`](docs/architecture/).
 | X-Ray | Cytoscape.js + ELK, Louvain clustering, git history |
 | Terminals | xterm.js on a Swift-owned PTY |
 | Storage | SQLite (C API) + FTS5; features and bugs as Markdown + YAML |
-| AI | Claude Code, Codex, Cline and Copilot CLIs (ACP); OpenAI Whisper |
+| AI | Claude Code, Codex, Cline and Copilot CLIs (ACP); macOS speech recognition or OpenAI Whisper for dictation |
 
 ## License
 

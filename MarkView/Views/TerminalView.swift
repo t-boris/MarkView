@@ -33,7 +33,7 @@ struct TerminalHostView: NSViewRepresentable {
     }
 }
 
-/// Microphone for a terminal: dictated text (Whisper) is typed at the prompt, not sent —
+/// Microphone for a terminal: dictated text is typed at the prompt, not sent —
 /// check it and press Enter yourself.
 struct TerminalDictationButton: View {
     let session: TerminalSession?
@@ -52,7 +52,6 @@ struct TerminalDictationButton: View {
 private struct SessionDictationButton: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var whisper: WhisperClient
-    @State private var message: String?
 
     var body: some View {
         Button(action: toggle) {
@@ -62,7 +61,7 @@ private struct SessionDictationButton: View {
         }
         .buttonStyle(.plain)
         .disabled(session.transcribing)
-        .help(message ?? whisper.error ?? (whisper.isRecording ? "Stop and insert the text" : "Dictate (Whisper): the text is typed at the prompt"))
+        .help(whisper.error ?? (whisper.isRecording ? "Stop and insert the text" : "Dictate: the text is typed at the prompt"))
     }
 
     private func toggle() {
@@ -74,10 +73,7 @@ private struct SessionDictationButton: View {
                 session.transcribing = false
                 if let text, !text.isEmpty { session.paste(text) }
             }
-        } else if !whisper.hasAPIKey {
-            message = "Dictation needs an OpenAI API key in Settings → DDE."
         } else {
-            message = nil
             whisper.startRecording()
         }
     }

@@ -182,11 +182,13 @@
         </dict>
     </array>
 
-    <!-- Microphone access for Whisper voice input -->
+    <!-- Microphone and Speech Recognition access for voice input (dictation) -->
     <key>NSAppleEventsUsageDescription</key>
     <string>MarkView opens Terminal.app in a folder you choose ("Open in Terminal.app").</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>MarkView uses the microphone for voice input (Whisper transcription).</string>
+    <string>MarkView uses the microphone for voice input (dictation).</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>MarkView uses macOS speech recognition, on this Mac, to turn your dictation into text when no OpenAI key is set.</string>
 
     <!-- App Transport Security: allow local WKWebView content -->
     <key>NSAppTransportSecurity</key>

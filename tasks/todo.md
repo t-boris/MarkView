@@ -1,5 +1,41 @@
 # MarkView — Follow-up Tasks
 
+## Dictation without an OpenAI key (2026-11-02, 4.64.0)
+
+Boris asked for dictation that needs no OpenAI key, through macOS's built-in recognition. Until now the 🎤 was hidden
+behind a "Set up voice input" placeholder unless a key was set.
+
+Design (chosen by Boris from three options): a key set → Whisper as before; no key → `SFSpeechRecognizer` with
+`requiresOnDeviceRecognition`, so the audio never leaves the Mac. Recording (`AVAudioRecorder` → 16 kHz WAV) is unchanged;
+only the transcription step differs, so every caller (terminals, intake/discussion/feature/prototype fields, voice notes,
+imported audio files) works through the same `WhisperClient`.
+
+- [x] `OnDeviceSpeech` (new): Speech Recognition permission, language resolution, file recognition with task cancellation.
+- [x] `DictationLanguage` (pure): the stored language is the only candidate (never silently another language); otherwise the
+      system languages in order, with regional variants (`ru-US` finds `ru-RU`). macOS recognizes one language per request
+      and cannot detect it, so DDE Settings has a language picker (only languages with an installed model).
+- [x] `WhisperClient.engine` (key → OpenAI, else on-device); permission and language are settled *before* recording starts;
+      `transcribe(fileURL:)` dispatches by engine; self-test and diagnostics are engine-aware.
+- [x] New failures in `TranscriptionFailure`: speech permission denied, language not installed, recognition failed.
+- [x] Every mic is always shown (placeholder buttons and `openAIKey` gating removed from five views); the status line offers
+      "Open Speech Recognition Settings" on denial.
+- [x] `Info.plist`: `NSSpeechRecognitionUsageDescription` (without it the permission request would crash the app).
+- [x] Settings text, README. Standalone checks: `tools/tests/dictation-language-tests.sh`, `transcription-failure-tests.sh`.
+- [x] Debug build passes.
+- [x] Recognition proved on real audio through a throwaway signed probe app that runs the production `OnDeviceSpeech`
+      (synthetic speech from `say`, converted to the app's 16 kHz mono WAV): Russian 7.7 s → 120 chars in 0.9 s, English
+      5.8 s → 98 chars in 0.5 s, Russian 207 s → 3023 chars (all 14 repetitions) in 8.9 s. Found by that run: macOS recognizes
+      in windows of about a minute and the *final* result holds only the last window — the first version returned 392 of
+      3023 chars for the 207 s file. `TranscriptWindows` now collects every window (pure, tested).
+- Tried and dropped: `contextualStrings` with developer terms fixed English "pool request" but not Russian speech
+  ("полный квест" for "pull request") and lost a comma; not worth shipping. Mixed Russian/English needs Whisper.
+- Leftover of the probe: System Settings → Privacy → Speech Recognition may list "MarkView Speech Probe"
+  (`tccutil` could not reset it after the app was removed); remove it with the minus button.
+- [ ] In the running app after Boris installs: 🎤 in a terminal and in a text field with no key (permission prompt, language
+      picker, wrong-language behavior), and with a key (Whisper unchanged).
+- Known limits: one language per dictation (pick it in Settings; mixed Russian/English needs Whisper); on this Mac only 5 of
+  62 languages have an on-device model (en-US, ru-RU among them); other languages need System Settings → Keyboard → Dictation.
+
 ## Agents tab title follows the chosen model (2026-11-02, 4.63.2)
 
 Boris: the title of an Agents tab does not reflect the selected model. Root cause: the title is a snapshot taken
