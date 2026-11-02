@@ -54,6 +54,19 @@ final class WindowSessionController {
         return true
     }
 
+    /// Files a new window shows on their own once it attaches, by the id of that window: no other window can take them.
+    private var pendingDocuments: [UUID: [URL]] = [:]
+
+    /// Open a new window that shows `files` as documents, without the file tree and the agents panel (plain files opened
+    /// from Finder). False when no window has attached yet to give the open action, or MarkView is quitting.
+    func openDocumentWindow(files: [URL]) -> Bool {
+        guard let open = openSceneWindow, !terminating, !files.isEmpty else { return false }
+        let id = UUID()
+        pendingDocuments[id] = files
+        open(id)
+        return true
+    }
+
     func attach(id: UUID, window: NSWindow, workspace: WorkspaceManager, openWindow: @escaping (UUID) -> Void) async {
         openSceneWindow = openWindow
         var closedBeforeLoad = false
@@ -126,6 +139,7 @@ final class WindowSessionController {
         guard entries[id] === entry else { return } // closed while its folder was loading
         entry.restoring = false
         pending.removeValue(forKey: id)
+        if let files = pendingDocuments.removeValue(forKey: id) { workspace.openDocumentsOnly(files) }
         if pending.isEmpty, !restoredFocus {
             restoredFocus = true
             if let first = order.first, let front = entries[first]?.window, !front.isMiniaturized {
