@@ -1,5 +1,30 @@
 # MarkView — Follow-up Tasks
 
+## BUG-031: saving in the editor overwrote another tab's file (2026-11-02, 4.65.1)
+
+Boris's Back Burner notes showed `Sirius Art/_researcher/questions.md` holding MyDataCenter's questions; the Butler's harness
+audit log had no write there, and MarkView had two `questions.md` tabs open in one window. The page's text and the file written
+came from different tabs: `contentChanged` / `saveRequested` carried no document identity and the app applied them to the
+*selected* tab.
+
+- [x] Read the path end to end: `sendToSwift` → `WebViewBridge.handleMessage` → `EditorView.Coordinator` → `WorkspaceManager`
+      (`updateActiveTabContent`, `saveActiveFile`). The exact trigger of the page/tab divergence was not reproduced live.
+- [x] `window.mvDocumentId` set in the same script as every document load; `sendToSwift` sends it as `doc`.
+- [x] `EditorDocumentRouting` (pure): a named message goes to its own tab, a closed tab drops it, an unnamed one keeps the old rule.
+- [x] `updateTabContent(_:documentID:)` / `saveEditorDocument(documentID:)`; a debug-log line when the page's tab is not the selected one.
+- [x] Reload guard includes the tab id (a closed-and-reopened tab with the same file and text would otherwise keep the dead id).
+- [x] `tools/tests/editor-document-routing-tests.sh`: the routing rule (fails 4 checks against the old rule) and the shipped editor
+      page in headless WebKit (`EditorDocumentIdWebTests.swift`): after a load the text names the tab; Cmd+S in the WYSIWYG view sends
+      the edited text and the save request naming the shown tab; a cleared id names nothing (5 failures against the old JS).
+- [x] Debug build passes.
+- [ ] Not exercised: the real app's tab bar and Cmd+S by hand. The scratch copy would need synthetic keystrokes on Boris's working
+      Mac, and the page/tab divergence itself has no known trigger to replay. The Swift side (`WebViewBridge` → `EditorView` →
+      `WorkspaceManager`) is covered by the build and by reading the call path, not by a run.
+- [ ] PR, merge, release.
+
+Not changed, worth a separate decision: WYSIWYG edits stay in the page until Cmd+S or Source mode, and a tab switch loads the next
+document over them (`setContent` resets `wysiwygDirty`).
+
 ## Dictation without an OpenAI key (2026-11-02, 4.64.0)
 
 Boris asked for dictation that needs no OpenAI key, through macOS's built-in recognition. Until now the 🎤 was hidden
