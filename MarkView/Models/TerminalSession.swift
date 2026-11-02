@@ -182,7 +182,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
             guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
             case "ready":
-                if operationCommand != nil { trace("ready pending=\(pendingOutput.count)") }
                 pageReady = true
                 resize(cols: body["cols"] as? Int ?? 80, rows: body["rows"] as? Int ?? 24)
                 applyTheme()
@@ -591,7 +590,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// Output to the page, batched per frame; the startup command goes in once the
     /// shell has printed its prompt.
     private func deliver(_ data: Data) {
-        if operationCommand != nil { trace("deliver bytes=\(data.count) ready=\(pageReady)") }
         pendingOutput.append(data)
         onOutput?(data)
         if operationCommand != nil && pendingOutput.count > 16_000_000 {
@@ -614,7 +612,6 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     private func flush() {
-        if operationCommand != nil { trace("flush bytes=\(pendingOutput.count) ready=\(pageReady)") }
         flushScheduled = false
         guard pageReady, !pendingOutput.isEmpty else {
             finishOutputDisplayIfReady()
@@ -624,10 +621,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         let chunk = pendingOutput.prefix(count).base64EncodedString()
         pendingOutput.removeFirst(count)
         outputEvaluationsInFlight += 1
-        webView.evaluateJavaScript("window.mvWrite('\(chunk)')") { [weak self] _, error in
+        webView.evaluateJavaScript("window.mvWrite('\(chunk)')") { [weak self] _, _ in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if self.operationCommand != nil { self.trace("write error=\(String(describing: error))") }
                 self.outputEvaluationsInFlight -= 1
                 self.finishOutputDisplayIfReady()
             }
@@ -642,21 +638,7 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         guard pageReady, pendingOutput.isEmpty, outputEvaluationsInFlight == 0,
               let code = exitMarkerPending else { return }
         exitMarkerPending = nil
-        webView.evaluateJavaScript("window.mvExited && window.mvExited(\(code))") { [weak self] _, error in
-            if let self, self.operationCommand != nil { self.trace("exit error=\(String(describing: error))") }
-        }
-    }
-
-    private func trace(_ message: String) {
-        let url = URL(fileURLWithPath: "/tmp/markview-ops-debug.log")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(atPath: url.path, contents: nil)
-        }
-        if let handle = try? FileHandle(forWritingTo: url) {
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: Data((message + "\n").utf8))
-            try? handle.close()
-        }
+        webView.evaluateJavaScript("window.mvExited && window.mvExited(\(code))")
     }
 }
 
