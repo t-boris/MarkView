@@ -154,12 +154,13 @@ enum ProjectOperationDiscoveryService {
             let confidence = hasWeb ? "low" : verbatimProject && !hasExternal ? "high"
                 : verbatimExternal || !hasExternal ? "medium" : "low"
             let nodes = deploymentNodes.filter { candidate.nodeNames.contains($0.name) || candidate.nodeNames.contains($0.id) }
-            let operation = ProjectOperation(id: id, label: candidate.label, kind: candidate.kind,
+            var operation = ProjectOperation(id: id, label: candidate.label, kind: candidate.kind,
                 environment: environment.isEmpty ? nil : environment, target: target.isEmpty ? nil : target,
                 nodes: nodes, command: candidate.command, cwd: cwd, origin: "discovered",
                 discovered: .init(command: candidate.command, cwd: cwd), confidence: confidence,
                 prerequisites: candidate.prerequisites, provenance: sourceFiles.map(\.0),
                 remoteTrigger: candidate.remoteTrigger)
+            operation.discoveredFields = operation.currentFields
             if hasWeb || hasExternal { proposals.append(operation) }
             else { operations.append(operation) }
         }

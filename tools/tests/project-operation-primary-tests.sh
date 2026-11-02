@@ -7,12 +7,7 @@ cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/ProjectOperationPrimaryTests.swift "$out/main.swift"
-# The model keeps unknown JSON keys as AnyCodable (defined with the bridge); the fixtures have none.
-cat > "$out/Stub.swift" <<'SWIFT'
-struct AnyCodable: Codable {
-    init(from decoder: Decoder) throws {}
-    func encode(to encoder: Encoder) throws {}
-}
-SWIFT
-swiftc -O -o "$out/primary-tests" MarkView/Models/ProjectOperation.swift "$out/Stub.swift" "$out/main.swift"
+# The model keeps unknown JSON keys as AnyCodable (defined with the bridge); a copy stands in for it.
+swiftc -O -o "$out/primary-tests" MarkView/Models/ProjectOperation.swift \
+  tools/tests/ProjectOperationAnyCodableStub.swift "$out/main.swift"
 "$out/primary-tests"
