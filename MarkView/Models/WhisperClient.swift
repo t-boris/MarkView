@@ -26,6 +26,11 @@ class WhisperClient: ObservableObject {
     @Published var error: String?
     /// The last error is fixed in DDE Settings (API key, model): callers can offer to open them.
     @Published private(set) var errorOpensSettings = false
+    /// The language the built-in recognition listens for in this recording ("Russian (Russia)");
+    /// nil with an OpenAI key, which detects the language itself.
+    @Published private(set) var language: String?
+    /// Loudest point of the last recording in dBFS, for diagnostics; nil before the first one.
+    private(set) var lastPeakDB: Int?
 
     private var audioRecorder: AVAudioRecorder?
     /// A new file per recording, so a late cleanup never deletes a newer recording.
@@ -75,6 +80,7 @@ class WhisperClient: ObservableObject {
         error = nil
         errorOpensSettings = false
         transcribedText = nil
+        language = nil
         // Request microphone permission first
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
@@ -101,7 +107,10 @@ class WhisperClient: ObservableObject {
     /// dictates for a minute and only then learns it cannot be transcribed.
     private func beginRecordingWhenAllowed() {
         guard Self.engine == .onDevice else { beginRecording(); return }
-        if case .failure(let failure) = OnDeviceSpeech.resolveLanguage() { fail(failure); return }
+        switch OnDeviceSpeech.resolveLanguage() {
+        case .failure(let failure): fail(failure); return
+        case .success(let identifier): language = OnDeviceSpeech.displayName(identifier)
+        }
         switch OnDeviceSpeech.authorization {
         case .authorized:
             beginRecording()
@@ -175,9 +184,20 @@ class WhisperClient: ObservableObject {
             error = "Recording failed — no audio captured"
             return nil
         }
-        NSLog("[Whisper] Recording stopped, file size: \(size) bytes, transcribing (\(Self.engine == .openAI ? "OpenAI" : "on this Mac"))...")
-
         let started = generation
+        // A silent recording (muted, wrong input device) is told apart from speech nobody recognized.
+        let peak = await Task.detached(priority: .userInitiated) { () -> Float? in
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
+            return RecordingLevel.peak(ofWAV: data)
+        }.value
+        lastPeakDB = peak.map(RecordingLevel.decibels)
+        NSLog("[Whisper] Recording stopped, file size: \(size) bytes, peak \(lastPeakDB.map { "\($0) dB" } ?? "unknown"), transcribing (\(Self.engine == .openAI ? "OpenAI" : "on this Mac"))...")
+        guard generation == started else { return nil }
+        if let peak, RecordingLevel.isSilent(peak) {
+            fail(.silence(peakDB: RecordingLevel.decibels(peak)))
+            return nil
+        }
+
         let task = Task { await transcribe(fileURL: url) }
         transcription = task
         let text = await task.value
@@ -209,10 +229,17 @@ class WhisperClient: ObservableObject {
     func transcribe(fileURL: URL) async -> String? {
         errorOpensSettings = false
         switch Self.engine {
-        case .openAI: return await transcribeWithOpenAI(fileURL: fileURL)
-        case .onDevice: return await transcribeOnDevice(fileURL: fileURL)
+        case .openAI:
+            language = nil
+            return await transcribeWithOpenAI(fileURL: fileURL)
+        case .onDevice:
+            return await transcribeOnDevice(fileURL: fileURL)
         }
     }
+
+    /// What to tell when a recording was transcribed but holds no words; names the language the built-in
+    /// recognition listened for, since it understands only one.
+    var nothingHeard: TranscriptionFailure { .noSpeech(language: language) }
 
     /// Recognized by macOS on this Mac. Asks for Speech Recognition access if it was not asked
     /// yet (audio files reach this without a recording having started it).
@@ -225,6 +252,7 @@ class WhisperClient: ObservableObject {
         case .success(let identifier): language = identifier
         case .failure(let failure): fail(failure); return nil
         }
+        self.language = OnDeviceSpeech.displayName(language)
         do {
             let text = try await OnDeviceSpeech.transcribe(fileURL: fileURL, language: language)
             NSLog("[Speech] Recognized \(text.count) characters in \(language)")
@@ -362,7 +390,8 @@ class WhisperClient: ObservableObject {
         guard let text else { return "❌ No transcript returned and no error reported." }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return "⚠️ Recognition succeeded but the transcript is empty — \(engineName) heard nothing. Check the input device level."
+            let level = lastPeakDB.map { " (the recording peaked at \($0) dB)" } ?? ""
+            return "⚠️ Recognition succeeded but the transcript is empty — \(engineName) heard no words\(level). \(nothingHeard.nextStep)"
         }
         return "✅ \(engineName): \"\(trimmed)\""
     }
@@ -420,8 +449,30 @@ struct TranscriptionFailure: Equatable, Error {
 
     /// macOS could not recognize the recording; `domain` and `code` are the tag for bug reports.
     static func recognition(domain: String, code: Int) -> TranscriptionFailure {
-        TranscriptionFailure(problem: "macOS could not recognize the recording.", nextStep: retryOrTest,
+        TranscriptionFailure(problem: "macOS could not recognize the recording.",
+                             nextStep: "Check that Dictation is on in System Settings \u{2192} Keyboard \u{2192} Dictation. " + retryOrTest,
                              tag: "\(domain) \(code)", fixInSettings: true)
+    }
+
+    /// The microphone delivered silence (the loudest point of the recording was `peakDB` dBFS): muted,
+    /// or another input device than the one being spoken into.
+    static func silence(peakDB: Int) -> TranscriptionFailure {
+        TranscriptionFailure(
+            problem: "Nothing was recorded: the microphone delivered silence.",
+            nextStep: "Check that the right input is chosen and not muted in System Settings \u{2192} Sound \u{2192} Input, then speak closer to it.",
+            tag: "peak \(peakDB) dB")
+    }
+
+    /// The recording was transcribed but holds no words. `language` is what the built-in recognition
+    /// listened for (nil for OpenAI, which detects it): it understands one language at a time.
+    static func noSpeech(language: String?) -> TranscriptionFailure {
+        guard let language else {
+            return TranscriptionFailure(problem: "No speech recognized.", nextStep: "Speak a little louder or closer to the microphone.")
+        }
+        return TranscriptionFailure(
+            problem: "No speech recognized in \(language).",
+            nextStep: "Speak a little closer. Built-in recognition understands one language at a time: if you spoke another one, choose it in DDE Settings \u{2192} Voice input (an OpenAI key detects the language by itself).",
+            fixInSettings: true)
     }
 
     /// A non-200 answer from /v1/audio/transcriptions. OpenAI's body is

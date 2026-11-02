@@ -74,9 +74,9 @@ struct DictationStatusView: View {
                     Text(message).foregroundColor(.secondary).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if dictation.microphoneDenied {
-                        Button("Open Microphone Settings") { openPrivacySettings("Privacy_Microphone") }
+                        Button("Open Microphone Settings") { Self.openPrivacySettings("Privacy_Microphone") }
                     } else if dictation.speechDenied {
-                        Button("Open Speech Recognition Settings") { openPrivacySettings("Privacy_SpeechRecognition") }
+                        Button("Open Speech Recognition Settings") { Self.openPrivacySettings("Privacy_SpeechRecognition") }
                     } else if dictation.opensSettings, let openSettings {
                         Button("Open DDE Settings", action: openSettings)
                     }
@@ -90,7 +90,7 @@ struct DictationStatusView: View {
             label(dot: VSDark.red, "Starting the microphone…")
         case .recording:
             let left = max(0, dictation.maxDuration - dictation.elapsed)
-            label(dot: VSDark.red, "Recording \(Self.clock(dictation.elapsed)) — click the mic to insert the text, Esc to cancel"
+            label(dot: VSDark.red, "Recording\(dictation.language.map { " in \($0)" } ?? "") \(Self.clock(dictation.elapsed)) — click the mic to insert the text, Esc to cancel"
                   + (dictation.nearLimit ? " · stops in \(Self.clock(left))" : ""),
                   warning: dictation.nearLimit)
         case .transcribing:
@@ -117,7 +117,8 @@ struct DictationStatusView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    private func openPrivacySettings(_ pane: String) {
+    /// A pane of System Settings → Privacy & Security ("Privacy_Microphone", "Privacy_SpeechRecognition").
+    static func openPrivacySettings(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }

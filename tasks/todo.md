@@ -3291,3 +3291,33 @@ Review:
   (`initSingleFileWorkspace`); skipping them for these windows is a separate change.
 - The scratch copy launched through LaunchServices wrote debug lines to the real `~/markview_debug.log` (the sandbox profile applied
   only to a directly executed binary, which showed no window).
+
+## Built-in dictation records but nothing appears (2026-11-02, 4.65.2)
+
+Report (Boris, tested 4.65.0 on another Mac, no OpenAI key, speaking English): the microphone turns on, they speak, no text comes.
+Root cause on that Mac is not known yet. What the code does with it (read, not guessed):
+- The terminal mic (`SessionDictationButton`) drops an empty transcript without a word and shows an error only as a hover tooltip, so
+  "no speech", "no model for the language", "Dictation off" and "silent recording" all look the same: nothing.
+- A recording that is silent (muted, wrong input device) is sent to the recognizer as if it were speech, and the answer is "no speech".
+- The language is the first system language with a model ("automatic"); on a Mac whose first language is not English, English speech
+  gets an empty or wrong result, and nothing says which language was used.
+
+Plan (diagnostics and honest messages first; the recognizer itself is unchanged):
+- [x] `RecordingLevel` (pure, tested; also run on real CoreAudio WAVs: speech -2..-4 dBFS, silence -120, hiss -69, 207 s in 21 ms): peak level of a 16-bit WAV; below -54 dBFS the recording counts as silent.
+- [x] `TranscriptionFailure.silence(peakDB:)` and `.noSpeech(language:)` (tested); `stopRecording` reports a silent recording before
+      transcribing (both engines) and logs the level; the self-test shows the level.
+- [x] Terminal mic: failures and "nothing recognized" shown in a popover by the button; recording tooltip names the language.
+- [x] Text fields: "No speech recognized." names the language; the recording line names it too.
+- [x] Patch bump (4.65.2; 4.65.1 was taken by the editor-save fix), build, standalone tests. A hardened-runtime probe with the app's
+      entitlements recognizes speech on this Mac (en-US, 98 chars, 0.5 s; `adhoc,runtime`), so hardened runtime is not the cause here;
+      the entitlements of the shipped app have the sandbox off, audio-input on.
+- Ask Boris for: macOS version of the other Mac, the result of "Record 3s and transcribe" (DDE Settings → Voice input), the
+  system language order of that Mac.
+
+Review:
+- Not reproduced: the other Mac is not available, and a real microphone cannot be driven from here. Everything above makes the next
+  failure explain itself; the recognizer is unchanged. Likely causes to confirm from the other Mac: system language order puts a
+  language other than English first (automatic = first system language with a model), Dictation off, a silent input device.
+- `recognition()` now starts with "Check that Dictation is on in System Settings → Keyboard → Dictation" (the usual cause of a
+  recognition error on macOS); the tag still carries domain and code.
+- Still not verified live: the popover in the terminal header (cannot click from here) and an actual spoken sentence through the app.

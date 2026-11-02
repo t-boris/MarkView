@@ -102,5 +102,24 @@ readable("recognition", recognition)
 check("recognition: tag for bug reports", recognition.tag == "kAFAssistantErrorDomain 1101", recognition.tag ?? "nil")
 check("recognition: no OpenAI wording", !recognition.message.contains("OpenAI"), recognition.message)
 
+check("recognition: Dictation is the first thing to check", recognition.nextStep.contains("Dictation"), recognition.message)
+
+// The microphone delivered silence, or nothing was recognized.
+let silent = TranscriptionFailure.silence(peakDB: -63)
+readable("silence", silent)
+check("silence: tag carries the level", silent.tag == "peak -63 dB", silent.tag ?? "nil")
+check("silence: where to look", silent.nextStep.contains("Sound") && silent.nextStep.contains("Input"), silent.message)
+check("silence: not a settings fix", !silent.fixInSettings)
+
+let heardRussian = TranscriptionFailure.noSpeech(language: "Russian (Russia)")
+readable("no speech (built-in)", heardRussian)
+check("no speech: names the language", heardRussian.problem.contains("Russian (Russia)"), heardRussian.message)
+check("no speech: says one language at a time and where to choose", heardRussian.nextStep.contains("one language") && heardRussian.nextStep.contains("DDE Settings"), heardRussian.message)
+check("no speech: the language is chosen in DDE Settings", heardRussian.fixInSettings)
+let heardNothing = TranscriptionFailure.noSpeech(language: nil)
+readable("no speech (OpenAI)", heardNothing)
+check("no speech with OpenAI: no language talk", !heardNothing.message.contains("language"), heardNothing.message)
+check("no speech with OpenAI: nothing to fix in settings", !heardNothing.fixInSettings)
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all transcription failure checks passed")
