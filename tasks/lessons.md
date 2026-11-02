@@ -698,3 +698,10 @@ repairs the complete prior model and all affected issues. Validate dependency ev
 the actual endpoint ownership. Inspect the first rendered overview on real data: show stable,
 readable layers and reveal dense dependencies around a selection. Test Hide tests before any
 Logical enrichment, since that pass used to be the only producer of path tags.
+
+## A change observer must not live in a view that is only sometimes on screen (Agents tab title, 2026-11-02)
+`AITerminalPanel` watched the toolbar's model choice, but a `switch` in `TOCView` builds it only while the Agents navigator tab is
+open. A model picked on another tab was never seen, and `onAppear` reset the "seen" value, so the tab kept the old title and the agent
+the old model for good. Rule: when a view mirrors state that can change while it is not mounted, reconcile from the state itself on
+appear (compare what runs with what is chosen — idempotent) instead of relying on having seen the change event. Compare the one
+value that matters (the model), not a derived string (the whole startup command also changes with linked folders and tools).
