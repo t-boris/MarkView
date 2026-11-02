@@ -22,7 +22,7 @@ Nothing here has been reproduced at runtime.
 | R8 | Insight `retrySection` output is dropped: `appendSectionDelta` accepts only `.streamingContent`, but the node stays `.ready` | `InsightSession.swift:408,1330-1335` | code-checked (guard) | [semantic](./modules/semantic-index-and-insight.md) |
 | R9 | The semantic index goes stale: deleted files are never removed; symbols and relations for changed files pile up; two docId schemes collide (`IncrementalCompiler` uses the bare file name) | see module | audit | semantic |
 | R10 | Feature workflow: a duplicate epic is filed on retry, a bug-ID race has no overwrite guard, and non-ASCII titles produce `feature` / `BUG-nnn-.md` slugs | see module | audit | [feature](./modules/feature-workflow.md) |
-| R11 | `ArchitectureStore.reset()` doesn't cancel a scan or clear `busy`, so a mid-scan workspace switch can commit old results and silently refuse the new scan | see module | audit | [X-Ray](./modules/architecture-and-xray.md) |
+| R11 | Resolved with automatic-code-architecture: `ArchitectureStore.reset()` cancels the scan, analysis and refresh tasks, clears `busy` and moves the run token so a cancelled run's cleanup cannot touch the next run; scans and analyses commit nothing once cancelled or moved to another root | see module | code-checked (run token) | [X-Ray](./modules/architecture-and-xray.md) |
 
 ## 2. Security
 

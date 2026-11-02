@@ -29,6 +29,7 @@ Changing or renaming any of these keys is a **major** version change (CLAUDE.md)
 | `settings.cli.{cline,copilot}Models` | JSON | Cached ACP model lists | AI |
 | `actions.outputLanguage` | String | Language for AI output and translation | AI |
 | `ai.customFilters` | JSON | User-defined X-Ray AI filters | X-Ray |
+| `xray.autoAnalyze` | Bool, `true` | Automatic code analysis of code projects when they open and after code changes (DEC-001 of automatic-code-architecture). Off: only the local layers, no CLI agent is started | X-Ray |
 | `settings.whisper.model` | `whisper-1` / `gpt-4o-transcribe` / `gpt-4o-mini-transcribe` | Dictation model | dictation |
 | `com.markview.dde.openai.apikey` | String, **plaintext** | OpenAI key (Whisper, key check) | settings |
 | `settings.github.enabled` | Bool, `false` | Master switch for GitHub integration. Also turned on by a completed Publish to GitHub (DEC-020 of start-a-project-from-scratch) | GitHub |
@@ -78,6 +79,7 @@ Scripts read `SIGN_IDENTITY` and `NOTARY_PROFILE` (`release.sh`) and `HOME` (`in
 | Translation chunk | ≤4000 chars, 240 s timeout | [app-shell §5.8](./modules/app-shell-and-workspace.md#58-document-translation) |
 | Dictation | 10 min recording cap, 30 s warning | [ai-assistants §6.5](./modules/ai-assistants-and-dictation.md#65-dictation-record--transcribe--insert-intake-sheet) |
 | Agent usage | stale after 15 min, backoff 5→30 min, manual cooldown 60 s, levels 80/95 % | [usage §D](./modules/git-github-terminal-lifecycle-usage.md) |
+| Automatic code analysis | 60 s of quiet after a change, AI runs ≥15 min apart, ≤5000 source files (DEC-003) | `AutoAnalysisScheduler`, [X-Ray](./modules/architecture-and-xray.md) |
 
 ## 6. Build-time configuration
 

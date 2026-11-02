@@ -36,6 +36,32 @@ final class ArchitectureStore: ObservableObject {
     /// so the large snapshot payload is not re-sent for every file the assistant reads.
     @Published private(set) var progress: AnalysisProgress?
     private var analysisTask: Task<Void, Never>?
+    /// The local scan started by `scan`, cancelled by `reset` like an analysis.
+    private var scanTask: Task<Void, Never>?
+    /// Identifies the run that owns `busy`, `progress`, `analysisTask` and `scanTask`, so the
+    /// cleanup of a run cancelled by `reset` cannot clear the state of the run that replaced it.
+    private var runToken = 0
+
+    /// What the automatic code analysis of the project is doing (REQ-002 of
+    /// automatic-code-architecture); shown by the Code view later.
+    enum AutomaticState: Equatable {
+        case idle
+        case scanning
+        case analyzing(step: String)
+        case done(Date)
+        /// No CLI agent, or it is signed out (DEC-004).
+        case unavailable(reason: String)
+        /// The switch is off or the project exceeds the size cap (DEC-001, DEC-003).
+        case skipped(reason: String)
+    }
+    @Published private(set) var automaticState: AutomaticState = .idle
+    /// Timestamps behind the automatic refresh; `AutoAnalysisScheduler` decides, this store acts.
+    private var scheduler = AutoAnalysisScheduler()
+    /// Where the automatic analysis runs, set by `startAutomaticCodeAnalysis`; nil until then,
+    /// so file changes of a project it never started for are ignored.
+    private var automaticContext: (root: URL, db: SemanticDatabase?)?
+    /// Sleeps until the scheduler's next decision.
+    private var refreshTask: Task<Void, Never>?
     /// A folder's own X-Ray is kept here (JSON) instead of the project database, and its
     /// AI answers are cached in `cacheDirectory` — both inside the project's `.dde`, so
     /// nothing is written into the folder itself.
@@ -242,6 +268,21 @@ final class ArchitectureStore: ObservableObject {
     private var prReloadedAt = Date.distantPast
 
     func reset() {
+        // A scan or analysis of the old workspace must neither commit nor clear the flags of
+        // the next run (R11): cancel it and move the run token past its cleanup.
+        analysisTask?.cancel()
+        analysisTask = nil
+        scanTask?.cancel()
+        scanTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        runToken += 1
+        busy = false
+        progress = nil
+        answerByCall = [:]
+        scheduler = AutoAnalysisScheduler()
+        automaticContext = nil
+        automaticState = .idle
         clearUnderstandingAttachments()
         understandingTasks.values.forEach { $0.cancel() }
         understandingTasks = [:]
@@ -272,10 +313,7 @@ final class ArchitectureStore: ObservableObject {
     /// AI descriptions are kept and only changed modules are re-described later.
     func open(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        if snapshot == nil, let stored = db?.loadArchitecture() ?? loadPersisted() {
-            snapshot = stored
-            revision += 1
-        }
+        loadStoredSnapshot(db: db)
         scan(root: root, db: db)
         refreshPRSources(root: root)
     }
@@ -283,20 +321,57 @@ final class ArchitectureStore: ObservableObject {
     /// Window restoration displays the previous view without starting new AI work.
     func restoreCached(root: URL, db: SemanticDatabase?) {
         rootPath = root.standardizedFileURL.path
-        if snapshot == nil, let stored = db?.loadArchitecture() ?? loadPersisted() {
-            snapshot = stored
-            revision += 1
-        }
+        loadStoredSnapshot(db: db)
         // Local cached/declaration outlines restore drill-down without starting AI.
         outlineContents(root: root)
+    }
+
+    /// The saved architecture, when nothing is loaded yet.
+    private func loadStoredSnapshot(db: SemanticDatabase?) {
+        guard snapshot == nil, let stored = db?.loadArchitecture() ?? loadPersisted() else { return }
+        snapshot = stored
+        revision += 1
+    }
+
+    /// Take the run flag for a new scan or analysis; `endRun` with the returned token releases it.
+    private func beginRun() -> Int {
+        busy = true
+        error = nil
+        runToken += 1
+        return runToken
+    }
+
+    /// Release the run flag and progress, unless `reset` or a later run already owns them.
+    private func endRun(_ token: Int) {
+        guard token == runToken else { return }
+        busy = false
+        progress = nil
+        analysisTask = nil
+        scanTask = nil
+        answerByCall = [:]
+        setStatus(nil)
+        // A file change that arrived during the run waits for its end (`.waitForRun`).
+        armAutomaticRefresh()
     }
 
     /// Deterministic scan (no AI). Keeps AI descriptions and the Deployment view
     /// from the previous snapshot for nodes that still exist.
     func scan(root: URL, db: SemanticDatabase?) {
         guard !busy else { return }
-        busy = true
-        error = nil
+        let token = beginRun()
+        scanTask = Task {
+            _ = await performScan(root: root, db: db)
+            // Explicit, not deferred: the outlines below run after the flag is released.
+            endRun(token)
+            // Contents: stored outlines at once, then new or changed files.
+            if token == runToken { outlineContents(root: root) }
+        }
+    }
+
+    /// The scan itself, shared by `scan` and the automatic pipeline. Returns the scanner's
+    /// result once it is committed, or nil when the run was cancelled or the store moved
+    /// to another root meanwhile (nothing is committed then).
+    private func performScan(root: URL, db: SemanticDatabase?) async -> ArchitectureScanner.Result? {
         setStatus("Scanning project…")
         let previous = snapshot
         let started = Date()
@@ -313,56 +388,54 @@ final class ArchitectureStore: ObservableObject {
             }
         }
         let scanner = configured
-        Task {
-            let result = await Task.detached(priority: .userInitiated) { scanner.run() }.value
-            if progress?.steps == 1 { progress = nil }
-
-            var modules = result.modules
-            if let old = previous?.view("modules") {
-                let byId = Dictionary(old.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-                for i in modules.nodes.indices {
-                    guard let before = byId[modules.nodes[i].id] else { continue }
-                    modules.nodes[i].summary = before.summary
-                    modules.nodes[i].role = before.role
-                    modules.nodes[i].summarySignature = before.summarySignature
-                    if before.kind != "file", before.name != modules.nodes[i].name, before.summary != nil {
-                        modules.nodes[i].name = before.name
-                    }
+        let result = await Task.detached(priority: .userInitiated) { scanner.run() }.value
+        // Cancelled by `reset` or moved to another workspace: commit nothing.
+        guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return nil }
+        if progress?.steps == 1 { progress = nil }
+        var modules = result.modules
+        if let old = previous?.view("modules") {
+            let byId = Dictionary(old.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for i in modules.nodes.indices {
+                guard let before = byId[modules.nodes[i].id] else { continue }
+                modules.nodes[i].summary = before.summary
+                modules.nodes[i].role = before.role
+                modules.nodes[i].summarySignature = before.summarySignature
+                if before.kind != "file", before.name != modules.nodes[i].name, before.summary != nil {
+                    modules.nodes[i].name = before.name
                 }
             }
-            var views = [modules]
-            if let deployment = previous?.view("deployment") { views.append(deployment) }
-            views.append(Self.carryBookAnnotations(from: previous?.view("docs"), into: result.docs))
-            var next = ArchitectureSnapshot(views: views, coverage: result.coverage, metrics: result.metrics,
-                                            coverageReport: result.coverageReport,
-                                            deploymentSignature: previous?.deploymentSignature,
-                                            systemName: previous?.systemName, systemPurpose: previous?.systemPurpose,
-                                            components: previous?.components ?? [],
-                                            assignments: previous?.assignments ?? [:],
-                                            overrides: previous?.overrides ?? [:],
-                                            logicalSignature: previous?.logicalSignature,
-                                            language: previous?.language,
-                                            logicalDraft: previous?.logicalDraft ?? false,
-                                            ratings: (previous?.ratings ?? [:]).mapValues {
-                                                Self.keepBookRatings(Self.keepCurrentRatings($0, modules: modules), docs: result.docs)
-                                            },
-                                            deploymentHints: result.deploymentHints, scannedAt: Date(),
-                                            enrichedAt: previous?.enrichedAt, gitHead: result.gitHead,
-                                            codeSequences: previous?.codeSequences, codeModel: previous?.codeModel)
-            let model = previous?.codeModel
-            next.codeCoverage = await Task.detached(priority: .userInitiated) {
-                CodeArchitecture.coverage(modules: result.modules, model: model, skipped: result.skipped, capabilities: .current)
-            }.value
-            pendingDeploymentSignature = result.deploymentSignature
-            next = Self.applyLogical(next)
-            commit(next, db: db)
-            setStatus(nil)
-            // Local structure is available without an assistant. AI enrichment
-            // starts only from the visible Analyze action.
-            busy = false
-            // Contents: stored outlines at once, then new or changed files.
-            outlineContents(root: root)
         }
+        var views = [modules]
+        if let deployment = previous?.view("deployment") { views.append(deployment) }
+        views.append(Self.carryBookAnnotations(from: previous?.view("docs"), into: result.docs))
+        var next = ArchitectureSnapshot(views: views, coverage: result.coverage, metrics: result.metrics,
+                                        coverageReport: result.coverageReport,
+                                        deploymentSignature: previous?.deploymentSignature,
+                                        systemName: previous?.systemName, systemPurpose: previous?.systemPurpose,
+                                        components: previous?.components ?? [],
+                                        assignments: previous?.assignments ?? [:],
+                                        overrides: previous?.overrides ?? [:],
+                                        logicalSignature: previous?.logicalSignature,
+                                        language: previous?.language,
+                                        logicalDraft: previous?.logicalDraft ?? false,
+                                        ratings: (previous?.ratings ?? [:]).mapValues {
+                                            Self.keepBookRatings(Self.keepCurrentRatings($0, modules: modules), docs: result.docs)
+                                        },
+                                        deploymentHints: result.deploymentHints, scannedAt: Date(),
+                                        enrichedAt: previous?.enrichedAt, gitHead: result.gitHead,
+                                        codeSequences: previous?.codeSequences, codeModel: previous?.codeModel)
+        let model = previous?.codeModel
+        next.codeCoverage = await Task.detached(priority: .userInitiated) {
+            CodeArchitecture.coverage(modules: result.modules, model: model, skipped: result.skipped, capabilities: .current)
+        }.value
+        guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return nil }
+        pendingDeploymentSignature = result.deploymentSignature
+        next = Self.applyLogical(next)
+        commit(next, db: db)
+        setStatus(nil)
+        // Local structure is available without an assistant. AI enrichment starts
+        // only from the visible Analyze action or the automatic pipeline.
+        return result
     }
 
     /// The grouping no longer covers the project: new folders or file kinds (e.g. notes
@@ -427,11 +500,10 @@ final class ArchitectureStore: ObservableObject {
     /// by its input, so re-analysing redoes only what changed.
     func analyze(root: URL, db: SemanticDatabase?) {
         guard !busy, let current = snapshot, let modules = current.view("modules") else { return }
-        busy = true
-        error = nil
+        let token = beginRun()
         let started = Date()
         analysisTask = Task {
-            defer { busy = false; progress = nil; analysisTask = nil; answerByCall = [:] }
+            defer { endRun(token) }
             var next = current
             do {
                 beginStep(1, "Finding the structure", started: started)
@@ -1081,82 +1153,109 @@ final class ArchitectureStore: ObservableObject {
     /// Read the code itself to infer responsibilities, rather than treating the
     /// document/commit clusters as architectural layers.
     func analyzeCode(root: URL, db: SemanticDatabase?) {
-        guard !busy, let current = snapshot, let modules = current.view("modules") else { return }
+        guard !busy, Self.codeFiles(in: snapshot) != nil else { return }
+        let token = beginRun()
+        analysisTask = Task {
+            defer { endRun(token) }
+            _ = await performCodeAnalysis(root: root, db: db)
+        }
+    }
+
+    /// Source files of the Modules view, for the code analysis; nil without a scan or code.
+    private static func codeFiles(in snapshot: ArchitectureSnapshot?) -> (modules: ArchView, files: [String])? {
+        guard let modules = snapshot?.view("modules") else { return nil }
         let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path).sorted()
-        guard !files.isEmpty else { return }
-        busy = true; error = nil
+        return files.isEmpty ? nil : (modules, files)
+    }
+
+    enum CodeAnalysisOutcome: Equatable {
+        /// The model was committed; `fromCache` when no CLI call was needed.
+        case analyzed(fromCache: Bool)
+        case failed
+        case cancelled
+    }
+
+    /// The code analysis itself, shared by the manual action and the automatic pipeline.
+    /// Runs inside the caller's run (flag, progress and task are the caller's).
+    private func performCodeAnalysis(root: URL, db: SemanticDatabase?) async -> CodeAnalysisOutcome {
+        guard let code = Self.codeFiles(in: snapshot) else { return .failed }
+        let (modules, files) = code
         beginStep(1, "Reading the code architecture", started: Date(), steps: 1)
         let signature = modules.nodes.first { $0.id == "m:" }?.signature
-        analysisTask = Task {
-            defer { busy = false; progress = nil; analysisTask = nil; setStatus(nil) }
-            do {
-                let evidence = await Task.detached(priority: .userInitiated) { CodeArchitecture.sourceEvidence(root: root, modules: modules) }.value
+        var fromCache = true
+        do {
+            let evidence = await Task.detached(priority: .userInitiated) { CodeArchitecture.sourceEvidence(root: root, modules: modules) }.value
+            try Task.checkCancellation()
+            let prompt = CodeArchitecture.prompt(root: root, files: files, evidence: evidence)
+            let project = project
+            let tool = AIAssistantPreferences.backend(project: project)
+            let xrayModel = AIAssistantPreferences.xrayModel(for: tool, project: project)
+            let systemPrompt = "You explain architecture grounded in source code. Read files, do not modify them. Return only the schema JSON.\n" + Self.graphLanguageLine
+            func request(_ attempt: String) -> CLICompletion.Request {
+                var request = CLICompletion.Request(project: project, prompt: attempt, systemPrompt: systemPrompt,
+                                                    jsonSchema: CodeArchitecture.schema, readableFolder: root)
+                request.timeout = 900; request.effort = "medium"; request.label = "code-architecture"
+                request.model = xrayModel
+                return request
+            }
+            // The same prompt over the same source was answered before: no CLI call.
+            let answerFile = Self.answerFile(for: request(prompt), context: signature ?? "", in: answerCache(root))
+            var model: CodeArchitectureModel?
+            if let cached = await Self.cachedValue(CodeArchitectureModel.self, at: answerFile),
+               (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
+                model = cached
+            }
+            var attempt = prompt
+            for round in 0...1 where model == nil {
                 try Task.checkCancellation()
-                let prompt = CodeArchitecture.prompt(root: root, files: files, evidence: evidence)
-                let project = project
-                let tool = AIAssistantPreferences.backend(project: project)
-                let xrayModel = AIAssistantPreferences.xrayModel(for: tool, project: project)
-                let systemPrompt = "You explain architecture grounded in source code. Read files, do not modify them. Return only the schema JSON.\n" + Self.graphLanguageLine
-                func request(_ attempt: String) -> CLICompletion.Request {
-                    var request = CLICompletion.Request(project: project, prompt: attempt, systemPrompt: systemPrompt,
-                                                        jsonSchema: CodeArchitecture.schema, readableFolder: root)
-                    request.timeout = 900; request.effort = "medium"; request.label = "code-architecture"
-                    request.model = xrayModel
-                    return request
-                }
-                // The same prompt over the same source was answered before: no CLI call.
-                let answerFile = Self.answerFile(for: request(prompt), context: signature ?? "", in: answerCache(root))
-                var model: CodeArchitectureModel?
-                if let cached = await Self.cachedValue(CodeArchitectureModel.self, at: answerFile),
-                   (try? await Task.detached { try CodeArchitecture.validateModel(cached, modules: modules, root: root) }.value) != nil {
-                    model = cached
-                }
-                var attempt = prompt
-                for round in 0...1 where model == nil {
-                    try Task.checkCancellation()
-                    let result = try await CLICompletion.run(request(attempt), onActivity: activityHandler(root: root))
-                    result.record(in: db)
-                    do {
-                        let parsed: CodeArchitectureModel
-                        if let object = result.structured, JSONSerialization.isValidJSONObject(object) {
-                            parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: JSONSerialization.data(withJSONObject: object))
-                        } else {
-                            let text = result.text
-                            guard let open = text.firstIndex(of: "{"), let last = text.lastIndex(of: "}"), open < last else {
-                                throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
-                            }
-                            parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
+                fromCache = false
+                let result = try await CLICompletion.run(request(attempt), onActivity: activityHandler(root: root))
+                result.record(in: db)
+                do {
+                    let parsed: CodeArchitectureModel
+                    if let object = result.structured, JSONSerialization.isValidJSONObject(object) {
+                        parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: JSONSerialization.data(withJSONObject: object))
+                    } else {
+                        let text = result.text
+                        guard let open = text.firstIndex(of: "{"), let last = text.lastIndex(of: "}"), open < last else {
+                            throw DiagramAI.Failure.unusable(["The answer was not an architecture JSON object"])
                         }
-                        try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
-                        Self.cache(parsed, at: answerFile)
-                        model = parsed
-                    } catch {
-                        if round == 1 { throw error }
-                        let answer: String
-                        if let object = result.structured, JSONSerialization.isValidJSONObject(object),
-                           let data = try? JSONSerialization.data(withJSONObject: object) {
-                            answer = String(decoding: data, as: UTF8.self)
-                        } else { answer = result.text }
-                        attempt = CodeArchitecture.repairPrompt(base: prompt, answer: answer, error: error)
-                        progress?.current = "Refining component ownership and source evidence"
+                        parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
                     }
+                    try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
+                    Self.cache(parsed, at: answerFile)
+                    model = parsed
+                } catch {
+                    if round == 1 { throw error }
+                    let answer: String
+                    if let object = result.structured, JSONSerialization.isValidJSONObject(object),
+                       let data = try? JSONSerialization.data(withJSONObject: object) {
+                        answer = String(decoding: data, as: UTF8.self)
+                    } else { answer = result.text }
+                    attempt = CodeArchitecture.repairPrompt(base: prompt, answer: answer, error: error)
+                    progress?.current = "Refining component ownership and source evidence"
                 }
-                try Task.checkCancellation()
-                guard var model, rootPath == root.standardizedFileURL.path, var next = snapshot else { return }
-                // Scenarios are filtered, not repaired: a dropped one becomes a coverage reason.
-                model = CodeArchitecture.withAcceptedScenarios(model, modules: modules)
-                model.signature = signature
-                model.analyzedAt = Date()
-                next.codeModel = model
-                let skipped = next.codeCoverage?.skipped ?? []
-                let analyzed = model
-                next.codeCoverage = await Task.detached(priority: .userInitiated) {
-                    CodeArchitecture.coverage(modules: modules, model: analyzed, skipped: skipped, capabilities: .current)
-                }.value
-                commit(next, db: db)
-            } catch is CancellationError {
-                // Keep the previous architecture when stopped.
-            } catch { self.error = "Could not analyze the code: \(error.localizedDescription)" }
+            }
+            try Task.checkCancellation()
+            guard var model, rootPath == root.standardizedFileURL.path, var next = snapshot else { return .cancelled }
+            // Scenarios are filtered, not repaired: a dropped one becomes a coverage reason.
+            model = CodeArchitecture.withAcceptedScenarios(model, modules: modules)
+            model.signature = signature
+            model.analyzedAt = Date()
+            next.codeModel = model
+            let skipped = next.codeCoverage?.skipped ?? []
+            let analyzed = model
+            next.codeCoverage = await Task.detached(priority: .userInitiated) {
+                CodeArchitecture.coverage(modules: modules, model: analyzed, skipped: skipped, capabilities: .current)
+            }.value
+            commit(next, db: db)
+            return .analyzed(fromCache: fromCache)
+        } catch is CancellationError {
+            // Keep the previous architecture when stopped.
+            return .cancelled
+        } catch {
+            self.error = "Could not analyze the code: \(error.localizedDescription)"
+            return .failed
         }
     }
 
@@ -1180,13 +1279,12 @@ final class ArchitectureStore: ObservableObject {
             return node.path == selected.path && selected.path != nil
         }.compactMap(\.path).sorted()
         guard !paths.isEmpty, let modules = current.view("modules") else { return }
-        busy = true
-        error = nil
+        let token = beginRun()
         let started = Date()
         beginStep(1, "Tracing " + selected.name, started: started, steps: 1)
         setProgressScope(question)
         analysisTask = Task {
-            defer { busy = false; progress = nil; analysisTask = nil; setStatus(nil) }
+            defer { endRun(token) }
             do {
                 let diagram = try await traceSequence(name: selected.name, question: question, paths: paths,
                                                       modules: modules, root: root, db: db)
@@ -1260,48 +1358,185 @@ final class ArchitectureStore: ObservableObject {
     /// another through the same path as a manual trace, then replace the automatic
     /// sequences with the result; manual traces are kept (DEC-002). A cancelled run
     /// changes nothing, and a run in which every scenario failed keeps the previous
-    /// automatic sequences. Nothing schedules this yet: the automatic refresh that
-    /// decides when to run it is a later step.
+    /// automatic sequences. The automatic pipeline chains this after the code analysis.
     func runAutoScenarios(root: URL, db: SemanticDatabase?) {
-        guard !busy, let current = snapshot, let modules = current.view("modules"),
-              let scenarios = current.codeModel?.scenarios, !scenarios.isEmpty else { return }
-        let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path)
-        busy = true
-        error = nil
-        let started = Date()
+        guard !busy, Self.autoScenarios(in: snapshot) != nil else { return }
+        let token = beginRun()
         analysisTask = Task {
-            var traced: [CodeSequence] = []
-            var failures: [String] = []
-            for (index, scenario) in scenarios.enumerated() {
-                if Task.isCancelled { break }
-                beginStep(index + 1, "Tracing " + scenario.title, started: started, steps: scenarios.count)
-                setProgressScope(scenario.question)
-                let paths = files.filter { $0 == scenario.scope || $0.hasPrefix(scenario.scope + "/") }.sorted()
-                guard !paths.isEmpty else {
-                    failures.append("\(scenario.title): no source files under \(scenario.scope)")
-                    continue
-                }
-                do {
-                    let diagram = try await traceSequence(name: scenario.scope, question: scenario.question, paths: paths,
-                                                          modules: modules, root: root, db: db)
-                    // A file scope has a Code-view node of its own; a directory is traced at the root.
-                    let scope = paths == [scenario.scope] ? "code:f:" + scenario.scope : "code:"
-                    traced.append(CodeSequence(scope: scope, diagram: diagram, modules: modules, auto: true))
-                } catch is CancellationError {
-                    break
-                } catch {
-                    failures.append("\(scenario.title): \(error.localizedDescription)")
-                }
+            defer { endRun(token) }
+            await performAutoScenarios(root: root, db: db)
+        }
+    }
+
+    /// The accepted scenarios and the source files they may start from; nil without any.
+    private static func autoScenarios(in snapshot: ArchitectureSnapshot?)
+        -> (modules: ArchView, scenarios: [CodeArchitectureModel.Scenario], files: [String])? {
+        guard let current = snapshot, let modules = current.view("modules"),
+              let scenarios = current.codeModel?.scenarios, !scenarios.isEmpty else { return nil }
+        let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path)
+        return (modules, scenarios, files)
+    }
+
+    /// The traces themselves, shared by `runAutoScenarios` and the automatic pipeline.
+    /// Runs inside the caller's run (flag, progress and task are the caller's).
+    private func performAutoScenarios(root: URL, db: SemanticDatabase?) async {
+        guard let auto = Self.autoScenarios(in: snapshot) else { return }
+        let (modules, scenarios, files) = auto
+        let started = Date()
+        var traced: [CodeSequence] = []
+        var failures: [String] = []
+        for (index, scenario) in scenarios.enumerated() {
+            if Task.isCancelled { break }
+            beginStep(index + 1, "Tracing " + scenario.title, started: started, steps: scenarios.count)
+            setProgressScope(scenario.question)
+            let paths = files.filter { $0 == scenario.scope || $0.hasPrefix(scenario.scope + "/") }.sorted()
+            guard !paths.isEmpty else {
+                failures.append("\(scenario.title): no source files under \(scenario.scope)")
+                continue
             }
-            if !Task.isCancelled, !traced.isEmpty, rootPath == root.standardizedFileURL.path, var next = snapshot {
-                next.codeSequences = CodeArchitecture.replacingAutoSequences(in: next.codeSequences ?? [], with: traced)
-                commit(next, db: db)
+            do {
+                let diagram = try await traceSequence(name: scenario.scope, question: scenario.question, paths: paths,
+                                                      modules: modules, root: root, db: db)
+                // A file scope has a Code-view node of its own; a directory is traced at the root.
+                let scope = paths == [scenario.scope] ? "code:f:" + scenario.scope : "code:"
+                traced.append(CodeSequence(scope: scope, diagram: diagram, modules: modules, auto: true))
+            } catch is CancellationError {
+                break
+            } catch {
+                failures.append("\(scenario.title): \(error.localizedDescription)")
             }
-            if !Task.isCancelled, !failures.isEmpty {
-                error = "Could not trace \(failures.count) of \(scenarios.count) automatic scenarios: " + failures.joined(separator: "; ")
+        }
+        if !Task.isCancelled, !traced.isEmpty, rootPath == root.standardizedFileURL.path, var next = snapshot {
+            next.codeSequences = CodeArchitecture.replacingAutoSequences(in: next.codeSequences ?? [], with: traced)
+            commit(next, db: db)
+        }
+        if !Task.isCancelled, !failures.isEmpty {
+            error = "Could not trace \(failures.count) of \(scenarios.count) automatic scenarios: " + failures.joined(separator: "; ")
+        }
+    }
+
+    // MARK: - Automatic code analysis (REQ-002 of automatic-code-architecture)
+
+    /// Analyze the project's code in the background, without the X-Ray tab: a local scan,
+    /// then — when the source changed since the saved model — the code analysis and the
+    /// automatic scenario traces, one run at a time. Project scope only: folder X-Rays stay
+    /// manual. A start while a scan or analysis runs is ignored; `reset` (project close or
+    /// switch) cancels the run, and a cancelled run commits nothing. Nothing starts with the
+    /// `xray.autoAnalyze` switch off (DEC-001); the size cap (DEC-003) and a missing or
+    /// signed-out agent (DEC-004) end the run after the local scan, in `automaticState`.
+    func startAutomaticCodeAnalysis(root: URL, db: SemanticDatabase?) {
+        guard projectRoot == nil else { return }
+        automaticContext = (root, db)
+        guard AIAssistantPreferences.autoAnalyze else {
+            automaticState = .skipped(reason: AutoAnalysisScheduler.switchOffReason)
+            return
+        }
+        guard !busy else { return }
+        if rootPath == nil { rootPath = root.standardizedFileURL.path }
+        guard rootPath == root.standardizedFileURL.path else { return }
+        loadStoredSnapshot(db: db)
+        scheduler.lastChange = nil
+        let token = beginRun()
+        analysisTask = Task {
+            defer { endRun(token) }
+            await runAutomaticPipeline(root: root, db: db)
+        }
+    }
+
+    /// The stages, chained explicitly inside one task so that cancellation reaches each.
+    private func runAutomaticPipeline(root: URL, db: SemanticDatabase?) async {
+        automaticState = .scanning
+        guard let result = await performScan(root: root, db: db) else {
+            automaticState = .idle
+            return
+        }
+        if !Task.isCancelled { outlineContents(root: root) }
+        scheduler.sourceFileCount = result.sourceFileCount
+        if AutoAnalysisScheduler.exceedsSizeCap(result.sourceFileCount) {
+            automaticState = .skipped(reason: AutoAnalysisScheduler.sizeCapReason(result.sourceFileCount))
+            return
+        }
+        guard let code = Self.codeFiles(in: snapshot) else {
+            automaticState = .skipped(reason: "No source files to analyze")
+            return
+        }
+        let signature = code.modules.nodes.first { $0.id == "m:" }?.signature
+        let model = snapshot?.codeModel
+        let modelIsCurrent = model != nil && signature != nil && model?.signature == signature
+        let tracesMissing = !(model?.scenarios ?? []).isEmpty && snapshot?.codeSequences?.contains(where: \.auto) != true
+        if modelIsCurrent, !tracesMissing {
+            automaticState = .done(model?.analyzedAt ?? Date())
+            return
+        }
+
+        // DEC-004: no agent or signed out — local layers only, one quiet status line.
+        automaticState = .analyzing(step: "Checking the assistant")
+        let tool = AIAssistantPreferences.backend(project: project)
+        let probe = await CLIToolLocator.probe(tool)
+        guard !Task.isCancelled else { automaticState = .idle; return }
+        if let problem = probe.error {
+            automaticState = .unavailable(reason: "\(tool.displayName) is not available: \(problem)")
+            return
+        }
+        if probe.loggedIn == false {
+            automaticState = .unavailable(reason: "\(tool.displayName) is signed out")
+            return
+        }
+
+        scheduler.lastAIRun = Date()
+        if !modelIsCurrent {
+            automaticState = .analyzing(step: "Reading the code architecture")
+            switch await performCodeAnalysis(root: root, db: db) {
+            case .analyzed: break
+            case .cancelled: automaticState = .idle; return
+            case .failed: automaticState = .idle; return
             }
-            // Explicit, not deferred: a later step chains the next stage from here.
-            busy = false; progress = nil; analysisTask = nil; setStatus(nil)
+        }
+        guard !Task.isCancelled else { automaticState = .idle; return }
+        automaticState = .analyzing(step: "Tracing scenarios")
+        await performAutoScenarios(root: root, db: db)
+        guard !Task.isCancelled else { automaticState = .idle; return }
+        automaticState = .done(Date())
+    }
+
+    /// The project's files changed (file-tree reload): refresh after the quiet period,
+    /// locally or with the assistant as `AutoAnalysisScheduler` decides (DEC-003).
+    /// Ignored for a project the automatic analysis never started for.
+    func noteProjectChanged() {
+        guard automaticContext != nil else { return }
+        scheduler.lastChange = Date()
+        armAutomaticRefresh()
+    }
+
+    /// Act on the scheduler's decision now, or sleep until it can decide.
+    private func armAutomaticRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        guard let context = automaticContext else { return }
+        scheduler.enabled = AIAssistantPreferences.autoAnalyze
+        scheduler.runActive = busy
+        switch scheduler.decision(at: Date()) {
+        case .nothing, .waitForRun:
+            // The switch, the size cap or no change: nothing; a run's end arms again.
+            return
+        case .wait(let until):
+            sleepUntil(until)
+        case .rescan(let aiAllowedAt):
+            // Local only; the change stays recorded so the AI run follows when allowed.
+            scheduler.lastRescan = Date()
+            scan(root: context.root, db: context.db)
+            sleepUntil(aiAllowedAt)
+        case .analyze:
+            startAutomaticCodeAnalysis(root: context.root, db: context.db)
+        }
+    }
+
+    private func sleepUntil(_ date: Date) {
+        let seconds = max(0, date.timeIntervalSinceNow)
+        refreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.armAutomaticRefresh()
         }
     }
 
@@ -3360,11 +3595,10 @@ final class ArchitectureStore: ObservableObject {
     /// Ask the assistant to review the loaded change file by file.
     func reviewPR(root: URL, db: SemanticDatabase?, fresh: Bool = false) {
         guard !busy, let overlay = prOverlay else { return }
-        busy = true
-        error = nil
+        let token = beginRun()
         let source = overlay.source
         Task {
-            defer { busy = false }
+            defer { endRun(token) }
             setStatus("Reviewing \(source.title)…")
             let repo = prRepo ?? gitHubRepo
             let gitHub = GitHubSettings.enabled
@@ -3957,11 +4191,10 @@ final class ArchitectureStore: ObservableObject {
     /// "Describe this chapter" / "Describe remaining chapters" from the Book view's panel.
     func describeBook(path: String?, root: URL, db: SemanticDatabase?) {
         guard !busy, snapshot?.view("docs") != nil else { return }
-        busy = true
-        error = nil
+        let token = beginRun()
         let started = Date()
         analysisTask = Task {
-            defer { busy = false; progress = nil; analysisTask = nil; answerByCall = [:] }
+            defer { endRun(token) }
             beginStep(1, "Annotating the book", started: started, steps: 1)
             do {
                 try await annotateBook(root: root, db: db, only: path)

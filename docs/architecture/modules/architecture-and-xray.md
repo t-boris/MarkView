@@ -36,7 +36,19 @@ drops the invalid ones (empty title or question, duplicate title, unknown or out
 beyond the cap) and records each reason in the model's `scenarioNotes`, which the coverage
 report repeats. `ArchitectureStore.runAutoScenarios` traces the accepted scenarios one after
 another through the same path as a manual trace and replaces only the automatic sequences
-(`auto: true`); manual traces are never discarded by it (DEC-002). Nothing schedules it yet.
+(`auto: true`); manual traces are never discarded by it (DEC-002).
+`ArchitectureStore.startAutomaticCodeAnalysis` (project scope only, called by
+`WorkspaceManager.openFolder` for code projects while `xray.autoAnalyze` is on, DEC-001) runs
+the pipeline in one task without the X-Ray tab: local scan → size cap (DEC-003) → unchanged
+root signature means done → `CLIToolLocator.probe` of the project's assistant (absent or
+signed out: `automaticState = .unavailable`, DEC-004) → code analysis → automatic traces.
+`automaticState` (idle, scanning, analyzing, done, unavailable, skipped) is the published
+state for the Code view. File-tree reloads caused by the folder changing on disk call
+`noteProjectChanged`; the pure `AutoAnalysisScheduler` (`tools/tests/auto-analysis-scheduler-tests.sh`)
+decides from timestamps: 60 s of quiet, one local rescan per change inside the 15 min AI
+interval, the AI run once it is allowed, nothing while a run is active. Every scan and
+analysis holds a run token; `reset` cancels them and invalidates their cleanup, and a
+cancelled run commits nothing.
 The code analysis and every trace are cached like the other X-Ray answers (`.dde/cache/xray`,
 keyed by the request plus the Modules signature): a re-run over unchanged source makes no CLI call.
 `CodeArchitecture.coverage` (pure, run off the main thread after every scan and after a code

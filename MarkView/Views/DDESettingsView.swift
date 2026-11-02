@@ -8,6 +8,7 @@ struct DDESettingsView: View {
     @State private var openaiKey: String = ""
     @AppStorage(ActionOutputLanguage.storageKey) private var outputLanguage = ActionOutputLanguage.documentLanguage
     @AppStorage(ResearchSettings.timeoutKey) private var researchTimeout = ResearchSettings.defaultTimeoutMinutes
+    @AppStorage(AIAssistantPreferences.autoAnalyzeKey) private var autoAnalyze = true
     @AppStorage(AppFontScale.storageKey) private var fontScalePercent = AppFontScale.defaultPercent
     @State private var showKey = false
     @State private var showDone = false
@@ -118,6 +119,11 @@ struct DDESettingsView: View {
                         .fixedSize()
                         Text("A research job that runs longer stops; what it found so far is saved and marked incomplete.")
                             .uiFont(size: 9).foregroundColor(.secondary)
+                        Toggle("Analyze code projects automatically (X-Ray)", isOn: $autoAnalyze)
+                            .uiFont(.caption)
+                        Text("When a code project opens, X-Ray scans it and the assistant reads its architecture and traces its main scenarios in the background; refreshed after code changes (60 s of quiet, at most one AI run per 15 min, projects up to 5000 source files). Off: only the local layers, no CLI is started.")
+                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Divider()
