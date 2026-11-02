@@ -10,13 +10,16 @@ struct ModuleExplorerView: View {
         let _ = workspaceManager.themeVersion // force re-render on theme change
         VStack(spacing: 0) {
             GeometryReader { geometry in
+                // Only the AI cost and the indexing progress give way when the panel is narrow. The usage
+                // chips are always present: each one shrinks to fit (DEC-017), and the bar's lifetime
+                // drives the polling (DEC-010), so gating it by width would also stop the updates.
                 let showStats = geometry.size.width >= 460 * max(1, fontScale)
                 HStack(spacing: 6) {
                     Text("Agents").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
                         .lineLimit(1)
                     Spacer(minLength: 6)
+                    AgentUsageBar()
                     if showStats {
-                        AgentUsageBar()
                         if let db = workspaceManager.semanticDatabase {
                             let stats = db.getUsageStats()
                             if stats.totalJobs > 0 {
