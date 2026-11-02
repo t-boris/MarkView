@@ -325,9 +325,11 @@ class WorkspaceManager: ObservableObject {
     let layout = PanelLayout()
     /// AI tool runs working in a headless agent (diagrams, code map, review, audit).
     let aiJobs = AIToolJobs()
+    /// The left panel. A change the user makes is also the default for windows opened later; see `showDocumentOnly()`.
     @Published var showFileTree: Bool = true {
-        didSet { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") }
+        didSet { if remembersFileTreeChoice { UserDefaults.standard.set(showFileTree, forKey: "layout.showFileTree") } }
     }
+    private var remembersFileTreeChoice = true
     @Published var showTOC: Bool = false {
         didSet { UserDefaults.standard.set(showTOC, forKey: "layout.showTOC.v3") }
     }
@@ -365,6 +367,29 @@ class WorkspaceManager: ObservableObject {
     func toggleNavigation() {
         guard !showFileTree || showCenter || terminalVisible else { return }
         showFileTree.toggle()
+    }
+
+    /// Hide the file tree and the agents panel of this window and leave the document, as for a file opened from Finder.
+    /// The panels come back with their usual toggles. It is the window's state only: unlike the user hiding the left
+    /// panel, it is not remembered as the default for other windows or the next launch.
+    func showDocumentOnly() {
+        setFileTreeForThisWindow(false)
+        terminalVisible = false
+        showCenter = true
+    }
+
+    /// The left panel of this window only: not the default for other windows. Used where the app, not the user, sets it
+    /// (a file opened from Finder, a window restored after a restart).
+    private func setFileTreeForThisWindow(_ visible: Bool) {
+        remembersFileTreeChoice = false
+        showFileTree = visible
+        remembersFileTreeChoice = true
+    }
+
+    /// Files opened from outside the app on their own (Finder, Quick Action): the documents, nothing around them.
+    func openDocumentsOnly(_ urls: [URL]) {
+        for url in urls { openFile(url) }
+        showDocumentOnly()
     }
 
     func toggleCenter() {
@@ -1164,7 +1189,7 @@ class WorkspaceManager: ObservableObject {
             layout.issuesFeature = panels.feature
             layout.gitSection = GitSection(rawValue: panels.git) ?? .changes
             layout.featureStage = FeatureStage.stored(panels.stage)
-            showFileTree = panels.showFiles
+            setFileTreeForThisWindow(panels.showFiles)
             showTOC = panels.contentsVisible ?? false
             showCenter = panels.showCenter ?? true
             terminalVisible = panels.terminalVisible ?? panels.showNavigator

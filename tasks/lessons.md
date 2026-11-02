@@ -713,3 +713,19 @@ The short test phrases passed; only a recording longer than a minute showed it. 
 with an input longer than its documented or suspected chunk size (here the app records up to 10 minutes), and print every callback
 (`isFinal`, size, time range) before trusting the first one that looks final. Run the *production* source in a throwaway signed probe
 app (own bundle id, so its TCC grant is separate); remove it afterwards, because `tccutil reset` needs the app to still exist.
+
+## A file open already gets a new window per URL; test against the installed build, not a guess (Finder file view, 2026-11-02)
+I assumed an external file open lands in the active window and designed "blank window takes it, else open a new window". The first live
+runs showed an extra blank window after a two-file open and I could not tell whether my code made it. Copying the installed app under
+another bundle id (`ditto /Applications/MarkView.app`, `plutil -replace CFBundleIdentifier`, ad-hoc `codesign`) gave the baseline in two
+minutes: 4.64.0 does the same (SwiftUI opens one window per URL of an open request; the blank one takes the request). The debug log
+(`openInActiveWindow (trigger, window empty: …)`) then showed which path ran.
+- Rule: when a window count or placement looks odd, run the same steps on a baseline copy of the shipped build before changing code; add
+  the one log field that tells the branches apart and keep it.
+- Scratch launch that works: `open -a <abs path>/Scratch.app <file>` (LaunchServices; one instance, own bundle id). A binary started
+  directly under `sandbox-exec` registered but never showed a window. The LaunchServices launch is not sandboxed and writes lines to the
+  real `~/markview_debug.log`, and `tccutil`/defaults need the same bundle id removed afterwards (`defaults delete`, remove
+  `~/Library/Application Support/MarkView-<id>`, `lsregister -u`). Window ids for `screencapture -l` come from
+  `CGWindowListCopyWindowInfo` filtered by pid (cast `kCGWindowOwnerPID` through `NSNumber`).
+- A per-window layout the app sets (not the user) must not be written to the shared UserDefaults default: `showFileTree.didSet` did, and so
+  did the window restore, which would have turned one Finder-opened file into "no file tree" for every later window.

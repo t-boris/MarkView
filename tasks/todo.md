@@ -3214,3 +3214,55 @@ Review (Task 141):
   from CLAUDE.md passes (`BUILD SUCCEEDED`). The earlier "CoreSimulator mismatch, also on the clean tree" note was a wrong conclusion drawn from
   truncated output (tasks/lessons.md).
 
+
+## Finder file opens without side panels (2026-11-02, 4.65.0 planned)
+
+Request (Boris): right-click a plain file in Finder, Open With MarkView → an ordinary MarkView window with the left (files)
+and right (agents) panels hidden, nothing more. No separate mode, no "leave view mode" command: the panels stay available
+through the normal toggles.
+
+Call path read: `application(_:open:)` / the Apple Event handler / the Quick Action poll → `MarkViewApp.enqueueOpen` →
+`.openInActiveWindow` → the active window's `ContentView.drainPendingOpens` → `openURL` → `WorkspaceManager.openFile`
+(folders → `openFolder`). Panels are `showFileTree`, `terminalVisible`, `showCenter`.
+
+Traps found before writing code:
+- `showFileTree.didSet` writes `layout.showFileTree` to UserDefaults: hiding through the property would hide the file tree in every
+  other window and at every later launch. The view-only hide must not write it.
+- `openFile` → `showFeatureContext` and `ContentView.onChange(of: activeTabIndex)` show the right panel again for a file that belongs
+  to a feature; the hide has to survive that.
+- A project window must not lose its panels because a file was opened from Finder.
+
+Plan:
+- [x] `WorkspaceManager.showDocumentOnly()`: file tree and right panel hidden for this window, center shown, global
+      `layout.showFileTree` untouched (`setFileTreeForThisWindow`, which the window restore uses too: it wrote the global value as well).
+- [x] External open of files only (no folder in the request): a blank window (no folder, no tabs) takes them and calls
+      `showDocumentOnly()`; any other window leaves itself alone and a new window takes them
+      (`WindowSessionController.openDocumentWindow(files:)`, files kept by the id of the new window, so no other window can take
+      them). Several files from one request go to one window as tabs.
+- [x] The hide survives for these files: a window that opens a single file has no features, so `showFeatureContext` does not run.
+- [x] Unchanged: ⌘O and "Open File…", drag and drop, folders, terminal links; a window saved with hidden panels comes back the same way.
+- [x] `./bump-version.sh minor` (4.65.0), Debug build.
+- [x] Manual check in a scratch copy (own bundle id; see the lesson): project window + file → new window without panels, project
+      window unchanged; two files → one window with two tabs; clean cold launch with two files; restart restores the hidden panels
+      and leaves `layout.showFileTree` unset; cold launch with restored windows + a file → the non-empty window that took the request
+      handed the file to a new window (log: `window empty: false`).
+- [ ] Panels toggled back on by a click in the window (read in code: `toggleNavigation` and `toggleAIConsole` both work from the hidden
+      state; no way to click from here) and a check in the real app after install.
+- Open question for Boris: `.md` files opened this way still create `.dde/file_<name>.db` next to the file
+  (`initSingleFileWorkspace`, existing behaviour). Left as is; skipping it for these windows is a separate change.
+
+Review:
+- Built: `showDocumentOnly()` / `openDocumentsOnly(_:)` / `setFileTreeForThisWindow(_:)` in `WorkspaceManager`;
+  `openDocumentWindow(files:)` + a hook at the end of `attach` in `WindowSessionController`; `ContentView.drainPendingOpens` sends
+  files-only requests to a blank window or a new one. Three files, no new file.
+- Found while testing: macOS/SwiftUI already opens one new window per URL of an open request (4.64.0 baseline: one file +1 window,
+  two files +2), and a blank window takes the request on `restorationComplete`. So the usual route is that new blank window; the
+  new-window path is for a request taken by a window that already has content (restored windows at launch). The blank window left
+  over from a two-file request is existing behaviour (same in 4.64.0), not changed here.
+- Quick Action (`/tmp/markview_open_path.txt`) goes through the same `enqueueOpen`, so it behaves the same as Open With. Earlier I said
+  it "already differs": wrong.
+- Not changed: `.md` files opened this way still create `.dde/file_<name>.db` next to the file, and a window of such a file is saved with
+  its folder, so after a restart it is restored as that folder opened as a project (panels stay hidden). Both are existing
+  (`initSingleFileWorkspace`); skipping them for these windows is a separate change.
+- The scratch copy launched through LaunchServices wrote debug lines to the real `~/markview_debug.log` (the sandbox profile applied
+  only to a directly executed binary, which showed no window).

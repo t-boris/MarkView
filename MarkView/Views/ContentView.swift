@@ -721,15 +721,27 @@ struct ContentView: View {
         guard restorationComplete, !MarkViewApp.pendingOpenURLs.isEmpty, isActiveWindow else { return }
         let urls = MarkViewApp.pendingOpenURLs
         MarkViewApp.pendingOpenURLs.removeAll()
-        for url in urls {
-            WorkspaceManager.debugLog("openInActiveWindow (\(trigger)): opening \(url.path)")
-            openURL(url)
+        WorkspaceManager.debugLog("openInActiveWindow (\(trigger), window empty: \(workspaceManager.isBlank)): opening \(urls.map(\.path))")
+        // Plain files on their own are shown as documents, without the file tree and the agents panel: in this window when
+        // it is empty, else in a window of their own, so a project window keeps its panels. A request with a folder in
+        // it, and a window that cannot open another one yet, open as before.
+        let files = urls.filter { !isFolder($0) }
+        if files.count == urls.count {
+            if workspaceManager.isBlank {
+                workspaceManager.openDocumentsOnly(files)
+                return
+            }
+            if WindowSessionController.shared.openDocumentWindow(files: files) { return }
         }
+        for url in urls { openURL(url) }
+    }
+
+    private func isFolder(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
     }
 
     private func openURL(_ url: URL) {
-        let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        if isDir { workspaceManager.openFolder(url) } else { workspaceManager.openFile(url) }
+        if isFolder(url) { workspaceManager.openFolder(url) } else { workspaceManager.openFile(url) }
     }
 
     private var themeToken: Int { workspaceManager.themeVersion }
