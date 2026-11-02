@@ -169,6 +169,42 @@ let capped = BookBuilder.chapter(path: "big.md", text: big)
 check("section cap drops deepest level", capped.sections.map(\.title), ["Part 0", "Part 1"])
 check("dropped heading leads to kept ancestor", capped.anchors["item-1-7"], "d:big.md#part-1")
 
+// MARK: Links by format
+
+/// "line:target#fragment" per extracted link, `w` marking a wiki link.
+func found(_ text: String, _ format: BookBuilder.Format) -> [String] {
+    BookBuilder.links(in: text, format: format).map { "\($0.line):\($0.target)\($0.fragment.map { "#" + $0 } ?? "")\($0.wiki ? "w" : "")" }
+}
+
+// reStructuredText: an embedded hyperlink is a single-backtick span, so it must be read before
+// code spans are removed (BUG-040), while literals, literal blocks and external targets stay out.
+check("rst embedded hyperlink", found("See `the setup guide <setup.rst>`_.", .rst), ["1:setup.rst"])
+check("rst anonymous hyperlink", found("See `the setup guide <setup.rst>`__.", .rst), ["1:setup.rst"])
+check("rst hyperlink with a fragment and a path", found("Read `install <../guide/setup.rst#install>`_ first.", .rst), ["1:../guide/setup.rst#install"])
+check("rst two hyperlinks on lines 2 and 4", found("Intro\n`a <a.rst>`_ and `b <b.rst>`_\n\n`c <c.rst>`_", .rst), ["2:a.rst", "2:b.rst", "4:c.rst"])
+check("rst hyperlink text wrapped over two lines", found("See `the setup\nguide <setup.rst>`_.", .rst), ["2:setup.rst"])
+check("rst external hyperlink skipped", found("`Python <https://python.org/doc>`_ and `mail <mailto:a@b.c>`_", .rst), [])
+check("rst inline literal skipped, real link kept", found("Write ``see `x <no.rst>`_`` then `real <yes.rst>`_.", .rst), ["1:yes.rst"])
+check("rst inline literal holding a single backtick", found("``a`b`` and `real <yes.rst>`_ and ``c <no.rst>`_``", .rst), ["1:yes.rst"])
+check("rst literal block after ::", found("Example::\n\n    `x <lit.rst>`_\n\n    more `y <lit2.rst>`_\n\nAfter `z <after.rst>`_", .rst), ["7:after.rst"])
+check("rst literal block after a bare ::", found("Text\n\n::\n\n    `x <lit.rst>`_\n\n`z <after.rst>`_", .rst), ["7:after.rst"])
+check("rst code-block directive body is literal", found(".. code-block:: rst\n   :linenos:\n\n   `x <lit.rst>`_\n\n`z <after.rst>`_", .rst), ["6:after.rst"])
+check("rst code directive without an argument", found(".. code::\n\n   `x <lit.rst>`_\n`z <after.rst>`_", .rst), ["4:after.rst"])
+check("rst indented literal block inside a list item", found("- item::\n\n      `x <lit.rst>`_\n\n- `z <after.rst>`_", .rst), ["5:after.rst"])
+check("rst note directive is not literal", found(".. note::\n\n   See `the guide <guide.rst>`_.\n", .rst), ["3:guide.rst"])
+check("rst :: with no block after it ends at once", found("Example::\n`x <next.rst>`_", .rst), ["2:next.rst"])
+check("rst literal block ends at the first dedented line", found("A::\n\n    `x <lit.rst>`_\n`y <back.rst>`_", .rst), ["4:back.rst"])
+check("rst wiki link still found", found("See [[Other]] and `s <s.rst>`_", .rst), ["1:Otherw", "1:s.rst"])
+
+// The other formats keep their rules: the same backtick text is not a link outside RST.
+check("markdown ignores the rst form", found("See `the setup guide <setup.md>`_.", .markdown), [])
+check("markdown inline link, code span skipped", found("[a](a.md) and `[b](b.md)`", .markdown), ["1:a.md"])
+check("asciidoc xref and link macros", found("See xref:setup.adoc[Setup] and link:other.adoc#part[Other].", .asciidoc), ["1:setup.adoc", "1:other.adoc#part"])
+check("asciidoc macro inside backticks skipped", found("Type `xref:setup.adoc[Setup]` but see xref:real.adoc[Real].", .asciidoc), ["1:real.adoc"])
+check("asciidoc ignores the rst form", found("`the setup guide <setup.adoc>`_", .asciidoc), [])
+check("org and plain have no inline links", found("[[file:setup.org]] and `x <y.org>`_", .org).filter { !$0.hasSuffix("w") }, [])
+check("plain text has no links", found("`x <y.txt>`_ and [a](a.md)", .plain), [])
+
 // MARK: Resolution
 
 let concurrency = BookBuilder.chapter(path: "guides/concurrency.md", text: "# Concurrency\n\n## Main actor\n\ntext\n\n## Queues\n\nmore\n")
@@ -223,6 +259,15 @@ check("README links from the chapter, weight aggregates by target", edgeKeys.con
       && edgeKeys.contains("d:README.md → d:docs/arch.md#11-goals ×1"))
 check("no edge to a missing document or image", !edgeKeys.contains { $0.contains("nowhere") || $0.contains("pic.png") })
 check("no edge from code spans", !edgeKeys.contains { $0.contains("x.md") })
+
+// An RST book: the embedded hyperlink becomes an edge from the section that holds it (BUG-040).
+// A link in the literal block would raise the weight of the first edge to 2.
+let rstIndex = BookBuilder.chapter(path: "index.rst", text: "Manual\n======\n\nStart\n-----\n\nSee `the setup guide <setup.rst>`_ or `install <setup.rst#install>`__.\n\nShell::\n\n    `not <setup.rst>`_\n")
+let rstSetup = BookBuilder.chapter(path: "setup.rst", text: "Setup\n=====\n\ninstall\n-------\n\nSteps.\n")
+let rstBook = BookBuilder.build(chapters: [rstIndex, rstSetup], rootName: "rst")
+check("rst hyperlinks give edges to the chapter and the section",
+      rstBook.edges.map { "\($0.source) → \($0.target) ×\($0.weight)" }.sorted(),
+      ["d:index.rst#start → d:setup.rst ×1", "d:index.rst#start → d:setup.rst#install ×1"])
 
 let selfLink = BookBuilder.chapter(path: "s.md", text: "# S\n\n## A\n\n[up](#s) [self](#a)\n\n### B\n\n[parent](#a)\n")
 let selfBook = BookBuilder.build(chapters: [selfLink], rootName: "x")
