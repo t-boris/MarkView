@@ -66,17 +66,28 @@ struct IssueSyncReference: Hashable, Sendable {
 enum IssueSyncLinks {
     /// References in the explicit fields (DEC-006): `12`, `#12`, `owner/name#12` and full
     /// issue or pull request URLs. Numbers without a repository belong to `origin`.
+    ///
+    /// A field value is a list of references or it is prose (BUG-033, REQ-002). A list holds only
+    /// references, separated by whitespace, commas or semicolons; each must stand alone, so a
+    /// number inside a version (`v2.3`), a word (`12abc`) or an anchor is never a reference.
+    /// Once a value has any other word, its short references (`12`, `#12`, `owner/name#12`) are
+    /// ignored, because Sync closes issues without a preview and a number in a sentence says
+    /// nothing about which issue is meant. Full URLs are unambiguous and count in either case,
+    /// as they do in Markdown text (DEC-001).
     static func fieldReferences(_ values: [String], origin: String) -> [IssueSyncReference] {
         var found: [IssueSyncReference] = []
         for value in values {
             let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            // What no reference accounts for: a list leaves only separators.
+            let leftover = fieldPattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
+            let isList = leftover.allSatisfy { $0.isWhitespace || $0 == "," || $0 == ";" }
             for match in matches(fieldPattern, in: text) {
                 if let owner = match[1], let name = match[2], let kind = match[3], let number = match[4].flatMap(Int.init) {
                     found.append(IssueSyncReference(target: IssueSyncTarget(repo: owner + "/" + trimGit(name), number: number),
                                                     isPullLink: kind == "pull"))
-                } else if let owner = match[5], let name = match[6], let number = match[7].flatMap(Int.init) {
+                } else if isList, let owner = match[5], let name = match[6], let number = match[7].flatMap(Int.init) {
                     found.append(IssueSyncReference(target: IssueSyncTarget(repo: owner + "/" + name, number: number), isPullLink: false))
-                } else if let number = match[8].flatMap(Int.init) {
+                } else if isList, let number = match[8].flatMap(Int.init) {
                     found.append(IssueSyncReference(target: IssueSyncTarget(repo: origin, number: number), isPullLink: false))
                 }
             }
@@ -108,10 +119,13 @@ enum IssueSyncLinks {
 
     private static let owner = #"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"#
     private static let name = #"[A-Za-z0-9._-]+"#
+    /// One reference per match: a full URL (groups 1-4; the rest of its word, such as `#issuecomment-1234`
+    /// or a query, belongs to the match), `owner/name#n` (5-7) or `#n` / `n` (8). The last two must be whole
+    /// words: they start the value or follow a separator, and end the value or precede one.
     private static let fieldPattern = try! NSRegularExpression(pattern:
-        #"(?:https?://)?(?:www\.)?github\.com/("# + owner + ")/(" + name + #")/(issues|pull)/(\d+)"#
-        + "|(?<![/\\w.-])(" + owner + ")/(" + name + #")#(\d+)"#
-        + #"|(?<![\w/#])#?(\d+)\b"#)
+        #"(?:https?://)?(?:www\.)?github\.com/("# + owner + ")/(" + name + #")/(issues|pull)/(\d+)\b[^\s,;]*"#
+        + #"|(?<![^\s,;])("# + owner + ")/(" + name + #")#(\d+)(?![^\s,;])"#
+        + #"|(?<![^\s,;])#?(\d+)(?![^\s,;])"#)
     private static let issueURLPattern = try! NSRegularExpression(pattern:
         #"https?://(?:www\.)?github\.com/("# + owner + ")/(" + name + #")/issues/(\d+)\b"#)
 
