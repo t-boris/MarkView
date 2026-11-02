@@ -96,6 +96,66 @@ expect(summary.rows[0].statistic, nil, "step without data")
 expect(summary.rows[0].byModel.isEmpty, true, "no model breakdown on other steps")
 expect(summary.total, .init(median: day, mean: day, count: 1), "total statistic")
 
+// A reused slug (BUG-041): the log keeps the events of a deleted feature, and a new feature that
+// gets the same slug must start at its own idea_created. Events are in recording order.
+let oldIdea = event(.ideaCreated, 0, feature: "reused")
+let oldQuestions = event(.questionsResolved, hour, feature: "reused")
+let oldReview = event(.reviewDone, 2 * hour, feature: "reused")
+let oldVerified = event(.verified, 3 * hour, feature: "reused")
+let newIdea = event(.ideaCreated, 10 * day, feature: "reused")
+let newQuestions = event(.questionsResolved, 10 * day + 30 * minute, feature: "reused")
+let reusedLog = [oldIdea, oldQuestions, oldReview, oldVerified, newIdea, newQuestions]
+
+// The defect, on the raw events: the new feature looks as if it started with the old idea and was verified.
+expect(LifecycleAnalytics.duration(from: .ideaCreated, to: .questionsResolved, in: reusedLog), .valid(10 * day + 30 * minute),
+       "without the cut the old idea_created is the start of the step")
+expect(LifecycleAnalytics.total(reusedLog), .valid(3 * hour), "without the cut the old verified event completes the total")
+// The fix: history starts at the latest idea_created.
+expect(LifecycleAnalytics.currentHistory(reusedLog), [newIdea, newQuestions], "reused slug: older events are ignored")
+expect(LifecycleAnalytics.currentHistory(reusedLog).count, 2, "reused slug: only the new feature's own events")
+let reusedSteps = LifecycleAnalytics.steps(LifecycleAnalytics.currentHistory(reusedLog))
+expect(reusedSteps[0].duration, .valid(30 * minute), "reused slug: idea → questions measured from the new idea")
+expect(LifecycleAnalytics.total(LifecycleAnalytics.currentHistory(reusedLog)), .missing, "reused slug: the old verified event gives no total")
+expect(LifecycleAnalytics.currentHistory([oldIdea, oldQuestions, newIdea]), [newIdea], "reused slug: the new idea alone")
+// Deleted and created again twice: only the last feature counts.
+let thirdIdea = event(.ideaCreated, 20 * day, feature: "reused")
+expect(LifecycleAnalytics.currentHistory(reusedLog + [thirdIdea]), [thirdIdea], "slug reused twice: the latest idea_created wins")
+// Recording order decides, not the clock: an event recorded after the new idea_created stays even
+// when its timestamp is earlier (the log is append-only; a stamp may be backdated or the clock moved).
+let backdated = event(.specReady, 5 * day, feature: "reused")
+expect(LifecycleAnalytics.currentHistory([oldIdea, newIdea, backdated]), [newIdea, backdated], "events recorded after the cut stay")
+
+// A normal feature is unaffected: one idea_created and what followed.
+let normal = [event(.ideaCreated, 0, feature: "n"), event(.questionsResolved, hour, feature: "n"),
+              event(.specReady, 2 * hour, feature: "n"), event(.verified, 3 * hour, feature: "n")]
+expect(LifecycleAnalytics.currentHistory(normal), normal, "normal feature keeps every event")
+expect(LifecycleAnalytics.total(LifecycleAnalytics.currentHistory(normal)), .valid(3 * hour), "normal feature total is unchanged")
+expect(LifecycleAnalytics.currentHistory([]), [], "no events, no history")
+
+// A feature with no idea_created (created elsewhere or before the log existed) keeps all its events (DEC-012).
+let imported = [event(.specReady, 0, feature: "i"), event(.implementationStarted, hour, feature: "i", model: "M"),
+                event(.mergedToMain, 2 * hour, feature: "i")]
+expect(LifecycleAnalytics.currentHistory(imported), imported, "imported feature keeps all events")
+
+// Per project: each feature is cut on its own slug only.
+let mixed = [normal[0], oldIdea, imported[0], normal[1], oldQuestions, oldVerified, newIdea, imported[1], normal[2], newQuestions, imported[2], normal[3]]
+let grouped = LifecycleAnalytics.histories(mixed)
+expect(Set(grouped.keys), ["n", "reused", "i"], "one history per feature")
+expect(grouped["n"], normal, "a reused slug elsewhere does not touch a normal feature")
+expect(grouped["i"], imported, "a reused slug elsewhere does not touch an imported feature")
+expect(grouped["reused"], [newIdea, newQuestions], "the reused slug starts at its own idea_created")
+
+// The cycle-time summary counts the reused slug from its new idea only.
+let reusedSummary = LifecycleAnalytics.summary(grouped)
+expect(reusedSummary.rows[0].statistic, .init(median: 45 * minute, mean: 45 * minute, count: 2),
+       "idea → questions over the normal feature (1h) and the reused slug (30m)")
+expect(reusedSummary.total, .init(median: 3 * hour, mean: 3 * hour, count: 1),
+       "total over the normal feature only; the old verified event does not complete the reused slug")
+let uncut = LifecycleAnalytics.summary(Dictionary(grouping: mixed, by: \.feature))
+expect(uncut.rows[0].statistic?.median, (hour + 10 * day + 30 * minute) / 2,
+       "without the cut the reused slug skews the statistic (median of 1h and 10d 30m)")
+expect(uncut.total?.count, 2, "without the cut the reused slug gets a total it never had")
+
 // Format: days/hours/minutes, rounded to the minute, leading zero units left out
 expect(LifecycleAnalytics.format(0), "0m", "zero")
 expect(LifecycleAnalytics.format(29), "0m", "rounds down under half a minute")
