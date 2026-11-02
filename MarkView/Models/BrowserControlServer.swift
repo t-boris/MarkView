@@ -177,6 +177,12 @@ enum BrowserControlServer {
         if known == nil, BrowserAgentTools.needsFolder(declared: declared, cwdTrusted: cwdTrusted, windowCount: windows.values.filter { $0.root() != nil }.count) {
             return .error(BrowserAgentTools.folderRequired)
         }
+        // The project tools write files, and a window that is already fixed (the agent runs in it) takes no other
+        // project: a folder the agent names that is not this window's project is refused, not silently ignored.
+        if isProjectTool, declared, let known, let root = windows[known]?.root()?.path,
+           !BrowserAgentTools.folder(cwd, isInProject: root) {
+            return .error(BrowserAgentTools.wrongProject(declared: cwd, root: root))
+        }
         let windowID = known ?? windowForFolder(cwd, strict: isProjectTool)
         guard let windowID, let window = windows[windowID] else {
             let open = windows.values.compactMap { $0.root()?.path }.sorted()

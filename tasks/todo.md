@@ -1,5 +1,19 @@
 # MarkView — Follow-up Tasks
 
+## BUG-042: project tools ignored a different project_folder (2026-11-02, 4.65.3)
+
+An agent whose window had the Butler's repository open called `markview_create_bug` with `project_folder` set to the MarkView
+checkout; the bug file went into the Butler's `docs/bugs/` and the call reported success. The project tools are bound to the
+window the agent runs in and used the declared folder only to pick a window when none was bound.
+
+- [x] Read the path: `perform` in `BrowserControlServer` takes the bound window (`known`) before the declared folder.
+- [x] `BrowserAgentTools.folder(_:isInProject:)` and `wrongProject`; a project tool whose bound window has another project is
+      refused and writes nothing. A folder inside the project, or none, behaves as before.
+- [x] `tools/tests/browser-agent-tools-tests.sh` (folder rule, refusal text) and `project-agent-tools-tests.sh` pass.
+- [x] Debug build passes.
+- [ ] Not exercised: a live call from one project's window naming another (needs the running app with two projects).
+- [ ] PR, merge, release.
+
 ## BUG-031: saving in the editor overwrote another tab's file (2026-11-02, 4.65.1)
 
 Boris's Back Burner notes showed `Sirius Art/_researcher/questions.md` holding MyDataCenter's questions; the Butler's harness
