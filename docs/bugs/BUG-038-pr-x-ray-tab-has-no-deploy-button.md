@@ -2,7 +2,8 @@
 type: bug
 id: BUG-038
 title: PR X-Ray tab has no Deploy button and no project operations
-status: open
+status: fixed
+branch: docs/pr-xray-no-operations
 severity: low
 reporter: Boris Tsekinovsky
 created: 2026-11-02
@@ -32,3 +33,15 @@ No operations UI works on the PR tab: the bridge ignores operation messages whos
 ## Environment
 
 MarkView current main (ade7910), MarkView/Models/WorkspaceManager.swift lines 1491, 1512 and 1651-1659; code reading only.
+
+## Resolution
+
+Boris confirmed on 2026-11-02 that the pull-request X-Ray tab is meant to have no operations UI: it is for reviewing a pull request, and the operations stay available in the project window toolbar and the project X-Ray. No code changed. The decision is recorded as DEC-031 of `project-operations-deploy-install-restart-buttons-from-x`, and the Implementation contract in that feature's overview now names the pull-request tab as an exception to "every view of the project X-Ray".
+
+## Not changed
+
+The bridge handlers still ignore operation messages whose scope is the pull-request scope. That is now the specified behaviour.
+
+## Verification
+
+Documentation only. The bridge guard (`scope.isEmpty` in `WorkspaceManager`) was read, not run. Nothing was built.

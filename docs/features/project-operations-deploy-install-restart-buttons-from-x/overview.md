@@ -54,7 +54,7 @@ The approved requirements and accepted decisions in this folder are authoritativ
 - Discovery reads project files, follows only bounded and safe references to external folders, then searches the web when supported (DEC-003, DEC-015, DEC-016). External and web commands remain individual proposals until accepted (DEC-026).
 - Every run requires a native confirmation of the exact command and working directory. The native side resolves an id-only request from the operations file and runs the confirmed snapshot (DEC-002, DEC-013, DEC-014, DEC-022).
 - Separate PTY subprocesses and output panels support interactive input. Different operations may run together; a single operation cannot run twice (DEC-001, DEC-007, DEC-008, DEC-019, DEC-020, DEC-021).
-- Both the project window toolbar and every view of the project X-Ray have Deploy buttons. The picker lists deploy operations grouped by optional environment, including several targets in one environment. Folder X-Rays have no operations UI (DEC-006, DEC-018, DEC-027).
+- Both the project window toolbar and every view of the project X-Ray, except the pull-request X-Ray tab, have Deploy buttons. The picker lists deploy operations grouped by optional environment, including several targets in one environment. Folder X-Rays and the pull-request X-Ray tab have no operations UI (DEC-006, DEC-018, DEC-027, DEC-031).
 - The Deployment details panel lists all operations. For a selected node, related operations are highlighted first while all others remain available (DEC-009, DEC-027).
 - In-app state and background notifications report completion. A remote trigger reports `dispatched` for exit code zero, without claiming the remote run succeeded (DEC-011, DEC-029, DEC-030).
 
