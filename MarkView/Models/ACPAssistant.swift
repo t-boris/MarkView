@@ -112,13 +112,15 @@ enum ACPAssistant {
                 }
             }
 
-            var text = try await prompt(composePrompt(request), tool: tool, connection: connection, state: state)
+            var text = try await answer(composePrompt(request), tool: tool, connection: connection, state: state)
             var structured: Any?
             if let schema = request.jsonSchema {
                 structured = parseJSON(text, schema: schema)
-                if structured == nil {
+                // A repair turn only helps a complete but malformed answer; re-sending a long one
+                // that already hit the output limit just truncates it again.
+                if structured == nil, !looksCutOff(text) {
                     // One repair turn in the same session: the model sees its own answer.
-                    let repaired = try await prompt("""
+                    let repaired = try await answer("""
                         Your last answer was not one valid JSON object matching the schema. Reply again with \
                         only that JSON object — no prose, no Markdown fences.
                         """, tool: tool, connection: connection, state: state)
@@ -126,7 +128,10 @@ enum ACPAssistant {
                     if structured != nil { text = repaired }
                 }
                 guard structured != nil else {
-                    throw CLICompletion.Failure.invalidOutput(tool, "expected JSON, got \(text.prefix(200))")
+                    throw CLICompletion.Failure.invalidOutput(tool, looksCutOff(text)
+                        ? "the answer was cut off before its JSON ended (\(text.count) characters). "
+                          + "Choose a model with a larger output limit, or split the request into smaller steps."
+                        : "expected JSON, got \(text.prefix(200))")
                 }
             }
             guard !text.isEmpty || structured != nil else {
@@ -139,8 +144,52 @@ enum ACPAssistant {
         }
     }
 
-    /// One `session/prompt` turn; the answer text streamed while it ran.
-    private static func prompt(_ text: String, tool: CLITool, connection: ACPConnection, state: RunState) async throws -> String {
+    /// Why a turn ended, as far as the answer is concerned.
+    private enum TurnStop {
+        /// The model finished what it wanted to say.
+        case ended
+        /// It stopped at its output-token or tool-call limit, so the answer is unfinished.
+        case cutOff
+    }
+
+    /// How many continuation turns one answer may take; a long prototype file needs several.
+    private static let continuationLimit = 6
+
+    /// A whole answer: the first turn plus continuation turns for as long as the model stops at its
+    /// output limit. Without this a long structured answer (a whole prototype file) comes back cut
+    /// in half and fails to parse as JSON.
+    private static func answer(_ text: String, tool: CLITool, connection: ACPConnection,
+                               state: RunState) async throws -> String {
+        var (whole, stop) = try await prompt(text, tool: tool, connection: connection, state: state)
+        var continuations = 0
+        while stop == .cutOff, continuations < continuationLimit {
+            continuations += 1
+            let (more, nextStop) = try await prompt("""
+                Your previous message stopped before the answer was complete. Continue it from exactly the \
+                character where it stopped: no repetition of what you already sent, no preamble, no Markdown \
+                fence, no closing remark. Your two messages are joined together character by character.
+
+                It ended with:
+                \(String(whole.suffix(200)))
+                """, tool: tool, connection: connection, state: state)
+            guard !more.isEmpty else { break }
+            whole += more
+            stop = nextStop
+        }
+        return whole.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether `text` is the beginning of a JSON object that never ends, i.e. an answer cut short.
+    private static func looksCutOff(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("{") && !trimmed.hasSuffix("}")
+    }
+
+    /// One `session/prompt` turn: the answer text streamed while it ran, and why it stopped.
+    /// The text is not trimmed — a continuation turn resumes mid-token and its leading whitespace
+    /// can belong to the answer.
+    private static func prompt(_ text: String, tool: CLITool, connection: ACPConnection,
+                               state: RunState) async throws -> (text: String, stop: TurnStop) {
         guard let sessionId = connection.sessionId else { throw CLICompletion.Failure.failed(tool, "no session") }
         state.reset()   // anything streamed before this turn is not its answer
         let result = try await connection.request("session/prompt", [
@@ -156,8 +205,10 @@ enum ACPAssistant {
             throw CancellationError()
         case "refusal":
             throw CLICompletion.Failure.failed(tool, "the model refused the request")
+        case "max_tokens", "max_turn_requests":
+            return (state.text, .cutOff)
         default:
-            return state.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (state.text, .ended)
         }
     }
 
