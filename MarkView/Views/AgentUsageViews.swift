@@ -14,6 +14,8 @@ extension UsageLevel {
 }
 
 /// The chips of the detected agents the user has not hidden (Settings → DDE).
+/// Appearing and disappearing start and stop the usage polling (DEC-010), so the host keeps the bar
+/// in the view tree at every width; each chip shrinks on its own (`AgentUsageChip`, DEC-017).
 struct AgentUsageBar: View {
     @ObservedObject private var tracker = AgentUsageTracker.shared
     @AppStorage(UsageAgent.claude.hiddenKey) private var claudeHidden = false
