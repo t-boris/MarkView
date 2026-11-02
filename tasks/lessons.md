@@ -729,3 +729,16 @@ minutes: 4.64.0 does the same (SwiftUI opens one window per URL of an open reque
   `CGWindowListCopyWindowInfo` filtered by pid (cast `kCGWindowOwnerPID` through `NSNumber`).
 - A per-window layout the app sets (not the user) must not be written to the shared UserDefaults default: `showFileTree.didSet` did, and so
   did the window restore, which would have turned one Finder-opened file into "no file tree" for every later window.
+
+## A feature that can fail silently is not done: every outcome needs something on screen (built-in dictation, 2026-11-02)
+4.64.0/4.65.0 shipped dictation without a key, and the first report from another Mac was "the microphone turns on, I speak, nothing
+appears". The terminal mic dropped an empty transcript without a word and showed errors only as a hover tooltip, so "no model", "Dictation
+off", "muted input" and "wrong language" were indistinguishable from each other and from "it works but heard nothing". I had tested the
+recognizer on synthetic speech on one Mac, never the failure paths on screen.
+- Rule: before calling an input feature done, list every outcome (success, empty, each error, silent input) and make each one visible where
+  the user is looking (not only a tooltip); name the setting that decides the result (here the language, which built-in recognition cannot
+  detect); and tell silence in the recording from silence in the recognizer by measuring the recording.
+- A hardened-runtime question can be answered locally: an ad-hoc probe signed with `--options runtime` and the shipped entitlements
+  (`codesign -dv` shows `adhoc,runtime`) behaves like the notarized build for Speech/microphone entitlements.
+- `tccutil reset <service> <bundle id>` fails ("No such bundle identifier") once the probe bundle is deleted; reset before deleting it, and
+  from a path LaunchServices knows (not always the case for bundles under /private/tmp).

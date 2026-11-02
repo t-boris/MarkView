@@ -52,6 +52,8 @@ struct TerminalDictationButton: View {
 private struct SessionDictationButton: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var whisper: WhisperClient
+    /// The last transcript held no words: not an error of the recorder, but the person is told why it may be.
+    @State private var nothingHeard: TranscriptionFailure?
 
     var body: some View {
         Button(action: toggle) {
@@ -61,7 +63,46 @@ private struct SessionDictationButton: View {
         }
         .buttonStyle(.plain)
         .disabled(session.transcribing)
-        .help(whisper.error ?? (whisper.isRecording ? "Stop and insert the text" : "Dictate: the text is typed at the prompt"))
+        .help(help)
+        .popover(isPresented: noticeShown, arrowEdge: .bottom) { notice }
+    }
+
+    private var help: String {
+        if whisper.isRecording {
+            return "Recording" + (whisper.language.map { " in \($0)" } ?? "") + " — click to stop and insert the text"
+        }
+        return whisper.error ?? "Dictate: the text is typed at the prompt"
+    }
+
+    /// A failure or an empty transcript stays in view until it is dismissed: a hover tooltip alone left
+    /// "nothing happened" as the only thing to see.
+    private var message: String? { whisper.isRecording || session.transcribing ? nil : (whisper.error ?? nothingHeard?.message) }
+
+    private var noticeShown: Binding<Bool> {
+        Binding(get: { message != nil },
+                set: { if !$0 { whisper.error = nil; nothingHeard = nil } })
+    }
+
+    private var notice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle").foregroundColor(VSDark.orange)
+                Text(message ?? "").textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if WhisperClient.microphoneStatus == .denied || WhisperClient.microphoneStatus == .restricted {
+                    Button("Open Microphone Settings") { DictationStatusView.openPrivacySettings("Privacy_Microphone") }
+                } else if WhisperClient.engine == .onDevice,
+                          OnDeviceSpeech.authorization == .denied || OnDeviceSpeech.authorization == .restricted {
+                    Button("Open Speech Recognition Settings") { DictationStatusView.openPrivacySettings("Privacy_SpeechRecognition") }
+                }
+                Spacer(minLength: 0)
+                Button("OK") { whisper.error = nil; nothingHeard = nil }
+            }
+        }
+        .uiFont(.caption)
+        .padding(12)
+        .frame(width: 320)
     }
 
     private func toggle() {
@@ -71,9 +112,15 @@ private struct SessionDictationButton: View {
             Task {
                 let text = await whisper.stopRecording()
                 session.transcribing = false
-                if let text, !text.isEmpty { session.paste(text) }
+                guard let text else { return } // the failure is in `whisper.error`
+                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    nothingHeard = whisper.nothingHeard
+                } else {
+                    session.paste(text)
+                }
             }
         } else {
+            nothingHeard = nil
             whisper.startRecording()
         }
     }

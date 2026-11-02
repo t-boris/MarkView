@@ -32,6 +32,9 @@ final class DictationController: ObservableObject {
     static let warningLead: TimeInterval = 30
     var maxDuration: TimeInterval { WhisperClient.maxRecordingDuration }
 
+    /// The language the built-in recognition listens for in this recording; nil with an OpenAI key.
+    var language: String? { whisper.language }
+
     var isActive: Bool { phase != .idle }
     var isRecording: Bool { if case .recording = phase { return true } else { return false } }
     var nearLimit: Bool { isRecording && elapsed >= maxDuration - Self.warningLead }
@@ -108,7 +111,9 @@ final class DictationController: ObservableObject {
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
-                message = "No speech recognized."
+                let nothing = whisper.nothingHeard
+                message = nothing.message
+                opensSettings = nothing.fixInSettings
             } else {
                 deliver?(trimmed)
             }
