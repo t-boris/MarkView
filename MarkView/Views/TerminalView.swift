@@ -175,6 +175,10 @@ struct AITerminalPanel: View {
         .sheet(isPresented: $showRemoteConnections) { RemoteConnectionsView() }
         .onAppear {
             workspaceManager.ensureAITerminal()
+            // This panel exists only while its navigator tab is open, so a model picked in the
+            // toolbar meanwhile never reached the observer below: apply it now (a no-op when the
+            // shown terminal already runs the chosen model).
+            workspaceManager.aiModelChanged()
             seenChoice = currentChoice()
         }
         // At launch the last folder reopens after the panel appeared.
@@ -301,10 +305,18 @@ private struct TerminalPanelTab: View {
     let close: () -> Void
     @State private var hovering = false
 
+    /// The tab's name. On a narrow panel "Claude Code" shortens to "Claude", keeping the number and
+    /// the model ("Claude 2 · opus"), so the tab still shows what it runs.
+    private var label: String {
+        let long = "Claude Code"
+        guard compact, session.profile == .claude, !session.isRemote, session.title.hasPrefix(long) else { return session.title }
+        return "Claude" + session.title.dropFirst(long.count)
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: session.profile.icon).uiFont(size: 9).help(session.title)
-            Text(compact && session.profile == .claude && !session.isRemote ? "Claude" : session.title)
+            Text(label)
                 .uiFont(size: 10, weight: isActive ? .semibold : .regular)
                 .lineLimit(1)
                 .help(session.title)

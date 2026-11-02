@@ -3837,7 +3837,7 @@ class WorkspaceManager: ObservableObject {
         let path = CLIToolLocator.resolve(tool) ?? tool.binaryName
         let quoted = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let linked = tool.additionalFolderArgs(linkedFolders.map(\.url)).map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(AIAssistantPreferences.model(for: tool, project: aiProject))
+        let run = ([quoted] + (continuing ? tool.continueArgs : []) + tool.modelArgs(chosenModel(for: profile))
                    + tool.fullAccessArgs + linked + browserToolArgs(for: tool)).joined(separator: " ")
         switch tool {
         case .claude: return "\(quoted) update && \(run)"
@@ -3911,8 +3911,7 @@ class WorkspaceManager: ObservableObject {
                 alert.addButton(withTitle: "Restart Copilot Without Them")
                 alert.addButton(withTitle: "Later")
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
-                session.restart(profile: session.profile, startupCommand: self.startupCommand(for: session.profile, continuing: true),
-                                title: self.terminalTitle(for: session.profile, excluding: session))
+                self.relaunch(session, as: session.profile, continuing: true)
             }
         }
     }
@@ -3979,8 +3978,24 @@ class WorkspaceManager: ObservableObject {
             base = "\(profile.title) \(counter)"
             counter += 1
         }
-        guard let tool = profile.tool, let model = AIAssistantPreferences.model(for: tool, project: aiProject), !model.isEmpty else { return base }
+        guard let model = chosenModel(for: profile) else { return base }
         return base + " · " + model
+    }
+
+    /// The model `profile` runs when started now: the project's choice for its assistant, nil for
+    /// a shell or the CLI's own default. The command, the tab title and `TerminalSession.model`
+    /// all come from this one answer.
+    private func chosenModel(for profile: TerminalProfile) -> String? {
+        guard let tool = profile.tool else { return nil }
+        return AIAssistantPreferences.model(for: tool, project: aiProject)
+    }
+
+    /// Start `session` again running `profile` with the model chosen for it now.
+    private func relaunch(_ session: TerminalSession, as profile: TerminalProfile, continuing: Bool = false) {
+        session.restart(profile: profile,
+                        startupCommand: startupCommand(for: profile, continuing: continuing),
+                        title: terminalTitle(for: profile, excluding: session),
+                        model: chosenModel(for: profile))
     }
 
     /// Open another terminal in the AI panel and show it.
@@ -3991,7 +4006,8 @@ class WorkspaceManager: ObservableObject {
         let session = TerminalSession(directory: directory, profile: profile,
                                       startupCommand: startupCommand(for: profile),
                                       resumeCommand: resuming ? resumeCommand(for: profile, in: directory) : nil,
-                                      title: terminalTitle(for: profile))
+                                      title: terminalTitle(for: profile),
+                                      model: chosenModel(for: profile))
         session.openFile = { [weak self] url, line in self?.openFile(url, line: line) }
         session.openInAppBrowser = { [weak self] url in self?.openInAppBrowser(url) }
         session.browserWindowID = browserControlID
@@ -4074,8 +4090,7 @@ class WorkspaceManager: ObservableObject {
     func restartAITerminal() {
         guard let session = aiTerminal else { ensureAITerminal(); return }
         guard !session.isRemote else { return }
-        session.restart(profile: session.profile, startupCommand: startupCommand(for: session.profile),
-                        title: terminalTitle(for: session.profile, excluding: session))
+        relaunch(session, as: session.profile)
     }
 
     /// The toolbar's assistant changed: show a terminal running it — an open one, or the
@@ -4088,8 +4103,7 @@ class WorkspaceManager: ObservableObject {
             return
         }
         if let session = aiTerminal, session.profile != .shell {
-            session.restart(profile: profile, startupCommand: startupCommand(for: profile),
-                            title: terminalTitle(for: profile, excluding: session))
+            relaunch(session, as: profile)
             saveAITerminals()
             objectWillChange.send()
         } else if aiTerminal != nil {
@@ -4097,14 +4111,15 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
-    /// A model changed in the toolbar: the shown terminal restarts when it runs that
-    /// assistant with another model; other terminals keep their session.
+    /// The model chosen for the shown terminal's assistant differs from the one it runs: the shown
+    /// terminal restarts with the chosen model and its tab is renamed; other terminals keep their
+    /// session. Safe to call at any time — it does nothing when the models match. The AI panel
+    /// calls it when the toolbar's model changes and when the panel opens, so a model picked
+    /// while the panel was hidden is applied too.
     func aiModelChanged() {
-        guard let session = aiTerminal, session.profile != .shell, !session.isRemote else { return }
-        let command = startupCommand(for: session.profile)
-        guard session.startupCommand != command else { return }
-        session.restart(profile: session.profile, startupCommand: command,
-                        title: terminalTitle(for: session.profile, excluding: session))
+        guard let session = aiTerminal, session.profile != .shell, !session.isRemote,
+              session.model != chosenModel(for: session.profile) else { return }
+        relaunch(session, as: session.profile)
         objectWillChange.send()
     }
 

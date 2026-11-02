@@ -80,6 +80,9 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     let directory: URL
     /// Typed into the shell once it is up (e.g. "claude --model sonnet"), or nil.
     private(set) var startupCommand: String?
+    /// The model the assistant was started with (nil: the CLI's own default, or not an assistant).
+    /// The tab title shows it, and the AI panel compares it with the toolbar's choice.
+    private(set) var model: String?
     /// Typed instead of `startupCommand` on the first start only: continues the assistant's
     /// previous session after a relaunch (BUG-005). Restarts run `startupCommand`.
     private var resumeCommand: String?
@@ -143,10 +146,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     private var fontScale = AppFontScale.storedFactor
 
     init(directory: URL, profile: TerminalProfile = .shell, startupCommand: String? = nil,
-         resumeCommand: String? = nil, title: String? = nil, operationCommand: String? = nil) {
+         resumeCommand: String? = nil, title: String? = nil, model: String? = nil,
+         operationCommand: String? = nil) {
         self.directory = directory
         self.profile = profile
         self.startupCommand = startupCommand
+        self.model = model
         self.resumeCommand = resumeCommand
         self.operationCommand = operationCommand
         self.title = title ?? profile.title
@@ -425,10 +430,12 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     }
 
     /// Restart running something else (the toolbar switched the assistant).
-    func restart(profile newProfile: TerminalProfile, startupCommand command: String?, title newTitle: String) {
+    func restart(profile newProfile: TerminalProfile, startupCommand command: String?, title newTitle: String,
+                 model newModel: String?) {
         profile = newProfile
         startupCommand = command
         title = newTitle
+        model = newModel
         restartProcess()
     }
 

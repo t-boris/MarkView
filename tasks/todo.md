@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## Agents tab title follows the chosen model (2026-11-02, 4.63.2)
+
+Boris: the title of an Agents tab does not reflect the selected model. Root cause: the title is a snapshot taken
+when the terminal starts, and the only code that restarts the terminal on a toolbar model change lives in
+`AITerminalPanel`, which exists only while the Agents navigator tab is open. A model picked on Contents/Search/Git/Tasks
+was never seen, and `onAppear` then reset `seenChoice`, so the change was lost. On a narrow panel the Claude tab was also
+shortened to "Claude" without the model. Approved by Boris: apply on opening Agents (never restart a hidden terminal),
+and keep the model in the narrow title.
+
+- [x] `TerminalSession.model` records the model the assistant was started with; `WorkspaceManager.chosenModel(for:)` is the single
+      source for the command, the title and that record; `relaunch(_:as:)` replaces four hand-built `restart` calls.
+- [x] `aiModelChanged()` compares the recorded model with the chosen one (not the whole command, which also changes with linked
+      folders and browser tools) and is called on panel open as well as on a toolbar change.
+- [x] Narrow tab shows "Claude · opus" / "Claude 2 · opus" instead of "Claude".
+- [ ] Debug build; focused check in the running app after Boris installs (set the model on Contents, open Agents, tab renamed and
+      restarted with the model; narrow the panel, tab keeps the model; remote terminals untouched).
+- Not changed (same gap, outside this request): a toolbar *assistant* switch made while Agents is hidden is not applied on open,
+  because the shown tab may legitimately differ from the toolbar's assistant.
+
 ## All-file opening and hidden Explain notes (2026-10-31, 4.63.1)
 
 - [x] Explicit Explain requests from source/data viewers reopen notes hidden on an earlier file. The shipping WebKit regression hides notes, reopens another YAML source and checks that cached section notes are visible.
