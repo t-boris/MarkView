@@ -705,3 +705,11 @@ open. A model picked on another tab was never seen, and `onAppear` reset the "se
 the old model for good. Rule: when a view mirrors state that can change while it is not mounted, reconcile from the state itself on
 appear (compare what runs with what is chosen — idempotent) instead of relying on having seen the change event. Compare the one
 value that matters (the model), not a derived string (the whole startup command also changes with linked folders and tools).
+
+## The final result of a speech recognizer may be only its last window (built-in dictation, 2026-11-02)
+`SFSpeechRecognizer` works in windows of about a minute: each finished window arrives as its own result, and the result with
+`isFinal` holds only the last one. Taking `isFinal` alone returned 27 s of a 207 s recording (392 of 3023 characters) with no error.
+The short test phrases passed; only a recording longer than a minute showed it. Rule: test a recognizer, uploader or any streaming API
+with an input longer than its documented or suspected chunk size (here the app records up to 10 minutes), and print every callback
+(`isFinal`, size, time range) before trusting the first one that looks final. Run the *production* source in a throwaway signed probe
+app (own bundle id, so its TCC grant is separate); remove it afterwards, because `tccutil reset` needs the app to still exist.

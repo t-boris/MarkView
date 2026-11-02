@@ -671,7 +671,6 @@ struct IntakeSheet: View {
     @State private var outputPathEdited = false
     /// Voice input for the text; lives as long as the sheet — closing it discards a recording.
     @StateObject private var dictation = DictationController()
-    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
     @State private var editorFocused = false
 
     init(request: IntakeRequest, workspaceManager: WorkspaceManager) {
@@ -693,7 +692,7 @@ struct IntakeSheet: View {
                 Image(systemName: icon).foregroundColor(VSDark.blue)
                 Text(kind.title).uiFont(.headline)
                 Spacer()
-                if (kind == .understand || kind == .research), !openAIKey.isEmpty {
+                if kind == .understand || kind == .research {
                     DictationButton(dictation: dictation, prominent: true) { transcript, window in
                         DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
                     }
@@ -706,7 +705,7 @@ struct IntakeSheet: View {
                 .frame(minWidth: 560, minHeight: 260)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(editorBorder, lineWidth: dropping || dictation.isRecording ? 2 : 1))
                 .overlay(alignment: .bottomTrailing) {
-                    if kind != .understand, kind != .research, !openAIKey.isEmpty {
+                    if kind != .understand, kind != .research {
                         DictationButton(dictation: dictation) { transcript, window in
                             DictationInsertion.insert(transcript, window: window, fieldFocused: editorFocused, text: &text)
                         }
@@ -794,10 +793,6 @@ struct IntakeSheet: View {
             }
         }
         .onDisappear { dictation.cancel() }
-        .onChange(of: openAIKey.isEmpty) { removed in
-            // The key is gone: the mic disappears and its recording is discarded.
-            if removed { dictation.cancel() }
-        }
     }
 
     private var editorBorder: Color {

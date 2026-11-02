@@ -85,5 +85,22 @@ readable("other error", TranscriptionFailure.network(NSError(domain: "x", code: 
 readable("missing key", .missingKey)
 readable("unreadable", .unreadableResponse)
 
+// macOS built-in recognition (dictation without an OpenAI key).
+readable("speech denied", .speechDenied)
+check("speech denied: where to allow it", TranscriptionFailure.speechDenied.nextStep.contains("Speech Recognition"), TranscriptionFailure.speechDenied.message)
+check("speech denied: offers the key as the alternative", TranscriptionFailure.speechDenied.nextStep.contains("OpenAI key"))
+check("speech denied: fixed in System Settings, not DDE Settings", !TranscriptionFailure.speechDenied.fixInSettings)
+
+let russian = TranscriptionFailure.languageNotInstalled("Russian (Russia)")
+readable("language missing", russian)
+check("language missing: names the language", russian.problem.contains("Russian (Russia)"), russian.message)
+check("language missing: how to install it", russian.nextStep.contains("Keyboard") && russian.nextStep.contains("Dictation"), russian.message)
+check("language missing: language is chosen in DDE Settings", russian.fixInSettings)
+
+let recognition = TranscriptionFailure.recognition(domain: "kAFAssistantErrorDomain", code: 1101)
+readable("recognition", recognition)
+check("recognition: tag for bug reports", recognition.tag == "kAFAssistantErrorDomain 1101", recognition.tag ?? "nil")
+check("recognition: no OpenAI wording", !recognition.message.contains("OpenAI"), recognition.message)
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all transcription failure checks passed")

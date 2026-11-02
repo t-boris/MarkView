@@ -400,7 +400,6 @@ struct DiscussionInput: View {
     let feature: Feature
     @State private var text = ""
     @StateObject private var dictation = DictationController()
-    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
     @FocusState private var textFocused: Bool
 
     var body: some View {
@@ -411,17 +410,8 @@ struct DiscussionInput: View {
                     .textFieldStyle(.plain).uiFont(size: 11).lineLimit(1...5)
                     .focused($textFocused)
                     .onSubmit(send)
-                if openAIKey.isEmpty {
-                    Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
-                        Image(systemName: "mic").uiFont(size: 13).foregroundColor(VSDark.textDim)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Set up voice input in DDE Settings")
-                    .accessibilityLabel("Set up voice input")
-                } else {
-                    DictationButton(dictation: dictation) { transcript, window in
-                        DictationInsertion.insert(transcript, window: window, fieldFocused: textFocused, text: &text)
-                    }
+                DictationButton(dictation: dictation) { transcript, window in
+                    DictationInsertion.insert(transcript, window: window, fieldFocused: textFocused, text: &text)
                 }
                 if assistant.isRunning("chat:" + feature.slug) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)

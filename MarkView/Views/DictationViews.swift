@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// Microphone toggle for a text field: record, then stop and insert the transcript. Shown
-/// only while an OpenAI key is set — the caller hides it otherwise (DEC-002).
+/// Microphone toggle for a text field: record, then stop and insert the transcript. It works
+/// without an OpenAI key (macOS's built-in recognition), so callers always show it.
 struct DictationButton: View {
     @ObservedObject var dictation: DictationController
     var prominent = false
@@ -49,7 +49,7 @@ struct DictationButton: View {
 
     private var help: String {
         switch dictation.phase {
-        case .idle: return "Dictate (Whisper): click to record, click again to insert the text at the cursor"
+        case .idle: return "Dictate: click to record, click again to insert the text at the cursor"
         case .starting: return "Waiting for the microphone…"
         case .recording: return "Stop and insert the text · Esc cancels"
         case .transcribing: return "Transcribing…"
@@ -58,8 +58,8 @@ struct DictationButton: View {
 }
 
 /// The line under a dictation field: recording time and the cap warning, transcribing,
-/// or the last failure (with a way to microphone settings when access was denied, and to
-/// DDE Settings when the API key or model is the problem).
+/// or the last failure (with a way to the microphone or Speech Recognition settings when access
+/// was denied, and to DDE Settings when the API key, model or language is the problem).
 struct DictationStatusView: View {
     @ObservedObject var dictation: DictationController
     /// Opens DDE Settings; without it the settings button is not shown.
@@ -74,7 +74,9 @@ struct DictationStatusView: View {
                     Text(message).foregroundColor(.secondary).textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                     if dictation.microphoneDenied {
-                        Button("Open Microphone Settings") { openMicrophoneSettings() }
+                        Button("Open Microphone Settings") { openPrivacySettings("Privacy_Microphone") }
+                    } else if dictation.speechDenied {
+                        Button("Open Speech Recognition Settings") { openPrivacySettings("Privacy_SpeechRecognition") }
                     } else if dictation.opensSettings, let openSettings {
                         Button("Open DDE Settings", action: openSettings)
                     }
@@ -115,8 +117,8 @@ struct DictationStatusView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    private func openMicrophoneSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+    private func openPrivacySettings(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
     }

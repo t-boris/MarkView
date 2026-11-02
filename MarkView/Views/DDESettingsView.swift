@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
-/// Settings panel for DDE — AI CLI (assistant, model, paths), Whisper, maintenance
+/// Settings panel for DDE — AI CLI (assistant, model, paths), voice input, maintenance
 struct DDESettingsView: View {
     @EnvironmentObject var workspaceManager: WorkspaceManager
     @State private var openaiKey: String = ""
@@ -20,8 +20,11 @@ struct DDESettingsView: View {
     @State private var cliProbing: Set<CLITool> = []
     @State private var extraPath: String = ""
 
-    // Whisper diagnostics
+    // Voice input: Whisper (with an OpenAI key) or macOS's built-in recognition (without one)
     @AppStorage(WhisperClient.modelStorage) private var whisperModel: String = WhisperClient.defaultModel
+    @AppStorage(OnDeviceSpeech.languageStorage) private var dictationLanguage = ""
+    /// Languages macOS can recognize on this Mac; nil until the first lookup finishes.
+    @State private var installedLanguages: [String]?
     @StateObject private var whisperClient = WhisperClient()
     @State private var whisperTesting = false
     @State private var whisperTestResult: String?
@@ -58,7 +61,7 @@ struct DDESettingsView: View {
             }
 
             // OpenAI (Whisper)
-            GroupBox("OpenAI (Whisper voice input)") {
+            GroupBox("OpenAI (optional: Whisper voice input)") {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         SecureField("OpenAI API Key (sk-...)", text: $openaiKey)
@@ -72,10 +75,10 @@ struct DDESettingsView: View {
                     HStack {
                         keyStatusView(openaiStatus)
                         Spacer()
-                        Text("Used for: Whisper voice input")
+                        Text("Optional: Whisper voice input")
                             .uiFont(size: 9).foregroundColor(.secondary)
                     }
-                    Text("Used by the 🎤 in the terminals and in the New Feature / New Bug / I Need to Understand text (shown there only while a key is set). Dictated audio is sent to OpenAI for transcription and billed to this key; it is not stored — the temporary recording is deleted right after. Recordings stop at 10 minutes.")
+                    Text("The 🎤 in the terminals and in the New Feature / New Bug / I Need to Understand text works without a key, using macOS's built-in speech recognition on this Mac (nothing is sent anywhere; choose its language below). With a key, dictation uses OpenAI Whisper instead: it detects the language by itself and is usually more accurate, but the dictated audio is sent to OpenAI and billed to this key; it is not stored — the temporary recording is deleted right after. Recordings stop at 10 minutes.")
                         .uiFont(size: 9).foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }.padding(8)
@@ -146,37 +149,58 @@ struct DDESettingsView: View {
                 }.padding(8)
             }
 
-            // Whisper diagnostics — the config that has to line up for voice input.
-            GroupBox("Whisper (voice input)") {
+            // Voice input — the config that has to line up for dictation: the microphone, and either
+            // OpenAI (key, model) or macOS's built-in recognition (permission, language).
+            GroupBox("Voice input") {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Microphone:").uiFont(.caption)
                         micStatusView
                         Spacer()
                         if WhisperClient.microphoneStatus != .authorized {
-                            Button("Open System Settings") {
-                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }.uiFont(.caption)
+                            Button("Open System Settings") { openPrivacyPane("Privacy_Microphone") }
+                                .uiFont(.caption)
                         }
                     }
                     HStack {
-                        Text("OpenAI key:").uiFont(.caption)
-                        if !(EmbeddingClient.loadKey() ?? "").isEmpty {
+                        Text("Engine:").uiFont(.caption)
+                        Text(WhisperClient.engineName).uiFont(.caption)
+                        Spacer()
+                        Text(WhisperClient.engine == .openAI ? "Audio is sent to OpenAI" : "Runs on this Mac, nothing is sent")
+                            .uiFont(size: 9).foregroundColor(.secondary)
+                    }
+                    if WhisperClient.engine == .openAI {
+                        HStack {
+                            Text("OpenAI key:").uiFont(.caption)
                             Label("Set", systemImage: "checkmark.circle.fill")
                                 .uiFont(.caption).foregroundColor(.green)
-                        } else {
-                            Label("Not set", systemImage: "xmark.circle.fill")
-                                .uiFont(.caption).foregroundColor(.red)
+                            Spacer()
                         }
-                        Spacer()
+                        Picker("Model:", selection: $whisperModel) {
+                            ForEach(WhisperClient.availableModels, id: \.self) { model in
+                                Text(model).tag(model)
+                            }
+                        }.pickerStyle(.menu)
+                    } else {
+                        HStack {
+                            Text("Speech Recognition:").uiFont(.caption)
+                            speechStatusView
+                            Spacer()
+                            if OnDeviceSpeech.authorization == .denied || OnDeviceSpeech.authorization == .restricted {
+                                Button("Open System Settings") { openPrivacyPane("Privacy_SpeechRecognition") }
+                                    .uiFont(.caption)
+                            }
+                        }
+                        Picker("Language:", selection: $dictationLanguage) {
+                            Text("Automatic (system languages)").tag("")
+                            ForEach(languageChoices, id: \.self) { identifier in
+                                Text(OnDeviceSpeech.displayName(identifier)).tag(identifier)
+                            }
+                        }.pickerStyle(.menu)
+                        Text("macOS recognizes one language at a time and cannot detect it, so pick the language you dictate in. More languages: System Settings \u{2192} Keyboard \u{2192} Dictation (each downloads once). For mixed languages or the best accuracy, add an OpenAI key above.")
+                            .uiFont(size: 9).foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Picker("Model:", selection: $whisperModel) {
-                        ForEach(WhisperClient.availableModels, id: \.self) { model in
-                            Text(model).tag(model)
-                        }
-                    }.pickerStyle(.menu)
 
                     HStack {
                         Button(whisperTesting ? "Recording..." : "Record 3s and transcribe") {
@@ -194,6 +218,7 @@ struct DDESettingsView: View {
                     }
                 }.padding(8)
             }
+            .task { installedLanguages = await Task.detached { OnDeviceSpeech.installedLanguages() }.value }
 
             GitHubSettingsSection()
 
@@ -357,7 +382,40 @@ struct DDESettingsView: View {
         extraPath = UserDefaults.standard.string(forKey: "settings.cli.extraPATH") ?? ""
     }
 
-    // MARK: - Whisper diagnostics
+    // MARK: - Voice input diagnostics
+
+    /// The installed languages for the picker, plus the stored choice when it is not installed (so
+    /// the picker never shows a selection it has no row for).
+    private var languageChoices: [String] {
+        var choices = installedLanguages ?? []
+        let stored = DictationLanguage.normalized(dictationLanguage)
+        if !stored.isEmpty, !choices.contains(stored) { choices.append(stored) }
+        return choices
+    }
+
+    private func openPrivacyPane(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @ViewBuilder
+    private var speechStatusView: some View {
+        switch OnDeviceSpeech.authorization {
+        case .authorized:
+            Label("Allowed", systemImage: "checkmark.circle.fill")
+                .uiFont(.caption).foregroundColor(.green)
+        case .denied, .restricted:
+            Label("Denied", systemImage: "xmark.circle.fill")
+                .uiFont(.caption).foregroundColor(.red)
+        case .notDetermined:
+            Label("Asked on first use", systemImage: "questionmark.circle")
+                .uiFont(.caption).foregroundColor(.orange)
+        @unknown default:
+            Label("Unknown", systemImage: "questionmark.circle")
+                .uiFont(.caption).foregroundColor(.secondary)
+        }
+    }
 
     @ViewBuilder
     private var micStatusView: some View {

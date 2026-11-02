@@ -10,7 +10,6 @@ struct DiscussionsView: View {
     @State private var question = ""
     @FocusState private var questionFocused: Bool
     @StateObject private var dictation = DictationController()
-    @AppStorage(WhisperClient.apiKeyStorage) private var openAIKey = ""
     @Environment(\.colorScheme) private var colorScheme
     @State private var newItem = ""
     @State private var newKind: DiscussionItem.Kind = .question
@@ -155,15 +154,8 @@ struct DiscussionsView: View {
                     .focused($questionFocused)
                     .onSubmit { send(discussion) }
                     .disabled(store.asking != nil)
-                if openAIKey.isEmpty {
-                    Button { DDESettingsWindow.show(workspace: workspaceManager) } label: {
-                        Image(systemName: "mic").uiFont(size: 14).foregroundColor(VSDark.textDim)
-                    }
-                    .buttonStyle(.plain).help("Set up voice input in DDE Settings").accessibilityLabel("Set up voice input")
-                } else {
-                    DictationButton(dictation: dictation) { transcript, window in
-                        DictationInsertion.insert(transcript, window: window, fieldFocused: questionFocused, text: &question)
-                    }
+                DictationButton(dictation: dictation) { transcript, window in
+                    DictationInsertion.insert(transcript, window: window, fieldFocused: questionFocused, text: &question)
                 }
                 if store.asking == discussion.slug {
                     Button { workspaceManager.stopDiscussion() } label: { Image(systemName: "stop.circle.fill").uiFont(size: 18).foregroundColor(VSDark.orange) }
