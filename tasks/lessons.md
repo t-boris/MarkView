@@ -847,3 +847,20 @@ the answer, with the saved default unchanged because the value was the one alrea
   so every unit carries `incomplete` and shows as "unknown" instead of "in sync" when its sources are not fully known. Never report "in sync" on a guess.
 - Check a new module against a real model run, not only fixtures: the real plan listed the three files of a small app for both screens, so one edit
   marked both screens as changed, which is true but invisible in a one-file fixture.
+
+## Feature status: the app moves it, not git
+- MarkView sets a feature to `implementing` only when the feature is handed to implementation inside the app ("Create issues", "Implement with AI");
+  later statuses follow the linked issues. `markview_set_status` stops at `ready` on purpose, and `docs/features/*` must not be edited by hand.
+  Implementing a feature in my own branch and PR leaves it showing `Ready` (Boris asked why, 2026-11-03).
+- Boris then allowed setting it myself (2026-11-03): the tool refuses `implementing`/`implemented`, so edit only the `status:` line of the feature's
+  `overview.md`, set `implementing` when work starts and `implemented` once the release is published, and check it with `markview_list_features`.
+- Before starting a feature outside that flow, say so. Name the branch `feat/<feature-slug>`
+  and put the slug and the REQ ids in the PR description. State the real status of the feature in the final report; never let `Ready` stand for "built".
+
+## Incremental sync: a unit rebuilt alone still leans on files nobody rewrote
+- The first real run of the incremental sync rewrote both screens but the new order added in the source never appeared: the sample rows live in
+  `data.js`, a shared foundation file the sync does not rebuild, and the screens read them from `DB`. A fixture with a stub assistant cannot show
+  this. After adding an incremental path, run it once with the real assistant on a change that touches data, not only on a label.
+- When a shared file cannot safely be rewritten, say so to the writer (here: define missing data inside the screen), to the person (reply and
+  sheet) and as an open question (Q-005), instead of letting a green status imply the prototype matches the code.
+- Keep scratch files in the session scratchpad; a helper written to `/tmp` had to be deleted by hand.

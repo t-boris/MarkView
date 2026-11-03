@@ -125,6 +125,9 @@ enum CLICompletion {
                 : "App.register({id: 'home', render() { return 'Home'; }});"]]]
         case "prototype:screen:home":
             object = ["summary": "Home", "files": [["path": "screens/home.js", "content": "App.register({id: 'home', render() { return 'Home'; }});" ]]]
+        case "prototype:screen:orders" where variant == "orders-stub":
+            // An incremental sync whose only changed screen comes back as a stub: nothing could be rebuilt.
+            object = ["summary": "Orders", "files": [["path": "screens/orders.js", "content": "// The orders screen is not implemented yet."]]]
         case "prototype:screen:orders":
             object = ["summary": "Orders", "files": [["path": "screens/orders.js", "content": ordersScreen(variant: variant)]]]
         case "prototype:component:src-index-html":

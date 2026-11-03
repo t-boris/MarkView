@@ -818,5 +818,46 @@ do {
     check(PrototypeAI.screenSystem(language: "").contains("never the container that `App.load` returned"), "the screen prompt carries the App.load rule")
 }
 
+// REQ-008: the target of a request.
+do {
+    let screen = PrototypeAI.Target.screen(id: "trade", name: "Trade")
+    let component = PrototypeAI.Target.component(path: "src/Badge.tsx", label: "Badge", page: "components/src-badge-tsx.html", screens: ["Trade", "Orders"])
+    check(screen.kind == "Screen" && screen.name == "Trade" && screen.detail == nil, "a screen target has a kind and a name")
+    check(component.kind == "Component" && component.name == "Badge" && component.detail == "src/Badge.tsx", "a component target shows its source path")
+    func prompt(_ target: PrototypeAI.Target?, mode: PrototypeFiles.Mode = .code) -> String {
+        PrototypeAI.revisePrompt(instruction: "Bigger", pick: nil, siteRelative: "docs/prototypes/x/site", files: [], runtimeErrors: [],
+                                 priorFailure: nil, mode: mode, target: target)
+    }
+    let aimedScreen = prompt(screen)
+    check(aimedScreen.contains("aimed this request at one screen: \"Trade\", implemented in `docs/prototypes/x/site/screens/trade.js`")
+          && aimedScreen.contains("Limit the change to that screen's script") && aimedScreen.hasSuffix("Reviewer's request:\nBigger"),
+          "a screen target names the file and limits the change, before the request")
+    let aimedComponent = prompt(component)
+    check(aimedComponent.contains("`src/Badge.tsx`") && aimedComponent.contains("data-mv-component=\"src/Badge.tsx\"")
+          && aimedComponent.contains("in the screens \"Trade\", \"Orders\"") && aimedComponent.contains("docs/prototypes/x/site/components/src-badge-tsx.html")
+          && aimedComponent.contains("nothing else unless the request says otherwise") && aimedComponent.contains("read it when the request touches"),
+          "a component target names the source, the markers, the screens and the isolated view")
+    check(!prompt(PrototypeAI.Target.component(path: "src/Badge.tsx", label: "Badge", page: nil, screens: []), mode: .requirements).contains("Its source file")
+          && !prompt(PrototypeAI.Target.component(path: "src/Badge.tsx", label: "Badge", page: nil, screens: [])).contains("isolated view"),
+          "without a page there is no isolated view; a requirements prototype has no source file to read")
+    check(!prompt(nil).contains("aimed this request"), "no target, no scope paragraph: the request is about the whole prototype")
+    check(prompt(nil) == PrototypeAI.revisePrompt(instruction: "Bigger", pick: nil, siteRelative: "docs/prototypes/x/site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code),
+          "the prompt without a target is what it was before targets existed")
+}
+
+// REQ-010: the update note of a screen rebuilt after a code change.
+do {
+    let screen = PrototypeAI.PlannedScreen(id: "orders", name: "Orders", route: "/orders", purpose: "", evidence: ["src/a.ts"], components: [], embedded: false, hosts: [])
+    let update = PrototypeAI.ScreenUpdate(changed: ["src/a.ts"], removed: ["src/gone.ts"], current: "docs/prototypes/x/site/screens/orders.js")
+    let withUpdate = PrototypeAI.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .code, update: update)
+    check(withUpdate.contains("UPDATE of a screen that already exists") && withUpdate.contains("read them first:\n- src/a.ts\n")
+          && withUpdate.contains("no longer exist; drop what depended only on them:\n- src/gone.ts\n")
+          && withUpdate.contains("`docs/prototypes/x/site/screens/orders.js`") && withUpdate.contains("not a patch")
+          && withUpdate.contains("define it inside this screen's script"), "the update note names the changed and removed files, the current screen and the data rule")
+    check(!PrototypeAI.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .code).contains("UPDATE of a screen"), "a first build has no update note")
+    check(!PrototypeAI.screenPrompt(plan: "{}", screen: screen, foundation: [], failure: nil, mode: .requirements, update: update).contains("UPDATE of a screen"),
+          "requirements mode has nothing to update from")
+}
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

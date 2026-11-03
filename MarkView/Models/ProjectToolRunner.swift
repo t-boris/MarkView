@@ -167,6 +167,24 @@ enum ProjectToolRunner {
         return rows.joined(separator: "\n")
     }
 
+    /// "Changes since the last sync" of a prototype made from code (REQ-013): the prototype files that differ from the baseline, the
+    /// source components they reproduce, the review requests since then, and whether the components named in the result changed in the
+    /// code. Reading changes nothing on disk.
+    private static func changesSection(root: URL, folder: URL, site: URL, manifest m: PrototypeFiles.Manifest) -> String {
+        var status = PrototypeBaseline.status(record: nil, scope: [:], site: [:])
+        if let record = PrototypeBaseline.load(folder: folder, version: m.version) {
+            let inventory = PrototypeFiles.inventory(root: root, sources: m.sources)
+            let paths = Array(Set(record.scope.keys).union(inventory.entries.map(\.path)))
+            status = PrototypeBaseline.status(record: record, scope: PrototypeBaseline.fingerprints(root: root, paths: paths),
+                                              site: PrototypeBaseline.siteFingerprints(site: site))
+        }
+        let changes = PrototypeHandoff.changes(status: status, history: m.history, markers: { path in
+            guard let text = try? String(contentsOf: site.appendingPathComponent(path), encoding: .utf8) else { return [] }
+            return PrototypeFiles.componentMarkers(in: text)
+        })
+        return PrototypeHandoff.section(changes, componentPaths: m.components.map(\.path))
+    }
+
     private static func getPrototype(_ root: URL, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
         // `prototype` is a slug or a reference in any form PrototypeReference reads; the slug it names must be listed.
         let given = try ProjectAgentTools.text(args, "prototype", required: true)
@@ -222,6 +240,10 @@ enum ProjectToolRunner {
             }
             out += "\nComponents (source files the prototype reproduces; elements carry \(PrototypeFiles.componentMarker)=\"<path>\"):\n"
             out += lines.joined(separator: "\n") + "\n"
+        }
+        if m.mode == .code, m.version > 0 {
+            // Changes since the sync baseline (REQ-013): read only, computed from the files as they are now.
+            out += "\n" + changesSection(root: root, folder: folder, site: site, manifest: m) + "\n"
         }
         if !m.history.isEmpty {
             // Split up: the Swift 6.0 compiler (CI) cannot type-check this as one concatenation in reasonable time.

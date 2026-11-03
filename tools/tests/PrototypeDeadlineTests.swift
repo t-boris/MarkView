@@ -308,6 +308,118 @@ import Foundation
         print("Prototype code mode: the fixture app is reconstructed with its gaps, evidence and components; every file outside docs/prototypes/ is unchanged.")
 
         try await syncFromCode(root: root, folder: folder, scope: scope, before: before)
+        try await syncChangedUnits(root: root, scope: scope, before: before)
+    }
+
+    /// Incremental sync (REQ-010, REQ-015): only the units whose source files changed are written again, with the stored plan; the
+    /// plan, the shell and the other screens are not touched; a unit that cannot be rebuilt keeps its file and is reported; when
+    /// nothing can be rebuilt the live version is restored.
+    static func syncChangedUnits(root: URL, scope: PrototypeAI.CodeScope, before: [String: String]) async throws {
+        let fm = FileManager.default
+        let folder = PrototypeFiles.folder(root: root, slug: "orders-inc")
+        let site = PrototypeFiles.site(of: folder)
+        try fm.createDirectory(at: site, withIntermediateDirectories: true)
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "")
+        let built = try await PrototypeAI.build(root: root, folder: folder, brief: "", sources: ["src"], language: "", mode: .code,
+                                                codeScope: scope, record: { _ in }, stage: { _ in })
+        try PrototypeFiles.snapshot(folder: folder, version: 1)
+        var manifest = PrototypeFiles.Manifest(title: built.title, slug: "orders-inc", brief: "", sources: ["src"], mode: .code, gaps: built.gaps)
+        manifest.version = 1
+        manifest.components = built.components
+        guard let input = built.baseline else { preconditionFailure("a code build carries the baseline input") }
+        let named = input.scope + input.styles + input.screens.flatMap(\.sources) + built.components.map(\.path)
+        let record = PrototypeBaseline.make(version: 1, plan: input.plan, styles: input.styles, screens: input.screens, components: built.components,
+                                            scope: PrototypeBaseline.fingerprints(root: root, paths: named),
+                                            site: PrototypeBaseline.siteFingerprints(site: site),
+                                            sourceExists: { PrototypeFiles.isSourceFile(root: root, path: $0) })
+        func status(_ record: PrototypeBaseline.Record) -> PrototypeBaseline.Status {
+            let inventory = PrototypeFiles.inventory(root: root, sources: ["src"])
+            let paths = Array(Set(record.scope.keys).union(inventory.entries.map(\.path)))
+            return PrototypeBaseline.status(record: record, scope: PrototypeBaseline.fingerprints(root: root, paths: paths),
+                                            site: PrototypeBaseline.siteFingerprints(site: site))
+        }
+        func state(_ id: String, _ status: PrototypeBaseline.Status) -> PrototypeBaseline.State? { status.units.first { $0.unit.id == id }?.state }
+        precondition(state("orders", status(record)) == .inSync, "right after the build the screen is in sync")
+        precondition(PrototypeBaseline.syncPlan(status: status(record), record: record).mode == .nothing, "nothing changed: nothing to sync")
+
+        // The code changes: the screen's script, and the toolbar component's file.
+        let appJS = root.appendingPathComponent("src/app.js"), toolbar = root.appendingPathComponent("src/toolbar.html")
+        let appOriginal = try String(contentsOf: appJS, encoding: .utf8), toolbarOriginal = try String(contentsOf: toolbar, encoding: .utf8)
+        defer { try? appOriginal.write(to: appJS, atomically: true, encoding: .utf8); try? toolbarOriginal.write(to: toolbar, atomically: true, encoding: .utf8) }
+        try (appOriginal + "\n// a new feature\n").write(to: appJS, atomically: true, encoding: .utf8)
+        try (toolbarOriginal + "<!-- changed -->").write(to: toolbar, atomically: true, encoding: .utf8)
+        let drift = status(record)
+        let plan = PrototypeBaseline.syncPlan(status: drift, record: record)
+        precondition(plan.mode == .incremental && Set(plan.units.map(\.unit.id)) == ["orders", "src/toolbar.html"],
+                     "the plan names the units whose sources changed: \(plan.units.map(\.unit.id))")
+
+        let foundationBefore = Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site)
+            .filter { ["index.html", "app.js", "data.js", "styles.css"].contains($0.path) }.map { ($0.path, $0.content) })
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "synced")
+        let synced = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: manifest, baseline: record, units: plan.units,
+                                                       language: "", record: { _ in }, stage: { _ in })
+        precondition(synced.screens == ["Orders"] && synced.rewritten == ["orders"] && synced.restyled, "\(synced.screens) \(synced.rewritten)")
+        precondition(synced.failed.count == 1 && synced.failed[0].reason.contains("the toolbar has no source file to read"),
+                     "the component that cannot be isolated is reported and does not stop the sync: \(synced.failed)")
+        let labels = await CLICompletion.audit.labels
+        precondition(labels == ["prototype:screen:orders", "prototype:component:src-toolbar-html"],
+                     "no planner, no foundation, no unchanged unit is run: \(labels.sorted())")
+        let prompt = await CLICompletion.audit.prompts["prototype:screen:orders"] ?? ""
+        precondition(prompt.contains("This is an UPDATE of a screen that already exists")
+                     && prompt.contains("read them first:\n- src/app.js\n")
+                     && prompt.contains("docs/prototypes/orders-inc/site/screens/orders.js"),
+                     "the writer is told which files changed and where the current screen is")
+        precondition(!prompt.contains("- src/index.html\n\nThe current"), "unchanged files are not listed as changed")
+        let live = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
+        precondition(live.contains("Orders (synced)"), "the changed screen was written again")
+        let foundationAfter = Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site)
+            .filter { ["index.html", "app.js", "data.js", "styles.css"].contains($0.path) }.map { ($0.path, $0.content) })
+        precondition(foundationAfter == foundationBefore, "the foundation files are not touched by an incremental sync")
+        precondition(synced.components.map(\.path).contains("src/index.html"), "the components are linked again")
+
+        // The baseline after the sync: the rebuilt screen is current, the component that failed still shows as changed.
+        let inventory = PrototypeFiles.inventory(root: root, sources: ["src"])
+        let next = PrototypeBaseline.advanced(record, version: 2, rewritten: Set(synced.rewritten), refreshed: Set(synced.rewritten).union(["shell"]),
+                                              scope: PrototypeBaseline.fingerprints(root: root, paths: Array(Set(record.scope.keys).union(inventory.entries.map(\.path)))),
+                                              site: PrototypeBaseline.siteFingerprints(site: site))
+        let after = status(next)
+        precondition(state("orders", after) == .inSync && state("src/toolbar.html", after) == .codeChanged,
+                     "orders: \(String(describing: state("orders", after))), toolbar: \(String(describing: state("src/toolbar.html", after)))")
+
+        // Nothing could be rebuilt: the live version is restored, not left half written.
+        try PrototypeFiles.snapshot(folder: folder, version: 2)
+        manifest.version = 2
+        try "DIRTY".write(to: site.appendingPathComponent("screens/orders.js"), atomically: true, encoding: .utf8)
+        try (appOriginal + "\n// another change\n").write(to: appJS, atomically: true, encoding: .utf8)
+        let again = PrototypeBaseline.syncPlan(status: status(next), record: next)
+        await CLICompletion.audit.set(variant: "orders-stub")
+        var message = ""
+        do {
+            _ = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: manifest, baseline: next,
+                                                  units: again.units.filter { $0.unit.id == "orders" }, language: "", record: { _ in }, stage: { _ in })
+        } catch {
+            message = error.localizedDescription
+        }
+        precondition(message.contains("None of the 1 changed unit could be rebuilt"), "a sync that rebuilt nothing is a failure: \(message)")
+        let restored = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
+        precondition(restored.contains("Orders (synced)"), "the previous version's files are back: \(restored.prefix(40))")
+
+        // A baseline whose plan cannot be read is refused with the way out.
+        var broken = next
+        broken.plan = "not json"
+        var refused = ""
+        do { _ = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: manifest, baseline: broken, units: [], language: "", record: { _ in }, stage: { _ in }) }
+        catch { refused = error.localizedDescription }
+        precondition(refused.contains("Rebuild everything"), "an unreadable stored plan points at Rebuild everything: \(refused)")
+        await CLICompletion.audit.set(variant: "")
+
+        try appOriginal.write(to: appJS, atomically: true, encoding: .utf8)
+        try toolbarOriginal.write(to: toolbar, atomically: true, encoding: .utf8)
+        let final = try checksums(root: root)
+        precondition(final == before, "an incremental sync changed source files: \(final.filter { before[$0.key] != $0.value }.keys.sorted())")
+        print("Prototype incremental sync: only the changed units are written again with the stored plan, a failed component is reported, nothing rebuilt restores the version; no source file changed.")
     }
 
     /// A window of docked widgets (BUG-050): the shell is told about widgets and modals, the host lists them, widgets

@@ -23,6 +23,12 @@ struct PrototypeStudioView: View {
     @State private var showingComponents = false
     /// The sync status panel: which units match the code (REQ-014).
     @State private var showingSyncStatus = false
+    /// "Rebuild everything" asks once more inside the sync sheet (REQ-010).
+    @State private var confirmingRebuild = false
+    /// The hand-off brief the person edits, and the agent it goes to (REQ-012).
+    @State private var handoffBrief = ""
+    @State private var handoffAgent = TerminalProfile.claude
+    @State private var handoffCopied = false
 
     private static let widthRange: ClosedRange<Double> = 260...760
 
@@ -121,11 +127,20 @@ struct PrototypeStudioView: View {
             .toggleStyle(.button).controlSize(.small).disabled(!session.hasSite || session.isBusy)
             .help("Click an element in the preview to say what should change about it")
             if session.manifest.mode == .code {
-                Button { session.syncFromCode() } label: {
-                    Label("Sync from code", systemImage: "arrow.triangle.2.circlepath")
+                Button { session.previewSync() } label: {
+                    Label(session.preparingSync ? "Comparing…" : "Sync from code", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .controlSize(.small).fixedSize().disabled(!session.canSyncFromCode || session.isBusy)
-                .help("Reconstruct the preview again from the current source code and save it as a new version; the earlier versions stay in the history")
+                .controlSize(.small).fixedSize().disabled(!session.canSyncFromCode || session.isBusy || session.preparingSync)
+                .help("Compare the current source code with the last sync and update what changed, saved as a new version; you confirm before anything runs")
+                .sheet(isPresented: Binding(get: { session.syncPreview != nil }, set: { if !$0 { session.syncPreview = nil } })) { syncSheet }
+            }
+            if session.manifest.mode == .code {
+                Button { session.prepareHandoff() } label: {
+                    Label(session.preparingHandoff ? "Comparing…" : "Hand off to code", systemImage: "arrow.uturn.right.circle")
+                }
+                .controlSize(.small).fixedSize().disabled(!session.canSyncFromCode || session.isBusy || session.preparingHandoff)
+                .help("Give an agent a brief of what changed in the prototype so it can change the application code; you read and edit the brief first")
+                .sheet(isPresented: Binding(get: { session.handoff != nil }, set: { if !$0 { session.handoff = nil } })) { handoffSheet }
             }
             if session.manifest.version > 1 {
                 Menu {
@@ -234,6 +249,174 @@ struct PrototypeStudioView: View {
         .controlSize(.small).fixedSize()
         .popover(isPresented: $showingSyncStatus, arrowEdge: .bottom) { syncPanel }
         .help("Which screens and components of this prototype still match the code they were built from")
+    }
+
+    // MARK: Hand-off sheet (REQ-012)
+
+    /// The brief for an agent that changes the code: shown and editable, with the agent to start and a copy to the clipboard. Studio
+    /// writes nothing to the project; the agent works under the repository's own rules.
+    private var handoffSheet: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let handoff = session.handoff {
+                Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
+                if !handoff.changes.hasBaseline {
+                    Text(PrototypeBaseline.Status(baselineVersion: nil, units: [], unclaimed: [], added: []).summary)
+                        .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                } else if handoff.changes.isEmpty {
+                    Text("Nothing to hand off: the prototype's files are as they were at the last sync (v\(handoff.changes.baselineVersion ?? 0)).")
+                        .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("\(handoff.changes.items.count) screen\(handoff.changes.items.count == 1 ? "" : "s") or component\(handoff.changes.items.count == 1 ? "" : "s") changed in the prototype since the last sync. Read and edit the brief, then start an agent with it or copy it. Nothing is written to your project by Studio.")
+                        .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    TextEditor(text: $handoffBrief)
+                        .uiFont(size: 11, design: .monospaced)
+                        .scrollContentBackground(.hidden)
+                        .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
+                        .frame(height: 320)
+                    HStack {
+                        Picker("Agent", selection: $handoffAgent) {
+                            ForEach(TerminalProfile.allCases.filter { $0 != .shell }) { profile in Text(profile.title).tag(profile) }
+                        }
+                        .pickerStyle(.menu).fixedSize()
+                        Text("starts a new session in the AI panel").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    }
+                }
+                HStack {
+                    Button("Close") { session.handoff = nil }
+                    Spacer()
+                    if handoff.changes.hasBaseline && !handoff.changes.isEmpty {
+                        Button(handoffCopied ? "Copied" : "Copy brief") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(handoffBrief, forType: .string)
+                            handoffCopied = true
+                        }
+                        .disabled(handoffBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        Button("Send to \(handoffAgent.title)") {
+                            let brief = handoffBrief
+                            let terminal = workspaceManager.openAITerminal(handoffAgent)
+                            workspaceManager.sendToAssistant(submit: true, to: terminal) { _ in brief }
+                            session.handoff = nil
+                        }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(handoffBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .controlSize(.regular)
+            }
+        }
+        .padding(16)
+        .frame(width: 620)
+        .onAppear {
+            handoffBrief = session.handoff?.brief ?? ""
+            handoffAgent = TerminalProfile(AIAssistantPreferences.backend(project: workspaceManager.aiProject))
+            handoffCopied = false
+        }
+    }
+
+    // MARK: Sync sheet (REQ-010, REQ-011)
+
+    /// What a sync would do, before anything runs: the changed units and the files behind them, the Studio edits it would replace, why a
+    /// full rebuild is needed when it is, and the separate, confirmed "Rebuild everything".
+    private var syncSheet: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let preview = session.syncPreview {
+                let plan = preview.plan
+                Text("Sync from code").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
+                Text(syncHeadline(plan, version: preview.version)).uiFont(size: 11).foregroundColor(VSDark.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if plan.mode == .full {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(plan.reasons, id: \.self) { reason in
+                            Label(reason, systemImage: "info.circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                if !plan.units.isEmpty && plan.mode == .incremental {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(plan.units, id: \.unit.id) { unit in
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(unit.unit.name + (unit.unit.kind == .component ? " · component" : "")).uiFont(size: 11, weight: .semibold)
+                                        .foregroundColor(VSDark.text)
+                                    Text("code: " + unit.changedSources.joined(separator: ", ")).uiFont(size: 10, design: .monospaced)
+                                        .foregroundColor(VSDark.textDim).lineLimit(3)
+                                    if unit.state == .bothChanged {
+                                        Label("Edited in Studio too: those edits are replaced. v\(preview.version) keeps them.",
+                                              systemImage: "exclamationmark.triangle")
+                                            .uiFont(size: 10).foregroundColor(Color.red).fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 200)
+                }
+                if plan.restyle {
+                    Label("The original stylesheets are copied again; this needs no assistant.", systemImage: "paintbrush")
+                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                }
+                ForEach(plan.notes, id: \.self) { note in
+                    Label(note, systemImage: "info.circle").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if plan.mode != .nothing {
+                    Text("The result is saved as v\(preview.version + 1); v\(preview.version) stays in the version menu. Stop restores it.")
+                        .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                }
+                if confirmingRebuild {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Rebuild everything reads and plans the whole project again and writes every screen from scratch. Edits made in Studio since the last sync are replaced (v\(preview.version) keeps them).",
+                              systemImage: "exclamationmark.triangle")
+                            .uiFont(size: 11).foregroundColor(Color.red).fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Button("Rebuild everything") { confirmingRebuild = false; session.rebuildEverything() }
+                            Button("Cancel") { confirmingRebuild = false }
+                        }
+                    }
+                    .padding(8).background(RoundedRectangle(cornerRadius: 6).stroke(Color.red.opacity(0.6)))
+                }
+                HStack {
+                    Button("Close") { session.syncPreview = nil }
+                    Spacer()
+                    if plan.mode != .full && !confirmingRebuild {
+                        Button("Rebuild everything…") { confirmingRebuild = true }
+                            .help("Read and plan the whole project again and write every screen from scratch")
+                    }
+                    switch plan.mode {
+                    case .incremental:
+                        Button("Sync \(plan.units.count) changed") { session.syncChangedUnits() }
+                            .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            .disabled(plan.units.isEmpty && !plan.restyle)
+                    case .full:
+                        if !confirmingRebuild {
+                            Button("Rebuild everything") { session.rebuildEverything() }
+                                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        }
+                    case .nothing:
+                        EmptyView()
+                    }
+                }
+                .controlSize(.regular)
+            }
+        }
+        .padding(16)
+        .frame(width: 540)
+        .onDisappear { confirmingRebuild = false }
+    }
+
+    private func syncHeadline(_ plan: PrototypeBaseline.SyncPlan, version: Int) -> String {
+        switch plan.mode {
+        case .nothing:
+            return "The prototype matches the code: no source file it was built from has changed since v\(version). Nothing to sync."
+        case .incremental:
+            let count = plan.units.count
+            let units = count == 0 ? "" : "\(count) screen or component\(count == 1 ? "" : "s") changed in the code. "
+            return units + "Only the changed units are written again; the plan, the shell, the sample data and every other screen stay as they are."
+        case .full:
+            return "A full rebuild is needed."
+        }
     }
 
     /// The units by state, with the files behind each state, and a button to check again (REQ-014).
@@ -473,8 +656,44 @@ struct PrototypeStudioView: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(color))
     }
 
+    /// What the next request is about (REQ-008): the whole prototype unless a screen or a component is chosen here, or an element is pointed at.
+    private var targetRow: some View {
+        HStack(spacing: 6) {
+            Menu {
+                Button("Whole prototype") { session.target = nil; session.pick = nil }
+                let screens = session.screenTargets
+                if !screens.isEmpty {
+                    Section("Screens") {
+                        ForEach(screens, id: \.name) { item in Button(item.name) { session.target = item } }
+                    }
+                }
+                let components = session.componentTargets
+                if !components.isEmpty {
+                    Section("Components") {
+                        ForEach(components, id: \.detail) { item in Button(item.name + "  ·  " + (item.detail ?? "")) { session.target = item } }
+                    }
+                }
+            } label: {
+                Label(session.target.map { "\($0.kind): \($0.name)" } ?? (session.pick == nil ? "About: whole prototype" : "About: the pointed-at element"),
+                      systemImage: "scope")
+            }
+            .menuStyle(.borderlessButton).fixedSize().controlSize(.small)
+            .disabled(!session.hasSite || session.isBusy)
+            .help("Choose what your next request is about: the whole prototype, one screen or one source component. Point at an element in the preview to aim it at that element.")
+            if let target = session.target {
+                if let detail = target.detail {
+                    Text(detail).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).help(detail)
+                }
+                Button { session.target = nil } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundColor(VSDark.textDim).help("Aim the request at the whole prototype again")
+            }
+            Spacer()
+        }
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            targetRow
             if let pick = session.pick {
                 HStack(spacing: 6) {
                     Image(systemName: "scope").foregroundColor(VSDark.blue)

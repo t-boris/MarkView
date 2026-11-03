@@ -28,6 +28,35 @@ enum PrototypeAI {
         var component: String? = nil
     }
 
+    /// What a change request is about besides the whole prototype and a pointed-at element (REQ-008).
+    enum Target: Equatable, Sendable {
+        case screen(id: String, name: String)
+        /// A source component of a prototype made from code: its source file, its label, its isolated page (relative to the
+        /// site) when there is one, and the names of the screens that reproduce it.
+        case component(path: String, label: String, page: String?, screens: [String])
+
+        /// "Screen" or "Component": the kind shown next to the message field.
+        var kind: String {
+            switch self {
+            case .screen: return "Screen"
+            case .component: return "Component"
+            }
+        }
+
+        var name: String {
+            switch self {
+            case .screen(_, let name): return name
+            case .component(_, let label, _, _): return label
+            }
+        }
+
+        /// The source file for a component, shown next to its name when known.
+        var detail: String? {
+            if case .component(let path, _, _, _) = self { return path }
+            return nil
+        }
+    }
+
     enum ScreenState: Sendable, Equatable {
         case queued, writing, done
         case failed(String)
@@ -596,9 +625,17 @@ enum PrototypeAI {
     /// The effort of a screen run: a widget, a modal or a host is written from whole source files, so it gets more than a page.
     static func screenEffort(_ screen: PlannedScreen) -> String { screen.embedded || !screen.hosts.isEmpty ? "medium" : "low" }
 
+    /// A screen rebuilt because its source files changed after the last sync (REQ-010): what changed, and where the current screen is.
+    struct ScreenUpdate: Sendable, Equatable {
+        var changed: [String]
+        var removed: [String]
+        /// The current screen file, relative to the project root, so the writer can keep what did not change.
+        var current: String
+    }
+
     static func screenPrompt(plan: String, screen: PlannedScreen, foundation: [PrototypeFiles.File], failure: String?,
                              mode: PrototypeFiles.Mode = .requirements, originalStyles: [String] = [],
-                             hosted: [PlannedScreen] = []) -> String {
+                             hosted: [PlannedScreen] = [], update: ScreenUpdate? = nil) -> String {
         var out = "The plan of the whole prototype:\n\(plan)\n\nThe foundation files (the API you build on):\n"
         for file in foundation { out += "\n=== \(file.path) ===\n\(file.content)\n" }
         out += "\nWrite the screen `\(screen.id)` (\(screen.name), route \(screen.route)) as `screens/\(screen.id).js`."
@@ -644,6 +681,21 @@ enum PrototypeAI {
                     "the control that opens them in the original (toolbar button, menu item, double click); do not place them in " +
                     "the layout. The host registers with `embedded: false`, and the shell shows it at start."
             }
+        }
+        if mode == .code, let update {
+            out += "\n\nThis is an UPDATE of a screen that already exists: the code changed after the prototype was last synced. "
+            if !update.changed.isEmpty {
+                out += "These source files changed since then; read them first:\n"
+                for path in update.changed { out += "- \(path)\n" }
+            }
+            if !update.removed.isEmpty {
+                out += "These source files no longer exist; drop what depended only on them:\n"
+                for path in update.removed { out += "- \(path)\n" }
+            }
+            out += "The current prototype screen is `\(update.current)`: read it, and keep everything the changes do not touch as it is. " +
+                "Write the complete screen again, not a patch. The shell, the styles and the sample data (`data.js`, the `DB` object) are NOT " +
+                "rewritten by this update: use what they already provide, and when the changed code needs sample data or a field that `DB` " +
+                "does not have, define it inside this screen's script instead of relying on a change to `data.js`."
         }
         if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)" }
         return out
@@ -716,7 +768,7 @@ enum PrototypeAI {
     static func revisePrompt(instruction: String, pick: Pick?, siteRelative: String, files: [PrototypeFiles.File],
                              runtimeErrors: [String], priorFailure: String?, attachments: [Attachment] = [],
                              mode: PrototypeFiles.Mode = .requirements, sources: [String] = [],
-                             priorEmpty: Bool = false) -> String {
+                             priorEmpty: Bool = false, target: Target? = nil) -> String {
         var out: String
         if mode == .code {
             var scope = "the project's own source code"
@@ -763,8 +815,36 @@ enum PrototypeAI {
                 out += "\n\nYour previous answer could not be applied:\n\(priorFailure)\nAnswer again with edits whose `find` text matches the current files exactly once, or give whole files."
             }
         }
+        if let target {
+            out += "\n\n" + targetParagraph(target, siteRelative: siteRelative, mode: mode)
+        }
         out += "\n\nReviewer's request:\n\(instruction)"
         return out
+    }
+
+    /// The scope of a request the reviewer aimed at a screen or a source component: the target, the files that implement it, and the
+    /// rule that the change stays inside it unless the request says otherwise (REQ-008).
+    static func targetParagraph(_ target: Target, siteRelative: String, mode: PrototypeFiles.Mode) -> String {
+        switch target {
+        case .screen(let id, let name):
+            return "The reviewer aimed this request at one screen: \"\(name)\", implemented in `\(siteRelative)/screens/\(id).js`. " +
+                "Limit the change to that screen's script. Touch another file only when the request cannot be done without a shared " +
+                "change (the shell, the styles or the sample data), and say which file and why in your summary; do not change other " +
+                "screens unless the request says so."
+        case .component(let path, let label, let page, let screens):
+            var out = "The reviewer aimed this request at one source component: \"\(label)\" (`\(path)`). "
+            if mode == .code {
+                out += "Its source file `\(path)` is what the prototype reproduces; read it when the request touches its look or behaviour. "
+            }
+            out += "Every element that reproduces it carries `data-mv-component=\"\(path)\"`"
+            if !screens.isEmpty {
+                out += " in the screens \(screens.map { "\"\($0)\"" }.joined(separator: ", "))"
+            }
+            if let page { out += ", and its isolated view is `\(siteRelative)/\(page)`" }
+            out += ". Change those elements, wherever they appear, and nothing else unless the request says otherwise; if a shared file " +
+                "must change, say which one and why in your summary."
+            return out
+        }
     }
 
     /// The request of a run that revises one file of a prototype-wide change: the file is given whole, the other
@@ -1313,6 +1393,153 @@ enum PrototypeAI {
 
     /// One part of the foundation: the answer is tried twice; `allowed` are the files it may write, `required` must be there.
     /// A shell answer must also contain the `<!--SCREENS-->` line.
+    /// What an incremental sync did (REQ-010).
+    struct Synced: Sendable {
+        /// Names of the screens that were written again.
+        var screens: [String] = []
+        /// Unit ids (screen ids, component paths) whose prototype files were written now.
+        var rewritten: [String] = []
+        /// Units that could not be rebuilt and keep their earlier files, with the reason.
+        var failed: [Failed] = []
+        /// The source components linked after the sync, with their isolated pages.
+        var components: [PrototypeFiles.Component] = []
+        /// New gaps found while syncing (never repeated from the build).
+        var gaps: [String] = []
+        /// The stylesheets of the original were copied again.
+        var restyled = false
+        var themes: [String] = []
+        var defaultTheme = ""
+
+        struct Failed: Sendable, Equatable {
+            var name: String
+            var reason: String
+        }
+    }
+
+    /// Brings a code-mode prototype up to date with the code by rebuilding only the units whose source files changed (REQ-010,
+    /// REQ-015): the plan stored with the baseline is reused, so the project is not planned again; the foundation files stay; each
+    /// changed screen or component is written again by the same writers as a full build, told which files changed and where its
+    /// current file is. The original stylesheets are copied again, which needs no assistant. A unit that cannot be rebuilt keeps its
+    /// earlier file and is reported. On any other failure, or when stopped, the live version is restored, as in `sync`.
+    static func syncChanged(root: URL, folder: URL, manifest: PrototypeFiles.Manifest, baseline: PrototypeBaseline.Record,
+                            units: [PrototypeBaseline.UnitStatus], language: String, concurrency: Int = 4,
+                            record: @escaping Record, stage: @escaping Stage) async throws -> Synced {
+        guard manifest.mode == .code else { throw PrototypeFiles.Failure.edits(["Only a prototype reconstructed from code can be synced from it."]) }
+        let previous = PrototypeFiles.versionFolder(of: folder, manifest.version)
+        guard manifest.version > 0, FileManager.default.fileExists(atPath: previous.path) else {
+            throw PrototypeFiles.Failure.edits(["The prototype has no saved version to sync from; rebuild it first."])
+        }
+        let site = PrototypeFiles.site(of: folder)
+        guard let data = baseline.plan.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let plan = try? Plan(structured: object, mode: .code) else {
+            throw PrototypeFiles.Failure.edits(["The plan stored with the baseline cannot be read; use Rebuild everything."])
+        }
+        var result = Synced(themes: plan.themes, defaultTheme: plan.defaultTheme)
+        let siteRelative = relativePath(site, root: root)
+        do {
+            stage(.phase("Step 1 of 2 · Copying the original stylesheets"))
+            var originals = PrototypeStyles.Copied()
+            if !plan.styles.isEmpty {
+                let listed = plan.styles
+                originals = await Task.detached { PrototypeStyles.copy(styles: listed, root: root, site: site) }.value
+                result.restyled = true
+                result.gaps += originals.gaps
+            }
+            try Task.checkCancellation()
+
+            let changedUnits = units.filter { $0.unit.kind != .foundation }
+            let screens: [ChangedScreen] = changedUnits.compactMap { item in
+                guard item.unit.kind == .screen, let screen = plan.screens.first(where: { $0.id == item.unit.id }) else { return nil }
+                let removed = item.unit.sources.filter { !PrototypeFiles.isSourceFile(root: root, path: $0) }
+                return ChangedScreen(screen: screen, update: ScreenUpdate(changed: item.changedSources.filter { !removed.contains($0) },
+                                                                          removed: removed, current: "\(siteRelative)/screens/\(screen.id).js"))
+            }
+            let foundation = PrototypeFiles.read(site: site).filter { ["app.js", "data.js", "styles.css"].contains($0.path) }
+            stage(.phase("Step 2 of 2 · Writing the \(changedUnits.count) changed unit\(changedUnits.count == 1 ? "" : "s")"))
+            for item in screens { stage(.screen(id: item.screen.id, state: .queued)) }
+            let readLog = PrototypeEmbedded.ReadLog()
+            var failed: [Synced.Failed] = []
+            var rewritten: [String] = []
+            var names: [String] = []
+            let stylesheets = originals.stylesheets
+            try await sideBySide(screens, concurrency: concurrency, work: { item in
+                stage(.screen(id: item.screen.id, state: .writing))
+                try await buildScreen(root: root, site: site, plan: plan, screen: item.screen, foundation: foundation, language: language,
+                                      mode: .code, originalStyles: stylesheets, readLog: readLog, update: item.update,
+                                      record: record, stage: scoped(stage, label: item.screen.name, status: false))
+            }, done: { item, problem in
+                if let problem {
+                    failed.append(Synced.Failed(name: item.screen.name, reason: problem))
+                    stage(.screen(id: item.screen.id, state: .failed(problem)))
+                } else {
+                    rewritten.append(item.screen.id)
+                    names.append(item.screen.name)
+                    stage(.screen(id: item.screen.id, state: .done))
+                    stage(.written)
+                }
+            })
+
+            // A changed component: a widget or modal page mounts its screen and needs no assistant; the others are written again.
+            var direct: [String: PlannedScreen] = [:]
+            for screen in plan.screens where screen.embedded {
+                for path in screen.components where direct[path] == nil { direct[path] = screen }
+            }
+            var pages: [PrototypeFiles.Component] = []
+            for item in changedUnits where item.unit.kind == .component {
+                guard let component = manifest.components.first(where: { $0.path == item.unit.id }) else { continue }
+                if let screen = direct[component.path] {
+                    let wanted = PrototypeFiles.componentPage(for: component.path)
+                    let page = PrototypeEmbedded.page(screenID: screen.id, name: screen.name, componentPath: component.path, links: originals.links)
+                    do {
+                        try PrototypeFiles.apply(PrototypeFiles.Change(files: [PrototypeFiles.File(path: wanted, content: page)]), to: site)
+                        rewritten.append(component.path)
+                    } catch {
+                        failed.append(Synced.Failed(name: component.label, reason: error.localizedDescription))
+                    }
+                } else {
+                    pages.append(component)
+                }
+            }
+            for component in pages { stage(.component(path: component.path, state: .queued)) }
+            try await sideBySide(pages, concurrency: concurrency, work: { component in
+                stage(.component(path: component.path, state: .writing))
+                try await buildComponent(root: root, site: site, plan: plan, component: component, foundation: foundation,
+                                         language: language, readLog: readLog, record: record,
+                                         stage: scoped(stage, label: component.label, status: false))
+            }, done: { component, problem in
+                if let problem {
+                    failed.append(Synced.Failed(name: component.label, reason: problem))
+                    stage(.component(path: component.path, state: .failed(problem)))
+                } else {
+                    rewritten.append(component.path)
+                    stage(.component(path: component.path, state: .done))
+                }
+            })
+
+            // Nothing could be rebuilt: the version would be the old one again, so this is a failure, not a sync.
+            if rewritten.isEmpty, !changedUnits.isEmpty {
+                let count = changedUnits.count
+                throw PrototypeFiles.Failure.edits(["None of the \(count) changed unit\(count == 1 ? "" : "s") could be rebuilt: " +
+                                                    (failed.first.map { "\($0.name): \($0.reason)" } ?? "no reason was reported")])
+            }
+            result.screens = names
+            result.rewritten = rewritten
+            result.failed = failed
+            let found = PrototypeFiles.components(in: site, screens: screenRefs(plan.screens))
+            result.components = found.filter { PrototypeFiles.isSourceFile(root: root, path: $0.path) }
+            return result
+        } catch {
+            try? PrototypeFiles.restore(folder: folder, version: manifest.version)
+            throw error
+        }
+    }
+
+    private struct ChangedScreen: Sendable {
+        var screen: PlannedScreen
+        var update: ScreenUpdate
+    }
+
     private static func foundationPart(root: URL, plan: Plan, system: String, label: String, allowed: Set<String>,
                                        required: [String], mode: PrototypeFiles.Mode, originalStyles: [String] = [],
                                        record: @escaping Record, stage: @escaping Stage) async throws -> PrototypeFiles.Change {
@@ -1343,7 +1570,7 @@ enum PrototypeAI {
     /// One screen: a run that answers with `screens/<id>.js`; the answer is tried twice.
     private static func buildScreen(root: URL, site: URL, plan: Plan, screen: PlannedScreen, foundation: [PrototypeFiles.File],
                                     language: String, mode: PrototypeFiles.Mode, originalStyles: [String] = [],
-                                    readLog: PrototypeEmbedded.ReadLog? = nil,
+                                    readLog: PrototypeEmbedded.ReadLog? = nil, update: ScreenUpdate? = nil,
                                     record: @escaping Record, stage: @escaping Stage) async throws {
         let hosted = screen.hosts.compactMap { id in plan.screens.first { $0.id == id } }
         let wanted = "screens/\(screen.id).js"
@@ -1352,7 +1579,8 @@ enum PrototypeAI {
         for attempt in 0..<2 {
             let result = try await call(root: root, system: screenSystem(language: language),
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation,
-                                                             failure: failure, mode: mode, originalStyles: originalStyles, hosted: hosted),
+                                                             failure: failure, mode: mode, originalStyles: originalStyles, hosted: hosted,
+                                                             update: update),
                                         schema: filesSchema, label: "prototype:screen:\(screen.id)",
                                         effort: effort, readLog: readLog,
                                         record: record, stage: stage)
@@ -1423,7 +1651,7 @@ enum PrototypeAI {
     /// written (`written` is empty) and the summary says so.
     static func revise(root: URL, folder: URL, instruction: String, pick: Pick?, attachments: [(url: URL, note: String)] = [],
                        runtimeErrors: [String], language: String, mode: PrototypeFiles.Mode = .requirements, sources: [String] = [],
-                       sweep: Bool = true, concurrency: Int = 4,
+                       sweep: Bool = true, concurrency: Int = 4, target: Target? = nil,
                        record: @escaping Record, stage: @escaping Stage) async throws -> Outcome {
         let site = PrototypeFiles.site(of: folder)
         let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
@@ -1436,7 +1664,7 @@ enum PrototypeAI {
                                                              files: current, runtimeErrors: runtimeErrors,
                                                              priorFailure: failure,
                                                              attachments: attachments.map { Attachment(path: relativePath($0.url, root: root), note: $0.note) },
-                                                             mode: mode, sources: sources, priorEmpty: emptyAnswer),
+                                                             mode: mode, sources: sources, priorEmpty: emptyAnswer, target: target),
                                         schema: reviseSchema, label: "prototype:revise", images: attachments.map(\.url),
                                         record: record, stage: stage)
             let object = result.structured as? [String: Any] ?? [:]
