@@ -243,8 +243,9 @@ do {
         ("dataSystem", PrototypeAI.dataSystem(language: ""), "0831ffa248985aa5ccec0515fee43ccc22c1b6a3c4ca31660920a99bd0400fee"),
         ("shellSystem", PrototypeAI.shellSystem(language: ""), "8222f48f1287ffd53a754ab368d241ed1658ab087ab5296e815f2f6ebcda505e"),
         ("stylesSystem", PrototypeAI.stylesSystem(language: ""), "1826c6bd4ce96575b11ba81605f33840b08ae65021905f22c395226f92b1a0ee"),
-        // Changed on purpose by BUG-053: the sentence on what the callback of App.load returns.
-        ("screenSystem", PrototypeAI.screenSystem(language: ""), "65b10d41921495bb31e3bfc4cb5945cbdd15d6f85a1bfd8d0f36503a500c321b"),
+        // Changed on purpose by BUG-053 (the sentence on what the callback of App.load returns) and BUG-062 (do not clear the element the
+        // container is appended to).
+        ("screenSystem", PrototypeAI.screenSystem(language: ""), "329a4dbbdd88b30affd6cf6ffa0e74e9204788f5b7380308596d35f9774fffa7"),
         // Changed on purpose by BUG-051: the `remaining` paragraph (a request for many files is revised file by file).
         ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "31abde9e8392f5063365002697bd0b3e5a3dbb15da99b00c5bf9edd944bf6023"),
         ("foundationPrompt", PrototypeAI.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
@@ -841,6 +842,13 @@ do {
     check(hostPrompt.contains("Give every panel that receives a widget a definite height"), "the host prompt asks for panels with a definite height")
     // The screen prompt tells the writer what made the strikedesk Trade screen blank.
     check(PrototypeAI.screenSystem(language: "").contains("never the container that `App.load` returned"), "the screen prompt carries the App.load rule")
+    check(PrototypeAI.screenSystem(language: "").contains("(`root.replaceChildren(...)`, `root.innerHTML = ...`)"), "the screen prompt names the calls that remove the loader (BUG-062)")
+    let notSplit = PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: "p/site", files: [], runtimeErrors: [], priorFailure: nil, fanOut: false)
+    check(notSplit.contains("answered in this one run") && notSplit.contains("leave `remaining` empty")
+          && notSplit.range(of: "answered in this one run")!.lowerBound < notSplit.range(of: "Reviewer's request:")!.lowerBound,
+          "a request that cannot fan out is told to leave remaining empty, before the request (BUG-062)")
+    check(!PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: "p/site", files: [], runtimeErrors: [], priorFailure: nil).contains("answered in this one run"),
+          "a request that can fan out is not")
 }
 
 // REQ-008: the target of a request.

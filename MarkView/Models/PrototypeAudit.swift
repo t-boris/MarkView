@@ -61,6 +61,163 @@ enum PrototypeAudit {
         return out
     }
 
+    // MARK: - The loader defect (BUG-062)
+
+    /// Why the screen `content` ends up empty although it renders: the callback of `App.load` (directly, or through a function it calls)
+    /// clears the element the loading container sits in (`root.append(App.load(...))` with `root.replaceChildren(...)` or
+    /// `root.innerHTML = ...` in the callback). That removes the container from the page; the callback's content goes into a detached
+    /// element and nothing is shown, with no JavaScript error. Nil when the file has no such pattern. A text scan, not a parser: it
+    /// follows calls to functions the file defines, up to `loadCallDepth` levels, and nothing else.
+    static func loadProblem(id: String, content: String) -> String? {
+        let code = withoutComments(content)
+        guard code.contains("App") && code.contains("load") else { return nil }
+        let hosts = loadHosts(in: code)
+        guard !hosts.isEmpty else { return nil }
+        let functions = functionBodies(in: code)
+        for host in hosts {
+            let clearing = clearsChildren(of: host.name)
+            if let hit = firstMatch(clearing, in: host.callback) {
+                return loadMessage(id: id, host: host.name, how: hit, through: nil)
+            }
+            // Calls the callback makes to functions the file defines, followed breadth first.
+            var seen = Set<String>(), queue = calledNames(in: host.callback).filter { functions[$0] != nil }.map { ($0, 1) }
+            while !queue.isEmpty {
+                let (name, depth) = queue.removeFirst()
+                guard seen.insert(name).inserted, let body = functions[name] else { continue }
+                if let hit = firstMatch(clearing, in: body) { return loadMessage(id: id, host: host.name, how: hit, through: name) }
+                if depth < loadCallDepth { queue += calledNames(in: body).filter { functions[$0] != nil }.map { ($0, depth + 1) } }
+            }
+        }
+        return nil
+    }
+
+    private static let loadCallDepth = 4
+
+    private static func loadMessage(id: String, host: String, how: String, through function: String?) -> String {
+        let via = function.map { " (through \($0)())" } ?? ""
+        return "screens/\(id).js: the callback of App.load runs `\(how)`\(via) on `\(host)`, the element the loading container is appended " +
+            "to. That removes the container from the page, so the content the callback returns goes nowhere and the screen stays empty. " +
+            "Build the content in a new element and return it from the callback; leave the children of `\(host)` alone."
+    }
+
+    /// One `host.append(App.load(...))`: the host's name and the text of the call's arguments (the callback).
+    private struct LoadHost { var name: String; var callback: String }
+
+    private static func loadHosts(in code: String) -> [LoadHost] {
+        let pattern = #"([A-Za-z_$][\w$]*)\s*\.\s*(?:append|appendChild|prepend|replaceChildren)\s*\(\s*App\s*\.\s*load\s*\("#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let text = code as NSString
+        var out: [LoadHost] = []
+        for match in regex.matches(in: code, range: NSRange(location: 0, length: text.length)) {
+            let name = text.substring(with: match.range(at: 1))
+            let open = match.range.location + match.range.length - 1   // the "(" of App.load(
+            guard let close = closing(of: Array(code.utf16), open: open) else { continue }
+            out.append(LoadHost(name: name, callback: text.substring(with: NSRange(location: open, length: close - open))))
+        }
+        return out
+    }
+
+    /// A regular expression for the ways `name` loses its children.
+    private static func clearsChildren(of name: String) -> NSRegularExpression? {
+        let n = NSRegularExpression.escapedPattern(for: name)
+        return try? NSRegularExpression(pattern: #"(?<![\w$.])"# + n + #"\s*\.\s*(?:replaceChildren\s*\(|(?:innerHTML|textContent|innerText)\s*=(?!=))"#)
+    }
+
+    private static func firstMatch(_ regex: NSRegularExpression?, in text: String) -> String? {
+        guard let regex else { return nil }
+        let ns = text as NSString
+        guard let found = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return ns.substring(with: found.range).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Names followed by "(" in `text`: candidates for the calls the code makes.
+    private static func calledNames(in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"(?<![\w$.])([A-Za-z_$][\w$]*)\s*\("#) else { return [] }
+        let ns = text as NSString
+        var names: [String] = []
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let name = ns.substring(with: match.range(at: 1))
+            if !names.contains(name) { names.append(name) }
+        }
+        return names
+    }
+
+    /// The bodies of the functions a file defines by name (`function f() {}`, `const f = function () {}`, `const f = (a) => {}`).
+    private static func functionBodies(in code: String) -> [String: String] {
+        let patterns = [#"function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{"#,
+                        #"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\s*[A-Za-z_$]*\s*\([^)]*\)|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)\s*\{"#]
+        let text = code as NSString
+        let units = Array(code.utf16)
+        var out: [String: String] = [:]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            for match in regex.matches(in: code, range: NSRange(location: 0, length: text.length)) {
+                let name = text.substring(with: match.range(at: 1))
+                let open = match.range.location + match.range.length - 1   // the "{"
+                guard out[name] == nil, let close = closing(of: units, open: open) else { continue }
+                out[name] = text.substring(with: NSRange(location: open, length: close - open))
+            }
+        }
+        return out
+    }
+
+    /// The index of the bracket that closes the one at `open` (UTF-16 units), skipping strings and template literals; nil when it never closes.
+    private static func closing(of units: [UInt16], open: Int) -> Int? {
+        guard open < units.count else { return nil }
+        var depth = 0
+        var quote: UInt16?
+        var i = open
+        while i < units.count {
+            let c = units[i]
+            if let q = quote {
+                if c == 0x5C { i += 2; continue }          // backslash
+                if c == q { quote = nil }
+            } else if c == 0x22 || c == 0x27 || c == 0x60 {  // " ' `
+                quote = c
+            } else if c == 0x28 || c == 0x7B || c == 0x5B {  // ( { [
+                depth += 1
+            } else if c == 0x29 || c == 0x7D || c == 0x5D {  // ) } ]
+                depth -= 1
+                if depth == 0 { return i }
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    // MARK: - Planning the fix round (BUG-062)
+
+    /// More files than this and the assistant is not asked to fix them in one answer: each file gets a run of its own.
+    static let directFixLimit = 3
+
+    /// The prototype files a problem line points to: `screens/<id>.js` and the `(file.js:line)` of a JavaScript error, in the order
+    /// found and without repeats. Paths are relative to the prototype folder, as the problem lines write them.
+    static func files(in problem: String) -> [String] {
+        let patterns = [#"screens/[A-Za-z0-9_.\-]+\.js"#,
+                        #"\(((?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]+\.(?:js|css|html)):\d+\)"#]
+        let text = problem as NSString
+        var found: [(Int, String)] = []
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            for match in regex.matches(in: problem, range: NSRange(location: 0, length: text.length)) {
+                let range = match.numberOfRanges > 1 ? match.range(at: 1) : match.range
+                found.append((range.location, text.substring(with: range)))
+            }
+        }
+        var out: [String] = []
+        for (_, path) in found.sorted(by: { $0.0 < $1.0 }) where !out.contains(path) { out.append(path) }
+        return out
+    }
+
+    /// The files the whole list of problems points to that exist in the prototype (`existing`: its editable files), without repeats.
+    static func fixFiles(problems: [String], existing: Set<String>) -> [String] {
+        var out: [String] = []
+        for problem in problems {
+            for path in files(in: problem) where existing.contains(path) && !out.contains(path) { out.append(path) }
+        }
+        return out
+    }
+
     // MARK: - The rendered page
 
     struct Finding: Equatable {
