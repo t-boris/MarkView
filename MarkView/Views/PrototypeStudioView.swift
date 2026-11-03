@@ -15,6 +15,10 @@ struct PrototypeStudioView: View {
     @AppStorage("prototypePickScreenshot") private var pickScreenshot = true
     @State private var dragStartWidth: Double?
     @FocusState private var draftFocused: Bool
+    /// The "Assumptions & gaps" popover of the header (REQ-001: the reconstruction's limits are disclosed).
+    @State private var showingDisclosure = false
+    /// "Copied" shown for a moment after the reference went to the pasteboard.
+    @State private var referenceCopied = false
 
     private static let widthRange: ClosedRange<Double> = 260...760
 
@@ -63,6 +67,22 @@ struct PrototypeStudioView: View {
                 Text("v\(session.manifest.version)\(session.manifest.approved ? " · approved" : "")")
                     .uiFont(size: 10).foregroundColor(session.manifest.approved ? VSDark.green : VSDark.textDim)
             }
+            if session.manifest.mode == .code {
+                Text("From code").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.purple)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(VSDark.purple.opacity(0.6)))
+                    .help("Reconstructed from the project's existing code: "
+                          + (session.manifest.sources.isEmpty ? "the whole project" : session.manifest.sources.joined(separator: ", ")))
+            }
+            let disclosed = session.manifest.assumptions.count + session.manifest.gaps.count
+            if disclosed > 0 {
+                Button { showingDisclosure.toggle() } label: {
+                    Label("Assumptions & gaps (\(disclosed))", systemImage: "info.circle").uiFont(size: 10)
+                }
+                .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                .popover(isPresented: $showingDisclosure, arrowEdge: .bottom) { disclosure }
+                .help("What the assistant assumed, and what the original does that this prototype only simulates or lacks")
+            }
             if !session.runtimeErrors.isEmpty {
                 Label("\(session.runtimeErrors.count)", systemImage: "exclamationmark.triangle.fill")
                     .uiFont(size: 10).foregroundColor(VSDark.orange)
@@ -86,6 +106,11 @@ struct PrototypeStudioView: View {
                 .controlSize(.small).menuIndicator(.hidden).fixedSize().disabled(session.isBusy)
                 .help("Go back to an earlier version")
             }
+            Button { copyReference() } label: {
+                Label(referenceCopied ? "Copied" : "Copy reference", systemImage: referenceCopied ? "checkmark" : "link")
+            }
+            .controlSize(.small).fixedSize()
+            .help("Copy \(PrototypeReference.string(slug: session.slug)) — for an AI agent with access to this project; always resolves to the latest saved version")
             Button { workspaceManager.openHTMLInBrowser(session.siteIndex) } label: {
                 Image(systemName: "globe")
             }
@@ -99,6 +124,47 @@ struct PrototypeStudioView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(VSDark.bgSidebar)
+    }
+
+    /// The assumptions the assistant made and the known gaps of a reconstruction, as recorded at generation.
+    private var disclosure: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if !session.manifest.assumptions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Assumptions").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                        ForEach(session.manifest.assumptions, id: \.self) { item in
+                            Text("• \(item)").uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                if !session.manifest.gaps.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Known gaps").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                        Text("What the original does that this prototype only simulates or lacks; recorded when it was generated.")
+                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                        ForEach(session.manifest.gaps, id: \.self) { item in
+                            Text("• \(item)").uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+        }
+        .frame(width: 380)
+        .frame(maxHeight: 320)
+    }
+
+    /// Puts the prototype's reference (REQ-003, DEC-002: the prototype, never a version) on the pasteboard.
+    private func copyReference() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(PrototypeReference.string(slug: session.slug), forType: .string)
+        referenceCopied = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            referenceCopied = false
+        }
     }
 
     private var placeholder: some View {
