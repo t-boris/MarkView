@@ -82,6 +82,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var record: PrototypeAI.Record = { _ in }
     /// Appended to prompts when the output language differs from the documents' language.
     var languageNote = ""
+    /// Code mode: the detected web apps, as hints for the planner (the caller maps them from WebAppPreview).
+    var codeScope = PrototypeAI.CodeScope()
 
     private var task: Task<Void, Never>?
     /// Runs of the assistant that fix reported errors by themselves, per request.
@@ -195,14 +197,17 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Builds the prototype from the sources and the brief: plan, foundation, then the screens side by side.
     func generate() {
         guard !isBusy else { return }
-        beginRun("Reading the requirements")
+        beginRun(manifest.mode == .code ? "Reading the code" : "Reading the requirements")
         task = Task { [self] in
             defer { endRun() }
             do {
                 try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
                 let built = try await PrototypeAI.build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
-                                                        language: languageNote, record: record, stage: stageReporter)
+                                                        language: languageNote, mode: manifest.mode, codeScope: codeScope,
+                                                        record: record, stage: stageReporter)
                 manifest.screens = built.screens + built.failed
+                // Gaps are fixed at generation; review edits never change them (DEC-004).
+                manifest.gaps = built.gaps
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
                 }
@@ -212,6 +217,10 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 }
                 if !built.assumptions.isEmpty {
                     reply += "\n\nAssumptions I made:\n" + built.assumptions.map { "• \($0)" }.joined(separator: "\n")
+                }
+                if !built.gaps.isEmpty {
+                    reply += "\n\nKnown gaps (what the original does that this prototype only simulates or lacks):\n"
+                        + built.gaps.map { "• \($0)" }.joined(separator: "\n")
                 }
                 messages.append(Message(role: .assistant, text: reply))
                 await settleAndFix(language: languageNote)
@@ -273,6 +282,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
                                                            attachments: files, runtimeErrors: runtimeErrors, language: languageNote,
+                                                           mode: manifest.mode, sources: manifest.sources,
                                                            record: record, stage: stageReporter)
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
@@ -385,6 +395,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder,
                                                            instruction: "Fix the JavaScript errors reported by the preview. Change nothing else.",
                                                            pick: nil, runtimeErrors: errors, language: language,
+                                                           mode: manifest.mode, sources: manifest.sources,
                                                            record: record, stage: stageReporter)
                 try accept(instruction: "Fix preview errors", summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
