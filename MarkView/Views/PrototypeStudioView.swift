@@ -19,6 +19,8 @@ struct PrototypeStudioView: View {
     @State private var showingDisclosure = false
     /// "Copied" shown for a moment after the reference went to the pasteboard.
     @State private var referenceCopied = false
+    /// The Components list of a code-mode prototype (REQ-007).
+    @State private var showingComponents = false
 
     private static let widthRange: ClosedRange<Double> = 260...760
 
@@ -88,7 +90,22 @@ struct PrototypeStudioView: View {
                     .uiFont(size: 10).foregroundColor(VSDark.orange)
                     .help(session.runtimeErrors.joined(separator: "\n"))
             }
+            if let page = session.shownPage {
+                Button { session.show(page: nil) } label: {
+                    Label("Back to the screens", systemImage: "chevron.left")
+                }
+                .controlSize(.small).fixedSize()
+                .help("The preview shows \(page) on its own; go back to the prototype's screens")
+            }
             Spacer()
+            if !session.manifest.components.isEmpty {
+                Button { showingComponents.toggle() } label: {
+                    Label("Components (\(session.manifest.components.count))", systemImage: "square.on.square.dashed")
+                }
+                .controlSize(.small).fixedSize()
+                .popover(isPresented: $showingComponents, arrowEdge: .bottom) { componentsList }
+                .help("The source components this prototype reproduces: select one to outline its instances, open its source file or view it alone")
+            }
             Toggle(isOn: $session.pickMode) {
                 Label("Point", systemImage: "cursorarrow.click.2")
             }
@@ -154,6 +171,70 @@ struct PrototypeStudioView: View {
         }
         .frame(width: 380)
         .frame(maxHeight: 320)
+    }
+
+    /// The Components list (REQ-007, DEC-005): every source component the prototype reproduces, with the screens
+    /// that use it. Selecting one outlines its instances in the preview; each offers its source file and its
+    /// isolated view when the generation produced one.
+    private var componentsList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Source components the prototype reproduces. Select one to outline its instances in the preview; pointing at an element selects its component.")
+                    .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 6)
+                ForEach(session.manifest.components, id: \.path) { component in
+                    componentRow(component)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+        }
+        .frame(width: 400)
+        .frame(maxHeight: 360)
+    }
+
+    private func componentRow(_ component: PrototypeFiles.Component) -> some View {
+        let selected = session.selectedComponent == component.path
+        let screens = component.screens.count
+        let usage = screens == 0 ? "no screen names it" : "\(screens) screen\(screens == 1 ? "" : "s")"
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(component.label).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                Text(usage).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                Spacer()
+                if selected, let count = session.highlightedInstances {
+                    Text(count == 0 ? "not on this page" : "\(count) on this page").uiFont(size: 10).foregroundColor(VSDark.blue)
+                }
+            }
+            Text(component.path).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
+                .help(component.screens.isEmpty ? component.path : "Used by: \(component.screens.joined(separator: ", "))")
+            if selected { componentActions(component.path) }
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 5).fill(selected ? VSDark.selection.opacity(0.5) : Color.clear))
+        .contentShape(Rectangle())
+        .onTapGesture { session.selectedComponent = selected ? nil : component.path }
+    }
+
+    /// "Open source" and "View alone" for a component path (the pick card and the Components list share them).
+    @ViewBuilder
+    private func componentActions(_ path: String) -> some View {
+        HStack(spacing: 8) {
+            Button("Open source") {
+                if let url = session.sourceURL(of: path) { workspaceManager.openFile(url, line: nil) }
+            }
+            .disabled(session.sourceURL(of: path) == nil)
+            .help(session.sourceURL(of: path) == nil ? "\(path) is not in the project any more" : "Open \(path) in an editor tab")
+            if let page = session.component(at: path)?.page {
+                Button(session.shownPage == page ? "Back to the screens" : "View alone") {
+                    session.show(page: session.shownPage == page ? nil : page)
+                    showingComponents = false
+                }
+                .help("Show only this component, rendered with simulated data (\(page))")
+            }
+        }
+        .controlSize(.small)
     }
 
     /// Puts the prototype's reference (REQ-003, DEC-002: the prototype, never a version) on the pasteboard.
@@ -251,6 +332,20 @@ struct PrototypeStudioView: View {
                         .buttonStyle(.plain).foregroundColor(VSDark.textDim)
                 }
                 .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.selection.opacity(0.5)))
+                if let component = pick.component, !component.isEmpty {
+                    // The element or its nearest marked ancestor reproduces this source file (REQ-007).
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 4) {
+                            Text("Component:").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                            Text(component).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                                .help(component)
+                        }
+                        componentActions(component)
+                    }
+                    .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput.opacity(0.6)))
+                } else if session.manifest.mode == .code {
+                    Text("No source component is recorded for this element.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                }
                 Picker("", selection: $pickScreenshot) {
                     Text("HTML").tag(false)
                     Text("HTML + screenshot").tag(true)
@@ -489,10 +584,12 @@ private struct PrototypePreview: NSViewRepresentable {
           if (type !== 'click') return;
           var el = e.target, r = el.getBoundingClientRect();
           box.style.display = 'none';  // the highlight must not be in the screenshot
+          var marked = el.closest ? el.closest('[data-mv-component]') : null;
           window.webkit.messageHandlers.mvPick.postMessage({
             selector: path(el), tag: el.tagName.toLowerCase(),
             text: (el.innerText || el.value || '').trim().slice(0, 200),
             html: el.outerHTML.slice(0, 800), screen: location.hash || '',
+            component: marked ? (marked.getAttribute('data-mv-component') || '') : '',
             rect: { x: r.left, y: r.top, w: r.width, h: r.height }
           });
         }, true);
@@ -500,6 +597,16 @@ private struct PrototypePreview: NSViewRepresentable {
       window.__mvPick = function (v) {
         on = v; if (!v) box.style.display = 'none';
         document.documentElement.style.cursor = v ? 'crosshair' : '';
+      };
+      // Outlines every element of one source component (the Components list); returns how many there are.
+      var highlight = document.createElement('style');
+      highlight.id = 'mv-highlight';
+      window.__mvHighlight = function (component) {
+        if (!highlight.parentNode) document.documentElement.appendChild(highlight);
+        if (!component) { highlight.textContent = ''; return 0; }
+        var selector = '[data-mv-component="' + (window.CSS && CSS.escape ? CSS.escape(component) : component.replace(/["\\\\]/g, '\\\\$&')) + '"]';
+        highlight.textContent = selector + '{outline:2px solid #0a84ff !important;outline-offset:-2px;box-shadow:0 0 0 4px rgba(10,132,255,.18) !important}';
+        return document.querySelectorAll(selector).length;
       };
       window.addEventListener('error', function (e) {
         window.webkit.messageHandlers.mvError.postMessage((e.message || 'Error') + (e.lineno ? ' (' + (e.filename || '').split('/').pop() + ':' + e.lineno + ')' : ''));
@@ -532,6 +639,7 @@ private struct PrototypePreview: NSViewRepresentable {
             coordinator.load(session: session, keepingScreen: true)
         }
         coordinator.applyPickMode(session.pickMode)
+        coordinator.applyHighlight(session.selectedComponent)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -544,14 +652,21 @@ private struct PrototypePreview: NSViewRepresentable {
         weak var webView: WKWebView?
         var loadedToken = -1
         private var pickMode = false
+        /// The component whose instances are outlined, as last sent to the page.
+        private var highlighted: String?
+        /// The page the last load showed, so a switch between the screens and an isolated view starts afresh.
+        private var loadedPage: String?
 
         init(session: PrototypeSession) { self.session = session }
 
-        /// Loads index.html; after a change the screen the reviewer was on stays selected.
+        /// Loads index.html (or the isolated page the session shows); after a change the screen the reviewer was
+        /// on stays selected.
         func load(session: PrototypeSession, keepingScreen: Bool) {
             guard let webView else { return }
             loadedToken = session.reloadToken
-            let index = session.siteIndex
+            let samePage = loadedPage == session.shownPage
+            loadedPage = session.shownPage
+            let index = session.shownURL
             let reload = { (hash: String) in
                 var url = index
                 if !hash.isEmpty, var parts = URLComponents(url: index, resolvingAgainstBaseURL: false) {
@@ -560,7 +675,7 @@ private struct PrototypePreview: NSViewRepresentable {
                 }
                 webView.loadFileURL(url, allowingReadAccessTo: session.siteFolder)
             }
-            if keepingScreen {
+            if keepingScreen && samePage {
                 webView.evaluateJavaScript("location.hash") { value, _ in reload(value as? String ?? "") }
             } else {
                 reload("")
@@ -572,7 +687,24 @@ private struct PrototypePreview: NSViewRepresentable {
             webView?.evaluateJavaScript("window.__mvPick && window.__mvPick(\(on))")
         }
 
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { applyPickMode(pickMode) }
+        /// Outlines the instances of `component` in the page (none with nil) and reports how many it holds.
+        func applyHighlight(_ component: String?, force: Bool = false) {
+            guard force || component != highlighted, let webView else { return }
+            highlighted = component
+            let value = component.map { path -> String in
+                let data = (try? JSONSerialization.data(withJSONObject: [path])) ?? Data("[\"\"]".utf8)
+                return String(decoding: data, as: UTF8.self) + "[0]"
+            } ?? "null"
+            webView.evaluateJavaScript("window.__mvHighlight ? window.__mvHighlight(\(value)) : null") { [weak self] result, _ in
+                guard let self, self.highlighted == component else { return }
+                self.session.highlightedInstances = component == nil ? nil : (result as? NSNumber)?.intValue
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            applyPickMode(pickMode)
+            applyHighlight(highlighted, force: true)
+        }
 
         /// A screenshot of the pointed-at element, kept with the pick; sent only if the reviewer chose HTML + screenshot.
         private func snapshot(of pick: PrototypeAI.Pick) {
@@ -601,8 +733,9 @@ private struct PrototypePreview: NSViewRepresentable {
                     let box = info["rect"] as? [String: Any] ?? [:]
                     func number(_ key: String) -> CGFloat { CGFloat((box[key] as? NSNumber)?.doubleValue ?? 0) }
                     let rect = CGRect(x: number("x"), y: number("y"), width: number("w"), height: number("h"))
+                    let component = PrototypeFiles.componentPath(field("component"))
                     let pick = PrototypeAI.Pick(selector: field("selector"), tag: field("tag"), text: field("text"),
-                                                html: field("html"), screen: field("screen"), rect: rect)
+                                                html: field("html"), screen: field("screen"), rect: rect, component: component)
                     session.pick = pick
                     session.pickMode = false
                     snapshot(of: pick)

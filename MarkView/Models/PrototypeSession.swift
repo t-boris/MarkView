@@ -71,8 +71,19 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var runtimeErrors: [String] = []
     @Published private(set) var archive: URL?
     @Published var pick: PrototypeAI.Pick? {
-        didSet { if pick == nil { pickShot = nil } }
+        didSet {
+            if pick == nil { pickShot = nil }
+            // A pick selects its component in the Components list (REQ-007); a pick without one leaves the list alone.
+            if let component = pick?.component, !component.isEmpty { selectedComponent = component }
+        }
     }
+    /// The component selected in the Components list, by source path: its instances are outlined in the preview.
+    @Published var selectedComponent: String?
+    /// How many elements of `selectedComponent` the loaded page holds; nil until the preview counted them.
+    @Published var highlightedInstances: Int?
+    /// The page the preview shows instead of `index.html`: a component's isolated view, relative to `site/`
+    /// ("View alone"); nil shows the screens.
+    @Published var shownPage: String?
     /// A screenshot of the pointed-at element, taken when it was clicked.
     @Published var pickShot: Data?
     @Published private(set) var attachments: [Attachment] = []
@@ -93,6 +104,27 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var siteIndex: URL { PrototypeFiles.site(of: folder).appendingPathComponent("index.html") }
     var siteFolder: URL { PrototypeFiles.site(of: folder) }
     var hasSite: Bool { FileManager.default.fileExists(atPath: siteIndex.path) }
+    /// What the preview loads: the isolated page when one is shown, else `index.html`.
+    var shownURL: URL { shownPage.map { siteFolder.appendingPathComponent($0) } ?? siteIndex }
+
+    /// The component record of a source path, when the manifest lists it.
+    func component(at path: String) -> PrototypeFiles.Component? {
+        manifest.components.first { $0.path == path }
+    }
+
+    /// The source file of a component, when it exists in the project (an "Open source" target).
+    func sourceURL(of path: String) -> URL? {
+        let url = root.appendingPathComponent(path).standardizedFileURL
+        guard url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    /// Shows a component's isolated page in the preview, or the screens again with nil.
+    func show(page: String?) {
+        guard page != shownPage else { return }
+        shownPage = page
+        reloadToken += 1
+    }
 
     /// A prototype that does not exist yet; `generate()` builds it. In `.code` mode the sources are the
     /// existing web-interface code to reconstruct (Previews from Existing Code).
