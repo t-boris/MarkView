@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## BUG-046: X-Ray / Code fails on "needs valid source evidence in one of its paths" (2026-11-02, 5.0.2, fix/bug-046-xray-evidence)
+
+A MarkView X-Ray / Code analysis was discarded because three components cited lines that could not be used, and the
+repair round was told only that something was wrong (docs/bugs/BUG-046-xray-code-needs-valid-source-evidence.md).
+
+- [x] `citationCandidates` accepts `path:line`, `path:line-end` and `path:line:column`.
+- [x] Validation reports five distinct reasons, names the real file length or the component's own paths, and appends a
+      usable citation read from a real definition line.
+- [x] The analysis prompt states the citation format and that a line past the end of a file is never valid.
+- [x] `groundEvidence` repairs only unusable citations after the repair round, keeps the assistant's structure, and is
+      re-validated before use; it cannot rescue invented paths.
+- [x] `code-architecture-tests.sh` covers all of it and fails with 8 failures against the pre-fix code.
+
 ## BUG-045: prototype generation fails when the JSON answer is cut off (2026-11-02, 5.0.1, fix/bug-045-acp-cut-off-json)
 
 A Copilot (Claude Sonnet 5.5) prototype stage failed with "the answer was cut off before its JSON ended

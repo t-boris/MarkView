@@ -88,7 +88,13 @@ solid, and layers without a code model dotted (REQ-004). Payloads without the ne
 still render: the status falls back to the model's date and staleness to the root signature.
 A dependency citation must be owned by an endpoint or one of its child components, using the
 same most-specific-path/deepest-owner rule as the diagram. A repair call receives the prior JSON
-and up to 40 validation problems, preserving valid component identities. CRLF line numbers
+and up to 40 validation problems, preserving valid component identities. A citation may be written
+as `path:line`, `path:line-end` or `path:line:column`, and each problem names its own reason — no
+citation, a path outside the project, a line past the real end of the file, or a file the component
+does not own — together with a usable citation from the component's own code. If the repair round
+still fails, `groundEvidence` replaces only the unusable citations with real definition lines from
+files the component already owns and the model is validated again, so a sound structure is not
+discarded over a line number; a component whose paths do not exist is still rejected. CRLF line numbers
 match the editor. Shared `CodePathTags` makes Code filtering available without a Logical pass.
 The overview uses stable layer positions and concise cards; selecting a box reveals its arrows.
 Tests start hidden on mixed projects and remain available through Show all. Tests-only folders

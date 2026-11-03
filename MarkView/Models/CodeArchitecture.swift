@@ -360,11 +360,6 @@ enum CodeArchitecture {
         }
         let primary = files.filter { !CodePathTags.isTestPath($0.path!) }
         let tests = files.filter { CodePathTags.isTestPath($0.path!) }
-        let declaration = try! NSRegularExpression(pattern: #"\b(?:class|struct|enum|protocol|extension|func|function|def|fn|fun|interface|type|typealias|impl|CREATE\s+TABLE)\s+[\p{L}_$]"#, options: [.caseInsensitive])
-        func isCode(_ line: String) -> Bool {
-            let line = line.trimmingCharacters(in: .whitespaces)
-            return !line.isEmpty && !["//", "/*", "*", "#", "import ", "from ", "package ", "using ", "use "].contains(where: line.hasPrefix)
-        }
         var blocks: [String] = [], remaining = limit
         for file in interleaved(primary) + interleaved(tests) {
             guard remaining > 100, let path = file.path else { break }
@@ -374,8 +369,8 @@ enum CodeArchitecture {
                   (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes,
                   let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let lines = sourceLines(text)
-            let code = lines.indices.filter { isCode(lines[$0]) }
-            let definitions = code.filter { declaration.firstMatch(in: lines[$0], range: NSRange(lines[$0].startIndex..., in: lines[$0])) != nil }
+            let code = lines.indices.filter { isCodeLine(lines[$0]) }
+            let definitions = code.filter { isDefinition(lines[$0]) }
             let candidates = definitions.isEmpty ? code : definitions
             guard !candidates.isEmpty else { continue }
             let picks = Set([0, candidates.count / 3, candidates.count * 2 / 3, candidates.count - 1].map { candidates[$0] }).sorted()
@@ -419,8 +414,10 @@ enum CodeArchitecture {
         inventory files. No wildcard/glob patterns or brace expansions. List non-contiguous
         files individually. Cover all first-party source code without inventing paths or services.
         Every component MUST cite a definition or implementation line demonstrating its purpose,
-        within its owned paths. Cite a class/function definition, SQL operation or actual call,
-        not an import, copyright/header, blank line, or :1 used as a whole-file placeholder.
+        within its owned paths. Write the citation as `path:line`: an exact inventory path, a colon
+        and a line number that really exists in that file — check the file before citing it, and
+        never cite a line past its end. Cite a class/function definition, SQL operation or actual
+        call, not an import, copyright/header, blank line, or :1 used as a whole-file placeholder.
         parent is an existing component id or empty for a top-level component. No cycles.
         Also return dependencies: component source id, target id, short action label, and a real
         path:line evidence for the dependency. Include actual calls, data access, imports and
@@ -506,12 +503,35 @@ enum CodeArchitecture {
                     problems.append("\(component.name) has an unknown source path: \(path). Use exact inventory files or existing directories; wildcard patterns are not supported")
                 }
             }
-            if let location = sourceLocation(component.evidence, root: root), files.contains(location.path),
-               component.paths.contains(where: { location.path == $0 || location.path.hasPrefix($0 + "/") }) {
-                // The citation must be in the code this component actually owns.
-            } else { problems.append("\(component.name) needs valid source evidence in one of its paths") }
+            // The citation must be in the code this component actually owns, and must say why
+            // when it is not: a repair turn that is only told "invalid" repeats the same answer.
+            if let problem = citationProblem(component.evidence, ownedBy: component.paths, files: files, root: root) {
+                problems.append("\(component.name) needs valid source evidence in one of its paths: \(problem)"
+                    + suggestion(for: component.paths, files: files, root: root))
+            }
         }
         let assignments = fileAssignments(model, paths: Array(files))
+        for dependency in model.dependencies ?? [] {
+            if !ids.contains(dependency.source) || !ids.contains(dependency.target) || dependency.label.isEmpty {
+                problems.append("Dependencies need existing component ids and an action label")
+            }
+            if let problem = dependencyCitationProblem(dependency, files: files, assignments: assignments,
+                                                       parents: parents, root: root) {
+                problems.append("Dependency \(dependency.source) -> \(dependency.target) \(problem)"
+                    + suggestion(for: endpointPaths(dependency, in: model), files: files, root: root))
+            }
+        }
+        if !problems.isEmpty { throw DiagramAI.Failure.unusable(problems) }
+    }
+
+    /// Why a dependency's citation cannot prove it, or nil when it can. A child implementation
+    /// also supports its containing subsystem.
+    static func dependencyCitationProblem(_ dependency: CodeArchitectureModel.Dependency, files: Set<String>,
+                                          assignments: [String: String], parents: [String: String],
+                                          root: URL) -> String? {
+        if let problem = citationProblem(dependency.evidence, ownedBy: [], files: files, root: root) {
+            return "needs valid source evidence: " + problem
+        }
         func within(_ owner: String, scope: String) -> Bool {
             var cursor = owner, seen = Set<String>()
             while !cursor.isEmpty, seen.insert(cursor).inserted {
@@ -520,37 +540,150 @@ enum CodeArchitecture {
             }
             return false
         }
-        for dependency in model.dependencies ?? [] {
-            if !ids.contains(dependency.source) || !ids.contains(dependency.target) || dependency.label.isEmpty {
-                problems.append("Dependencies need existing component ids and an action label")
-            }
-            if let location = sourceLocation(dependency.evidence, root: root), files.contains(location.path) {
-                if let owner = assignments[location.path], within(owner, scope: dependency.source) || within(owner, scope: dependency.target) {
-                    // A child implementation also supports its containing subsystem.
-                } else {
-                    problems.append("Dependency \(dependency.source) -> \(dependency.target) cites unrelated code at \(dependency.evidence). Cite an implementation owned by one endpoint or its children, or correct the endpoints")
-                }
-            } else { problems.append("Dependency needs valid source evidence") }
+        guard let location = sourceLocation(dependency.evidence, root: root), let owner = assignments[location.path],
+              within(owner, scope: dependency.source) || within(owner, scope: dependency.target) else {
+            return "cites unrelated code at \(dependency.evidence). Cite an implementation owned by one endpoint or its children, or correct the endpoints"
         }
-        if !problems.isEmpty { throw DiagramAI.Failure.unusable(problems) }
+        return nil
+    }
+
+    /// The owned paths of a dependency's endpoints, nearest first: where its citation may live.
+    private static func endpointPaths(_ dependency: CodeArchitectureModel.Dependency,
+                                      in model: CodeArchitectureModel) -> [String] {
+        [dependency.source, dependency.target].flatMap { id in
+            model.components.first { $0.id == id }?.paths ?? []
+        }
+    }
+
+    /// Why `evidence` cannot be used as a citation, or nil when it can. `paths`, when given, are
+    /// the paths the citation must lie in.
+    static func citationProblem(_ evidence: String, ownedBy paths: [String], files: Set<String>, root: URL) -> String? {
+        let text = evidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parts = citationCandidates(text).first(where: { files.contains($0.path) }) ?? citationCandidates(text).first else {
+            return text.isEmpty ? "no citation was given; write it as path:line"
+                : "“\(text.prefix(120))” is not a path:line citation of a project source file"
+        }
+        guard files.contains(parts.path) else {
+            return "“\(parts.path)” is not a source file of this project; cite an exact inventory path"
+        }
+        guard let lines = citableLineCount(parts.path, root: root) else {
+            return "“\(parts.path)” cannot be read as source here; cite another file it owns"
+        }
+        guard parts.line <= lines else {
+            return "line \(parts.line) is past the end of \(parts.path), which has \(lines) lines"
+        }
+        guard paths.isEmpty || paths.contains(where: { parts.path == $0 || parts.path.hasPrefix($0 + "/") }) else {
+            return "\(parts.path) is not one of its own paths (\(paths.prefix(4).joined(separator: ", ")))"
+        }
+        return nil
+    }
+
+    /// A real citation the answer could have used, appended to a problem so the repair turn has
+    /// somewhere to go instead of guessing another line number.
+    private static func suggestion(for paths: [String], files: Set<String>, root: URL) -> String {
+        guard let citation = definitionCitation(in: paths, files: files, root: root) else { return "" }
+        return ". A usable citation in that code is \(citation)"
+    }
+
+    /// The path and line of the first definition in `paths`, e.g. "src/Store.swift:42".
+    /// Deterministic and read from the file, so it can replace a citation that cannot be used.
+    static func definitionCitation(in paths: [String], files: Set<String>, root: URL) -> String? {
+        let owned = paths.flatMap { path in files.filter { $0 == path || $0.hasPrefix(path + "/") } }
+            .sorted().prefix(20)
+        for path in owned {
+            guard let text = sourceText(path, root: root) else { continue }
+            let lines = sourceLines(text)
+            if let index = lines.indices.first(where: { isDefinition(lines[$0]) }) { return "\(path):\(index + 1)" }
+            if let index = lines.indices.first(where: { isCodeLine(lines[$0]) }) { return "\(path):\(index + 1)" }
+        }
+        return nil
+    }
+
+    /// The model with every citation that cannot be used replaced by a real definition line in the
+    /// code the component (or the dependency's endpoint) already owns. A last resort for an answer
+    /// that is sound everywhere else: the structure stays the assistant's, the citation is read
+    /// from the source, and the result is validated again before it is used.
+    static func groundEvidence(_ model: CodeArchitectureModel, modules: ArchView, root: URL) -> CodeArchitectureModel {
+        let files = Set(modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.compactMap(\.path))
+        var grounded = model
+        for index in grounded.components.indices {
+            let component = grounded.components[index]
+            guard citationProblem(component.evidence, ownedBy: component.paths, files: files, root: root) != nil,
+                  let citation = definitionCitation(in: component.paths, files: files, root: root) else { continue }
+            grounded.components[index].evidence = citation
+        }
+        let assignments = fileAssignments(grounded, paths: Array(files))
+        let parents = Dictionary(grounded.components.map { ($0.id, $0.parent) }, uniquingKeysWith: { a, _ in a })
+        for index in (grounded.dependencies ?? []).indices {
+            let dependency = grounded.dependencies![index]
+            guard dependencyCitationProblem(dependency, files: files, assignments: assignments,
+                                            parents: parents, root: root) != nil else { continue }
+            // The citation must belong to an endpoint: take the files that endpoint really owns.
+            let endpoints = [dependency.source, dependency.target].map { id in
+                files.filter { assignments[$0] == id }.sorted()
+            }
+            guard let citation = endpoints.lazy.compactMap({ definitionCitation(in: $0, files: files, root: root) }).first
+            else { continue }
+            grounded.dependencies![index].evidence = citation
+        }
+        return grounded
     }
 
     private static func sourceLines(_ text: String) -> [String] {
         text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
     }
 
-    /// Reject outside paths (including symlinks), directories and invalid line numbers.
-    static func sourceLocation(_ value: String, root: URL) -> (path: String, line: Int)? {
-        guard let colon = value.lastIndex(of: ":"), let line = Int(value[value.index(after: colon)...]), line > 0 else { return nil }
-        let path = String(value[..<colon])
+    /// Declarations the analysis treats as implementation evidence.
+    private static let declarationPattern = try! NSRegularExpression(
+        pattern: #"\b(?:class|struct|enum|protocol|extension|func|function|def|fn|fun|interface|type|typealias|impl|CREATE\s+TABLE)\s+[\p{L}_$]"#,
+        options: [.caseInsensitive])
+
+    static func isDefinition(_ line: String) -> Bool {
+        isCodeLine(line) && declarationPattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+    }
+
+    static func isCodeLine(_ line: String) -> Bool {
+        let line = line.trimmingCharacters(in: .whitespaces)
+        return !line.isEmpty && !["//", "/*", "*", "#", "import ", "from ", "package ", "using ", "use "].contains(where: line.hasPrefix)
+    }
+
+    /// Project source that may be cited: inside the project, a regular file, within the parse limit.
+    private static func sourceText(_ path: String, root: URL) -> String? {
         guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return nil }
         let base = root.resolvingSymlinksInPath().standardizedFileURL
         let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
         guard url.path.hasPrefix(base.path + "/"),
               let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]), values.isRegularFile == true,
-              (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes,
-              let text = try? String(contentsOf: url, encoding: .utf8), line <= sourceLines(text).count else { return nil }
-        return (path, line)
+              (values.fileSize ?? Int.max) <= ArchitectureScanner.maxParseBytes else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// How many lines of `path` may be cited, or nil when it is not citable source.
+    static func citableLineCount(_ path: String, root: URL) -> Int? {
+        sourceText(path, root: root).map { sourceLines($0).count }
+    }
+
+    /// The ways `value` can be read as a citation, best first. Assistants write `path:line`, but
+    /// also `path:line-end` and `path:line:column`; all three name one line of one file.
+    static func citationCandidates(_ value: String) -> [(path: String, line: Int)] {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var candidates: [(path: String, line: Int)] = []
+        for colon in [text.lastIndex(of: ":"), text.firstIndex(of: ":")].compactMap({ $0 }) {
+            let digits = text[text.index(after: colon)...].drop { $0 == " " }.prefix { $0.isNumber }
+            let path = String(text[..<colon]).trimmingCharacters(in: .whitespaces)
+            guard let line = Int(digits), line > 0, !path.isEmpty,
+                  !candidates.contains(where: { $0.path == path && $0.line == line }) else { continue }
+            candidates.append((path, line))
+        }
+        return candidates
+    }
+
+    /// Reject outside paths (including symlinks), directories and invalid line numbers.
+    static func sourceLocation(_ value: String, root: URL) -> (path: String, line: Int)? {
+        for candidate in citationCandidates(value) {
+            if let lines = citableLineCount(candidate.path, root: root), candidate.line <= lines { return candidate }
+        }
+        return nil
     }
 
     static func validateSequence(_ spec: DiagramSpec, root: URL) throws {
