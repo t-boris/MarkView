@@ -2,7 +2,7 @@
 type: bug
 id: BUG-058
 title: "Prototype option desk shows only its toolbar: the option chain is clipped to zero height and the preview check does not notice"
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03

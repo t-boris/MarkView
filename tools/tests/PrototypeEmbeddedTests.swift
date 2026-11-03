@@ -44,6 +44,20 @@ do {
     let page = screen("about", evidence: ["src/About.tsx"])
     check([host, widget, modal].allSatisfy { PrototypeAI.screenEffort($0) == "medium" } && PrototypeAI.screenEffort(page) == "low",
           "hosts, widgets and modals run at medium effort, an ordinary page at low")
+    let large = PrototypeAI.largeSourceBytes
+    check([host, widget, modal].allSatisfy { PrototypeAI.screenEffort($0, sourceBytes: large - 1) == "medium" && PrototypeAI.screenEffort($0, sourceBytes: large) == "high" },
+          "a host, widget or modal whose evidence is \(large) bytes or more runs at high effort (BUG-059)")
+    check(PrototypeAI.screenEffort(page, sourceBytes: 10 * large) == "low", "an ordinary page stays at low effort however large its source is")
+    do {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("effort-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder.appendingPathComponent("src"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try? Data(count: 30_000).write(to: folder.appendingPathComponent("src/OrderList.tsx"))
+        try? Data(count: 15_000).write(to: folder.appendingPathComponent("src/Extra.tsx"))
+        let sized = screen("order-list", embedded: true, evidence: ["src/OrderList.tsx", "src/Extra.tsx", "src/Gone.tsx"])
+        check(PrototypeAI.evidenceBytes(sized, root: folder) == 45_000, "the evidence size adds up the files that exist and counts a missing one as nothing")
+        check(PrototypeAI.evidenceBytes(screen("about"), root: folder) == 0, "a screen without evidence has no size")
+    }
     check(PrototypeAI.isModal(modal) && !PrototypeAI.isModal(widget) && !PrototypeAI.isModal(host), "a modal is told by its route")
 
     func prompt(_ s: PrototypeAI.PlannedScreen, hosted: [PrototypeAI.PlannedScreen] = [], mode: PrototypeFiles.Mode = .code) -> String {

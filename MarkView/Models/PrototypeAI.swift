@@ -681,8 +681,24 @@ enum PrototypeAI {
     /// A widget or modal of a docked window or a dialog flow: a screen a host lays out, not a page (BUG-050).
     static func isModal(_ screen: PlannedScreen) -> Bool { screen.route.hasPrefix("/modals/") }
 
-    /// The effort of a screen run: a widget, a modal or a host is written from whole source files, so it gets more than a page.
-    static func screenEffort(_ screen: PlannedScreen) -> String { screen.embedded || !screen.hosts.isEmpty ? "medium" : "low" }
+    /// Evidence files of a widget, modal or host that add up to this many bytes are large enough to need the strongest effort.
+    static let largeSourceBytes = 40_000
+
+    /// The effort of a screen run: a widget, a modal or a host is written from whole source files, so it gets more than a page,
+    /// and one whose evidence files add up to `largeSourceBytes` or more gets the most: with "medium" the OptionDesk widget (84 KB)
+    /// came back as a 9 KB look-alike (BUG-059).
+    static func screenEffort(_ screen: PlannedScreen, sourceBytes: Int = 0) -> String {
+        guard screen.embedded || !screen.hosts.isEmpty else { return "low" }
+        return sourceBytes >= largeSourceBytes ? "high" : "medium"
+    }
+
+    /// The size of a screen's evidence files that exist under `root`; what is missing counts as nothing.
+    static func evidenceBytes(_ screen: PlannedScreen, root: URL) -> Int {
+        screen.evidence.reduce(0) { total, path in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(path).path)
+            return total + ((attributes?[.size] as? Int) ?? 0)
+        }
+    }
 
     /// A screen rebuilt because its source files changed after the last sync (REQ-010): what changed, and where the current screen is.
     struct ScreenUpdate: Sendable, Equatable {
@@ -1773,7 +1789,7 @@ enum PrototypeAI {
         let hosted = screen.hosts.compactMap { id in plan.screens.first { $0.id == id } }
         let wanted = "screens/\(screen.id).js"
         var failure: String?
-        var effort = mode == .code ? screenEffort(screen) : "low"
+        var effort = mode == .code ? screenEffort(screen, sourceBytes: evidenceBytes(screen, root: root)) : "low"
         for attempt in 0..<2 {
             let change = try await generatedFiles(root: root, system: screenSystem(language: language),
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation,
@@ -1792,7 +1808,7 @@ enum PrototypeAI {
             // the second try gets the reason and more effort, and a screen that is still a stub is reported as failed.
             if let problem = PrototypeAudit.stubProblem(id: screen.id, content: file.content) {
                 failure = "\(wanted) is not a finished screen: \(problem). Write the complete screen with everything the plan lists for it."
-                effort = "medium"
+                if effort == "low" { effort = "medium" }
                 if attempt == 1 { throw PrototypeFiles.Failure.edits([failure!]) }
                 stage(.log("\(wanted) was a stub (\(problem)); asking again"))
                 continue

@@ -916,3 +916,18 @@ the answer, with the saved default unchanged because the value was the one alrea
   A "key absent" answer from `defaults` is not proof; I wrote a wrong fact into a bug record because of it.
 - A harness that re-implements a call (my `PrototypeCLIStub`) hides differences; compiling the real `CLICompletion.swift` with tiny stubs (`SemanticDatabase`, `AICallLog`) took five minutes.
 - A test that persists state outside the repository (WebKit data of `prototype-runtime-tests`) passes once and fails the next time; give such harnesses a non-persistent store.
+
+## Move the bug status at every stage, and carry the status files into the PR
+- Boris reminded me (2026-11-03) to change bug statuses in MarkView while fixing. Set `fixing` when the work starts (`markview_set_bug_status`), `fixed`
+  only after the release is verified, and do it for every bug the release closes (BUG-057 and BUG-058 were still `fixing` on `main` after their releases).
+- The MarkView tools write into the main working tree, not into my worktree. Copy the changed `docs/bugs/BUG-nnn-*.md` into the branch of the next PR
+  (`diff` first: only the status line should differ), otherwise `main` keeps the old status.
+
+## Measure a heuristic on the real data before wiring it in, and with the real haystack
+- BUG-059: my first measurement said the option desk showed 22% of its source's labels, so I planned a 40% threshold. The Swift module with the same idea said 51%
+  and flagged only the settings window, because I had added the shared `data.js` to the text it searched, and `data.js` holds the words of every screen. Running the
+  module on all 22 screens of the real prototype before wiring it in found that; without `data.js` it named exactly two screens (trade 32%, settings 9%).
+- Rules: run a new check over every real unit before choosing a threshold; read the missing list for noise (it showed `0 && diff`, code from a JSX comparison); say in
+  the code and the report that the threshold was chosen on the same data; and prove the repair on a COPY with the real assistant (here 32% to 92%, 9.4 KB to 42 KB)
+  and a headless render next to the real screenshot, not only with synthetic fixtures.
+
