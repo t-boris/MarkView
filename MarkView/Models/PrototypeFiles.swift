@@ -109,6 +109,15 @@ enum PrototypeFiles {
     }
     static func manifestURL(of folder: URL) -> URL { folder.appendingPathComponent("prototype.json") }
 
+    /// Where the implementation ZIP of an approved prototype goes, relative to the project root: a derived,
+    /// binary artifact that is not review material, so it stays outside the committed `docs/` tree (DEC-006).
+    static let exportsFolder = ".dde/exports/prototypes"
+
+    /// `<root>/.dde/exports/prototypes/<slug>-v<version>.zip`.
+    static func exportArchive(root: URL, slug: String, version: Int) -> URL {
+        root.appendingPathComponent(exportsFolder, isDirectory: true).appendingPathComponent("\(slug)-v\(version).zip")
+    }
+
     /// Lowercase words joined by dashes, unique among the existing prototypes.
     static func slug(for title: String, existing: Set<String>) -> String {
         let base = title.lowercased().map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()

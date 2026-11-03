@@ -322,8 +322,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
                                                                language: languageNote, record: record, stage: stageReporter)
                 stage = "Packing the archive"; log("Packing the archive")
                 let folder = self.folder, manifest = self.manifest
+                let root = self.root
                 let zip = try await Task.detached(priority: .userInitiated) {
-                    try PrototypeAI.packageArchive(folder: folder, manifest: manifest, spec: spec)
+                    try PrototypeAI.packageArchive(root: root, folder: folder, manifest: manifest, spec: spec)
                 }.value
                 try spec.write(to: folder.appendingPathComponent("SPEC.md"), atomically: true, encoding: .utf8)
                 self.manifest.approved = true

@@ -923,11 +923,12 @@ enum PrototypeAI {
     }
 
     /// Packs `prototype/` (the live site), `SPEC.md`, `CHANGES.md` and `README.md` into
-    /// `<folder>/export/<slug>-v<version>.zip` and returns it.
-    static func packageArchive(folder: URL, manifest: PrototypeFiles.Manifest, spec: String) throws -> URL {
+    /// `<root>/.dde/exports/prototypes/<slug>-v<version>.zip` (`PrototypeFiles.exportArchive`) and returns it.
+    /// The archive is a derived binary, so it lives outside the committed prototype folder (DEC-006).
+    static func packageArchive(root: URL, folder: URL, manifest: PrototypeFiles.Manifest, spec: String) throws -> URL {
         let fm = FileManager.default
         let name = "\(manifest.slug)-v\(manifest.version)"
-        let exportDir = folder.appendingPathComponent("export", isDirectory: true)
+        let archive = PrototypeFiles.exportArchive(root: root, slug: manifest.slug, version: manifest.version)
         let staging = fm.temporaryDirectory.appendingPathComponent("markview-proto-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent(name, isDirectory: true)
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -946,8 +947,7 @@ enum PrototypeAI {
 
         try readme(manifest: manifest).write(to: staging.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
 
-        try fm.createDirectory(at: exportDir, withIntermediateDirectories: true)
-        let archive = exportDir.appendingPathComponent(name + ".zip")
+        try fm.createDirectory(at: archive.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? fm.removeItem(at: archive)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")

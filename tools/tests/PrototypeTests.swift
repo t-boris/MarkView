@@ -448,5 +448,13 @@ do {
     check(PrototypeFiles.isInScope(appPath: "web", sources: [" ", ""]), "blank sources count as nothing selected")
 }
 
+// The implementation ZIP lives outside the committed prototype folder (DEC-006).
+do {
+    let root = URL(fileURLWithPath: "/proj")
+    check(PrototypeFiles.exportsFolder == ".dde/exports/prototypes", "exports folder")
+    check(PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path == "/proj/.dde/exports/prototypes/shop-v3.zip", "export archive path")
+    check(!PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path.hasPrefix(PrototypeFiles.storage(root: root).path), "the archive is not under docs/prototypes")
+}
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
