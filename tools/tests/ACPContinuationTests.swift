@@ -44,6 +44,21 @@ import Darwin
         joined = body(try await run("[narrated-complete]"))
         precondition(joined == "narrated", "An answer fenced after narration must be read as it is.")
 
+        // BUG-056: Copilot streams every internal turn it takes at its output limit, so one prompt's
+        // text holds a cut-off attempt and then the whole answer again. It must parse without a turn.
+        joined = body(try await run("[internal-restart]"))
+        precondition(joined == expected, "A complete answer after a streamed cut-off attempt must be read as it is.")
+        // Two cut-off attempts streamed back to back, then a continuation that finishes the second.
+        joined = body(try await run("[internal-restart-continued]"))
+        precondition(joined == expected, "The continuation must finish the latest attempt, not the first one.")
+        // A model that keeps answering "the answer is complete" ends the attempt after two such turns.
+        do {
+            _ = try await run("[declines]")
+            preconditionFailure("A cut-off answer the model declines to continue must fail.")
+        } catch CLICompletion.Failure.invalidOutput(_, let detail) {
+            precondition(detail.contains("after 2 continuation turns"), "Declining turns must end the attempt: \(detail)")
+        }
+
         // An answer that never closes ends as an error, after the continuation budget is spent.
         do {
             _ = try await run("[never-ends]")
@@ -113,10 +128,31 @@ import Darwin
             let text = ((params["prompt"] as! [[String: Any]]).first?["text"] as? String) ?? ""
             if turn == 0 { scenario = ["[resume]", "[repeat-tail]", "[restart]", "[complete-max-tokens]",
                                        "[never-ends]", "[no-progress]", "[plain-cut-off]",
-                                       "[narrated-complete]", "[narrated]"].first { text.contains($0) } ?? "" }
+                                       "[narrated-complete]", "[narrated]", "[internal-restart-continued]",
+                                       "[internal-restart]", "[declines]"].first { text.contains($0) } ?? "" }
             turn += 1
             let head = String(full.prefix(split))
             switch (scenario, turn) {
+            case ("[internal-restart]", 1):
+                try chunk(head)
+                try chunk(full)
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[internal-restart]", _):
+                try send(["id": id, "error": ["code": -1, "message": "no continuation turn may be spent"]])
+            case ("[internal-restart-continued]", 1):
+                sent = head + head
+                try chunk(head)
+                try chunk(head)
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[internal-restart-continued]", _):
+                try chunk(String(full.dropFirst(split)))
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[declines]", 1):
+                try chunk(head)
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[declines]", _):
+                try chunk(turn == 2 ? "The answer is complete." : "Nothing further to add.")
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
             case ("[resume]", 1), ("[repeat-tail]", 1), ("[restart]", 1), ("[no-progress]", 1):
                 sent = head
                 try chunk(head)

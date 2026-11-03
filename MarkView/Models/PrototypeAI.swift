@@ -485,15 +485,20 @@ enum PrototypeAI {
     /// are written at the same time, so each must know exactly what the other provides.
     private static let shellContract = """
     The shell is split between engineers working at the same time: one writes index.html and app.js, \
-    another writes styles.css, and the screens are written afterwards. styles.css provides the design \
+    another writes styles.css, and the screens are written afterwards. \(classContract) index.html and app.js use \
+    exactly these class names and define no styles of their own beyond `App.addStyles`.
+    """
+
+    /// The classes styles.css provides, for every shell.
+    private static let classContract = """
+    styles.css provides the design \
     system — tokens as CSS variables and classes for the layout shell (`app-header`, `app-nav`, \
     `app-main`), buttons (`btn`, `btn-primary`, `btn-ghost`, `btn-danger`), cards (`card`, \
     `card-header`, `card-body`), tables (`table`), forms and fields with error text (`form`, `field`, \
     `input`, `select`, `field-error`), badges (`badge`, with status modifiers), tabs (`tabs`, `tab`, \
     `is-active`), toolbars (`toolbar`), modals (`modal`, `modal-card`, `modal-actions`), toasts \
     (`toast`, with kind modifiers), skeleton loading (`skeleton`), empty states (`empty`) and \
-    pagination (`pagination`). index.html and app.js use exactly these class names and define no \
-    styles of their own beyond `App.addStyles`.
+    pagination (`pagination`).
     """
 
     /// What the shell must also provide when the plan has widget and modal screens that a host screen lays out (BUG-050).
@@ -556,6 +561,53 @@ enum PrototypeAI {
         Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: styles.css).\(language)
         """
     }
+
+    /// Requirements mode (BUG-056): styles.css for the shell MarkView writes itself, while the seed and the screens are written.
+    static func runtimeStylesSystem(language: String) -> String {
+        craft + """
+
+
+        You write styles.css, the design system of the prototype. The shell (index.html, app.js) and the data runtime are \
+        MarkView's own and already exist; the sample data and the screens are written at the same time by other engineers, \
+        so the class names are fixed and you must provide all of them. \(classContract) The shell builds this markup:
+        \(PrototypeRuntime.shellMarkup)
+        styles.css holds the design tokens as CSS variables (colours, typography, spacing, radii, shadows), a reset, the \
+        shell above, and every class listed in a light and a dark variant where the plan asks for one, plus focus-visible \
+        and disabled states, status modifiers for `badge` that fit the plan's statuses, and a responsive layout down to a \
+        narrow window. Screens use these classes and add only their own small rules through `App.addStyles`. Keep the \
+        file under 20 KB and write no JavaScript and no HTML. Do not read any file: the plan is all you need.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: styles.css).\(language)
+        """
+    }
+
+    /// Requirements mode (BUG-056): seed.js, the records the built-in `DB` starts with.
+    static func seedSystem(language: String) -> String {
+        craft + """
+
+
+        You write seed.js, the sample records of the prototype. The data runtime (data.js, the global `DB`) is MarkView's \
+        own and already exists; the screens are written at the same time by other engineers who know only the plan, so \
+        every name must be the plan's exactly.
+        seed.js is one statement: `DB.seed({ "<entity name>": [ { … }, … ], … });` with every entity of the plan under its \
+        `name` exactly. Each record has a short string `id` (such as "t-104") and the plan's fields, each named as the plan \
+        writes it before any type or note (`priority (Low/Medium/High)` gives `priority`). A field that refers to another \
+        record holds that record's `id`. Write 5 to 8 records per entity: realistic and varied, long and short values, \
+        every status and option of the plan represented, consistent references. Dates are `DB.days(n)` (an ISO date-time \
+        n days from today, negative for the past) or `DB.days(n, hour)`, never fixed dates. Only data and `DB.days` calls: \
+        no functions, no other statements. Keep the file under 30 KB. Do not read any file: the plan is all you need.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: seed.js).\(language)
+        """
+    }
+
+    /// Requirements mode (BUG-056): what a screen writer must know about the parts written at the same time.
+    static let runtimeScreenNote = """
+    app.js and data.js are MarkView's runtime; their documented API is above and is all there is. styles.css (the classes \
+    the app.js header lists) and seed.js (the records: every entity of the plan under its exact name, fields named exactly \
+    as the plan writes them, string ids, references by id) are written at the same time as your screen: do not look for \
+    them, rely on the plan's names, and render a missing field or reference gracefully. The domain rules your screen \
+    needs (validation, status changes, totals, permissions with `App.allow`) belong in your own file. Wrap every list and \
+    detail load in `App.load`, so loading and the forced error state work, and show `App.empty` for an empty result.
+    """
 
     /// styles.css when the app's own stylesheets are loaded before it (BUG-050): only the bridge, not a design system.
     private static func stylesBridgeSystem(language: String) -> String {
@@ -635,9 +687,10 @@ enum PrototypeAI {
 
     static func screenPrompt(plan: String, screen: PlannedScreen, foundation: [PrototypeFiles.File], failure: String?,
                              mode: PrototypeFiles.Mode = .requirements, originalStyles: [String] = [],
-                             hosted: [PlannedScreen] = [], update: ScreenUpdate? = nil) -> String {
+                             hosted: [PlannedScreen] = [], update: ScreenUpdate? = nil, note: String? = nil) -> String {
         var out = "The plan of the whole prototype:\n\(plan)\n\nThe foundation files (the API you build on):\n"
         for file in foundation { out += "\n=== \(file.path) ===\n\(file.content)\n" }
+        if let note { out += "\n\(note)\n" }
         out += "\nWrite the screen `\(screen.id)` (\(screen.name), route \(screen.route)) as `screens/\(screen.id).js`."
         if mode == .code {
             out += "\n\nThis prototype reconstructs an existing interface. Reproduce the original screen, not a redesign: "
@@ -1193,7 +1246,7 @@ enum PrototypeAI {
                       record: @escaping Record, stage: @escaping Stage) async throws -> Built {
         let site = PrototypeFiles.site(of: folder)
         let reading = mode == .code ? "the code" : "the requirements"
-        let steps = mode == .code ? 4 : 3
+        let steps = mode == .code ? 4 : 2
 
         stage(.phase("Step 1 of \(steps) · Reading \(reading) and planning the screens"))
         stage(.status("Reading \(reading)"))
@@ -1229,6 +1282,11 @@ enum PrototypeAI {
         var gaps = plan.gaps + originals.gaps
         if mode == .code, plan.styles.isEmpty, styleFilesInScope {
             gaps.append("The sources hold stylesheets but the plan named none, so the prototype's design is written, not copied from the original.")
+        }
+
+        if mode == .requirements {
+            return try await buildOnRuntime(root: root, folder: folder, plan: plan, language: language, concurrency: concurrency,
+                                            record: record, stage: stage)
         }
 
         stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (three parts at once)"))
@@ -1540,6 +1598,71 @@ enum PrototypeAI {
         var update: ScreenUpdate
     }
 
+    /// Requirements mode (BUG-056): MarkView writes the shell and the data runtime itself, then the styles, the sample
+    /// records and the screens are written at the same time. No answer carries a runtime, so none comes near the output
+    /// limit, and the screens start right after the plan instead of after the slowest foundation part. A screen sees the
+    /// documented API, not the files. Styles or records that fail twice leave their placeholder and become a gap: the
+    /// prototype still runs, and a revision can write them.
+    private static func buildOnRuntime(root: URL, folder: URL, plan: Plan, language: String, concurrency: Int,
+                                       record: @escaping Record, stage: @escaping Stage) async throws -> Built {
+        let site = PrototypeFiles.site(of: folder)
+        let object = (try? JSONSerialization.jsonObject(with: Data(plan.json.utf8))) as? [String: Any]
+        let roles = PrototypeRuntime.roleNames(object?["roles"] as? [String] ?? [])
+        stage(.step("Writing the prototype shell and data runtime"))
+        try PrototypeFiles.apply(PrototypeFiles.Change(files: PrototypeRuntime.files(plan: plan, key: folder.lastPathComponent, roles: roles)),
+                                 to: site)
+        stage(.milestone("The shell and navigation for \(plan.screens.count) screens; the styles, sample data and screens follow."))
+
+        stage(.phase("Step 2 of 2 · Writing the styles, the sample data and the screens at once"))
+        stage(.status("Writing the styles, the sample data and the screens"))
+        // Each part is saved as soon as it is written, so the preview fills in while the screens are still being written.
+        async let styles = runtimePart(root: root, site: site, plan: plan, label: "styles", name: "Styles", file: "styles.css",
+                                       system: runtimeStylesSystem(language: language), record: record, stage: stage)
+        async let seed = runtimePart(root: root, site: site, plan: plan, label: "seed", name: "Data", file: "seed.js",
+                                     system: seedSystem(language: language), record: record, stage: stage)
+
+        let api = PrototypeRuntime.apiFiles
+        var failed: [String] = []
+        for screen in plan.screens { stage(.screen(id: screen.id, state: .queued)) }
+        try await sideBySide(plan.screens, concurrency: concurrency, work: { screen in
+            stage(.screen(id: screen.id, state: .writing))
+            try await buildScreen(root: root, site: site, plan: plan, screen: screen, foundation: api, language: language,
+                                  mode: .requirements, note: runtimeScreenNote, record: record,
+                                  stage: scoped(stage, label: screen.name, status: false))
+        }, done: { screen, problem in
+            if let problem {
+                failed.append(screen.name)
+                stage(.screen(id: screen.id, state: .failed(problem)))
+            } else {
+                stage(.screen(id: screen.id, state: .done))
+                stage(.written)
+            }
+        })
+        let gaps = [await styles, await seed].compactMap { $0 }
+        try Task.checkCancellation()
+        return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions,
+                     screens: plan.screens.map(\.name).filter { !failed.contains($0) }, failed: failed, gaps: gaps,
+                     components: [], coverage: nil, themes: plan.themes, defaultTheme: plan.defaultTheme, baseline: nil)
+    }
+
+    /// One part written beside the screens on the runtime: nil when it was saved, else the gap to report.
+    private static func runtimePart(root: URL, site: URL, plan: Plan, label: String, name: String, file: String, system: String,
+                                    record: @escaping Record, stage: @escaping Stage) async -> String? {
+        do {
+            let change = try await foundationPart(root: root, plan: plan, system: system, label: label, allowed: [file], required: [file],
+                                                  mode: .requirements, record: record, stage: scoped(stage, label: name, status: false))
+            try PrototypeFiles.apply(change, to: site)
+            stage(.log("Saved \(file)"))
+            stage(.written)
+            return nil
+        } catch is CancellationError {
+            return nil
+        } catch {
+            stage(.log("\(file) could not be written: \(error.localizedDescription)"))
+            return "\(file) could not be written (\(error.localizedDescription)); the prototype uses its placeholder. Ask for it again in a revision."
+        }
+    }
+
     private static func foundationPart(root: URL, plan: Plan, system: String, label: String, allowed: Set<String>,
                                        required: [String], mode: PrototypeFiles.Mode, originalStyles: [String] = [],
                                        record: @escaping Record, stage: @escaping Stage) async throws -> PrototypeFiles.Change {
@@ -1559,6 +1682,8 @@ enum PrototypeAI {
             } else if let html = change.files.first(where: { $0.path == "index.html" })?.content,
                       PrototypeFiles.insertScreenScripts(into: html, ids: []) == nil {
                 problem = "index.html lacks the line <!--SCREENS--> where the screen scripts go."
+            } else if let seed = change.files.first(where: { $0.path == "seed.js" })?.content {
+                problem = PrototypeRuntime.seedProblem(seed)
             }
             guard let problem else { return change }
             failure = problem
@@ -1570,7 +1695,7 @@ enum PrototypeAI {
     /// One screen: a run that answers with `screens/<id>.js`; the answer is tried twice.
     private static func buildScreen(root: URL, site: URL, plan: Plan, screen: PlannedScreen, foundation: [PrototypeFiles.File],
                                     language: String, mode: PrototypeFiles.Mode, originalStyles: [String] = [],
-                                    readLog: PrototypeEmbedded.ReadLog? = nil, update: ScreenUpdate? = nil,
+                                    readLog: PrototypeEmbedded.ReadLog? = nil, update: ScreenUpdate? = nil, note: String? = nil,
                                     record: @escaping Record, stage: @escaping Stage) async throws {
         let hosted = screen.hosts.compactMap { id in plan.screens.first { $0.id == id } }
         let wanted = "screens/\(screen.id).js"
@@ -1580,7 +1705,7 @@ enum PrototypeAI {
             let result = try await call(root: root, system: screenSystem(language: language),
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation,
                                                              failure: failure, mode: mode, originalStyles: originalStyles, hosted: hosted,
-                                                             update: update),
+                                                             update: update, note: note),
                                         schema: filesSchema, label: "prototype:screen:\(screen.id)",
                                         effort: effort, readLog: readLog,
                                         record: record, stage: stage)

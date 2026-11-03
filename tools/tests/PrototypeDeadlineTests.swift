@@ -153,32 +153,60 @@ import Foundation
         print("Prototype sweep: a request for many files is revised file by file (retry, partial failure, no change, cancel), written once; an explanation is a reply, silence an error; fix rounds never fan out.")
     }
 
-    /// The original policy check: every stage runs without a wall-clock limit.
+    /// The original policy check: every stage runs without a wall-clock limit. Requirements mode builds on MarkView's own
+    /// runtime (BUG-056): no shell or data run, the styles, the records and the screens written beside each other.
     static func requirementsMode() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-prototype-deadline-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        await CLICompletion.audit.set(variant: "runtime")
+        defer { Task { await CLICompletion.audit.set(variant: "") } }
         let folder = PrototypeFiles.folder(root: root, slug: "fixture")
-        try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
+        let site = PrototypeFiles.site(of: folder)
+        try FileManager.default.createDirectory(at: site, withIntermediateDirectories: true)
         let built = try await PrototypeAI.build(root: root, folder: folder, brief: "One screen", sources: [], language: "",
             record: { _ in }, stage: { _ in })
         precondition(built.screens == ["Home"] && built.failed.isEmpty && built.gaps.isEmpty && built.components.isEmpty,
                      "requirements mode has no gaps or components, whatever the planner filled in: \(built.gaps)")
-        let screen = PrototypeFiles.site(of: folder).appendingPathComponent("screens/home.js")
-        precondition(FileManager.default.fileExists(atPath: screen.path))
+        func read(_ path: String) -> String { (try? String(contentsOf: site.appendingPathComponent(path), encoding: .utf8)) ?? "" }
+        precondition(FileManager.default.fileExists(atPath: site.appendingPathComponent("screens/home.js").path))
+        let index = read("index.html")
+        precondition(index.contains("<script src=\"seed.js\"></script>") && index.contains("<script src=\"screens/home.js\"></script>")
+                     && index.contains("<meta name=\"mv-prototype\" content=\"fixture\">"), index)
+        precondition(read("app.js").contains("App.configure({\"plan\":[{\"embedded\":false,\"hosts\":[],\"id\":\"home\""), "the plan is configured")
+        precondition(read("app.js").contains("\"roles\":[\"Owner\"]"), "the roles are configured")
+        precondition(read("data.js").contains("DB.seed = function") && read("seed.js").contains("DB.days(-2)")
+                     && read("styles.css") == "body { color: black; }")
+        let screenPrompt = await CLICompletion.audit.prompts["prototype:screen:home"] ?? ""
+        precondition(screenPrompt.contains("App.register({id, route, title, render(ctx)})") && screenPrompt.contains("DB.list(entity")
+                     && !screenPrompt.contains("function append(element, child)"), "the screen sees the API, not the runtime code")
         _ = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Revise title", pick: nil,
             runtimeErrors: [], language: "", record: { _ in }, stage: { _ in })
-        let contents = try String(contentsOf: PrototypeFiles.site(of: folder).appendingPathComponent("index.html"), encoding: .utf8)
+        let contents = read("index.html")
         precondition(contents.contains("Revised fixture") && contents.contains("screens/home.js"))
         let manifest = PrototypeFiles.Manifest(title: "Fixture", slug: "fixture", brief: "", sources: [])
         let spec = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest,
             language: "", record: { _ in }, stage: { _ in })
         precondition(spec.contains("Fixture specification"))
         let labels = await CLICompletion.audit.labels
-        precondition(labels == ["prototype:plan", "prototype:foundation:shell", "prototype:foundation:styles", "prototype:foundation:data",
-                                "prototype:screen:home", "prototype:revise", "prototype:spec"])
+        precondition(labels == ["prototype:plan", "prototype:foundation:styles", "prototype:foundation:seed",
+                                "prototype:screen:home", "prototype:revise", "prototype:spec"], "labels: \(labels.sorted())")
         let planPrompt = await CLICompletion.audit.prompts["prototype:plan"] ?? ""
         precondition(planPrompt.contains("requirement sources") && !planPrompt.contains("Reconstruct"))
-        print("Prototype deadline policy: plan, the three foundation parts, saved screen, revision and specification complete without wall-clock limits.")
+
+        // A seed that does not run is asked for twice, then left as the placeholder and reported; the screens still stand.
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "broken-seed")
+        let broken = PrototypeFiles.folder(root: root, slug: "broken")
+        try FileManager.default.createDirectory(at: PrototypeFiles.site(of: broken), withIntermediateDirectories: true)
+        let rebuilt = try await PrototypeAI.build(root: root, folder: broken, brief: "One screen", sources: [], language: "",
+            record: { _ in }, stage: { _ in })
+        let seedCalls = await CLICompletion.audit.calls["prototype:foundation:seed"]
+        precondition(rebuilt.screens == ["Home"] && seedCalls == 2 && rebuilt.gaps.count == 1 && rebuilt.gaps[0].contains("seed.js does not run"),
+                     "a broken seed becomes a gap: \(rebuilt.gaps), \(String(describing: seedCalls))")
+        let placeholder = (try? String(contentsOf: PrototypeFiles.site(of: broken).appendingPathComponent("seed.js"), encoding: .utf8)) ?? ""
+        precondition(placeholder.contains("DB.seed({});"), "the placeholder stays")
+        await CLICompletion.audit.set(variant: "")
+        print("Prototype deadline policy: plan, styles and seed beside the screens on the built-in runtime, revision and specification complete without wall-clock limits.")
     }
 
     /// Code mode (Previews from Existing Code): the build reads a fixture web app, carries its gaps and evidence

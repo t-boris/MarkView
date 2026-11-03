@@ -114,6 +114,11 @@ enum CLICompletion {
                 ["path": "app.js", "content": "window.App = { register() {}, start() {} };"  ]]]
         case "prototype:foundation:styles":
             object = ["summary": "Styles", "files": [["path": "styles.css", "content": "body { color: black; }"]]]
+        case "prototype:foundation:seed" where variant == "broken-seed":
+            // BUG-056: an unescaped quote in a string, as in the strikedesk data.js run.
+            object = ["summary": "Seed", "files": [["path": "seed.js", "content": "DB.seed({ \"Ticket\": [{ id: \"t-1\", title: \"Say \"hi\"\" }] });"]]]
+        case "prototype:foundation:seed":
+            object = ["summary": "Seed", "files": [["path": "seed.js", "content": "DB.seed({ \"Ticket\": [{ id: \"t-1\", title: \"Printer\", opened: DB.days(-2) }] });"]]]
         case "prototype:foundation:data":
             object = ["summary": "Data", "files": [["path": "data.js", "content": "window.DB = {};" ]]]
         case "prototype:screen:home" where variant == "stub-once" || variant == "stub-always":
@@ -172,7 +177,8 @@ enum CLICompletion {
             }
         case "prototype:revise":
             object = ["summary": "Updated", "screens": ["Home"], "files": [], "delete": [],
-                      "edits": [["path": "index.html", "find": "Fixture title", "replace": "Revised fixture"]]]
+                      "edits": [["path": "index.html", "find": variant == "runtime" ? "<title>Fixture</title>" : "Fixture title",
+                                 "replace": variant == "runtime" ? "<title>Revised fixture</title>" : "Revised fixture"]]]
         case "prototype:spec":
             return Result(text: "# Fixture specification\n\nHome screen.", structured: nil, inputTokens: 1, outputTokens: 1)
         default: throw Failure.invalidOutput(.claude, "Unexpected fixture request")
