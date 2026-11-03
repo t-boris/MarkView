@@ -112,7 +112,10 @@ enum ACPAssistant {
                 }
             }
 
-            var text = try await answer(composePrompt(request), tool: tool, connection: connection, state: state)
+            let wantsJSON = request.jsonSchema != nil
+            var reply = try await answer(composePrompt(request), tool: tool, connection: connection,
+                                         state: state, wantsJSON: wantsJSON)
+            var text = reply.text
             var structured: Any?
             if let schema = request.jsonSchema {
                 structured = parseJSON(text, schema: schema)
@@ -123,13 +126,16 @@ enum ACPAssistant {
                     let repaired = try await answer("""
                         Your last answer was not one valid JSON object matching the schema. Reply again with \
                         only that JSON object — no prose, no Markdown fences.
-                        """, tool: tool, connection: connection, state: state)
-                    structured = parseJSON(repaired, schema: schema)
-                    if structured != nil { text = repaired }
+                        """, tool: tool, connection: connection, state: state, wantsJSON: true)
+                    structured = parseJSON(repaired.text, schema: schema)
+                    if structured != nil { text = repaired.text; reply = repaired }
                 }
                 guard structured != nil else {
                     throw CLICompletion.Failure.invalidOutput(tool, looksCutOff(text)
-                        ? "the answer was cut off before its JSON ended (\(text.count) characters). "
+                        ? "the answer was cut off before its JSON ended (\(text.count) characters"
+                          + (reply.continuations > 0
+                             ? " after \(reply.continuations) continuation turn" + (reply.continuations == 1 ? "" : "s")
+                             : "") + "). "
                           + "Choose a model with a larger output limit, or split the request into smaller steps."
                         : "expected JSON, got \(text.prefix(200))")
                 }
@@ -153,16 +159,34 @@ enum ACPAssistant {
     }
 
     /// How many continuation turns one answer may take; a long prototype file needs several.
-    private static let continuationLimit = 6
+    private static let continuationLimit = 10
 
-    /// A whole answer: the first turn plus continuation turns for as long as the model stops at its
-    /// output limit. Without this a long structured answer (a whole prototype file) comes back cut
-    /// in half and fails to parse as JSON.
+    /// How much of the answer's beginning identifies a continuation that restarts it instead of
+    /// resuming, and how much of its end is compared against a continuation that repeats itself.
+    private static let restartProbe = 120
+    private static let overlapProbe = 600
+    /// How much of the unfinished answer the continuation prompt quotes back to the model; a model
+    /// that repeats itself usually repeats exactly this.
+    private static let quotedTail = 200
+    /// Shorter repeats are too likely to be ordinary text (indentation, a closing brace) to cut.
+    private static let minimumOverlap = 24
+
+    /// A whole answer and how many continuation turns it took.
+    private struct Answer {
+        var text: String
+        var continuations: Int
+    }
+
+    /// A whole answer: the first turn plus continuation turns for as long as it is unfinished.
+    /// Without this a long structured answer (a whole prototype file) comes back cut in half and
+    /// fails to parse as JSON. A structured answer is unfinished while its JSON is still open —
+    /// a CLI may report a truncated turn as a normal end, so its stop reason cannot be trusted
+    /// alone; any other answer is unfinished when the CLI says the model stopped at a limit.
     private static func answer(_ text: String, tool: CLITool, connection: ACPConnection,
-                               state: RunState) async throws -> String {
+                               state: RunState, wantsJSON: Bool) async throws -> Answer {
         var (whole, stop) = try await prompt(text, tool: tool, connection: connection, state: state)
         var continuations = 0
-        while stop == .cutOff, continuations < continuationLimit {
+        while continuations < continuationLimit, wantsJSON ? looksCutOff(whole) : stop == .cutOff {
             continuations += 1
             let (more, nextStop) = try await prompt("""
                 Your previous message stopped before the answer was complete. Continue it from exactly the \
@@ -170,19 +194,73 @@ enum ACPAssistant {
                 fence, no closing remark. Your two messages are joined together character by character.
 
                 It ended with:
-                \(String(whole.suffix(200)))
+                \(String(whole.suffix(quotedTail)))
                 """, tool: tool, connection: connection, state: state)
-            guard !more.isEmpty else { break }
-            whole += more
+            // The model is asked to resume, but it may repeat its tail or start the answer again;
+            // joined as-is, both leave an answer that never parses however many turns are spent.
+            guard let joined = join(whole, more) else { break }
+            whole = joined
             stop = nextStop
         }
-        return whole.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Answer(text: whole.trimmingCharacters(in: .whitespacesAndNewlines), continuations: continuations)
     }
 
-    /// Whether `text` is the beginning of a JSON object that never ends, i.e. an answer cut short.
+    /// The answer so far with the continuation turn `more` appended, or nil when it adds nothing new.
+    private static func join(_ whole: String, _ more: String) -> String? {
+        guard !more.isEmpty else { return nil }
+        // A restart: the continuation begins the way the answer itself began. Only a longer restart
+        // can carry the answer further than what is already here.
+        let head = String(whole.prefix(restartProbe))
+        if head.count == restartProbe, more.hasPrefix(head) {
+            return more.count > whole.count ? more : nil
+        }
+        // A repeat of exactly what the continuation prompt quoted back: the common case, and the
+        // only one that is unambiguous when the answer repeats itself in other ways too.
+        let quote = String(whole.suffix(quotedTail))
+        if quote.count >= minimumOverlap, more.hasPrefix(quote) {
+            let addition = String(more.dropFirst(quote.count))
+            return addition.isEmpty ? nil : whole + addition
+        }
+        // Any other repeat of the answer's end: take the longest one the two sides agree on.
+        let tail = Array(whole.suffix(overlapProbe))
+        let start = Array(more.prefix(overlapProbe))
+        var overlap = min(tail.count, start.count)
+        while overlap >= minimumOverlap {
+            if tail.suffix(overlap) == start.prefix(overlap) { break }
+            overlap -= 1
+        }
+        let addition = overlap >= minimumOverlap ? String(more.dropFirst(overlap)) : more
+        return addition.isEmpty ? nil : whole + addition
+    }
+
+    /// Whether the JSON in `text` is left open, i.e. the answer stopped in the middle of it.
+    /// Text with no JSON at all is not cut off: it is a different answer than the one asked for,
+    /// and a repair turn can still fix that.
     private static func looksCutOff(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.hasPrefix("{") && !trimmed.hasSuffix("}")
+        guard let start = text.firstIndex(of: "{") else { return false }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for character in text[start...] {
+            if escaped { escaped = false; continue }
+            if inString {
+                switch character {
+                case "\\": escaped = true
+                case "\"": inString = false
+                default: break
+                }
+                continue
+            }
+            switch character {
+            case "\"": inString = true
+            case "{", "[": depth += 1
+            case "}", "]":
+                depth -= 1
+                if depth == 0 { return false }   // the object closed; anything after it is not ours
+            default: break
+            }
+        }
+        return true
     }
 
     /// One `session/prompt` turn: the answer text streamed while it ran, and why it stopped.

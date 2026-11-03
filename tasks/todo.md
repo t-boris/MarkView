@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## BUG-045: prototype generation fails when the JSON answer is cut off (2026-11-02, 5.0.1, fix/bug-045-acp-cut-off-json)
+
+A Copilot (Claude Sonnet 5.5) prototype stage failed with "the answer was cut off before its JSON ended
+(192130 characters)" (docs/bugs/BUG-045-prototype-answer-cut-off-before-json-ended.md).
+
+- [x] `looksCutOff` reads the JSON structure (strings, escapes, braces, brackets) instead of the first and last character.
+- [x] A structured answer is continued while its JSON is open, whatever stop reason the CLI reports; a finished one spends no turn.
+- [x] `join` drops the quoted tail a resuming model repeats, the longest other overlap, and replaces the answer on a restart;
+      a continuation that adds nothing ends the attempt. Budget 10 turns, reported in the failure.
+- [x] `acp-continuation-tests.sh` (fails against the pre-fix code with the reported error), existing completion and prototype
+      tests, Debug build.
+- [ ] Not exercised: a real long Copilot answer end to end.
+
 ## Previews from Existing Code (2026-11-03, 5.0.0, feat/previews-from-existing-code, issue #234)
 
 Prototype Studio reconstructs an existing web interface as a standalone editable prototype, links it to the source
