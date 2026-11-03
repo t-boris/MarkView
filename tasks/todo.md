@@ -3645,3 +3645,23 @@ Plan (one branch, one PR, one minor version and one signed release per stage; Bo
 Risks: the source → unit mapping comes from the model and can miss a dependency (stale unit; mitigated by the fallback and by the spike);
 a rebuilt screen must stay consistent with the shared `app.js`/data (the existing revise rules about identifiers apply); the prototype is an
 approximation of the product, so "hand off" transfers intent, not a patch.
+
+### Work order for the prototype fixes and the code sync (Boris, Russian chat, 2026-11-03: "Чини все это вместе")
+Boris answered the plan above with "go" and added: fix the broker-fabric prototype problems too (blank Trade screen, Russian labels, no themes);
+show which code is updated and where the prototype matches the code; sync must re-read only the files that changed since the last sync, and a full
+rebuild must stay available as a separate action. Language policy chosen by me (Boris did not answer A/B): the labels of the original, in its own
+language; an explicit Output language wins. For StrikeDesk that is English.
+New records: BUG-052 (language), BUG-053 (blank/stub screens), feature `themes-in-a-prototype-made-from-code` (REQ-001/002, DEC-001),
+REQ-014 (match status per unit) and REQ-015 (read only changed sources, separate full rebuild) in `prototype-and-code-stay-in-step`.
+One branch and PR per item, in this order; each item is verified before the next starts.
+- [ ] 1. BUG-052 (patch): in code mode the "Document language" default becomes an instruction to keep the labels of the source in the source's own
+      language (never translate), to write invented text in that language (English when there is no text), and to set `lang` accordingly; an
+      explicit Output language still wins. Tests on the prompt text, pinned digests updated on purpose, one live build on the real CLI with a
+      small English app.
+- [ ] 2. BUG-053 (patch): a static check of every written screen (stub or empty answers are retried once, then reported as failed screens instead of
+      being accepted) and a render check in the preview that reports a screen whose page stays empty, through the existing fix loop.
+- [ ] 3. Themes (minor): REQ-001/002 of the themes feature.
+- [ ] 4. Code sync, in this order (minor each): (a) plan stored with the version + baseline + match status (REQ-009, REQ-014); (b) incremental sync that
+      reads only changed sources + explicit "Rebuild everything" (REQ-010, REQ-011, REQ-015); (c) target of a request (REQ-008); (d) hand-off and
+      agent reads (REQ-012, REQ-013).
+- [ ] Docs PR for the records above; then per item: bug status, lesson, PR, wait for all checks, merge, Release build + signed DMG from merged main.
