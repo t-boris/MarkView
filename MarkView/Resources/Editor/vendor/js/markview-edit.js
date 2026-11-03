@@ -148,7 +148,8 @@
             if (!turndownService) initTurndown();
             if (!turndownService) return;
 
-            const html = DOM.rendered.innerHTML;
+            // The author's own picture and link paths go back in, not the addresses the page showed them at
+            const html = MarkViewDocumentFiles.withOriginalPaths(DOM.rendered.innerHTML);
             if (!html || html.includes('editor-empty')) return;
 
             const md = turndownService.turndown(html);

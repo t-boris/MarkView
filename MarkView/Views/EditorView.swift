@@ -29,6 +29,16 @@ struct EditorView: NSViewRepresentable {
             }
         }
         config.setURLSchemeHandler(dataFiles, forURLScheme: DataFileSchemeHandler.scheme)
+        // The pictures a document refers to by a relative path (BUG-061): the project folder and the folder of each open document.
+        let documentFiles = context.coordinator.documentFiles
+        documentFiles.allowedRoots = { [weak workspaceManager] in
+            MainActor.assumeIsolated {
+                guard let workspaceManager else { return [] }
+                return DocumentFiles.roots(project: workspaceManager.rootNode?.url,
+                                           documents: workspaceManager.openTabs.filter(\.isFileBacked).map(\.url))
+            }
+        }
+        config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -75,6 +85,8 @@ struct EditorView: NSViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate {
         let parent: EditorView
         let bridge = WebViewBridge()
+        /// Serves the pictures a document refers to; the editor page and the PDF export both use it.
+        let documentFiles = DocumentFileSchemeHandler()
         weak var webView: WKWebView?
 
         var editorHTML: String?
@@ -408,11 +420,8 @@ struct EditorView: NSViewRepresentable {
             currentCodeURL = nil
             if fileType == .code || asNotes, let documentURL {
                 let language = FileType.sourceLanguage(for: documentURL)
-                // Formatted notes view: images resolved like the document view (same lines).
-                let text = asNotes && fileType == .markdown
-                    ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL) : markdown
                 let returnLabel = asNotes && fileType != .code ? (fileType == .markdown ? "Document" : "Viewer") : ""
-                bridge.loadCodeContent(text, language: language,
+                bridge.loadCodeContent(markdown, language: language,
                                        fileName: documentURL.lastPathComponent, returnLabel: returnLabel,
                                        documentID: tab?.id, into: webView)
                 currentCodeURL = documentURL.standardizedFileURL
@@ -426,12 +435,9 @@ struct EditorView: NSViewRepresentable {
                 return
             }
 
-            // Resolve relative image paths to data URIs so WKWebView can display them
-            // (WKWebView sandbox blocks direct file:// access to user files)
-            let resolved = documentURL != nil
-                ? Self.resolveImagePaths(in: markdown, relativeTo: documentURL!)
-                : markdown
-            bridge.loadContent(resolved, documentID: tab?.id, into: webView) {}
+            // The text goes to the editor exactly as it is on disk. The pictures it refers to by a relative path are
+            // served to the page by `documentFiles` (BUG-061); inlining them here made the tab look modified and a save wrote them into the file.
+            bridge.loadContent(markdown, documentID: tab?.id, into: webView) {}
             applyPendingCodeReveal()
         }
 
@@ -698,57 +704,6 @@ struct EditorView: NSViewRepresentable {
             return ""
         }
 
-        /// Replace relative image paths in markdown with base64 data URIs.
-        /// Swift can read user-selected files (NSOpenPanel grants access),
-        /// but WKWebView's content process cannot — so we inline them.
-        static func resolveImagePaths(in markdown: String, relativeTo documentURL: URL) -> String {
-            let dir = documentURL.deletingLastPathComponent()
-
-            guard let regex = try? NSRegularExpression(
-                pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#
-            ) else { return markdown }
-
-            let nsString = markdown as NSString
-            let fullRange = NSRange(location: 0, length: nsString.length)
-            let matches = regex.matches(in: markdown, range: fullRange)
-
-            // Process in reverse to preserve ranges
-            var result = nsString as String
-            for match in matches.reversed() {
-                guard match.numberOfRanges >= 3,
-                      let pathRange = Range(match.range(at: 2), in: result) else { continue }
-
-                let path = String(result[pathRange])
-
-                // Skip absolute URLs
-                if path.hasPrefix("http://") || path.hasPrefix("https://")
-                    || path.hasPrefix("data:") || path.hasPrefix("file://") { continue }
-
-                // Resolve relative to document directory
-                let imageURL = dir.appendingPathComponent(path)
-
-                guard let imageData = try? Data(contentsOf: imageURL) else { continue }
-
-                let ext = imageURL.pathExtension.lowercased()
-                let mime: String
-                switch ext {
-                case "png": mime = "image/png"
-                case "jpg", "jpeg": mime = "image/jpeg"
-                case "gif": mime = "image/gif"
-                case "svg": mime = "image/svg+xml"
-                case "webp": mime = "image/webp"
-                case "bmp": mime = "image/bmp"
-                case "ico": mime = "image/x-icon"
-                default: mime = "application/octet-stream"
-                }
-
-                let dataURI = "data:\(mime);base64,\(imageData.base64EncodedString())"
-                result = result.replacingCharacters(in: pathRange, with: dataURI)
-            }
-
-            return result
-        }
-
         /// Interface text scale for the editor chrome (toolbars, panels, AI answers).
         var uiScale: CGFloat = 1
         private var appliedUIScale: CGFloat?
@@ -783,7 +738,7 @@ struct EditorView: NSViewRepresentable {
 
         func exportPDF(fileName: String) {
             guard let webView = webView else { return }
-            PDFExporter.exportPDF(from: webView, fileName: fileName, bridge: bridge)
+            PDFExporter.exportPDF(from: webView, fileName: fileName, bridge: bridge, documentFiles: documentFiles)
         }
 
         private static func resolveEditorResourceBaseURL() -> URL {

@@ -8,6 +8,7 @@
       structured, WYSIWYG-save graph canvas) need:
         - CDN scripts/styles from cdn.jsdelivr.net (D3, dagre, turndown, turndown-plugin-gfm)
         - Remote https <img> for user markdown image content
+        - markview-doc: pictures a document refers to by a relative path (served by the app, BUG-061)
       Widened script-src/style-src/img-src to allow these.
 
       Insight mode v2 isolates ALL LLM-rendered content inside an iframe
@@ -18,7 +19,7 @@
       page never executes LLM-derived script. See task 5 / tech-spec Decisions
       2, 3, 5, 10, 11.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' markview-data:; img-src 'self' data: https:; object-src 'none'; base-uri 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' markview-data:; img-src 'self' data: https: markview-doc:; object-src 'none'; base-uri 'none'">
     <title>MarkView Editor</title>
 
     <!-- KaTeX CSS -->
@@ -1671,6 +1672,7 @@
     <!-- Inline editor scripts (split from monolithic block per ≤600-line file rule) -->
     <script src="vendor/js/markview-early.js"></script>
     <script src="vendor/js/markview-state.js"></script>
+    <script src="vendor/js/markview-document-files.js"></script>
     <script src="vendor/js/markview-mdext.js"></script>
     <script src="vendor/js/markview-render.js"></script>
     <script src="vendor/js/markview-edit.js"></script>

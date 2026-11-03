@@ -19,7 +19,8 @@ class PDFExporter {
     static func exportPDF(
         from webView: WKWebView,
         fileName: String = "document.pdf",
-        bridge: WebViewBridge
+        bridge: WebViewBridge,
+        documentFiles: DocumentFileSchemeHandler
     ) {
         // Probe in priority order:
         //   1. Insight iframe (if user is currently viewing an insight tab) —
@@ -78,16 +79,18 @@ class PDFExporter {
 
             savePanel.begin { response in
                 guard response == .OK, let url = savePanel.url else { return }
-                generatePDF(html: renderedHTML, to: url, baseURL: webView.url)
+                generatePDF(html: renderedHTML, to: url, baseURL: webView.url, documentFiles: documentFiles)
             }
         }
     }
 
     @MainActor
-    private static func generatePDF(html: String, to url: URL, baseURL: URL?) {
+    private static func generatePDF(html: String, to url: URL, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
         let fullHTML = buildPrintDocument(body: html)
 
         let config = WKWebViewConfiguration()
+        // The document's pictures are addressed as markview-doc:, as on the editor page.
+        config.setURLSchemeHandler(documentFiles, forURLScheme: DocumentFileSchemeHandler.scheme)
         let offscreen = WKWebView(
             frame: CGRect(x: -9999, y: -9999, width: a4Width, height: a4Height),
             configuration: config
