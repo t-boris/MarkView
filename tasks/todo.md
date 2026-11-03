@@ -3781,3 +3781,20 @@ Plan (approved by Boris, 2026-11-03) and result:
 - Not covered: the repair round runs once (`autoFixRounds = 1`), so a screen like `desk` can stay reported as "Still not right after the fix"
   (asked to Boris); Boris's own prototype folder was not changed, a Sync/rebuild with 5.10.0 is needed; the 9% builder coverage of the option
   chain (`ChainTable.tsx`, 82 KB) is a separate matter; the stray "null" text on the desk is unexplained.
+
+
+## Review: BUG-057 — a prototype from code is translated to Russian by the global Output language
+
+Plan (asked by Boris, 2026-11-03: "explain where the Russian comes from, and fix it so the prototype is always English") and result:
+- [x] Find the cause. Not the model ignoring the rule: the app setting Output language was Russian (`actions.outputLanguage` in
+  `~/Library/Preferences/com.markview.MarkView.plist`), `WorkspaceManager.openPrototype` made it the session's `languageNote`, and
+  `PrototypeAI.languageNote(explicit:mode:)` let it replace the BUG-052 source-language rule in code mode. The model's own assumption
+  "all labels are translated to Russian" was its restatement of that instruction.
+- [x] Fix: in code mode `languageNote` always returns `sourceLanguageRule`; the global Output language is ignored there. A reviewer's
+  request in the chat still overrides the rule. Requirements prototypes and the specification export keep following the setting.
+- Verified: `prototype-tests.sh` (332 checks: code mode ignores an explicit Russian note, requirements mode still honours it), the embedded,
+  styles, themes, baseline and deadline scripts, a Debug build (5.10.2).
+- Not covered: an existing prototype is not rewritten, it needs Sync with "Rebuild everything" or a fresh creation; no new real planner run
+  was made after the fix (the code path is a one-line precedence rule and the prompt already produced English in four headless runs).
+- Observation, not fixed here: `tools/tests/prototype-runtime-tests.sh` keeps its WKWebView data in `~/Library/WebKit/prototype-runtime-tests`, so
+  a second local run fails 2 checks (role switch) until that folder is deleted; CI starts clean and is unaffected.
