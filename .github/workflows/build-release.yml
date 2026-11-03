@@ -1,3 +1,5 @@
+# Compiles the Release configuration on every push to main. It publishes nothing: the only installer on GitHub is the
+# signed, notarized DMG of a release made by ./release.sh --publish (or publish-release.yml).
 name: Build & Release
 
 on:
@@ -5,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -24,45 +26,3 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
             build
-
-      - name: Package .app into .zip
-        run: |
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "MarkView.app" -path "*/Release/*" | head -1)
-          echo "Found app at: $APP_PATH"
-          cd "$(dirname "$APP_PATH")"
-          ditto -c -k --keepParent "MarkView.app" MarkView.zip
-          mv MarkView.zip "$GITHUB_WORKSPACE/"
-
-      - name: Get short SHA and date
-        id: meta
-        run: |
-          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
-
-      - name: Delete previous 'latest' release
-        run: gh release delete latest --yes 2>/dev/null || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Delete previous 'latest' tag
-        run: |
-          git tag -d latest 2>/dev/null || true
-          git push origin :refs/tags/latest 2>/dev/null || true
-
-      - name: Create Release
-        run: |
-          gh release create latest \
-            --prerelease --latest=false \
-            --title "MarkView — ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.sha }})" \
-            --notes "Automatic unsigned build from \`main\` branch. The signed installer (DMG) is the release marked Latest.
-
-          **Commit:** ${{ github.sha }}
-          **Date:** ${{ steps.meta.outputs.date }}
-
-          ### Install
-          1. Download \`MarkView.zip\` below
-          2. Unzip and drag \`MarkView.app\` to \`/Applications\`
-          3. On first launch: right-click → Open (to bypass Gatekeeper)" \
-            MarkView.zip
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

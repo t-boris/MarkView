@@ -201,9 +201,9 @@ the repository secrets `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `N
 as an unsigned pre-release that is never marked Latest — only a signed, notarized installer is.
 
 **CI** (`.github/workflows/build-release.yml`): on every push to `main`, on `macos-15` with
-`Xcode_16.app` (`:3-5`, `:12`, `:17`). It builds Release with ad-hoc signing (`:19-26`), zips the
-app from DerivedData (`:28-34`), deletes the previous `latest` release and tag (`:42-50`) and
-publishes a new `latest` release with `MarkView.zip` (`:52-68`). It runs no tests, and it does not
+`Xcode_16.app` (`:5-7`, `:14`, `:19`). It builds Release with ad-hoc signing (`:21-27`) and publishes nothing:
+until 5.10.0 it also zipped the app and kept an unsigned `latest` pre-release with `MarkView.zip`, which was
+removed so that the signed DMG is the only installer on GitHub. It runs no tests, and it does not
 bump or check the version.
 
 ## 9. Install
