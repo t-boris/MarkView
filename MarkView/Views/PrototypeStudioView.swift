@@ -41,6 +41,8 @@ struct PrototypeStudioView: View {
         .background(VSDark.bg)
         .onDisappear { dictation.cancel() }
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
+        // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened.
+        .task { await session.refreshThemes() }
     }
 
     /// The divider between preview and conversation; dragging it left widens the conversation.
@@ -98,6 +100,7 @@ struct PrototypeStudioView: View {
                 .help("The preview shows \(page) on its own; go back to the prototype's screens")
             }
             Spacer()
+            if let themes = session.manifest.themes, !themes.ids.isEmpty { themePicker(themes) }
             if !session.manifest.components.isEmpty {
                 Button { showingComponents.toggle() } label: {
                     Label("Components (\(session.manifest.components.count))", systemImage: "square.on.square.dashed")
@@ -178,6 +181,31 @@ struct PrototypeStudioView: View {
         }
         .frame(width: 380)
         .frame(maxHeight: 320)
+    }
+
+    private static let defaultThemeTag = "\u{0}default"
+    private static let originalLookTag = "\u{0}original"
+
+    /// The theme picker of a prototype whose original has themes: Studio sets the root attribute of the preview itself, so it works
+    /// whatever the generated screens do (REQ-002, DEC-001).
+    private func themePicker(_ themes: PrototypeFiles.ThemeRecord) -> some View {
+        let selection = Binding<String>(
+            get: { themes.chosen == nil ? Self.defaultThemeTag : (themes.chosen!.isEmpty ? Self.originalLookTag : themes.chosen!) },
+            set: { tag in
+                session.chooseTheme(tag == Self.defaultThemeTag ? nil : (tag == Self.originalLookTag ? "" : tag))
+            })
+        return Menu {
+            Picker("Theme", selection: selection) {
+                Text(themes.defaultID.map { "Default (\($0))" } ?? "Default").tag(Self.defaultThemeTag)
+                ForEach(themes.ids, id: \.self) { Text($0).tag($0) }
+                Text("Original look").tag(Self.originalLookTag)
+            }
+            .pickerStyle(.inline).labelsHidden()
+        } label: {
+            Label("Theme: \(themes.effective ?? "original")", systemImage: "paintpalette")
+        }
+        .controlSize(.small).menuIndicator(.hidden).fixedSize()
+        .help("The themes of the original interface, found in its stylesheets. The choice is applied to the preview and remembered with the prototype.")
     }
 
     /// The Components list (REQ-007, DEC-005): every source component the prototype reproduces, with the screens
@@ -559,7 +587,7 @@ struct PrototypeProgressView: View {
 private struct PrototypePreview: NSViewRepresentable {
     @ObservedObject var session: PrototypeSession
 
-    private static let pickScript = """
+    fileprivate static let pickScript = """
     (function () {
       var on = false, box = document.createElement('div');
       box.style.cssText = 'position:fixed;pointer-events:none;border:2px solid #0a84ff;background:rgba(10,132,255,.14);z-index:2147483647;display:none';
@@ -632,8 +660,8 @@ private struct PrototypePreview: NSViewRepresentable {
         controller.add(context.coordinator, name: "mvPick")
         controller.add(context.coordinator, name: "mvError")
         controller.add(context.coordinator, name: "mvAudit")
-        controller.addUserScript(WKUserScript(source: Self.pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        controller.addUserScript(WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        context.coordinator.theme = Coordinator.ThemeKey(session.manifest.themes)
+        context.coordinator.install(on: controller, pickScript: Self.pickScript)
         // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
         configuration.setURLSchemeHandler(context.coordinator.files, forURLScheme: PrototypeSchemeHandler.scheme)
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -652,6 +680,7 @@ private struct PrototypePreview: NSViewRepresentable {
         }
         coordinator.applyPickMode(session.pickMode)
         coordinator.applyHighlight(session.selectedComponent)
+        coordinator.set(theme: Coordinator.ThemeKey(session.manifest.themes))
         if coordinator.auditToken != session.auditToken {
             coordinator.auditToken = session.auditToken
             coordinator.runAudit()
@@ -667,6 +696,38 @@ private struct PrototypePreview: NSViewRepresentable {
         var session: PrototypeSession
         weak var webView: WKWebView?
         var loadedToken = -1
+        /// The theme attribute the preview sets on every page, as last installed (themes feature, REQ-002).
+        struct ThemeKey: Equatable {
+            var attribute: String?
+            var id: String?
+            init(_ record: PrototypeFiles.ThemeRecord?) { attribute = record?.attribute; id = record?.effective }
+        }
+        var theme = ThemeKey(nil)
+
+        /// The scripts every page of the preview starts with: the pick overlay, the screen audit and the theme attribute. They are
+        /// installed again when the theme changes so the next page already paints with it.
+        func install(on controller: WKUserContentController, pickScript: String) {
+            controller.removeAllUserScripts()
+            controller.addUserScript(WKUserScript(source: pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            controller.addUserScript(WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            if let attribute = theme.attribute, let id = theme.id {
+                controller.addUserScript(WKUserScript(source: PrototypeThemes.startScript(attribute: attribute, id: id),
+                                                      injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
+        }
+
+        /// Applies a change of theme to the open page at once, without a reload, and to the pages that follow.
+        func set(theme new: ThemeKey) {
+            guard new != theme, let webView else { return }
+            let old = theme
+            theme = new
+            install(on: webView.configuration.userContentController, pickScript: PrototypePreview.pickScript)
+            if let previous = old.attribute, previous != new.attribute {
+                webView.evaluateJavaScript(PrototypeThemes.applyScript(attribute: previous, id: nil))
+            }
+            if let attribute = new.attribute { webView.evaluateJavaScript(PrototypeThemes.applyScript(attribute: attribute, id: new.id)) }
+        }
+
         /// The last audit request of the session this preview took up (BUG-053).
         var auditToken = 0
         /// An audit asked for while the page was still loading; it starts when the page finished.

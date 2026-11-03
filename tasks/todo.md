@@ -3680,3 +3680,12 @@ One branch and PR per item, in this order; each item is verified before the next
 - [x] Preview audit (`PrototypeAudit.script`, session `audit()`, coordinator `runAudit`), joined to the single fix round, rechecked after the fix.
 - [x] Tests: unit, `stubMode` scenario, headless Chrome fixture check, real WKWebView harness on the fixture and on strikedesk v8.
 - Not covered: modal routes are only checked statically; the fix round through a real assistant was not run.
+
+## Review: Themes in a prototype made from code (5.6.0)
+- [x] REQ-001: `PrototypeThemes.scan` finds root attribute selectors in the copied stylesheets (linked ones in link order, then the rest); the plan
+  carries `themes` and `defaultTheme` (code mode only); `PrototypeFiles.Manifest.themes` is refreshed by build and sync and when a saved prototype opens.
+- [x] REQ-002: toolbar theme picker (default, each theme, original look); Studio sets the root attribute itself at document start (user script) and
+  live; choice saved in the manifest; no generated file is involved.
+- Tests: `prototype-themes-tests.sh` (scanner, record, scripts, manifest round trip, site reading), plan parsing in the styles tests; a real
+  WKWebView on the strikedesk site: base `#1e1f22`, midnight `#0d1117`, tastytrade `#000`, terminal `#0a0a0a`, live switch and removal work.
+- Not verified: the SwiftUI picker itself (no click-through in the app); class-based and media-query themes are a later extension (DEC-001).

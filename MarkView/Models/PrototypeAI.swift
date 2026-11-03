@@ -225,8 +225,12 @@ enum PrototypeAI {
                 "additionalProperties": false,
             ]],
             "styles": strings("The original stylesheet files the interface loads, in import order; empty unless reconstructing existing code."),
+            "themes": strings("Ids of the themes the original interface can switch between, in its own order; empty unless reconstructing existing code."),
+            "defaultTheme": ["type": "string",
+                             "description": "The id of the theme the original starts with; empty unless reconstructing existing code with themes."],
         ],
-        "required": ["title", "summary", "assumptions", "gaps", "roles", "entities", "screens", "styles"], "additionalProperties": false,
+        "required": ["title", "summary", "assumptions", "gaps", "roles", "entities", "screens", "styles", "themes", "defaultTheme"],
+        "additionalProperties": false,
     ]
 
     /// The answer of the foundation and screen runs: a summary and whole files.
@@ -332,7 +336,10 @@ enum PrototypeAI {
         order its entry file, root component or HTML page imports or links them: global CSS, themes, variables, fonts and \
         the CSS of the widgets; only files of the front end you plan, seen in the listing, plain `.css` only; the \
         prototype loads them unchanged, and the stylesheets they import from installed packages come along, so the \
-        screens must use the original class names), and `screens`: at most \(Plan.maxCodeScreens), each \
+        screens must use the original class names), `themes` (when the interface lets the user switch themes: the ids of all \
+        its themes as the application names them, in its own order, including the theme whose look is the base styles \
+        with no attribute selector of its own; otherwise empty), `defaultTheme` (the id the application starts with, read \
+        from its settings code; empty when unknown or without themes), and `screens`: at most \(Plan.maxCodeScreens), each \
         with `id` (short lowercase words joined by dashes), `name`, \
         `route` (the real route or view path of the code, as a hash route such as /orders or /orders/:id), `purpose`, \
         `data` (what it shows, field by field, as the code renders it), `actions` (every control and exactly what it \
@@ -905,6 +912,9 @@ enum PrototypeAI {
         var screens: [PlannedScreen]
         /// Code mode: the original stylesheets the interface loads, project-relative and in import order; empty otherwise.
         var styles: [String]
+        /// Code mode: the ids of the themes the original switches between and the one it starts with; empty otherwise.
+        var themes: [String] = []
+        var defaultTheme = ""
 
         static let maxScreens = 10
         /// A reconstruction of a window of docked widgets needs one entry per widget (BUG-050).
@@ -979,6 +989,17 @@ enum PrototypeAI {
             }
             plan["styles"] = listed
             styles = listed
+            var themeIDs: [String] = []
+            if mode == .code {
+                for raw in object["themes"] as? [String] ?? [] {
+                    let id = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !id.isEmpty, !themeIDs.contains(id) { themeIDs.append(id) }
+                }
+            }
+            themes = themeIDs
+            defaultTheme = mode == .code ? (object["defaultTheme"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            plan["themes"] = themeIDs
+            plan["defaultTheme"] = defaultTheme
             let data = try JSONSerialization.data(withJSONObject: plan, options: [.prettyPrinted, .sortedKeys])
             json = String(decoding: data, as: UTF8.self)
             title = object["title"] as? String ?? "Prototype"
@@ -1017,6 +1038,9 @@ enum PrototypeAI {
         var components: [PrototypeFiles.Component] = []
         /// Code mode: how much of the interface's source the plan names or the writers read (BUG-050).
         var coverage: PrototypeEmbedded.Coverage?
+        /// Code mode: the themes the planner read from the original (ids, default); the stylesheets decide which exist.
+        var themes: [String] = []
+        var defaultTheme = ""
     }
 
     /// `PlannedScreen`s as the component scan reads them.
@@ -1241,7 +1265,7 @@ enum PrototypeAI {
             }
         }
         return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed,
-                     gaps: gaps, components: components, coverage: coverage)
+                     gaps: gaps, components: components, coverage: coverage, themes: plan.themes, defaultTheme: plan.defaultTheme)
     }
 
     /// Reconstructs a code-mode prototype again from the current sources, for "Sync from code" (REQ-006,

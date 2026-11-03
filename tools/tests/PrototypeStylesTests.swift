@@ -240,6 +240,20 @@ do {
     check(plan.screens[0].hosts == ["option-desk", "order-book"], "a host keeps real widget ids only, once, never itself: \(plan.screens[0].hosts)")
     check(plan.json.contains("\"styles\"") && plan.json.contains("\"embedded\" : true") && plan.json.contains("\"hosts\""), "the writers see styles, embedded and hosts in the plan")
 
+    // The themes the planner read from the original (themes feature, REQ-001).
+    var themed = object
+    themed["themes"] = ["dark", " midnight ", "dark", "", "tastytrade"]
+    themed["defaultTheme"] = "  tastytrade "
+    let themedPlan = try Plan(themed)
+    check(themedPlan.themes == ["dark", "midnight", "tastytrade"] && themedPlan.defaultTheme == "tastytrade",
+          "theme ids are trimmed and de-duplicated, the default is trimmed: \(themedPlan.themes) \(themedPlan.defaultTheme)")
+    check(themedPlan.json.contains("\"defaultTheme\" : \"tastytrade\""), "the writers see the themes in the plan")
+    let themedRequirements = try PrototypeAI.Plan(structured: themed, mode: .requirements)
+    check(themedRequirements.themes.isEmpty && themedRequirements.defaultTheme.isEmpty, "requirements mode ignores themes")
+    check(plan.themes.isEmpty && plan.defaultTheme.isEmpty, "a plan without the fields has no themes")
+    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    check(props["themes"] != nil && props["defaultTheme"] != nil, "the plan schema has themes and defaultTheme (required: the strict schema test above)")
+
     let requirements = try PrototypeAI.Plan(structured: object, mode: .requirements)
     check(requirements.styles.isEmpty && requirements.screens.allSatisfy { !$0.embedded && $0.hosts.isEmpty }, "requirements mode ignores styles, widgets and hosts")
 
@@ -276,7 +290,7 @@ do {
     let screenPrompt = PrototypeAI.screenPrompt(plan: "{}", screen: widget, foundation: [], failure: nil, mode: .code, originalStyles: ["a.css"])
     check(screenPrompt.contains("already copied into the prototype unchanged") && screenPrompt.contains("- src/w.tsx"), "the code screen prompt carries the note and the evidence")
     let system = PrototypeAI.codePlanSystem(language: "")
-    for phrase in ["`styles`", "at most 40", "`embedded` true", "`hosts` lists", "Never merge several widgets or modals into one entry",
+    for phrase in ["`styles`", "`themes`", "`defaultTheme`", "at most 40", "`embedded` true", "`hosts` lists", "Never merge several widgets or modals into one entry",
                    "never plan one you have not read", "more than one front end", "name the other front end in `gaps`", "the route `/modals/<id>`",
                    "Put small confirmation and alert dialogs inside the screen"] {
         check(system.contains(phrase), "code plan system says: \(phrase)")
