@@ -71,6 +71,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var screens: [ScreenProgress] = []
     @Published private(set) var reloadToken = 0
     @Published private(set) var runtimeErrors: [String] = []
+    /// What the last check of the preview still found after the fix round (BUG-062): the header says so, and the reviewer can run the
+    /// round again. Empty when the screens are fine, and while a new version has not been checked yet.
+    @Published private(set) var unresolvedProblems: [String] = []
     /// Code mode: whether each unit of the prototype matches the code, computed locally from the baseline (REQ-014); nil until checked.
     @Published private(set) var syncStatus: PrototypeBaseline.Status?
     @Published private(set) var checkingSync = false
@@ -740,6 +743,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
 
     private func reload() {
         runtimeErrors = []
+        unresolvedProblems = []
         reloadToken += 1
     }
 
@@ -747,45 +751,89 @@ final class PrototypeSession: ObservableObject, Identifiable {
     private func reloadPreview() { reloadToken += 1 }
 
     /// Lets the reloaded page run, opens every screen in the preview, and when the page reported JavaScript errors or a
-    /// screen is blank, stuck or a placeholder, has the assistant fix them once. What is still wrong afterwards is named.
+    /// screen is blank, stuck or a placeholder, has the assistant fix them once. What is still wrong afterwards is named in the
+    /// chat and in `unresolvedProblems`, whatever the way the round ended (BUG-062).
+    ///
+    /// The problems name the files they come from. Up to `PrototypeAudit.directFixLimit` files go to one run; more are not asked of
+    /// one answer (the assistant would decline, and nothing would be fixed): each file gets a run of its own, side by side, and each
+    /// run sees the whole list.
     private func settleAndFix(language: String, audit shouldAudit: Bool = true) async {
         for _ in 0..<Self.autoFixRounds {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled else { return }
             let found = shouldAudit ? await auditedProblems() : []
             guard !Task.isCancelled else { return }
-            let errors = Array((runtimeErrors + found).prefix(Self.fixLimit))
-            guard !errors.isEmpty else { return }
+            let lint = shouldAudit ? await loaderProblems(besides: found) : []
+            let errors = Array((runtimeErrors + found + lint).prefix(Self.fixLimit))
+            guard !errors.isEmpty else { unresolvedProblems = []; return }
             stage = "Fixing errors found in the preview"; log("Fixing errors found in the preview")
             messages.append(Message(role: .assistant, text: "The preview reported \(errors.count) problem\(errors.count == 1 ? "" : "s"); fixing:\n" + errors.map { "• \($0)" }.joined(separator: "\n")))
             do {
-                let instruction = found.isEmpty
+                let instruction = found.isEmpty && errors.count == runtimeErrors.count
                     ? "Fix the JavaScript errors reported by the preview. Change nothing else."
                     : "Fix the errors and the blank or unfinished screens reported by the preview. Change nothing else."
+                let named = await fixFiles(for: errors)
+                let split = named.count > PrototypeAudit.directFixLimit
+                if split { log("The problems are in \(named.count) files: one run for each") }
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction,
                                                            pick: nil, runtimeErrors: errors, language: language,
-                                                           mode: manifest.mode, sources: manifest.sources, sweep: false,
+                                                           mode: manifest.mode, sources: manifest.sources, sweep: true,
+                                                           sweepFiles: split ? named : [], sweepEffort: "medium",
                                                            record: record, stage: stageReporter())
                 guard !outcome.written.isEmpty else {
                     messages.append(Message(role: .assistant, text: outcome.summary))
+                    unresolvedProblems = errors
                     return
                 }
                 try accept(instruction: "Fix preview errors", summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
-                if !found.isEmpty {
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
-                    guard !Task.isCancelled else { return }
-                    let left = await auditedProblems()
-                    if !left.isEmpty {
-                        messages.append(Message(role: .assistant, text: "Still not right after the fix:\n" + left.map { "• \($0)" }.joined(separator: "\n")
-                            + "\nAsk me to rebuild these screens."))
-                    }
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                guard !Task.isCancelled else { return }
+                let left = shouldAudit ? await auditedProblems() : []
+                let leftLint = shouldAudit ? await loaderProblems(besides: left) : []
+                unresolvedProblems = Array((runtimeErrors + left + leftLint).prefix(Self.fixLimit))
+                if !unresolvedProblems.isEmpty {
+                    messages.append(Message(role: .assistant, text: "Still not right after the fix:\n" + unresolvedProblems.map { "• \($0)" }.joined(separator: "\n")
+                        + "\nUse Fix again in the header, or ask me to rebuild these screens."))
                 }
             } catch {
                 messages.append(Message(role: .error, text: error.localizedDescription))
+                unresolvedProblems = errors
                 return
             }
         }
+    }
+
+    /// Runs the fix round again on the reviewer's request, for the problems the header lists.
+    func fixProblems() {
+        guard !isBusy, hasSite else { return }
+        beginRun("Fixing errors found in the preview")
+        task = Task { [self] in
+            defer { endRun() }
+            await settleAndFix(language: promptLanguage)
+        }
+    }
+
+    /// The editable files of the prototype that `problems` point to, read off the main actor.
+    private func fixFiles(for problems: [String]) async -> [String] {
+        let site = siteFolder
+        return await Task.detached {
+            PrototypeAudit.fixFiles(problems: problems, existing: Set(PrototypeFiles.read(site: site).map(\.path)))
+        }.value
+    }
+
+    /// Screens whose script clears the element its loader sits in (`PrototypeAudit.loadProblem`), found by reading the files, not by the
+    /// preview; the screens `reported` already names are left out. Covers a prototype built before the check existed.
+    private func loaderProblems(besides reported: [String]) async -> [String] {
+        let site = siteFolder
+        let ids = await Task.detached { () -> [(id: String, problem: String)] in
+            PrototypeFiles.read(site: site).compactMap { file in
+                guard file.path.hasPrefix("screens/"), file.path.hasSuffix(".js") else { return nil }
+                let id = String(file.path.dropFirst("screens/".count).dropLast(".js".count))
+                return PrototypeAudit.loadProblem(id: id, content: file.content).map { (id, $0) }
+            }
+        }.value
+        return ids.filter { entry in !reported.contains { $0.contains("screens/\(entry.id).js") } }.map(\.problem)
     }
 
     /// What follows every build and sync of a prototype from code: the preview fix round, the comparison with the source, and, when that

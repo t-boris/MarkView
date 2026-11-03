@@ -1,5 +1,17 @@
 # Lessons
 
+## A repair path must not be allowed to decline silently (BUG-062, 2026-11-03)
+
+The preview check found five problems in the strikedesk prototype and the fix round "fixed" none of them. The fix round used the revision
+prompt, which tells the assistant to make no change and list files in `remaining` when a request needs more than three files, and then called
+the revision with `sweep: false`, which ignores `remaining`. The decline was printed as a chat message; the header looked normal.
+- Rule: when a prompt lets the assistant decline into a field, the caller must act on that field or the prompt must forbid it. Read the prompt
+  and the caller together; a flag that disables the follow-up is a contradiction.
+- Rule: split work by what the problem names (each problem line carries its file) instead of asking one answer to cover everything.
+- Rule: a repair that leaves problems behind must say so where the reviewer looks (the header), not only in the chat.
+- Rule: a defect the page cannot report as an error (a loader that removes its own container shows nothing and throws nothing) needs a check
+  that reads the file; run it over the real files of the failing prototype to see its false positives before trusting it.
+
 ## A document's text is never rewritten to make it displayable (BUG-061, 2026-11-03)
 
 README.md showed empty picture boxes. The editor inlined Markdown images as base64 into the text it held, which also made every file

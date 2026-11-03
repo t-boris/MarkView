@@ -17,6 +17,7 @@ struct PrototypeStudioView: View {
     @FocusState private var draftFocused: Bool
     /// The "Assumptions & gaps" popover of the header (REQ-001: the reconstruction's limits are disclosed).
     @State private var showingDisclosure = false
+    @State private var showingProblems = false
     /// "Copied" shown for a moment after the reference went to the pasteboard.
     @State private var referenceCopied = false
     /// The Components list of a code-mode prototype (REQ-007).
@@ -97,6 +98,16 @@ struct PrototypeStudioView: View {
                 .buttonStyle(.plain).foregroundColor(VSDark.textDim)
                 .popover(isPresented: $showingDisclosure, arrowEdge: .bottom) { disclosure }
                 .help("What the assistant assumed, and what the original does that this prototype only simulates or lacks")
+            }
+            // The fix round could not repair everything (BUG-062): the prototype is not ready, whatever the version says.
+            if !session.unresolvedProblems.isEmpty {
+                Button { showingProblems.toggle() } label: {
+                    Label("\(session.unresolvedProblems.count) not working", systemImage: "exclamationmark.triangle.fill")
+                        .uiFont(size: 10, weight: .semibold)
+                }
+                .buttonStyle(.plain).foregroundColor(VSDark.red)
+                .popover(isPresented: $showingProblems, arrowEdge: .bottom) { unresolvedList }
+                .help("The check of the preview still finds problems that the fix round did not repair; click for the list")
             }
             if !session.runtimeErrors.isEmpty {
                 Label("\(session.runtimeErrors.count)", systemImage: "exclamationmark.triangle.fill")
@@ -186,6 +197,35 @@ struct PrototypeStudioView: View {
     }
 
     /// The assumptions the assistant made and the known gaps of a reconstruction, as recorded at generation.
+    /// The problems the fix round left, and the way to run it again.
+    private var unresolvedList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Still not working").uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+            Text("The preview check found these after the fix round. The prototype is not ready until they are gone.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(session.unresolvedProblems.enumerated()), id: \.offset) { _, item in
+                        Text("• \(item)").uiFont(size: 11).foregroundColor(VSDark.text)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 260)
+            Button {
+                showingProblems = false
+                session.fixProblems()
+            } label: {
+                Label("Fix again", systemImage: "wrench.and.screwdriver")
+            }
+            .controlSize(.small).disabled(session.isBusy)
+            .help("Runs the fix round again: one run for each file the problems point to when there are more than three")
+        }
+        .padding(12)
+        .frame(width: 460)
+    }
+
     private var disclosure: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {

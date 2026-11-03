@@ -672,7 +672,10 @@ enum PrototypeAI {
         with a name starting with your screen id. Screen-specific CSS goes through `App.addStyles`. `App.load(fn)` returns \
         a container that shows a loading indicator and then holds what `fn` returns: return the content to show (an \
         element or an HTML string), never the container that `App.load` returned or an element that already contains \
-        it, or the screen stays blank. Do not edit other files and do not change global behaviour.
+        it, or the screen stays blank. Do not clear or replace the children of the element the container is appended to \
+        (`root.replaceChildren(...)`, `root.innerHTML = ...`), in the callback or in a function it calls: that removes the \
+        container from the page and the screen stays blank. Build the content in a new element and return it. \
+        Do not edit other files and do not change global behaviour.
         Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: path and full content).\(language)
         """
     }
@@ -847,7 +850,7 @@ enum PrototypeAI {
     static func revisePrompt(instruction: String, pick: Pick?, siteRelative: String, files: [PrototypeFiles.File],
                              runtimeErrors: [String], priorFailure: String?, attachments: [Attachment] = [],
                              mode: PrototypeFiles.Mode = .requirements, sources: [String] = [],
-                             priorEmpty: Bool = false, target: Target? = nil) -> String {
+                             priorEmpty: Bool = false, target: Target? = nil, fanOut: Bool = true) -> String {
         var out: String
         if mode == .code {
             var scope = "the project's own source code"
@@ -896,6 +899,11 @@ enum PrototypeAI {
         }
         if let target {
             out += "\n\n" + targetParagraph(target, siteRelative: siteRelative, mode: mode)
+        }
+        // A request that is not split across runs cannot be declined into `remaining`: nothing would ever revise those files (BUG-062).
+        if !fanOut {
+            out += "\n\nThis request is answered in this one run: make every change it needs in this answer, whatever the number of " +
+                "files, and leave `remaining` empty."
         }
         out += "\n\nReviewer's request:\n\(instruction)"
         return out
@@ -1821,6 +1829,16 @@ enum PrototypeAI {
                 stage(.log("\(wanted) was a stub (\(problem)); asking again"))
                 continue
             }
+            // A loader that clears its own container shows nothing and throws nothing (BUG-062): the first answer is sent back with
+            // the reason; the second is saved as it is, because the check is a text scan and the preview check has the last word.
+            if let problem = PrototypeAudit.loadProblem(id: screen.id, content: file.content) {
+                if attempt == 0 {
+                    failure = "\(wanted) would stay empty: \(problem)"
+                    stage(.log("\(wanted) would stay empty; asking again"))
+                    continue
+                }
+                stage(.log("\(wanted) still looks like it would stay empty; the preview check will say"))
+            }
             stage(.log("Saving \(wanted)"))
             try PrototypeFiles.apply(PrototypeFiles.Change(files: [PrototypeFiles.File(path: wanted, content: file.content)]), to: site)
             return
@@ -1867,13 +1885,18 @@ enum PrototypeAI {
     /// read-only run of its own, `concurrency` at a time, as the build writes its screens. Every run's change is checked
     /// in memory first; one `apply` at the end writes them all, so a cancelled or failed sweep leaves the site as it
     /// was. A file whose run failed twice is reported in the summary and stays as it is; if no file could be revised
-    /// the request fails. `sweep` false (the fix rounds after a preview error) never fans out.
+    /// the request fails. `sweep` false never fans out (a request aimed at one screen or component, the source comparison).
+    ///
+    /// `sweepFiles` are the files the caller already knows the request needs (the fix round names them from the problems the
+    /// preview reported): no first run decides that again, each file gets a run of its own at once. `runtimeErrors` travel with
+    /// each of those runs, which fix what concerns their file and leave the rest to the others (BUG-062).
     ///
     /// An answer with no change that explains itself in `summary` is the assistant's reply, not an error: nothing is
     /// written (`written` is empty) and the summary says so.
     static func revise(root: URL, folder: URL, instruction: String, pick: Pick?, attachments: [(url: URL, note: String)] = [],
                        runtimeErrors: [String], language: String, mode: PrototypeFiles.Mode = .requirements, sources: [String] = [],
                        sweep: Bool = true, concurrency: Int = 4, target: Target? = nil,
+                       sweepFiles: [String] = [], sweepEffort: String = "low",
                        record: @escaping Record, stage: @escaping Stage) async throws -> Outcome {
         let site = PrototypeFiles.site(of: folder)
         let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
@@ -1881,17 +1904,28 @@ enum PrototypeAI {
         var emptyAnswer = false
         for attempt in 0..<2 {
             let current = PrototypeFiles.read(site: site)
-            let result = try await call(root: root, system: reviseSystem(language: language),
-                                        prompt: revisePrompt(instruction: instruction, pick: pick, siteRelative: relative,
-                                                             files: current, runtimeErrors: runtimeErrors,
-                                                             priorFailure: failure,
-                                                             attachments: attachments.map { Attachment(path: relativePath($0.url, root: root), note: $0.note) },
-                                                             mode: mode, sources: sources, priorEmpty: emptyAnswer, target: target),
-                                        schema: reviseSchema, label: "prototype:revise", images: attachments.map(\.url),
-                                        record: record, stage: stage)
-            let object = result.structured as? [String: Any] ?? [:]
-            let change = PrototypeFiles.change(from: result.structured)
-            let summary = (object["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let object: [String: Any]
+            let change: PrototypeFiles.Change
+            let summary: String
+            if sweep && !sweepFiles.isEmpty {
+                // The caller knows which files the request needs: no run decides that again (BUG-062).
+                object = ["remaining": sweepFiles]
+                change = PrototypeFiles.Change()
+                summary = ""
+            } else {
+                let result = try await call(root: root, system: reviseSystem(language: language),
+                                            prompt: revisePrompt(instruction: instruction, pick: pick, siteRelative: relative,
+                                                                 files: current, runtimeErrors: runtimeErrors,
+                                                                 priorFailure: failure,
+                                                                 attachments: attachments.map { Attachment(path: relativePath($0.url, root: root), note: $0.note) },
+                                                                 mode: mode, sources: sources, priorEmpty: emptyAnswer, target: target,
+                                                                 fanOut: sweep),
+                                            schema: reviseSchema, label: "prototype:revise", images: attachments.map(\.url),
+                                            record: record, stage: stage)
+                object = result.structured as? [String: Any] ?? [:]
+                change = PrototypeFiles.change(from: result.structured)
+                summary = (object["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             let existing = Dictionary(uniqueKeysWithValues: current.map { ($0.path, $0.content) })
             var touched = Set<String>()
             for path in change.files.map(\.path) + change.edits.map(\.path) + change.deletes {
@@ -1926,14 +1960,18 @@ enum PrototypeAI {
             var report = ""
             if !targets.isEmpty {
                 stage(.step("Revising \(targets.count) file\(targets.count == 1 ? "" : "s"), \(max(1, concurrency)) at a time"))
+                // What the preview reported goes to every run: each fixes what concerns its file and leaves the rest to the others.
+                let fileInstruction = runtimeErrors.isEmpty ? instruction
+                    : instruction + "\n\nWhat the preview reported (fix what concerns this file; the other runs handle the other files):\n"
+                    + runtimeErrors.map { "- \($0)" }.joined(separator: "\n")
                 let changes = SweepChanges()
                 var failed: [(path: String, problem: String)] = []
                 var finished = 0
                 try await sideBySide(targets, concurrency: concurrency, work: { path in
                     let one = try await reviseFile(root: root, siteRelative: relative,
                                                    file: PrototypeFiles.File(path: path, content: existing[path] ?? ""),
-                                                   instruction: instruction, language: language, record: record,
-                                                   stage: scoped(stage, label: path, status: false))
+                                                   instruction: fileInstruction, language: language, effort: sweepEffort,
+                                                   record: record, stage: scoped(stage, label: path, status: false))
                     changes.set(path, one)
                 }, done: { path, problem in
                     finished += 1
@@ -1994,12 +2032,12 @@ enum PrototypeAI {
     /// changes nothing is a result (the request does not affect the file); a change that cannot apply to the file is
     /// sent back once with the reason, then the file fails.
     private static func reviseFile(root: URL, siteRelative: String, file: PrototypeFiles.File, instruction: String, language: String,
-                                   record: @escaping Record, stage: @escaping Stage) async throws -> PrototypeFiles.Change {
+                                   effort: String = "low", record: @escaping Record, stage: @escaping Stage) async throws -> PrototypeFiles.Change {
         var failure: String?
         for attempt in 0..<2 {
             let result = try await call(root: root, system: reviseSystem(language: language),
                                         prompt: sweepPrompt(instruction: instruction, siteRelative: siteRelative, file: file, priorFailure: failure),
-                                        schema: reviseSchema, label: "prototype:revise:\(file.path)", effort: "low", record: record, stage: stage)
+                                        schema: reviseSchema, label: "prototype:revise:\(file.path)", effort: effort, record: record, stage: stage)
             var change = PrototypeFiles.change(from: result.structured)
             // The run owns one file: whatever it says about another one, or a delete, is not applied.
             change.files = change.files.filter { (try? PrototypeFiles.validate(path: $0.path)) == file.path }

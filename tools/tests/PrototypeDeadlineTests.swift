@@ -100,7 +100,22 @@ import Foundation
         precondition(!fm.fileExists(atPath: always.1.path), "no file is written for a stub")
         let again = await CLICompletion.audit.calls["prototype:screen:home"]
         precondition(again == 2, "two tries, no more: \(String(describing: again))")
-        print("Prototype stub screens: a comment-only screen is asked again once with the reason, a stub that stays is reported as failed and not saved.")
+
+        // BUG-062: a loader that clears its own container is asked again once with the reason; if the second answer still has it, the
+        // screen is saved as it is (the check is a text scan) and the preview check decides.
+        let loaderOnce = try await build("loader-once")
+        defer { try? fm.removeItem(at: loaderOnce.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
+        let loaderCalls = await CLICompletion.audit.calls["prototype:screen:home"]
+        let loaderPrompt = await CLICompletion.audit.prompts["prototype:screen:home"] ?? ""
+        precondition(loaderCalls == 2 && loaderPrompt.contains("would stay empty") && loaderPrompt.contains("through draw()"), "asked again with the reason: \(loaderPrompt.suffix(400))")
+        precondition(loaderOnce.0.screens == ["Home"] && loaderOnce.0.failed.isEmpty, "the retry produced the screen")
+        precondition((try? String(contentsOf: loaderOnce.1, encoding: .utf8))?.contains("return App.load(() => h('p'") == true, "the corrected screen was saved")
+        let loaderAlways = try await build("loader-always")
+        defer { try? fm.removeItem(at: loaderAlways.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
+        let loaderTwice = await CLICompletion.audit.calls["prototype:screen:home"]
+        precondition(loaderTwice == 2 && loaderAlways.0.failed.isEmpty && fm.fileExists(atPath: loaderAlways.1.path),
+                     "two tries, then saved as it is and not failed: \(String(describing: loaderTwice)) \(loaderAlways.0.failed)")
+        print("Prototype stub screens: a comment-only screen is asked again once with the reason, a stub that stays is reported as failed and not saved; a loader that clears its container is asked again once and then saved for the preview check to judge.")
     }
 
     /// A request for many files (BUG-051): the first run lists them, each file is revised by a run of its own, and one
@@ -155,6 +170,8 @@ import Foundation
         precondition(labels == ["prototype:revise", "prototype:revise:index.html", "prototype:revise:app.js", "prototype:revise:data.js",
                                 "prototype:revise:styles.css", "prototype:revise:screens/home.js"],
                      "one run per listed file, the ghost, the repeat and the outside path dropped: \(labels.sorted())")
+        let firstPrompt = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
+        precondition(!firstPrompt.contains("answered in this one run"), "a request that can fan out may decline into `remaining`")
         let filePrompt = await CLICompletion.audit.prompts["prototype:revise:index.html"] ?? ""
         precondition(filePrompt.contains("revises one file of it, `index.html`") && filePrompt.contains("=== index.html ===\n<h1>Fixture title</h1>")
                      && filePrompt.hasSuffix("Reviewer's request:\nConvert all preview to English"), "the file run is given its file whole")
@@ -169,6 +186,9 @@ import Foundation
         precondition(fix.written.isEmpty && fix.summary == "Listed the files.\n\nNo files were changed." && files() == original, "fix round: \(fix.summary)")
         let fixLabels = await CLICompletion.audit.labels
         precondition(fixLabels == ["prototype:revise"], "a fix round starts no per-file run")
+        let aloneRun = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
+        precondition(aloneRun.contains("answered in this one run") && aloneRun.contains("leave `remaining` empty"),
+                     "a run that cannot fan out is not asked to decline into `remaining` (BUG-062)")
 
         // 3. Every file run fails: the request fails and the site is as it was.
         await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep-all-fail"); try reset()
@@ -209,8 +229,44 @@ import Foundation
             preconditionFailure("a cancelled sweep must not finish")
         } catch is CancellationError {}
         precondition(files() == original, "a cancelled sweep changed the site")
+
+        // 7. The fix round names the files its problems come from (BUG-062): no first run decides that again, each file gets a run
+        // of its own with the whole list and a higher effort, and what one run cannot do does not stop the others.
+        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep"); try reset()
+        let reported = ["Screen \"Home\" (#/, screens/home.js) renders nothing: the page has no content besides the shell.",
+                        "TypeError: Attempted to assign to readonly property. (app.js:93)",
+                        "ReferenceError: nope is not defined (data.js:5)",
+                        "Unexpected token (styles.css:2)",
+                        "ResizeObserver loop completed with undelivered notifications."]
+        let named = PrototypeAudit.fixFiles(problems: reported, existing: Set(files().keys))
+        precondition(named == ["screens/home.js", "app.js", "data.js", "styles.css"] && named.count > PrototypeAudit.directFixLimit,
+                     "the problems name four files: \(named)")
+        let split = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Fix the errors reported by the preview. Change nothing else.",
+                                                 pick: nil, runtimeErrors: reported, language: "", sweep: true, concurrency: 2,
+                                                 sweepFiles: named, sweepEffort: "medium", record: { _ in }, stage: events)
+        let splitLabels = await CLICompletion.audit.labels
+        precondition(splitLabels == Set(named.map { "prototype:revise:" + $0 }), "one run per named file and no first run: \(splitLabels.sorted())")
+        precondition(split.written == ["data.js", "styles.css"], "written: \(split.written)")
+        precondition(split.summary.hasPrefix("Revised 2 of 4 files; 1 needed no change; could not revise screens/home.js"), "summary: \(split.summary)")
+        let dataPrompt = await CLICompletion.audit.prompts["prototype:revise:data.js"] ?? ""
+        precondition(dataPrompt.contains("What the preview reported (fix what concerns this file; the other runs handle the other files):")
+                     && dataPrompt.contains("- TypeError: Attempted to assign to readonly property. (app.js:93)")
+                     && dataPrompt.contains("- ReferenceError: nope is not defined (data.js:5)"), "every run sees the whole list")
+        let splitEfforts = await CLICompletion.audit.efforts
+        precondition(splitEfforts["prototype:revise:data.js"] == "medium", "a fix run is medium effort: \(String(describing: splitEfforts["prototype:revise:data.js"]))")
+        let after7 = files()
+        precondition(after7["styles.css"] == "body { color: navy; }" && after7["screens/home.js"] == original["screens/home.js"] && after7["app.js"] == original["app.js"])
+        // The same request without a list of files still declines into `remaining` and fans out from there.
+        await CLICompletion.audit.reset(); try reset()
+        let declined = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Fix the errors reported by the preview. Change nothing else.",
+                                                    pick: nil, runtimeErrors: reported, language: "", sweep: true, concurrency: 2,
+                                                    sweepEffort: "medium", record: { _ in }, stage: events)
+        let declinedLabels = await CLICompletion.audit.labels
+        precondition(declinedLabels.contains("prototype:revise") && declinedLabels.contains("prototype:revise:index.html"), "a decline fans out: \(declinedLabels.sorted())")
+        precondition(declined.written.contains("styles.css"), "the fan-out of a fix round writes: \(declined.written)")
+
         await CLICompletion.audit.set(variant: "")
-        print("Prototype sweep: a request for many files is revised file by file (retry, partial failure, no change, cancel), written once; an explanation is a reply, silence an error; fix rounds never fan out.")
+        print("Prototype sweep: a request for many files is revised file by file (retry, partial failure, no change, cancel), written once; an explanation is a reply, silence an error; a fix round that names its files starts one run per file, and a decline there fans out too; a run that cannot fan out is told so.")
     }
 
     /// The original policy check: every stage runs without a wall-clock limit. Requirements mode builds on MarkView's own

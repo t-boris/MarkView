@@ -1,5 +1,36 @@
 # MarkView — Follow-up Tasks
 
+## BUG-062: the preview fix round declines a request that spans more than three files, so blank screens stay blank (2026-11-03, 5.13.0, fix/bug-062-prototype-fix-round)
+
+Boris approved all three options on 2026-11-03 ("Делай все 3"). Reproduced outside the studio on the real strikedesk prototype: after
+three seconds `.sd-widget.sd-option-desk` has no children, because `screens/trade.js` calls `draw()` (`root.replaceChildren`) inside the
+`App.load` callback that sits in `root`; the loading wrapper leaves the page and the content ends up in a detached element.
+
+Plan
+- [x] 1. Split the fix round. `settleAndFix` names the files each problem points to (`screens/<id>.js`, `(file.js:line)`). More than
+      three files: no first assistant run, one run per file (`revise(sweepFiles:)`), each run sees the whole list and fixes what concerns
+      its file. Three files or fewer: one run as before, but with `sweep: true`, so a decline that lists `remaining` fans out instead
+      of being dropped. A request that is not fanned out is told to leave `remaining` empty (no contradiction in the prompt).
+- [x] 2. A check without the assistant for the pattern: the `App.load` callback (directly or through a function it calls) clears the
+      element that holds the loader (`PrototypeAudit.loadProblem`). It runs when a screen is written (one retry with the reason) and in the
+      fix round over every `screens/*.js`, so an existing prototype is covered. The screen prompt says it in concrete words.
+- [x] 3. A status in the header: `unresolvedProblems` (what the last check still found), a red "N not working" chip with the list and a
+      "Fix again" button. It clears when the problems are gone.
+- [x] 4. Standalone checks (`tools/tests/prototype-fixround-tests.sh`) and the existing prototype suites; build the app; check the real
+      strikedesk files with the new lint (read-only).
+- [x] 5a. Version 5.13.1 (`./bump-version.sh patch`), commit, push, PR.
+- [ ] 5b. Merge, signed DMG release, BUG-062 to fixed.
+
+Review (before merge)
+- Checked: `prototype-fixround-tests.sh` (new; fails when the lint is disabled), `prototype-deadline-tests.sh` (new cases: a fix round that names four
+  files starts four runs and no first run, a declined request fans out, a run that cannot fan out is told to leave `remaining` empty, a loader
+  defect is asked again once at build and then saved), `prototype-tests.sh` (the pinned screen prompt changed on purpose), and the other
+  prototype suites. `prototype-runtime-tests.sh` has the same two role-switch failures on main. The Debug build of the app succeeds.
+- The new lint over the 30 real strikedesk screens flags only `trade.js`; over 12 vivaa screens it flags none.
+- Not checked: a live run with a real assistant on the strikedesk prototype (it would write a new version of Boris's own prototype); the header chip was
+  built and compiled, not clicked. Boris installs 5.13.1 himself.
+
+
 ## Integrated read-only PDF reader (2026-11-03, 5.13.0)
 
 Specification: `docs/features/pdf-reading-in-markview`; issues #274 through #278.

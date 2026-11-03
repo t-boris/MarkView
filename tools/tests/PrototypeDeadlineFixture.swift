@@ -160,6 +160,13 @@ enum CLICompletion {
             object = ["summary": "Home", "files": [["path": "screens/home.js", "content": stub
                 ? "/* The home screen is not implemented: the forms and the rules must be studied first. */"
                 : "App.register({id: 'home', render() { return 'Home'; }});"]]]
+        case "prototype:screen:home" where variant == "loader-once" || variant == "loader-always":
+            // BUG-062: strikedesk's Trade screen cleared the element its loader sits in, so it was blank and threw nothing.
+            let first = await audit.calls["prototype:screen:home"] == 1
+            let broken = variant == "loader-always" || first
+            object = ["summary": "Home", "files": [["path": "screens/home.js", "content": broken
+                ? "App.register({id: 'home', render() { const root = h('div'); function draw() { root.replaceChildren(h('p')); } root.append(App.load(() => { draw(); return root; })); return root; }});"
+                : "App.register({id: 'home', render() { return App.load(() => h('p', {}, 'Home')); }});"]]]
         case "prototype:screen:home":
             object = ["summary": "Home", "files": [["path": "screens/home.js", "content": "App.register({id: 'home', render() { return 'Home'; }});" ]]]
         case "prototype:screen:orders" where variant == "orders-stub":
