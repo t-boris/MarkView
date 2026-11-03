@@ -27,6 +27,8 @@ jobs:
           bash tools/tests/prototype-deadline-tests.sh
           bash tools/tests/prototype-images-tests.sh
           bash tools/tests/prototype-reference-tests.sh
+          bash tools/tests/prototype-styles-tests.sh
+          bash tools/tests/prototype-embedded-tests.sh
       - name: Check Copilot ACP and native CLI completion, timeout and Stop
         run: bash tools/tests/cli-completion-timeout-tests.sh
       - name: Check ACP answer continuation for long structured answers

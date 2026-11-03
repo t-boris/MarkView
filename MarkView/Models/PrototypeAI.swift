@@ -42,6 +42,10 @@ enum PrototypeAI {
         var evidence: [String] = []
         /// Code mode: the component files among them (REQ-007), as the screen writer must mark them.
         var components: [String] = []
+        /// Code mode: a widget of a docked window or a modal, written as a screen of its own and laid out or opened by a host screen (BUG-050).
+        var embedded = false
+        /// Code mode: the ids of the widget and modal screens this screen lays out or opens, in layout order; empty for an ordinary screen.
+        var hosts: [String] = []
     }
 
     /// The reconstruction scope of code mode as the caller found it with the project's web-app discovery;
@@ -114,6 +118,7 @@ enum PrototypeAI {
         private let lock = NSLock()
         private let emit: Stage
         private let rootPrefix: String
+        private let onRead: (@Sendable (String) -> Void)?
         private var buffer = ""
         private var lastPath = ""
         private var lastSize = Date.distantPast
@@ -123,8 +128,9 @@ enum PrototypeAI {
         /// What the assistant reads, for the status line ("the requirements" or "the code").
         private let reading: String
 
-        init(root: URL, reading: String = "the requirements", emit: @escaping Stage) {
+        init(root: URL, reading: String = "the requirements", onRead: (@Sendable (String) -> Void)? = nil, emit: @escaping Stage) {
             self.emit = emit
+            self.onRead = onRead
             self.reading = reading
             rootPrefix = root.standardizedFileURL.path + "/"
         }
@@ -137,6 +143,7 @@ enum PrototypeAI {
             switch activity {
             case .read(let path):
                 reads += 1
+                onRead?(short(path))
                 emit(.log("Reading \(short(path))"))
                 emit(.status("Reading \(reading) (\(reads) file\(reads == 1 ? "" : "s") so far)"))
             case .search(let query):
@@ -209,13 +216,17 @@ enum PrototypeAI {
                     "states": strings(), "rules": strings(), "requirements": strings(),
                     "evidence": strings("Source files read for the screen; empty unless reconstructing existing code."),
                     "components": strings("Component files among the evidence that the screen reproduces; empty unless reconstructing existing code."),
+                    "embedded": ["type": "boolean",
+                                 "description": "True for a widget of a docked window or a modal that a host screen lays out; false otherwise and in requirements mode."],
+                    "hosts": strings("Ids of the widget and modal screens this screen lays out or opens, in layout order; empty unless it is a host."),
                 ],
                 "required": ["id", "name", "route", "purpose", "data", "actions", "states", "rules", "requirements", "evidence",
-                             "components"],
+                             "components", "embedded", "hosts"],
                 "additionalProperties": false,
             ]],
+            "styles": strings("The original stylesheet files the interface loads, in import order; empty unless reconstructing existing code."),
         ],
-        "required": ["title", "summary", "assumptions", "gaps", "roles", "entities", "screens"], "additionalProperties": false,
+        "required": ["title", "summary", "assumptions", "gaps", "roles", "entities", "screens", "styles"], "additionalProperties": false,
     ]
 
     /// The answer of the foundation and screen runs: a summary and whole files.
@@ -315,7 +326,12 @@ enum PrototypeAI {
         types, stores or API payloads: name, fields with types, notes), `gaps` (behaviour of the original that the \
         prototype cannot reproduce and must simulate: backend and network calls, authentication, Electron preload or \
         `ipcRenderer` calls, native dialogs, file system and OS access, third-party widgets; one sentence each, naming \
-        the source file), and `screens`: at most 10, each with `id` (short lowercase words joined by dashes), `name`, \
+        the source file), `styles` (the original stylesheet files the interface loads, relative to the project root, in the \
+        order its entry file, root component or HTML page imports or links them: global CSS, themes, variables, fonts and \
+        the CSS of the widgets; only files of the front end you plan, seen in the listing, plain `.css` only; the \
+        prototype loads them unchanged, and the stylesheets they import from installed packages come along, so the \
+        screens must use the original class names), and `screens`: at most \(Plan.maxCodeScreens), each \
+        with `id` (short lowercase words joined by dashes), `name`, \
         `route` (the real route or view path of the code, as a hash route such as /orders or /orders/:id), `purpose`, \
         `data` (what it shows, field by field, as the code renders it), `actions` (every control and exactly what it \
         does in the code, with validation and permission rules), `states` (empty, loading, error and special states \
@@ -324,7 +340,19 @@ enum PrototypeAI {
         (the source files you read for this screen, relative to the project root) and `components` (the component \
         files among the evidence that the screen reproduces: React, Vue, Svelte or Angular component files, or the \
         template or HTML file of a plain page; the same relative paths, only files you have read). Every screen maps \
-        to a real route, page, view or window of the code. Put modal flows inside the screen that opens them. Use the \
+        to a real route, page, view or window of the code. When the selected folder holds more than one front end (a \
+        legacy static page, a debug console or an admin page beside the application's main renderer), plan only the one \
+        the application's main window loads, name the other front end in `gaps` with its folder, and neither plan its \
+        screens nor list its stylesheets. Put small confirmation and alert dialogs inside the screen that opens them. A \
+        window made of docked panels, widgets, panes or tabs (a trading desk, a dashboard, an editor workspace) has no \
+        routes: give every widget that has its own source file an entry of its own with `embedded` true and the route \
+        `/widgets/<id>`, and one host entry with `embedded` false whose `hosts` lists, in layout order, the ids of the \
+        widgets it lays out as the original layout code arranges them (default layout, tabs, docking, toolbar). A modal, \
+        drawer or overlay that is a substantial interface of its own (settings, a detail view, a wizard, an assistant) \
+        and has its own source file gets an entry as well: `embedded` true, the route `/modals/<id>`, listed in `hosts` \
+        after the widgets; the host opens it from the control that opens it in the code. Never merge several widgets or \
+        modals into one entry and never plan one you have not read; keep the fields of such an entry to a line each, \
+        its writer reads the source file itself. `embedded` is false and `hosts` empty on every ordinary screen. Use the \
         labels and vocabulary of the code's own UI. An Electron app is in scope only as its renderer, the browser part: \
         the main process is not reproduced, and every `window.electron`, `window.api` or `ipcRenderer` call is \
         simulated and listed in `gaps`.\(language)
@@ -415,7 +443,22 @@ enum PrototypeAI {
     styles of their own beyond `App.addStyles`.
     """
 
-    static func shellSystem(language: String) -> String {
+    /// What the shell must also provide when the plan has widget and modal screens that a host screen lays out (BUG-050).
+    static let embeddedShellContract = """
+    This plan has widget and modal screens (`embedded` true in the plan; the host screen's `hosts` lists them). A host \
+    renders them; nobody navigates to them. So: `App.plan` carries `embedded` and `hosts` for every screen. The \
+    navigation lists only screens whose `embedded` is false, and when exactly one such screen exists the shell shows \
+    no navigation list, only a thin toolbar with the Prototype menu, and that screen fills the rest of the window \
+    (`app-main` without padding, full height, no page scroll). `App.register` accepts `embedded: true`. \
+    `App.renderScreen(id, extra)` renders a registered screen into a new element and returns it, always an element \
+    (a string returned by `render` is wrapped): `ctx` is the one of a routed screen with `params: {}`, `query: {}` and \
+    `embedded: true` plus the keys of `extra`. It works before and without `App.start()`, never throws, and returns \
+    a panel saying that the widget is still being built, or failed, when the screen is not registered or its `render` \
+    throws. Visiting the route of an embedded screen shows it alone in `app-main` through the same call. \
+    `App.modal({title, body, actions})` accepts an element or an HTML string as `body`.
+    """
+
+    static func shellSystem(language: String, widgets: Bool = false) -> String {
         craft + """
 
 
@@ -439,13 +482,14 @@ enum PrototypeAI {
         "Force empty state", "Force error state" (both exposed as `ctx.proto.empty` and `ctx.proto.error`, and \
         `App.load` shows the error card with Retry when it is on) and "Reset demo data" (calls `DB.reset()`). A route \
         whose screen is not registered (yet) shows the panel "This screen is still being built." The screens of the \
-        plan are listed in `App.plan` (id, name, route) for the navigation. Keep app.js under 60 KB.
+        plan are listed in `App.plan` (id, name, route) for the navigation. \(widgets ? embeddedShellContract + " " : "")Keep app.js under 60 KB.
         Answer with the JSON object: `summary` (one sentence) and `files` (exactly two files: index.html and app.js).\(language)
         """
     }
 
-    static func stylesSystem(language: String) -> String {
-        craft + """
+    static func stylesSystem(language: String, originals: Bool = false) -> String {
+        if originals { return stylesBridgeSystem(language: language) }
+        return craft + """
 
 
         You write styles.css, the design system of the prototype. The markup and script (index.html, app.js), the data \
@@ -460,7 +504,36 @@ enum PrototypeAI {
         """
     }
 
-    static func foundationPrompt(plan: String, failure: String?, mode: PrototypeFiles.Mode = .requirements) -> String {
+    /// styles.css when the app's own stylesheets are loaded before it (BUG-050): only the bridge, not a design system.
+    private static func stylesBridgeSystem(language: String) -> String {
+        craft + """
+
+
+        You write styles.css, the small bridge between the prototype's shell and the app's own stylesheets, which are \
+        already copied into the prototype and loaded before styles.css. The markup and script (index.html, app.js), the \
+        data backend and the screens are written at the same time by other engineers, so the class names are fixed. \
+        \(shellContract) Write only styles.css.
+        Do not write a design system and do not restyle anything the original stylesheets already style. Read their custom \
+        properties, fonts and class names with your tools and write only what the original does not define for the \
+        classes above: the layout shell (`app-header`, `app-nav`, `app-main`; a full-window `app-main` when the shell \
+        has no navigation), toasts, skeleton loading, empty states, the Prototype menu and a modal frame that matches the \
+        original's dialogs, each built from the original's own variables (`var(--…)`) so it blends in. Keep the file \
+        under 8 KB and write no JavaScript and no HTML.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: styles.css).\(language)
+        """
+    }
+
+    /// Code mode, when the app's own stylesheets were copied (BUG-050): what the writers must know about them.
+    static func originalStylesNote(_ styles: [String]) -> String {
+        guard !styles.isEmpty else { return "" }
+        return "The original stylesheets are already copied into the prototype unchanged and index.html links them before styles.css " +
+            "(project paths: \(styles.joined(separator: ", "))). Do not copy, restate or restyle them; read them with your tools and " +
+            "use their class names, custom properties and fonts in the markup. styles.css only adds what they lack for the " +
+            "prototype's own controls (the Prototype menu, toasts, skeletons, the shell around the screens), and is short."
+    }
+
+    static func foundationPrompt(plan: String, failure: String?, mode: PrototypeFiles.Mode = .requirements,
+                                 originalStyles: [String] = []) -> String {
         var out = "The plan of the prototype:\n\(plan)"
         if mode == .code {
             out += "\n\nThis prototype reconstructs an existing interface; the plan's `evidence` lists its source files. Read the " +
@@ -468,6 +541,8 @@ enum PrototypeAI {
                 "tokens (colours, fonts, spacing, radii), shell layout and navigation instead of inventing a design system. " +
                 "The entities and the seed data mirror what the code renders; what the original gets from a backend or " +
                 "native APIs is simulated. " + componentRule
+            let note = originalStylesNote(originalStyles)
+            if !note.isEmpty { out += "\n\n" + note }
         }
         if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)\nWrite the files again, complete." }
         return out
@@ -489,8 +564,15 @@ enum PrototypeAI {
         """
     }
 
+    /// A widget or modal of a docked window or a dialog flow: a screen a host lays out, not a page (BUG-050).
+    static func isModal(_ screen: PlannedScreen) -> Bool { screen.route.hasPrefix("/modals/") }
+
+    /// The effort of a screen run: a widget, a modal or a host is written from whole source files, so it gets more than a page.
+    static func screenEffort(_ screen: PlannedScreen) -> String { screen.embedded || !screen.hosts.isEmpty ? "medium" : "low" }
+
     static func screenPrompt(plan: String, screen: PlannedScreen, foundation: [PrototypeFiles.File], failure: String?,
-                             mode: PrototypeFiles.Mode = .requirements) -> String {
+                             mode: PrototypeFiles.Mode = .requirements, originalStyles: [String] = [],
+                             hosted: [PlannedScreen] = []) -> String {
         var out = "The plan of the whole prototype:\n\(plan)\n\nThe foundation files (the API you build on):\n"
         for file in foundation { out += "\n=== \(file.path) ===\n\(file.content)\n" }
         out += "\nWrite the screen `\(screen.id)` (\(screen.name), route \(screen.route)) as `screens/\(screen.id).js`."
@@ -506,10 +588,35 @@ enum PrototypeAI {
             }
             out += "\nWhat the original gets from a backend, the Electron main process or native APIs is simulated with " +
                 "`DB` and sample data; the standalone rules still apply (no network request, no framework download).\n\n"
+            let note = originalStylesNote(originalStyles)
+            if !note.isEmpty { out += note + "\n\n" }
             out += componentRule
             if !screen.components.isEmpty {
                 out += "\nThe component files of this screen, as the plan names them:\n"
                 for path in screen.components { out += "- \(path)\n" }
+            }
+            if screen.embedded {
+                let kind = isModal(screen) ? "modal" : "widget"
+                out += "\n\nThis screen is a \(kind) rendered inside another screen (`App.renderScreen('\(screen.id)')` in the host's " +
+                    "\(isModal(screen) ? "dialog" : "panel")), not a page: register it with `embedded: true`, add no page header, no outer " +
+                    "padding and no navigation, let it fill its container (height 100%, scrolling inside itself) and read `ctx.embedded`. " +
+                    "Read the whole source file with your tools, not an excerpt, and every file of the same \(kind) that it imports " +
+                    "(subcomponents, hooks, domain helpers, constants): reproduce every control, column, tab, toolbar, state, label and " +
+                    "number format they define. Keep the data it needs in `DB` functions named with your screen id. Do not shorten it " +
+                    "to a sample."
+            }
+            if !hosted.isEmpty {
+                out += "\n\nThis screen is the HOST of the window. It lays out these screens, which other engineers write at the same " +
+                    "time, by calling `App.renderScreen(id)` for each and placing the returned element in the panel, tab or dialog " +
+                    "where the original puts it:\n"
+                for item in hosted { out += "- \(item.id) — \(item.name) (\(item.route))\n" }
+                out += "Reproduce the original arrangement as its layout code defines it (read that code with your tools: toolbar, " +
+                    "default panel layout and sizes, tab groups, which widgets share a tab strip, what is visible at start). A " +
+                    "docking library of the original is not available in the prototype: build the layout with CSS grid or flex and a " +
+                    "small tab strip, using the original class names and the loaded stylesheets. Do not re-implement a widget or copy " +
+                    "its markup. The screens under `/modals/` are opened with `App.modal({title, body: App.renderScreen(id)})` from " +
+                    "the control that opens them in the original (toolbar button, menu item, double click); do not place them in " +
+                    "the layout. The host registers with `embedded: false`, and the shell shows it at start."
             }
         }
         if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)" }
@@ -705,6 +812,7 @@ enum PrototypeAI {
     /// One structured run. `record` receives the finished run for the usage counter.
     private static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
                              effort: String = "medium", images: [URL] = [], reading: String = "the requirements",
+                             readLog: PrototypeEmbedded.ReadLog? = nil,
                              record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
         var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
         request.images = images
@@ -715,7 +823,7 @@ enum PrototypeAI {
         request.timeout = nil
         request.label = label
         stage(.log("Started the assistant"))
-        let tracker = ProgressTracker(root: root, reading: reading, emit: stage)
+        let tracker = ProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { log.add($0) } }, emit: stage)
         let result = try await CLICompletion.run(request, onActivity: { tracker.handle($0) })
         stage(.log("The assistant finished"))
         await record(result)
@@ -734,8 +842,12 @@ enum PrototypeAI {
         /// file. Any mode: the screens dropped past `maxScreens`.
         var gaps: [String]
         var screens: [PlannedScreen]
+        /// Code mode: the original stylesheets the interface loads, project-relative and in import order; empty otherwise.
+        var styles: [String]
 
         static let maxScreens = 10
+        /// A reconstruction of a window of docked widgets needs one entry per widget (BUG-050).
+        static let maxCodeScreens = 40
 
         /// In `.code` mode the planner's gaps are kept and each screen's components are kept only when
         /// `sourceExists` finds their file, the others becoming gaps, so no link is invented (REQ-007). In
@@ -749,7 +861,8 @@ enum PrototypeAI {
             var seen = Set<String>()
             var screens: [PlannedScreen] = []
             var missing: [String] = []
-            var normalised = raw.prefix(Self.maxScreens).map { $0 }
+            let limit = mode == .code ? Self.maxCodeScreens : Self.maxScreens
+            var normalised = raw.prefix(limit).map { $0 }
             for (index, item) in normalised.enumerated() {
                 let name = item["name"] as? String ?? "Screen \(index + 1)"
                 var id = Self.slug(item["id"] as? String ?? name)
@@ -772,8 +885,22 @@ enum PrototypeAI {
                     }
                 }
                 normalised[index]["components"] = components
+                // Widgets and hosts exist in code mode only; a host's list is cut to the entries that exist, below.
+                let embedded = mode == .code && item["embedded"] as? Bool == true
+                normalised[index]["embedded"] = embedded
                 screens.append(PlannedScreen(id: unique, name: name, route: item["route"] as? String ?? "/" + unique,
-                                             purpose: item["purpose"] as? String ?? "", evidence: evidence, components: components))
+                                             purpose: item["purpose"] as? String ?? "", evidence: evidence, components: components,
+                                             embedded: embedded, hosts: mode == .code ? (item["hosts"] as? [String] ?? []) : []))
+            }
+            let known = Set(screens.map(\.id))
+            for index in screens.indices {
+                var hosted: [String] = []
+                for raw in screens[index].hosts {
+                    let id = Self.slug(raw)
+                    if known.contains(id), id != screens[index].id, !hosted.contains(id) { hosted.append(id) }
+                }
+                screens[index].hosts = hosted
+                normalised[index]["hosts"] = hosted
             }
             // The planner's gaps belong to a reconstruction only; the writers see the same list as the manifest.
             let planned = mode == .code
@@ -782,18 +909,27 @@ enum PrototypeAI {
             var plan = object
             plan["screens"] = normalised
             plan["gaps"] = planned
+            var listed: [String] = []
+            if mode == .code {
+                for raw in object["styles"] as? [String] ?? [] {
+                    let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !path.isEmpty, !listed.contains(path) { listed.append(path) }
+                }
+            }
+            plan["styles"] = listed
+            styles = listed
             let data = try JSONSerialization.data(withJSONObject: plan, options: [.prettyPrinted, .sortedKeys])
             json = String(decoding: data, as: UTF8.self)
             title = object["title"] as? String ?? "Prototype"
             summary = object["summary"] as? String ?? ""
             assumptions = object["assumptions"] as? [String] ?? []
             var gaps = planned + missing.map { "Component \($0) named by the plan was not found in the sources" }
-            if raw.count > Self.maxScreens {
+            if raw.count > limit {
                 // A plan past the cap is cut without asking; the reviewer must know what is missing.
-                let dropped = raw.dropFirst(Self.maxScreens).enumerated().map { pair -> String in
-                    pair.element["name"] as? String ?? "screen \(Self.maxScreens + pair.offset + 1)"
+                let dropped = raw.dropFirst(limit).enumerated().map { pair -> String in
+                    pair.element["name"] as? String ?? "screen \(limit + pair.offset + 1)"
                 }
-                gaps.append("The plan listed \(raw.count) screens and only the first \(Self.maxScreens) are built; not built: " +
+                gaps.append("The plan listed \(raw.count) screens and only the first \(limit) are built; not built: " +
                             dropped.joined(separator: ", ") + ".")
             }
             self.gaps = gaps
@@ -818,6 +954,8 @@ enum PrototypeAI {
         var gaps: [String] = []
         /// Code mode: the source components the files reproduce, with their isolated pages (REQ-007).
         var components: [PrototypeFiles.Component] = []
+        /// Code mode: how much of the interface's source the plan names or the writers read (BUG-050).
+        var coverage: PrototypeEmbedded.Coverage?
     }
 
     /// `PlannedScreen`s as the component scan reads them.
@@ -885,8 +1023,12 @@ enum PrototypeAI {
         stage(.status("Reading \(reading)"))
         let system: String
         let prompt: String
+        var styleFilesInScope = false
+        var scopeInventory: PrototypeFiles.Inventory?
         if mode == .code {
             let inventory = PrototypeFiles.inventory(root: root, sources: sources)
+            scopeInventory = inventory
+            styleFilesInScope = inventory.entries.contains { ["css", "scss", "less"].contains(($0.path as NSString).pathExtension.lowercased()) }
             system = codePlanSystem(language: language)
             prompt = codePlanPrompt(brief: brief, sources: sources, scope: codeScope, inventory: inventory)
         } else {
@@ -898,23 +1040,47 @@ enum PrototypeAI {
         let plan = try Plan(structured: planned.structured, mode: mode, sourceExists: { PrototypeFiles.isSourceFile(root: root, path: $0) })
         stage(.plan(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: plan.screens))
 
+        // Code mode: the app's own stylesheets are copied as they are, not rewritten (BUG-050).
+        var originals = PrototypeStyles.Copied()
+        if mode == .code, !plan.styles.isEmpty {
+            stage(.step("Copying the original stylesheets"))
+            let listed = plan.styles
+            originals = await Task.detached { PrototypeStyles.copy(styles: listed, root: root, site: site) }.value
+            stage(.log("Copied \(originals.stylesheets.count) stylesheet\(originals.stylesheets.count == 1 ? "" : "s") and " +
+                       "\(originals.assets.count) font\(originals.assets.count == 1 ? "" : "s") and image\(originals.assets.count == 1 ? "" : "s")"))
+        }
+        let originalStyles = originals.stylesheets
+        var gaps = plan.gaps + originals.gaps
+        if mode == .code, plan.styles.isEmpty, styleFilesInScope {
+            gaps.append("The sources hold stylesheets but the plan named none, so the prototype's design is written, not copied from the original.")
+        }
+
         stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (three parts at once)"))
         stage(.status("Writing the shell, the styles and the data"))
-        async let shell = foundationPart(root: root, plan: plan, system: foundationShell(language), label: "shell",
+        let hasWidgets = mode == .code && plan.screens.contains(where: \.embedded)
+        async let shell = foundationPart(root: root, plan: plan, system: shellSystem(language: language, widgets: hasWidgets), label: "shell",
                                          allowed: ["index.html", "app.js"], required: ["index.html", "app.js"],
-                                         mode: mode, record: record, stage: scoped(stage, label: "Shell", status: false))
-        async let styles = foundationPart(root: root, plan: plan, system: stylesSystem(language: language), label: "styles",
+                                         mode: mode, originalStyles: originalStyles, record: record,
+                                         stage: scoped(stage, label: "Shell", status: false))
+        async let styles = foundationPart(root: root, plan: plan, system: stylesSystem(language: language, originals: !originalStyles.isEmpty), label: "styles",
                                           allowed: ["styles.css"], required: ["styles.css"],
-                                          mode: mode, record: record, stage: scoped(stage, label: "Styles", status: false))
+                                          mode: mode, originalStyles: originalStyles, record: record,
+                                          stage: scoped(stage, label: "Styles", status: false))
         async let data = foundationPart(root: root, plan: plan, system: dataSystem(language: language), label: "data",
                                         allowed: ["data.js"], required: ["data.js"],
-                                        mode: mode, record: record, stage: scoped(stage, label: "Data", status: false))
+                                        mode: mode, originalStyles: originalStyles, record: record,
+                                        stage: scoped(stage, label: "Data", status: false))
         var shellChange = try await shell
         let stylesChange = try await styles
         let dataChange = try await data
         for index in shellChange.files.indices where shellChange.files[index].path == "index.html" {
             shellChange.files[index].content = PrototypeFiles.insertScreenScripts(into: shellChange.files[index].content,
                                                                                   ids: plan.screens.map(\.id)) ?? shellChange.files[index].content
+            if let linked = PrototypeStyles.insertLinks(into: shellChange.files[index].content, hrefs: originals.links) {
+                shellChange.files[index].content = linked
+            } else {
+                gaps.append("index.html has no place for the original stylesheets (no styles.css link and no head); they are copied but not loaded.")
+            }
         }
         stage(.step("Saving the foundation"))
         try PrototypeFiles.apply(PrototypeFiles.Change(files: shellChange.files + stylesChange.files + dataChange.files), to: site)
@@ -923,11 +1089,12 @@ enum PrototypeAI {
         stage(.phase("Step 3 of \(steps) · Writing the screens"))
         let foundation = PrototypeFiles.read(site: site).filter { ["app.js", "data.js", "styles.css"].contains($0.path) }
         var failed: [String] = []
+        let readLog = PrototypeEmbedded.ReadLog()
         for screen in plan.screens { stage(.screen(id: screen.id, state: .queued)) }
         try await sideBySide(plan.screens, concurrency: concurrency, work: { screen in
             stage(.screen(id: screen.id, state: .writing))
             try await buildScreen(root: root, site: site, plan: plan, screen: screen, foundation: foundation,
-                                  language: language, mode: mode, record: record,
+                                  language: language, mode: mode, originalStyles: originalStyles, readLog: readLog, record: record,
                                   stage: scoped(stage, label: screen.name, status: false))
         }, done: { screen, problem in
             if let problem {
@@ -938,7 +1105,6 @@ enum PrototypeAI {
                 stage(.written)
             }
         })
-        var gaps = plan.gaps
         var components: [PrototypeFiles.Component] = []
         if mode == .code {
             stage(.phase("Step 4 of 4 · Isolating the source components"))
@@ -961,11 +1127,34 @@ enum PrototypeAI {
                 gaps.append("No component could be attributed to a source file")
             } else {
                 for component in components { stage(.component(path: component.path, state: .queued)) }
-                stage(.status("Writing the isolated component views"))
-                try await sideBySide(components, concurrency: concurrency, work: { component in
+                // A component that is a widget or modal screen needs no assistant: its page mounts that screen alone.
+                var direct: [String: PlannedScreen] = [:]
+                for screen in plan.screens where screen.embedded && !failed.contains(screen.name) {
+                    for path in screen.components where direct[path] == nil { direct[path] = screen }
+                }
+                var written = 0
+                for component in components {
+                    guard let screen = direct[component.path] else { continue }
+                    stage(.component(path: component.path, state: .writing))
+                    let wanted = PrototypeFiles.componentPage(for: component.path)
+                    let page = PrototypeEmbedded.page(screenID: screen.id, name: screen.name, componentPath: component.path,
+                                                      links: originals.links)
+                    do {
+                        try PrototypeFiles.apply(PrototypeFiles.Change(files: [PrototypeFiles.File(path: wanted, content: page)]), to: site)
+                        written += 1
+                        stage(.component(path: component.path, state: .done))
+                    } catch {
+                        gaps.append("Could not isolate component \(component.path): \(error.localizedDescription)")
+                        stage(.component(path: component.path, state: .failed(error.localizedDescription)))
+                    }
+                }
+                if written > 0 { stage(.log("Wrote \(written) isolated page\(written == 1 ? "" : "s") for widgets and modals without the assistant")) }
+                let remaining = components.filter { direct[$0.path] == nil }
+                if !remaining.isEmpty { stage(.status("Writing the isolated component views")) }
+                try await sideBySide(remaining, concurrency: concurrency, work: { component in
                     stage(.component(path: component.path, state: .writing))
                     try await buildComponent(root: root, site: site, plan: plan, component: component, foundation: foundation,
-                                             language: language, record: record,
+                                             language: language, readLog: readLog, record: record,
                                              stage: scoped(stage, label: component.label, status: false))
                 }, done: { component, problem in
                     if let problem {
@@ -980,8 +1169,18 @@ enum PrototypeAI {
             }
         }
         let built = plan.screens.map(\.name).filter { !failed.contains($0) }
+        // What the build reproduced of the source, from what the plan names and the writers read (BUG-050).
+        var coverage: PrototypeEmbedded.Coverage?
+        if mode == .code, let inventory = scopeInventory {
+            coverage = PrototypeEmbedded.coverage(inventory: inventory, screens: plan.screens.filter { !failed.contains($0.name) },
+                                                  read: readLog.all)
+            if let coverage {
+                gaps.append(coverage.sentence)
+                stage(.milestone(coverage.sentence))
+            }
+        }
         return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed,
-                     gaps: gaps, components: components)
+                     gaps: gaps, components: components, coverage: coverage)
     }
 
     /// Reconstructs a code-mode prototype again from the current sources, for "Sync from code" (REQ-006,
@@ -1010,17 +1209,16 @@ enum PrototypeAI {
         }
     }
 
-    private static func foundationShell(_ language: String) -> String { shellSystem(language: language) }
-
     /// One part of the foundation: the answer is tried twice; `allowed` are the files it may write, `required` must be there.
     /// A shell answer must also contain the `<!--SCREENS-->` line.
     private static func foundationPart(root: URL, plan: Plan, system: String, label: String, allowed: Set<String>,
-                                       required: [String], mode: PrototypeFiles.Mode, record: @escaping Record,
-                                       stage: @escaping Stage) async throws -> PrototypeFiles.Change {
+                                       required: [String], mode: PrototypeFiles.Mode, originalStyles: [String] = [],
+                                       record: @escaping Record, stage: @escaping Stage) async throws -> PrototypeFiles.Change {
         var failure: String?
         for attempt in 0..<2 {
             let result = try await call(root: root, system: system,
-                                        prompt: foundationPrompt(plan: plan.json, failure: failure, mode: mode),
+                                        prompt: foundationPrompt(plan: plan.json, failure: failure, mode: mode,
+                                                                 originalStyles: originalStyles),
                                         schema: filesSchema, label: "prototype:foundation:\(label)", effort: "low",
                                         record: record, stage: stage)
             var change = PrototypeFiles.change(from: result.structured)
@@ -1042,15 +1240,19 @@ enum PrototypeAI {
 
     /// One screen: a run that answers with `screens/<id>.js`; the answer is tried twice.
     private static func buildScreen(root: URL, site: URL, plan: Plan, screen: PlannedScreen, foundation: [PrototypeFiles.File],
-                                    language: String, mode: PrototypeFiles.Mode, record: @escaping Record,
-                                    stage: @escaping Stage) async throws {
+                                    language: String, mode: PrototypeFiles.Mode, originalStyles: [String] = [],
+                                    readLog: PrototypeEmbedded.ReadLog? = nil,
+                                    record: @escaping Record, stage: @escaping Stage) async throws {
+        let hosted = screen.hosts.compactMap { id in plan.screens.first { $0.id == id } }
         let wanted = "screens/\(screen.id).js"
         var failure: String?
         for attempt in 0..<2 {
             let result = try await call(root: root, system: screenSystem(language: language),
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation,
-                                                             failure: failure, mode: mode),
-                                        schema: filesSchema, label: "prototype:screen:\(screen.id)", effort: "low", record: record, stage: stage)
+                                                             failure: failure, mode: mode, originalStyles: originalStyles, hosted: hosted),
+                                        schema: filesSchema, label: "prototype:screen:\(screen.id)",
+                                        effort: mode == .code ? screenEffort(screen) : "low", readLog: readLog,
+                                        record: record, stage: stage)
             let files = PrototypeFiles.change(from: result.structured).files
             guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
                 failure = "The answer must contain exactly one file, \(wanted)."
@@ -1065,7 +1267,8 @@ enum PrototypeAI {
 
     /// The isolated view of one component, `components/<slug>.html`; the answer is tried twice (code mode, REQ-007).
     private static func buildComponent(root: URL, site: URL, plan: Plan, component: PrototypeFiles.Component,
-                                       foundation: [PrototypeFiles.File], language: String, record: @escaping Record,
+                                       foundation: [PrototypeFiles.File], language: String,
+                                       readLog: PrototypeEmbedded.ReadLog? = nil, record: @escaping Record,
                                        stage: @escaping Stage) async throws {
         let wanted = PrototypeFiles.componentPage(for: component.path)
         let slug = ((wanted as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -1076,7 +1279,7 @@ enum PrototypeAI {
                                         prompt: componentPrompt(plan: plan.json, component: component.path, page: wanted,
                                                                 screens: screens, foundation: foundation, failure: failure),
                                         schema: filesSchema, label: "prototype:component:\(slug)", effort: "low", reading: "the code",
-                                        record: record, stage: stage)
+                                        readLog: readLog, record: record, stage: stage)
             let files = PrototypeFiles.change(from: result.structured).files
             guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
                 failure = "The answer must contain exactly one file, \(wanted)."

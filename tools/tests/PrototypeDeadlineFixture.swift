@@ -30,15 +30,18 @@ enum CLICompletion {
         /// The last prompt and system prompt sent under each label.
         var prompts: [String: String] = [:]
         var systems: [String: String] = [:]
+        /// The effort asked for under each label.
+        var efforts: [String: String] = [:]
         /// What the fixture app "looks like" to the assistant: "" at creation, "synced" after the code changed,
         /// "failing" when the planner cannot answer (a sync that must restore the previous version).
         var variant = ""
-        func record(_ label: String, prompt: String, system: String) {
+        func record(_ label: String, prompt: String, system: String, effort: String?) {
             labels.insert(label)
             prompts[label] = prompt
             systems[label] = system
+            efforts[label] = effort
         }
-        func reset() { labels = []; prompts = [:]; systems = [:] }
+        func reset() { labels = []; prompts = [:]; systems = [:]; efforts = [:] }
         func set(variant: String) { self.variant = variant }
     }
     static let audit = Audit()
@@ -59,16 +62,39 @@ enum CLICompletion {
         // The provider boundary must receive no deadline for every stage, including follow-ups.
         if let limit = request.timeout { throw Failure.timedOut(.claude, limit) }
         try Task.checkCancellation()
-        await audit.record(request.label, prompt: request.prompt, system: request.systemPrompt ?? "")
+        await audit.record(request.label, prompt: request.prompt, system: request.systemPrompt ?? "", effort: request.effort)
         let variant = await audit.variant
         let object: [String: Any]
         switch request.label {
         case "prototype:plan" where variant == "failing":
             throw Failure.invalidOutput(.claude, "fixture: the planner could not read the code")
+        case "prototype:plan" where variant == "widgets":
+            // A window of docked widgets (BUG-050): a host, a widget and a modal, the last two with a source file each.
+            func entry(_ id: String, _ name: String, _ route: String, evidence: [String], components: [String],
+                       embedded: Bool, hosts: [String]) -> [String: Any] {
+                ["id": id, "name": name, "route": route, "purpose": name, "data": [], "actions": [], "states": [], "rules": [],
+                 "requirements": [], "evidence": evidence, "components": components, "embedded": embedded, "hosts": hosts]
+            }
+            object = ["title": "Fixture Desk", "summary": "A window of widgets", "assumptions": [], "gaps": [], "roles": [], "entities": [],
+                      "styles": ["src/styles.css"],
+                      "screens": [entry("workspace", "Workspace", "/", evidence: ["src/app.js", "src/index.html"], components: [],
+                                        embedded: false, hosts: ["order-list", "settings", "ghost"]),
+                                  entry("order-list", "Order list", "/widgets/order-list", evidence: ["src/index.html"],
+                                        components: ["src/index.html"], embedded: true, hosts: []),
+                                  entry("settings", "Settings", "/modals/settings", evidence: ["src/toolbar.html"],
+                                        components: ["src/toolbar.html"], embedded: true, hosts: [])]]
+        case "prototype:screen:workspace" where variant == "widgets":
+            object = ["summary": "Host", "files": [["path": "screens/workspace.js", "content": "App.register({id: 'workspace', route: '/', render() { return App.renderScreen('order-list'); }});"]]]
+        case "prototype:screen:order-list" where variant == "widgets":
+            object = ["summary": "Widget", "files": [["path": "screens/order-list.js", "content":
+                "App.register({id: 'order-list', route: '/widgets/order-list', embedded: true, render() { return '<div data-mv-component=\"src/index.html\">Orders</div>'; }});"]]]
+        case "prototype:screen:settings" where variant == "widgets":
+            object = ["summary": "Modal", "files": [["path": "screens/settings.js", "content":
+                "App.register({id: 'settings', route: '/modals/settings', embedded: true, render() { return '<div data-mv-component=\"src/toolbar.html\">Settings</div>'; }});"]]]
         case "prototype:plan" where (request.systemPrompt ?? "").contains("reconstructs an EXISTING web interface"):
             object = ["title": variant == "synced" ? "Fixture Orders (synced)" : "Fixture Orders",
                       "summary": "The orders screen of the fixture app", "assumptions": ["Prices are in EUR"],
-                      "gaps": codeGaps, "roles": [], "entities": [],
+                      "gaps": codeGaps, "roles": [], "entities": [], "styles": ["src/styles.css"],
                       "screens": [["id": "orders", "name": "Orders", "route": "/orders", "purpose": "The order list of src/index.html",
                                    "data": [], "actions": [], "states": [], "rules": [], "requirements": ["Reproduces src/index.html"],
                                    // src/ghost.vue is not in the fixture: the plan named it, the build must not link it.
@@ -81,7 +107,7 @@ enum CLICompletion {
                                    "data": [], "actions": [], "states": [], "rules": [], "requirements": [], "components": ["src/x.vue"]]]]
         case "prototype:foundation:shell":
             object = ["summary": "Shell", "files": [
-                ["path": "index.html", "content": "<h1>Fixture title</h1>\n<!--SCREENS-->\n"],
+                ["path": "index.html", "content": "<head><link rel=\"stylesheet\" href=\"styles.css\"></head>\n<h1>Fixture title</h1>\n<!--SCREENS-->\n"],
                 ["path": "app.js", "content": "window.App = { register() {}, start() {} };"  ]]]
         case "prototype:foundation:styles":
             object = ["summary": "Styles", "files": [["path": "styles.css", "content": "body { color: black; }"]]]
