@@ -324,7 +324,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                     await writeBaseline(built)
                 }
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "The prototype is ready.")))
-                await settleAndFix(language: promptLanguage)
+                await settleFixAndCompare(language: promptLanguage)
             } catch is CancellationError {
                 messages.append(Message(role: .error, text: manifest.version > 0
                     ? "Stopped. What was built so far is kept; ask for the missing screens to continue."
@@ -433,7 +433,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 await writeAdvancedBaseline(baseline, rewritten: Set(synced.rewritten),
                                             refreshed: Set(synced.rewritten).union(synced.restyled ? ["shell"] : []))
                 messages.append(Message(role: .assistant, text: incrementalReply(synced, plan: plan, previous: before.version)))
-                await settleAndFix(language: promptLanguage)
+                await settleFixAndCompare(language: promptLanguage, only: Set(synced.rewritten))
             } catch is CancellationError {
                 keepPrevious(before, note: "Stopped. The prototype is unchanged (v\(before.version)).")
             } catch {
@@ -501,7 +501,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 try accept(instruction: "Synced from code", summary: "Reconstructed again from the current code; \(screens).")
                 await writeBaseline(built)
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
-                await settleAndFix(language: promptLanguage)
+                await settleFixAndCompare(language: promptLanguage)
             } catch is CancellationError {
                 keepPrevious(before, note: "Stopped. The prototype is unchanged (v\(before.version)).")
             } catch {
@@ -750,6 +750,90 @@ final class PrototypeSession: ObservableObject, Identifiable {
             }
         }
     }
+
+    /// What follows every build and sync of a prototype from code: the preview fix round, the comparison with the source, and, when that
+    /// repaired a screen, the preview fix round again, because a repair can break a screen. `only` limits the comparison to the screens a
+    /// sync wrote again.
+    private func settleFixAndCompare(language: String, only: Set<String>? = nil) async {
+        await settleAndFix(language: language)
+        guard await fixThinScreens(language: language, only: only) else { return }
+        await settleAndFix(language: language)
+    }
+
+    /// BUG-059: a screen written from a large widget can show a small part of it. Compares the labels of each screen's source files with the
+    /// screen's script (`PrototypeFidelity`, no assistant run) and gives the thinnest screens one repair pass each, with the list of what is
+    /// absent. A screen is repaired at most once per run, whatever the second comparison says: the rest is named, and the reviewer can ask for
+    /// a rebuild. True when a repair changed the prototype.
+    private func fixThinScreens(language: String, only: Set<String>?) async -> Bool {
+        guard manifest.mode == .code, !Task.isCancelled else { return false }
+        stage = "Comparing the screens with their source"; log("Comparing the screens with their source")
+        let reports = await sourceReports(only: only)
+        let thin = reports.filter { $0.isThin && !failedScreens.contains($0.id) && !failedScreens.contains($0.name) }
+            .sorted { $0.coverage < $1.coverage }
+        log("Compared \(reports.count) screen\(reports.count == 1 ? "" : "s") with their source; \(thin.count) show much less than the source defines")
+        guard !thin.isEmpty else { return false }
+        let repaired = Array(thin.prefix(PrototypeFidelity.maxRepairs))
+        var text = "Source check: \(thin.count) screen\(thin.count == 1 ? " shows" : "s show") much less than the source files define:\n" +
+            thin.map { "• " + PrototypeFidelity.summary($0) }.joined(separator: "\n")
+        text += thin.count > repaired.count
+            ? "\nThe \(repaired.count) thinnest are repaired now; ask me to rebuild the others."
+            : "\nAdding what is missing."
+        messages.append(Message(role: .assistant, text: text))
+        var changed = false
+        for report in repaired {
+            guard !Task.isCancelled else { return changed }
+            stage = "Adding what \"\(report.name)\" is missing"; log("Adding what \"\(report.name)\" is missing")
+            do {
+                let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: PrototypeFidelity.repairInstruction(report),
+                                                           pick: nil, runtimeErrors: [], language: language, mode: manifest.mode,
+                                                           sources: manifest.sources, sweep: false,
+                                                           target: .screen(id: report.id, name: report.name),
+                                                           record: record, stage: stageReporter())
+                guard !outcome.written.isEmpty else {
+                    messages.append(Message(role: .assistant, text: "\"\(report.name)\": " + outcome.summary))
+                    continue
+                }
+                try accept(instruction: "Source check: \(report.name)", summary: outcome.summary)
+                changed = true
+                messages.append(Message(role: .assistant, text: outcome.summary))
+                if let after = await sourceReports(only: [report.id]).first {
+                    messages.append(Message(role: .assistant, text: after.isThin
+                        ? "Still thin: " + PrototypeFidelity.summary(after) + ". Ask me to rebuild this screen."
+                        : "Now " + PrototypeFidelity.summary(after) + "."))
+                }
+            } catch is CancellationError {
+                return changed
+            } catch {
+                messages.append(Message(role: .error, text: error.localizedDescription))
+                return changed
+            }
+        }
+        return changed
+    }
+
+    /// The comparison of every screen (or of `only`) of the live version with its source files. The files are read off the main actor, and
+    /// a source file is read only when it is a regular file under the project root and not larger than `maxSourceFile`.
+    private func sourceReports(only: Set<String>?) async -> [PrototypeFidelity.Report] {
+        let root = self.root, folder = self.folder, site = siteFolder, version = manifest.version, sizeLimit = Self.maxSourceFile
+        return await Task.detached { () -> [PrototypeFidelity.Report] in
+            guard let record = PrototypeBaseline.load(folder: folder, version: version) else { return [] }
+            let screens = record.units.filter { $0.kind == .screen && !$0.sources.isEmpty }
+            func read(_ path: String) -> String? {
+                guard PrototypeFiles.isSourceFile(root: root, path: path) else { return nil }
+                let url = root.appendingPathComponent(path)
+                let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+                guard let size = attributes?[.size] as? Int, size <= sizeLimit else { return nil }
+                return try? String(contentsOf: url, encoding: .utf8)
+            }
+            return screens.filter { only?.contains($0.id) ?? true }.compactMap { unit in
+                let others = Set(screens.filter { $0.id != unit.id }.flatMap(\.sources))
+                let script = (try? String(contentsOf: site.appendingPathComponent(PrototypeBaseline.screenFile(unit.id)), encoding: .utf8)) ?? ""
+                return PrototypeFidelity.report(id: unit.id, name: unit.name, evidence: unit.sources, otherEvidence: others,
+                                                screen: script, read: read)
+            }
+        }.value
+    }
+    private static let maxSourceFile = 300_000
 
     /// At most this many problems go to one fix round.
     private static let fixLimit = 12

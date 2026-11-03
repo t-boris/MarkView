@@ -1,5 +1,28 @@
 # MarkView — Follow-up Tasks
 
+## BUG-059: A prototype screen is a look-alike of a large widget, not the widget (2026-11-03, 5.11.0, fix/bug-059-prototype-fidelity-check)
+
+Boris chose "verify against the source, then repair" and approved the plan (and a higher effort for large widgets) on 2026-11-03.
+Evidence: OptionDesk.tsx is 84 KB and imports 36 files in its folder; the screen came out at 9.4 KB. The share of the source's visible labels found
+in the screen is 22% (OptionDesk), 55% (PositionMonitor), 100% (TradeJournal). The planner gave `trade` two source files only.
+
+- [x] `PrototypeFidelity` (pure, MarkView/Models): visible labels of a source file, the source set of a screen (evidence plus relative imports inside the
+  entry's folder, one level; no tests, no *Popup/*Dialog/*Modal/*Menu/*Editor/*Preview/*Tooltip/*Popover/*Drawer files, not another screen's evidence; at most
+  40 files and 600 KB), the report (labels present in the screen script, case and spaces ignored; thin = 12 or more labels and under 40% present).
+  Changed from the plan after measuring on the real prototype: the shared data.js is NOT part of the comparison (it made the option desk 51% instead of 32%).
+- [x] `tools/tests/prototype-fidelity-tests.sh` (55 checks) added to the CI list; effort checks added to `prototype-embedded-tests.sh`.
+- [x] `PrototypeSession.fixThinScreens` / `settleFixAndCompare`: after a build, a full sync and an incremental sync (rewritten screens only) the thin screens are named
+  in the chat and the thinnest three get one repair pass each through `PrototypeAI.revise` aimed at the screen; compared again; the preview round runs again
+  when a repair changed the prototype. Not run after the reviewer's own requests.
+- [x] `PrototypeAI.screenEffort(_:sourceBytes:)`: high for an embedded or host screen whose evidence is 40 KB or more (`largeSourceBytes`); medium as before.
+- [x] Debug build 5.11.0, all prototype test scripts pass (fidelity 55, embedded 61, tests 332, baseline 63, runtime 37 from a clean WebKit state).
+- [x] Real run on a COPY of the strikedesk prototype (Codex, the repair request for `trade`): 201 s, trade.js 9.4 KB to 42.2 KB, label share 32% to 92%,
+  headless render compared with the real screenshot: real headers, Calls | 7d | Puts, Table/Analysis, Custom (Manual), GO, CONFIG, formatted Delta.
+  Still different: no IVx and REFRESH, four strike rows (all the sample data has), footer metrics bar not visible.
+- [ ] PR, checks, merge, release 5.11.0; BUG-057 and BUG-058 `fixed` carried into this PR, BUG-059 `fixed` after the release.
+- Not covered: the session wiring has been compiled but not run inside the app (no test target); Boris runs Sync with Rebuild everything on strikedesk after installing.
+- Not in this change (separate bugs): invented accounts and header chips, an unrounded Delta in the sample data.
+
 ## Prototype code sync: truncated JSON recovery (2026-11-03, 5.10.1)
 
 Report (Boris): Sync from code still failed at v3 with a cut-off 261514-character answer after three continuation turns.
