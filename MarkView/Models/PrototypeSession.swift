@@ -91,8 +91,11 @@ final class PrototypeSession: ObservableObject, Identifiable {
 
     /// Adds a finished run to the workspace's usage counter.
     var record: PrototypeAI.Record = { _ in }
-    /// Appended to prompts when the output language differs from the documents' language.
+    /// Appended to prompts when the person chose an output language (empty: "Document language").
     var languageNote = ""
+    /// What every build, sync, revision and fix round gets as its language part: `languageNote`, or for a prototype
+    /// made from code the rule to keep the labels of the original (BUG-052).
+    var promptLanguage: String { PrototypeAI.languageNote(explicit: languageNote, mode: manifest.mode) }
     /// Code mode: the detected web apps, as hints for the planner (the caller maps them from WebAppPreview).
     var codeScope = PrototypeAI.CodeScope()
 
@@ -257,14 +260,14 @@ final class PrototypeSession: ObservableObject, Identifiable {
             do {
                 try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
                 let built = try await PrototypeAI.build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
-                                                        language: languageNote, mode: manifest.mode, codeScope: codeScope,
+                                                        language: promptLanguage, mode: manifest.mode, codeScope: codeScope,
                                                         record: record, stage: stageReporter())
                 adopt(built)
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
                 }
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "The prototype is ready.")))
-                await settleAndFix(language: languageNote)
+                await settleAndFix(language: promptLanguage)
             } catch is CancellationError {
                 messages.append(Message(role: .error, text: manifest.version > 0
                     ? "Stopped. What was built so far is kept; ask for the missing screens to continue."
@@ -321,12 +324,12 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let root = self.root, sources = manifest.sources
                 codeScope = await Task.detached { PrototypeAI.CodeScope.detect(root: root, sources: sources) }.value
                 let built = try await PrototypeAI.sync(root: root, folder: folder, manifest: before, codeScope: codeScope,
-                                                       language: languageNote, record: record, stage: stageReporter(milestones: false))
+                                                       language: promptLanguage, record: record, stage: stageReporter(milestones: false))
                 adopt(built)
                 let screens = built.screens.isEmpty ? "no screen could be written" : "screens: \(built.screens.joined(separator: ", "))"
                 try accept(instruction: "Synced from code", summary: "Reconstructed again from the current code; \(screens).")
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
-                await settleAndFix(language: languageNote)
+                await settleAndFix(language: promptLanguage)
             } catch is CancellationError {
                 keepPrevious(before, note: "Stopped. The prototype is unchanged (v\(before.version)).")
             } catch {
@@ -392,7 +395,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
             defer { endRun() }
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
-                                                           attachments: files, runtimeErrors: runtimeErrors, language: languageNote,
+                                                           attachments: files, runtimeErrors: runtimeErrors, language: promptLanguage,
                                                            mode: manifest.mode, sources: manifest.sources,
                                                            record: record, stage: stageReporter())
                 // An answer that changed nothing is shown as it is: no new version, no preview round (BUG-051).
@@ -403,7 +406,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
-                await settleAndFix(language: languageNote)
+                await settleAndFix(language: promptLanguage)
             } catch is CancellationError {
                 messages.append(Message(role: .error, text: "Stopped. The prototype is unchanged.", retry: request))
             } catch {

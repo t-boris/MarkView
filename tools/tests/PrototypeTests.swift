@@ -750,5 +750,29 @@ do {
     check(PrototypeAI.reviseSchema["required"] as? [String] == ["summary", "screens", "files", "edits", "delete", "remaining"], "the schema requires remaining")
 }
 
+// BUG-052: a prototype made from code keeps the labels of the original and is not translated.
+do {
+    let rule = PrototypeAI.sourceLanguageRule
+    check(PrototypeAI.languageNote(explicit: "", mode: .code) == rule, "code mode on Document language gets the keep-the-source-language rule")
+    check(PrototypeAI.languageNote(explicit: "", mode: .requirements).isEmpty, "requirements mode on Document language gets nothing")
+    let explicit = "\n\nWrite every label, text and message in the prototype in English."
+    check(PrototypeAI.languageNote(explicit: explicit, mode: .code) == explicit
+          && PrototypeAI.languageNote(explicit: explicit, mode: .requirements) == explicit, "an explicit output language replaces the rule in both modes")
+    check(rule.hasPrefix("\n\n") && rule.contains("never translate them") && rule.contains("`lang` attribute of index.html")
+          && rule.contains("`summary`, `assumptions`, `gaps`") && rule.contains("asks for another language overrides"),
+          "the rule says what to copy, the lang attribute, the English summaries and that the reviewer can override it")
+    // It reaches every prompt that writes visible text or saved prose: plan, foundation, screens, components and revisions.
+    let note = PrototypeAI.languageNote(explicit: "", mode: .code)
+    let prompts: [(String, String)] = [
+        ("code plan", PrototypeAI.codePlanSystem(language: note)), ("data", PrototypeAI.dataSystem(language: note)),
+        ("shell", PrototypeAI.shellSystem(language: note)), ("screen", PrototypeAI.screenSystem(language: note)),
+        ("component", PrototypeAI.componentSystem(language: note)), ("revise", PrototypeAI.reviseSystem(language: note)),
+    ]
+    for (name, text) in prompts { check(text.hasSuffix(rule), "the \(name) prompt ends with the language rule") }
+    // Without a note the prompts are what they were (the pinned digests above stay valid).
+    check(PrototypeAI.screenSystem(language: PrototypeAI.languageNote(explicit: "", mode: .requirements)) == PrototypeAI.screenSystem(language: ""),
+          "a requirements prototype's prompts are unchanged")
+}
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

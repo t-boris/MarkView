@@ -370,6 +370,21 @@ enum PrototypeAI {
         "have read in the sources: never invent a marker, and leave an element unmarked when you cannot tell which file it " +
         "comes from."
 
+    /// Code mode with the output language left on "Document language": a reconstruction keeps the labels of the original,
+    /// so nothing is translated (BUG-052). The summary, assumptions and gaps are saved in the project's files, so they are
+    /// English. An explicit output language replaces this rule (`languageNote`).
+    static let sourceLanguageRule = "\n\nLanguage: copy every visible label, message, tooltip and placeholder from the source " +
+        "exactly as the source writes it, in the source's own language; never translate them. Text the source does not provide " +
+        "(sample data, the empty and error states you have to write) is in the language of the source's interface, English when " +
+        "the source has no visible text. Set the `lang` attribute of index.html to that language. Write `summary`, `assumptions`, " +
+        "`gaps` and the purpose of each screen in English. A request of the reviewer that asks for another language overrides all of this."
+
+    /// The language part of every prompt of a run: the explicit one when the person chose an output language, the
+    /// source's own language for a prototype made from code, nothing (the documents' language) for requirements.
+    static func languageNote(explicit: String, mode: PrototypeFiles.Mode) -> String {
+        explicit.isEmpty && mode == .code ? sourceLanguageRule : explicit
+    }
+
     /// The code-mode planning prompt: the sources (or the whole project), the detected apps as hints, the
     /// inventory of web-interface files (paths and sizes only; the assistant reads them with its tools).
     static func codePlanPrompt(brief: String, sources: [String], scope: CodeScope, inventory: PrototypeFiles.Inventory) -> String {

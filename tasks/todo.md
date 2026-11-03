@@ -3665,3 +3665,12 @@ One branch and PR per item, in this order; each item is verified before the next
       reads only changed sources + explicit "Rebuild everything" (REQ-010, REQ-011, REQ-015); (c) target of a request (REQ-008); (d) hand-off and
       agent reads (REQ-012, REQ-013).
 - [ ] Docs PR for the records above; then per item: bug status, lesson, PR, wait for all checks, merge, Release build + signed DMG from merged main.
+
+## Review: BUG-052 (5.5.1) — source language in a prototype made from code
+- [x] `PrototypeAI.sourceLanguageRule` + `languageNote(explicit:mode:)`; `PrototypeSession.promptLanguage` feeds build, sync, revise and fix rounds.
+- [x] Unit tests (`tools/tests/prototype-tests.sh`, ALL OK); deadline tests pass; Debug `xcodebuild` succeeded (5.5.1).
+- [x] Real `claude` CLI on two tiny apps (English UI + Russian notes, Russian UI): labels and `lang` follow the source, summaries in English.
+- Control run without the rule was also English, so the live run does not prove the fix on the Codex/strikedesk case; Boris's first rebuild is the check.
+- Records: the features "Prototype and code stay in step" and "Themes in a prototype made from code" moved from exploring to ready
+  (requirements approved, DEC-001 accepted) and ship in this same pull request at Boris's request.
+- Next, in order: BUG-053 (blank/stub screens), themes, code-sync stages (a)-(d).
