@@ -841,3 +841,9 @@ the answer, with the saved default unchanged because the value was the one alrea
   dropped on every load. A round-trip test (`encode` then `decode`, field still there) caught it; write that test with every new manifest field.
 - The first scanner pass looked right on the fixture and found 3 of StrikeDesk's 4 themes: the base theme (`dark`) is `:root` with no attribute
   selector. Only running it on the real stylesheets showed that; the planner now also reads the theme ids and the default from the source.
+
+## Sync baseline: record what a unit was built from, and prove the mapping on a real plan
+- The plan's `evidence` and `components` are the only unit → source mapping there is; a unit built from files the model never listed cannot be tracked,
+  so every unit carries `incomplete` and shows as "unknown" instead of "in sync" when its sources are not fully known. Never report "in sync" on a guess.
+- Check a new module against a real model run, not only fixtures: the real plan listed the three files of a small app for both screens, so one edit
+  marked both screens as changed, which is true but invisible in a one-file fixture.

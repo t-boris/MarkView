@@ -1041,6 +1041,17 @@ enum PrototypeAI {
         /// Code mode: the themes the planner read from the original (ids, default); the stylesheets decide which exist.
         var themes: [String] = []
         var defaultTheme = ""
+        /// Code mode: what the sync baseline is made from (REQ-009); nil in requirements mode.
+        var baseline: BaselineInput?
+
+        struct BaselineInput: Sendable {
+            var plan: String
+            var styles: [String]
+            /// The written screens and the source files each was built from.
+            var screens: [(id: String, name: String, sources: [String])]
+            /// The files of the reconstruction scope that the inventory listed.
+            var scope: [String]
+        }
     }
 
     /// `PlannedScreen`s as the component scan reads them.
@@ -1265,7 +1276,13 @@ enum PrototypeAI {
             }
         }
         return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed,
-                     gaps: gaps, components: components, coverage: coverage, themes: plan.themes, defaultTheme: plan.defaultTheme)
+                     gaps: gaps, components: components, coverage: coverage, themes: plan.themes, defaultTheme: plan.defaultTheme,
+                     baseline: mode == .code
+                         ? Built.BaselineInput(plan: plan.json, styles: plan.styles,
+                                               screens: plan.screens.filter { !failed.contains($0.name) }
+                                                   .map { (id: $0.id, name: $0.name, sources: $0.evidence + $0.components) },
+                                               scope: scopeInventory?.entries.map(\.path) ?? [])
+                         : nil)
     }
 
     /// Reconstructs a code-mode prototype again from the current sources, for "Sync from code" (REQ-006,

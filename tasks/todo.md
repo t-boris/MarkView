@@ -3689,3 +3689,12 @@ One branch and PR per item, in this order; each item is verified before the next
 - Tests: `prototype-themes-tests.sh` (scanner, record, scripts, manifest round trip, site reading), plan parsing in the styles tests; a real
   WKWebView on the strikedesk site: base `#1e1f22`, midnight `#0d1117`, tastytrade `#000`, terminal `#0a0a0a`, live switch and removal work.
 - Not verified: the SwiftUI picker itself (no click-through in the app); class-based and media-query themes are a later extension (DEC-001).
+
+## Review: Code sync (a) — baseline and match status (5.7.0)
+- [x] REQ-009: `PrototypeBaseline` (fingerprints per source file, units with sources and prototype-file fingerprints, the stored plan); `baselines/v<N>.json`
+  next to the version, carried forward by a review edit and restored with a reverted version; written after every build and full sync.
+- [x] REQ-014: local status per unit (in sync, code changed, prototype edited, both, unknown) from sha-256; Studio "Match" button + panel by state with the files
+  named, and a state word + symbol on each component row.
+- Tests: `prototype-baseline-tests.sh`; deadline test asserts the baseline input of a code build; real `claude` run: baseline from the real plan, one source
+  edit and one Studio edit give code changed / both changed.
+- Not yet: incremental sync (b), request target (c), hand-off (d). A prototype saved before this version shows "No baseline" until it is synced once.
