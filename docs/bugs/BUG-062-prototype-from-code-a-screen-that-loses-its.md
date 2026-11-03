@@ -2,7 +2,7 @@
 type: bug
 id: BUG-062
 title: "Prototype from code: a screen that loses its content stays blank because the preview fix round declines a request spanning more than three files"
-status: open
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03
@@ -34,3 +34,22 @@ The prototype is left with a blank Trade screen and a blank OptionDesk component
 ## Environment
 
 MarkView 5.12.1 (installed); source checked on main 2b55a9d (5.13.0): Models/PrototypeSession.swift settleAndFix (`sweep: false`), Models/PrototypeAI.swift reviseSystem and revise (`targets = sweep ? ... : []`). Project: broker-fabric, docs/prototypes/strikedesk. Related: BUG-060 (the \"Not covered\" note on a declining repair round), BUG-053.
+
+## Cause
+
+- The Trade screen's script put its content into the element its loader sits in and cleared that element inside the `App.load` callback (`draw()` calls `root.replaceChildren(...)`). That takes the loader container out of the page, so the callback's content goes into a detached element: nothing is shown and nothing is thrown.
+- The fix round used the revision prompt, which lets the assistant decline into `remaining` when a request needs more than three files, and then called the revision with `sweep: false`, which never follows `remaining`. Five problems in five files were declined as a whole and a defect confined to one file stayed. The toolbar did not show that anything was left.
+
+## Resolution
+
+Fixed in 5.13.1 (pull request #281):
+
+- The fix round names the files each problem points to. More than three files: one run per file (`revise(sweepFiles:)`), each seeing the whole list at medium effort. Three files or fewer: one run as before, and a decline now fans out through `remaining`. A request that cannot fan out is told to leave `remaining` empty.
+- `PrototypeAudit.loadProblem` reads a screen's script for a callback of `App.load` that clears the element holding the loader, directly or through functions it calls. It runs when a screen is written (one retry with the reason) and in the fix round over every screen, so an existing prototype is covered. The screen prompt names the calls.
+- The header shows a red "N not working" chip with the list and a Fix again button when the fix round leaves problems.
+
+## Verification
+
+Reproduced on the real strikedesk prototype in a headless browser (the OptionDesk root has no children). The new standalone checks pass (`tools/tests/prototype-fixround-tests.sh`, which fails when the lint is disabled; the new cases of `prototype-deadline-tests.sh` and `prototype-tests.sh`), the three pull request checks passed, the Debug build succeeds, and the `Build & Release` run of the merge commit succeeded. Over the 30 real strikedesk screens the new check flags only `trade.js`; over 12 vivaa screens it flags none. The signed DMG of 5.13.1 is notarized and published as release v5.13.1.
+
+Not covered: a live run with a real assistant on the strikedesk prototype (it would write a new version of a prototype in use), and a click-through of the header chip. The existing prototype keeps its blank Trade screen until its owner presses Fix again in 5.13.1 or syncs it.
