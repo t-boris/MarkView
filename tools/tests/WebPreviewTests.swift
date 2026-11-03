@@ -98,6 +98,66 @@ check("web-only scripts", WebAppPreview.servesWebOnly("vite") && WebAppPreview.s
       && !WebAppPreview.servesWebOnly("tsc --noEmit -p tsconfig.web.json"))
 check("shell quoting", WebAppPreview.shellQuoted("dev:web") == "dev:web" && WebAppPreview.shellQuoted("it's") == "'it'\\''s'")
 
+// MARK: Workspaces and rspack (BUG-055)
+
+// The layout of StrikeDesk in broker-fabric: a Go service next to a pnpm workspace three levels down, whose shell package is an
+// Electron app with an rspack renderer; the lockfile sits in the workspace root.
+let tmpWorkspace = fm.temporaryDirectory.appendingPathComponent("markview-web-workspace-\(UUID().uuidString)")
+func writeWorkspace(_ path: String, _ text: String) {
+    let url = tmpWorkspace.appendingPathComponent(path)
+    try! fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try! text.write(to: url, atomically: true, encoding: .utf8)
+}
+let strike = "apps/strikedesk/app"
+writeWorkspace("apps/bf-signal-worker/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"vite":"5"}}"#)
+writeWorkspace("apps/strikedesk/main.go", "package main")
+writeWorkspace("\(strike)/package.json", #"{"name":"strikedesk","private":true,"scripts":{"dev":"pnpm --filter @strikedesk/shell dev","build":"turbo build"},"dependencies":{"react":"19"},"devDependencies":{"concurrently":"9","turbo":"2"}}"#)
+writeWorkspace("\(strike)/pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\n\nonlyBuiltDependencies:\n  - \"electron\"\n")
+writeWorkspace("\(strike)/pnpm-lock.yaml", "")
+writeWorkspace("\(strike)/packages/shell/package.json", #"{"name":"@strikedesk/shell","scripts":{"dev":"node dev.mjs","dev:old":"concurrently -k \"pnpm dev:renderer\" \"pnpm dev:electron\"","dev:renderer":"rspack serve -c rspack.renderer.config.ts","dev:electron":"wait-on http://localhost:3010 && electron .","build":"rspack build"},"devDependencies":{"electron":"35","@rspack/cli":"1"}}"#)
+writeWorkspace("\(strike)/packages/shell/rspack.renderer.config.ts", "export default { devServer: { port: 3010, hot: true } }")
+writeWorkspace("\(strike)/packages/shared/package.json", #"{"name":"@strikedesk/shared","scripts":{"build":"tsc","test":"vitest run"}}"#)
+writeWorkspace("\(strike)/packages/trading-core/package.json", #"{"name":"@strikedesk/trading-core","scripts":{"build":"tsc"}}"#)
+// npm workspaces: an array with an exclusion, and the object form with a Vite app and an rsbuild app.
+writeWorkspace("tools/console/package.json", #"{"name":"console","private":true,"workspaces":["web/*","!web/legacy"]}"#)
+writeWorkspace("tools/console/web/admin/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"vite":"5"}}"#)
+writeWorkspace("tools/console/web/legacy/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"vite":"4"}}"#)
+writeWorkspace("tools/console/yarn.lock", "")
+writeWorkspace("tools/kit/package.json", #"{"private":true,"workspaces":{"packages":["ui/**"]}}"#)
+writeWorkspace("tools/kit/ui/docs/site/package.json", #"{"scripts":{"dev":"rsbuild dev --port 3400"},"devDependencies":{"@rsbuild/core":"1"}}"#)
+// Out of reach: a workspace declared more than workspaceDepth levels down, and packages inside node_modules.
+writeWorkspace("a/b/c/d/e/f/pnpm-workspace.yaml", "packages:\n  - 'pkgs/*'\n")
+writeWorkspace("a/b/c/d/e/f/pkgs/far/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"vite":"5"}}"#)
+writeWorkspace("\(strike)/node_modules/.pnpm/vite-app/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"vite":"5"}}"#)
+let workspaceTargets = WebAppPreview.targets(root: tmpWorkspace)
+let labels = workspaceTargets.map(\.label)
+let shell = workspaceTargets.first { $0.label == "\(strike)/packages/shell (web only)" }
+check("Electron app in a workspace three levels down is found", shell != nil && shell?.isElectron == true, "\(labels)")
+check("its renderer script is used, with the package manager of the workspace root", shell?.command == "pnpm run dev:renderer", "\(String(describing: shell))")
+check("its port comes from the config file the script names", shell?.ports.first == 3010, "\(String(describing: shell?.ports))")
+check("the workspace root and its libraries are not apps", !labels.contains(strike) && !labels.contains { $0.hasSuffix("/shared") || $0.hasSuffix("/trading-core") }, "\(labels)")
+check("an app next to the workspace is still found once", labels.filter { $0 == "apps/bf-signal-worker" }.count == 1, "\(labels)")
+check("npm workspaces: a package is found, with the lockfile of its workspace root",
+      workspaceTargets.first { $0.label == "tools/console/web/admin" }?.command == "yarn run dev", "\(labels)")
+check("npm workspaces: an excluded package is not", !labels.contains("tools/console/web/legacy"), "\(labels)")
+let rsbuildApp = workspaceTargets.first { $0.label == "tools/kit/ui/docs/site" }
+check("workspaces object form with ** and an rsbuild app", rsbuildApp?.ports.first == 3400 && rsbuildApp?.isElectron == false, "\(String(describing: rsbuildApp))")
+check("a workspace declared too deep is not searched", !labels.contains { $0.hasSuffix("/far") }, "\(labels)")
+check("node_modules never holds an app", !labels.contains { $0.contains("node_modules") }, "\(labels)")
+check("the closest lockfile wins, and none means npm", workspaceTargets.first { $0.label == "apps/bf-signal-worker" }?.command == "npm run dev")
+check("rspack and rsbuild dev servers serve the web only", WebAppPreview.servesWebOnly("rspack serve -c rspack.renderer.config.ts")
+      && WebAppPreview.servesWebOnly("rspack dev") && WebAppPreview.servesWebOnly("rsbuild dev --open") && WebAppPreview.servesWebOnly("rspack-dev-server")
+      && !WebAppPreview.servesWebOnly("rspack build -c rspack.main.config.ts") && !WebAppPreview.servesWebOnly("rsbuild build")
+      && !WebAppPreview.servesWebOnly("rspack serve && electron ."))
+check("config file named by a script", WebAppPreview.configFiles(in: "rspack serve -c rspack.renderer.config.ts") == ["rspack.renderer.config.ts"]
+      && WebAppPreview.configFiles(in: "webpack serve --config=web/x.js") == ["web/x.js"] && WebAppPreview.configFiles(in: "vite --port 4000").isEmpty
+      && WebAppPreview.configFiles(in: "webpack serve --config ../../x.js").isEmpty, "\(WebAppPreview.configFiles(in: "webpack serve --config ../../x.js"))")
+check("yaml list: block, inline, comments, other keys", WebAppPreview.yamlList(named: "packages", in: "# monorepo\npackages:\n  - 'apps/*'   # apps\n  - \"libs/**\"\noverrides:\n  - nope\n") == ["apps/*", "libs/**"]
+      && WebAppPreview.yamlList(named: "packages", in: "packages: [\"a/*\", 'b']\n") == ["a/*", "b"]
+      && WebAppPreview.yamlList(named: "packages", in: "packages:\n- a\n- b\nother: 1\n") == ["a", "b"]
+      && WebAppPreview.yamlList(named: "packages", in: "name: x\n").isEmpty)
+try? fm.removeItem(at: tmpWorkspace)
+
 // MARK: Web clip
 
 let folders = WebClip.suggestedFolders(root: tmp)

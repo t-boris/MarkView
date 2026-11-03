@@ -864,3 +864,12 @@ the answer, with the saved default unchanged because the value was the one alrea
 - When a shared file cannot safely be rewritten, say so to the writer (here: define missing data inside the screen), to the person (reply and
   sheet) and as an open question (Q-005), instead of letting a green status imply the prototype matches the code.
 - Keep scratch files in the session scratchpad; a helper written to `/tmp` had to be deleted by hand.
+
+## Web app discovery: a monorepo hides its apps below the scan depth
+- Discovery (`WebAppPreview.targets`) only listed the root and two levels, so an Electron app at `apps/strikedesk/app/packages/shell` was never
+  offered, and its `rspack serve` renderer script was unknown anyway. Check both when an app "is not found": where it lives relative to the scan, and
+  whether its dev server command is recognised (`servesWebOnly`). Run the app's own function on the real project (`swiftc` with `WebAppPreview.swift` and
+  a three-line main) instead of reasoning about it.
+- Workspace packages share the lockfile of the workspace root; look for it in the parents, not only in the package folder.
+- A standalone test script can rot unnoticed because CI does not run it: `web-preview-tests.sh` had not compiled since `BrowserSession` grew new
+  dependencies. Run the script you extend before adding checks, and fix its file list if it fails for reasons unrelated to your change.
