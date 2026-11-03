@@ -2,7 +2,7 @@
 type: feature
 id: themes-in-a-prototype-made-from-code
 title: Themes in a prototype made from code
-status: exploring
+status: ready
 owner: Boris Tsekinovsky
 created: 2026-11-03
 provenance: Created by an AI agent through MarkView from Boris's question about broker-fabric themes in the Prototype Studio discussion, 2026-11-03
@@ -11,13 +11,13 @@ understanding:
   Target Users: known
   Primary Workflow: known
   Permissions: n/a
-  Failure Scenarios: partial
-  Data Model: partial
+  Failure Scenarios: known
+  Data Model: known
   Notifications: n/a
   Security: n/a
   Analytics: n/a
   Dependencies: known
-  Acceptance Criteria: partial
+  Acceptance Criteria: known
 ---
 
 # Themes in a prototype made from code

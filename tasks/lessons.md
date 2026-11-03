@@ -820,3 +820,11 @@ the answer, with the saved default unchanged because the value was the one alrea
   whole `remaining` list into nothing until a unit test caught it.
 - Boris asked "why not use the agent process?": the answer was in the code (`CLICompletion` is read-only by design, `apply` is the only
   writer). Look for the recorded invariant before answering, and say what it buys (atomic apply, versions) and what the alternative costs.
+
+## BUG-052: a prompt that leaves the language open lets the model pick it
+- A reconstruction copies text, so the language of the original is part of the data. With the output language on "Document language" nothing was
+  appended to any prompt and the model chose Russian for an English application. Decide the default explicitly in the prompt
+  (`PrototypeAI.sourceLanguageRule`) and let an explicit setting or the reviewer's request override it; never rely on the model to infer it from
+  the project, whose documents may be in another language.
+- A record-writing tool call (`markview_add_decision` and the like) with a malformed parameter list can still succeed and store the stray markup as
+  text: read the record back (`markview_get_feature` with `id`) after every write and repair it with `markview_update_object`.

@@ -2,7 +2,7 @@
 type: feature
 id: prototype-and-code-stay-in-step
 title: Prototype and code stay in step
-status: draft
+status: ready
 owner: Boris Tsekinovsky
 created: 2026-11-03
 provenance: Created by an AI agent through MarkView from Boris's request in the Prototype Studio discussion, 2026-11-03
@@ -11,13 +11,13 @@ understanding:
   Target Users: known
   Primary Workflow: known
   Permissions: known
-  Failure Scenarios: partial
-  Data Model: partial
+  Failure Scenarios: known
+  Data Model: known
   Notifications: n/a
   Security: known
   Analytics: n/a
   Dependencies: known
-  Acceptance Criteria: partial
+  Acceptance Criteria: known
 ---
 
 # Prototype and code stay in step
