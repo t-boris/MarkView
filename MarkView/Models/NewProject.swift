@@ -181,13 +181,10 @@ enum OriginState: Equatable {
         return current.lowercased() == slug.lowercased() ? .same : .other(url)
     }
 
-    /// "owner/name" from git@github.com:owner/name.git or https://github.com/owner/name(.git).
+    /// "owner/name" from git@github.com:owner/name.git or https://github.com/owner/name(.git),
+    /// including remotes that reach GitHub through an SSH host alias.
     static func githubSlug(fromRemoteURL url: String) -> String? {
-        guard let range = url.range(of: #"github\.com[:/]([^/\s]+)/([^/\s]+?)(\.git)?/?$"#, options: .regularExpression) else { return nil }
-        var tail = String(url[range]).dropFirst("github.com".count + 1)
-        if tail.hasSuffix("/") { tail = tail.dropLast() }
-        if tail.hasSuffix(".git") { tail = tail.dropLast(4) }
-        return String(tail)
+        GitHubClient.slug(fromRemoteURL: url)
     }
 }
 
