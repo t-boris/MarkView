@@ -57,6 +57,20 @@ enum PrototypeFiles {
         case requirements, code
     }
 
+    /// A source component a code-mode prototype reproduces (REQ-007, DEC-005): a component file of the
+    /// sources (React, Vue, Svelte or Angular component; the template or HTML file of a plain page).
+    /// The reconstruction marks the outermost element it reproduces with `data-mv-component="<path>"`.
+    struct Component: Codable, Equatable, Sendable {
+        /// The component file, relative to the project root.
+        var path: String
+        /// The file name without its extension ("OrderList").
+        var label: String
+        /// Names of the screens that use it, in plan order.
+        var screens: [String] = []
+        /// The isolated view, relative to `site/` (`components/<slug>.html`), when the generation produced one.
+        var page: String? = nil
+    }
+
     struct Manifest: Codable, Equatable {
         var title: String
         var slug: String
@@ -75,6 +89,9 @@ enum PrototypeFiles {
         /// authentication, Electron preload APIs, native dialogs…). Recorded once, at generation;
         /// review edits never change it (DEC-004).
         var gaps: [String] = []
+        /// Code mode: the source components the prototype reproduces, from the plan and the markers
+        /// in the generated files (`components(in:screens:)`). Recorded at generation and at each sync.
+        var components: [Component] = []
     }
 
     /// One message of the review conversation as saved in `conversation.json`; images are file names in `attachments/`.
@@ -434,6 +451,96 @@ enum PrototypeFiles {
         return html.replacingOccurrences(of: marker, with: marker + "\n" + tags)
     }
 
+    // MARK: - Components (code mode, REQ-007)
+
+    /// The attribute the reconstruction puts on the outermost element that reproduces a source component.
+    static let componentMarker = "data-mv-component"
+    /// Where the isolated views live, relative to `site/`.
+    static let componentPagesFolder = "components"
+
+    /// A planned screen as the component scan needs it: its id (`screens/<id>.js`), its name and the
+    /// component files the plan named for it.
+    struct ScreenRef: Equatable, Sendable {
+        var id: String
+        var name: String
+        var components: [String] = []
+    }
+
+    /// A component path as the manifest records it: trimmed, without a leading `./`; nil for anything
+    /// empty, absolute, climbing out of the project or not a plain path (whitespace, template syntax).
+    static func componentPath(_ raw: String) -> String? {
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") else { return nil }
+        let path = normalizedRelative(raw)
+        let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard !path.isEmpty, !parts.isEmpty, !path.contains("\\"), !path.contains("${"),
+              path.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              !parts.contains(".."), !parts.contains(".") else { return nil }
+        return parts.joined(separator: "/")
+    }
+
+    /// The file name without its extension: the label of a component.
+    static func componentLabel(_ path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        let stem = (name as NSString).deletingPathExtension
+        return stem.isEmpty ? name : stem
+    }
+
+    /// `components/<slug>.html`: the isolated view of a component under `site/`, named after its source
+    /// path (`src/components/OrderList.vue` → `components/src-components-orderlist-vue.html`).
+    static func componentPage(for path: String) -> String {
+        let slug = path.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "-" }.joined()
+            .split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
+        return "\(componentPagesFolder)/\(slug.isEmpty ? "component" : slug).html"
+    }
+
+    /// The marker values in `text` (HTML, or a script that builds it), in order of first appearance:
+    /// `data-mv-component="path"`, the `'data-mv-component': 'path'` form of an attribute object and
+    /// `setAttribute('data-mv-component', 'path')`. Values that are not plain paths are skipped.
+    static func componentMarkers(in text: String) -> [String] {
+        guard text.contains(componentMarker) else { return [] }
+        let pattern = "\(componentMarker)[\"']?\\s*[:=,]\\s*[\"']([^\"'\\n]+)[\"']"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var out: [String] = []
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range(at: 1), in: text), let path = componentPath(String(text[range])) else { continue }
+            if !out.contains(path) { out.append(path) }
+        }
+        return out
+    }
+
+    /// The components of a prototype: every component file the plan names for a screen or a marker in the
+    /// generated files mentions, with the screens that use it and its isolated page when `site/components/`
+    /// holds one. A marker in `screens/<id>.js` counts for that screen; one in the shell (index.html, app.js)
+    /// counts for no screen; the isolated pages themselves are not scanned. Nothing the plan or the markup
+    /// does not mention is listed, so no link is invented (REQ-007). Pure file reading.
+    static func components(in site: URL, screens: [ScreenRef]) -> [Component] {
+        var order: [String] = []
+        var found: [String: Component] = [:]
+        func add(_ raw: String, screen: String?) {
+            guard let path = componentPath(raw) else { return }
+            if found[path] == nil {
+                found[path] = Component(path: path, label: componentLabel(path))
+                order.append(path)
+            }
+            if let screen, found[path]?.screens.contains(screen) == false { found[path]?.screens.append(screen) }
+        }
+        for screen in screens {
+            for path in screen.components { add(path, screen: screen.name) }
+        }
+        let names = Dictionary(screens.map { ("screens/\($0.id).js", $0.name) }, uniquingKeysWith: { first, _ in first })
+        for file in read(site: site) where !file.path.hasPrefix(componentPagesFolder + "/") {
+            let screen = names[file.path]
+            for path in componentMarkers(in: file.content) { add(path, screen: screen) }
+        }
+        let fm = FileManager.default
+        return order.compactMap { path in
+            guard var component = found[path] else { return nil }
+            let page = componentPage(for: path)
+            if fm.fileExists(atPath: site.appendingPathComponent(page).path) { component.page = page }
+            return component
+        }
+    }
+
     // MARK: - Versions
 
     /// Copies `site` to `versions/v<version>`.
@@ -458,8 +565,8 @@ enum PrototypeFiles {
 
 extension PrototypeFiles.Manifest {
     /// Lenient decoding, in an extension so the memberwise initializer stays: a `prototype.json`
-    /// written before `mode` and `gaps` existed (or by a newer app with a mode this one does not
-    /// know) still opens, with the defaults for what is missing.
+    /// written before `mode`, `gaps` and `components` existed (or by a newer app with a mode this one
+    /// does not know) still opens, with the defaults for what is missing.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         title = try c.decode(String.self, forKey: .title)
@@ -474,5 +581,6 @@ extension PrototypeFiles.Manifest {
         let rawMode = try c.decodeIfPresent(String.self, forKey: .mode) ?? ""
         mode = PrototypeFiles.Mode(rawValue: rawMode) ?? .requirements
         gaps = try c.decodeIfPresent([String].self, forKey: .gaps) ?? []
+        components = try c.decodeIfPresent([PrototypeFiles.Component].self, forKey: .components) ?? []
     }
 }

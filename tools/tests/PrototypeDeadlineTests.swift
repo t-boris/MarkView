@@ -66,10 +66,28 @@ import Foundation
                 if case .phase(let text) = event { phases.add(text) }
             })
         precondition(built.title == "Fixture Orders" && built.screens == ["Orders"] && built.failed.isEmpty)
-        precondition(built.gaps == CLICompletion.codeGaps, "the build carries the plan's gaps: \(built.gaps)")
+        precondition(built.gaps == CLICompletion.codeGaps + ["Could not isolate component src/toolbar.html: the toolbar has no source file to read"],
+                     "the build carries the plan's gaps and the component it could not isolate: \(built.gaps)")
         precondition(built.assumptions == ["Prices are in EUR"])
-        precondition(phases.first == "Step 1 of 3 · Reading the code and planning the screens", "\(phases.first ?? "")")
-        precondition(fm.fileExists(atPath: PrototypeFiles.site(of: folder).appendingPathComponent("screens/orders.js").path))
+        precondition(phases.first == "Step 1 of 4 · Reading the code and planning the screens", "\(phases.first ?? "")")
+        precondition(phases.last == "Step 4 of 4 · Isolating the source components", "\(phases.last ?? "")")
+        let site = PrototypeFiles.site(of: folder)
+        precondition(fm.fileExists(atPath: site.appendingPathComponent("screens/orders.js").path))
+
+        // Components (REQ-007): the planned template and the toolbar found by its marker; the isolated page of the
+        // first exists and is linked, the second has none and is a gap.
+        precondition(built.components == [
+            PrototypeFiles.Component(path: "src/index.html", label: "index", screens: ["Orders"], page: "components/src-index-html.html"),
+            PrototypeFiles.Component(path: "src/toolbar.html", label: "toolbar", screens: ["Orders"], page: nil),
+        ], "components from the plan and the markup, with the isolated page: \(built.components)")
+        let isolated = try String(contentsOf: site.appendingPathComponent("components/src-index-html.html"), encoding: .utf8)
+        precondition(isolated.contains("Orders alone") && isolated.contains("data-mv-component=\"src/index.html\""))
+        precondition(!fm.fileExists(atPath: site.appendingPathComponent("components/src-toolbar-html.html").path))
+        let componentPrompt = await CLICompletion.audit.prompts["prototype:component:src-index-html"] ?? ""
+        precondition(componentPrompt.contains("component `src/index.html` as `components/src-index-html.html`")
+                     && componentPrompt.contains("- Orders: screens/orders.js\n"), "the component writer gets the page, the screens and the source")
+        let componentSystem = await CLICompletion.audit.systems["prototype:component:src-index-html"] ?? ""
+        precondition(componentSystem.contains("isolated view of a source component"))
 
         // The prompts: the code is the reference, the inventory lists the scope only, the Electron hint is there,
         // the screen writer gets its evidence, and the foundation is asked for the original tokens.
@@ -83,6 +101,9 @@ import Foundation
         precondition(!plan.contains("fetch('/api/orders')"), "the inventory never inlines file content")
         let screen = prompts["prototype:screen:orders"] ?? ""
         precondition(screen.contains("- src/index.html\n- src/app.js\n- src/styles.css\n") && screen.contains("no network request"))
+        precondition(screen.contains(PrototypeAI.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n"),
+                     "the screen writer is told to mark the components")
+        precondition(systems["prototype:plan"]?.contains("`components`") == true, "the planner is asked for the components")
         precondition(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)
         precondition(prompts["prototype:foundation:data"]?.contains("reproduce the original design tokens") == true)
 
@@ -104,7 +125,7 @@ import Foundation
         let after = try checksums(root: root)
         precondition(after == before, "source files changed: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
         precondition(PrototypeFiles.read(site: PrototypeFiles.site(of: folder)).map(\.path).contains("screens/orders.js"))
-        print("Prototype code mode: the fixture app is reconstructed with its gaps and evidence; every file outside docs/prototypes/ is unchanged.")
+        print("Prototype code mode: the fixture app is reconstructed with its gaps, evidence and components; every file outside docs/prototypes/ is unchanged.")
     }
 
     /// Collects the build phases from the `@Sendable` stage closure.
@@ -113,6 +134,7 @@ import Foundation
         private var items: [String] = []
         func add(_ text: String) { lock.lock(); items.append(text); lock.unlock() }
         var first: String? { lock.lock(); defer { lock.unlock() }; return items.first }
+        var last: String? { lock.lock(); defer { lock.unlock() }; return items.last }
     }
 
     /// SHA-256 of every file under `root` except the prototype storage, by relative path.

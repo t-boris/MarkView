@@ -448,12 +448,139 @@ do {
     check(PrototypeFiles.isInScope(appPath: "web", sources: [" ", ""]), "blank sources count as nothing selected")
 }
 
+// MARK: - Components (REQ-007, DEC-005)
+
+// Component paths, labels and isolated page names.
+do {
+    check(PrototypeFiles.componentPath(" ./src/components/OrderList.vue ") == "src/components/OrderList.vue", "component path is trimmed and loses ./")
+    check(PrototypeFiles.componentPath("src//a.tsx") == "src/a.tsx", "component path loses a doubled slash")
+    for bad in ["", "   ", "/abs/x.vue", "../x.vue", "src/../x.vue", "src/./x.vue", "src/${name}.vue", "src/a b.vue", "a\\b.vue"] {
+        check(PrototypeFiles.componentPath(bad) == nil, "component path rejects \(bad.debugDescription)")
+    }
+    check(PrototypeFiles.componentLabel("src/components/OrderList.vue") == "OrderList", "component label is the file name without extension")
+    check(PrototypeFiles.componentLabel("templates/index.html") == "index" && PrototypeFiles.componentLabel("Makefile") == "Makefile", "label without extension")
+    check(PrototypeFiles.componentPage(for: "src/components/OrderList.vue") == "components/src-components-orderlist-vue.html", "isolated page name")
+    check(PrototypeFiles.componentPage(for: "Äpp/Главная.svelte") == "components/pp-svelte.html", "isolated page name is ASCII only")
+    check((try? PrototypeFiles.validate(path: PrototypeFiles.componentPage(for: "src/A.tsx"))) != nil, "isolated page is a valid site path")
+    check(PrototypeFiles.componentMarker == "data-mv-component", "the marker attribute")
+}
+
+// Markers are read from HTML and from the scripts that build it, in every form the screen writers use.
+do {
+    let text = """
+    <div data-mv-component="src/Header.vue"><span data-mv-component='src/Logo.vue'></span></div>
+    App.h('section', {'data-mv-component': 'src/OrderList.vue'}, rows)
+    el.setAttribute("data-mv-component", "src/Footer.vue"); x.setAttribute('data-mv-component', `src/${name}.vue`)
+    <p data-mv-component="src/Header.vue">again</p> <b data-mv-component="../etc/passwd">bad</b>
+    """
+    check(PrototypeFiles.componentMarkers(in: text) == ["src/Header.vue", "src/Logo.vue", "src/OrderList.vue", "src/Footer.vue"],
+          "markers: attribute, single quotes, attribute object, setAttribute; duplicates once; template and escapes skipped")
+    check(PrototypeFiles.componentMarkers(in: "<div class=\"x\">no markers</div>").isEmpty, "no markers")
+}
+
+// The component scan: plan and markup together, screens attributed by file, pages linked only when they exist.
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("comp-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let site = PrototypeFiles.site(of: PrototypeFiles.folder(root: proj, slug: "shop"))
+    try PrototypeFiles.apply(.init(files: [
+        .init(path: "index.html", content: "<header data-mv-component=\"src/Shell.vue\"></header>\n<!--SCREENS-->"),
+        .init(path: "app.js", content: "window.App = {};"),
+        .init(path: "screens/orders.js", content: "App.register({render(){ return '<div data-mv-component=\"src/OrderList.vue\"><i data-mv-component=\"src/Badge.vue\"></i></div>'; }})"),
+        .init(path: "screens/cart.js", content: "App.h('div', {'data-mv-component': 'src/Badge.vue'})"),
+        .init(path: "components/src-orderlist-vue.html", content: "<main data-mv-component=\"src/OrderList.vue\"></main>"),
+        .init(path: "components/src-stray-vue.html", content: "<main data-mv-component=\"src/Stray.vue\"></main>"),
+    ]), to: site)
+    let screens = [PrototypeFiles.ScreenRef(id: "orders", name: "Orders", components: ["src/OrderList.vue", "src/Planned.vue"]),
+                   PrototypeFiles.ScreenRef(id: "cart", name: "Cart", components: ["./src/Planned.vue"])]
+    let found = PrototypeFiles.components(in: site, screens: screens)
+    check(found.map(\.path) == ["src/OrderList.vue", "src/Planned.vue", "src/Shell.vue", "src/Badge.vue"],
+          "components: plan first in plan order, then markers in file order, each once: \(found.map(\.path))")
+    check(found[0] == .init(path: "src/OrderList.vue", label: "OrderList", screens: ["Orders"], page: "components/src-orderlist-vue.html"),
+          "a planned component gets its screens and its isolated page")
+    check(found[1] == .init(path: "src/Planned.vue", label: "Planned", screens: ["Orders", "Cart"], page: nil),
+          "a planned component without markup keeps both screens and has no page")
+    check(found[2] == .init(path: "src/Shell.vue", label: "Shell", screens: [], page: nil), "a shell marker counts for no screen")
+    check(found[3] == .init(path: "src/Badge.vue", label: "Badge", screens: ["Cart", "Orders"], page: nil),
+          "a marker in two screen scripts lists both screens (file order)")
+    check(!found.contains { $0.path == "src/Stray.vue" }, "a marker only in an isolated page is not a component")
+    check(PrototypeFiles.components(in: site.appendingPathComponent("missing"), screens: []).isEmpty, "no site, no components")
+    check(PrototypeFiles.components(in: site, screens: [.init(id: "x", name: "X", components: ["../out.vue", " "])]).map(\.path)
+            == ["src/Shell.vue", "src/Badge.vue", "src/OrderList.vue"], "bad plan paths are dropped; markers stay in file order")
+}
+
+// The manifest carries the components; an older prototype.json decodes with none.
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("cman-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let folder = PrototypeFiles.folder(root: proj, slug: "shop")
+    var m = PrototypeFiles.Manifest(title: "Shop", slug: "shop", brief: "", sources: ["web"], mode: .code)
+    m.components = [.init(path: "web/src/A.vue", label: "A", screens: ["Home"], page: "components/web-src-a-vue.html"),
+                    .init(path: "web/src/B.vue", label: "B")]
+    try PrototypeFiles.saveManifest(m, in: folder)
+    let loaded = PrototypeFiles.loadManifest(folder)
+    check(loaded == m && loaded?.components.count == 2 && loaded?.components[1].page == nil, "manifest round trip keeps the components")
+    let text = String(decoding: try Data(contentsOf: PrototypeFiles.manifestURL(of: folder)), as: UTF8.self)
+    check(text.contains("\"components\"") && text.contains("\"page\" : \"components\\/web-src-a-vue.html\""), "components are stored under their key")
+    try "{\"title\":\"Old\",\"slug\":\"shop\",\"mode\":\"code\",\"gaps\":[\"g\"]}".write(to: PrototypeFiles.manifestURL(of: folder), atomically: true, encoding: .utf8)
+    let old = PrototypeFiles.loadManifest(folder)
+    check(old?.components == [] && old?.gaps == ["g"] && old?.mode == .code, "a manifest without components decodes with none")
+}
+
 // The implementation ZIP lives outside the committed prototype folder (DEC-006).
 do {
     let root = URL(fileURLWithPath: "/proj")
     check(PrototypeFiles.exportsFolder == ".dde/exports/prototypes", "exports folder")
     check(PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path == "/proj/.dde/exports/prototypes/shop-v3.zip", "export archive path")
     check(!PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path.hasPrefix(PrototypeFiles.storage(root: root).path), "the archive is not under docs/prototypes")
+}
+
+// The plan schema and parsing carry the components of each screen.
+do {
+    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    let screenItem = (props["screens"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
+    let screenProps = screenItem["properties"] as? [String: Any] ?? [:]
+    check(screenProps["components"] != nil && (screenItem["required"] as? [String] ?? []).contains("components"), "plan schema has components per screen")
+    let answer: [String: Any] = ["screens": [["id": "orders", "name": "Orders", "components": [" ./src/OrderList.vue", "src/OrderList.vue", "../x.vue", ""]],
+                                             ["id": "home", "name": "Home"]]]
+    let plan = try PrototypeAI.Plan(structured: answer)
+    check(plan.screens[0].components == ["src/OrderList.vue"] && plan.screens[1].components.isEmpty, "plan components are normalised and unique")
+    check(plan.json.contains("\"components\"") && plan.json.contains("OrderList.vue") && !plan.json.contains("x.vue"), "plan json carries the normalised components")
+}
+
+// Code-mode prompts carry the marker rule; requirements mode stays pinned above.
+do {
+    check(PrototypeAI.codePlanSystem(language: "").contains("`components` (the component files among the evidence"), "code plan system asks for the components")
+    check(PrototypeAI.componentRule.contains("data-mv-component=\"<path>\"") && PrototypeAI.componentRule.contains("never invent a marker"),
+          "the marker rule names the attribute and forbids invented markers")
+    check(PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil, mode: .code).contains(PrototypeAI.componentRule), "code-mode foundation prompt carries the marker rule")
+    check(!PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil).contains("data-mv-component"), "requirements-mode foundation prompt has no marker rule")
+    let screen = PrototypeAI.PlannedScreen(id: "orders", name: "Orders", route: "/orders", purpose: "p", evidence: ["src/Orders.vue"],
+                                           components: ["src/Orders.vue", "src/Badge.vue"])
+    let prompt = PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil, mode: .code)
+    check(prompt.contains(PrototypeAI.componentRule) && prompt.contains("as the plan names them:\n- src/Orders.vue\n- src/Badge.vue\n"),
+          "code-mode screen prompt carries the rule and the screen's components")
+    check(!PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil).contains("data-mv-component"), "requirements-mode screen prompt has no markers")
+    let system = PrototypeAI.componentSystem(language: " In French.")
+    for phrase in ["isolated view of a source component", "`../styles.css`", "does not call `App.start()`", "<main id=\"component\">",
+                   "data-mv-component", "Do not edit other files", "In French."] {
+        check(system.contains(phrase), "component system says: \(phrase)")
+    }
+    let isolated = PrototypeAI.componentPrompt(plan: "{plan}", component: "src/Badge.vue", page: "components/src-badge-vue.html",
+                                               screens: [screen], foundation: [.init(path: "app.js", content: "x")], failure: "bad")
+    for phrase in ["{plan}", "=== app.js ===\nx", "component `src/Badge.vue` as `components/src-badge-vue.html`",
+                   "- Orders: screens/orders.js\n", "Read the component's source file `src/Badge.vue`", "Your previous answer was not usable:\nbad"] {
+        check(isolated.contains(phrase), "component prompt says: \(phrase)")
+    }
+    check(PrototypeAI.componentPrompt(plan: "{plan}", component: "src/X.vue", page: "components/x.html", screens: [], foundation: [], failure: nil)
+            .contains("No screen script names it"), "component prompt without screens sends the writer to the source")
+    let pick = PrototypeAI.Pick(selector: "div", tag: "div", text: "t", html: "<div/>", screen: "#/orders", component: "src/Badge.vue")
+    let revise = PrototypeAI.revisePrompt(instruction: "x", pick: pick, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
+    check(revise.contains("html: <div/>\nsource component: src/Badge.vue (the element"), "revise prompt names the picked element's component")
+    var plain = pick
+    plain.component = nil
+    check(!PrototypeAI.revisePrompt(instruction: "x", pick: plain, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
+            .contains("source component"), "no component, no component line")
 }
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

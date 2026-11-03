@@ -23,6 +23,9 @@ enum PrototypeAI {
         var screen: String
         /// The element's box in the preview, in points from the top left of the visible page.
         var rect = CGRect.zero
+        /// Code mode: the source component of the element or its nearest marked ancestor
+        /// (`data-mv-component`, REQ-007); nil when no ancestor carries a marker.
+        var component: String? = nil
     }
 
     enum ScreenState: Sendable, Equatable {
@@ -37,6 +40,8 @@ enum PrototypeAI {
         var purpose: String
         /// Code mode: the source files (relative to the project root) the screen reproduces.
         var evidence: [String] = []
+        /// Code mode: the component files among them (REQ-007), as the screen writer must mark them.
+        var components: [String] = []
     }
 
     /// The reconstruction scope of code mode as the caller found it with the project's web-app discovery;
@@ -65,6 +70,8 @@ enum PrototypeAI {
         /// The plan is ready: what will be built.
         case plan(title: String, summary: String, assumptions: [String], screens: [PlannedScreen])
         case screen(id: String, state: ScreenState)
+        /// Code mode: the isolated view of one component (named by its source path) is queued, written or done.
+        case component(path: String, state: ScreenState)
         /// Files changed on disk: the preview should reload.
         case written
         /// A usable version exists (the text is its summary): the studio records it.
@@ -170,8 +177,11 @@ enum PrototypeAI {
                     "states": strings(), "rules": strings(), "requirements": strings(),
                     // Code mode: the source files read for the screen. Empty in requirements mode.
                     "evidence": strings(),
+                    // Code mode: the component files among the evidence (REQ-007). Empty in requirements mode.
+                    "components": strings(),
                 ],
-                "required": ["id", "name", "route", "purpose", "data", "actions", "states", "rules", "requirements", "evidence"],
+                "required": ["id", "name", "route", "purpose", "data", "actions", "states", "rules", "requirements", "evidence",
+                             "components"],
                 "additionalProperties": false,
             ]],
         ],
@@ -280,14 +290,25 @@ enum PrototypeAI {
         `data` (what it shows, field by field, as the code renders it), `actions` (every control and exactly what it \
         does in the code, with validation and permission rules), `states` (empty, loading, error and special states \
         the code handles), `rules` (business rules the code enforces on that screen), `requirements` (what the code \
-        establishes for the screen: the component, template or view it reproduces, one sentence each) and `evidence` \
-        (the source files you read for this screen, relative to the project root). Every screen maps to a real route, \
-        page, view or window of the code. Put modal flows inside the screen that opens them. Use the labels and \
-        vocabulary of the code's own UI. An Electron app is in scope only as its renderer, the browser part: the main \
-        process is not reproduced, and every `window.electron`, `window.api` or `ipcRenderer` call is simulated and \
-        listed in `gaps`.\(language)
+        establishes for the screen: the component, template or view it reproduces, one sentence each), `evidence` \
+        (the source files you read for this screen, relative to the project root) and `components` (the component \
+        files among the evidence that the screen reproduces: React, Vue, Svelte or Angular component files, or the \
+        template or HTML file of a plain page; the same relative paths, only files you have read). Every screen maps \
+        to a real route, page, view or window of the code. Put modal flows inside the screen that opens them. Use the \
+        labels and vocabulary of the code's own UI. An Electron app is in scope only as its renderer, the browser part: \
+        the main process is not reproduced, and every `window.electron`, `window.api` or `ipcRenderer` call is \
+        simulated and listed in `gaps`.\(language)
         """
     }
+
+    /// Code mode: how the files link what they reproduce to the source components (REQ-007, DEC-005). Part of
+    /// the foundation, screen and component prompts, so every marker rests on a file the assistant has read.
+    static let componentRule = "Mark every element that reproduces a source component with the attribute " +
+        "`\(PrototypeFiles.componentMarker)=\"<path>\"` on the outermost element it reproduces, where <path> is the component " +
+        "file relative to the project root exactly as the plan names it (a React, Vue, Svelte or Angular component file, or " +
+        "the template or HTML file of a plain page). A component nested in another keeps its own marker. Only mark what you " +
+        "have read in the sources: never invent a marker, and leave an element unmarked when you cannot tell which file it " +
+        "comes from."
 
     /// The code-mode planning prompt: the sources (or the whole project), the detected apps as hints, the
     /// inventory of web-interface files (paths and sizes only; the assistant reads them with its tools).
@@ -386,7 +407,7 @@ enum PrototypeAI {
                 "stylesheets, layout templates and navigation among them with your tools and reproduce the original design " +
                 "tokens (colours, fonts, spacing, radii), shell layout and navigation instead of inventing a design system. " +
                 "The entities and the seed data mirror what the code renders; what the original gets from a backend or " +
-                "native APIs is simulated."
+                "native APIs is simulated. " + componentRule
         }
         if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)\nWrite the files again, complete." }
         return out
@@ -424,8 +445,50 @@ enum PrototypeAI {
                 for path in screen.evidence { out += "- \(path)\n" }
             }
             out += "\nWhat the original gets from a backend, the Electron main process or native APIs is simulated with " +
-                "`DB` and sample data; the standalone rules still apply (no network request, no framework download)."
+                "`DB` and sample data; the standalone rules still apply (no network request, no framework download).\n\n"
+            out += componentRule
+            if !screen.components.isEmpty {
+                out += "\nThe component files of this screen, as the plan names them:\n"
+                for path in screen.components { out += "- \(path)\n" }
+            }
         }
+        if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)" }
+        return out
+    }
+
+    /// Code mode: the isolated view of one component (REQ-007 criterion 4), written after the screens.
+    static func componentSystem(language: String) -> String {
+        craft + """
+
+
+        You write ONE page of a prototype whose foundation and screens already exist: the isolated view of a source \
+        component, `components/<name>.html` (the path is given). The page shows only that component, rendered with \
+        simulated data, so a reviewer can look at it on its own and edit it like a screen. It lives one folder below \
+        the prototype's root, so it loads the shared files with relative paths (`../styles.css`, `../data.js`, \
+        `../app.js`, and the `../screens/<id>.js` scripts that build the component's markup); it does not call \
+        `App.start()` and does not show the shell navigation. Render the component into `<main id="component">` with \
+        the markup, class names and the `\(PrototypeFiles.componentMarker)` marker the screens use for it: reuse the \
+        screen's rendering code where it is reachable (a function on `App` or `DB`, or the registered screen's \
+        `render`), otherwise copy the component's markup from the screen into the page's own script. Show a short \
+        caption with the component's source path above it. Do not edit other files.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: path and full content).\(language)
+        """
+    }
+
+    static func componentPrompt(plan: String, component: String, page: String, screens: [PlannedScreen],
+                                foundation: [PrototypeFiles.File], failure: String?) -> String {
+        var out = "The plan of the whole prototype:\n\(plan)\n\nThe foundation files (the API you build on):\n"
+        for file in foundation { out += "\n=== \(file.path) ===\n\(file.content)\n" }
+        out += "\nWrite the isolated view of the component `\(component)` as `\(page)`."
+        if screens.isEmpty {
+            out += "\nNo screen script names it: read the component's source file with your tools and reproduce its markup, " +
+                "class names and labels with the foundation's CSS classes."
+        } else {
+            out += "\nThe screens that render it (read their scripts with your tools and reuse their markup for the component):\n"
+            for screen in screens { out += "- \(screen.name): screens/\(screen.id).js\n" }
+        }
+        out += "\nRead the component's source file `\(component)` with your tools as well, so the view shows the whole " +
+            "component (every state its props or inputs allow) with plausible simulated data."
         if let failure { out += "\n\nYour previous answer was not usable:\n\(failure)" }
         return out
     }
@@ -483,6 +546,9 @@ enum PrototypeAI {
             text: \(pick.text)
             html: \(pick.html)
             """
+            if let component = pick.component, !component.isEmpty {
+                out += "\nsource component: \(component) (the element or its nearest marked ancestor reproduces this file)"
+            }
         }
         if !attachments.isEmpty {
             out += "\n\nImages the reviewer sent (open each one with your Read tool before you answer; they show what the request means):\n"
@@ -627,8 +693,14 @@ enum PrototypeAI {
                 seen.insert(unique)
                 normalised[index]["id"] = unique
                 let evidence = (item["evidence"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                // Component paths are normalised here, so the screen writer marks exactly what the manifest records.
+                var components: [String] = []
+                for raw in item["components"] as? [String] ?? [] {
+                    if let path = PrototypeFiles.componentPath(raw), !components.contains(path) { components.append(path) }
+                }
+                normalised[index]["components"] = components
                 screens.append(PlannedScreen(id: unique, name: name, route: item["route"] as? String ?? "/" + unique,
-                                             purpose: item["purpose"] as? String ?? "", evidence: evidence))
+                                             purpose: item["purpose"] as? String ?? "", evidence: evidence, components: components))
             }
             var plan = object
             plan["screens"] = normalised
@@ -665,6 +737,13 @@ enum PrototypeAI {
         var failed: [String]
         /// Known reconstruction gaps (code mode; a plan cut at `Plan.maxScreens` adds one in any mode).
         var gaps: [String] = []
+        /// Code mode: the source components the files reproduce, with their isolated pages (REQ-007).
+        var components: [PrototypeFiles.Component] = []
+    }
+
+    /// `PlannedScreen`s as the component scan reads them.
+    private static func screenRefs(_ screens: [PlannedScreen]) -> [PrototypeFiles.ScreenRef] {
+        screens.map { PrototypeFiles.ScreenRef(id: $0.id, name: $0.name, components: $0.components) }
     }
 
     /// Reports the activity of one run under `label`; screens run side by side, so they report log lines only.
@@ -678,19 +757,52 @@ enum PrototypeAI {
         }
     }
 
+    /// Runs `work` for every item, `concurrency` at a time, and hands each finished item to `done` in completion
+    /// order with the text of its error, if it had one. A cancellation stops every run and is rethrown.
+    private static func sideBySide<Item: Sendable>(_ items: [Item], concurrency: Int,
+                                                   work: @escaping @Sendable (Item) async throws -> Void,
+                                                   done: (Item, String?) -> Void) async throws {
+        try await withThrowingTaskGroup(of: (Item, String?).self) { group in
+            var next = 0
+            func launch() {
+                guard next < items.count else { return }
+                let item = items[next]
+                next += 1
+                group.addTask {
+                    do {
+                        try await work(item)
+                        return (item, nil)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        return (item, error.localizedDescription)
+                    }
+                }
+            }
+            for _ in 0..<max(1, concurrency) { launch() }
+            while let (item, problem) = try await group.next() {
+                done(item, problem)
+                launch()
+            }
+        }
+    }
+
     /// Builds the first versions into `site` in three stages: the plan (reads the requirements, or in code mode
     /// the implementation to reconstruct), the foundation (shell, styles, data, from the plan alone) and the
     /// screens (one run each, `concurrency` at a time). A screen that fails twice is reported in `failed`; the
     /// others stay. Cancelling stops every run. In `.code` mode `sources` are the implementation (empty: the
-    /// whole project), `codeScope` lists the detected apps as hints, and the result carries the known gaps.
-    /// Every run is read-only for the project: only `site` is written.
+    /// whole project), `codeScope` lists the detected apps as hints, the result carries the known gaps, and a
+    /// fourth stage writes the isolated view of every source component the plan or the files name (REQ-007);
+    /// a component that cannot be isolated becomes a gap, not an error. Every run is read-only for the
+    /// project: only `site` is written.
     static func build(root: URL, folder: URL, brief: String, sources: [String], language: String,
                       mode: PrototypeFiles.Mode = .requirements, codeScope: CodeScope = CodeScope(), concurrency: Int = 4,
                       record: @escaping Record, stage: @escaping Stage) async throws -> Built {
         let site = PrototypeFiles.site(of: folder)
         let reading = mode == .code ? "the code" : "the requirements"
+        let steps = mode == .code ? 4 : 3
 
-        stage(.phase("Step 1 of 3 · Reading \(reading) and planning the screens"))
+        stage(.phase("Step 1 of \(steps) · Reading \(reading) and planning the screens"))
         stage(.status("Reading \(reading)"))
         let system: String
         let prompt: String
@@ -707,7 +819,7 @@ enum PrototypeAI {
         let plan = try Plan(structured: planned.structured)
         stage(.plan(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: plan.screens))
 
-        stage(.phase("Step 2 of 3 · Building the shell, styles and sample data (two parts at once)"))
+        stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (two parts at once)"))
         stage(.status("Writing the shell and the data"))
         async let shell = foundationPart(root: root, plan: plan, system: foundationShell(language), label: "shell",
                                          allowed: ["index.html", "styles.css", "app.js"], required: ["index.html", "app.js"],
@@ -725,45 +837,54 @@ enum PrototypeAI {
         try PrototypeFiles.apply(PrototypeFiles.Change(files: shellChange.files + dataChange.files), to: site)
         stage(.milestone("The shell, navigation and sample data for \(plan.screens.count) screens; the screens follow."))
 
-        stage(.phase("Step 3 of 3 · Writing the screens"))
+        stage(.phase("Step 3 of \(steps) · Writing the screens"))
         let foundation = PrototypeFiles.read(site: site).filter { ["app.js", "data.js", "styles.css"].contains($0.path) }
         var failed: [String] = []
         for screen in plan.screens { stage(.screen(id: screen.id, state: .queued)) }
-        try await withThrowingTaskGroup(of: (PlannedScreen, String?).self) { group in
-            var next = 0
-            func launch() {
-                guard next < plan.screens.count else { return }
-                let screen = plan.screens[next]
-                next += 1
-                group.addTask {
-                    stage(.screen(id: screen.id, state: .writing))
-                    do {
-                        try await buildScreen(root: root, site: site, plan: plan, screen: screen, foundation: foundation,
-                                              language: language, mode: mode, record: record,
-                                              stage: scoped(stage, label: screen.name, status: false))
-                        return (screen, nil)
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        return (screen, error.localizedDescription)
-                    }
-                }
+        try await sideBySide(plan.screens, concurrency: concurrency, work: { screen in
+            stage(.screen(id: screen.id, state: .writing))
+            try await buildScreen(root: root, site: site, plan: plan, screen: screen, foundation: foundation,
+                                  language: language, mode: mode, record: record,
+                                  stage: scoped(stage, label: screen.name, status: false))
+        }, done: { screen, problem in
+            if let problem {
+                failed.append(screen.name)
+                stage(.screen(id: screen.id, state: .failed(problem)))
+            } else {
+                stage(.screen(id: screen.id, state: .done))
+                stage(.written)
             }
-            for _ in 0..<max(1, concurrency) { launch() }
-            while let (screen, problem) = try await group.next() {
-                if let problem {
-                    failed.append(screen.name)
-                    stage(.screen(id: screen.id, state: .failed(problem)))
-                } else {
-                    stage(.screen(id: screen.id, state: .done))
-                    stage(.written)
-                }
-                launch()
+        })
+        var gaps = plan.gaps
+        var components: [PrototypeFiles.Component] = []
+        if mode == .code {
+            stage(.phase("Step 4 of 4 · Isolating the source components"))
+            components = PrototypeFiles.components(in: site, screens: screenRefs(plan.screens))
+            if components.isEmpty {
+                stage(.step("No source component is named by the plan or marked in the files; nothing to isolate"))
+            } else {
+                for component in components { stage(.component(path: component.path, state: .queued)) }
+                stage(.status("Writing the isolated component views"))
+                try await sideBySide(components, concurrency: concurrency, work: { component in
+                    stage(.component(path: component.path, state: .writing))
+                    try await buildComponent(root: root, site: site, plan: plan, component: component, foundation: foundation,
+                                             language: language, record: record,
+                                             stage: scoped(stage, label: component.label, status: false))
+                }, done: { component, problem in
+                    if let problem {
+                        gaps.append("Could not isolate component \(component.path): \(problem)")
+                        stage(.component(path: component.path, state: .failed(problem)))
+                    } else {
+                        stage(.component(path: component.path, state: .done))
+                    }
+                })
+                // Scanned again: the pages that were written are now linked from the components.
+                components = PrototypeFiles.components(in: site, screens: screenRefs(plan.screens))
             }
         }
         let built = plan.screens.map(\.name).filter { !failed.contains($0) }
         return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed,
-                     gaps: plan.gaps)
+                     gaps: gaps, components: components)
     }
 
     private static func foundationShell(_ language: String) -> String { shellSystem(language: language) }
@@ -807,6 +928,32 @@ enum PrototypeAI {
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation,
                                                              failure: failure, mode: mode),
                                         schema: filesSchema, label: "prototype:screen:\(screen.id)", effort: "low", record: record, stage: stage)
+            let files = PrototypeFiles.change(from: result.structured).files
+            guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
+                failure = "The answer must contain exactly one file, \(wanted)."
+                if attempt == 1 { throw PrototypeFiles.Failure.edits([failure!]) }
+                continue
+            }
+            stage(.log("Saving \(wanted)"))
+            try PrototypeFiles.apply(PrototypeFiles.Change(files: [PrototypeFiles.File(path: wanted, content: file.content)]), to: site)
+            return
+        }
+    }
+
+    /// The isolated view of one component, `components/<slug>.html`; the answer is tried twice (code mode, REQ-007).
+    private static func buildComponent(root: URL, site: URL, plan: Plan, component: PrototypeFiles.Component,
+                                       foundation: [PrototypeFiles.File], language: String, record: @escaping Record,
+                                       stage: @escaping Stage) async throws {
+        let wanted = PrototypeFiles.componentPage(for: component.path)
+        let slug = ((wanted as NSString).lastPathComponent as NSString).deletingPathExtension
+        let screens = plan.screens.filter { component.screens.contains($0.name) }
+        var failure: String?
+        for attempt in 0..<2 {
+            let result = try await call(root: root, system: componentSystem(language: language),
+                                        prompt: componentPrompt(plan: plan.json, component: component.path, page: wanted,
+                                                                screens: screens, foundation: foundation, failure: failure),
+                                        schema: filesSchema, label: "prototype:component:\(slug)", effort: "low", reading: "the code",
+                                        record: record, stage: stage)
             let files = PrototypeFiles.change(from: result.structured).files
             guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
                 failure = "The answer must contain exactly one file, \(wanted)."

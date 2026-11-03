@@ -170,8 +170,25 @@ final class PrototypeSession: ObservableObject, Identifiable {
             case .failed(let problem): log("Failed: \(screens.first { $0.id == id }?.name ?? id) — \(problem)")
             case .queued: break
             }
+        case .component(let path, let state):
+            // Isolated component views join the progress list after the screens, under their source path.
+            let id = "component:" + path
+            if let index = screens.firstIndex(where: { $0.id == id }) {
+                screens[index].state = state
+            } else {
+                screens.append(ScreenProgress(id: id, name: "Component \(path)", state: state))
+            }
+            let components = screens.filter { $0.id.hasPrefix("component:") }
+            stage = "Writing the isolated component views (\(components.filter { $0.state == .done }.count) of \(components.count) done)"
+            switch state {
+            case .writing: log("Started: component \(path)")
+            case .done: log("Done: component \(path)")
+            case .failed(let problem): log("Could not isolate component \(path) — \(problem)")
+            case .queued: break
+            }
         case .written: reloadPreview()
         case .milestone(let summary):
+            guard milestones else { return }
             do { try accept(instruction: "", summary: summary) } catch { messages.append(Message(role: .error, text: error.localizedDescription)) }
         }
     }
@@ -208,24 +225,11 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let built = try await PrototypeAI.build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
                                                         language: languageNote, mode: manifest.mode, codeScope: codeScope,
                                                         record: record, stage: stageReporter)
-                manifest.screens = built.screens + built.failed
-                // Gaps are fixed at generation; review edits never change them (DEC-004).
-                manifest.gaps = built.gaps
+                adopt(built)
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
                 }
-                var reply = built.summary.isEmpty ? "The prototype is ready." : built.summary
-                if !built.failed.isEmpty {
-                    reply += "\n\nThese screens could not be written: \(built.failed.joined(separator: ", ")). Ask me to build them and I will try again."
-                }
-                if !built.assumptions.isEmpty {
-                    reply += "\n\nAssumptions I made:\n" + built.assumptions.map { "• \($0)" }.joined(separator: "\n")
-                }
-                if !built.gaps.isEmpty {
-                    reply += "\n\nKnown gaps (what the original does that this prototype only simulates or lacks):\n"
-                        + built.gaps.map { "• \($0)" }.joined(separator: "\n")
-                }
-                messages.append(Message(role: .assistant, text: reply))
+                messages.append(Message(role: .assistant, text: reply(for: built, opening: "The prototype is ready.")))
                 await settleAndFix(language: languageNote)
             } catch is CancellationError {
                 messages.append(Message(role: .error, text: manifest.version > 0
@@ -235,6 +239,37 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 messages.append(Message(role: .error, text: error.localizedDescription))
             }
         }
+    }
+
+    /// Puts what a build found into the manifest: screens, assumptions, gaps and components. Gaps and components
+    /// are fixed at generation (and at a sync); review edits never change them (DEC-004).
+    private func adopt(_ built: PrototypeAI.Built) {
+        if !built.title.isEmpty { manifest.title = built.title }
+        manifest.screens = built.screens + built.failed
+        manifest.assumptions = built.assumptions
+        manifest.gaps = built.gaps
+        manifest.components = built.components
+    }
+
+    /// The assistant's message after a build: summary, screens that failed, assumptions, gaps and components.
+    private func reply(for built: PrototypeAI.Built, opening: String) -> String {
+        var reply = built.summary.isEmpty ? opening : built.summary
+        if !built.failed.isEmpty {
+            reply += "\n\nThese screens could not be written: \(built.failed.joined(separator: ", ")). Ask me to build them and I will try again."
+        }
+        if !built.assumptions.isEmpty {
+            reply += "\n\nAssumptions I made:\n" + built.assumptions.map { "• \($0)" }.joined(separator: "\n")
+        }
+        if !built.gaps.isEmpty {
+            reply += "\n\nKnown gaps (what the original does that this prototype only simulates or lacks):\n"
+                + built.gaps.map { "• \($0)" }.joined(separator: "\n")
+        }
+        if !built.components.isEmpty {
+            let isolated = built.components.filter { $0.page != nil }.count
+            reply += "\n\nSource components linked: \(built.components.count) (\(isolated) with an isolated view). "
+                + "Use Components in the preview header to see them."
+        }
+        return reply
     }
 
     /// One reviewer request, with the element pointed at in the preview and the images sent with it. The screenshot of

@@ -209,6 +209,19 @@ enum ProjectToolRunner {
             let gaps = extras.gaps.map { "- \($0)" }
             out += "\nKnown gaps:\n\(gaps.joined(separator: "\n"))\n"
         }
+        if !m.components.isEmpty {
+            // Source component → the screens that reproduce it, and its isolated page (REQ-007). Built with
+            // `+=` so the Swift 6.0 compiler (CI) type-checks it in reasonable time.
+            var lines: [String] = []
+            for component in m.components {
+                var line = "- \(component.path) → "
+                line += component.screens.isEmpty ? "no screen named" : component.screens.joined(separator: ", ")
+                if let page = component.page { line += "; isolated page \(page)" }
+                lines.append(line)
+            }
+            out += "\nComponents (source files the prototype reproduces; elements carry \(PrototypeFiles.componentMarker)=\"<path>\"):\n"
+            out += lines.joined(separator: "\n") + "\n"
+        }
         if !m.history.isEmpty {
             // Split up: the Swift 6.0 compiler (CI) cannot type-check this as one concatenation in reasonable time.
             let entries = m.history.map { entry -> String in
