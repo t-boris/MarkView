@@ -25,6 +25,7 @@ struct PrototypeStudioView: View {
     @State private var showingSyncStatus = false
     /// "Rebuild everything" asks once more inside the sync sheet (REQ-010).
     @State private var confirmingRebuild = false
+    @State private var confirmingClear = false
     /// The hand-off brief the person edits, and the agent it goes to (REQ-012).
     @State private var handoffBrief = ""
     @State private var handoffAgent = TerminalProfile.claude
@@ -153,6 +154,17 @@ struct PrototypeStudioView: View {
                 } label: { Label("Versions", systemImage: "clock.arrow.circlepath") }
                 .controlSize(.small).menuIndicator(.hidden).fixedSize().disabled(session.isBusy)
                 .help("Go back to an earlier version")
+            }
+            Button { confirmingClear = true } label: {
+                Label("Clear conversation", systemImage: "eraser")
+            }
+            .controlSize(.small).fixedSize().disabled(session.isBusy || session.messages.count <= 1)
+            .help("Remove the conversation and its images; the prototype and every version stay")
+            .confirmationDialog("Clear the conversation?", isPresented: $confirmingClear) {
+                Button("Clear conversation", role: .destructive) { session.clearConversation() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The messages and the images sent with them are removed. The prototype, its versions and their history stay.")
             }
             Button { copyReference() } label: {
                 Label(referenceCopied ? "Copied" : "Copy reference", systemImage: referenceCopied ? "checkmark" : "link")

@@ -553,6 +553,18 @@ final class PrototypeSession: ObservableObject, Identifiable {
         run(Request(instruction: instruction, pick: pick, files: files, target: target))
     }
 
+    /// Clears the review conversation and the images sent with it. The prototype, its versions and the review history in the
+    /// manifest stay, so the specification and the handoff lose nothing; each request is sent without the conversation anyway.
+    func clearConversation() {
+        guard !isBusy else { return }
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("attachments", isDirectory: true))
+        restoredDraft = nil
+        let version = manifest.version
+        messages = [Message(role: .assistant, text: version > 0
+            ? "Conversation cleared. The prototype is at v\(version); every version is still under Versions."
+            : "Conversation cleared.")]
+    }
+
     /// Runs the request of a failed message again, without adding the question to the conversation twice.
     func retry(_ request: Request) {
         guard !isBusy else { return }
