@@ -2,7 +2,7 @@
 type: feature
 id: automatic-code-architecture
 title: Automatic Code Architecture
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-10-31
 provenance: Created from the feature intake
