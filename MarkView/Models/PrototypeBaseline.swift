@@ -51,9 +51,14 @@ enum PrototypeBaseline {
         return out
     }
 
-    /// The fingerprint of each text file of the prototype's `site/` except the copied originals.
+    /// The fingerprint of each text file of the prototype's `site/` except the copied originals and the files MarkView owns. index.html
+    /// is hashed as its author wrote it, without the link to the page structure MarkView adds (BUG-060), so linking the structure is
+    /// not an edit of the shell.
     static func siteFingerprints(site: URL) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site).map { ($0.path, sha256(Data($0.content.utf8))) })
+        Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site).map { file in
+            let authored = file.path == "index.html" ? PrototypeShellStructure.authored(file.content) : file.content
+            return (file.path, sha256(Data(authored.utf8)))
+        })
     }
 
     // MARK: - Making a record

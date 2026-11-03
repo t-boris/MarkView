@@ -515,22 +515,21 @@ enum PrototypeAI {
     `embedded: true` plus the keys of `extra`. It works before and without `App.start()`, never throws, and returns \
     a panel saying that the widget is still being built, or failed, when the screen is not registered or its `render` \
     throws. Visiting the route of an embedded screen shows it alone in `app-main` through the same call. \
-    The box that holds a widget (`app-main` for a routed widget, a panel body of a host) always has a definite height, \
-    explicit or as a flex or grid cell with `min-height:0` inside a container that has one, and the element \
-    `App.renderScreen` returns fills it (`display:flex; flex-direction:column; flex:1; height:100%; min-height:0`): a \
-    widget whose own CSS sizes its body with `flex:1` or `height:100%` collapses to 0 px, and its content is cut off, \
-    inside a box of automatic height. \
+    The box that holds a widget in a host (a panel body) is a flex or grid cell with `min-height:0` inside a box that has \
+    a definite height, and the element `App.renderScreen` returns fills it: a widget whose own CSS sizes its body with \
+    `flex:1` or `height:100%` collapses to 0 px, and its content is cut off, inside a box of automatic height. \
     `App.modal({title, body, actions})` accepts an element or an HTML string as `body`.
     """
 
-    static func shellSystem(language: String, widgets: Bool = false) -> String {
+    /// `ownsStructure`: MarkView writes the page structure (a prototype from code, BUG-060), so the writers are told it is not theirs.
+    static func shellSystem(language: String, widgets: Bool = false, ownsStructure: Bool = false) -> String {
         craft + """
 
 
         You write the markup and the script of the prototype's shell: the files every screen builds on. \
         The data backend (data.js), the stylesheet (styles.css) and the screens are written at the same \
         time by other engineers, using only what you document, so the API must be complete and exact. \
-        \(dataContract) \(shellContract) Write only index.html and app.js — not styles.css, not data.js, \
+        \(dataContract) \(shellContract) \(ownsStructure ? PrototypeShellStructure.contract + " " : "")Write only index.html and app.js — not styles.css, not data.js, \
         not any screen.
         Write these files:
         - index.html: `<div id="app"></div>`, `<link rel="stylesheet" href="styles.css">`, then the scripts `data.js` and \
@@ -552,14 +551,14 @@ enum PrototypeAI {
         """
     }
 
-    static func stylesSystem(language: String, originals: Bool = false) -> String {
-        if originals { return stylesBridgeSystem(language: language) }
+    static func stylesSystem(language: String, originals: Bool = false, ownsStructure: Bool = false) -> String {
+        if originals { return stylesBridgeSystem(language: language, ownsStructure: ownsStructure) }
         return craft + """
 
 
         You write styles.css, the design system of the prototype. The markup and script (index.html, app.js), the data \
         backend and the screens are written at the same time by other engineers, so the class names are fixed and you \
-        must provide all of them. \(shellContract) Write only styles.css.
+        must provide all of them. \(shellContract) \(ownsStructure ? PrototypeShellStructure.contract + " " : "")Write only styles.css.
         styles.css holds the design tokens as CSS variables (colours, typography, spacing, radii, shadows), a reset, the \
         layout shell, and every class listed above in a light and a dark variant where the plan asks for one, plus \
         focus-visible and disabled states and a responsive layout down to a narrow window. Screens use these classes and \
@@ -617,14 +616,14 @@ enum PrototypeAI {
     """
 
     /// styles.css when the app's own stylesheets are loaded before it (BUG-050): only the bridge, not a design system.
-    private static func stylesBridgeSystem(language: String) -> String {
+    private static func stylesBridgeSystem(language: String, ownsStructure: Bool) -> String {
         craft + """
 
 
         You write styles.css, the small bridge between the prototype's shell and the app's own stylesheets, which are \
         already copied into the prototype and loaded before styles.css. The markup and script (index.html, app.js), the \
         data backend and the screens are written at the same time by other engineers, so the class names are fixed. \
-        \(shellContract) Write only styles.css.
+        \(shellContract) \(ownsStructure ? PrototypeShellStructure.contract + " " : "")Write only styles.css.
         Do not write a design system and do not restyle anything the original stylesheets already style. Read their custom \
         properties, fonts and class names with your tools and write only what the original does not define for the \
         classes above: the layout shell (`app-header`, `app-nav`, `app-main`; a full-window `app-main` when the shell \
@@ -1382,11 +1381,11 @@ enum PrototypeAI {
         stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (three parts at once)"))
         stage(.status("Writing the shell, the styles and the data"))
         let hasWidgets = mode == .code && plan.screens.contains(where: \.embedded)
-        async let shell = foundationPart(root: root, plan: plan, system: shellSystem(language: language, widgets: hasWidgets), label: "shell",
+        async let shell = foundationPart(root: root, plan: plan, system: shellSystem(language: language, widgets: hasWidgets, ownsStructure: true), label: "shell",
                                          allowed: ["index.html", "app.js"], required: ["index.html", "app.js"],
                                          mode: mode, originalStyles: originalStyles, record: record,
                                          stage: scoped(stage, label: "Shell", status: false))
-        async let styles = foundationPart(root: root, plan: plan, system: stylesSystem(language: language, originals: !originalStyles.isEmpty), label: "styles",
+        async let styles = foundationPart(root: root, plan: plan, system: stylesSystem(language: language, originals: !originalStyles.isEmpty, ownsStructure: true), label: "styles",
                                           allowed: ["styles.css"], required: ["styles.css"],
                                           mode: mode, originalStyles: originalStyles, record: record,
                                           stage: scoped(stage, label: "Styles", status: false))
@@ -1408,6 +1407,10 @@ enum PrototypeAI {
         }
         stage(.step("Saving the foundation"))
         try PrototypeFiles.apply(PrototypeFiles.Change(files: shellChange.files + stylesChange.files + dataChange.files), to: site)
+        // The page structure is MarkView's, not the shell writers' (BUG-060); written before the baseline, so it is part of the build.
+        if try PrototypeShellStructure.ensure(site: site) == .unlinkable {
+            gaps.append("index.html has no place for the page structure (no styles.css link and no head), so a widget that fills its box may collapse.")
+        }
         stage(.milestone("The shell, navigation and sample data for \(plan.screens.count) screens; the screens follow."))
 
         stage(.phase("Step 3 of \(steps) · Writing the screens"))
