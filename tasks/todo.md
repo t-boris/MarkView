@@ -1,5 +1,37 @@
 # MarkView — Follow-up Tasks
 
+## Hand off to code creates a feature with screenshots (2026-11-03, 5.12.0 planned, feat/prototype-handoff-feature)
+
+Request (Boris): "when I change the prototype and want the code changed, make me a feature or a bug with all the instructions, screenshots
+and the rest; I execute it; then sync again and the prototype is redrawn from the code" ("Так и сделай!!!"). Today "Hand off to code"
+(5.8.0) gives an agent a text brief only: no feature, no requirements, no screenshots, no description of what to change.
+Feature "Prototype and code stay in step" (prototype-and-code-stay-in-step): DEC-010, REQ-016, REQ-017, REQ-018.
+
+Architecture (each layer testable on its own; no layer reaches past its neighbour):
+- Pure model `PrototypeHandoff`: `Item.id`; the draft (`FeatureDraft`, one `UnitDraft` per changed unit); the describer's system prompt, prompt,
+  JSON schema and parser; the brief and the feature text built from the draft, with the fallback when no description exists.
+- `PrototypeScreenshots` (Bridge, @MainActor): renders one screen of one saved version offscreen (own non-persistent store, the scheme
+  handler on that version's folder, the person's theme, a fixed viewport), waits until the page settles, returns PNG data or a reason.
+- `PrototypeAI.describe(...)`: one assistant call per changed unit through the existing `call` (images, record for the usage counter).
+- `PrototypeFeatureWriter` (@MainActor): turns a draft into a feature through `FeatureStore` (feature, requirements, image sources).
+  No assistant, no agent, nothing outside the new feature folder.
+- `PrototypeSession` orchestrates (screenshots, descriptions, progress, stop); the sheet in `PrototypeStudioView` edits the draft and offers
+  "Create feature", "Send to agent", "Copy brief".
+
+Steps (each checked before the next):
+- [ ] 1. Fix the units' identity: `PrototypeHandoff.Item.id`, the screen route of a unit, which unit shows which screen (shell: first screen).
+- [ ] 2. `PrototypeScreenshots` + a harness that renders a screen of two versions of the real strikedesk prototype offscreen (first proof:
+      does `takeSnapshot` work in an offscreen window).
+- [ ] 3. Draft model, fallback description, brief with screenshots, feature text; standalone tests.
+- [ ] 4. Describer prompt, schema, parser, `PrototypeAI.describe`; standalone tests; one real run on a copy of the real prototype.
+- [ ] 5. `PrototypeFeatureWriter` on `FeatureStore`; a check that the feature opens and reads back (requirements, sources, links).
+- [ ] 6. Session orchestration and the sheet; build; open a copy in a scratch app; screenshots of the sheet and of the created feature.
+- [ ] 7. Version bump (minor), PR (feature slug and REQ ids in it), merge, `release.sh --publish`, verify, remove worktrees.
+- [ ] 8. Statuses: feature `implemented` after the release; BUG-060 `fixed` after release 5.11.1 is verified (done by hand, as agreed).
+
+Not in this change: a bug instead of a feature (DEC-010 chose a feature), sending into a running agent session (Q-004), refreshing
+data.js on sync (Q-005).
+
 ## Docs: README refresh and MarkView presentation (2026-11-03, no version bump, docs/readme-and-presentation)
 
 Request (Boris): walk through the whole application, bring the README up to date (current values, pictures, diagrams) and
