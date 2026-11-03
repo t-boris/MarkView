@@ -513,6 +513,11 @@ enum PrototypeAI {
     `embedded: true` plus the keys of `extra`. It works before and without `App.start()`, never throws, and returns \
     a panel saying that the widget is still being built, or failed, when the screen is not registered or its `render` \
     throws. Visiting the route of an embedded screen shows it alone in `app-main` through the same call. \
+    The box that holds a widget (`app-main` for a routed widget, a panel body of a host) always has a definite height, \
+    explicit or as a flex or grid cell with `min-height:0` inside a container that has one, and the element \
+    `App.renderScreen` returns fills it (`display:flex; flex-direction:column; flex:1; height:100%; min-height:0`): a \
+    widget whose own CSS sizes its body with `flex:1` or `height:100%` collapses to 0 px, and its content is cut off, \
+    inside a box of automatic height. \
     `App.modal({title, body, actions})` accepts an element or an HTML string as `body`.
     """
 
@@ -724,7 +729,11 @@ enum PrototypeAI {
             if !hosted.isEmpty {
                 out += "\n\nThis screen is the HOST of the window. It lays out these screens, which other engineers write at the same " +
                     "time, by calling `App.renderScreen(id)` for each and placing the returned element in the panel, tab or dialog " +
-                    "where the original puts it:\n"
+                    "where the original puts it."
+                // A separate statement: a long chain of + makes the Swift 6.0 type checker give up.
+                out += " Give every panel that receives a widget a definite height (a grid or flex cell with `min-height:0` inside a " +
+                    "container that has a height) and let the returned element fill it (`height:100%`): a widget whose original CSS " +
+                    "sizes its body with `flex:1` collapses to 0 px, and its content is cut off, inside a panel of automatic height:\n"
                 for item in hosted { out += "- \(item.id) — \(item.name) (\(item.route))\n" }
                 out += "Reproduce the original arrangement as its layout code defines it (read that code with your tools: toolbar, " +
                     "default panel layout and sizes, tab groups, which widgets share a tab strip, what is visible at start). A " +

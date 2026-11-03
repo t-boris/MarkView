@@ -64,12 +64,14 @@ enum PrototypeAudit {
     // MARK: - The rendered page
 
     struct Finding: Equatable {
-        enum Kind: String { case blank, loading, error, unbuilt }
+        enum Kind: String { case blank, loading, error, unbuilt, clipped }
         var id: String
         var name: String
         var route: String
         var kind: Kind
         var sample: String
+        /// `clipped` only: the heights from the box that clips the content up to the first tall ancestor, where the height is lost.
+        var detail = ""
     }
 
     struct Report: Equatable {
@@ -87,7 +89,8 @@ enum PrototypeAudit {
             guard let kind = (item["kind"] as? String).flatMap(Finding.Kind.init(rawValue:)) else { continue }
             report.findings.append(Finding(id: item["id"] as? String ?? "", name: item["name"] as? String ?? "",
                                            route: item["route"] as? String ?? "", kind: kind,
-                                           sample: String((item["sample"] as? String ?? "").prefix(100))))
+                                           sample: String((item["sample"] as? String ?? "").prefix(100)),
+                                           detail: String((item["detail"] as? String ?? "").prefix(300))))
         }
         return report
     }
@@ -109,10 +112,20 @@ enum PrototypeAudit {
         case .unbuilt:
             let shown = finding.sample.isEmpty ? "" : " (\"\(finding.sample)\")"
             return head + " is a placeholder\(shown), not the screen the plan describes."
+        case .clipped:
+            // Built with += : a long chain of + makes the Swift 6.0 type checker give up.
+            var text = head + " has content that is in the page but cannot be seen: it sits inside a box with no height (or no width) that hides its overflow"
+            if !finding.sample.isEmpty { text += " (\"\(finding.sample)\")" }
+            text += "."
+            if !finding.detail.isEmpty { text += " Heights from that box up to the first tall ancestor: \(finding.detail)." }
+            text += " A box sized with height:100% or flex:1 collapses when its parent has no definite height. Give the host of the screen "
+            text += "a definite height (a flex column with min-height:0, or an explicit height such as calc(100vh - the header)), or let "
+            text += "the content size itself. Keep the content; fix the layout."
+            return text
         }
     }
 
-    /// Defines `window.__mvAudit()`, which returns a promise of `{checked, skipped, problems: [{id, name, route, kind, sample}]}`.
+    /// Defines `window.__mvAudit()`, which returns a promise of `{checked, skipped, problems: [{id, name, route, kind, sample, detail}]}`.
     /// Routes with parameters and the modal routes are skipped: they need a host or an argument. Text that every route shows
     /// is the shell, so a screen is measured by what it adds to it.
     static let script = #"""
@@ -123,6 +136,8 @@ enum PrototypeAudit {
       var VISUAL = /^(img|svg|canvas|video|input|select|textarea|table|iframe|progress|meter)$/;
       var UNBUILT = /still being built|not (yet )?implemented|coming soon|not available yet|under construction|placeholder|\btodo\b|не реализован|в разработке/i;
       var LOADING = '.skeleton,[aria-busy="true"]';
+      // A screen is reported as clipped when at least this much of its text is hidden by collapsed boxes and that is no less than what it shows.
+      var CLIPPED_MIN = 150;
 
       function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
 
@@ -146,29 +161,56 @@ enum PrototypeAudit {
         return !el.hidden;
       }
 
-      // What the page shows now: its text chunks (flagged when they sit in the shell's chrome), its visual elements
-      // outside the chrome, whether a loading indicator or an alert card is on screen.
+      // A box that hides its overflow and has no height (or no width) shows nothing of what it holds, however much that is
+      // (BUG-056); a box that is only short still scrolls or shows part of it. Things hidden on purpose are not reported.
+      function collapsed(el) {
+        var style = getComputedStyle(el);
+        if (style.overflowX === 'visible' && style.overflowY === 'visible') return false;
+        if (el.getAttribute('aria-hidden') === 'true' || el.inert) return false;
+        var box = el.getBoundingClientRect();
+        return box.height < 8 || box.width < 8;
+      }
+
+      function describe(el) {
+        var classes = typeof el.className === 'string' ? el.className.trim().split(/\s+/).filter(Boolean).slice(0, 2) : [];
+        return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (classes.length ? '.' + classes.join('.') : '');
+      }
+
+      // Where the height is lost: the box that clips, then its ancestors, up to the first one that is tall.
+      function heights(el) {
+        var parts = [];
+        for (var node = el, n = 0; node && node !== document.body && n < 6; node = node.parentElement, n++) {
+          var height = Math.round(node.getBoundingClientRect().height);
+          parts.push(describe(node) + ' ' + height + 'px');
+          if (height >= 200) break;
+        }
+        return parts.join(' < ');
+      }
+
+      // What the page shows now: its text chunks (flagged when they sit in the shell's chrome, or inside a collapsed box),
+      // its visual elements outside the chrome and outside collapsed boxes, whether a loading indicator or an alert card is on screen.
       function inspect() {
         var chunks = [], visual = 0, loading = false, alertText = '';
-        function walk(node, chrome) {
+        function walk(node, chrome, clip) {
           if (node.nodeType === 3) {
             var text = node.nodeValue.replace(/\s+/g, ' ').trim();
-            if (text) chunks.push({ t: text, c: chrome });
+            if (text) chunks.push({ t: text, c: chrome, x: clip });
             return;
           }
           if (node.nodeType !== 1) return;
           var tag = node.tagName.toLowerCase();
           if (SKIP.test(tag) || node.id === 'mv-highlight' || !shown(node)) return;
           var inChrome = chrome || node.matches(CHROME);
+          if (!inChrome && !clip && collapsed(node)) clip = { heights: heights(node) };
           if (!inChrome) {
-            if (VISUAL.test(tag)) visual++;
+            if (VISUAL.test(tag) && !clip) visual++;
             if (node.matches(LOADING)) loading = true;
             if (node.matches('[role="status"]') && /load|загруз/i.test((node.getAttribute('aria-label') || '') + ' ' + node.textContent)) loading = true;
             if (node.matches('[role="alert"]') && !alertText) alertText = node.textContent.replace(/\s+/g, ' ').trim();
           }
-          for (var child = node.firstChild; child; child = child.nextSibling) walk(child, inChrome);
+          for (var child = node.firstChild; child; child = child.nextSibling) walk(child, inChrome, clip);
         }
-        if (document.body) walk(document.body, false);
+        if (document.body) walk(document.body, false, null);
         return { chunks: chunks, visual: visual, loading: loading, alert: alertText };
       }
 
@@ -201,14 +243,18 @@ enum PrototypeAudit {
         var problems = [];
         seen.forEach(function (entry) {
           var page = entry.page;
-          var own = page.chunks.filter(function (chunk) { return !shell(chunk); }).map(function (chunk) { return chunk.t; }).join(' ');
+          var mine = page.chunks.filter(function (chunk) { return !shell(chunk); });
+          var own = mine.filter(function (chunk) { return !chunk.x; }).map(function (chunk) { return chunk.t; }).join(' ');
+          var hidden = mine.filter(function (chunk) { return chunk.x; });
+          var hiddenLength = hidden.reduce(function (sum, chunk) { return sum + chunk.t.length; }, 0);
           var visual = page.visual - (many ? minVisual : 0);
-          var kind = '', sample = own;
+          var kind = '', sample = own, detail = '';
           if (page.loading) { kind = 'loading'; }
           else if (page.alert && own.length < 400) { kind = 'error'; sample = page.alert; }
+          else if (hiddenLength >= CLIPPED_MIN && hiddenLength >= own.length) { kind = 'clipped'; sample = hidden[0].t; detail = hidden[0].x.heights; }
           else if (own.length === 0 && visual <= 0) { kind = 'blank'; }
           else if (own.length < 250 && visual <= 0 && UNBUILT.test(own)) { kind = 'unbuilt'; }
-          if (kind) problems.push({ id: entry.screen.id || '', name: entry.screen.name || '', route: entry.screen.route, kind: kind, sample: sample.slice(0, 100) });
+          if (kind) problems.push({ id: entry.screen.id || '', name: entry.screen.name || '', route: entry.screen.route, kind: kind, sample: sample.slice(0, 100), detail: detail.slice(0, 300) });
         });
         return { checked: seen.length, skipped: plan.length - routes.length, problems: problems };
       }
