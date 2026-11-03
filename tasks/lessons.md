@@ -768,3 +768,22 @@ nothing moved until each PR merged. A `git reset --hard` on the shared main chec
   shared checkout.
 - Write the PR body before queueing a branch; a missing body file stopped the whole queue.
 - Tell Boris the pipeline shape once (sequential PRs, ~5 min of CI each) so a quiet hour reads as progress, not a hang.
+
+
+## A stand-in that writes its own confirmation proves only the app side (model memory, 2026-11-03)
+
+I checked the new Agents model menu against a stub `claude` that read the typed line and wrote the "Set model to …" log entry itself, and
+reported "works". Boris asked "Are you sure?": the stub proved MarkView's side (paste, title, remembered value) and nothing about the
+real CLI. A 30-line pty script then ran the real Claude Code, pasted `/model sonnet` with the bracketed-paste markers and Enter, and read
+the answer, with the saved default unchanged because the value was the one already stored.
+
+- Rule: before saying a feature works, name the contract with the outside program and test that contract against the real program
+  (a pty is enough for a CLI); a stand-in only covers what the app does with its answer.
+- The same run showed a bug the stub hid: the activity parser counted the CLI's own command entries (`<command-name>`, `<local-command-*>`)
+  as work, so after `/model` the agent looked busy and the new menu stayed off. After a new action, check the state it leaves behind.
+- A per-agent action must act on that agent's session. The panel's observer follows only the project's own assistant, so a pick in a Copilot
+  tab beside a Claude project changed a stored value and restarted nothing.
+- Clean up test files by identity (the session id the run itself reported, or the registry file of its pid), never by a heuristic such as
+  "small, recent, only commands": that also removed a 2.6 KB `/model`-only transcript of another session.
+- The AX walker of a scratch run answered "not found" for menu items that were on screen; check the harness (list, then press in one process)
+  before suspecting the app.

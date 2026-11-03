@@ -3452,3 +3452,44 @@ Review:
 - `recognition()` now starts with "Check that Dictation is on in System Settings → Keyboard → Dictation" (the usual cause of a
   recognition error on macOS); the tag still carries domain and code.
 - Still not verified live: the popover in the terminal header (cannot click from here) and an actual spoken sentence through the app.
+
+
+## BUG-048: Agents remember the last Claude model, the tab follows /model, model menu in the Agents header (2026-11-03, 5.1.0)
+
+Boris: every time Claude Code opens in Agents it starts with Fable, and he switches it to Sonnet or Opus again and again; the tab
+title says Fable after `/model sonnet` (BUG-048, issue #239; first filed as BUG-045, renumbered because two bugs shared the number).
+Mid-work he also asked for a model switch inside the Agents tab ("I do not see a way to change the model in the agent").
+Approved: every project remembers its own last model, projects without one use the last model used anywhere; the tab title follows
+`/model` without restarting the conversation; the header switch works live through `/model` for Claude Code.
+
+Cause (read from real logs): the title and the remembered model come from the launch (`TerminalSession.model`) and preferences. `/model`
+inside the CLI changes neither, so the tab kept the launch model and the next start used the old preference. The CLI does write the
+truth: `/model` leaves a `<local-command-stdout>Set model to …` entry and every reply carries `message.model`.
+
+Plan and result:
+- [x] `ClaudeSessionModel` (pure, `tools/tests/claude-session-model-tests.sh`, 25 checks, also run on real logs): the newest model of the session
+      itself (not subagents, not `<synthetic>`), only lines since the shell started; family alias for known families.
+- [x] `AgentActivityMonitor` reads it from the log of the terminal's own process only (never the newest log of the folder, which can be
+      another tab's). `WorkspaceManager.claudeModelReported` renames the tab and remembers the model for the project and the defaults
+      (`AIAssistantPreferences.remember`). A session that started with the CLI default does not remember its first reading as a choice;
+      a pinned id and its family alias count as the same model.
+- [x] `aiModelChanged` restarts the shown agent only for a pick made in MarkView after it started (`ModelPickLog`); a remembered model
+      never interrupts a running conversation (other windows of the same project run the same reconciliation).
+- [x] `AgentModelMenu` in the Agents header. Claude Code: `/model <alias>` pasted and submitted, no restart, off while the agent works.
+      Other assistants: relaunch with the model, continuing the conversation where the CLI can resume (Codex `resume --last`,
+      Copilot/Antigravity `--continue`; Cline has no resume).
+- [x] Found while testing: `AgentActivityParser.claude` treated every user entry as work, so after `/model` the agent counted as working
+      until its next reply and the header menu stayed off. The CLI's own command entries are now skipped (tests added).
+- [x] Minor bump 5.1.0, architecture doc, bug file `fixed`.
+
+Review:
+- Verified live in a scratch copy of the Debug build with stand-in CLIs that write the logs the real ones write: a header pick types
+  `/model sonnet`, the agent keeps its process, the tab and the remembered model (project and defaults) follow, the next app start launches
+  `--model sonnet`; a second and third pick work (the menu does not stick); a `/model` typed in a tab that is not shown (two agents in one window) renames that tab, remembers the model and does not
+  restart the shown one; Copilot (`--continue --model gpt-5.1`, project backend stays Claude) and Codex (`resume --last -m gpt-6.1-sol`) relaunch and
+  keep Claude's model untouched.
+- Verified against the real CLI (Claude Code 2.1.317, a pty, no change to the saved default): a bracketed paste of `/model sonnet` plus Enter
+  is accepted and answered `Set model to Sonnet 5.5 and saved as your default for new sessions`; the same path already carries `/goal`.
+- Not verified: a real MarkView window with a real Claude Code session end to end (the stand-ins wrote the logs); Cline and Antigravity
+  (the same generic path as Codex and Copilot); remote agents (not covered by design). A `/model` change made within about 3 s of quitting
+  the app is not remembered (the log is read every 3 s).

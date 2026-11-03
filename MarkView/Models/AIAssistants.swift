@@ -139,6 +139,27 @@ struct ProjectAIChoice: Codable, Equatable {
     }
 }
 
+/// When the user last picked a model for an assistant in MarkView, per project and for the defaults.
+/// A running assistant is restarted for a pick made after it started, never for a model remembered
+/// from a session (BUG-048). In memory only: after a relaunch every assistant starts with the stored
+/// model.
+enum ModelPickLog {
+    private static var picks: [String: Date] = [:]
+
+    private static func key(_ tool: CLITool, _ project: URL?) -> String {
+        tool.rawValue + "|" + (project.map(ProjectAIChoice.key) ?? "default")
+    }
+
+    static func record(tool: CLITool, project: URL?, at date: Date = Date()) {
+        picks[key(tool, project)] = date
+    }
+
+    /// The latest pick that decides `project`'s model: its own, or the defaults'.
+    static func lastPick(tool: CLITool, project: URL?) -> Date? {
+        [picks[key(tool, project)], picks[key(tool, nil)]].compactMap { $0 }.max()
+    }
+}
+
 /// A window's view of the assistant choice for the menus: its project's own values when it shows a
 /// project, else the defaults (a single file). Stored strings: "" = the CLI default model, or for
 /// X-Ray, the assistant's model.
@@ -156,7 +177,9 @@ struct AssistantChoice {
         ProjectAIChoice.load(project)?.models[tool.rawValue] ?? AIAssistantPreferences.defaultModelSetting(for: tool)
     }
 
+    /// The user picked `id` in MarkView (toolbar menu or DDE Settings).
     func setModel(_ id: String, for tool: CLITool) {
+        ModelPickLog.record(tool: tool, project: project)
         if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = id } }
         else { UserDefaults.standard.set(id, forKey: AIAssistantPreferences.modelKey(for: tool)) }
     }
@@ -194,6 +217,14 @@ enum AIAssistantPreferences {
     /// The default model for `tool` as stored ("" = the CLI's own default).
     static func defaultModelSetting(for tool: CLITool) -> String {
         UserDefaults.standard.string(forKey: modelKey(for: tool)) ?? ""
+    }
+
+    /// A model a running assistant reported (the user switched inside its session, BUG-048): the next
+    /// start in `project` uses it, and so does any project with no choice of its own. Not a pick in
+    /// MarkView, so it restarts nothing (`ModelPickLog`).
+    static func remember(_ model: String, for tool: CLITool, project: URL?) {
+        if let project { ProjectAIChoice.update(project) { $0.models[tool.rawValue] = model } }
+        UserDefaults.standard.set(model, forKey: modelKey(for: tool))
     }
 
     /// The model `tool` runs for `project`, or nil to let the CLI use its own default.

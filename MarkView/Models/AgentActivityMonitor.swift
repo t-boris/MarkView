@@ -17,6 +17,9 @@ final class AgentActivityMonitor: ObservableObject {
     /// The terminals to watch and the shown one; set by the workspace.
     var terminals: () -> [TerminalSession] = { [] }
     var activeTerminalID: () -> UUID? = { nil }
+    /// A Claude Code terminal's own log names the model it runs now (BUG-048). Called for the
+    /// terminals whose log was read this round, only when the log belongs to that terminal's process.
+    var onClaudeModel: (UUID, String) -> Void = { _, _ in }
 
     private var timer: Timer?
     private var busy = false
@@ -61,14 +64,18 @@ final class AgentActivityMonitor: ObservableObject {
         }
         busy = true
         let jobs = watched.map { (id: $0.id, name: $0.title, directory: $0.directory, profile: $0.profile,
-                                  shell: $0.shellPID, printing: $0.printed(within: 6), cached: seen[$0.id]) }
+                                  shell: $0.shellPID, printing: $0.printed(within: 6), cached: seen[$0.id],
+                                  since: $0.runningSince) }
         Task.detached(priority: .utility) { [weak self] in
             var results: [(UUID, String, URL, Int, Date, AgentActivity?)] = []
+            var models: [(UUID, String)] = []
             for job in jobs {
                 switch job.profile {
                 case .claude, .codex:
+                    // The log of this terminal's own process; the newest log of the folder may be another tab's.
+                    let own = job.profile == .claude ? AgentActivityLog.claudeLog(shell: job.shell) : nil
                     let url = job.profile == .codex ? AgentActivityLog.newestCodexLog(for: job.directory)
-                        : (AgentActivityLog.claudeLog(shell: job.shell) ?? AgentActivityLog.newestClaudeLog(for: job.directory))
+                        : (own ?? AgentActivityLog.newestClaudeLog(for: job.directory))
                     guard let url, let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
                           let date = values.contentModificationDate else { continue }
                     let size = values.fileSize ?? 0
@@ -78,6 +85,9 @@ final class AgentActivityMonitor: ObservableObject {
                         continue
                     }
                     let lines = AgentActivityLog.tail(of: url)
+                    if own != nil, let reading = ClaudeSessionModel.reading(lines: lines, since: job.since) {
+                        models.append((job.id, reading.model))
+                    }
                     let activity = job.profile == .codex ? AgentActivityParser.codex(lines: lines)
                                                          : AgentActivityParser.claude(lines: lines)
                     results.append((job.id, job.name, url, size, date, activity))
@@ -99,12 +109,13 @@ final class AgentActivityMonitor: ObservableObject {
                     break
                 }
             }
-            await self?.apply(results)
+            await self?.apply(results, models: models)
         }
     }
 
-    private func apply(_ results: [(UUID, String, URL, Int, Date, AgentActivity?)]) {
+    private func apply(_ results: [(UUID, String, URL, Int, Date, AgentActivity?)], models: [(UUID, String)]) {
         busy = false
+        for (id, model) in models { onClaudeModel(id, model) }
         var next: [Entry] = []
         var cache: [UUID: (url: URL, size: Int, date: Date, activity: AgentActivity?)] = [:]
         for (id, name, url, size, date, activity) in results {

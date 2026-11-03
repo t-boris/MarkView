@@ -83,6 +83,16 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
     /// The model the assistant was started with (nil: the CLI's own default, or not an assistant).
     /// The tab title shows it, and the AI panel compares it with the toolbar's choice.
     private(set) var model: String?
+    /// The model the assistant's own log named last in this run (nil before the first reading). The
+    /// first reading of an assistant started without a model is the CLI's default, not a switch.
+    var observedModel: String?
+    /// The model the Agents header asked this Claude Code session to switch to with `/model`. The
+    /// session's log confirms it later; until then it tells an explicit pick from the model the
+    /// session started with (see `WorkspaceManager.claudeModelReported`).
+    var pendingModelPick: String?
+    /// When this run began (created or started again). A model picked in MarkView after it restarts
+    /// the assistant; one remembered from the running session (`/model`) does not.
+    private(set) var launchedAt = Date()
     /// Typed instead of `startupCommand` on the first start only: continues the assistant's
     /// previous session after a relaunch (BUG-005). Restarts run `startupCommand`.
     private var resumeCommand: String?
@@ -438,12 +448,22 @@ final class TerminalSession: NSObject, ObservableObject, Identifiable, WKScriptM
         restartProcess()
     }
 
+    /// The assistant reported another model than the one it was started with (the user switched
+    /// with `/model` inside the session): the tab shows it; the conversation goes on.
+    func adoptRunningModel(_ newModel: String, title newTitle: String) {
+        model = newModel
+        title = newTitle
+    }
+
     private func restartProcess() {
         guard connection == nil else {
             deliver(Data("\r\nOpen Remote Assistants and choose Reconnect on the saved connection. Your assistant conversation is kept on the home computer.\r\n".utf8))
             return
         }
         resumeCommand = nil
+        launchedAt = Date()
+        observedModel = nil
+        pendingModelPick = nil
         terminate()
         pendingOutput.removeAll()
         outputDropped = false

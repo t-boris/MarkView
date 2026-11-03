@@ -236,6 +236,24 @@ Owns a private `WhisperClient`; `Phase` = `idle | starting | recording(since:) |
 3. `AITerminalPanel` observes the same keys and calls `aiBackendChanged` / `aiModelChanged`,
    which restart the shown terminal (`TerminalView.swift:112-116`, `WorkspaceManager.swift:3156-3181`).
 4. In-app features read `AIAssistantPreferences` at send time (`CLICompletion.swift:21`, `:97`).
+5. A model switched *inside* a Claude Code session (`/model`) never passes through the pickers
+   (BUG-048). `AgentActivityMonitor` already tails each terminal's own session log every 3 s;
+   for Claude it also reads the model with `ClaudeSessionModel.reading` (replies of the session
+   itself, `/model` confirmations, not subagents, only lines since the shell started).
+   `WorkspaceManager.claudeModelReported` then renames that tab, and
+   `AIAssistantPreferences.remember` stores the model for the project and for the defaults, so the
+   next start uses it instead of the old choice. Nothing restarts: `aiModelChanged` restarts an
+   agent only for a pick made in MarkView after it started (`ModelPickLog`, set by
+   `AssistantChoice.setModel`), never for a remembered model.
+6. The Agents header has its own model menu (`AgentModelMenu`, `WorkspaceManager.switchModel`).
+   For Claude Code it pastes `/model <alias>` and Enter into the running session, so the
+   conversation goes on and step 5 renames the tab and remembers the model once the log confirms it
+   (`TerminalSession.pendingModelPick` tells such a pick from the model the session started with).
+   The menu is off while the agent works. Any other assistant is relaunched with the chosen model,
+   continuing its last conversation where the CLI can (`CLITool.continueArgs`; not Cline). The relaunch
+   is explicit because the panel's observer follows only the project's own assistant, so a Copilot tab
+   beside a Claude project would not restart. `AgentActivityParser.claude` ignores the entries of the CLI's
+   own commands (`<command-name>`, `<local-command-*>`): after `/model` the agent still waits for the user.
 
 ### 6.2 One-shot completion via Claude/Codex
 

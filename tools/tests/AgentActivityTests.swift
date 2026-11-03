@@ -46,6 +46,16 @@ check(claude([thinking])?.text.contains("Thinking") == false, "no bare Thinking"
 let interrupted = #"{"type":"user","timestamp":"\#(t)","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
 check(claude([edit, interrupted])?.state == .idle, "interrupted -> idle")
 
+// /model (BUG-048): the CLI's own command writes user entries after the reply; the agent still waits for the user.
+let caveat = #"{"type":"user","isMeta":true,"timestamp":"\#(t)","message":{"content":"<local-command-caveat>The command below was run directly in Claude Code.</local-command-caveat>"}}"#
+let commandName = #"{"type":"user","timestamp":"\#(t)","message":{"content":"<command-name>/model</command-name>\n<command-message>model</command-message>"}}"#
+let commandOutput = #"{"type":"user","timestamp":"\#(t)","message":{"content":"<local-command-stdout>Set model to `Sonnet 5.5`</local-command-stdout>"}}"#
+check(claude([done, caveat, commandName, commandOutput])?.state == .idle, "after /model the agent is still idle")
+check(claude([done, caveat, commandName, commandOutput])?.text == "Waiting for you", "after /model it still waits for the user")
+check(claude([edit, commandOutput])?.state == .working, "a command output does not end work that was under way")
+check(claude([commandName, commandOutput]) == nil, "only command entries: nothing to report")
+check(claude([done, user("Next task")])?.state == .working, "a real prompt after a reply starts work")
+
 let side = #"{"type":"assistant","isSidechain":true,"timestamp":"\#(t)","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/x/y.swift"}}]}}"#
 check(claude([edit, side])?.text == "Editing BrowserSession.swift", "subagent lines are ignored")
 

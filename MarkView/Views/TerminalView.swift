@@ -288,6 +288,11 @@ struct AITerminalPanel: View {
     private func terminalControls(compact: Bool) -> some View {
         HStack(spacing: 6) {
             newTerminalMenu
+            if let session = workspaceManager.aiTerminal, session.profile != .shell, !session.isRemote {
+                AgentModelMenu(session: session, monitor: workspaceManager.agentActivity) { model in
+                    workspaceManager.switchModel(of: session, to: model)
+                }
+            }
             TerminalDictationButton(session: workspaceManager.aiTerminal)
             if let session = workspaceManager.aiTerminal { TerminalStopButton(session: session, compact: compact) }
             TerminalRestartButton(help: "Start the shown terminal again (with the model chosen in the toolbar)", compact: compact) {
