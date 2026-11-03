@@ -4532,13 +4532,7 @@ class WorkspaceManager: ObservableObject {
     /// An intake finished: open what it made, and for a feature show its workspace.
     func intakeFinished(_ kind: IntakeKind, outcome: FeatureAssistant.IntakeOutcome) {
         if let slug = outcome.feature {
-            features.activeSlug = slug
-            layout.leftPanel = "issues"
-            layout.issuesFeature = slug
-            layout.featureStage = kind == .quickFeature ? .build : .explore
-            showTOC = true
-            showFileTree = true
-            layout.navigatorTab = .feature
+            showFeature(slug, stage: kind == .quickFeature ? .build : .explore)
         } else if kind == .bug {
             // The report opens in the editor; its questions are answered in the Feature tab.
             showTOC = true
@@ -4546,6 +4540,25 @@ class WorkspaceManager: ObservableObject {
         }
         refreshFileTree()
         if let file = outcome.file { openFile(file) }
+    }
+
+    /// Opens feature `slug` in the Feature panel at `stage`, with its documents beside it.
+    func showFeature(_ slug: String, stage: FeatureStage) {
+        features.activeSlug = slug
+        layout.leftPanel = "issues"
+        layout.issuesFeature = slug
+        layout.featureStage = stage
+        showTOC = true
+        showFileTree = true
+        layout.navigatorTab = .feature
+    }
+
+    /// A feature was written by the app itself (the prototype hand-off): open it at its Build stage, ready for "Implement with AI", with
+    /// its overview in the editor. Nothing starts by itself.
+    func featureWritten(_ slug: String, overview: URL) {
+        showFeature(slug, stage: .build)
+        refreshFileTree()
+        openFile(overview)
     }
 
     /// A contextual action on text selected in the editor: the answer (or the created

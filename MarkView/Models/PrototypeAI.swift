@@ -1036,18 +1036,23 @@ enum PrototypeAI {
 
     // MARK: - Runs
 
-    /// One structured run. `record` receives the finished run for the usage counter.
-    private static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
-                             effort: String = "medium", images: [URL] = [], reading: String = "the requirements",
-                             readLog: PrototypeEmbedded.ReadLog? = nil,
-                             record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
-        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: root)
+    /// One structured run. `record` receives the finished run for the usage counter. The assistant reads the project (`root`) unless
+    /// `readable` names the folder it may read instead, with `alsoReadable` as further folders: the hand-off's description of a
+    /// change reads only a folder of pictures and the two versions of the prototype, never the application's source (REQ-018).
+    static func call(root: URL, system: String, prompt: String, schema: [String: Any]?, label: String,
+                     effort: String = "medium", images: [URL] = [], reading: String = "the requirements",
+                     readable: URL? = nil, alsoReadable: [URL] = [], timeout: TimeInterval? = nil,
+                     readLog: PrototypeEmbedded.ReadLog? = nil,
+                     record: @escaping Record, stage: @escaping Stage) async throws -> CLICompletion.Result {
+        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system, readableFolder: readable ?? root)
+        request.extraReadableFolders = alsoReadable
         request.images = images
         request.jsonSchema = schema
         request.effort = effort
         // A prototype's work varies with the requirements and provider. Keep it running until
-        // completion, a provider error or the studio's Stop action, rather than discarding it at a deadline.
-        request.timeout = nil
+        // completion, a provider error or the studio's Stop action, rather than discarding it at a deadline,
+        // except for a short run that names its own limit (the hand-off's description of one unit).
+        request.timeout = timeout
         request.label = label
         stage(.log("Started the assistant"))
         let tracker = ProgressTracker(root: root, reading: reading, onRead: readLog.map { log in { log.add($0) } }, emit: stage)

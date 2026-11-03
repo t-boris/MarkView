@@ -8,6 +8,8 @@ import Foundation
 enum PrototypeHandoff {
     /// One screen, component or the shell whose prototype files differ from the baseline.
     struct Item: Equatable, Sendable {
+        /// The baseline unit: a screen id, a component's source path or "shell".
+        var id: String
         var name: String
         var kind: PrototypeBaseline.Unit.Kind
         /// Prototype files (relative to the site) changed since the baseline.
@@ -42,7 +44,7 @@ enum PrototypeHandoff {
             for file in unit.editedFiles {
                 for path in markers(file) where !components.contains(path) { components.append(path) }
             }
-            items.append(Item(name: unit.unit.name, kind: unit.unit.kind, files: unit.editedFiles, components: components,
+            items.append(Item(id: unit.unit.id, name: unit.unit.name, kind: unit.unit.kind, files: unit.editedFiles, components: components,
                               alsoChangedInCode: unit.changedSources))
         }
         let requests = history.filter { entry in
@@ -102,8 +104,9 @@ enum PrototypeHandoff {
 
     // MARK: - The brief (REQ-012)
 
-    /// The brief given to an agent that changes the code. The person reads and edits it before anything is sent.
-    static func brief(title: String, reference: String, version: Int, siteRelative: String, changes: Changes) -> String {
+    /// The brief given to an agent that changes the code. The person reads and edits it before anything is sent. With a `draft`, each
+    /// changed unit also carries what the code must do and where its before and after pictures are (REQ-016, REQ-017).
+    static func brief(title: String, reference: String, version: Int, siteRelative: String, changes: Changes, draft: Draft? = nil) -> String {
         var out = "# Apply prototype changes to the application code\n\n"
         out += "Prototype: \"\(title)\", v\(version), reference \(reference)\n"
         out += "Its files are in `\(siteRelative)/`"
@@ -120,6 +123,7 @@ enum PrototypeHandoff {
                 out += item.components.map { "`\($0)`" }.joined(separator: ", ")
             }
             out += "\n"
+            if let unit = draft?.units.first(where: { $0.id == item.id }) { out += briefLines(unit) }
         }
         if !changes.history.isEmpty {
             out += "\n## The review requests that led to these changes\n\n"

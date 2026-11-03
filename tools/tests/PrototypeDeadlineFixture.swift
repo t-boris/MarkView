@@ -8,6 +8,7 @@ enum CLICompletion {
         var systemPrompt: String? = nil
         var jsonSchema: [String: Any]? = nil
         var readableFolder: URL? = nil
+        var extraReadableFolders: [URL] = []
         var images: [URL] = []
         var timeout: TimeInterval? = 180
         var effort: String? = nil

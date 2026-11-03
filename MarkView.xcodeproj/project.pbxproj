@@ -43,6 +43,7 @@
 		192B191E54B857E4E62CB970 /* WebClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B668CCF19220EBA5609ABCC /* WebClip.swift */; };
 		1AAF6AFF570308521B59A31D /* KaTeX_Math-Italic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = DD3754DD617C0FD5933A645A /* KaTeX_Math-Italic.woff2 */; };
 		1BDB682F708BB853000B820B /* KaTeX_SansSerif-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = C6D644220A558FD0B83AD5F0 /* KaTeX_SansSerif-Regular.woff2 */; };
+		1C25F243877AD04D4B062DB8 /* PrototypeHandoffDraftView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */; };
 		1CE92586812A8B6BC840CE61 /* ProjectDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CD989BCFEEFA92D710964BA /* ProjectDraftStore.swift */; };
 		1E4AF0C8A995DE0722D2D276 /* PrototypeFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */; };
 		204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13993FF35E01B9904DA7B594 /* ResearchJobs.swift */; };
@@ -123,6 +124,7 @@
 		58088546C239F634B482BE26 /* DependencyGraphScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A41351EB21A8BB60C9A0A83 /* DependencyGraphScheduler.swift */; };
 		58C54713B91BD1D13AD81FE1 /* PrototypeFidelity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8421855E8332BB08B24E2153 /* PrototypeFidelity.swift */; };
 		593E5060624CF47A0F338B97 /* KaTeX_Fraktur-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */; };
+		598C33AB8B8DA0A9FC3D8315 /* PrototypeAI+Handoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */; };
 		5A61FA46DD9D7AD21D9D4EEF /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58148304B78246A455B450C /* TerminalView.swift */; };
 		5A7331CB270C34FF1EB66620 /* IssueSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED15DDB619C352BEA2D90F4 /* IssueSync.swift */; };
 		5BBA465181633BD39D541176 /* InsightModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5512D54B1337F5917699C7D0 /* InsightModels.swift */; };
@@ -203,11 +205,13 @@
 		8F2D2F323E878F0B3D73D1C7 /* ResearchDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6D9377AD0B59E94F3B37FF /* ResearchDocument.swift */; };
 		8F57D15C98A99D233F5E269C /* ProjectToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */; };
 		8F5FCEEFA0561053601D0F52 /* CommandPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E5C49BB3F8E4AF05F47765E /* CommandPolicy.swift */; };
+		8FCF6E436AEB0D3DD011EA5A /* PrototypeHandoffDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53AFBF3E8E1F4A3740CA6CB /* PrototypeHandoffDraft.swift */; };
 		90435070C0824AA9934C5531 /* MatrixTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1ECD04117D7F7B9C3333EF /* MatrixTheme.swift */; };
 		909D6D522F19DECD394127BE /* BrowserControlServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0B17502A10EDBEA695CFD4 /* BrowserControlServer.swift */; };
 		90FBEE7F8E1CC870B1044E53 /* PrototypeAudit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBA0E9DC5756C90FFE50D30 /* PrototypeAudit.swift */; };
 		91515423D1496B23DD117DD6 /* FILES_CREATED.txt in Resources */ = {isa = PBXBuildFile; fileRef = 672BEDAD7EC9263CEB5A94A1 /* FILES_CREATED.txt */; };
 		92DA0220A7B79923301975C1 /* prism-okaidia.min.css in Resources */ = {isa = PBXBuildFile; fileRef = FE01145DBCEED0E926445F75 /* prism-okaidia.min.css */; };
+		92E892A9C166F65D28165C5B /* PrototypeHandoffRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43880FB3F93C0C307561B6E5 /* PrototypeHandoffRun.swift */; };
 		95182A9BC37C26ACF35BBB29 /* LifecycleCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FA2CF8DFE2C2FCD41F014E /* LifecycleCapture.swift */; };
 		9803A874E731E8A96D8E3FE6 /* UnderstandingAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18364863130DED6B4062B88C /* UnderstandingAnswer.swift */; };
 		982B69272CBDF2059E13B875 /* TerminalChildProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D10759E6114CC3E831EE66D /* TerminalChildProcess.swift */; };
@@ -216,6 +220,7 @@
 		99272321285D4166306C9E67 /* FileInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5375DCBA15D7800DBB3F459 /* FileInfo.swift */; };
 		992B61ED8B1C843E2630C47C /* ListSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18592F11080A421A6A1EC86 /* ListSelection.swift */; };
 		9BC6E14F104CFF0A722A0BB1 /* IssueListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0283B26E80EA8FB9388E0688 /* IssueListing.swift */; };
+		9C59A1E999EB653E03478FA0 /* PrototypeFeatureWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */; };
 		9CE756F50996950EE520D986 /* RemoteTerminalConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */; };
 		9E23615DDB835FE6E9DC2B37 /* ControlToolRunner+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBD8CA222E37B957D752DD0 /* ControlToolRunner+Agents.swift */; };
 		9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */; };
@@ -276,6 +281,7 @@
 		CDB77CC294117E346070B67E /* WebAppPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A769BF1AF0740BC8A28F30 /* WebAppPreview.swift */; };
 		CDF179D5B91A3BF8ED0DF3F4 /* BookAnnotator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D001177FB31E944E039375B0 /* BookAnnotator.swift */; };
 		D13E4C82CFA5BE915F41FFB0 /* RemoteToolBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E7E3873B311E1D57458AEB /* RemoteToolBridge.swift */; };
+		D1FD3981C2CD020AFB417F1D /* PrototypeScreenshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 509E5F08CB6B710DC2F0A4B1 /* PrototypeScreenshots.swift */; };
 		D32D8185BF1D195E5B68D903 /* HandoffPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0014EBC9E004A6161D90A834 /* HandoffPrompt.swift */; };
 		D40D607EDA753D4E0873C3A8 /* ProjectChangeReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */; };
 		D4F3C35D9679DCE67FDD55E2 /* AIAssistantPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45DC630D21D2720ADBA52066 /* AIAssistantPickerView.swift */; };
@@ -430,6 +436,7 @@
 		411349198AB547C789A6D5A7 /* xterm.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = xterm.css; sourceTree = "<group>"; };
 		415F87E8564AD1DC4D91B47F /* markview-find.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-find.js"; sourceTree = "<group>"; };
 		41D2D4F1EA4F7347A199FD69 /* DiscussionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscussionPrompt.swift; sourceTree = "<group>"; };
+		43880FB3F93C0C307561B6E5 /* PrototypeHandoffRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffRun.swift; sourceTree = "<group>"; };
 		43F98342E7F3820A62C4E015 /* AIAssistants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistants.swift; sourceTree = "<group>"; };
 		440AF91F7109BA8A660AAEDA /* PrototypeBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeBaseline.swift; sourceTree = "<group>"; };
 		45125D00F1E8300687141768 /* ImageSiblings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSiblings.swift; sourceTree = "<group>"; };
@@ -448,6 +455,7 @@
 		50690741D7CB7EF5A17A1949 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5099218B9F25E2085FEEA6D2 /* katex.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = katex.min.css; sourceTree = "<group>"; };
 		509C73ABFDAE9E3E388138C7 /* markview-data.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-data.js"; sourceTree = "<group>"; };
+		509E5F08CB6B710DC2F0A4B1 /* PrototypeScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeScreenshots.swift; sourceTree = "<group>"; };
 		50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectToolRunner.swift; sourceTree = "<group>"; };
 		52ABB6A927274482AD06DBCC /* GitHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubClient.swift; sourceTree = "<group>"; };
 		52DC2D0783E00801AB365DA7 /* RemoteWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkspace.swift; sourceTree = "<group>"; };
@@ -527,6 +535,7 @@
 		8E12A0F93CB8CBC21446ABCE /* markview-early.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-early.js"; sourceTree = "<group>"; };
 		8E8965BA2170772C6393FB45 /* PrototypeAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeAI.swift; sourceTree = "<group>"; };
 		8EEBBA8DD1B02E66BC2AFAC6 /* SearchPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchPanelView.swift; sourceTree = "<group>"; };
+		901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffDraftView.swift; sourceTree = "<group>"; };
 		912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperationsView.swift; sourceTree = "<group>"; };
 		963E249124655C250591E0C4 /* OnDeviceSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceSpeech.swift; sourceTree = "<group>"; };
 		96429CBA553AACC7995D6F5E /* DeploymentAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeploymentAgentTools.swift; sourceTree = "<group>"; };
@@ -622,6 +631,7 @@
 		D3E90FC78FD8B2778771A514 /* ProjectChangeWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeWatcher.swift; sourceTree = "<group>"; };
 		D3F6450186269BACA35C1C25 /* RemoteProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProtocol.swift; sourceTree = "<group>"; };
 		D4C3F008BFB9A5B116E1593B /* prism-rust.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-rust.min.js"; sourceTree = "<group>"; };
+		D53AFBF3E8E1F4A3740CA6CB /* PrototypeHandoffDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffDraft.swift; sourceTree = "<group>"; };
 		D58148304B78246A455B450C /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchPrompt.swift; sourceTree = "<group>"; };
 		DB0A17F3FD3EA83387ABEEC4 /* markview-architecture.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture.js"; sourceTree = "<group>"; };
@@ -645,9 +655,11 @@
 		E8354BE838C8A78ED8B8E305 /* js-yaml.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "js-yaml.min.js"; sourceTree = "<group>"; };
 		EA0C02416AEB84C19FEA344E /* ContentsPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentsPanelView.swift; sourceTree = "<group>"; };
 		EA5359172A93CF061733031F /* BrowserPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopup.swift; sourceTree = "<group>"; };
+		EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeFeatureWriter.swift; sourceTree = "<group>"; };
 		EA88118ECF6D4FADB320FA0B /* GitHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubViews.swift; sourceTree = "<group>"; };
 		EA8DF6857E5E8CBFBDCAB042 /* RemoteProviderConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProviderConfiguration.swift; sourceTree = "<group>"; };
 		EBBC3BCA498B63EB02AAD0C3 /* KaTeX_Fraktur-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Fraktur-Regular.woff2"; sourceTree = "<group>"; };
+		EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PrototypeAI+Handoff.swift"; sourceTree = "<group>"; };
 		EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeShellStructure.swift; sourceTree = "<group>"; };
 		EC54928AB02E62BBA0C8C709 /* KaTeX_Main-Italic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Italic.woff2"; sourceTree = "<group>"; };
 		EC88CD59AA9428A2869FFDC4 /* ProjectOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperation.swift; sourceTree = "<group>"; };
@@ -856,12 +868,16 @@
 				50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */,
 				AFEBD3D56EF661E1DF638D80 /* ProjectToolRunner+Edit.swift */,
 				8E8965BA2170772C6393FB45 /* PrototypeAI.swift */,
+				EBF852F0FD6018D2E711401C /* PrototypeAI+Handoff.swift */,
 				3EBA0E9DC5756C90FFE50D30 /* PrototypeAudit.swift */,
 				440AF91F7109BA8A660AAEDA /* PrototypeBaseline.swift */,
 				7FE78C53DEED7EB4A038D5AA /* PrototypeEmbedded.swift */,
+				EA8528AC59F5DF6B456427AB /* PrototypeFeatureWriter.swift */,
 				8421855E8332BB08B24E2153 /* PrototypeFidelity.swift */,
 				BCE051A679B2C439D859FF03 /* PrototypeFiles.swift */,
 				7D0CE8C153AC9E7F3B14145B /* PrototypeHandoff.swift */,
+				D53AFBF3E8E1F4A3740CA6CB /* PrototypeHandoffDraft.swift */,
+				43880FB3F93C0C307561B6E5 /* PrototypeHandoffRun.swift */,
 				C6679297EEA5E69FBFAC516D /* PrototypeImages.swift */,
 				BA6120BA85CB715E5E810134 /* PrototypeReference.swift */,
 				B4339820041C1C91ED2D72E2 /* PrototypeRuntime.swift */,
@@ -949,6 +965,7 @@
 				ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */,
 				912140EE22AFCD2CE3BDFE87 /* ProjectOperationsView.swift */,
 				2663026CFBB201AA64A26D4C /* PrototypeCreatorSheet.swift */,
+				901ED09E28D33F6F03D15605 /* PrototypeHandoffDraftView.swift */,
 				392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */,
 				D0FDF0218260B5BA3F8CABD2 /* RemoteConnectionsView.swift */,
 				C2B2061839C6FC000555491E /* ResearchViews.swift */,
@@ -1122,6 +1139,7 @@
 				492C076CEA3DFE6FAE651DCB /* DataFileSchemeHandler.swift */,
 				F4755545E00CAA90E990A42E /* PDFExporter.swift */,
 				C1816FF9F2B5D0B46742FD13 /* PrototypeSchemeHandler.swift */,
+				509E5F08CB6B710DC2F0A4B1 /* PrototypeScreenshots.swift */,
 				DFB0155B5E7A0A09A6D2FD67 /* WebViewBridge.swift */,
 			);
 			path = Bridge;
@@ -1479,18 +1497,24 @@
 				83916360DABE7547F3F6D441 /* ProjectSearch.swift in Sources */,
 				6611DAB9EB812B4A045B9F5A /* ProjectToolRunner+Edit.swift in Sources */,
 				8F57D15C98A99D233F5E269C /* ProjectToolRunner.swift in Sources */,
+				598C33AB8B8DA0A9FC3D8315 /* PrototypeAI+Handoff.swift in Sources */,
 				FE92D8886919B6864DC4A936 /* PrototypeAI.swift in Sources */,
 				90FBEE7F8E1CC870B1044E53 /* PrototypeAudit.swift in Sources */,
 				C1A9BADA3BA5517EE0FEA4FC /* PrototypeBaseline.swift in Sources */,
 				BD0E1A552EBABF480B72BB04 /* PrototypeCreatorSheet.swift in Sources */,
 				833E1A128FB7484C1ACDB0E9 /* PrototypeEmbedded.swift in Sources */,
+				9C59A1E999EB653E03478FA0 /* PrototypeFeatureWriter.swift in Sources */,
 				58C54713B91BD1D13AD81FE1 /* PrototypeFidelity.swift in Sources */,
 				1E4AF0C8A995DE0722D2D276 /* PrototypeFiles.swift in Sources */,
 				CA30E1B3588833C97092A0AF /* PrototypeHandoff.swift in Sources */,
+				8FCF6E436AEB0D3DD011EA5A /* PrototypeHandoffDraft.swift in Sources */,
+				1C25F243877AD04D4B062DB8 /* PrototypeHandoffDraftView.swift in Sources */,
+				92E892A9C166F65D28165C5B /* PrototypeHandoffRun.swift in Sources */,
 				869E202AE0802E01AC59477D /* PrototypeImages.swift in Sources */,
 				C9523B5782A018A9C09C78E7 /* PrototypeReference.swift in Sources */,
 				18053C373D6548DA5B2987C7 /* PrototypeRuntime.swift in Sources */,
 				C0A933A8BC529F6C6E6BD006 /* PrototypeSchemeHandler.swift in Sources */,
+				D1FD3981C2CD020AFB417F1D /* PrototypeScreenshots.swift in Sources */,
 				BFF74482B5C42F53724800E7 /* PrototypeSession.swift in Sources */,
 				07AA9E8BD7921C0FE49408F8 /* PrototypeShellStructure.swift in Sources */,
 				FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */,
@@ -1593,7 +1617,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.11.1;
+				CURRENT_PROJECT_VERSION = 5.12.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1608,7 +1632,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.11.1;
+				MARKETING_VERSION = 5.12.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1672,7 +1696,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.11.1;
+				CURRENT_PROJECT_VERSION = 5.12.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1693,7 +1717,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.11.1;
+				MARKETING_VERSION = 5.12.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

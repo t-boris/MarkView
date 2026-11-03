@@ -29,6 +29,7 @@ jobs:
           bash tools/tests/prototype-reference-tests.sh
           bash tools/tests/prototype-styles-tests.sh
           bash tools/tests/prototype-shell-structure-tests.sh
+          bash tools/tests/prototype-handoff-draft-tests.sh
           bash tools/tests/prototype-embedded-tests.sh
           bash tools/tests/prototype-fidelity-tests.sh
       - name: Check Copilot ACP and native CLI completion, timeout and Stop

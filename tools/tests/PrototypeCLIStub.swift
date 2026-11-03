@@ -9,6 +9,7 @@ enum CLICompletion {
         var systemPrompt: String? = nil
         var jsonSchema: [String: Any]? = nil
         var readableFolder: URL? = nil
+        var extraReadableFolders: [URL] = []
         var images: [URL] = []
         var timeout: TimeInterval? = 180
         var model: String? = nil
@@ -29,6 +30,7 @@ enum CLICompletion {
         if let schema = r.jsonSchema {
             args += ["--json-schema", String(decoding: try JSONSerialization.data(withJSONObject: schema), as: UTF8.self)]
         }
+        for folder in r.extraReadableFolders { args += ["--add-dir", folder.path] }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CLAUDE_BIN"] ?? "/Users/boris/.local/bin/claude")
         process.arguments = args
