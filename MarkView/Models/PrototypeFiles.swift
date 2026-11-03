@@ -317,18 +317,37 @@ enum PrototypeFiles {
         var entries: [InventoryEntry] = []
         /// Files past the cap that are not in `entries`.
         var omitted = 0
+        /// Test, story and mock files left out on purpose: they describe no screen, and in a large app they crowd out
+        /// the interface (BUG-050: 143 of the first 400 files listed were tests, no widget was listed at all).
+        var tests = 0
+        /// How many files of each folder (by path, "" for the root) the cap dropped, so the listing can say where.
+        var omittedByFolder: [String: Int] = [:]
 
         var isEmpty: Bool { entries.isEmpty }
 
-        /// One line per file, then the "+N more" marker when the cap was hit.
+        /// The listing the planner reads: one block per folder ("dir/ (n files, k KB)" and its files with their sizes),
+        /// so no part of the tree is cut off by the alphabet and a long path is written once.
         var lines: [String] {
-            var out = entries.map { "- \($0.path) (\($0.bytes) bytes)" }
+            var groups: [String: [InventoryEntry]] = [:]
+            for entry in entries { groups[Self.folder(of: entry.path), default: []].append(entry) }
+            var out: [String] = []
+            for folder in Set(groups.keys).union(omittedByFolder.keys).sorted() {
+                let files = (groups[folder] ?? []).sorted { $0.path < $1.path }
+                let kilobytes = (files.reduce(0) { $0 + $1.bytes } + 512) / 1024
+                out.append("\(folder.isEmpty ? "./" : folder + "/") (\(files.count) files, \(kilobytes) KB)")
+                for file in files { out.append("- \((file.path as NSString).lastPathComponent) (\(file.bytes) bytes)") }
+                if let more = omittedByFolder[folder], more > 0 { out.append("(+\(more) smaller files of this folder not listed)") }
+            }
+            if tests > 0 { out.append("Tests, stories and mocks left out: \(tests) files.") }
             if omitted > 0 { out.append("+\(omitted) more files not listed") }
             return out
         }
+
+        static func folder(of path: String) -> String { (path as NSString).deletingLastPathComponent }
     }
 
-    static let inventoryLimit = 400
+    /// The most files one listing carries. Past it the smallest files go (stylesheets never do), folder by folder.
+    static let inventoryLimit = 1200
     /// Files that describe a web interface; everything else (images, backend code, docs) is left out.
     static let inventoryExtensions: Set<String> = ["html", "htm", "css", "scss", "less", "js", "jsx", "ts", "tsx",
                                                    "vue", "svelte", "webmanifest"]
@@ -337,6 +356,18 @@ enum PrototypeFiles {
                                                   "tsconfig.json", "electron-builder.json"]
     private static let inventorySkippedFolders: Set<String> = ["node_modules", "dist", "build", "out", "target", "vendor",
                                                                "coverage", "Pods", "DerivedData", ".git", ".dde"]
+
+    /// Folder names that hold tests, fixtures or mocks rather than the interface.
+    private static let inventoryTestFolders: Set<String> = ["__tests__", "__mocks__", "__snapshots__", "__fixtures__", "tests", "test",
+                                                            "e2e", "cypress", "fixtures", "mocks", "stories", "storybook"]
+
+    /// A test, story, mock or type-declaration file: it describes no screen, so the planner is not shown it.
+    static func isTestPath(_ path: String) -> Bool {
+        let parts = path.lowercased().split(separator: "/").map(String.init)
+        guard let name = parts.last else { return false }
+        if parts.dropLast().contains(where: { inventoryTestFolders.contains($0) }) { return true }
+        return [".test.", ".spec.", ".stories.", ".story.", ".mock.", ".mocks."].contains { name.contains($0) } || name.hasSuffix(".d.ts")
+    }
 
     /// Whether a file name belongs in the inventory (web-interface formats; no minified bundles).
     static func isInventoryFile(_ name: String) -> Bool {
@@ -358,14 +389,17 @@ enum PrototypeFiles {
         let storagePath = storage(root: base).standardizedFileURL.path
         var seen = Set<String>()
         var entries: [InventoryEntry] = []
+        var tests = 0
 
         func add(_ url: URL) {
             let full = url.standardizedFileURL.path
             guard full.hasPrefix(basePath), !full.hasPrefix(storagePath + "/"), !seen.contains(full),
                   isInventoryFile(url.lastPathComponent) else { return }
             seen.insert(full)
+            let relative = String(full.dropFirst(basePath.count))
+            if isTestPath(relative) { tests += 1; return }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            entries.append(InventoryEntry(path: String(full.dropFirst(basePath.count)), bytes: size))
+            entries.append(InventoryEntry(path: relative, bytes: size))
         }
 
         func walk(_ folder: URL) {
@@ -394,8 +428,17 @@ enum PrototypeFiles {
         }
         entries.sort { $0.path < $1.path }
         let cap = max(0, limit)
-        guard entries.count > cap else { return Inventory(entries: entries) }
-        return Inventory(entries: Array(entries.prefix(cap)), omitted: entries.count - cap)
+        guard entries.count > cap else { return Inventory(entries: entries, tests: tests) }
+        // Over the cap the stylesheets stay and the largest files fill the rest; the alphabet decides nothing (BUG-050).
+        let ranked = entries.sorted { a, b in
+            let styleA = a.path.lowercased().hasSuffix(".css"), styleB = b.path.lowercased().hasSuffix(".css")
+            if styleA != styleB { return styleA }
+            return a.bytes != b.bytes ? a.bytes > b.bytes : a.path < b.path
+        }
+        let kept = Array(ranked.prefix(cap)).sorted { $0.path < $1.path }
+        var byFolder: [String: Int] = [:]
+        for entry in ranked.dropFirst(cap) { byFolder[Inventory.folder(of: entry.path), default: 0] += 1 }
+        return Inventory(entries: kept, omitted: entries.count - cap, tests: tests, omittedByFolder: byFolder)
     }
 
     // MARK: - Paths and files
@@ -405,7 +448,7 @@ enum PrototypeFiles {
     static func validate(path raw: String) throws -> String {
         let path = raw.trimmingCharacters(in: .whitespaces)
         let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !parts.isEmpty,
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !parts.isEmpty, parts.first != originalFolder,
               !parts.contains(where: { $0 == ".." || $0 == "." || $0.hasPrefix(".") }),
               allowedExtensions.contains((parts.last! as NSString).pathExtension.lowercased()) else {
             throw Failure.badPath(raw)
@@ -413,14 +456,19 @@ enum PrototypeFiles {
         return parts.joined(separator: "/")
     }
 
-    /// Every text file under `site`, sorted by path.
+    /// Where the app's own stylesheets, fonts and images are copied, unchanged, with their folder layout (BUG-050). The
+    /// assistant neither reads nor writes it: a copied theme is hundreds of kilobytes, and editing it would stop it being the original.
+    static let originalFolder = "original"
+
+    /// Every text file under `site`, sorted by path; the copied originals are not part of it.
     static func read(site: URL) -> [File] {
         guard let walker = FileManager.default.enumerator(at: site, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
         var files: [File] = []
         let base = site.standardizedFileURL.path + "/"
         for case let url as URL in walker {
             let full = url.standardizedFileURL.path
-            guard full.hasPrefix(base), (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
+            guard full.hasPrefix(base), !full.hasPrefix(base + originalFolder + "/"),
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
                   let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             files.append(File(path: String(full.dropFirst(base.count)), content: text))
         }

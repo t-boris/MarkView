@@ -5,6 +5,7 @@ import Foundation
     static func main() async throws {
         try await requirementsMode()
         try await codeMode()
+        try await widgetsMode()
     }
 
     /// The original policy check: every stage runs without a wall-clock limit.
@@ -50,7 +51,8 @@ import Foundation
         try put("package.json", "{\"name\":\"fixture\",\"main\":\"main.js\",\"devDependencies\":{\"electron\":\"30.0.0\"}}")
         try put("main.js", "const { app } = require('electron'); app.whenReady();")
         try put("src/index.html", "<html><body><h1>Orders</h1><table id=\"orders\"></table><button id=\"export\">Export</button></body></html>")
-        try put("src/app.js", "fetch('/api/orders'); document.getElementById('export').onclick = () => window.electron.saveFile();")
+        try put("src/app.js", "fetch('/api/orders'); document.getElementById('export').onclick = () => window.electron.saveFile();\n"
+                 + String(repeating: "// filler line keeps this file above the 2 KB coverage threshold\n", count: 40))
         try put("src/styles.css", ":root { --accent: #0a84ff; } h1 { color: var(--accent); }")
         try put("src/toolbar.html", "<nav><button>Export</button></nav>")
         try put("README.md", "# Fixture\n")
@@ -72,6 +74,7 @@ import Foundation
             "Component src/ghost.vue named by the plan was not found in the sources",
             "Component src/phantom.html marked in the files was not found in the sources",
             "Could not isolate component src/toolbar.html: the toolbar has no source file to read",
+            "Coverage: the build named or read 1 of 1 UI source files of 2 KB or more (100%, 2 KB of 2 KB).",
         ], "the build carries the plan's gaps, the components without a source file and the one it could not isolate: \(built.gaps)")
         precondition(built.assumptions == ["Prices are in EUR"])
         precondition(phases.first == "Step 1 of 4 · Reading the code and planning the screens", "\(phases.first ?? "")")
@@ -101,7 +104,8 @@ import Foundation
         let systems = await CLICompletion.audit.systems
         let plan = prompts["prototype:plan"] ?? ""
         precondition(systems["prototype:plan"]?.contains("`evidence`") == true && systems["prototype:plan"]?.contains("`gaps`") == true)
-        precondition(plan.contains("- src\n") && plan.contains("- src/app.js (") && plan.contains("- src/styles.css (") && plan.contains("- src/index.html ("))
+        precondition(plan.contains("- src\n") && plan.contains("src/ (4 files,") && plan.contains("- app.js (") && plan.contains("- styles.css (")
+                     && plan.contains("- index.html ("), "the inventory lists the scope's folder with its files")
         precondition(!plan.contains("package.json") && !plan.contains("node_modules") && !plan.contains("main.js"), "inventory is limited to the selected scope")
         precondition(plan.contains("Electron renderer: only the browser part is in scope"))
         precondition(!plan.contains("fetch('/api/orders')"), "the inventory never inlines file content")
@@ -113,6 +117,22 @@ import Foundation
         precondition(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)
         precondition(prompts["prototype:foundation:styles"]?.contains("reproduce the original design tokens") == true)
         precondition(prompts["prototype:foundation:data"]?.contains("reproduce the original design tokens") == true)
+
+        // The app's own stylesheet is copied unchanged, linked before the prototype's styles.css, kept out of what the
+        // assistant reads, and the writers are told it is there (BUG-050).
+        let copiedStyles = site.appendingPathComponent("original/src/styles.css")
+        precondition((try? String(contentsOf: copiedStyles, encoding: .utf8)) == ":root { --accent: #0a84ff; } h1 { color: var(--accent); }",
+                     "the original stylesheet is copied unchanged")
+        let indexHTML = try String(contentsOf: site.appendingPathComponent("index.html"), encoding: .utf8)
+        let originalLink = indexHTML.range(of: "<link rel=\"stylesheet\" href=\"original/src/styles.css\">")
+        let ownLink = indexHTML.range(of: "href=\"styles.css\"")
+        precondition(originalLink != nil && ownLink != nil && originalLink!.lowerBound < ownLink!.lowerBound,
+                     "index.html links the original stylesheet before styles.css: \(indexHTML)")
+        precondition(!PrototypeFiles.read(site: site).contains { $0.path.hasPrefix("original/") }, "the assistant is not shown the copied originals")
+        for label in ["prototype:foundation:shell", "prototype:foundation:data", "prototype:screen:orders"] {
+            precondition(prompts[label]?.contains("already copied into the prototype unchanged") == true && prompts[label]?.contains("src/styles.css") == true,
+                         "\(label) is told about the copied stylesheet")
+        }
 
         // Revision and specification in code mode name the sources and the gaps.
         _ = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Revise title", pick: nil,
@@ -135,6 +155,72 @@ import Foundation
         print("Prototype code mode: the fixture app is reconstructed with its gaps, evidence and components; every file outside docs/prototypes/ is unchanged.")
 
         try await syncFromCode(root: root, folder: folder, scope: scope, before: before)
+    }
+
+    /// A window of docked widgets (BUG-050): the shell is told about widgets and modals, the host lists them, widgets
+    /// and the host run at medium effort, a component that is a widget or modal screen gets its isolated page without
+    /// the assistant, the original stylesheet is copied and the coverage is reported.
+    static func widgetsMode() async throws {
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "widgets")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-prototype-widgets-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        func put(_ path: String, _ content: String) throws {
+            let url = root.appendingPathComponent(path)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+        try put("src/index.html", "<html><body><table id=\"orders\"></table></body></html>")
+        try put("src/toolbar.html", "<nav><button>Settings</button></nav>")
+        try put("src/app.js", "render();\n" + String(repeating: "// filler line keeps this file above the 2 KB coverage threshold\n", count: 40))
+        try put("src/styles.css", ":root { --accent: #0a84ff; }")
+        let folder = PrototypeFiles.folder(root: root, slug: "desk")
+        try fm.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
+        let milestones = Phases()
+        let built = try await PrototypeAI.build(root: root, folder: folder, brief: "", sources: ["src"], language: "", mode: .code,
+            codeScope: PrototypeAI.CodeScope(apps: [.init(path: "", label: "desk", isElectron: false)]), record: { _ in },
+            stage: { event in if case .milestone(let text) = event { milestones.add(text) } })
+        precondition(built.screens == ["Workspace", "Order list", "Settings"] && built.failed.isEmpty, "the host, the widget and the modal are built: \(built.screens)")
+        let site = PrototypeFiles.site(of: folder)
+
+        // The shell and the styles part are told what the plan contains and that the original styles are loaded.
+        let systems = await CLICompletion.audit.systems
+        precondition(systems["prototype:foundation:shell"]?.contains("App.renderScreen(id, extra)") == true
+                     && systems["prototype:foundation:shell"]?.contains("`embedded: true`") == true, "the shell is asked for the widget API")
+        precondition(systems["prototype:foundation:styles"]?.contains("small bridge") == true
+                     && systems["prototype:foundation:styles"]?.contains("design tokens as CSS variables") == false, "styles.css is a bridge, not a design system")
+
+        // The host lists its widgets (a name the plan does not know is dropped), the widgets know they are embedded.
+        let prompts = await CLICompletion.audit.prompts
+        precondition(prompts["prototype:screen:workspace"]?.contains("HOST of the window") == true
+                     && prompts["prototype:screen:workspace"]?.contains("- order-list — Order list (/widgets/order-list)") == true
+                     && prompts["prototype:screen:workspace"]?.contains("- settings — Settings (/modals/settings)") == true
+                     && prompts["prototype:screen:workspace"]?.contains("ghost") == false, "the host prompt lists the widgets and the modal")
+        precondition(prompts["prototype:screen:order-list"]?.contains("rendered inside another screen") == true
+                     && prompts["prototype:screen:order-list"]?.contains("HOST of the window") == false, "the widget prompt")
+        precondition(prompts["prototype:screen:settings"]?.contains("in the host's dialog") == true, "the modal prompt")
+        let efforts = await CLICompletion.audit.efforts
+        precondition(efforts["prototype:screen:workspace"] == "medium" && efforts["prototype:screen:order-list"] == "medium"
+                     && efforts["prototype:screen:settings"] == "medium", "hosts, widgets and modals run at medium effort: \(efforts)")
+
+        // The original stylesheet is copied and linked; both components are isolated without the assistant.
+        let index = try String(contentsOf: site.appendingPathComponent("index.html"), encoding: .utf8)
+        precondition(index.contains("href=\"original/src/styles.css\""), "index.html links the original stylesheet")
+        let labels = await CLICompletion.audit.labels
+        precondition(!labels.contains { $0.hasPrefix("prototype:component:") }, "no assistant run isolates a widget or a modal: \(labels.sorted())")
+        precondition(built.components.map(\.path) == ["src/index.html", "src/toolbar.html"]
+                     && built.components.map(\.page) == ["components/src-index-html.html", "components/src-toolbar-html.html"],
+                     "both components have an isolated page: \(built.components)")
+        let page = try String(contentsOf: site.appendingPathComponent("components/src-index-html.html"), encoding: .utf8)
+        precondition(page.contains("App.renderScreen(\"order-list\")") && page.contains("<script src=\"../screens/order-list.js\">")
+                     && page.contains("href=\"../original/src/styles.css\"") && page.contains("data-mv-component=\"src/index.html\""),
+                     "the isolated page mounts the widget alone: \(page)")
+
+        // Coverage: src/app.js is named by the host, so the one UI source file of 2 KB or more is covered.
+        precondition(built.coverage?.covered == 1 && built.coverage?.total == 1, "coverage: \(String(describing: built.coverage))")
+        precondition(milestones.all.contains { $0.hasPrefix("Coverage: the build named or read 1 of 1") }, "the conversation gets the coverage figure")
+        print("Prototype widgets: the host, a widget and a modal are built at medium effort; their pages need no assistant; coverage is reported.")
     }
 
     /// "Sync from code" (REQ-006, DEC-005): the same build runs again against the current code and replaces the
@@ -210,6 +296,7 @@ import Foundation
         func add(_ text: String) { lock.lock(); items.append(text); lock.unlock() }
         var first: String? { lock.lock(); defer { lock.unlock() }; return items.first }
         var last: String? { lock.lock(); defer { lock.unlock() }; return items.last }
+        var all: [String] { lock.lock(); defer { lock.unlock() }; return items }
     }
 
     /// SHA-256 of every file under `root` except the prototype storage, by relative path.

@@ -136,7 +136,8 @@ do {
     }
     check(whole.entries.first { $0.path == "src/big.js" }?.bytes == 2048, "inventory carries the file size")
     check(whole.omitted == 0 && !whole.lines.contains { $0.hasPrefix("+") }, "no marker under the cap")
-    check(whole.lines.contains("- src/big.js (2048 bytes)"), "inventory line format")
+    check(whole.lines.contains("- big.js (2048 bytes)") && whole.lines.contains { $0.hasPrefix("src/ (") },
+          "inventory lists a block per folder with each file and its size")
 
     let scoped = PrototypeFiles.inventory(root: proj, sources: ["src", "index.html", "missing", "../etc", "src/logo.png"])
     let scopedPaths = scoped.entries.map(\.path)
@@ -339,7 +340,7 @@ do {
 // Code mode: the planner is told that the code is the reference and what it must return.
 do {
     let system = PrototypeAI.codePlanSystem(language: " Answer in German.")
-    for phrase in ["reconstructs an EXISTING web interface", "`evidence`", "`gaps`", "`ipcRenderer`", "at most 10",
+    for phrase in ["reconstructs an EXISTING web interface", "`evidence`", "`gaps`", "`ipcRenderer`", "at most 40",
                    "Every screen maps to a real route", "do not add screens, controls or features the code does not have", "Answer in German."] {
         check(system.contains(phrase), "code plan system says: \(phrase)")
     }
@@ -350,7 +351,7 @@ do {
     for phrase in ["Reconstruct the existing web interface", "- web/src\n", "- web/index.html\n", "read them with your tools",
                    "Web applications detected", "- web (web) — web application",
                    "- apps/desktop (desktop) — Electron renderer: only the browser part is in scope; `window.electron`/`ipcRenderer` calls must be simulated and listed as gaps",
-                   "Web-interface files in the scope (2 listed", "- web/src/App.tsx (1200 bytes)", "+7 more files not listed",
+                   "Web-interface files in the scope (2 listed", "web/src/ (2 files, 1 KB)", "- App.tsx (1200 bytes)", "+7 more files not listed",
                    "A faithful reconstruction of everything the sources implement."] {
         check(prompt.contains(phrase), "code plan prompt says: \(phrase)")
     }
