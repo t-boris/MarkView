@@ -27,9 +27,6 @@ struct PrototypeStudioView: View {
     @State private var confirmingRebuild = false
     @State private var confirmingClear = false
     /// The hand-off brief the person edits, and the agent it goes to (REQ-012).
-    @State private var handoffBrief = ""
-    @State private var handoffAgent = TerminalProfile.claude
-    @State private var handoffCopied = false
 
     private static let widthRange: ClosedRange<Double> = 260...760
 
@@ -142,7 +139,7 @@ struct PrototypeStudioView: View {
                     Label(session.preparingHandoff ? "Comparing…" : "Hand off to code", systemImage: "arrow.uturn.right.circle")
                 }
                 .controlSize(.small).fixedSize().disabled(!session.canSyncFromCode || session.isBusy || session.preparingHandoff)
-                .help("Give an agent a brief of what changed in the prototype so it can change the application code; you read and edit the brief first")
+                .help("Turn what changed in the prototype since the last sync into a feature with before and after screenshots, or a brief for an agent; you read and edit the draft first and nothing is written until you create the feature")
                 .sheet(isPresented: Binding(get: { session.handoff != nil }, set: { if !$0 { session.handoff = nil } })) { handoffSheet }
             }
             if session.manifest.version > 1 {
@@ -265,65 +262,31 @@ struct PrototypeStudioView: View {
         .help("Which screens and components of this prototype still match the code they were built from")
     }
 
-    // MARK: Hand-off sheet (REQ-012)
+    // MARK: Hand-off sheet (REQ-012, REQ-016)
 
-    /// The brief for an agent that changes the code: shown and editable, with the agent to start and a copy to the clipboard. Studio
-    /// writes nothing to the project; the agent works under the repository's own rules.
+    /// What the changes since the last sync are, as a feature to create or a brief for an agent. Studio writes nothing to the project
+    /// until the person creates the feature; the agent works under the repository's own rules.
     private var handoffSheet: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        Group {
             if let handoff = session.handoff {
-                Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
-                if !handoff.changes.hasBaseline {
-                    Text(PrototypeBaseline.Status(baselineVersion: nil, units: [], unclaimed: [], added: []).summary)
-                        .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
-                } else if handoff.changes.isEmpty {
-                    Text("Nothing to hand off: the prototype's files are as they were at the last sync (v\(handoff.changes.baselineVersion ?? 0)).")
-                        .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                if let run = session.handoffRun {
+                    PrototypeHandoffDraftView(run: run) { session.handoff = nil }
                 } else {
-                    Text("\(handoff.changes.items.count) screen\(handoff.changes.items.count == 1 ? "" : "s") or component\(handoff.changes.items.count == 1 ? "" : "s") changed in the prototype since the last sync. Read and edit the brief, then start an agent with it or copy it. Nothing is written to your project by Studio.")
-                        .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-                    TextEditor(text: $handoffBrief)
-                        .uiFont(size: 11, design: .monospaced)
-                        .scrollContentBackground(.hidden)
-                        .padding(6).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
-                        .frame(height: 320)
-                    HStack {
-                        Picker("Agent", selection: $handoffAgent) {
-                            ForEach(TerminalProfile.allCases.filter { $0 != .shell }) { profile in Text(profile.title).tag(profile) }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Hand off to code").uiFont(size: 15, weight: .semibold).foregroundColor(VSDark.text)
+                        if !handoff.changes.hasBaseline {
+                            Text(PrototypeBaseline.Status(baselineVersion: nil, units: [], unclaimed: [], added: []).summary)
+                                .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text("Nothing to hand off: the prototype's files are as they were at the last sync (v\(handoff.changes.baselineVersion ?? 0)).")
+                                .uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
                         }
-                        .pickerStyle(.menu).fixedSize()
-                        Text("starts a new session in the AI panel").uiFont(size: 10).foregroundColor(VSDark.textDim)
+                        HStack { Spacer(); Button("Close") { session.handoff = nil }.keyboardShortcut(.defaultAction) }
                     }
+                    .padding(16)
+                    .frame(width: 520)
                 }
-                HStack {
-                    Button("Close") { session.handoff = nil }
-                    Spacer()
-                    if handoff.changes.hasBaseline && !handoff.changes.isEmpty {
-                        Button(handoffCopied ? "Copied" : "Copy brief") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(handoffBrief, forType: .string)
-                            handoffCopied = true
-                        }
-                        .disabled(handoffBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        Button("Send to \(handoffAgent.title)") {
-                            let brief = handoffBrief
-                            let terminal = workspaceManager.openAITerminal(handoffAgent)
-                            workspaceManager.sendToAssistant(submit: true, to: terminal) { _ in brief }
-                            session.handoff = nil
-                        }
-                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                        .disabled(handoffBrief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-                .controlSize(.regular)
             }
-        }
-        .padding(16)
-        .frame(width: 620)
-        .onAppear {
-            handoffBrief = session.handoff?.brief ?? ""
-            handoffAgent = TerminalProfile(AIAssistantPreferences.backend(project: workspaceManager.aiProject))
-            handoffCopied = false
         }
     }
 

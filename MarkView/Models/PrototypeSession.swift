@@ -74,8 +74,17 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Code mode: whether each unit of the prototype matches the code, computed locally from the baseline (REQ-014); nil until checked.
     @Published private(set) var syncStatus: PrototypeBaseline.Status?
     @Published private(set) var checkingSync = false
-    /// The hand-off of prototype changes to an agent that changes the code (REQ-012); nil when no hand-off is being offered.
-    @Published var handoff: Handoff?
+    /// The hand-off of prototype changes to an agent that changes the code (REQ-012); nil when no hand-off is being offered. Closing
+    /// it stops the draft's pictures and descriptions and removes what they made.
+    @Published var handoff: Handoff? {
+        didSet {
+            guard handoff == nil else { return }
+            handoffRun?.close()
+            handoffRun = nil
+        }
+    }
+    /// The draft of the feature the hand-off creates, with its pictures and descriptions (REQ-016 to REQ-018); nil when there is nothing to hand off.
+    @Published private(set) var handoffRun: PrototypeHandoffRun?
     @Published private(set) var preparingHandoff = false
 
     struct Handoff: Equatable {
@@ -386,6 +395,18 @@ final class PrototypeSession: ObservableObject, Identifiable {
             let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
             let brief = changes.isEmpty ? "" : PrototypeHandoff.brief(title: manifest.title, reference: PrototypeReference.string(slug: slug),
                                                                       version: manifest.version, siteRelative: relative, changes: changes)
+            handoffRun?.close()
+            handoffRun = nil
+            if !changes.isEmpty {
+                let theme = manifest.themes.flatMap { record in record.effective.map { PrototypeScreenshots.Theme(attribute: record.attribute, id: $0) } }
+                let run = PrototypeHandoffRun(
+                    context: .init(root: root, folder: folder, slug: slug, title: manifest.title, version: manifest.version,
+                                   components: manifest.components, theme: theme, changes: changes,
+                                   reference: PrototypeReference.string(slug: slug), siteRelative: relative),
+                    record: record)
+                handoffRun = run
+                run.start()
+            }
             handoff = Handoff(changes: changes, brief: brief)
         }
     }
