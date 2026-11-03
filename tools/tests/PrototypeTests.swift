@@ -66,6 +66,86 @@ manifest.history.append(.init(version: 1, instruction: "first", summary: "s", da
 try PrototypeFiles.saveManifest(manifest, in: folder)
 check(PrototypeFiles.loadManifest(folder) == manifest, "manifest round trip")
 check(PrototypeFiles.existingSlugs(root: tmp) == ["demo"], "existing slugs")
+check(manifest.mode == .requirements && manifest.gaps.isEmpty, "manifest defaults to requirements mode without gaps")
+
+// A prototype.json written before `mode` and `gaps` existed still opens, with the defaults.
+do {
+    let old = """
+    {"approved":false,"assumptions":["a"],"brief":"b","history":[{"date":"2023-11-14T22:13:20Z","instruction":"first","summary":"s","version":1}],
+     "screens":["Home"],"slug":"old","sources":["docs"],"title":"Old","version":1}
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let decoded = try? decoder.decode(PrototypeFiles.Manifest.self, from: Data(old.utf8))
+    check(decoded?.mode == .requirements && decoded?.gaps == [] && decoded?.title == "Old" && decoded?.history.count == 1
+          && decoded?.assumptions == ["a"], "old manifest decodes with mode and gaps defaults")
+    let minimal = try? decoder.decode(PrototypeFiles.Manifest.self, from: Data("{\"title\":\"T\",\"slug\":\"t\"}".utf8))
+    check(minimal?.sources == [] && minimal?.version == 0 && minimal?.brief == "", "minimal manifest decodes with every default")
+    let unknownMode = try? decoder.decode(PrototypeFiles.Manifest.self,
+                                          from: Data("{\"title\":\"T\",\"slug\":\"t\",\"mode\":\"hologram\"}".utf8))
+    check(unknownMode?.mode == .requirements, "unknown mode falls back to requirements")
+    check((try? decoder.decode(PrototypeFiles.Manifest.self, from: Data("{\"slug\":\"t\"}".utf8))) == nil, "manifest without a title is rejected")
+}
+
+// Code mode and its gaps round-trip through prototype.json.
+do {
+    var code = PrototypeFiles.Manifest(title: "Shop", slug: "shop", brief: "", sources: ["web/src"], mode: .code,
+                                       gaps: ["Checkout posts to /api/orders; the prototype confirms locally."])
+    code.assumptions = ["Prices in EUR"]
+    try PrototypeFiles.saveManifest(code, in: PrototypeFiles.folder(root: tmp, slug: "shop"))
+    let loaded = PrototypeFiles.loadManifest(PrototypeFiles.folder(root: tmp, slug: "shop"))
+    check(loaded == code && loaded?.mode == .code && loaded?.gaps.count == 1, "code-mode manifest round trip keeps mode and gaps")
+    let text = String(decoding: try Data(contentsOf: PrototypeFiles.manifestURL(of: PrototypeFiles.folder(root: tmp, slug: "shop"))), as: UTF8.self)
+    check(text.contains("\"mode\" : \"code\"") && text.contains("\"gaps\""), "mode is stored as its raw string")
+}
+
+// The inventory of a reconstruction scope: web-interface files only, noise folders skipped, capped.
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("inv-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    func put(_ path: String, _ content: String = "x") throws {
+        let url = proj.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+    for path in ["package.json", "index.html", "src/App.tsx", "src/app.css", "src/theme.scss", "src/Widget.vue", "src/Card.svelte",
+                 "src/legacy.htm", "src/util.ts", "src/main.jsx", "src/less.less", "public/manifest.json",
+                 "src/logo.png", "src/data.json", "README.md", "src/vendor.min.js", "src/.secret.js",
+                 "node_modules/react/index.js", "dist/bundle.js", "build/app.js", ".git/config.js", ".dde/prototypes/x/site/index.html",
+                 ".hidden/app.js", "server/api.py", "server/routes.js", "electron/preload.js"] {
+        try put(path)
+    }
+    try put("src/big.js", String(repeating: "a", count: 2048))
+    let whole = PrototypeFiles.inventory(root: proj, sources: [])
+    let paths = whole.entries.map(\.path)
+    check(paths == paths.sorted() && Set(paths).count == paths.count, "inventory is sorted and unique")
+    for wanted in ["package.json", "index.html", "src/App.tsx", "src/app.css", "src/theme.scss", "src/Widget.vue", "src/Card.svelte",
+                   "src/legacy.htm", "src/util.ts", "src/main.jsx", "src/less.less", "public/manifest.json", "server/routes.js",
+                   "electron/preload.js", "src/big.js"] {
+        check(paths.contains(wanted), "inventory lists \(wanted)")
+    }
+    for unwanted in ["src/logo.png", "src/data.json", "README.md", "src/vendor.min.js", "src/.secret.js", "node_modules/react/index.js",
+                     "dist/bundle.js", "build/app.js", ".git/config.js", ".dde/prototypes/x/site/index.html", ".hidden/app.js",
+                     "server/api.py"] {
+        check(!paths.contains(unwanted), "inventory skips \(unwanted)")
+    }
+    check(whole.entries.first { $0.path == "src/big.js" }?.bytes == 2048, "inventory carries the file size")
+    check(whole.omitted == 0 && !whole.lines.contains { $0.hasPrefix("+") }, "no marker under the cap")
+    check(whole.lines.contains("- src/big.js (2048 bytes)"), "inventory line format")
+
+    let scoped = PrototypeFiles.inventory(root: proj, sources: ["src", "index.html", "missing", "../etc", "src/logo.png"])
+    let scopedPaths = scoped.entries.map(\.path)
+    check(scopedPaths.contains("src/App.tsx") && scopedPaths.contains("index.html"), "scoped inventory lists the selected folder and file")
+    check(!scopedPaths.contains("package.json") && !scopedPaths.contains("server/routes.js"), "scoped inventory leaves other folders out")
+    check(!scopedPaths.contains("src/logo.png"), "a selected file still passes the extension filter")
+    check(PrototypeFiles.inventory(root: proj, sources: ["src", "src/App.tsx"]).entries.filter { $0.path == "src/App.tsx" }.count == 1,
+          "a file inside a selected folder is listed once")
+
+    let capped = PrototypeFiles.inventory(root: proj, sources: [], limit: 3)
+    check(capped.entries.count == 3 && capped.omitted == whole.entries.count - 3, "inventory is capped")
+    check(capped.lines.last == "+\(whole.entries.count - 3) more files not listed", "cap marker names the omitted count")
+    check(PrototypeFiles.inventory(root: proj, sources: ["server/api.py"]).isEmpty, "a non-web scope gives an empty inventory")
+}
 
 // Screen scripts are inserted by the program at the marker.
 let html = "<body>\n<script src=\"app.js\"></script>\n<!--SCREENS-->\n<script>App.start()</script>\n</body>"

@@ -49,17 +49,30 @@ enum PrototypeFiles {
         var date: Date
     }
 
+    /// How a prototype was made: designed from requirement documents, or reconstructed from the
+    /// project's existing web-interface code (Previews from Existing Code).
+    enum Mode: String, Codable, Sendable {
+        case requirements, code
+    }
+
     struct Manifest: Codable, Equatable {
         var title: String
         var slug: String
         var brief: String
-        /// Requirement sources (files or folders), relative to the project root.
+        /// Sources (files or folders), relative to the project root: requirement documents in
+        /// `.requirements` mode, the implementation that was reconstructed in `.code` mode. Empty
+        /// means the whole project.
         var sources: [String]
         var version = 0
         var approved = false
         var screens: [String] = []
         var assumptions: [String] = []
         var history: [Entry] = []
+        var mode = Mode.requirements
+        /// Behaviour of the original code that the reconstruction does not reproduce (backend calls,
+        /// authentication, Electron preload APIs, native dialogs…). Recorded once, at generation;
+        /// review edits never change it (DEC-004).
+        var gaps: [String] = []
     }
 
     /// One message of the review conversation as saved in `conversation.json`; images are file names in `attachments/`.
@@ -131,6 +144,98 @@ enum PrototypeFiles {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(manifest).write(to: manifestURL(of: folder), options: .atomic)
+    }
+
+    // MARK: - Inventory (code mode)
+
+    /// One web-interface file of the reconstruction scope: its project-relative path and size. The
+    /// content is never inlined; the assistant reads the files it needs with its own tools.
+    struct InventoryEntry: Equatable, Sendable {
+        var path: String
+        var bytes: Int
+    }
+
+    /// The web-interface files under the selected sources, capped so a large project still fits a prompt.
+    struct Inventory: Equatable, Sendable {
+        var entries: [InventoryEntry] = []
+        /// Files past the cap that are not in `entries`.
+        var omitted = 0
+
+        var isEmpty: Bool { entries.isEmpty }
+
+        /// One line per file, then the "+N more" marker when the cap was hit.
+        var lines: [String] {
+            var out = entries.map { "- \($0.path) (\($0.bytes) bytes)" }
+            if omitted > 0 { out.append("+\(omitted) more files not listed") }
+            return out
+        }
+    }
+
+    static let inventoryLimit = 400
+    /// Files that describe a web interface; everything else (images, backend code, docs) is left out.
+    static let inventoryExtensions: Set<String> = ["html", "htm", "css", "scss", "less", "js", "jsx", "ts", "tsx",
+                                                   "vue", "svelte", "webmanifest"]
+    /// The only `.json` files listed: package and app manifests, which name the framework and the entry points.
+    static let inventoryJSONNames: Set<String> = ["package.json", "manifest.json", "app.json", "angular.json",
+                                                  "tsconfig.json", "electron-builder.json"]
+    private static let inventorySkippedFolders: Set<String> = ["node_modules", "dist", "build", "out", "target", "vendor",
+                                                               "coverage", "Pods", "DerivedData", ".git", ".dde"]
+
+    /// Whether a file name belongs in the inventory (web-interface formats; no minified bundles).
+    static func isInventoryFile(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        guard !lower.hasPrefix("."), !lower.hasSuffix(".min.js"), !lower.hasSuffix(".min.css") else { return false }
+        let ext = (lower as NSString).pathExtension
+        if ext == "json" { return inventoryJSONNames.contains(lower) }
+        return inventoryExtensions.contains(ext)
+    }
+
+    /// The web-interface files under `sources` (files or folders relative to `root`; empty means the
+    /// whole project), sorted by path, skipping dependency, build, VCS, `.dde` and hidden folders. A
+    /// source outside the root or that does not exist is ignored. Pure file-system reading; the
+    /// caller keeps it off the main thread.
+    static func inventory(root: URL, sources: [String], limit: Int = inventoryLimit,
+                          fileManager: FileManager = .default) -> Inventory {
+        let base = root.standardizedFileURL
+        let basePath = base.path + "/"
+        var seen = Set<String>()
+        var entries: [InventoryEntry] = []
+
+        func add(_ url: URL) {
+            let full = url.standardizedFileURL.path
+            guard full.hasPrefix(basePath), !seen.contains(full), isInventoryFile(url.lastPathComponent) else { return }
+            seen.insert(full)
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            entries.append(InventoryEntry(path: String(full.dropFirst(basePath.count)), bytes: size))
+        }
+
+        func walk(_ folder: URL) {
+            let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .nameKey]
+            guard let walker = fileManager.enumerator(at: folder, includingPropertiesForKeys: keys, options: []) else { return }
+            for case let url as URL in walker {
+                let values = try? url.resourceValues(forKeys: Set(keys))
+                let name = values?.name ?? url.lastPathComponent
+                if values?.isDirectory == true {
+                    if name.hasPrefix(".") || inventorySkippedFolders.contains(name) { walker.skipDescendants() }
+                    continue
+                }
+                if values?.isRegularFile == true { add(url) }
+            }
+        }
+
+        let roots = sources.isEmpty ? [""] : sources
+        for source in roots {
+            let trimmed = source.trimmingCharacters(in: .whitespaces)
+            let url = trimmed.isEmpty ? base : base.appendingPathComponent(trimmed).standardizedFileURL
+            guard url.path == base.path || url.path.hasPrefix(basePath) else { continue }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { continue }
+            if isDirectory.boolValue { walk(url) } else { add(url) }
+        }
+        entries.sort { $0.path < $1.path }
+        let cap = max(0, limit)
+        guard entries.count > cap else { return Inventory(entries: entries) }
+        return Inventory(entries: Array(entries.prefix(cap)), omitted: entries.count - cap)
     }
 
     // MARK: - Paths and files
@@ -247,5 +352,26 @@ enum PrototypeFiles {
         let live = site(of: folder)
         try? fm.removeItem(at: live)
         try fm.copyItem(at: source, to: live)
+    }
+}
+
+extension PrototypeFiles.Manifest {
+    /// Lenient decoding, in an extension so the memberwise initializer stays: a `prototype.json`
+    /// written before `mode` and `gaps` existed (or by a newer app with a mode this one does not
+    /// know) still opens, with the defaults for what is missing.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        slug = try c.decode(String.self, forKey: .slug)
+        brief = try c.decodeIfPresent(String.self, forKey: .brief) ?? ""
+        sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        approved = try c.decodeIfPresent(Bool.self, forKey: .approved) ?? false
+        screens = try c.decodeIfPresent([String].self, forKey: .screens) ?? []
+        assumptions = try c.decodeIfPresent([String].self, forKey: .assumptions) ?? []
+        history = try c.decodeIfPresent([PrototypeFiles.Entry].self, forKey: .history) ?? []
+        let rawMode = try c.decodeIfPresent(String.self, forKey: .mode) ?? ""
+        mode = PrototypeFiles.Mode(rawValue: rawMode) ?? .requirements
+        gaps = try c.decodeIfPresent([String].self, forKey: .gaps) ?? []
     }
 }
