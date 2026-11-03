@@ -787,3 +787,18 @@ the answer, with the saved default unchanged because the value was the one alrea
   "small, recent, only commands": that also removed a 2.6 KB `/model`-only transcript of another session.
 - The AX walker of a scratch run answered "not found" for menu items that were on screen; check the harness (list, then press in one process)
   before suspecting the app.
+
+## 2026-11-03: BUG-050, a prototype of a large app far from the original
+
+- A user message that arrives while a tool call is running is a request, not noise. I answered one ("the prototype is infinitely far from the
+  original") with "No response requested" and only handled it two turns later. Read every message that interleaves with a tool result, and
+  acknowledge it in the same turn.
+- Count before you trust a summary: the planner "saw the project" but was given 400 of 891 files sorted by path, so it never saw the widgets or the
+  theme. Run the real function on the real data (`inventory` on broker-fabric) before designing the fix, and keep the number in the bug report.
+- Bug ids collide when several sessions work in one repository: another session took BUG-049 while I held an untracked report with the same id.
+  Before creating or finishing a bug, `git fetch` and look at `docs/bugs/` on `origin/main`; rebase early, not at the end.
+- When a reviewer judges fidelity ("infinitely far"), a bigger prompt does not help; give the model the original artefacts that can be copied
+  verbatim (CSS, fonts) and let it write only what cannot be copied (one screen per widget, read from its whole source file).
+- A planned step may be changed when its cost is out of proportion (a second planner pass re-emitting 26 entries); say so in the plan and the report
+  instead of implementing it silently, and keep the cheaper measurement honest (named or read, not "reproduced").
+

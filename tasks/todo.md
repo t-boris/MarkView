@@ -1,5 +1,67 @@
 # MarkView — Follow-up Tasks
 
+## BUG-050: Code-mode prototype of a large app is far from the original (2026-11-03, 5.2.0 planned, fix/bug-050-code-prototype-fidelity)
+
+Report (Boris): the prototype of broker-fabric "Strike Desk" is "infinitely far from the original"
+(docs/bugs/BUG-050-code-mode-prototype-of-a-large-app-is.md). Direction chosen by Boris: the app's own CSS plus one screen per widget.
+
+Evidence (docs/prototypes/strikedesk, ai-calls.jsonl, the real `inventory` run): one screen, 8 KB generic CSS, empty option chain; the planner was
+shown 400 of 891 files, sorted by path: widgets 0 of 112, theme CSS 0 of 21, tests 143. The isolated OptionDesk page (one call per widget) is
+already richer than the whole workspace screen, so per-widget writing works; it is just never composed into the app.
+
+Plan (each step is checked on the real Strike Desk data before the next):
+- [x] 1. Inventory (root cause). Leave out tests, stories and mocks (counted in one line); list every other file grouped by folder
+      (`dir/ (n files, kb): name (size), …`), never an alphabetical cut-off; stylesheets are always listed in full; a safety cap drops the smallest
+      files of a folder and says so per folder. Standalone check on broker-fabric: all widgets and all theme CSS listed.
+- [x] 2. Planner (code mode). Screens up to 40; a window made of docked panels, widgets or tabs gets one entry per widget with its own source
+      file, plus one host entry that composes them (`embedded` flag on the widgets, `host` on the composer); `styles`: the stylesheets the app loads,
+      in import order, read from its entry file. Entries are validated against the sources as before.
+      Done: `planSchema` has `styles`, `embedded`, `hosts`; `Plan.maxCodeScreens` = 40; hosts keep only real widget ids.
+- [x] 3. Original styles verbatim (no AI). Validate `styles` (inside the sources, `.css`, exists, size caps), copy them to `site/original/<same
+      relative path>` with the fonts and images their `url()`/`@import` name (within the sources, caps, web asset types only), insert the `<link>`s
+      before `styles.css` in `index.html`, report what could not be copied as gaps. `PrototypeFiles.read(site:)` skips `original/` so revise prompts
+      do not swallow 385 KB. Third-party CSS (e.g. dockview in node_modules) is copied only when the plan names it and it exists; else a gap.
+      Done: `PrototypeStyles.swift` (copy, `@import`/`url()` following with %20 decoding, caps 1.5 MB / 3 MB / 8 MB / 250 files, symlink and hidden-path
+      refusal, `<link>` insertion before the prototype's own `styles.css`); `build()` copies after the plan and passes the copied list to the shell, data
+      and screen prompts. Checks: `tools/tests/prototype-styles-tests.sh` (57 checks), deadline harness end to end; all prototype harnesses green.
+      Decisions after the first live plan (Boris: "делай все три, экран убери"): (a) planner rule: with more than one front end in the folder plan only the
+      one the main window loads, the rest is a gap and its stylesheets are not listed (StrikeDesk's legacy `static/` desk); (b) a bare `@import 'pkg/x.css'`
+      is resolved through `node_modules` (pnpm layout, inside the project only), copied to `original/node_modules/<specifier>` and linked before the
+      stylesheet that imports it (StrikeDesk: Dockview's own CSS, 45 stylesheets and no gap); (c) a substantial modal (settings, detail view, wizard,
+      assistant) is its own `embedded` entry with the route `/modals/<id>`, listed in the host's `hosts` after the widgets.
+      Renumbered BUG-049 -> BUG-050 (BUG-049 on main is the shell-too-long fix, v5.1.1); branch `fix/bug-050-code-prototype-fidelity`, rebased on 5.1.1.
+- [x] 4. Widgets as embedded screens. Foundation API gets `App.renderScreen(id, ctx)` and `nav:false`; the host screen is written from the
+      original layout code and calls it; each widget is its own call at medium effort that reads the whole source file. The styles.css writer is
+      told the original CSS is already loaded and writes only the missing bridge.
+- [x] 5. Coverage. After planning, source files of 2 KB or more that no entry's evidence or components name are listed back to the planner once
+      ("add an entry or name a gap with a reason"); what is still uncovered becomes a gap. The assistant's message and the manifest carry the figure
+      "N of M source files reproduced".
+- [x] 6. Isolated component pages: a component that is already an embedded screen gets its page without an AI call (a thin page that mounts that
+      screen alone); the others are written as now. (Decide after step 4 whether this fits in this PR.)
+- [x] 7. Tests: standalone checks for each pure step (inventory grouping, style/asset resolution and copy limits, link insertion, coverage count,
+      plan parsing of `styles`/`embedded`/`host`); the stub-CLI harnesses stay green; BUG-047's `prototype-scheme-tests.sh` stays green.
+      Done notes, steps 4-7 (all checked with the stub harnesses; a real model has not yet written a host and widgets, that is step 8b):
+      - 4: with embedded entries the shell prompt gets `embeddedShellContract` (`App.plan` embedded/hosts, nav lists only non-embedded screens and no nav at
+        all for a single one, `embedded: true`, `App.renderScreen(id, extra)` never throws and works before `App.start()`, `App.modal` body may be an element);
+        the host prompt lists its widgets and modals and says how to place them (no docking library: grid/flex and a tab strip with the original class names);
+        a widget/modal prompt says: not a page, whole source file plus imports, `embedded: true`; hosts, widgets and modals run at medium effort, pages at low;
+        with copied originals styles.css is a bridge (`stylesBridgeSystem`, under 8 KB), not a design system.\n      - 5: DEVIATION from the plan above, to be confirmed by Boris: no second planner call. Re-asking would re-emit the whole 26-entry plan (about 4 minutes,
+        34K output tokens) to list mostly helper files that the widget writers reach through imports anyway. Instead the figure is measured: of the UI source
+        files of 2 KB or more in the scope (ts/tsx/js/jsx/vue/svelte/html, tests excluded), how many a surviving entry names (evidence, components) or a
+        screen/component writer actually read (`ProgressTracker.onRead` -> `ReadLog`). The sentence, with the largest uncovered files, goes to the
+        conversation (milestone) and to the manifest gaps. A second planner pass can still be added if the figure shows real holes.
+      - 6: a component that is an embedded screen gets `components/<slug>.html` from `PrototypeEmbedded.page` (loads data, shell and `screens/<id>.js`,
+        mounts `App.renderScreen(id)`; the original stylesheets one level up) with no assistant call; the other components are written as before.
+      - 7: `prototype-embedded-tests.sh` (new), the widgets scenario in `prototype-deadline-tests.sh`, `prototype-styles-tests.sh`; both new scripts are in
+        `.github/workflows/prototype.yml`.
+- [ ] 8. Live, with Boris's account (a) DONE twice, see the Done notes; (b) waits for Boris's yes: (a) plan only on `apps/strikedesk` after steps 1-3 (about one call, ~0.4M input tokens), compared with the
+      saved plan; (b) a full "Sync from code" of strikedesk in a copy of the project after the plan looks right (about 30-40 calls, 20-30 minutes);
+      render the result with the real preview loader next to the original's screens.
+- [ ] 9. `./bump-version.sh minor` (5.2.0; a noticeable improvement, backward compatible: old prototypes open unchanged), Debug build, PR, merge,
+      release per CLAUDE.md. Lesson in `tasks/lessons.md`.
+
+Not in this change: running the original renderer with a stubbed bridge (a different feature, not an editable `site/` folder).
+
 ## BUG-049: prototype generation fails on a narrated answer and an over-long shell (2026-11-03, 5.1.1, fix/bug-049-prototype-shell-too-long)
 
 Two Copilot prototype runs failed: one on "expected JSON, got I'll read the key source files…", one after ten
