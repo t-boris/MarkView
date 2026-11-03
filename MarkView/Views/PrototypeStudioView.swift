@@ -616,7 +616,7 @@ private struct PrototypePreview: NSViewRepresentable {
         return document.querySelectorAll(selector).length;
       };
       window.addEventListener('error', function (e) {
-        window.webkit.messageHandlers.mvError.postMessage((e.message || 'Error') + (e.lineno ? ' (' + (e.filename || '').split('/').pop() + ':' + e.lineno + ')' : ''));
+        window.webkit.messageHandlers.mvError.postMessage((e.message || 'Error') + (e.lineno ? ' (' + (e.filename || '').replace(/^[a-z]+:\\/\\/[^\\/]*\\//, '') + ':' + e.lineno + ')' : ''));
       });
       window.addEventListener('unhandledrejection', function (e) {
         window.webkit.messageHandlers.mvError.postMessage('Unhandled promise rejection: ' + (e.reason && e.reason.message || e.reason));
@@ -632,6 +632,8 @@ private struct PrototypePreview: NSViewRepresentable {
         controller.add(context.coordinator, name: "mvPick")
         controller.add(context.coordinator, name: "mvError")
         controller.addUserScript(WKUserScript(source: Self.pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
+        configuration.setURLSchemeHandler(context.coordinator.files, forURLScheme: PrototypeSchemeHandler.scheme)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
@@ -642,6 +644,7 @@ private struct PrototypePreview: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         let coordinator = context.coordinator
         coordinator.session = session
+        coordinator.files.root = session.siteFolder
         if coordinator.loadedToken != session.reloadToken {
             coordinator.load(session: session, keepingScreen: true)
         }
@@ -664,7 +667,13 @@ private struct PrototypePreview: NSViewRepresentable {
         /// The page the last load showed, so a switch between the screens and an isolated view starts afresh.
         private var loadedPage: String?
 
-        init(session: PrototypeSession) { self.session = session }
+        /// Serves the files of the session's `site/` folder to the page.
+        let files: PrototypeSchemeHandler
+
+        init(session: PrototypeSession) {
+            self.session = session
+            files = PrototypeSchemeHandler(root: session.siteFolder)
+        }
 
         /// Loads index.html (or the isolated page the session shows); after a change the screen the reviewer was
         /// on stays selected.
@@ -673,14 +682,11 @@ private struct PrototypePreview: NSViewRepresentable {
             loadedToken = session.reloadToken
             let samePage = loadedPage == session.shownPage
             loadedPage = session.shownPage
-            let index = session.shownURL
+            files.root = session.siteFolder
+            let page = session.shownPage ?? "index.html"
             let reload = { (hash: String) in
-                var url = index
-                if !hash.isEmpty, var parts = URLComponents(url: index, resolvingAgainstBaseURL: false) {
-                    parts.fragment = String(hash.drop(while: { $0 == "#" }))
-                    url = parts.url ?? index
-                }
-                webView.loadFileURL(url, allowingReadAccessTo: session.siteFolder)
+                guard let url = PrototypeSchemeHandler.address(of: page, fragment: hash) else { return }
+                webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
             }
             if keepingScreen && samePage {
                 webView.evaluateJavaScript("location.hash") { value, _ in reload(value as? String ?? "") }

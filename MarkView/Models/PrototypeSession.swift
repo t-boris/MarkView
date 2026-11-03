@@ -104,8 +104,6 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var siteIndex: URL { PrototypeFiles.site(of: folder).appendingPathComponent("index.html") }
     var siteFolder: URL { PrototypeFiles.site(of: folder) }
     var hasSite: Bool { FileManager.default.fileExists(atPath: siteIndex.path) }
-    /// What the preview loads: the isolated page when one is shown, else `index.html`.
-    var shownURL: URL { shownPage.map { siteFolder.appendingPathComponent($0) } ?? siteIndex }
     /// "Sync from code" applies to a code-mode prototype that has a saved version (REQ-006).
     var canSyncFromCode: Bool { manifest.mode == .code && manifest.version > 0 && hasSite }
 

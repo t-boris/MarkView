@@ -1,5 +1,20 @@
 # Lessons
 
+## "Script error." is WebKit muting a cross-origin script, not an error message (BUG-047, 2026-11-03)
+
+The Prototype Studio preview loaded `site/index.html` with `loadFileURL`, where every `file:` URL is its own origin. An error thrown in
+a sibling `<script src>` (`app.js`, `screens/*.js`) reaches `window.onerror` as the bare text "Script error." with no file and line, so
+the automatic fix round at the end of a generation was told to fix an error nobody could read. A harness with one throwing screen
+showed the difference in a minute: `file://` gave "Script error.", a custom URL scheme gave `ReferenceError … (screens/broken.js:2)`.
+- Rule: a page that loads its own scripts and reports their errors is served from one origin (a `WKURLSchemeHandler`), never from
+  per-file `file:` URLs. When an error report has no text, first check how the page was loaded before asking the assistant to fix it.
+- Test the error path with the shipping listener: the harness extracts it from `PrototypeStudioView.swift` instead of copying it, and
+  keeps a `file://` baseline that shows the old behaviour.
+- A background scratch copy can be checked without Boris's app: own bundle id and executable name, open a fixture project with
+  `open -g -a`, press the toolbar menu through System Events by title, then read the web area's `AXURL`, its text and the badge's `AXHelp`
+  with a small `AXUIElementCreateApplication(pid)` walk (`entire contents` in System Events returns only 2 elements for SwiftUI).
+  Remove the copy's `Application Support/MarkView-<id>`, `Caches/<id>` and `WebKit/<id>` afterwards.
+
 ## 2026-10-29 — Long prototype runs need explicit cancellation, not stage stopwatches
 
 **Context:** BUG-030. Prototype Studio terminated foundation work after 20 minutes, including Copilot
