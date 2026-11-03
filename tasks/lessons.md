@@ -884,3 +884,15 @@ the answer, with the saved default unchanged because the value was the one alrea
 - Workspace packages share the lockfile of the workspace root; look for it in the parents, not only in the package folder.
 - A standalone test script can rot unnoticed because CI does not run it: `web-preview-tests.sh` had not compiled since `BrowserSession` grew new
   dependencies. Run the script you extend before adding checks, and fix its file list if it fails for reasons unrelated to your change.
+
+
+## Prototype audit: text in the DOM is not text on screen
+- The audit only checked that text existed, so the option desk (the main widget of strikedesk) passed it while every row sat inside
+  `flex:1 1 0; min-height:0; overflow:hidden` boxes that collapsed to 0 px under a host of automatic height. A check of "content exists" needs a
+  geometry check beside it: measure the boxes that clip (overflow not visible and under 8 px) before calling a screen fine.
+- Verify a new audit rule on the real prototype first (copy the site, inject `PrototypeAudit.script` in headless Chrome), then on a fixture with
+  negative cases (a scrolling table, an `aria-hidden` list, a folded panel) so it does not cry wolf.
+- A harness that compiles models from the main working tree silently runs the OLD code when a fix lives in a worktree: `report(from:)` dropped the
+  unknown kind and the repair round got no findings. Compile the harness from the worktree that holds the change, and check that its first output
+  shows the new behaviour before trusting the run.
+- Never `defaults read <domain> | grep ...` for a key you only suspect: it can print a credential. Read one named key.

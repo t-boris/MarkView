@@ -10,6 +10,9 @@ window.App = (function () {
     { id: 'risky', name: 'Risky', route: '/risky' },
     { id: 'stuck', name: 'Stuck', route: '/stuck' },
     { id: 'ghost', name: 'Ghost', route: '/ghost' },
+    { id: 'chain', name: 'Chain', route: '/chain' },
+    { id: 'scroller', name: 'Scroller', route: '/scroller' },
+    { id: 'folded', name: 'Folded', route: '/folded' },
     { id: 'order', name: 'Order', route: '/orders/:id' },
     { id: 'confirm', name: 'Confirm', route: '/modals/confirm' }
   ];

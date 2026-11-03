@@ -36,10 +36,13 @@ report = json.loads(html.unescape(match.group(1)))
 if "error" in report:
     sys.exit("FAIL: the audit failed: " + report["error"])
 found = {p["id"]: p["kind"] for p in report["problems"]}
-expected = {"settings": "unbuilt", "trade": "blank", "risky": "error", "stuck": "loading", "ghost": "unbuilt"}
+expected = {"settings": "unbuilt", "trade": "blank", "risky": "error", "stuck": "loading", "ghost": "unbuilt", "chain": "clipped"}
 if found != expected:
     sys.exit("FAIL: expected %s, got %s" % (expected, found))
-if report["checked"] != 9 or report["skipped"] != 2:
-    sys.exit("FAIL: checked %s skipped %s (want 9 and 2: routes with parameters and modals are skipped)" % (report["checked"], report["skipped"]))
-print("Prototype audit script: blank, placeholder, error-card and stuck-loading screens are reported; the four real screens, the parameter route and the modal are not.")
+if report["checked"] != 12 or report["skipped"] != 2:
+    sys.exit("FAIL: checked %s skipped %s (want 12 and 2: routes with parameters and modals are skipped)" % (report["checked"], report["skipped"]))
+chain = [p for p in report["problems"] if p["id"] == "chain"][0]
+if "chain-body" not in chain["detail"] or "0px" not in chain["detail"]:
+    sys.exit("FAIL: the clipped finding must name the collapsed box and its height, got %r" % chain["detail"])
+print("Prototype audit script: blank, placeholder, error-card, stuck-loading and clipped screens are reported (the clipped one names the collapsed box); the six real screens (a scrolling table and folded panels among them), the parameter route and the modal are not.")
 PY

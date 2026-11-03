@@ -814,6 +814,29 @@ do {
           "a screen without a name is named by its id")
     check(PrototypeAudit.script.contains("window.__mvAudit") && PrototypeAudit.script.contains("App.plan") && PrototypeAudit.script.contains("/modals/"),
           "the script defines __mvAudit over App.plan and skips modal routes")
+    // BUG-056: a screen whose content is in the page but clipped to zero height.
+    let clipPayload: [String: Any] = ["checked": 2, "skipped": 0, "problems": [
+        ["id": "option-desk", "name": "Option desk", "route": "/widgets/option-desk", "kind": "clipped", "sample": "Calls",
+         "detail": "div.sd-option-desk__surface 0px < div.sd-option-desk 88px < div 88px < main#app-main 141px"]]]
+    let clipReport = PrototypeAudit.report(from: clipPayload)
+    check(clipReport?.findings.first?.kind == .clipped && clipReport?.findings.first?.detail.hasPrefix("div.sd-option-desk__surface 0px") == true,
+          "the clipped kind and its heights are read from the report: \(String(describing: clipReport))")
+    let clipped = PrototypeAudit.message(for: clipReport!.findings[0])
+    check(clipped.hasPrefix("Screen \"Option desk\" (#/widgets/option-desk, screens/option-desk.js) has content that is in the page but cannot be seen")
+          && clipped.contains("(\"Calls\")") && clipped.contains("div.sd-option-desk__surface 0px < div.sd-option-desk 88px")
+          && clipped.contains("definite height") && clipped.contains("Keep the content"), clipped)
+    check(!PrototypeAudit.message(for: PrototypeAudit.Finding(id: "a", name: "A", route: "/a", kind: .clipped, sample: "")).contains("Heights from"),
+          "a clipped finding without heights does not print an empty list")
+    check(PrototypeAudit.report(from: ["checked": 1, "problems": [["id": "x", "kind": "clipped", "detail": String(repeating: "x", count: 900)]]])?
+        .findings.first?.detail.count == 300, "the heights are capped at 300 characters")
+    check(PrototypeAudit.script.contains("function collapsed(") && PrototypeAudit.script.contains("kind = 'clipped'"),
+          "the script measures collapsed boxes and reports clipped screens")
+    // The shell and host rules for widgets that size themselves with flex:1 or height:100%.
+    check(PrototypeAI.embeddedShellContract.contains("always has a definite height") && PrototypeAI.embeddedShellContract.contains("collapses to 0 px"),
+          "the embedded shell contract demands a definite height for the box that holds a widget")
+    let hostPrompt = PrototypeAI.screenPrompt(plan: "{}", screen: PrototypeAI.PlannedScreen(id: "desk", name: "Desk", route: "/", purpose: "", embedded: false),
+                                              foundation: [], failure: nil, mode: .code, hosted: [PrototypeAI.PlannedScreen(id: "w", name: "W", route: "/w", purpose: "", embedded: true)])
+    check(hostPrompt.contains("Give every panel that receives a widget a definite height"), "the host prompt asks for panels with a definite height")
     // The screen prompt tells the writer what made the strikedesk Trade screen blank.
     check(PrototypeAI.screenSystem(language: "").contains("never the container that `App.load` returned"), "the screen prompt carries the App.load rule")
 }

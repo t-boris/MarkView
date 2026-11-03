@@ -3748,3 +3748,24 @@ Plan (approved by Boris, 2026-11-03) and result:
   `apps/strikedesk/app/packages/shell (web only)` with `pnpm run dev:renderer`, ports 3010 and 8080, in 52 ms (619 folders within four levels).
 - Not covered: the dev server was not started (no `pnpm run dev:renderer` in Boris's repository); clicking Preview Web App and the creator sheet in
   the app window; a workspace declared deeper than four levels or beyond the 400-folder scan limit is still not found.
+
+
+## Review: BUG-058 — a prototype screen is in the page but clipped to zero height
+
+Plan (approved by Boris, 2026-11-03) and result:
+- [x] Measure geometry in the preview audit (`PrototypeAudit.script`): a box that hides its overflow and is under 8 px high or wide hides its text
+  and visuals (`collapsed`). A screen whose text is hidden this way (at least 150 characters and no less than what it shows) gets the new kind
+  `clipped`, with the first hidden text as the sample and the heights from the collapsed box up to the first ancestor of 200 px or more
+  (`detail`, at most 300 characters). `aria-hidden="true"` and `inert` boxes are left alone, as are boxes that are only short (they scroll).
+- [x] The repair round receives the finding in words the assistant can act on (`PrototypeAudit.message`): the collapsed box, the heights, and the
+  cause (`height:100%` or `flex:1` inside a parent with no definite height).
+- [x] Prompts: the embedded-widget shell contract and the host-screen prompt (code mode with widgets only) demand a definite height for the box
+  that holds a widget and a returned element that fills it.
+- Verified: `tools/tests/prototype-audit-check.sh` in headless Chrome (12 screens checked, 2 skipped: `chain` is reported `clipped` with its
+  collapsed box named; a scrolling table and folded or `aria-hidden` panels are not; the old script fails the same check), `prototype-tests.sh`
+  (330 checks), the embedded, styles, themes, baseline and deadline scripts, a Debug build (5.10.0). On a copy of Boris's strike-desk prototype the
+  new audit reports `desk` and `option-desk` as clipped (`div.sd-option-desk__surface 0px < ... < main#app-main`). A real repair round with Codex
+  on that copy fixed `option-desk`; the host `desk` still had a collapsed `market-surface`; a second round cleared the audit (0 problems).
+- Not covered: the repair round runs once (`autoFixRounds = 1`), so a screen like `desk` can stay reported as "Still not right after the fix"
+  (asked to Boris); Boris's own prototype folder was not changed, a Sync/rebuild with 5.10.0 is needed; the 9% builder coverage of the option
+  chain (`ChainTable.tsx`, 82 KB) is a separate matter; the stray "null" text on the desk is unexplained.
