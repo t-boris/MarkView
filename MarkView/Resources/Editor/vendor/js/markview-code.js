@@ -142,6 +142,8 @@
                             html = '<pre>' + source.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
                         }
                         body.innerHTML = html;
+                        // Its pictures come from the app at markview-doc: addresses, like the document view
+                        MarkViewDocumentFiles.resolvePictures(body, state.documentBaseURL);
                         scroller.scrollTop = 0;
                         measure();
                         notify();

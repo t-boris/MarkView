@@ -4,15 +4,8 @@
         function resolveLocalURLs() {
             if (!state.documentBaseURL) return;
 
-            // Resolve relative image src to absolute file:// URLs
-            DOM.rendered.querySelectorAll('img').forEach(img => {
-                const src = img.getAttribute('src');
-                if (!src || src.startsWith('http://') || src.startsWith('https://')
-                    || src.startsWith('file://') || src.startsWith('data:')) return;
-                try {
-                    img.setAttribute('src', new URL(src, state.documentBaseURL).href);
-                } catch (e) {}
-            });
+            // Pictures (Markdown and HTML) are served by the app at markview-doc: addresses; the text is not changed
+            MarkViewDocumentFiles.resolvePictures(DOM.rendered, state.documentBaseURL);
 
             // Resolve relative link hrefs (skip anchors)
             DOM.rendered.querySelectorAll('a').forEach(a => {
@@ -21,6 +14,7 @@
                     || href.startsWith('file://') || href.startsWith('mailto:') || href.startsWith('data:')) return;
                 try {
                     a.setAttribute('href', new URL(href, state.documentBaseURL).href);
+                    a.setAttribute('data-mv-href', href);
                 } catch (e) {}
             });
         }
@@ -97,7 +91,7 @@
 
                 DOM.rendered.innerHTML = html;
 
-                // Resolve relative URLs (images, links) to absolute file:// paths
+                // Resolve relative URLs: pictures to markview-doc: addresses, links to absolute file:// paths
                 resolveLocalURLs();
 
                 // Convert mermaid code blocks

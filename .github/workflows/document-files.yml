@@ -1,0 +1,20 @@
+name: Document Pictures Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Models/DocumentFiles.swift'
+      - 'MarkView/Bridge/DocumentFileSchemeHandler.swift'
+      - 'MarkView/Resources/Editor/vendor/js/markview-document-files.js'
+      - 'tools/tests/DocumentFiles*'
+      - 'tools/tests/document-files*'
+      - '.github/workflows/document-files.yml'
+permissions:
+  contents: read
+jobs:
+  document-files:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify which pictures a document may show and how their addresses are made
+        run: bash tools/tests/document-files-tests.sh
