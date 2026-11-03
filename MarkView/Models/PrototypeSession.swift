@@ -395,6 +395,11 @@ final class PrototypeSession: ObservableObject, Identifiable {
                                                            attachments: files, runtimeErrors: runtimeErrors, language: languageNote,
                                                            mode: manifest.mode, sources: manifest.sources,
                                                            record: record, stage: stageReporter())
+                // An answer that changed nothing is shown as it is: no new version, no preview round (BUG-051).
+                guard !outcome.written.isEmpty else {
+                    messages.append(Message(role: .assistant, text: outcome.summary))
+                    return
+                }
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
@@ -518,8 +523,12 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder,
                                                            instruction: "Fix the JavaScript errors reported by the preview. Change nothing else.",
                                                            pick: nil, runtimeErrors: errors, language: language,
-                                                           mode: manifest.mode, sources: manifest.sources,
+                                                           mode: manifest.mode, sources: manifest.sources, sweep: false,
                                                            record: record, stage: stageReporter())
+                guard !outcome.written.isEmpty else {
+                    messages.append(Message(role: .assistant, text: outcome.summary))
+                    return
+                }
                 try accept(instruction: "Fix preview errors", summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
             } catch {

@@ -244,7 +244,8 @@ do {
         ("shellSystem", PrototypeAI.shellSystem(language: ""), "8222f48f1287ffd53a754ab368d241ed1658ab087ab5296e815f2f6ebcda505e"),
         ("stylesSystem", PrototypeAI.stylesSystem(language: ""), "1826c6bd4ce96575b11ba81605f33840b08ae65021905f22c395226f92b1a0ee"),
         ("screenSystem", PrototypeAI.screenSystem(language: ""), "b659702560473db520262a26bca384b2ff5a6af0c08723d9663602fe74dbf9ef"),
-        ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "4abe2d1a9daccd4a3dddff69199d15e1539c4d33921b53f09a897eb5fa296bc0"),
+        // Changed on purpose by BUG-051: the `remaining` paragraph (a request for many files is revised file by file).
+        ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "31abde9e8392f5063365002697bd0b3e5a3dbb15da99b00c5bf9edd944bf6023"),
         ("foundationPrompt", PrototypeAI.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
         ("screenPrompt", PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: files, failure: "bad"), "f7fdd93d414cdeb3b3b13ad41ac08f939988dfb430620eb3ce11cacb1547f228"),
         ("revisePrompt", PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: ".dde/prototypes/x/site", files: files,
@@ -710,6 +711,43 @@ do {
     plain.component = nil
     check(!PrototypeAI.revisePrompt(instruction: "x", pick: plain, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
             .contains("source component"), "no component, no component line")
+}
+
+// BUG-051: a request for many files is revised file by file.
+do {
+    // `applying` is `apply` without the disk: the same rules, the same exactly-once edits, nothing written.
+    let state = ["a.js": "one two", "b.js": "x"]
+    let ok = try? PrototypeFiles.applying(.init(files: [.init(path: "c.css", content: "c")], edits: [.init(path: "a.js", find: "one", replace: "1")],
+                                                deletes: ["b.js"]), to: state)
+    check(ok?.state == ["a.js": "1 two", "c.css": "c"] && ok?.touched == ["a.js", "c.css"] && ok?.removed == ["b.js"], "applying patches, adds and deletes in memory")
+    check(state == ["a.js": "one two", "b.js": "x"], "applying leaves its input alone")
+    do {
+        _ = try PrototypeFiles.applying(.init(edits: [.init(path: "a.js", find: "o", replace: "0")]), to: state)
+        check(false, "an edit whose text occurs twice is refused in memory")
+    } catch let error as PrototypeFiles.Failure {
+        check(error.localizedDescription.contains("occurs 2 times"), "an edit whose text occurs twice is refused in memory")
+    } catch { check(false, "unexpected error \(error)") }
+    do {
+        _ = try PrototypeFiles.applying(.init(files: [.init(path: "../x.js", content: "")]), to: state)
+        check(false, "a path outside the site is refused in memory")
+    } catch { check(true, "a path outside the site is refused in memory") }
+
+    // The files a first answer leaves in `remaining`: existing, not changed by the answer itself, once each, the prototype folder stripped.
+    let targets = PrototypeAI.sweepTargets(["a.js", " b.js ", "a.js", "p/site/c.css", "ghost.js", "../d.js", "e.js", 7] as [Any],
+                                           siteRelative: "p/site", existing: ["a.js", "b.js", "c.css", "e.js"], touched: ["e.js"])
+    check(targets == ["a.js", "b.js", "c.css"], "sweep targets: existing files once each, in order: \(targets)")
+    check(PrototypeAI.sweepTargets(nil, siteRelative: "p", existing: ["a"], touched: []).isEmpty
+          && PrototypeAI.sweepTargets("a.js", siteRelative: "p", existing: ["a.js"], touched: []).isEmpty, "no list, no targets")
+    let file = PrototypeFiles.File(path: "screens/x.js", content: "const t = 'Привет';")
+    let one = PrototypeAI.sweepPrompt(instruction: "Translate", siteRelative: "p/site", file: file, priorFailure: nil)
+    check(one.contains("this run revises one file of it, `screens/x.js`") && one.contains("=== screens/x.js ===\nconst t = 'Привет';\n")
+          && one.hasSuffix("Reviewer's request:\nTranslate") && !one.contains("could not be applied"), "sweep prompt names the file and carries it whole")
+    check(PrototypeAI.sweepPrompt(instruction: "T", siteRelative: "p", file: file, priorFailure: "x: bad").contains("Your previous answer could not be applied:\nx: bad"),
+          "sweep prompt carries the reason of a failed answer")
+    // The reply to an empty answer is not the edits advice, and the default retry text is unchanged.
+    let empty = PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: "no summary.", priorEmpty: true)
+    check(empty.contains("Your previous answer was empty: no summary.") && !empty.contains("`find` text"), "retry text of an empty answer")
+    check(PrototypeAI.reviseSchema["required"] as? [String] == ["summary", "screens", "files", "edits", "delete", "remaining"], "the schema requires remaining")
 }
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

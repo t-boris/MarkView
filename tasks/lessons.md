@@ -802,3 +802,21 @@ the answer, with the saved default unchanged because the value was the one alrea
 - A planned step may be changed when its cost is out of proportion (a second planner pass re-emitting 26 entries); say so in the plan and the report
   instead of implementing it silently, and keep the cheaper measurement honest (named or read, not "reproduced").
 
+
+## 2026-11-03: BUG-051, a request for the whole prototype cannot be one answer
+
+- Size the *result* before designing a request: "Convert all preview to english" meant new text for 45 files (about 450 KB), more than one
+  structured answer holds. The build already fans out per screen; revise had to do the same, not get a bigger prompt. A router answer that
+  lists the files (`remaining`) plus one run per file keeps the read-only runs, the atomic `apply` and the versions unchanged.
+- Never throw away what the model said: an empty change with a `summary` is an answer ("nothing to change" or "too big"), and the generic
+  "no files, edits or deletes" error hid the only evidence. Show the summary; keep an error for a truly silent answer.
+- When the log holds only metadata (`ai-calls.jsonl`: tokens and seconds), replay the exact request on the real CLI. The system prompt can be
+  read out of the Swift source with a regex, so the replica cannot drift from the app. Two replays showed "2 and 4 edits, says incomplete",
+  one replay of the fixed prompt showed the router listing exactly the 45 files measured beforehand.
+- Check a setting before blaming it: "the language note contradicts the request" was refuted by one `defaults read` (the key was unset, so
+  the note was empty). The Russian text came from a prompt that never states a language, not from a setting.
+- A pure core (`PrototypeFiles.applying`) lets a run that owns one file be checked in memory, so a sweep writes once at the end and a
+  cancelled one leaves the site as it was. Also tolerate junk in model lists (`as? [Any]` + `compactMap`): one non-string element turned a
+  whole `remaining` list into nothing until a unit test caught it.
+- Boris asked "why not use the agent process?": the answer was in the code (`CLICompletion` is read-only by design, `apply` is the only
+  writer). Look for the recorded invariant before answering, and say what it buys (atomic apply, versions) and what the alternative costs.

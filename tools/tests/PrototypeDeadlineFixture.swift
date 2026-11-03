@@ -123,6 +123,40 @@ enum CLICompletion {
         case "prototype:component:src-toolbar-html":
             // A component the assistant cannot isolate: the build records a gap and goes on (REQ-007).
             throw Failure.invalidOutput(.claude, "the toolbar has no source file to read")
+        // A request for many files (BUG-051): the first run lists them; one run per file follows.
+        case "prototype:revise" where variant.hasPrefix("sweep"):
+            // Repeats, a path with the prototype folder, a file that does not exist and one outside the site are listed too.
+            let site = "docs/prototypes/fixture/site/"
+            object = ["summary": "Listed the files.", "screens": [], "files": [], "edits": [], "delete": [],
+                      "remaining": ["index.html", "app.js", "app.js", "data.js", "styles.css", site + "screens/home.js",
+                                    "screens/ghost.js", "../outside.js"]]
+        case "prototype:revise" where variant == "explain":
+            object = ["summary": "The prototype is already in English.", "screens": [], "files": [], "edits": [], "delete": [], "remaining": []]
+        case "prototype:revise" where variant == "silent":
+            object = ["summary": "  ", "screens": [], "files": [], "edits": [], "delete": [], "remaining": []]
+        case let label where label.hasPrefix("prototype:revise:"):
+            let path = String(label.dropFirst("prototype:revise:".count))
+            if variant == "sweep-all-fail" { throw Failure.invalidOutput(.claude, "fixture: the run for \(path) failed") }
+            if variant == "sweep-slow" { try await Task.sleep(nanoseconds: 3_000_000_000) }
+            func answer(edits: [[String: String]] = [], delete: [String] = []) -> [String: Any] {
+                ["summary": "Revised \(path)", "screens": [], "files": [], "edits": edits, "delete": delete, "remaining": []]
+            }
+            switch path {
+            case "index.html":
+                object = answer(edits: [["path": "index.html", "find": "Fixture title", "replace": "Titre du fixture"]])
+            case "data.js":
+                // The first answer does not match the file; the retry carries the reason and is right.
+                let retry = request.prompt.contains("could not be applied")
+                object = answer(edits: [["path": "data.js", "find": retry ? "window.DB = {}" : "window.DBB = {}", "replace": "window.DB = { ok: 1 }"]])
+            case "styles.css":
+                // A run owns its file: the edit of another file and the delete are not applied.
+                object = answer(edits: [["path": "styles.css", "find": "black", "replace": "navy"],
+                                        ["path": "index.html", "find": "Fixture title", "replace": "WRONG"]], delete: ["app.js"])
+            case "screens/home.js":
+                throw Failure.invalidOutput(.claude, "fixture: home cannot be revised")
+            default:
+                object = answer()
+            }
         case "prototype:revise":
             object = ["summary": "Updated", "screens": ["Home"], "files": [], "delete": [],
                       "edits": [["path": "index.html", "find": "Fixture title", "replace": "Revised fixture"]]]
