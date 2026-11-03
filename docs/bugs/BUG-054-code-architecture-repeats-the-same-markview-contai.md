@@ -2,7 +2,7 @@
 type: bug
 id: BUG-054
 title: Code architecture repeats the same MarkView container across layers and leaves files unclassified
-status: open
+status: closed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-03
