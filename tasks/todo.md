@@ -1,5 +1,34 @@
 # MarkView — Follow-up Tasks
 
+## Docs: README refresh and MarkView presentation (2026-11-03, no version bump, docs/readme-and-presentation)
+
+Request (Boris): walk through the whole application, bring the README up to date (current values, pictures, diagrams) and
+make a presentation in the repository root to demonstrate MarkView to another person.
+
+- [x] Five read-only audits of the README against the 5.11.0 sources: X-Ray and reviews, feature lifecycle, Prototype Studio,
+      agents / MCP / remote, workspace / deployments / viewers.
+- [x] README rewritten: hero banner, "How it fits together" diagram and "Where your data lives" table, keyboard shortcuts,
+      prototypes from existing code, five agents, three MCP servers with tool counts, Remote Assistants, corrected privacy section.
+- [x] Presentation: `MarkView-Presentation.html` (16 slides; arrows / space, F fullscreen, O overview) and
+      `MarkView-Presentation.pdf` (printed from the HTML with headless Chrome; Inter and JetBrains Mono, both OFL).
+- [x] All 10 Mermaid diagrams parse; relative links and anchors resolve.
+
+Review. README claims the audits proved wrong and that were corrected: no "Analyze code" button (analysis is automatic, ⌘4 opens the
+layered Code view); Go to Definition / Find Usages are text search, not AI; the Freshness lens is `git blame` time; ⌘⇧K uses an
+in-memory index (FTS5 only backs Search → Documents); 47 CodeMirror grammars, not 45; Log viewer takes `.log` and `.out`, not `.txt`;
+prototypes: 10 screens from requirements, 40 from code, no per-step time limit, the build diagram was stale since 5.9.0; Antigravity is
+a fifth agent; `/goal` goes to Claude Code and Codex, `/autopilot` to Copilot; lifecycle events are a per-Mac file, not in the repo;
+d3 is bundled, only Turndown still loads from jsDelivr.
+
+Open items for Boris (not changed here):
+- `docs/architecture/*` is a 2.17.0 snapshot (75 Swift files then, 236 now) and still claims d3/dagre load from a CDN.
+- `index.html` still loads Turndown from jsDelivr, against the "never load from a CDN" rule in CLAUDE.md (stale comment at line 9).
+- The "GitHub → MarkView…" prompt hard-codes a Russian final report when the output language is "Document language" (AIPrompts.swift:34-36).
+- `docs/images/` screenshots are from an earlier release (four X-Ray tabs); there are no pictures of Prototype Studio, Deployments or the
+  Agents panel. They need a live capture; the studio picture in the deck is an illustration and is labelled as such.
+- Remote Assistants are described as advanced and still being verified: the relay README says so and no two-Mac test is recorded.
+- "Bug Validity Check Before Analysis" is status `exploring` with no code; it is deliberately not in the README.
+
 ## BUG-059: A prototype screen is a look-alike of a large widget, not the widget (2026-11-03, 5.11.0, fix/bug-059-prototype-fidelity-check)
 
 Boris chose "verify against the source, then repair" and approved the plan (and a higher effort for large widgets) on 2026-11-03.

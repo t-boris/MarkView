@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarkView: understand any project, then build it with AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=JetBrains+Mono:wght@400;500&display=swap">
+<meta name="description" content="A presentation of MarkView, a native macOS workspace for code and documentation.">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg2: #10141c;
+    --panel: #141a26;
+    --panel2: #1a2232;
+    --line: #2a3347;
+    --line2: #38435c;
+    --text: #eef1f8;
+    --muted: #93a0ba;
+    --dim: #6b7690;
+    --blue: #6f8cff;
+    --teal: #4aa3c8;
+    --green: #3bb98a;
+    --amber: #e0a64a;
+    --violet: #c987ff;
+    --red: #ef6b6b;
+    --sans: Inter, -apple-system, "SF Pro Display", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #05070b; color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  body { overflow: hidden; }
+
+  /* ---------- stage: a fixed 1920x1080 canvas scaled to the window ---------- */
+  #stage { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  .slide {
+    position: absolute; inset: 0; overflow: hidden;
+    background:
+      radial-gradient(1100px 700px at 8% -10%, rgba(111,140,255,.17), transparent 60%),
+      radial-gradient(900px 600px at 105% 110%, rgba(59,185,138,.12), transparent 60%),
+      linear-gradient(180deg, var(--bg2), var(--bg));
+    padding: 96px 128px 104px;
+    opacity: 0; visibility: hidden;
+    display: flex; flex-direction: column;
+  }
+  .slide.active { opacity: 1; visibility: visible; }
+  body.ready .slide { transition: opacity .35s ease, visibility .35s; }
+
+  /* ---------- type ---------- */
+  .eyebrow { font-size: 24px; letter-spacing: .16em; text-transform: uppercase; font-weight: 650; color: var(--blue); margin: 0 0 22px; }
+  .eyebrow.teal { color: var(--teal); } .eyebrow.green { color: var(--green); } .eyebrow.amber { color: var(--amber); } .eyebrow.violet { color: var(--violet); }
+  h1 { font-size: 132px; line-height: 1; margin: 0; font-weight: 750; letter-spacing: -.035em; }
+  h2 { font-size: 68px; line-height: 1.06; margin: 0 0 18px; font-weight: 720; letter-spacing: -.025em; }
+  h3 { font-size: 34px; line-height: 1.2; margin: 0 0 10px; font-weight: 650; letter-spacing: -.01em; }
+  p  { font-size: 31px; line-height: 1.42; margin: 0 0 16px; color: #c9d1e3; }
+  .lead { font-size: 38px; line-height: 1.38; color: #c9d1e3; max-width: 1380px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 25px; line-height: 1.4; color: var(--muted); }
+  .grad { color: #e4eaff; }
+  code, .mono { font-family: var(--mono); font-size: .86em; background: rgba(111,140,255,.12); border: 1px solid rgba(111,140,255,.25); padding: 1px 10px; border-radius: 8px; color: #cdd7ff; }
+  kbd { font-family: var(--mono); font-size: 22px; font-weight: 500; color: #dfe5f5; background: var(--panel2); border: 1px solid var(--line2); border-bottom-width: 3px; border-radius: 9px; padding: 3px 13px; margin: 0 3px; white-space: nowrap; }
+
+  ul.ticks { list-style: none; padding: 0; margin: 0; }
+  ul.ticks li { position: relative; padding-left: 46px; margin: 0 0 20px; font-size: 31px; line-height: 1.36; color: #c9d1e3; }
+  ul.ticks li::before { content: ""; position: absolute; left: 2px; top: 14px; width: 22px; height: 12px; border-left: 4px solid var(--green); border-bottom: 4px solid var(--green); transform: rotate(-45deg) scale(.9); border-radius: 2px; }
+  ul.ticks li b { color: var(--text); font-weight: 650; }
+  ul.dots { list-style: none; padding: 0; margin: 0; }
+  ul.dots li { position: relative; padding-left: 34px; margin: 0 0 14px; font-size: 28px; line-height: 1.36; color: #c9d1e3; }
+  ul.dots li::before { content: ""; position: absolute; left: 4px; top: 16px; width: 12px; height: 12px; border-radius: 50%; background: var(--blue); }
+  ul.dots li b { color: var(--text); font-weight: 650; }
+
+  /* ---------- layout helpers ---------- */
+  .row { display: flex; gap: 56px; align-items: stretch; }
+  .col { display: flex; flex-direction: column; }
+  .grow { flex: 1 1 0; min-width: 0; }
+  .center { align-items: center; justify-content: center; text-align: center; }
+  .mt { margin-top: 34px; } .mt2 { margin-top: 58px; }
+  .grid { display: grid; gap: 28px; }
+  .g2 { grid-template-columns: repeat(2, 1fr); } .g3 { grid-template-columns: repeat(3, 1fr); } .g4 { grid-template-columns: repeat(4, 1fr); }
+
+  .vc { justify-content: center; }
+  .card { background: linear-gradient(180deg, rgba(26,34,50,.92), rgba(20,26,38,.92)); border: 1px solid var(--line); border-radius: 26px; padding: 34px 36px; box-shadow: 0 14px 40px rgba(0,0,0,.28); }
+  .card h3 { margin-bottom: 8px; }
+  .card p { font-size: 28px; line-height: 1.42; margin: 0; color: var(--muted); }
+  .card .bar { width: 64px; height: 6px; border-radius: 3px; margin-bottom: 22px; }
+  .bar.blue { background: var(--blue); } .bar.teal { background: var(--teal); } .bar.green { background: var(--green); } .bar.amber { background: var(--amber); } .bar.violet { background: var(--violet); } .bar.red { background: var(--red); }
+  .num { font-size: 92px; font-weight: 760; letter-spacing: -.04em; line-height: 1; }
+  .numlabel { font-size: 25px; color: var(--muted); margin-top: 10px; line-height: 1.3; }
+
+  .chip { display: inline-flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 600; color: #dfe5f5; background: var(--panel2); border: 1px solid var(--line2); border-radius: 999px; padding: 8px 22px; margin: 0 10px 12px 0; }
+  .chip i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+  .shot { border-radius: 22px; overflow: hidden; border: 1px solid var(--line2); box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.03) inset; background: #1b1b1b; }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shotcap { font-size: 23px; color: var(--muted); margin-top: 16px; text-align: center; }
+
+  .brand { position: absolute; left: 128px; bottom: 40px; display: flex; align-items: center; gap: 12px; font-size: 21px; color: var(--dim); font-weight: 600; letter-spacing: .02em; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  .pageno { position: absolute; right: 128px; bottom: 40px; font-size: 21px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  /* ---------- reveal animation on the active slide ---------- */
+  .slide.active .rv { animation: rise .6s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i, 0) * 90ms + 60ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- heads-up display (screen only) ---------- */
+  #hud { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.06); z-index: 5; }
+  #bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .3s ease; }
+  #hint { position: fixed; right: 18px; top: 14px; z-index: 6; font: 600 13px/1 var(--sans); color: #6b7690; letter-spacing: .04em; opacity: 0; transition: opacity .4s; pointer-events: none; }
+  body.hint #hint { opacity: 1; }
+
+  /* overview grid (press O) */
+  body.overview { overflow: auto; }
+  body.overview #stage { position: static; transform: none !important; width: auto; height: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 22px; padding: 28px; }
+  body.overview .slide { position: relative; inset: auto; width: 1920px; height: 1080px; opacity: 1; visibility: visible; zoom: .21; cursor: pointer; border-radius: 40px; outline: 6px solid transparent; }
+  body.overview .slide.active { outline-color: var(--blue); }
+  body.overview .slide .rv { animation: none; }
+  body.overview #hud { display: none; }
+
+  /* ---------- print: every slide on its own 1920x1080 page ---------- */
+  @page { size: 1920px 1080px; margin: 0; }
+  @media print {
+    html, body { background: #0b0e14; height: auto; overflow: visible; }
+    #stage { position: static; transform: none !important; width: 1920px; height: auto; }
+    .slide { position: relative; inset: auto; width: 1920px; height: 1080px; opacity: 1 !important; visibility: visible !important; page-break-after: always; break-after: page; }
+    .slide .rv { animation: none !important; }
+    #hud, #hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+
+<!-- 1 · Title -->
+<section class="slide" data-bare style="justify-content:center;padding-left:150px">
+  <div class="row" style="align-items:center;gap:90px">
+    <div class="col grow">
+      <div class="rv" style="--i:0"><img src="docs/images/app-icon.png" alt="" style="width:150px;height:150px;border-radius:34px;box-shadow:0 20px 60px rgba(0,0,0,.5)"></div>
+      <h1 class="rv grad" style="--i:1;margin-top:34px">MarkView</h1>
+      <p class="lead rv" style="--i:2;margin-top:26px;color:#e8ecf6;font-weight:600;font-size:48px;line-height:1.2;max-width:1000px">Understand any project, then build it with AI.</p>
+      <p class="rv muted" style="--i:3;font-size:30px;margin-top:6px">A native macOS workspace for code and documentation: from idea to merged code.</p>
+      <div class="rv" style="--i:4;margin-top:40px"><span class="chip"><i style="background:var(--blue)"></i>macOS 13+</span><span class="chip"><i style="background:var(--green)"></i>Signed &amp; notarized</span><span class="chip"><i style="background:var(--amber)"></i>MIT</span><span class="chip"><i style="background:var(--teal)"></i>v5.11</span></div>
+    </div>
+    <div class="rv" style="--i:3;width:760px;flex:none">
+      <div class="shot"><img src="docs/images/xray-component.png" alt="X-Ray of a project"></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · The problem -->
+<section class="slide vc">
+  <p class="eyebrow rv" style="--i:0">The problem</p>
+  <h2 class="rv" style="--i:1;max-width:1500px">Projects outgrow their documentation, and AI agents work half blind.</h2>
+  <div class="grid g3 mt2">
+    <div class="card rv" style="--i:2"><div class="bar red"></div><h3>Nobody sees the whole system</h3><p>New people, and your own agents, open a repository and meet thousands of files with no map.</p></div>
+    <div class="card rv" style="--i:3"><div class="bar amber"></div><h3>Specs live in chats and heads</h3><p>Decisions get lost between a ticket, a conversation and a pull request. The code drifts away from the docs.</p></div>
+    <div class="card rv" style="--i:4"><div class="bar violet"></div><h3>Agents need a workspace</h3><p>Claude Code, Codex and others are powerful, but a chat window is not where you understand, specify, review and ship.</p></div>
+  </div>
+  <p class="lead rv" style="--i:5;margin-top:64px;color:#e8ecf6">MarkView puts the map, the specification, the prototype and the agent <b style="color:#9ad8c4">in one window, on top of your own files</b>.</p>
+</section>
+
+<!-- 3 · What it is -->
+<section class="slide vc">
+  <p class="eyebrow rv" style="--i:0">What MarkView is</p>
+  <h2 class="rv" style="--i:1">One workspace for the whole life of a change.</h2>
+  <p class="lead rv" style="--i:2;max-width:1500px">It starts as a plain Markdown reader and grows with you. Each step stands on its own: use only what you need.</p>
+  <svg class="rv" style="--i:3;margin-top:36px" viewBox="0 0 1664 330" width="1664" height="330" font-family="Inter,-apple-system,'Helvetica Neue',sans-serif">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#5a6580" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+    <g>
+      <g transform="translate(0,20)"><rect width="250" height="220" rx="24" fill="#141a26" stroke="#2f3a52"/><circle cx="44" cy="52" r="20" fill="#2b3550"/><text x="44" y="59" text-anchor="middle" font-size="22" font-weight="700" fill="#aebcff">1</text><text x="78" y="61" font-size="34" font-weight="650" fill="#f1f4fb">Read</text><text x="30" y="118" font-size="25" fill="#93a0ba">Markdown, code,</text><text x="30" y="150" font-size="25" fill="#93a0ba">data, logs, PDF</text><rect x="30" y="184" width="90" height="7" rx="3.5" fill="#6f8cff"/></g>
+      <path d="M254 130 H300" stroke="#5a6580" stroke-width="3" marker-end="url(#ar)"/>
+      <g transform="translate(306,20)"><rect width="250" height="220" rx="24" fill="#141a26" stroke="#2f3a52"/><circle cx="44" cy="52" r="20" fill="#2b3550"/><text x="44" y="59" text-anchor="middle" font-size="22" font-weight="700" fill="#aebcff">2</text><text x="78" y="61" font-size="34" font-weight="650" fill="#f1f4fb">X-Ray</text><text x="30" y="118" font-size="25" fill="#93a0ba">See how it all</text><text x="30" y="150" font-size="25" fill="#93a0ba">fits together</text><rect x="30" y="184" width="90" height="7" rx="3.5" fill="#4aa3c8"/></g>
+      <path d="M560 130 H606" stroke="#5a6580" stroke-width="3" marker-end="url(#ar)"/>
+      <g transform="translate(612,20)"><rect width="250" height="220" rx="24" fill="#141a26" stroke="#2f3a52"/><circle cx="44" cy="52" r="20" fill="#2b3550"/><text x="44" y="59" text-anchor="middle" font-size="22" font-weight="700" fill="#aebcff">3</text><text x="78" y="61" font-size="34" font-weight="650" fill="#f1f4fb">Specify</text><text x="30" y="118" font-size="25" fill="#93a0ba">Guided questions,</text><text x="30" y="150" font-size="25" fill="#93a0ba">reviewed specs</text><rect x="30" y="184" width="90" height="7" rx="3.5" fill="#3bb98a"/></g>
+      <path d="M866 130 H912" stroke="#5a6580" stroke-width="3" marker-end="url(#ar)"/>
+      <g transform="translate(918,20)"><rect width="250" height="220" rx="24" fill="#141a26" stroke="#2f3a52"/><circle cx="44" cy="52" r="20" fill="#2b3550"/><text x="44" y="59" text-anchor="middle" font-size="22" font-weight="700" fill="#aebcff">4</text><text x="78" y="61" font-size="34" font-weight="650" fill="#f1f4fb">Prototype</text><text x="30" y="118" font-size="25" fill="#93a0ba">Click through it</text><text x="30" y="150" font-size="25" fill="#93a0ba">before you build</text><rect x="30" y="184" width="90" height="7" rx="3.5" fill="#e0a64a"/></g>
+      <path d="M1172 130 H1218" stroke="#5a6580" stroke-width="3" marker-end="url(#ar)"/>
+      <g transform="translate(1224,20)"><rect width="200" height="220" rx="24" fill="#141a26" stroke="#2f3a52"/><circle cx="44" cy="52" r="20" fill="#2b3550"/><text x="44" y="59" text-anchor="middle" font-size="22" font-weight="700" fill="#aebcff">5</text><text x="78" y="61" font-size="34" font-weight="650" fill="#f1f4fb">Build</text><text x="30" y="118" font-size="25" fill="#93a0ba">AI agents in</text><text x="30" y="150" font-size="25" fill="#93a0ba">real terminals</text><rect x="30" y="184" width="90" height="7" rx="3.5" fill="#c987ff"/></g>
+      <path d="M1428 130 H1450" stroke="#5a6580" stroke-width="3" marker-end="url(#ar)"/>
+      <g transform="translate(1456,20)"><rect width="208" height="220" rx="24" fill="#141a26" stroke="#2f3a52"/><circle cx="44" cy="52" r="20" fill="#2b3550"/><text x="44" y="59" text-anchor="middle" font-size="22" font-weight="700" fill="#aebcff">6</text><text x="78" y="61" font-size="34" font-weight="650" fill="#f1f4fb">Ship</text><text x="30" y="118" font-size="25" fill="#93a0ba">PR, CI, deploy,</text><text x="30" y="150" font-size="25" fill="#93a0ba">release</text><rect x="30" y="184" width="90" height="7" rx="3.5" fill="#3bb98a"/></g>
+      <path d="M1560 244 C1560 312 1330 318 1000 318 C700 318 520 312 520 252" fill="none" stroke="#3a4766" stroke-width="2.4" stroke-dasharray="9 9" marker-end="url(#ar)"/>
+      <text x="1040" y="306" text-anchor="middle" font-size="22" fill="#6b7690">feedback: what shipped changes what you understand</text>
+    </g>
+  </svg>
+  <p class="small rv" style="--i:4;margin-top:34px">Everything is a plain file in your repository (Markdown with YAML front matter). No server, no account, no lock-in.</p>
+</section>
+
+<!-- 4 · Read -->
+<section class="slide vc">
+  <p class="eyebrow rv" style="--i:0">Step 1 · Read and write</p>
+  <h2 class="rv" style="--i:1">A fast viewer for everything in a project.</h2>
+  <p class="lead rv" style="--i:2;max-width:1664px;font-size:34px">Open one Markdown file or a whole folder. No project, AI or account required.</p>
+  <div class="grid g3" style="margin-top:26px;gap:24px">
+    <div class="card rv" style="--i:3"><div class="bar blue"></div><h3>Markdown, WYSIWYG or source</h3><p>Mermaid diagrams, KaTeX math, task lists, footnotes, front matter and <code>[[wikilinks]]</code>. Export to PDF, or build a whole PDF book.</p></div>
+    <div class="card rv" style="--i:4"><div class="bar teal"></div><h3>Code in 40+ languages</h3><p>CodeMirror 6 with syntax highlighting; press Edit to change it in place. Image, JSON Canvas, XML, plist and archive viewers.</p></div>
+    <div class="card rv" style="--i:5"><div class="bar green"></div><h3>Data as tables, with SQL</h3><p>CSV, Parquet, Arrow, Avro, SQLite, Excel, HAR. Sort, filter, column statistics, and real SQL in the page.</p></div>
+    <div class="card rv" style="--i:6"><div class="bar amber"></div><h3>JSON and YAML you can edit</h3><p>Double-click a value in the tree. YAML keeps its comments, JSON keeps its indentation.</p></div>
+    <div class="card rv" style="--i:7"><div class="bar violet"></div><h3>Logs that read themselves</h3><p>Levels with counts, stack traces, regex search, <i>Next error</i>, and <i>Follow</i> for a growing log.</p></div>
+    <div class="card rv" style="--i:8"><div class="bar red"></div><h3>Search the whole project</h3><p>File names and file contents, plus commands, in one palette: <kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd>. Find in file with case and regex.</p></div>
+  </div>
+</section>
+
+<!-- 5 · X-Ray -->
+<section class="slide">
+  <p class="eyebrow teal rv" style="--i:0">Step 2 · Understand</p>
+  <h2 class="rv" style="--i:1">X-Ray: see how a project really fits together.</h2>
+  <div class="row mt" style="gap:64px;align-items:center">
+    <div class="rv" style="--i:2;width:900px;flex:none">
+      <div class="shot"><img src="docs/images/xray-component.png" alt="X-Ray: the Payments component with its dependencies"></div>
+      <div class="shotcap">Logical view, zoomed into one component. Colour shows the role. (Earlier release: the toolbar has since gained the Code and Book views.)</div>
+    </div>
+    <div class="grow">
+      <ul class="ticks">
+        <li class="rv" style="--i:3"><b>Built from facts, named by AI.</b> The scan reads imports, links and git history, then clusters folders. AI only names and describes what the structure already shows.</li>
+        <li class="rv" style="--i:4"><b>Zoom all the way in.</b> Subsystem, component, file, section, a single function. Every leaf opens the file at that line.</li>
+        <li class="rv" style="--i:5"><b>Overlays</b> show documentation, tests, bug history, freshness, complexity, size, and what a pull request touches.</li>
+        <li class="rv" style="--i:6"><b>Five views:</b> Code, Logical, Structure, Deployment and Book.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 6 · Understand deeper -->
+<section class="slide vc">
+  <p class="eyebrow teal rv" style="--i:0">Step 2 · Understand</p>
+  <h2 class="rv" style="--i:1">Ask the project. Get evidence, not a guess.</h2>
+  <div class="grid g2 mt">
+    <div class="card rv" style="--i:2"><div class="bar teal"></div><h3>Ask the project</h3><p>Type a question in the ⚡ box. The answer comes as <b style="color:#dfe5f5">What, Why, How and Origin</b>, with clickable evidence from code, documents, commits and pull requests. The relevant boxes light up.</p></div>
+    <div class="card rv" style="--i:3"><div class="bar blue"></div><h3>Code architecture</h3><p>Open a source folder and press <kbd>⌘</kbd><kbd>4</kbd>: a layered map appears and sharpens in the background. Sequence diagrams trace a scenario, with clickable <span class="mono">path:line</span> evidence.</p></div>
+    <div class="card rv" style="--i:4"><div class="bar green"></div><h3>Book X-Ray and Explain</h3><p>A folder of documents becomes parts, chapters and sections you can ask. Margin notes explain code and Markdown section by section.</p></div>
+    <div class="card rv" style="--i:5"><div class="bar amber"></div><h3>PR X-Ray</h3><p>See where a pull request lands in the architecture: a verdict, impact, findings you can fix with one click, chat, approve or merge. Works on a local branch too.</p></div>
+  </div>
+</section>
+
+<!-- 7 · Idea to spec -->
+<section class="slide">
+  <p class="eyebrow green rv" style="--i:0">Step 3 · Specify</p>
+  <h2 class="rv" style="--i:1">From a sentence to a specification that converges.</h2>
+  <div class="grid g3 mt">
+    <div class="card rv" style="--i:2"><div class="bar blue"></div><h3>1 · Explore</h3><p>Rounds of at most three questions, each with concrete options and a recommended answer. The AI reads your code first, so it never asks what the project already answers.</p></div>
+    <div class="card rv" style="--i:3"><div class="bar green"></div><h3>2 · Review</h3><p>The whole spec is read from a dozen perspectives. Every resolution is <b style="color:#dfe5f5">written back into the requirements</b>, so the next review never raises a settled point again.</p></div>
+    <div class="card rv" style="--i:4"><div class="bar violet"></div><h3>3 · Build</h3><p>Propose a plan, create issues and an epic on GitHub, then <i>Implement with AI</i>: a binding handoff to the agent in the terminal.</p></div>
+  </div>
+  <div class="row mt" style="align-items:center;gap:56px">
+    <div class="rv" style="--i:5;width:760px;flex:none"><div class="shot"><img src="docs/images/feature-build-stage.png" alt="A feature in the Build stage: readiness 100%, 19 of 19 requirements approved"></div></div>
+    <p class="lead rv grow" style="--i:6;margin:0;font-size:32px">Requirements, decisions, questions and findings are plain Markdown under <code>docs/features/&lt;slug&gt;/</code>: readable, diffable, reviewable in a pull request.</p>
+  </div>
+</section>
+
+<!-- 8 · Reviews -->
+<section class="slide vc">
+  <p class="eyebrow green rv" style="--i:0">Step 3 · Check</p>
+  <h2 class="rv" style="--i:1">Reviews of every kind, one set of findings.</h2>
+  <div class="grid g3 mt">
+    <div class="card rv" style="--i:2"><div class="bar green"></div><h3>A specification</h3><p>Twelve perspectives, from Product and UX to Security, QA and Privacy, with severity and quotes.</p></div>
+    <div class="card rv" style="--i:3"><div class="bar teal"></div><h3>Docs against code</h3><p>Finds statements the code no longer backs. The documentation overlay flags docs older than the code they describe.</p></div>
+    <div class="card rv" style="--i:4"><div class="bar blue"></div><h3>Your changes</h3><p>Bugs, edge cases, leftovers and missing tests with <span class="mono">file:line</span>. Observed file changes show agent edits side by side.</p></div>
+    <div class="card rv" style="--i:5"><div class="bar amber"></div><h3>A pull request</h3><p>Reviewed in its architecture context, with the diff, findings, impact and merge.</p></div>
+    <div class="card rv" style="--i:6"><div class="bar red"></div><h3>Security and the codebase</h3><p>A security review prompt, plus Codebase Audit and Constructive Critic reports.</p></div>
+    <div class="card rv" style="--i:7"><div class="bar violet"></div><h3>A prototype</h3><p>Click through it, point at what to change, approve when it is right.</p></div>
+  </div>
+  <p class="small rv" style="--i:8;margin-top:36px">Review prompts never modify files: they report, and you decide.</p>
+</section>
+
+<!-- 9 · Prototype Studio -->
+<section class="slide">
+  <p class="eyebrow amber rv" style="--i:0">Step 4 · Prototype</p>
+  <h2 class="rv" style="--i:1">Click through it before you build it.</h2>
+  <div class="row mt" style="gap:56px;align-items:center">
+    <div class="grow">
+      <ul class="ticks">
+        <li class="rv" style="--i:2"><b>Deep, not a picture.</b> Routes, forms with validation, roles, filters, empty and error states, and sample data that links across screens. Plain HTML, CSS and JavaScript.</li>
+        <li class="rv" style="--i:3"><b>Review in a studio tab.</b> A live preview next to a chat. Ask for a change in your own words, or by voice. Every accepted change is a new version.</li>
+        <li class="rv" style="--i:4"><b>Point at things.</b> Click <i>Point</i>, then an element: the assistant gets its HTML and, if you like, a screenshot. Paste a sketch or another product.</li>
+        <li class="rv" style="--i:5"><b>Approve and hand off.</b> A ZIP with the prototype, <code>SPEC.md</code>, <code>CHANGES.md</code> and a README: an implementer, human or AI, builds from it.</li>
+      </ul>
+    </div>
+    <!-- schematic of the studio tab -->
+    <div class="rv" style="--i:3;width:800px;flex:none">
+      <svg viewBox="0 0 800 560" width="800" height="560" font-family="Inter,-apple-system,'Helvetica Neue',sans-serif">
+        <defs><filter id="sh" x="-5%" y="-5%" width="110%" height="115%"><feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#000" flood-opacity=".5"/></filter></defs>
+        <g filter="url(#sh)">
+          <rect x="4" y="4" width="792" height="552" rx="24" fill="#171c27" stroke="#38435c" stroke-width="2"/>
+          <rect x="4" y="4" width="792" height="56" rx="24" fill="#1d2331"/><rect x="4" y="36" width="792" height="24" fill="#1d2331"/>
+          <circle cx="36" cy="32" r="8" fill="#ef6b6b"/><circle cx="62" cy="32" r="8" fill="#e0a64a"/><circle cx="88" cy="32" r="8" fill="#3bb98a"/>
+          <text x="400" y="39" text-anchor="middle" font-size="19" font-weight="600" fill="#93a0ba">Prototype Studio · v4</text>
+          <rect x="650" y="16" width="130" height="34" rx="17" fill="#2a8a64"/><text x="715" y="39" text-anchor="middle" font-size="17" font-weight="650" fill="#fff">Approve</text>
+        </g>
+        <!-- preview -->
+        <rect x="28" y="80" width="474" height="448" rx="14" fill="#0f131b" stroke="#2a3347"/>
+        <rect x="44" y="96" width="442" height="40" rx="8" fill="#1a2232"/><circle cx="64" cy="116" r="8" fill="#6f8cff"/><rect x="82" y="110" width="90" height="12" rx="6" fill="#38435c"/><rect x="390" y="108" width="80" height="16" rx="8" fill="#2b3550"/>
+        <rect x="44" y="148" width="104" height="84" rx="10" fill="#1a2232"/><rect x="58" y="162" width="50" height="10" rx="5" fill="#38435c"/><rect x="58" y="184" width="68" height="22" rx="6" fill="#3bb98a" opacity=".85"/>
+        <rect x="160" y="148" width="104" height="84" rx="10" fill="#1a2232"/><rect x="174" y="162" width="50" height="10" rx="5" fill="#38435c"/><rect x="174" y="184" width="68" height="22" rx="6" fill="#6f8cff" opacity=".85"/>
+        <rect x="276" y="148" width="104" height="84" rx="10" fill="#1a2232"/><rect x="290" y="162" width="50" height="10" rx="5" fill="#38435c"/><rect x="290" y="184" width="68" height="22" rx="6" fill="#e0a64a" opacity=".85"/>
+        <rect x="392" y="148" width="94" height="84" rx="10" fill="#1a2232"/><rect x="406" y="162" width="50" height="10" rx="5" fill="#38435c"/><rect x="406" y="184" width="60" height="22" rx="6" fill="#c987ff" opacity=".85"/>
+        <rect x="44" y="246" width="442" height="270" rx="10" fill="#1a2232"/>
+        <rect x="60" y="262" width="120" height="12" rx="6" fill="#38435c"/>
+        <g fill="#2a3347"><rect x="60" y="292" width="410" height="1.5"/><rect x="60" y="334" width="410" height="1.5"/><rect x="60" y="376" width="410" height="1.5"/><rect x="60" y="418" width="410" height="1.5"/><rect x="60" y="460" width="410" height="1.5"/></g>
+        <g fill="#38435c"><rect x="60" y="306" width="90" height="10" rx="5"/><rect x="200" y="306" width="150" height="10" rx="5"/><rect x="60" y="348" width="110" height="10" rx="5"/><rect x="200" y="348" width="120" height="10" rx="5"/><rect x="60" y="390" width="80" height="10" rx="5"/><rect x="200" y="390" width="170" height="10" rx="5"/><rect x="60" y="432" width="100" height="10" rx="5"/><rect x="200" y="432" width="130" height="10" rx="5"/></g>
+        <!-- point highlight -->
+        <rect x="156" y="144" width="112" height="92" rx="12" fill="none" stroke="#e0a64a" stroke-width="3" stroke-dasharray="8 6"/>
+        <g transform="translate(232,200)"><path d="M0 0 L0 30 L9 22 L16 38 L23 35 L16 19 L28 19 Z" fill="#fff" stroke="#0b0e14" stroke-width="2" stroke-linejoin="round"/></g>
+        <!-- chat -->
+        <rect x="518" y="80" width="254" height="448" rx="14" fill="#0f131b" stroke="#2a3347"/>
+        <rect x="534" y="98" width="222" height="68" rx="12" fill="#2b3550"/><text x="548" y="124" font-size="16" fill="#dfe5f5">Make this card show</text><text x="548" y="146" font-size="16" fill="#dfe5f5">overdue items in red</text>
+        <rect x="534" y="182" width="222" height="86" rx="12" fill="#1a2232" stroke="#2a3347"/><text x="548" y="208" font-size="16" fill="#c9d1e3">Updated 1 screen.</text><text x="548" y="230" font-size="16" fill="#c9d1e3">Saved as version 4.</text><text x="548" y="252" font-size="16" fill="#3bb98a" font-weight="600">✓ Preview reloaded</text>
+        <rect x="534" y="284" width="222" height="48" rx="12" fill="#2b3550"/><text x="548" y="314" font-size="16" fill="#dfe5f5">Add a filter by owner</text>
+        <rect x="534" y="346" width="150" height="34" rx="17" fill="#1a2232" stroke="#38435c"/><text x="609" y="369" text-anchor="middle" font-size="15" fill="#93a0ba">Working…  Stop</text>
+        <rect x="534" y="470" width="222" height="44" rx="12" fill="#171c27" stroke="#38435c"/><text x="548" y="498" font-size="15" fill="#6b7690">Ask for a change…</text><circle cx="738" cy="492" r="12" fill="#6f8cff" opacity=".9"/>
+        <rect x="534" y="432" width="64" height="26" rx="13" fill="#e0a64a" opacity=".2" stroke="#e0a64a"/><text x="566" y="450" text-anchor="middle" font-size="14" font-weight="650" fill="#e0a64a">Point</text>
+      </svg>
+      <div class="shotcap">Illustration of the studio tab: live preview, chat, versions.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · Prototype from code -->
+<section class="slide">
+  <p class="eyebrow amber rv" style="--i:0">Step 4 · Prototype</p>
+  <h2 class="rv" style="--i:1">Start from your code, and stay in step.</h2>
+  <svg class="rv" style="--i:2;margin-top:26px" viewBox="0 0 1664 250" width="1664" height="250" font-family="Inter,-apple-system,'Helvetica Neue',sans-serif">
+    <defs><marker id="ap" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#5a6580" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+    <g font-size="25" fill="#e8ecf6" font-weight="600">
+      <rect x="0" y="40" width="228" height="110" rx="18" fill="#141a26" stroke="#2f3a52"/><text x="114" y="86" text-anchor="middle">Your web app</text><text x="114" y="118" text-anchor="middle" font-size="22" fill="#93a0ba" font-weight="400">files or folders</text>
+      <path d="M232 95 H262" stroke="#5a6580" stroke-width="3" marker-end="url(#ap)"/>
+      <rect x="268" y="40" width="250" height="110" rx="18" fill="#141a26" stroke="#2f3a52"/><text x="393" y="86" text-anchor="middle">Plan from code</text><text x="393" y="118" text-anchor="middle" font-size="22" fill="#93a0ba" font-weight="400">up to 40 screens</text>
+      <path d="M522 95 H552" stroke="#5a6580" stroke-width="3" marker-end="url(#ap)"/>
+      <rect x="558" y="40" width="250" height="110" rx="18" fill="#141a26" stroke="#2f3a52"/><text x="683" y="86" text-anchor="middle">Original CSS</text><text x="683" y="118" text-anchor="middle" font-size="22" fill="#93a0ba" font-weight="400">copied, not imitated</text>
+      <path d="M812 95 H842" stroke="#5a6580" stroke-width="3" marker-end="url(#ap)"/>
+      <rect x="848" y="40" width="250" height="110" rx="18" fill="#141a26" stroke="#2f3a52"/><text x="973" y="86" text-anchor="middle">Screens</text><text x="973" y="118" text-anchor="middle" font-size="22" fill="#93a0ba" font-weight="400">4 at a time, per widget</text>
+      <path d="M1102 95 H1132" stroke="#5a6580" stroke-width="3" marker-end="url(#ap)"/>
+      <rect x="1138" y="40" width="250" height="110" rx="18" fill="#141a26" stroke="#2f3a52"/><text x="1263" y="86" text-anchor="middle">Checks</text><text x="1263" y="118" text-anchor="middle" font-size="22" fill="#93a0ba" font-weight="400">blank, thin, clipped</text>
+      <path d="M1392 95 H1422" stroke="#5a6580" stroke-width="3" marker-end="url(#ap)"/>
+      <rect x="1428" y="40" width="236" height="110" rx="18" fill="#1d2a3d" stroke="#6f8cff"/><text x="1546" y="86" text-anchor="middle">Review</text><text x="1546" y="118" text-anchor="middle" font-size="22" fill="#93a0ba" font-weight="400">in the studio</text>
+      <path d="M1546 156 C1546 232 1300 236 1120 236 C900 236 700 232 560 232 C440 232 404 210 404 160" fill="none" stroke="#3a4766" stroke-width="2.4" stroke-dasharray="9 9" marker-end="url(#ap)"/>
+      <text x="980" y="224" text-anchor="middle" font-size="22" fill="#e0a64a" font-weight="500">code changed → Sync from code rewrites only what changed</text>
+    </g>
+  </svg>
+  <div class="grid g4" style="margin-top:34px;gap:22px">
+    <div class="card rv" style="--i:3;padding:28px 28px"><div class="bar amber"></div><h3 style="font-size:30px">Faithful look</h3><p style="font-size:25px">The app's own stylesheets, fonts and images are copied as they are. A theme picker switches the app's themes.</p></div>
+    <div class="card rv" style="--i:4;padding:28px 28px"><div class="bar blue"></div><h3 style="font-size:30px">Honest limits</h3><p style="font-size:25px">A <i>From code</i> badge, plus <i>Assumptions &amp; gaps</i> that say what was not reproduced.</p></div>
+    <div class="card rv" style="--i:5;padding:28px 28px"><div class="bar green"></div><h3 style="font-size:30px">Sync status</h3><p style="font-size:25px">A chip tells whether the prototype <i>matches the code</i>. <i>Sync from code</i> keeps the previous version.</p></div>
+    <div class="card rv" style="--i:6;padding:28px 28px"><div class="bar violet"></div><h3 style="font-size:30px">Hand off to code</h3><p style="font-size:25px">An editable brief goes to an agent that makes a branch and a pull request. The studio never writes to your source.</p></div>
+  </div>
+</section>
+
+<!-- 11 · Agents -->
+<section class="slide">
+  <p class="eyebrow violet rv" style="--i:0">Step 5 · Build</p>
+  <h2 class="rv" style="--i:1">Your agents, inside your workspace.</h2>
+  <p class="lead rv" style="--i:2;max-width:1560px;font-size:34px">Claude Code, Codex, Cline, GitHub Copilot and Antigravity run in real terminals next to your files. They use your own sign-in: MarkView needs no provider key.</p>
+  <svg class="rv" style="--i:3;margin-top:26px" viewBox="0 0 1664 330" width="1664" height="330" font-family="Inter,-apple-system,'Helvetica Neue',sans-serif">
+    <defs><marker id="am" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#6b7690" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <marker id="am2" viewBox="0 0 10 10" refX="2" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M9 1 L1 5 L9 9" fill="none" stroke="#6b7690" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+    <!-- agents -->
+    <rect x="0" y="0" width="420" height="330" rx="24" fill="#141a26" stroke="#2f3a52"/>
+    <text x="30" y="52" font-size="28" font-weight="650" fill="#f1f4fb">Agent CLIs</text>
+    <text x="30" y="84" font-size="21" fill="#93a0ba">in real terminals (⌘3)</text>
+    <g font-size="23" font-weight="600" fill="#dfe5f5">
+      <rect x="30" y="108" width="172" height="46" rx="23" fill="#1a2232" stroke="#38435c"/><text x="116" y="138" text-anchor="middle">Claude Code</text>
+      <rect x="216" y="108" width="172" height="46" rx="23" fill="#1a2232" stroke="#38435c"/><text x="302" y="138" text-anchor="middle">Codex</text>
+      <rect x="30" y="166" width="172" height="46" rx="23" fill="#1a2232" stroke="#38435c"/><text x="116" y="196" text-anchor="middle">Cline</text>
+      <rect x="216" y="166" width="172" height="46" rx="23" fill="#1a2232" stroke="#38435c"/><text x="302" y="196" text-anchor="middle">Copilot</text>
+      <rect x="30" y="224" width="172" height="46" rx="23" fill="#1a2232" stroke="#38435c"/><text x="116" y="254" text-anchor="middle">Antigravity</text>
+      <rect x="216" y="224" width="172" height="46" rx="23" fill="#1a2232" stroke="#38435c" stroke-dasharray="6 5"/><text x="302" y="254" text-anchor="middle" fill="#93a0ba">any shell</text>
+    </g>
+    <text x="30" y="306" font-size="20" fill="#6b7690">resume sessions · switch models · quota chips</text>
+    <!-- arrows -->
+    <path d="M426 165 H504" stroke="#6b7690" stroke-width="3" marker-start="url(#am2)" marker-end="url(#am)"/>
+    <!-- MCP -->
+    <rect x="510" y="0" width="640" height="330" rx="24" fill="#1a2132" stroke="#3b4a70"/>
+    <text x="540" y="52" font-size="28" font-weight="650" fill="#f1f4fb">Three local MCP servers</text>
+    <text x="540" y="84" font-size="21" fill="#93a0ba">added for the agents automatically</text>
+    <g>
+      <rect x="540" y="104" width="580" height="62" rx="14" fill="#141a26" stroke="#2f3a52"/><circle cx="572" cy="135" r="9" fill="#6f8cff"/><text x="594" y="130" font-size="23" font-weight="650" fill="#dfe5f5">markview</text><text x="594" y="154" font-size="19" fill="#93a0ba">features, bugs, prototypes, deployments · 34 tools</text>
+      <rect x="540" y="176" width="580" height="62" rx="14" fill="#141a26" stroke="#2f3a52"/><circle cx="572" cy="207" r="9" fill="#4aa3c8"/><text x="594" y="202" font-size="23" font-weight="650" fill="#dfe5f5">markview-browser</text><text x="594" y="226" font-size="19" fill="#93a0ba">navigate, click, type, read, screenshot · 13 tools</text>
+      <rect x="540" y="248" width="580" height="62" rx="14" fill="#141a26" stroke="#2f3a52"/><circle cx="572" cy="279" r="9" fill="#c987ff"/><text x="594" y="274" font-size="23" font-weight="650" fill="#dfe5f5">markview-control</text><text x="594" y="298" font-size="19" fill="#93a0ba">run MarkView from outside: windows, agents, flow · 18 tools</text>
+    </g>
+    <path d="M1156 165 H1234" stroke="#6b7690" stroke-width="3" marker-start="url(#am2)" marker-end="url(#am)"/>
+    <!-- app -->
+    <rect x="1240" y="0" width="424" height="330" rx="24" fill="#141a26" stroke="#2f3a52"/>
+    <text x="1270" y="52" font-size="28" font-weight="650" fill="#f1f4fb">The MarkView window</text>
+    <text x="1270" y="84" font-size="21" fill="#93a0ba">where you watch it happen</text>
+    <g font-size="22" fill="#c9d1e3">
+      <rect x="1270" y="108" width="364" height="48" rx="12" fill="#1a2232"/><text x="1292" y="139">Browser tabs you are signed in to</text>
+      <rect x="1270" y="168" width="364" height="48" rx="12" fill="#1a2232"/><text x="1292" y="199">Documents, code and images</text>
+      <rect x="1270" y="228" width="364" height="48" rx="12" fill="#1a2232"/><text x="1292" y="259">Your repository, live reload</text>
+    </g>
+    <text x="1270" y="306" font-size="20" fill="#6b7690">pages and files agents open land in tabs</text>
+  </svg>
+  <div class="grid g3" style="margin-top:22px;gap:24px">
+    <div class="card rv" style="--i:4;padding:26px 30px"><h3 style="font-size:29px">They drive your browser tabs</h3><p style="font-size:25px">Sign in once, name the tab "Jira", say <i>"in tab Jira, follow these steps"</i>. No password is ever shared. <b style="color:#dfe5f5">Stop</b> takes the tab back.</p></div>
+    <div class="card rv" style="--i:5;padding:26px 30px"><h3 style="font-size:29px">They understand MarkView</h3><p style="font-size:25px"><i>"Turn this prototype into features."</i> The app writes the files in its own exact format, so ids and links stay valid.</p></div>
+    <div class="card rv" style="--i:6;padding:26px 30px"><h3 style="font-size:29px">One click, one prompt</h3><p style="font-size:25px">Review changes, Docs ↔ code, Find bugs, Write tests, Security review, Commit message, and more.</p></div>
+  </div>
+</section>
+
+<!-- 12 · Deployments -->
+<section class="slide">
+  <p class="eyebrow green rv" style="--i:0">Step 6 · Ship and run</p>
+  <h2 class="rv" style="--i:1">See where it runs, and act on it safely.</h2>
+  <p class="lead rv" style="--i:2;max-width:1560px;font-size:34px">Deployments (<kbd>⌃</kbd><kbd>⌘</kbd><kbd>D</kbd>) shows each place the project runs as one picture.</p>
+  <div class="row" style="gap:34px;align-items:stretch;margin-top:26px">
+    <div class="card rv grow" style="--i:3"><div class="bar blue"></div><h3>Finds where it runs</h3><p style="font-size:25px">Reads workflows, platform files, deploy scripts, docs and <span class="mono">~/.ssh/config</span>: servers, Firebase, Vercel, Fly.io, Kubernetes, AWS, Google Cloud, and the databases behind them.</p></div>
+    <div class="card rv grow" style="--i:4"><div class="bar teal"></div><h3>The whole picture</h3><p style="font-size:25px">CPU, memory, disks, services and containers, your own green and red <i>checks</i>, logs, and one health badge. Ask the AI: <i>"Why is it slow?"</i></p></div>
+    <div class="card rv grow" style="--i:5"><div class="bar amber"></div><h3>Look into the database</h3><p style="font-size:25px">Tables, sizes, indexes and a SQL box on PostgreSQL. Reads run in a read-only transaction. The password never appears in a command line.</p></div>
+  </div>
+  <div class="card rv" style="--i:6;padding:24px 36px;margin-top:24px">
+    <div class="row" style="gap:36px;align-items:center">
+      <div style="flex:none;width:280px"><h3 style="margin:0">Safe by construction</h3></div>
+      <div class="grid g3 grow" style="gap:22px">
+        <div style="border-left:6px solid var(--green);padding-left:20px"><div style="font-size:28px;font-weight:650;color:#e8ecf6">Read-only</div><div class="small">uptime, df, <span class="mono">docker ps</span>, logs: run at once</div></div>
+        <div style="border-left:6px solid var(--amber);padding-left:20px"><div style="font-size:28px;font-weight:650;color:#e8ecf6">Anything else</div><div class="small">a restart, an edit, a deploy: you approve that exact command</div></div>
+        <div style="border-left:6px solid var(--red);padding-left:20px"><div style="font-size:28px;font-weight:650;color:#e8ecf6">Never</div><div class="small">shut a machine down, wipe a disk, pipe a download into a shell</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 13 · Workspace -->
+<section class="slide">
+  <p class="eyebrow green rv" style="--i:0">Step 6 · Ship</p>
+  <h2 class="rv" style="--i:1">Git, GitHub and a definition of done, built in.</h2>
+  <div class="row mt" style="gap:56px;align-items:flex-start">
+    <div class="row rv" style="--i:2;gap:26px;flex:none;align-items:flex-start">
+      <div><div class="shot"><img src="docs/images/file-tree.png" alt="File tree with the git branch, filter, file sizes and ages" style="height:600px;width:auto"></div><div class="shotcap">File tree</div></div>
+      <div><div class="shot"><img src="docs/images/github-actions.png" alt="GitHub Actions runs inside the Git panel" style="height:600px;width:auto"></div><div class="shotcap">Git panel: Actions</div></div>
+    </div>
+    <div class="grow">
+      <ul class="ticks">
+        <li class="rv" style="--i:3"><b>One window, one project.</b> Tabs, panels and size come back after a restart. Project colours tell windows apart, even in Mission Control.</li>
+        <li class="rv" style="--i:4"><b>Git in the app:</b> branches, stage, commit, push, pull, diffs, worktrees, and AI help with conflicts.</li>
+        <li class="rv" style="--i:5"><b>GitHub, opt-in:</b> pull requests with review and merge, issues, and Actions runs with <i>Explain Failure</i> and <i>Fix with AI</i>.</li>
+        <li class="rv" style="--i:6"><b>A definition of done</b> for <i>Implement with AI</i>: 12 items, each <i>Require</i>, <i>Ask me</i> or <i>Skip</i>. The agent must show evidence for every required one.</li>
+        <li class="rv" style="--i:7"><b>Project Cycle Time</b> shows where time goes, from idea to merge.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 14 · Under the hood -->
+<section class="slide vc">
+  <p class="eyebrow teal rv" style="--i:0">Under the hood</p>
+  <h2 class="rv" style="--i:1">Native, local, and yours to inspect.</h2>
+  <div class="row mt" style="gap:64px;align-items:stretch">
+    <div class="grid g2 grow" style="gap:24px;align-content:start">
+      <div class="card rv" style="--i:2;padding:30px 34px"><div class="num grad">236</div><div class="numlabel">Swift files, about 85,000 lines. SwiftUI and AppKit with a WKWebView editor.</div></div>
+      <div class="card rv" style="--i:3;padding:30px 34px"><div class="num grad">0</div><div class="numlabel">Swift package dependencies. The web libraries ship inside the app.</div></div>
+      <div class="card rv" style="--i:4;padding:30px 34px"><div class="num grad">5</div><div class="numlabel">agent CLIs and 3 local MCP servers: <span style="color:#c9d1e3">markview</span>, <span style="color:#c9d1e3">markview-browser</span>, <span style="color:#c9d1e3">markview-control</span>.</div></div>
+      <div class="card rv" style="--i:5;padding:30px 34px"><div class="num grad">96</div><div class="numlabel">standalone check scripts for the pure modules: lifecycle, prototypes, deployments, PDF books and more.</div></div>
+    </div>
+    <div class="grow" style="max-width:760px">
+      <ul class="dots">
+        <li class="rv" style="--i:3"><b>Files are the database.</b> Features, bugs, research and decisions are Markdown with YAML front matter in your repository. Machine state lives in a regenerable <code>.dde/</code> folder.</li>
+        <li class="rv" style="--i:4"><b>AI through the CLIs you already use.</b> No provider key, no hosted backend. MarkView's own background runs are read-only.</li>
+        <li class="rv" style="--i:5"><b>Opt-in integrations.</b> GitHub is off until you turn it on; when it is off, MarkView is silent about it.</li>
+        <li class="rv" style="--i:6"><b>Signed and notarized</b> with a Developer ID, so it opens without warnings. MIT licence.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 15 · Live tour -->
+<section class="slide vc">
+  <p class="eyebrow amber rv" style="--i:0">See it live</p>
+  <h2 class="rv" style="--i:1">A two-minute tour.</h2>
+  <div class="grid g3 mt" style="gap:26px">
+    <div class="card rv" style="--i:2;padding:30px 34px"><div class="num" style="font-size:56px;color:var(--blue)">1</div><h3 style="margin-top:10px">Open a folder</h3><p><kbd>⌘</kbd><kbd>⇧</kbd><kbd>O</kbd> A file tree, git status and project search in <kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd>.</p></div>
+    <div class="card rv" style="--i:3;padding:30px 34px"><div class="num" style="font-size:56px;color:var(--teal)">2</div><h3 style="margin-top:10px">X-Ray it</h3><p><kbd>⌘</kbd><kbd>4</kbd> Layers fill in. Click a scenario for a sequence diagram with source links.</p></div>
+    <div class="card rv" style="--i:4;padding:30px 34px"><div class="num" style="font-size:56px;color:var(--green)">3</div><h3 style="margin-top:10px">Ask the project</h3><p>Type in the ⚡ box: <i>"How is a document saved?"</i> Get a cited answer and the boxes light up.</p></div>
+    <div class="card rv" style="--i:5;padding:30px 34px"><div class="num" style="font-size:56px;color:var(--amber)">4</div><h3 style="margin-top:10px">Query a data file</h3><p>Open a CSV or Parquet file, click <b style="color:#dfe5f5">SQL</b>, run a query with <kbd>⌘</kbd><kbd>↵</kbd>.</p></div>
+    <div class="card rv" style="--i:6;padding:30px 34px"><div class="num" style="font-size:56px;color:var(--violet)">5</div><h3 style="margin-top:10px">Run an agent</h3><p><kbd>⌘</kbd><kbd>3</kbd> Start Claude Code, then press <i>Review changes</i>.</p></div>
+    <div class="card rv" style="--i:7;padding:30px 34px"><div class="num" style="font-size:56px;color:var(--red)">6</div><h3 style="margin-top:10px">Prototype from code</h3><p>AI Tools → Prototype → <i>New Prototype from Code…</i> Then watch the build.</p></div>
+  </div>
+  <p class="small rv" style="--i:8;margin-top:30px">Bonus: <kbd>⌃</kbd><kbd>⌘</kbd><kbd>D</kbd> for Deployments, <kbd>⌘</kbd><kbd>6</kbd> to preview a web app, <kbd>⌘</kbd><kbd>⇧</kbd><kbd>E</kbd> to export a PDF book.</p>
+</section>
+
+<!-- 16 · Get it -->
+<section class="slide" data-bare style="justify-content:center;padding-left:150px">
+  <div class="row" style="align-items:center;gap:100px">
+    <div class="col grow">
+      <p class="eyebrow green rv" style="--i:0">Get MarkView</p>
+      <h2 class="rv" style="--i:1;font-size:92px;margin-bottom:34px">Understand it. Specify it.<br>Build it.</h2>
+      <p class="lead rv" style="--i:2;font-size:36px">Download the signed, notarized installer, drag it to Applications, and open any folder.</p>
+      <div class="rv" style="--i:3;margin-top:34px">
+        <span class="chip" style="font-size:30px;padding:16px 34px;background:linear-gradient(180deg,#2a8a64,#217a57);border-color:#3bb98a;color:#fff">⬇ MarkView.dmg</span>
+      </div>
+      <p class="rv" style="--i:4;font-family:var(--mono);font-size:28px;color:#cdd7ff;margin-top:12px">github.com/t-boris/MarkView/releases/latest</p>
+    </div>
+    <div class="col rv" style="--i:3;width:640px;flex:none">
+      <div class="card" style="padding:38px 42px">
+        <h3>Requirements</h3>
+        <ul class="dots" style="margin-top:14px">
+          <li>macOS 13 Ventura or later</li>
+          <li>For AI: one or more agent CLIs, installed and signed in (Claude Code, Codex, Cline, GitHub Copilot or Antigravity)</li>
+          <li>Optional: <code>git</code>, and <code>gh</code> for GitHub</li>
+        </ul>
+        <div style="margin-top:20px;display:flex;align-items:center;gap:20px"><img src="docs/images/app-icon.png" alt="" style="width:84px;height:84px;border-radius:20px"><div class="small" style="color:#c9d1e3">Version 5.11 · MIT licence<br>Open source on GitHub</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+</div>
+<div id="hud"><div id="bar"></div></div>
+<div id="hint">← → navigate · F fullscreen · O overview</div>
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var bar = document.getElementById('bar');
+  var cur = 0;
+
+  function fit() {
+    if (document.body.classList.contains('overview')) { return; }
+    var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    stage.style.transform = 'scale(' + s + ') translate(-50%, -50%)';
+  }
+  function show(n) {
+    cur = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach(function (el, i) { el.classList.toggle('active', i === cur); });
+    bar.style.width = ((cur + 1) / slides.length * 100) + '%';
+    try { history.replaceState(null, '', '#' + (cur + 1)); } catch (e) {}
+  }
+  function toggleOverview(on) {
+    document.body.classList.toggle('overview', on);
+    if (!on) { fit(); } else { stage.style.transform = ''; }
+    var a = slides[cur]; if (on && a && a.scrollIntoView) { a.scrollIntoView({ block: 'center' }); }
+  }
+  function fullscreen() {
+    var d = document, r = d.documentElement;
+    if (d.fullscreenElement) { d.exitFullscreen(); } else if (r.requestFullscreen) { r.requestFullscreen(); }
+  }
+
+  // numbering and brand footer on every slide except the title
+  slides.forEach(function (el, i) {
+    if (el.hasAttribute('data-bare')) { return; }
+    var no = document.createElement('div'); no.className = 'pageno'; no.textContent = (i + 1) + ' / ' + slides.length; el.appendChild(no);
+    var br = document.createElement('div'); br.className = 'brand';
+    br.innerHTML = '<img src="docs/images/app-icon.png" alt=""><span>MarkView</span>'; el.appendChild(br);
+    slides[i].addEventListener('click', function () { if (document.body.classList.contains('overview')) { show(i); toggleOverview(false); } });
+  });
+  slides[0].addEventListener('click', function () { if (document.body.classList.contains('overview')) { show(0); toggleOverview(false); } });
+
+  window.addEventListener('resize', fit);
+  window.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) { return; }
+    var k = e.key;
+    if (k === 'ArrowRight' || k === 'PageDown' || k === ' ' || k === 'Enter') { e.preventDefault(); show(cur + 1); }
+    else if (k === 'ArrowLeft' || k === 'PageUp' || k === 'Backspace') { e.preventDefault(); show(cur - 1); }
+    else if (k === 'Home') { show(0); }
+    else if (k === 'End') { show(slides.length - 1); }
+    else if (k === 'f' || k === 'F') { fullscreen(); }
+    else if (k === 'o' || k === 'O' || k === 'Escape') { toggleOverview(k === 'Escape' ? false : !document.body.classList.contains('overview')); }
+  });
+  var x0 = null;
+  window.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  window.addEventListener('touchend', function (e) {
+    if (x0 === null) { return; }
+    var dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) { show(cur + (dx < 0 ? 1 : -1)); }
+  }, { passive: true });
+  window.addEventListener('click', function (e) {
+    if (document.body.classList.contains('overview')) { return; }
+    if (e.target.closest('a')) { return; }
+    show(cur + (e.clientX < window.innerWidth * 0.25 ? -1 : 1));
+  });
+
+  var start = parseInt((location.hash || '').replace('#', ''), 10);
+  fit(); show(isNaN(start) ? 0 : start - 1);
+  requestAnimationFrame(function () { requestAnimationFrame(function () { document.body.classList.add('ready'); }); });
+  document.body.classList.add('hint'); setTimeout(function () { document.body.classList.remove('hint'); }, 4000);
+})();
+</script>
+</body>
+</html>
