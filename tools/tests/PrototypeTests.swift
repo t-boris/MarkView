@@ -535,6 +535,24 @@ do {
     check(!PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path.hasPrefix(PrototypeFiles.storage(root: root).path), "the archive is not under docs/prototypes")
 }
 
+// The scope mapping the creator sheet and "Sync from code" share (REQ-006).
+do {
+    let root = URL(fileURLWithPath: "/proj")
+    let detected: [PrototypeAI.CodeScope.Detected] = [
+        (URL(fileURLWithPath: "/proj"), "proj", false),
+        (URL(fileURLWithPath: "/proj/web/"), "web", false),
+        (URL(fileURLWithPath: "/proj/apps/desktop"), "desktop", true),
+        (URL(fileURLWithPath: "/elsewhere/app"), "stray", false),
+    ]
+    let whole = PrototypeAI.CodeScope(root: root, sources: [], detected: detected)
+    check(whole.apps == [.init(path: "", label: "proj", isElectron: false), .init(path: "web", label: "web", isElectron: false),
+                         .init(path: "apps/desktop", label: "desktop", isElectron: true)], "whole project: every app inside the root, relative paths: \(whole.apps)")
+    let scoped = PrototypeAI.CodeScope(root: root, sources: ["apps"], detected: detected)
+    check(scoped.apps.map(\.path) == ["", "apps/desktop"], "sources keep the root app and the apps inside them: \(scoped.apps.map(\.path))")
+    check(PrototypeAI.CodeScope(root: root, sources: ["server"], detected: detected).apps.map(\.path) == [""], "only the root app holds an unrelated source")
+    check(PrototypeAI.CodeScope(apps: []).apps.isEmpty && PrototypeAI.CodeScope().apps.isEmpty, "the plain initialisers stay")
+}
+
 // The plan schema and parsing carry the components of each screen.
 do {
     let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]

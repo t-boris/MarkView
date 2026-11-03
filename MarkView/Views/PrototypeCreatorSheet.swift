@@ -138,17 +138,14 @@ struct PrototypeCreatorSheet: View {
         }
     }
 
-    /// Runs the web-app discovery off the main thread and keeps the apps inside the selected scope.
+    /// Runs the web-app discovery off the main thread and keeps the apps inside the selected scope (the same
+    /// `CodeScope.detect` that "Sync from code" runs later, so both see the same hints).
     private func detect() async {
         guard isCode, let root else { return }
         let sources = self.sources
-        let targets = await Task.detached { WebAppPreview.targets(root: root) }.value
+        let scope = await Task.detached { PrototypeAI.CodeScope.detect(root: root, sources: sources) }.value
         guard !Task.isCancelled else { return }
-        detected = targets.compactMap { target -> PrototypeAI.CodeScope.App? in
-            let path = target.folder.standardizedFileURL.path == root.path ? "" : relative(target.folder)
-            guard let path, PrototypeFiles.isInScope(appPath: path, sources: sources) else { return nil }
-            return PrototypeAI.CodeScope.App(path: path, label: target.label, isElectron: target.isElectron)
-        }
+        detected = scope.apps
     }
 
     private var root: URL? { workspaceManager.rootNode?.url.standardizedFileURL }

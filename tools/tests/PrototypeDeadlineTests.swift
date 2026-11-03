@@ -126,6 +126,74 @@ import Foundation
         precondition(after == before, "source files changed: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
         precondition(PrototypeFiles.read(site: PrototypeFiles.site(of: folder)).map(\.path).contains("screens/orders.js"))
         print("Prototype code mode: the fixture app is reconstructed with its gaps, evidence and components; every file outside docs/prototypes/ is unchanged.")
+
+        try await syncFromCode(root: root, folder: folder, scope: scope, before: before)
+    }
+
+    /// "Sync from code" (REQ-006, DEC-005): the same build runs again against the current code and replaces the
+    /// live site, the previous version stays restorable, a failed sync restores it, and no source file changes.
+    static func syncFromCode(root: URL, folder: URL, scope: PrototypeAI.CodeScope, before: [String: String]) async throws {
+        let fm = FileManager.default
+        let site = PrototypeFiles.site(of: folder)
+        // The studio snapshots every accepted version; v1 is the creation.
+        try PrototypeFiles.snapshot(folder: folder, version: 1)
+        var manifest = PrototypeFiles.Manifest(title: "Fixture Orders", slug: "orders", brief: "", sources: ["src"], mode: .code)
+        manifest.version = 1
+
+        // A requirements-mode prototype cannot be synced.
+        var refused = false
+        do {
+            var plain = manifest
+            plain.mode = .requirements
+            _ = try await PrototypeAI.sync(root: root, folder: folder, manifest: plain, codeScope: scope, language: "", record: { _ in }, stage: { _ in })
+        } catch { refused = true }
+        precondition(refused, "sync refuses a requirements-mode prototype")
+        let untouched = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
+        precondition(untouched.contains("<h1>Orders</h1>"), "a refused sync changes nothing")
+
+        // The code changed: the sync reconstructs it again into site/, v1 keeps the earlier files.
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "synced")
+        let steps = Phases()
+        let synced = try await PrototypeAI.sync(root: root, folder: folder, manifest: manifest, codeScope: scope, language: "",
+            record: { _ in }, stage: { event in
+                if case .step(let text) = event { steps.add(text) }
+                if case .phase(let text) = event { steps.add(text) }
+            })
+        precondition(synced.title == "Fixture Orders (synced)" && synced.screens == ["Orders"], "\(synced.title) \(synced.screens)")
+        precondition(synced.components.map(\.path) == ["src/index.html", "src/toolbar.html"] && synced.components[0].page != nil, "the sync records the components again")
+        precondition(steps.first == "Clearing the previous files (kept as v1)", "\(steps.first ?? "")")
+        let live = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
+        let kept = try String(contentsOf: PrototypeFiles.versionFolder(of: folder, 1).appendingPathComponent("screens/orders.js"), encoding: .utf8)
+        precondition(live.contains("Orders (synced)") && kept.contains("<h1>Orders</h1>") && !kept.contains("synced"), "the live site is the new reconstruction, v1 the old one")
+        let labels = await CLICompletion.audit.labels
+        precondition(labels.contains("prototype:plan") && labels.contains("prototype:screen:orders") && labels.contains("prototype:component:src-index-html"),
+                     "a sync runs the same stages as creation: \(labels.sorted())")
+        let plan = await CLICompletion.audit.prompts["prototype:plan"] ?? ""
+        precondition(plan.contains("- src\n") && plan.contains("Electron renderer"), "the sync plans with the same sources and scope hints")
+        try PrototypeFiles.snapshot(folder: folder, version: 2)
+        manifest.version = 2
+        precondition(fm.fileExists(atPath: PrototypeFiles.versionFolder(of: folder, 1).appendingPathComponent("index.html").path)
+                     && fm.fileExists(atPath: PrototypeFiles.versionFolder(of: folder, 2).appendingPathComponent("components/src-index-html.html").path),
+                     "both versions are kept")
+
+        // A sync whose planner fails leaves the prototype as it was: the live site is v2 again.
+        await CLICompletion.audit.set(variant: "failing")
+        var failed = false
+        do {
+            _ = try await PrototypeAI.sync(root: root, folder: folder, manifest: manifest, codeScope: scope, language: "", record: { _ in }, stage: { _ in })
+        } catch {
+            failed = error.localizedDescription.contains("the planner could not read the code")
+        }
+        precondition(failed, "the failed sync reports the planner's error")
+        let restored = try String(contentsOf: site.appendingPathComponent("screens/orders.js"), encoding: .utf8)
+        precondition(restored.contains("Orders (synced)") && fm.fileExists(atPath: site.appendingPathComponent("components/src-index-html.html").path),
+                     "a failed sync restores the previous version's files")
+        await CLICompletion.audit.set(variant: "")
+
+        let after = try checksums(root: root)
+        precondition(after == before, "a sync changed source files: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
+        print("Prototype sync from code: the reconstruction runs again into a new version, v1 stays, a failed sync restores the live site; no source file changed.")
     }
 
     /// Collects the build phases from the `@Sendable` stage closure.

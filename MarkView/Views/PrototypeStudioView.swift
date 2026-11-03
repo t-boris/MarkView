@@ -111,6 +111,13 @@ struct PrototypeStudioView: View {
             }
             .toggleStyle(.button).controlSize(.small).disabled(!session.hasSite || session.isBusy)
             .help("Click an element in the preview to say what should change about it")
+            if session.manifest.mode == .code {
+                Button { session.syncFromCode() } label: {
+                    Label("Sync from code", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .controlSize(.small).fixedSize().disabled(!session.canSyncFromCode || session.isBusy)
+                .help("Reconstruct the preview again from the current source code and save it as a new version; the earlier versions stay in the history")
+            }
             if session.manifest.version > 1 {
                 Menu {
                     ForEach(session.manifest.history.reversed(), id: \.version) { entry in

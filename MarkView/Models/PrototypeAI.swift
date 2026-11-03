@@ -57,6 +57,32 @@ enum PrototypeAI {
             var isElectron: Bool
         }
         var apps: [App] = []
+
+        /// A detected web app as the caller's discovery reports it: its folder and label, and whether it is Electron.
+        typealias Detected = (folder: URL, label: String, isElectron: Bool)
+
+        /// The scope of a reconstruction from the apps the discovery found under `root`: each app's folder as a
+        /// project-relative path ("" for the root), keeping only the apps inside `sources` (`PrototypeFiles.isInScope`).
+        /// The one mapping the creator sheet and "Sync from code" share, so both runs see the same hints (REQ-006).
+        init(root: URL, sources: [String], detected: [Detected]) {
+            let base = root.standardizedFileURL.path
+            let prefix = base + "/"
+            apps = detected.compactMap { app -> App? in
+                let full = app.folder.standardizedFileURL.path
+                let path: String
+                if full == base {
+                    path = ""
+                } else if full.hasPrefix(prefix) {
+                    path = String(full.dropFirst(prefix.count))
+                } else {
+                    return nil
+                }
+                guard PrototypeFiles.isInScope(appPath: path, sources: sources) else { return nil }
+                return App(path: path, label: app.label, isElectron: app.isElectron)
+            }
+        }
+
+        init(apps: [App] = []) { self.apps = apps }
     }
 
     /// What the studio shows while a run is going: `status` replaces the current line, `log` adds a line to the
@@ -885,6 +911,32 @@ enum PrototypeAI {
         let built = plan.screens.map(\.name).filter { !failed.contains($0) }
         return Built(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: built, failed: failed,
                      gaps: gaps, components: components)
+    }
+
+    /// Reconstructs a code-mode prototype again from the current sources, for "Sync from code" (REQ-006,
+    /// DEC-005): the same build as creation with the manifest's sources and brief and the scope given. The
+    /// live `site` is replaced; the caller must hold it as `versions/v<manifest.version>` (every accepted
+    /// version is), and on any failure or cancellation that version is restored, so the prototype is never
+    /// left half built. The caller records the result as a new version; earlier versions stay restorable.
+    static func sync(root: URL, folder: URL, manifest: PrototypeFiles.Manifest, codeScope: CodeScope, language: String,
+                     concurrency: Int = 4, record: @escaping Record, stage: @escaping Stage) async throws -> Built {
+        guard manifest.mode == .code else { throw PrototypeFiles.Failure.edits(["Only a prototype reconstructed from code can be synced from it."]) }
+        let fm = FileManager.default
+        let previous = PrototypeFiles.versionFolder(of: folder, manifest.version)
+        guard manifest.version > 0, fm.fileExists(atPath: previous.path) else {
+            throw PrototypeFiles.Failure.edits(["The prototype has no saved version to sync from; build it first."])
+        }
+        let site = PrototypeFiles.site(of: folder)
+        stage(.step("Clearing the previous files (kept as v\(manifest.version))"))
+        try? fm.removeItem(at: site)
+        try fm.createDirectory(at: site, withIntermediateDirectories: true)
+        do {
+            return try await build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources, language: language,
+                                   mode: .code, codeScope: codeScope, concurrency: concurrency, record: record, stage: stage)
+        } catch {
+            try? PrototypeFiles.restore(folder: folder, version: manifest.version)
+            throw error
+        }
     }
 
     private static func foundationShell(_ language: String) -> String { shellSystem(language: language) }

@@ -106,6 +106,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var hasSite: Bool { FileManager.default.fileExists(atPath: siteIndex.path) }
     /// What the preview loads: the isolated page when one is shown, else `index.html`.
     var shownURL: URL { shownPage.map { siteFolder.appendingPathComponent($0) } ?? siteIndex }
+    /// "Sync from code" applies to a code-mode prototype that has a saved version (REQ-006).
+    var canSyncFromCode: Bool { manifest.mode == .code && manifest.version > 0 && hasSite }
 
     /// The component record of a source path, when the manifest lists it.
     func component(at path: String) -> PrototypeFiles.Component? {
@@ -173,11 +175,13 @@ final class PrototypeSession: ObservableObject, Identifiable {
 
     // MARK: - Runs
 
-    private var stageReporter: PrototypeAI.Stage {
-        { [weak self] event in Task { @MainActor in self?.apply(event) } }
+    /// Events of a run, applied on the main actor. A build's milestones become versions unless `milestones` is
+    /// off: a sync records one version at its end, not the shell on its way (REQ-006).
+    private func stageReporter(milestones: Bool = true) -> PrototypeAI.Stage {
+        { [weak self] event in Task { @MainActor in self?.apply(event, milestones: milestones) } }
     }
 
-    private func apply(_ event: PrototypeAI.Event) {
+    private func apply(_ event: PrototypeAI.Event, milestones: Bool) {
         guard stage != nil else { return }
         switch event {
         case .status(let text): stage = text
@@ -256,7 +260,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
                 let built = try await PrototypeAI.build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
                                                         language: languageNote, mode: manifest.mode, codeScope: codeScope,
-                                                        record: record, stage: stageReporter)
+                                                        record: record, stage: stageReporter())
                 adopt(built)
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
@@ -302,6 +306,39 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 + "Use Components in the preview header to see them."
         }
         return reply
+    }
+
+    /// Reconstructs a code-mode prototype again from the current sources and saves the result as a new version
+    /// (REQ-006, DEC-005). The scope is found again from the project, as the creator sheet found it; the
+    /// conversation stays and gets the summary; the earlier versions, with any edits, remain restorable. A
+    /// failure or Stop restores the previous version and changes nothing.
+    func syncFromCode() {
+        guard !isBusy, canSyncFromCode else { return }
+        beginRun("Reading the code")
+        let before = manifest
+        show(page: nil)
+        task = Task { [self] in
+            defer { endRun() }
+            do {
+                let root = self.root, sources = manifest.sources
+                codeScope = await Task.detached { PrototypeAI.CodeScope.detect(root: root, sources: sources) }.value
+                let built = try await PrototypeAI.sync(root: root, folder: folder, manifest: before, codeScope: codeScope,
+                                                       language: languageNote, record: record, stage: stageReporter(milestones: false))
+                adopt(built)
+                let screens = built.screens.isEmpty ? "no screen could be written" : "screens: \(built.screens.joined(separator: ", "))"
+                try accept(instruction: "Synced from code", summary: "Reconstructed again from the current code; \(screens).")
+                messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
+                await settleAndFix(language: languageNote)
+            } catch is CancellationError {
+                manifest = before
+                reload()
+                messages.append(Message(role: .error, text: "Stopped. The prototype is unchanged (v\(before.version))."))
+            } catch {
+                manifest = before
+                reload()
+                messages.append(Message(role: .error, text: "Sync from code failed; the prototype is unchanged (v\(before.version)). \(error.localizedDescription)"))
+            }
+        }
     }
 
     /// One reviewer request, with the element pointed at in the preview and the images sent with it. The screenshot of
@@ -353,7 +390,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
                                                            attachments: files, runtimeErrors: runtimeErrors, language: languageNote,
                                                            mode: manifest.mode, sources: manifest.sources,
-                                                           record: record, stage: stageReporter)
+                                                           record: record, stage: stageReporter())
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
@@ -386,7 +423,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
             defer { endRun() }
             do {
                 let spec = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest,
-                                                               language: languageNote, record: record, stage: stageReporter)
+                                                               language: languageNote, record: record, stage: stageReporter())
                 stage = "Packing the archive"; log("Packing the archive")
                 let folder = self.folder, manifest = self.manifest
                 let root = self.root
@@ -467,7 +504,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                                                            instruction: "Fix the JavaScript errors reported by the preview. Change nothing else.",
                                                            pick: nil, runtimeErrors: errors, language: language,
                                                            mode: manifest.mode, sources: manifest.sources,
-                                                           record: record, stage: stageReporter)
+                                                           record: record, stage: stageReporter())
                 try accept(instruction: "Fix preview errors", summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
             } catch {
@@ -475,5 +512,15 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 return
             }
         }
+    }
+}
+
+extension PrototypeAI.CodeScope {
+    /// The reconstruction scope of `sources` under `root`, from the project's web-app discovery: the one call
+    /// the creator sheet and "Sync from code" share, so a sync sees the hints creation saw (REQ-006). Reads
+    /// the file system; the caller keeps it off the main thread.
+    static func detect(root: URL, sources: [String]) -> PrototypeAI.CodeScope {
+        let found = WebAppPreview.targets(root: root).map { ($0.folder, $0.label, $0.isElectron) as Detected }
+        return PrototypeAI.CodeScope(root: root, sources: sources, detected: found)
     }
 }
