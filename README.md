@@ -297,8 +297,9 @@ Point MarkView at a requirements file or folder (**AI Tools → Prototype → Ne
 it builds a clickable HTML prototype you can review like a real product, then packs it for
 implementation.
 
-- **Build in steps you can watch.** The assistant plans the screens (up to ten), writes the
-  shared shell and sample data, then writes the screens side by side. A step header and a
+- **Build in steps you can watch.** The assistant plans the screens (up to ten); MarkView adds
+  its own shell and data runtime, and the assistant writes the styles, the sample data and the
+  screens side by side. A step header and a
   per-screen checklist show progress, with a Stop button and a time limit per step. Every
   step runs through your regular assistant and model.
 - **Deep, not a picture.** Routes, forms with validation, roles and permissions, filters,
@@ -312,7 +313,8 @@ implementation.
   a screenshot of another product — and the assistant reads them with the request.
 - **Retry and history.** A failed or stopped request offers **Retry** or **Edit in the
   field**. The whole conversation is saved with the prototype and is back when you reopen it
-  (AI Tools → Prototype → Open Prototype).
+  (AI Tools → Prototype → Open Prototype). **Clear conversation** removes the messages and their
+  images when the chat gets long; the prototype, its versions and their history stay.
 - **Approve and hand off.** Approving writes the specification and packs a ZIP: the
   prototype, `SPEC.md` (screens, states, transitions, data, rules, traceability to your
   requirements), `CHANGES.md` (the review history) and a README. An implementer, human or AI,
