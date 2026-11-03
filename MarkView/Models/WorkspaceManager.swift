@@ -737,6 +737,11 @@ class WorkspaceManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms — let UI render progress
             Self.debugLog("Task started, building tree...")
 
+            // Prototypes made before DEC-006 move from .dde/prototypes to docs/prototypes once, before the
+            // tree and the prototype lists read the folder; a slug already there stays and is only logged.
+            let migration = await Task.detached { PrototypeFiles.migrateLegacy(root: url) }.value
+            if !migration.isEmpty { Self.debugLog("Prototype storage migration: \(migration.summary)") }
+
             // Build tree on background thread to avoid blocking UI
             let sort = self.fileTreeStore.sortOrder
             let node = await Task.detached {

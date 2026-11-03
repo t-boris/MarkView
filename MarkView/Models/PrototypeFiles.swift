@@ -4,8 +4,10 @@ import Foundation
 /// touch, how edits apply, and the version snapshots. Pure Foundation, so `tools/tests/prototype-tests.sh`
 /// compiles it on its own.
 ///
-/// A prototype is `<project>/.dde/prototypes/<slug>/` with `prototype.json`, the live `site/` and one
-/// `versions/vN/` copy of `site/` per accepted change.
+/// A prototype is `<project>/docs/prototypes/<slug>/` with `prototype.json`, the live `site/` and one
+/// `versions/vN/` copy of `site/` per accepted change. The folder is part of the project, so a prototype
+/// can be committed and shared through the repository (DEC-006); `migrateLegacy` moves prototypes made
+/// before that from `.dde/prototypes/`.
 enum PrototypeFiles {
 
     struct File: Equatable {
@@ -88,8 +90,18 @@ enum PrototypeFiles {
 
     // MARK: - Locations
 
+    /// Where prototypes live, relative to the project root: committed with the project (DEC-006). The
+    /// single source of truth for every path producer and consumer, `PrototypeReference` included.
+    static let storageFolder = "docs/prototypes"
+    /// Where prototypes lived before DEC-006; `migrateLegacy` moves them once, `PrototypeReference` still reads the path.
+    static let legacyStorageFolder = ".dde/prototypes"
+
+    static func storage(root: URL) -> URL {
+        root.appendingPathComponent(storageFolder, isDirectory: true)
+    }
+
     static func folder(root: URL, slug: String) -> URL {
-        root.appendingPathComponent(".dde/prototypes", isDirectory: true).appendingPathComponent(slug, isDirectory: true)
+        storage(root: root).appendingPathComponent(slug, isDirectory: true)
     }
     static func site(of folder: URL) -> URL { folder.appendingPathComponent("site", isDirectory: true) }
     static func versionFolder(of folder: URL, _ version: Int) -> URL {
@@ -108,10 +120,60 @@ enum PrototypeFiles {
     }
 
     static func existingSlugs(root: URL) -> [String] {
-        let dir = root.appendingPathComponent(".dde/prototypes", isDirectory: true)
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: storage(root: root).path)) ?? []
         return names.filter { FileManager.default.fileExists(atPath: manifestURL(of: folder(root: root, slug: $0)).path) }
             .sorted()
+    }
+
+    // MARK: - Migration (DEC-006)
+
+    /// What `migrateLegacy` did: the slugs it moved and the ones it left in place.
+    struct MigrationReport: Equatable, Sendable {
+        var moved: [String] = []
+        /// Left in `.dde/prototypes/`: a prototype of the same slug already exists in `docs/prototypes/`.
+        var conflicts: [String] = []
+        /// Left in place because the move failed; each with the error text.
+        var failed: [String] = []
+
+        var isEmpty: Bool { moved.isEmpty && conflicts.isEmpty && failed.isEmpty }
+
+        /// One line for the log.
+        var summary: String {
+            var parts: [String] = []
+            if !moved.isEmpty { parts.append("moved \(moved.joined(separator: ", ")) to \(PrototypeFiles.storageFolder)") }
+            if !conflicts.isEmpty { parts.append("left in \(PrototypeFiles.legacyStorageFolder) (slug already in \(PrototypeFiles.storageFolder)): \(conflicts.joined(separator: ", "))") }
+            if !failed.isEmpty { parts.append("could not move: \(failed.joined(separator: "; "))") }
+            return parts.isEmpty ? "nothing to migrate" : parts.joined(separator: "; ")
+        }
+    }
+
+    /// Moves every folder of `.dde/prototypes/` to `docs/prototypes/`, once. A folder whose name already
+    /// exists at the new place is left where it is and reported; nothing is deleted or rewritten, so the
+    /// call is idempotent and safe to repeat on every project open. Pure file-system work; the caller keeps
+    /// it off the main thread.
+    static func migrateLegacy(root: URL, fileManager: FileManager = .default) -> MigrationReport {
+        let legacy = root.appendingPathComponent(legacyStorageFolder, isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: legacy.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              let names = try? fileManager.contentsOfDirectory(atPath: legacy.path) else { return MigrationReport() }
+        var report = MigrationReport()
+        for name in names.sorted() where !name.hasPrefix(".") {
+            let source = legacy.appendingPathComponent(name, isDirectory: true)
+            guard fileManager.fileExists(atPath: source.path, isDirectory: &isDirectory), isDirectory.boolValue else { continue }
+            let target = folder(root: root, slug: name)
+            if fileManager.fileExists(atPath: target.path) {
+                report.conflicts.append(name)
+                continue
+            }
+            do {
+                try fileManager.createDirectory(at: storage(root: root), withIntermediateDirectories: true)
+                try fileManager.moveItem(at: source, to: target)
+                report.moved.append(name)
+            } catch {
+                report.failed.append("\(name): \(error.localizedDescription)")
+            }
+        }
+        return report
     }
 
     // MARK: - Conversation
@@ -191,19 +253,21 @@ enum PrototypeFiles {
     }
 
     /// The web-interface files under `sources` (files or folders relative to `root`; empty means the
-    /// whole project), sorted by path, skipping dependency, build, VCS, `.dde` and hidden folders. A
-    /// source outside the root or that does not exist is ignored. Pure file-system reading; the
-    /// caller keeps it off the main thread.
+    /// whole project), sorted by path, skipping dependency, build, VCS, `.dde` and hidden folders and the
+    /// prototypes themselves (`docs/prototypes`). A source outside the root or that does not exist is
+    /// ignored. Pure file-system reading; the caller keeps it off the main thread.
     static func inventory(root: URL, sources: [String], limit: Int = inventoryLimit,
                           fileManager: FileManager = .default) -> Inventory {
         let base = root.standardizedFileURL
         let basePath = base.path + "/"
+        let storagePath = storage(root: base).standardizedFileURL.path
         var seen = Set<String>()
         var entries: [InventoryEntry] = []
 
         func add(_ url: URL) {
             let full = url.standardizedFileURL.path
-            guard full.hasPrefix(basePath), !seen.contains(full), isInventoryFile(url.lastPathComponent) else { return }
+            guard full.hasPrefix(basePath), !full.hasPrefix(storagePath + "/"), !seen.contains(full),
+                  isInventoryFile(url.lastPathComponent) else { return }
             seen.insert(full)
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
             entries.append(InventoryEntry(path: String(full.dropFirst(basePath.count)), bytes: size))
@@ -216,7 +280,8 @@ enum PrototypeFiles {
                 let values = try? url.resourceValues(forKeys: Set(keys))
                 let name = values?.name ?? url.lastPathComponent
                 if values?.isDirectory == true {
-                    if name.hasPrefix(".") || inventorySkippedFolders.contains(name) { walker.skipDescendants() }
+                    if name.hasPrefix(".") || inventorySkippedFolders.contains(name)
+                        || url.standardizedFileURL.path == storagePath { walker.skipDescendants() }
                     continue
                 }
                 if values?.isRegularFile == true { add(url) }

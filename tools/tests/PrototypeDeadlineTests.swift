@@ -35,7 +35,7 @@ import Foundation
     }
 
     /// Code mode (Previews from Existing Code): the build reads a fixture web app, carries its gaps and evidence
-    /// through the prompts and the result, and leaves every file outside `.dde/` untouched (REQ-001).
+    /// through the prompts and the result, and leaves every file outside `docs/prototypes/` untouched (REQ-001).
     static func codeMode() async throws {
         await CLICompletion.audit.reset()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mv-prototype-code-" + UUID().uuidString)
@@ -100,11 +100,11 @@ import Foundation
         let specSystem = await CLICompletion.audit.systems["prototype:spec"] ?? ""
         precondition(specSystem.contains("never present simulated behaviour"))
 
-        // Nothing outside .dde/ changed, and the prototype landed inside it.
+        // Nothing outside docs/prototypes/ changed, and the prototype landed inside it.
         let after = try checksums(root: root)
         precondition(after == before, "source files changed: \(after.filter { before[$0.key] != $0.value }.keys.sorted())")
         precondition(PrototypeFiles.read(site: PrototypeFiles.site(of: folder)).map(\.path).contains("screens/orders.js"))
-        print("Prototype code mode: the fixture app is reconstructed with its gaps and evidence; every file outside .dde/ is unchanged.")
+        print("Prototype code mode: the fixture app is reconstructed with its gaps and evidence; every file outside docs/prototypes/ is unchanged.")
     }
 
     /// Collects the build phases from the `@Sendable` stage closure.
@@ -115,14 +115,14 @@ import Foundation
         var first: String? { lock.lock(); defer { lock.unlock() }; return items.first }
     }
 
-    /// SHA-256 of every file under `root` except `.dde/`, by relative path.
+    /// SHA-256 of every file under `root` except the prototype storage, by relative path.
     static func checksums(root: URL) throws -> [String: String] {
         var out: [String: String] = [:]
         let base = root.standardizedFileURL.path + "/"
         guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else { return out }
         for case let url as URL in walker {
             let path = String(url.standardizedFileURL.path.dropFirst(base.count))
-            if path == ".dde" || path.hasPrefix(".dde/") { continue }
+            if path == PrototypeFiles.storageFolder || path.hasPrefix(PrototypeFiles.storageFolder + "/") { continue }
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
             let data = try Data(contentsOf: url)
             out[path] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()

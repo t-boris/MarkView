@@ -58,7 +58,7 @@ let getPrototype = tools.first { $0.name == "markview_get_prototype" }!
 check(getPrototype.description.contains("markview://prototype/<slug>") && getPrototype.description.contains("latest saved version") && getPrototype.description.contains("checkout"),
       "markview_get_prototype describes the reference and where it resolves")
 check((getPrototype.properties["prototype"]?["description"] as? String)?.contains("markview://prototype/<slug>") == true
-      && (getPrototype.properties["prototype"]?["description"] as? String)?.contains(".dde/prototypes/<slug>") == true, "the prototype argument takes the reference in its forms")
+      && (getPrototype.properties["prototype"]?["description"] as? String)?.contains("docs/prototypes/<slug>") == true, "the prototype argument takes the reference in its forms")
 check(tools.first { $0.name == "markview_list_prototypes" }!.description.contains("markview://prototype/<slug>"), "markview_list_prototypes shows each reference")
 
 // MARK: Bodies

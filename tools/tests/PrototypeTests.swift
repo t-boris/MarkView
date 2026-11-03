@@ -24,6 +24,9 @@ let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("proto-\
 defer { try? FileManager.default.removeItem(at: tmp) }
 let folder = PrototypeFiles.folder(root: tmp, slug: "demo")
 let site = PrototypeFiles.site(of: folder)
+check(PrototypeFiles.storageFolder == "docs/prototypes" && PrototypeFiles.legacyStorageFolder == ".dde/prototypes", "storage folders (DEC-006)")
+check(folder.path == tmp.appendingPathComponent("docs/prototypes/demo").path, "a prototype lives in docs/prototypes/<slug>")
+check(PrototypeFiles.storage(root: tmp).path == tmp.appendingPathComponent("docs/prototypes").path, "the storage folder")
 try FileManager.default.createDirectory(at: site, withIntermediateDirectories: true)
 
 var change = PrototypeFiles.Change(files: [.init(path: "index.html", content: "<h1>Hello</h1><p>x</p>"),
@@ -113,6 +116,7 @@ do {
                  "src/legacy.htm", "src/util.ts", "src/main.jsx", "src/less.less", "public/manifest.json",
                  "src/logo.png", "src/data.json", "README.md", "src/vendor.min.js", "src/.secret.js",
                  "node_modules/react/index.js", "dist/bundle.js", "build/app.js", ".git/config.js", ".dde/prototypes/x/site/index.html",
+                 "docs/prototypes/x/site/index.html", "docs/prototypes/x/site/screens/home.js", "docs/guide/page.html",
                  ".hidden/app.js", "server/api.py", "server/routes.js", "electron/preload.js"] {
         try put(path)
     }
@@ -122,12 +126,12 @@ do {
     check(paths == paths.sorted() && Set(paths).count == paths.count, "inventory is sorted and unique")
     for wanted in ["package.json", "index.html", "src/App.tsx", "src/app.css", "src/theme.scss", "src/Widget.vue", "src/Card.svelte",
                    "src/legacy.htm", "src/util.ts", "src/main.jsx", "src/less.less", "public/manifest.json", "server/routes.js",
-                   "electron/preload.js", "src/big.js"] {
+                   "electron/preload.js", "src/big.js", "docs/guide/page.html"] {
         check(paths.contains(wanted), "inventory lists \(wanted)")
     }
     for unwanted in ["src/logo.png", "src/data.json", "README.md", "src/vendor.min.js", "src/.secret.js", "node_modules/react/index.js",
                      "dist/bundle.js", "build/app.js", ".git/config.js", ".dde/prototypes/x/site/index.html", ".hidden/app.js",
-                     "server/api.py"] {
+                     "server/api.py", "docs/prototypes/x/site/index.html", "docs/prototypes/x/site/screens/home.js"] {
         check(!paths.contains(unwanted), "inventory skips \(unwanted)")
     }
     check(whole.entries.first { $0.path == "src/big.js" }?.bytes == 2048, "inventory carries the file size")
@@ -389,6 +393,43 @@ do {
     })
     tracker.handle(.read("/proj/web/src/App.tsx"))
     check(lines.statuses == ["Reading the code (1 file so far)"], "progress: code-mode read counter")
+}
+
+// Legacy prototypes move from .dde/prototypes to docs/prototypes once; a conflict stays; nothing is deleted (DEC-006).
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("mig-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let fm = FileManager.default
+    func put(_ path: String, _ content: String = "x") throws {
+        let url = proj.appendingPathComponent(path)
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+    check(PrototypeFiles.migrateLegacy(root: proj) == PrototypeFiles.MigrationReport(), "no legacy folder: nothing to do")
+    check(PrototypeFiles.MigrationReport().summary == "nothing to migrate" && PrototypeFiles.MigrationReport().isEmpty, "empty report")
+    try put(".dde/prototypes/shop/prototype.json", "{\"title\":\"Shop\",\"slug\":\"shop\"}")
+    try put(".dde/prototypes/shop/site/index.html", "<h1>shop</h1>")
+    try put(".dde/prototypes/shop/versions/v1/index.html", "<h1>shop</h1>")
+    try put(".dde/prototypes/desk/prototype.json", "{\"title\":\"Desk\",\"slug\":\"desk\"}")
+    try put(".dde/prototypes/desk/site/index.html", "<h1>legacy desk</h1>")
+    try put(".dde/prototypes/.DS_Store", "")
+    try put(".dde/prototypes/stray.txt", "not a prototype")
+    try put("docs/prototypes/desk/prototype.json", "{\"title\":\"Desk\",\"slug\":\"desk\"}")
+    try put("docs/prototypes/desk/site/index.html", "<h1>new desk</h1>")
+    let first = PrototypeFiles.migrateLegacy(root: proj)
+    check(first == PrototypeFiles.MigrationReport(moved: ["shop"], conflicts: ["desk"]), "moves shop, leaves desk: \(first)")
+    check(first.summary == "moved shop to docs/prototypes; left in .dde/prototypes (slug already in docs/prototypes): desk", "report summary")
+    check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/versions/v1/index.html").path)
+          && fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path)
+          && !fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/shop").path), "the whole folder moved")
+    check((try? String(contentsOf: proj.appendingPathComponent("docs/prototypes/desk/site/index.html"), encoding: .utf8)) == "<h1>new desk</h1>"
+          && (try? String(contentsOf: proj.appendingPathComponent(".dde/prototypes/desk/site/index.html"), encoding: .utf8)) == "<h1>legacy desk</h1>",
+          "a conflict is left in place: neither copy is touched")
+    check(fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/stray.txt").path), "files in the legacy folder are not moved or deleted")
+    check(PrototypeFiles.existingSlugs(root: proj) == ["desk", "shop"], "the new storage lists both")
+    let second = PrototypeFiles.migrateLegacy(root: proj)
+    check(second == PrototypeFiles.MigrationReport(conflicts: ["desk"]), "a second run moves nothing and reports the conflict again: \(second)")
+    check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path), "idempotent: shop stays")
 }
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

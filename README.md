@@ -317,7 +317,9 @@ implementation.
   prototype, `SPEC.md` (screens, states, transitions, data, rules, traceability to your
   requirements), `CHANGES.md` (the review history) and a README. An implementer, human or AI,
   builds from that package.
-- Everything lives in `.dde/prototypes/<name>/` in your project.
+- Everything lives in `docs/prototypes/<name>/` in your project, so a prototype can be committed
+  and shared through the repository. Prototypes made by earlier versions in `.dde/prototypes/` move
+  there automatically when the project opens.
 
 **How a prototype is built**
 
@@ -342,7 +344,7 @@ sequenceDiagram
     actor You
     participant Studio as Studio tab
     participant AI as Assistant (read-only)
-    participant Disk as .dde/prototypes
+    participant Disk as docs/prototypes
     You->>Studio: Point at an element, paste a sketch, type or speak
     Studio->>AI: Request + element HTML + screenshot + images
     AI-->>Studio: Edits as JSON (validated, all-or-nothing)

@@ -9,18 +9,21 @@ import Foundation
 /// exists. A version folder in a path form (`…/versions/v3`) is read and ignored for that reason; the
 /// caller may mention it.
 ///
-/// The prototype lives in `<project>/.dde/prototypes/<slug>/`, and `.dde/` is local to the machine that
-/// built the prototype: it is not part of the repository. The reference therefore resolves only in a
-/// checkout that holds that folder — it is a pointer for agents working on this machine's project, not
-/// a link that can be published or opened elsewhere.
+/// The prototype lives in `<project>/docs/prototypes/<slug>/` (DEC-006), a folder of the project that is
+/// committed with it. The reference resolves in any checkout of the project that holds that folder — it
+/// is a pointer for agents with the project open, not a link that can be published or opened elsewhere.
+/// Prototypes made before DEC-006 lived in `.dde/prototypes/<slug>/`; that path form is still read.
 ///
-/// Pure Foundation, so `tools/tests/prototype-reference-tests.sh` compiles it on its own.
+/// Pure Foundation (with `PrototypeFiles` for the storage folders), so
+/// `tools/tests/prototype-reference-tests.sh` compiles the two files on their own.
 enum PrototypeReference {
 
     static let scheme = "markview"
     static let host = "prototype"
     /// The prototype storage, relative to the project root.
-    static let storageFolder = ".dde/prototypes"
+    static let storageFolder = PrototypeFiles.storageFolder
+    /// The storage before DEC-006; a path form naming it is still a reference to the same prototype.
+    static let legacyStorageFolder = PrototypeFiles.legacyStorageFolder
 
     /// What a reference text named: the prototype, and a version when the text carried one.
     struct Parsed: Equatable {
@@ -36,9 +39,10 @@ enum PrototypeReference {
 
     /// The slug a reference text names, or nil when the text is not a prototype reference.
     /// Accepted: the URI form `markview://prototype/<slug>`, a bare slug, the project-relative path
-    /// `.dde/prototypes/<slug>` and an absolute path ending in that layout. A path may end in `/`, `/site`
-    /// or `/versions/vN`. Anything else is rejected: other schemes or hosts, `..`, empty text, paths that
-    /// name something other than the prototype folder, its site or one of its versions.
+    /// `docs/prototypes/<slug>` (or the legacy `.dde/prototypes/<slug>`) and an absolute path ending in
+    /// that layout. A path may end in `/`, `/site` or `/versions/vN`. Anything else is rejected: other
+    /// schemes or hosts, `..`, empty text, paths that name something other than the prototype folder,
+    /// its site or one of its versions.
     static func parse(_ text: String) -> String? {
         components(text)?.slug
     }
@@ -59,12 +63,12 @@ enum PrototypeReference {
         var parts = pathComponents(trimmed)
         if trimmed.hasPrefix("/") {
             // An absolute path: the storage folder may sit anywhere in it, once.
-            guard let index = storageIndex(in: parts) else { return nil }
-            parts.removeFirst(index + 2)
+            guard let found = storageIndex(in: parts) else { return nil }
+            parts.removeFirst(found.index + found.length)
         } else {
             if parts.first == "." { parts.removeFirst() }
-            guard storageIndex(in: parts) == 0 else { return nil }
-            parts.removeFirst(2)
+            guard let found = storageIndex(in: parts), found.index == 0 else { return nil }
+            parts.removeFirst(found.length)
         }
         return prototypeComponents(parts)
     }
@@ -81,13 +85,16 @@ enum PrototypeReference {
         text.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
     }
 
-    /// Where `.dde/prototypes` starts in the components, when the path is free of `..`.
-    private static func storageIndex(in parts: [String]) -> Int? {
+    /// Where `docs/prototypes` or the legacy `.dde/prototypes` starts in the components (and how many
+    /// components it spans), when the path is free of `..`.
+    private static func storageIndex(in parts: [String]) -> (index: Int, length: Int)? {
         guard !parts.contains("..") else { return nil }
-        let storage = storageFolder.split(separator: "/").map(String.init)
-        guard parts.count >= storage.count else { return nil }
-        for index in 0...(parts.count - storage.count) where Array(parts[index..<index + storage.count]) == storage {
-            return index
+        for folder in [storageFolder, legacyStorageFolder] {
+            let storage = folder.split(separator: "/").map(String.init)
+            guard parts.count >= storage.count else { continue }
+            for index in 0...(parts.count - storage.count) where Array(parts[index..<index + storage.count]) == storage {
+                return (index, storage.count)
+            }
         }
         return nil
     }

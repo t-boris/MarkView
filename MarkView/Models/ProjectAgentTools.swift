@@ -54,8 +54,8 @@ enum ProjectAgentTools {
              ["status": ["type": "string"]]),
         tool("markview_get_bug", "One bug report in full.", ["id": ["type": "string", "description": "BUG-007"]], required: ["id"]),
         tool("markview_list_prototypes", "The prototypes made in Prototype Studio: slug, title, version, screens, whether approved, and each one's reference (markview://prototype/<slug>)."),
-        tool("markview_get_prototype", "A prototype: title, latest version, reference, mode and known gaps when recorded, screens, assumptions, review history, its file list and SPEC.md when it was exported. With `file`, the text of one prototype file. A reference markview://prototype/<slug> is what a person copies from Prototype Studio to hand the prototype to you; it always resolves to the latest saved version and is local to this project checkout (.dde/prototypes/<slug>/ on this machine), not a public link.",
-             ["prototype": ["type": "string", "description": "Prototype slug, or its reference in any form: markview://prototype/<slug>, .dde/prototypes/<slug>, or an absolute path to that folder (a /site or /versions/vN suffix is accepted and ignored: the reference means the latest version)"],
+        tool("markview_get_prototype", "A prototype: title, latest version, reference, mode and known gaps when recorded, screens, assumptions, review history, its file list and SPEC.md when it was exported. With `file`, the text of one prototype file. A reference markview://prototype/<slug> is what a person copies from Prototype Studio to hand the prototype to you; it always resolves to the latest saved version in this project checkout (docs/prototypes/<slug>/, committed with the project), not a public link.",
+             ["prototype": ["type": "string", "description": "Prototype slug, or its reference in any form: markview://prototype/<slug>, docs/prototypes/<slug> (or the legacy .dde/prototypes/<slug>), or an absolute path to that folder (a /site or /versions/vN suffix is accepted and ignored: the reference means the latest version)"],
               "file": ["type": "string", "description": "A path under the prototype's site, e.g. screens/tickets.js"]],
              required: ["prototype"]),
         tool("markview_create_feature", "Create a feature (docs/features/<slug>/overview.md). Returns its slug; then add requirements, decisions and questions to it.",
@@ -195,7 +195,7 @@ enum ProjectAgentTools {
     - Question (Q): something unknown that blocks or shapes the feature; answered in the app, then it settles decisions.
     - Finding (F): a problem a review found in the specification (the app's reviewer writes these).
     - Bug: docs/bugs/BUG-nnn-<slug>.md with summary, steps, expected, actual, severity.
-    - Prototype: a clickable HTML prototype made in Prototype Studio, in .dde/prototypes/<slug>/ (site/, prototype.json, SPEC.md after approval).
+    - Prototype: a clickable HTML prototype made in Prototype Studio, in docs/prototypes/<slug>/ (site/, prototype.json, SPEC.md after approval).
 
     Rules: never write these files by hand; use the markview_add_* / markview_create_* tools to make things and the \
     markview_update_* / markview_answer_* / markview_set_* / markview_link_issue tools to correct them: they write the exact format, \
@@ -250,11 +250,11 @@ enum ProjectAgentTools {
     Prototypes are made and reviewed by people in Prototype Studio (AI Tools → Prototype). You can read them: \
     markview_list_prototypes, then markview_get_prototype (screens, assumptions, review history, files, SPEC.md). \
     A person hands you a prototype as its reference, markview://prototype/<slug>, copied from Prototype Studio: pass it \
-    to markview_get_prototype as `prototype` (the slug, the reference or the .dde/prototypes/<slug> path all work). \
+    to markview_get_prototype as `prototype` (the slug, the reference or the docs/prototypes/<slug> path all work). \
     The reference names the prototype, not a version: it always resolves to the latest saved version, so it stays valid \
-    after every accepted edit; older versions are listed in the review history. It is local to the project checkout on \
-    this machine (.dde/ is not in the repository), so it works for agents with the same project open and is not a link \
-    to publish. A missing prototype is reported with the list of existing ones. Reading a prototype changes no \
+    after every accepted edit; older versions are listed in the review history. It resolves in a checkout of the project \
+    that holds docs/prototypes/<slug>/ (the folder is committed with the project), so it works for agents with the same \
+    project open and is not a link to publish. A missing prototype is reported with the list of existing ones. Reading a prototype changes no \
     application source: implementation changes stay yours to make from what it shows. \
     To turn a prototype into features: read it and its SPEC.md, group the screens and flows into features (one per \
     capability, not one per screen), create each with markview_create_feature (source: "prototype <slug> v<n>"), then \
@@ -464,10 +464,11 @@ enum ProjectAgentTools {
 
         A person copies a prototype's reference from Prototype Studio, `markview://prototype/<slug>`, and gives it to you as \
         the basis for implementation changes. Pass it to `markview_get_prototype` as `prototype` (the slug, the reference or \
-        the `.dde/prototypes/<slug>` path all work): you get its latest saved version, files, assumptions, known gaps, review \
+        the `docs/prototypes/<slug>` path all work): you get its latest saved version, files, assumptions, known gaps, review \
         history and SPEC.md when it was exported. The reference names the prototype, not a version, so it always resolves to \
-        the latest saved version and stays valid after further edits. It is local to this project checkout on this machine \
-        (`.dde/` is not in the repository): it works for agents with the same project open and is not a link to publish. \
+        the latest saved version and stays valid after further edits. It resolves in a checkout of the project that holds \
+        `docs/prototypes/<slug>/` (committed with the project): it works for agents with the same project open and is not a \
+        link to publish. \
         Reading it changes no source file; the implementation is yours to make from what the prototype shows.
 
         ## Deployments
