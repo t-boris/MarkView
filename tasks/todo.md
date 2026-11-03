@@ -1,5 +1,41 @@
 # MarkView — Follow-up Tasks
 
+## BUG-047: Prototype preview reports a bare "Script error." (2026-11-03, 5.0.3, fix/bug-047-prototype-script-error)
+
+Report (Boris): "Script error." appears when a prototype is generated, at the last stage. The last stage is the automatic
+fix round ("Fixing errors found in the preview"); the conversation showed `The preview reported 1 error; fixing: • Script error.`
+(docs/bugs/BUG-047-prototype-preview-reports-a-bare-script-error-and.md).
+
+Cause (reproduced, not guessed): the preview loaded `site/index.html` with `loadFileURL`; each `file:` URL is its own origin, so
+WebKit mutes every error thrown in `data.js`, `app.js` and `screens/*.js` to "Script error." with no file or line. A standalone
+WKWebView harness with a screen that calls an undefined function reported "Script error." through `file://` and
+`ReferenceError: Can't find variable: undefinedFunction (screens/broken.js:2)` through a custom scheme. The assistant was asked
+to fix an error nobody could see. The underlying JavaScript error in Boris's own prototype is not known: no prototype with the
+error was available here, and the fix makes the next run name it.
+
+Approach agreed with Boris: serve the site through its own URL scheme (not the private `allowFileAccessFromFileURLs` key).
+
+- [x] `Bridge/PrototypeSchemeHandler.swift`: `mvproto://site/<path>`, files only inside `site/` (`..`, encoded `..`, NUL and
+      symlinks out of the folder are refused), directory → `index.html`, content types, no caching, stopped tasks are not answered.
+- [x] `PrototypeStudioView`: the scheme handler is registered on the preview's configuration and the page is loaded with
+      `load(URLRequest)`; the reload keeps the screen's `#hash`. The error report now names the path inside the site
+      (`screens/broken.js:2`), not just the file name. "Open in browser" still opens the file itself.
+- [x] `PrototypeSession.shownURL` removed (no longer used).
+- [x] `tools/tests/prototype-scheme-tests.sh`: 28 checks — path rules, and an end-to-end run in a real WKWebView that takes the
+      error listener out of `PrototypeStudioView.swift`; it also records that `file://` still hides the text.
+- [x] `./bump-version.sh patch` (5.0.3), Debug build, the other four prototype harnesses still pass.
+- [x] Live check in a scratch copy of the Debug build (own bundle id and executable name) with a fixture prototype that has one
+      throwing screen: the preview's web area is `mvproto://site/index.html`, the page text "started 2" is rendered, and the error
+      badge's tooltip reads `ReferenceError: Can't find variable: undefinedFunction (screens/broken.js:2)`.
+
+Review:
+- Old prototypes need no migration: nothing stored refers to the loading address. Their localStorage (if a generated script used
+  it) starts empty once, because the origin changes from `file://` to `mvproto://site`.
+- Not verified: a full generation against a real assistant.
+- The session that wrote this was cut off by an app restart before committing; the work was finished from the uncommitted tree: code
+  reviewed, Debug build and all five prototype harnesses re-run, the bug file closed (`status: fixed`) so the merge carries it. The first one will show whether the generated JavaScript has a real
+  fault of its own; if it does, the fix round now receives its text and line and that fault is a separate bug.
+
 ## BUG-046: X-Ray / Code fails on "needs valid source evidence in one of its paths" (2026-11-02, 5.0.2, fix/bug-046-xray-evidence)
 
 A MarkView X-Ray / Code analysis was discarded because three components cited lines that could not be used, and the
