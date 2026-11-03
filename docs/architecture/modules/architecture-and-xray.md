@@ -96,7 +96,11 @@ still fails, `groundEvidence` replaces only the unusable citations with real def
 files the component already owns and the model is validated again, so a sound structure is not
 discarded over a line number; a component whose paths do not exist is still rejected. CRLF line numbers
 match the editor. Shared `CodePathTags` makes Code filtering available without a Logical pass.
-The overview uses stable layer positions and concise cards; selecting a box reveals its arrows.
+The Code overview is a layered diagram: the layers of the flow are full-width bands stacked
+presentation → application → domain → data, the cross-cutting ones (integration, infrastructure,
+shared platform, tooling, tests) run as columns beside them, Users sit above the stack and the
+external dependencies below it. Each band shows its components; a layer with more than 18 parts
+stays a plain band until it is opened. Selecting a box reveals its arrows.
 Tests start hidden on mixed projects and remain available through Show all. Tests-only folders
 start visible, and revealing a hidden file clears the Code filter.
 Analysis failure or cancellation preserves previous results. The sequence and architecture
@@ -630,7 +634,9 @@ sequenceDiagram
   - Every edge is lifted to the nearest drawn ancestor of each end (`representative`), and
     parallel edges are summed into one weight.
   - Box size comes from the label length; the Size overlay scales it up to 3.2×.
-- **Layout** (`:709-753`). ELK runs with `hierarchyHandling: SEPARATE_CHILDREN`:
+- **Layout** (`:709-753`). The Code overview is placed by hand (`layeredBands`): bands, columns,
+  Users and External, with the band width chosen in a second pass from the canvas aspect so the
+  diagram fills the window. Everything else goes through ELK with `hierarchyHandling: SEPARATE_CHILDREN`:
   - `rectpacking` for sparse groups (fewer links than a quarter of the nodes) and for any box with more than 20
     children (`flowLimit`, BUG-012: a layered flow of dozens of files that reference one another spread
     MarkView/Models over 6338×3310 px, 2% filled),

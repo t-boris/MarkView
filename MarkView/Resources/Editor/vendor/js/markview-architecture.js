@@ -699,11 +699,33 @@
                 return locs.length ? locs[Math.floor(locs.length / 2)] : 1;
             }
 
+            // The Code overview is a layered diagram: the layers of the flow are bands stacked
+            // top to bottom, the cross-cutting ones stand as columns beside them (REQ-005).
+            const bandRoles = ['presentation', 'application', 'domain', 'data', 'other'];
+            const crossRoles = ['integration', 'infrastructure', 'platform', 'tooling', 'tests'];
+            // Above this many parts a layer stays a plain band: its contents are read by zooming in.
+            const bandPartsLimit = 18;
+
+            /** True while the Code view shows its overview — nothing opened by the user yet. */
+            function codeOverview() { return ui.view === 'code' && !ui.expanded.code.size; }
+
+            /** Layers open themselves in the Code overview, so each band shows its components. */
+            function expandedSet(idx) {
+                const expanded = ui.expanded[ui.view];
+                if (!codeOverview()) return expanded;
+                const open = new Set();
+                idx.byId.forEach(function(n) {
+                    const kids = (idx.children.get(n.id) || []).length;
+                    if ((n.kind === 'layer' || n.kind === 'externalGroup') && kids && kids <= bandPartsLimit) open.add(n.id);
+                });
+                return open;
+            }
+
             function buildElements() {
                 const view = currentView();
                 if (!view) return [];
                 const idx = indexView(view);
-                const expanded = ui.expanded[ui.view];
+                const expanded = expandedSet(idx);
                 const drawn = drawnNodes(idx, expanded).filter(function(n) { return !isHidden(n, idx); });
                 requestRatings(idx, drawn);
                 const drawnIds = new Set(drawn.map(function(n) { return n.id; }));
@@ -741,6 +763,12 @@
                         // Draft layers (REQ-004): guessed from file paths until the code analysis names components.
                         ui.view === 'code' && node.kind === 'layer' && !codeModelOf(ui.payload.snapshot) ? 'draft' : ''].join(' ') });
                 });
+                // The people the system serves: the layered overview opens with them above the
+                // top band, as the classic diagram does. They are a caption, not a part of the model.
+                if (codeOverview() && drawn.some(function(n) { return n.kind === 'layer'; })) {
+                    elements.push({ group: 'nodes', data: { id: 'code:actors', label: 'Users', kind: 'actors',
+                        w: 260, tw: 240, h: 30, fill: '', dimmed: 0, provisional: 0, flag: 0, expandable: 0 }, classes: 'actors leaf' });
+                }
                 const agg = new Map();
                 const prEdges = ui.view !== 'pr' && overlayApplies() && ui.overlay === 'pr'
                     ? prDependencyEdges(ui.view === 'logical' ? 'l:f:' : 'm:') : [];
@@ -812,6 +840,12 @@
                         'text-margin-y': -4, 'font-weight': 600, 'padding': 14, 'color': c.mute } },
                     // Containers keep a light fill; the overlay colour goes on the outline.
                     { selector: 'node.box[fill != ""]', style: { 'background-color': c.box, 'background-opacity': c.boxAlpha, 'border-color': 'data(fill)', 'border-width': 2 } },
+                    // Layered Code overview: a band wears the colour of its layer and names itself above.
+                    { selector: 'node.layer.box', style: { 'background-color': 'data(fill)', 'background-opacity': 0.08,
+                        'border-color': 'data(fill)', 'border-width': 1.5, 'color': c.text, 'font-size': 11.5, 'text-margin-y': -6 } },
+                    // Who the system serves: a caption above the stack, not a part of the model.
+                    { selector: 'node.actors', style: { 'background-opacity': 0, 'border-style': 'dashed', 'border-color': c.mute,
+                        'color': c.mute, 'font-weight': 600, 'events': 'no' } },
                     { selector: 'node[dimmed = 1]', style: { 'opacity': c.dim } },
                     // Replace Cytoscape's default selection fill (solid blue) with an accent outline.
                     { selector: 'node:selected', style: { 'border-color': c.accent, 'border-width': 2.5, 'background-color': c.node, 'background-opacity': 1 } },
@@ -838,31 +872,112 @@
                 ];
             }
 
+            /** The Code overview as a layered diagram: full-width bands for the layers of the
+             *  flow, stacked in order, with the cross-cutting layers as columns running down
+             *  beside them; Users sit above the stack and the external dependencies below it.
+             *  Every box is placed by hand so the picture stays the same between redraws. */
+            function layeredBands(keepView) {
+                const tops = cy.nodes().orphans().filter(function(n) { return n.data('kind') === 'layer'; });
+                if (!tops.length) return false;
+                const byRole = function(roles) {
+                    return roles.map(function(r) { return tops.filter(function(n) { return n.data('role') === r; }).toArray(); })
+                        .reduce(function(a, b) { return a.concat(b); }, []);
+                };
+                const bands = byRole(bandRoles);
+                const columns = byRole(crossRoles);
+                const known = new Set(bands.concat(columns).map(function(n) { return n.id(); }));
+                tops.forEach(function(n) { if (!known.has(n.id())) bands.push(n); });
+                if (!bands.length) return false;
+
+                const gap = 34;            // room between bands, where the next band's title sits
+                const pad = 14;            // matches the box padding of the stylesheet
+                const cellGap = 12;
+                const colWidth = columns.length > 3 ? 144 : 168;
+                const colGap = 24;
+                const crossWidth = columns.length ? 48 + columns.length * (colWidth + colGap) - colGap : 0;
+
+                /** Place a container's parts on a grid inside `width`, and return its height. */
+                const fill = function(node, left, top, width, minHeight) {
+                    const kids = node.children();
+                    if (!kids.length) {
+                        const h = Math.max(44, minHeight || 44);
+                        node.data({ w: width, h: h, tw: width - 24 });
+                        node.position({ x: left + width / 2, y: top + h / 2 });
+                        return h;
+                    }
+                    const inner = width - pad * 2;
+                    const fit = Math.max(1, Math.min(kids.length, Math.floor((inner + cellGap) / 180)));
+                    // Balance the grid: 5 parts over 2 columns are 3 + 2, never 2 + 2 + 1.
+                    const rows = Math.ceil(kids.length / fit);
+                    const cols = Math.ceil(kids.length / rows);
+                    const cellW = (inner - cellGap * (cols - 1)) / cols;
+                    // Every part of a band is the same size; the tallest label sets that size.
+                    const textH = kids.reduce(function(m, kid) {
+                        const lines = String(kid.data('label') || '').split('\n').reduce(function(a, line) {
+                            return a + Math.max(1, Math.ceil((line.length * 6.2) / Math.max(40, cellW - 18)));
+                        }, 0);
+                        return Math.max(m, 14 + lines * 13);
+                    }, 40);
+                    // A cross-cutting column is as tall as the stack, but its parts keep a readable
+                    // size: the spare height goes between them rather than into giant boxes.
+                    const spread = minHeight ? (minHeight - pad * 2 - cellGap * (rows - 1)) / rows : 0;
+                    // One part alone fills its column; several keep a readable size and share the
+                    // spare height between them, so the column still spans the whole stack.
+                    const cellH = rows > 1 ? Math.max(textH, Math.min(spread, 132)) : Math.max(textH, spread);
+                    const rowGap = rows > 1 && minHeight
+                        ? Math.max(cellGap, (minHeight - pad * 2 - rows * cellH) / (rows - 1)) : cellGap;
+                    kids.forEach(function(kid, i) {
+                        const r = Math.floor(i / cols), c = i % cols;
+                        // The last row may be short: its parts share the width, leaving no gap.
+                        const inRow = Math.min(cols, kids.length - r * cols);
+                        const rowW = (inner - cellGap * (inRow - 1)) / inRow;
+                        kid.data({ w: rowW, tw: Math.max(40, rowW - 16), h: cellH });
+                        kid.position({ x: left + pad + c * (rowW + cellGap) + rowW / 2,
+                                       y: top + pad + r * (cellH + rowGap) + cellH / 2 });
+                    });
+                    return Math.max(minHeight || 0, pad * 2 + rows * cellH + rowGap * (rows - 1));
+                };
+
+                /** One pass over the stack with the given band width; returns its height. */
+                const place = function(bandWidth) {
+                    let y = 0;
+                    bands.forEach(function(band) { y += fill(band, 0, y, bandWidth, 0) + gap; });
+                    const stackHeight = Math.max(1, y - gap);
+                    columns.forEach(function(column, i) {
+                        // A cross-cutting layer spans the whole stack: its parts share that height.
+                        fill(column, bandWidth + 48 + i * (colWidth + colGap), 0, colWidth, stackHeight);
+                    });
+                    return stackHeight;
+                };
+
+                // Lay out once to learn how tall the stack is, then choose a width that fills the
+                // canvas instead of leaving the diagram a wide strip across an empty window.
+                let bandWidth = Math.max(560, Math.min(1120, columns.length ? 860 : 1000));
+                const height = place(bandWidth);
+                const ratio = Math.max(0.6, cy.width() / Math.max(1, cy.height()));
+                const wanted = Math.round(Math.max(520, Math.min(1200, ratio * height - crossWidth)));
+                if (Math.abs(wanted - bandWidth) > 40) bandWidth = wanted;
+                const stackHeight = place(bandWidth);
+                const fullWidth = bandWidth + crossWidth;
+
+                const actors = cy.getElementById('code:actors');
+                if (actors.length) {
+                    actors.data({ w: fullWidth, tw: fullWidth - 24, h: 30 });
+                    actors.position({ x: fullWidth / 2, y: -(gap + 15) });
+                }
+                const external = cy.nodes().orphans().filter(function(n) { return n.data('kind') === 'externalGroup'; });
+                external.forEach(function(group, i) {
+                    fill(group, 0, stackHeight + gap + i * 80, fullWidth, 0);
+                });
+                if (!keepView) cy.fit(cy.nodes(), 28);
+                return true;
+            }
+
             /** Lay the graph out; `fitTo` zooms to that node afterwards, `keepView` leaves pan and zoom alone. */
             function layout(fitTo, keepView) {
                 if (!cy) return;
                 const count = cy.nodes().length;
-                if (ui.view === 'code' && count && cy.nodes().every(function(n) { return n.data('kind') === 'layer' || n.data('kind') === 'externalGroup'; })) {
-                    // The overview is a stable set of layers, not a dependency hairball.
-                    // Selecting a layer reveals its arrows without moving the other layers.
-                    const roles = ['presentation', 'application', 'domain', 'data', 'integration', 'infrastructure', 'platform', 'tooling', 'tests', 'other'];
-                    const ordered = cy.nodes().sort(function(a, b) {
-                        const rank = function(n) { const i = roles.indexOf(n.data('role')); return i < 0 ? roles.length : i; };
-                        return rank(a) - rank(b);
-                    });
-                    const core = ordered.filter(function(n) { return ['presentation', 'application', 'domain', 'data'].indexOf(n.data('role')) >= 0; });
-                    const support = ordered.not(core);
-                    const columns = cy.width() >= 640 && core.length && support.length ? [core, support] : [ordered];
-                    let left = 0;
-                    columns.forEach(function(nodes) {
-                        const width = nodes.reduce(function(m, n) { return Math.max(m, n.width()); }, 0);
-                        let top = 0;
-                        nodes.forEach(function(n) { n.position({x: left + width / 2, y: top + n.height() / 2}); top += n.height() + 28; });
-                        left += width + 100;
-                    });
-                    if (!keepView) cy.fit(cy.nodes(), 28);
-                    return;
-                }
+                if (codeOverview() && count && layeredBands(keepView)) return;
                 // Every box is laid out on its own: children with few links between them (a
                 // notes folder, a list of files) are packed into a rectangle instead of one tall
                 // column; linked ones follow the flow of their links. The top level is packed to
@@ -1104,6 +1219,9 @@
                 ui.userNavigated = true;
                 const view = currentView(); if (!view) return;
                 const idx = indexView(view);
+                // Leaving the layered overview: keep the bands that were open on their own,
+                // so opening one part does not hide the rest of the diagram.
+                if (codeOverview()) expandedSet(idx).forEach(function(open) { ui.expanded.code.add(open); });
                 const node = idx.byId.get(id); if (!node) return;
                 const kids = idx.children.get(id) || [];
                 const expanded = ui.expanded[ui.view];
@@ -1908,7 +2026,7 @@
 
                 const kids = idx.children.get(node.id) || [];
                 if (kids.length) {
-                    const expanded = ui.expanded[ui.view].has(node.id);
+                    const expanded = expandedSet(idx).has(node.id);
                     d.appendChild(linkButton(expanded ? 'Zoom out of this' : 'Zoom into this', function() { activate(node.id); }, 'arch-action'));
                 }
 
