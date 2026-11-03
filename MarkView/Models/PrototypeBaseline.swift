@@ -171,6 +171,8 @@ enum PrototypeBaseline {
         var unclaimed: [String]
         /// Scope files that did not exist at the sync.
         var added: [String]
+        /// Scope files that existed at the sync and are gone now.
+        var removed: [String] = []
 
         var counts: [State: Int] { units.reduce(into: [:]) { $0[$1.state, default: 0] += 1 } }
         var hasBaseline: Bool { baselineVersion != nil }
@@ -217,7 +219,103 @@ enum PrototypeBaseline {
             units.append(UnitStatus(unit: unit, state: state, changedSources: code, editedFiles: edited))
         }
         let unclaimed = drift.changed.filter { !claimed.contains($0) } + drift.removed.filter { !claimed.contains($0) }
-        return Status(baselineVersion: record.syncedVersion, units: units, unclaimed: unclaimed.sorted(), added: drift.added)
+        return Status(baselineVersion: record.syncedVersion, units: units, unclaimed: unclaimed.sorted(), added: drift.added, removed: drift.removed)
+    }
+
+    // MARK: - The plan of a sync (REQ-010, REQ-011, REQ-015)
+
+    struct SyncPlan: Equatable, Sendable {
+        enum Mode: Equatable, Sendable {
+            /// No file the prototype was built from changed: no run, no new version.
+            case nothing
+            /// Only the listed units are rebuilt.
+            case incremental
+            /// The safe wider action; `reasons` say why.
+            case full
+        }
+
+        var mode: Mode
+        /// Screens and components an incremental sync rebuilds, with the files that changed.
+        var units: [UnitStatus] = []
+        /// Why the sync has to be a full rebuild; names the files or units (REQ-011).
+        var reasons: [String] = []
+        /// A global stylesheet changed: it is copied again, which needs no assistant.
+        var restyle = false
+        /// Things the person should know before starting, none of which stops the sync.
+        var notes: [String] = []
+
+        /// Units where a rebuild replaces Studio edits (REQ-011).
+        var overwrites: [UnitStatus] { units.filter { $0.state == .bothChanged } }
+        /// The changed source files the assistant is pointed at.
+        var changedSources: [String] { Array(Set(units.flatMap(\.changedSources))).sorted() }
+        /// An incremental sync with nothing to rebuild still copies the stylesheets again.
+        var isEmptyIncremental: Bool { mode == .incremental && units.isEmpty && !restyle }
+    }
+
+    /// What a sync does for `status`. A file used by many screens, a unit whose sources are all gone and a prototype without a
+    /// baseline get a full rebuild with the reason; otherwise only the units whose sources changed are rebuilt.
+    static func syncPlan(status: Status, record: Record?) -> SyncPlan {
+        guard let record, status.hasBaseline else {
+            return SyncPlan(mode: .full, reasons: ["There is no baseline to compare with: this prototype was saved before syncs were remembered, so every unit is rebuilt once and the baseline starts from this sync."])
+        }
+        let screens = record.units.filter { $0.kind == .screen }
+        let removed = Set(status.removed)
+        let rebuild = status.toRebuild.filter { $0.unit.kind != .foundation }
+        let restyle = status.units.contains { $0.unit.kind == .foundation && ($0.state == .codeChanged || $0.state == .bothChanged) }
+        var reasons: [String] = []
+        for item in rebuild where !item.unit.sources.isEmpty && item.unit.sources.allSatisfy({ removed.contains($0) }) {
+            reasons.append("All source files of \"\(item.unit.name)\" were removed (\(list(item.unit.sources))), so it cannot be rebuilt on its own.")
+        }
+        let threshold = max(3, (screens.count + 1) / 2)
+        for file in Set(rebuild.flatMap(\.changedSources)).sorted() {
+            let users = screens.filter { $0.sources.contains(file) }
+            if users.count >= threshold {
+                reasons.append("\(file) changed and \(users.count) of \(screens.count) screens are built from it, so the units that depend on it cannot be told apart.")
+            }
+        }
+        var notes: [String] = []
+        if !status.unclaimed.isEmpty {
+            notes.append("Changed files that no unit lists, so the prototype may or may not depend on them: " + list(status.unclaimed, limit: 6) + ".")
+        }
+        if !status.added.isEmpty {
+            notes.append("New source files that are not part of the prototype yet: " + list(status.added, limit: 6) + ". \"Rebuild everything\" includes them.")
+        }
+        if !reasons.isEmpty { return SyncPlan(mode: .full, units: rebuild, reasons: reasons, restyle: restyle, notes: notes) }
+        if rebuild.isEmpty && !restyle { return SyncPlan(mode: .nothing, notes: notes) }
+        return SyncPlan(mode: .incremental, units: rebuild, restyle: restyle, notes: notes)
+    }
+
+    /// The baseline after an incremental sync (REQ-009, REQ-010). `rewritten` are the units whose prototype files the assistant wrote
+    /// now: their file fingerprints move. `refreshed` are the units that are current with the code again (the rewritten ones, and the
+    /// shell when its stylesheets were copied again): a source file moves to its current fingerprint only when every unit that lists
+    /// it is refreshed. Everything else stays as it was, so a unit that failed to rebuild still shows "code changed", a Studio edit that
+    /// was not overwritten still shows, and a changed file no unit lists is still reported.
+    static func advanced(_ record: Record, version: Int, rewritten: Set<String>, refreshed: Set<String>,
+                         scope: [String: String], site: [String: String]) -> Record {
+        var next = record
+        next.syncedVersion = version
+        var claimants: [String: [String]] = [:]
+        for unit in record.units { for path in unit.sources { claimants[path, default: []].append(unit.id) } }
+        var all = record.scope
+        for (path, ids) in claimants where ids.allSatisfy(refreshed.contains) { all[path] = scope[path] ?? "" }
+        next.scope = all
+        next.units = record.units.map { unit in
+            guard rewritten.contains(unit.id) else { return unit }
+            var copy = unit
+            let paths = Set(unit.files.keys).union(defaultFiles(of: unit))
+            copy.files = Dictionary(uniqueKeysWithValues: paths.compactMap { path in site[path].map { (path, $0) } })
+            return copy
+        }
+        return next
+    }
+
+    /// The prototype files a unit owns when it had none recorded (a component whose page the sync wrote now).
+    static func defaultFiles(of unit: Unit) -> [String] {
+        switch unit.kind {
+        case .screen: return [screenFile(unit.id)]
+        case .foundation: return shellFiles
+        case .component: return [PrototypeFiles.componentPage(for: unit.id)]
+        }
     }
 
     /// "a.js, b.js and 3 more".

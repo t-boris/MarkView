@@ -3698,3 +3698,26 @@ One branch and PR per item, in this order; each item is verified before the next
 - Tests: `prototype-baseline-tests.sh`; deadline test asserts the baseline input of a code build; real `claude` run: baseline from the real plan, one source
   edit and one Studio edit give code changed / both changed.
 - Not yet: incremental sync (b), request target (c), hand-off (d). A prototype saved before this version shows "No baseline" until it is synced once.
+
+## Review: Code sync (b)-(d) — incremental sync, request target, hand-off (5.8.0)
+One branch `feat/prototype-and-code-stay-in-step`, one PR, one release (Boris, 2026-11-03).
+- [x] (b) REQ-010/011/015: the Sync button compares code and prototype with the baseline and opens a sheet before anything runs: the units that
+  will be rebuilt with the changed files behind each, the Studio edits it would replace, notes about changed/new files no unit lists, and a
+  separate, confirmed "Rebuild everything". `PrototypeAI.syncChanged` reuses the stored plan, copies the original stylesheets again and writes
+  only the changed screens and components (`ScreenUpdate` tells the writer which files changed and where the current screen is). A unit that
+  fails keeps its file and still shows as changed; if nothing could be rebuilt, or on Stop, the live version is restored. The baseline moves
+  only for rewritten units and for sources whose every unit is current (`PrototypeBaseline.advanced`).
+- [x] (c) REQ-008: "About:" menu next to the message field (whole prototype, a screen, a source component), chip with kind/name/path and clear
+  button, exclusive with the pointed-at element; `revisePrompt` adds the target, its files and the "limit the change" rule; retry and edit keep
+  the target.
+- [x] (d) REQ-012/013: "Hand off to code" sheet (editable brief, agent picker, new session in the AI panel, copy to clipboard; Studio writes nothing
+  to the project) and a "Changes since the last sync" section in `markview_get_prototype` (read-only).
+- Verified: `prototype-baseline-tests.sh`, `prototype-tests.sh`, `prototype-deadline-tests.sh` (incremental scenario: only changed units run,
+  no planner/foundation call, failed component reported, nothing rebuilt restores the version), styles/embedded/themes tests, Debug build 5.8.0.
+  Real `claude` run on a two-screen app: full build 90 s, incremental sync of both screens 9 s, foundation byte-identical, status "4 in sync".
+- Not covered (deliberately, said in the PR): REQ-010 criterion 5 and REQ-015 criterion 3 (a NEW source file or component gets its unit planned
+  and added; a unit whose only sources were removed is dropped) — new files are reported and "Rebuild everything" includes them; REQ-011
+  criterion 1 for a changed file no unit lists (reported as a note, not a full rebuild); the number of files read is not counted (the reply names
+  the changed files). Sample data (`data.js`) is not refreshed by an incremental sync: asked as Q-005.
+- Not click-tested in the app window: the sync sheet, the "About:" menu, the hand-off sheet; `markview_get_prototype` section checked by unit
+  tests of the text only. Q-004 (where the brief goes) is open: implemented its recommended answer (new session, clipboard always available).

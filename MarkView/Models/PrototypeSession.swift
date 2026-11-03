@@ -25,6 +25,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
         var instruction: String
         var pick: PrototypeAI.Pick?
         var files: [(url: URL, note: String)]
+        /// What the reviewer aimed the request at (REQ-008); kept by a retry and by an edit of the failed request.
+        var target: PrototypeAI.Target?
     }
 
     /// An image waiting to be sent with the next request.
@@ -72,6 +74,25 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Code mode: whether each unit of the prototype matches the code, computed locally from the baseline (REQ-014); nil until checked.
     @Published private(set) var syncStatus: PrototypeBaseline.Status?
     @Published private(set) var checkingSync = false
+    /// The hand-off of prototype changes to an agent that changes the code (REQ-012); nil when no hand-off is being offered.
+    @Published var handoff: Handoff?
+    @Published private(set) var preparingHandoff = false
+
+    struct Handoff: Equatable {
+        var changes: PrototypeHandoff.Changes
+        /// Empty when there is nothing to hand off.
+        var brief: String
+    }
+
+    /// What a sync would do, shown for confirmation before anything runs (REQ-011); nil when no sync is being offered.
+    @Published var syncPreview: SyncPreview?
+    @Published private(set) var preparingSync = false
+
+    struct SyncPreview: Equatable {
+        var plan: PrototypeBaseline.SyncPlan
+        var status: PrototypeBaseline.Status
+        var version: Int
+    }
     /// Bumped to ask the preview to open every screen and report the blank, stuck and placeholder ones (BUG-053).
     @Published private(set) var auditToken = 0
     private var auditReport: PrototypeAudit.Report?
@@ -80,8 +101,32 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Screens of the last build that could not be written: the build reply names them, the fix round skips them.
     private var failedScreens: Set<String> = []
     @Published private(set) var archive: URL?
+    /// A screen or a source component the next request is about; nil means the whole prototype (or the pointed-at element, `pick`).
+    @Published var target: PrototypeAI.Target? {
+        didSet { if target != nil { pick = nil } }
+    }
+
+    /// The screens a request can be aimed at: the scripts in `screens/`, named from the manifest when a name matches the file.
+    var screenTargets: [PrototypeAI.Target] {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: siteFolder.appendingPathComponent("screens").path)) ?? []
+        let ids = files.filter { $0.hasSuffix(".js") }.map { String($0.dropLast(3)) }
+        let known = manifest.screens
+        let ordered = ids.sorted { lhs, rhs in
+            let l = known.firstIndex { PrototypeAI.Plan.slug($0) == lhs } ?? Int.max
+            let r = known.firstIndex { PrototypeAI.Plan.slug($0) == rhs } ?? Int.max
+            return l == r ? lhs < rhs : l < r
+        }
+        return ordered.map { id in .screen(id: id, name: known.first { PrototypeAI.Plan.slug($0) == id } ?? id) }
+    }
+
+    /// The source components a request can be aimed at; empty unless the prototype records components (REQ-008).
+    var componentTargets: [PrototypeAI.Target] {
+        manifest.components.map { .component(path: $0.path, label: $0.label, page: $0.page, screens: $0.screens) }
+    }
+
     @Published var pick: PrototypeAI.Pick? {
         didSet {
+            if pick != nil { target = nil }
             if pick == nil { pickShot = nil }
             // A pick selects its component in the Components list (REQ-007); a pick without one leaves the list alone.
             if let component = pick?.component, !component.isEmpty { selectedComponent = component }
@@ -322,12 +367,124 @@ final class PrototypeSession: ObservableObject, Identifiable {
         return reply
     }
 
+    /// "Hand off to code" (REQ-012): compares the prototype with its baseline and builds the brief for an agent. Nothing is written to the
+    /// project and nothing is sent; the person reads and edits the brief first.
+    func prepareHandoff() {
+        guard manifest.mode == .code, manifest.version > 0, !preparingHandoff else { return }
+        preparingHandoff = true
+        Task { [self] in
+            defer { preparingHandoff = false }
+            await refreshSyncStatus()
+            let status = syncStatus ?? PrototypeBaseline.status(record: nil, scope: [:], site: [:])
+            let site = siteFolder, history = manifest.history
+            let changes = await Task.detached { () -> PrototypeHandoff.Changes in
+                PrototypeHandoff.changes(status: status, history: history, markers: { path in
+                    guard let text = try? String(contentsOf: site.appendingPathComponent(path), encoding: .utf8) else { return [] }
+                    return PrototypeFiles.componentMarkers(in: text)
+                })
+            }.value
+            let relative = site.path.replacingOccurrences(of: root.standardizedFileURL.path + "/", with: "")
+            let brief = changes.isEmpty ? "" : PrototypeHandoff.brief(title: manifest.title, reference: PrototypeReference.string(slug: slug),
+                                                                      version: manifest.version, siteRelative: relative, changes: changes)
+            handoff = Handoff(changes: changes, brief: brief)
+        }
+    }
+
+    /// "Sync from code" (REQ-010, REQ-011): compares the code with the baseline and offers what a sync would do before anything runs.
+    /// The offer is the changed units, or a full rebuild with the reason when the changes cannot be told apart; nothing runs until
+    /// the person confirms.
+    func previewSync() {
+        guard !isBusy, canSyncFromCode, !preparingSync else { return }
+        preparingSync = true
+        Task { [self] in
+            defer { preparingSync = false }
+            await refreshSyncStatus()
+            let folder = self.folder, version = manifest.version
+            let baseline = await Task.detached { PrototypeBaseline.load(folder: folder, version: version) }.value
+            let status = syncStatus ?? PrototypeBaseline.status(record: nil, scope: [:], site: [:])
+            syncPreview = SyncPreview(plan: PrototypeBaseline.syncPlan(status: status, record: baseline), status: status, version: version)
+        }
+    }
+
+    /// Incremental sync: writes again only the screens and components whose source files changed, with the stored plan, and records
+    /// a new version (REQ-010, REQ-015). A unit that cannot be rebuilt keeps its earlier file and still shows as changed; Stop or a
+    /// failure restores the previous version.
+    func syncChangedUnits() {
+        guard !isBusy, canSyncFromCode, let preview = syncPreview, preview.plan.mode == .incremental else { return }
+        let plan = preview.plan
+        syncPreview = nil
+        beginRun("Reading the changed code")
+        let before = manifest
+        show(page: nil)
+        task = Task { [self] in
+            defer { endRun() }
+            do {
+                let root = self.root, folder = self.folder
+                guard let baseline = await Task.detached(operation: { PrototypeBaseline.load(folder: folder, version: before.version) }).value else {
+                    throw PrototypeFiles.Failure.edits(["The baseline of v\(before.version) is missing; use Rebuild everything."])
+                }
+                let synced = try await PrototypeAI.syncChanged(root: root, folder: folder, manifest: before, baseline: baseline, units: plan.units,
+                                                               language: promptLanguage, record: record, stage: stageReporter(milestones: false))
+                manifest.components = synced.components
+                for gap in synced.gaps where !manifest.gaps.contains(gap) { manifest.gaps.append(gap) }
+                if synced.restyled { await refreshThemes(planned: synced.themes, defaultID: synced.defaultTheme, persist: false) }
+                let rebuilt = synced.screens.isEmpty ? "no screen" : synced.screens.joined(separator: ", ")
+                try accept(instruction: "Synced changed code", summary: "Updated from the changed code; screens written again: \(rebuilt).")
+                await writeAdvancedBaseline(baseline, rewritten: Set(synced.rewritten),
+                                            refreshed: Set(synced.rewritten).union(synced.restyled ? ["shell"] : []))
+                messages.append(Message(role: .assistant, text: incrementalReply(synced, plan: plan, previous: before.version)))
+                await settleAndFix(language: promptLanguage)
+            } catch is CancellationError {
+                keepPrevious(before, note: "Stopped. The prototype is unchanged (v\(before.version)).")
+            } catch {
+                keepPrevious(before, note: "Sync from code failed; the prototype is unchanged (v\(before.version)). \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func incrementalReply(_ synced: PrototypeAI.Synced, plan: PrototypeBaseline.SyncPlan, previous: Int) -> String {
+        var text = "Synced the changed code as v\(manifest.version) (from v\(previous)). "
+        text += synced.screens.isEmpty ? "No screen was written again" : "Screens written again: \(synced.screens.joined(separator: ", "))"
+        let pages = synced.rewritten.count - synced.screens.count
+        if pages > 0 { text += "; \(pages) component page\(pages == 1 ? "" : "s") written again" }
+        text += synced.restyled ? ". The original stylesheets were copied again." : "."
+        text += " Changed source files: \(PrototypeBaseline.list(plan.changedSources, limit: 8))."
+        let replaced = plan.overwrites.filter { synced.rewritten.contains($0.unit.id) }.map(\.unit.name)
+        if !replaced.isEmpty {
+            text += "\n\nStudio edits to these were replaced, because the code changed too: \(replaced.joined(separator: ", ")). v\(previous) still has them; the version menu goes back."
+        }
+        if !synced.failed.isEmpty {
+            text += "\n\nCould not be rebuilt (they keep their earlier files and still show as changed): "
+                + synced.failed.map { "\($0.name) (\($0.reason))" }.joined(separator: "; ") + "."
+        }
+        for note in plan.notes { text += "\n\n" + note }
+        text += "\n\nThe plan, the shell, the sample data and the coverage line in the gaps are from the last full build; Rebuild everything refreshes them."
+        return text
+    }
+
+    /// The baseline of the version an incremental sync just made (REQ-009): rewritten units get new prototype fingerprints, a source file moves
+    /// only when every unit that lists it is current, the rest stays as it was.
+    private func writeAdvancedBaseline(_ previous: PrototypeBaseline.Record, rewritten: Set<String>, refreshed: Set<String>) async {
+        let root = self.root, site = siteFolder, folder = self.folder, version = manifest.version, sources = manifest.sources
+        let record = await Task.detached { () -> PrototypeBaseline.Record in
+            let inventory = PrototypeFiles.inventory(root: root, sources: sources)
+            let paths = Array(Set(previous.scope.keys).union(inventory.entries.map(\.path)))
+            return PrototypeBaseline.advanced(previous, version: version, rewritten: rewritten, refreshed: refreshed,
+                                              scope: PrototypeBaseline.fingerprints(root: root, paths: paths),
+                                              site: PrototypeBaseline.siteFingerprints(site: site))
+        }.value
+        try? PrototypeBaseline.save(record, folder: folder, version: version)
+        await refreshSyncStatus()
+    }
+
     /// Reconstructs a code-mode prototype again from the current sources and saves the result as a new version
-    /// (REQ-006, DEC-005). The scope is found again from the project, as the creator sheet found it; the
+    /// (REQ-006, DEC-005), reading and planning the whole project: the separate, confirmed "Rebuild everything"
+    /// (REQ-010). The scope is found again from the project, as the creator sheet found it; the
     /// conversation stays and gets the summary; the earlier versions, with any edits, remain restorable. A
     /// failure or Stop restores the previous version and changes nothing.
-    func syncFromCode() {
+    func rebuildEverything() {
         guard !isBusy, canSyncFromCode else { return }
+        syncPreview = nil
         beginRun("Reading the code")
         let before = manifest
         show(page: nil)
@@ -370,7 +527,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
         let shot = pick != nil && withScreenshot ? pickShot : nil
         guard !isBusy, hasSite, !typed.isEmpty || !attachments.isEmpty else { return }
         let instruction = typed.isEmpty ? "Look at the attached image(s) and make the prototype match." : typed
-        let pick = self.pick
+        let pick = self.pick, target = self.target
         var files: [(url: URL, note: String)] = []
         var thumbnails: [NSImage] = []
         do {
@@ -386,12 +543,14 @@ final class PrototypeSession: ObservableObject, Identifiable {
             messages.append(Message(role: .error, text: "Could not save the images: \(error.localizedDescription)"))
             return
         }
-        messages.append(Message(role: .user, text: (pick.map { "[\($0.selector)] " } ?? "") + instruction, images: thumbnails,
+        let aimed = pick.map { "[\($0.selector)] " } ?? target.map { "[\($0.kind): \($0.name)] " } ?? ""
+        messages.append(Message(role: .user, text: aimed + instruction, images: thumbnails,
                                 imageNames: files.map { $0.url.lastPathComponent }))
         self.pick = nil
+        self.target = nil
         attachments = []
         pickMode = false
-        run(Request(instruction: instruction, pick: pick, files: files))
+        run(Request(instruction: instruction, pick: pick, files: files, target: target))
     }
 
     /// Runs the request of a failed message again, without adding the question to the conversation twice.
@@ -401,17 +560,21 @@ final class PrototypeSession: ObservableObject, Identifiable {
     }
 
     /// Puts the text of a failed request back into the input field.
-    func edit(_ request: Request) { restoredDraft = request.instruction }
+    func edit(_ request: Request) {
+        restoredDraft = request.instruction
+        // The edited request is aimed at what the failed one was aimed at (REQ-008).
+        if let pick = request.pick { self.pick = pick } else { target = request.target }
+    }
 
     private func run(_ request: Request) {
-        let instruction = request.instruction, pick = request.pick, files = request.files
+        let instruction = request.instruction, pick = request.pick, files = request.files, target = request.target
         beginRun("Working on your request")
         task = Task { [self] in
             defer { endRun() }
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
                                                            attachments: files, runtimeErrors: runtimeErrors, language: promptLanguage,
-                                                           mode: manifest.mode, sources: manifest.sources,
+                                                           mode: manifest.mode, sources: manifest.sources, target: target,
                                                            record: record, stage: stageReporter())
                 // An answer that changed nothing is shown as it is: no new version, no preview round (BUG-051).
                 guard !outcome.written.isEmpty else {

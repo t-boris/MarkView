@@ -86,6 +86,99 @@ do {
     check(PrototypeBaseline.State.allCases.allSatisfy { !$0.meaning.isEmpty && !$0.title.isEmpty }, "every state has a title and a meaning")
     check(PrototypeBaseline.list(["a", "b", "c", "d", "e"]) == "a, b, c and 2 more" && PrototypeBaseline.list(["a"]) == "a", "file lists are shortened")
 
+    // The plan of a sync.
+    let nothing = PrototypeBaseline.syncPlan(status: same, record: record)
+    check(nothing.mode == .nothing && nothing.units.isEmpty && !nothing.restyle, "no change: nothing to do")
+    var scopeX = scope0; scopeX["src/Trade.tsx"] = "r1"
+    let one = PrototypeBaseline.syncPlan(status: PrototypeBaseline.status(record: record, scope: scopeX, site: site0), record: record)
+    check(one.mode == .incremental && one.units.map(\.unit.id) == ["trade"] && one.changedSources == ["src/Trade.tsx"] && one.overwrites.isEmpty,
+          "one changed source rebuilds its unit only: \(one)")
+    let both = PrototypeBaseline.syncPlan(status: drift, record: record)
+    check(both.mode == .incremental && both.units.map(\.unit.id) == ["orders"] && both.overwrites.map(\.unit.id) == ["orders"],
+          "a unit changed on both sides is rebuilt and named as an overwrite")
+    check(both.notes.contains { $0.contains("src/util.ts") } && both.notes.contains { $0.contains("src/new.tsx") && $0.contains("Rebuild everything") },
+          "unclaimed changes and new files are said: \(both.notes)")
+    let onlyNotes = PrototypeBaseline.syncPlan(status: PrototypeBaseline.status(record: record, scope: ["src/theme.css": "t0", "src/Orders.tsx": "o0", "src/OrdersList.tsx": "l0", "src/Trade.tsx": "r0", "src/util.ts": "u9", "src/new.tsx": "n"], site: site0), record: record)
+    check(onlyNotes.mode == .nothing && onlyNotes.notes.count == 2, "only unclaimed or new files: no run, but the person is told")
+    let restyle = PrototypeBaseline.syncPlan(status: styles, record: record)
+    check(restyle.restyle && restyle.units.map(\.unit.id).contains("orders"), "a changed global stylesheet is copied again")
+    check(PrototypeBaseline.syncPlan(status: none, record: nil).mode == .full && PrototypeBaseline.syncPlan(status: none, record: nil).reasons[0].contains("no baseline")
+          || PrototypeBaseline.syncPlan(status: none, record: nil).reasons[0].contains("There is no baseline"), "no baseline: a full rebuild, said why")
+    // A file used by many screens, and a unit whose sources are all gone.
+    var wide = record
+    wide.units = ["a", "b", "c", "d"].map { PrototypeBaseline.Unit(id: $0, kind: .screen, name: $0.uppercased(), sources: ["src/shared.ts", "src/\($0).tsx"], files: [:]) }
+    wide.scope = ["src/shared.ts": "s", "src/a.tsx": "1", "src/b.tsx": "2", "src/c.tsx": "3", "src/d.tsx": "4"]
+    var wideNow = wide.scope; wideNow["src/shared.ts"] = "s2"
+    let shared = PrototypeBaseline.syncPlan(status: PrototypeBaseline.status(record: wide, scope: wideNow, site: [:]), record: wide)
+    check(shared.mode == .full && shared.reasons.count == 1 && shared.reasons[0].contains("src/shared.ts") && shared.reasons[0].contains("4 of 4 screens"),
+          "an input shared by many screens means a full rebuild, naming the file: \(shared.reasons)")
+    wideNow["src/shared.ts"] = "s"; wideNow["src/a.tsx"] = nil; wideNow["src/b.tsx"] = "22"
+    wide.units[0].sources = ["src/a.tsx"]
+    let gone = PrototypeBaseline.syncPlan(status: PrototypeBaseline.status(record: wide, scope: wideNow, site: [:]), record: wide)
+    check(gone.mode == .full && gone.reasons.contains { $0.contains("\"A\"") && $0.contains("removed") }, "a screen whose sources are all gone cannot be rebuilt alone: \(gone.reasons)")
+
+    // The baseline after an incremental sync: only what was rewritten and refreshed moves; the rest stays honest.
+    var siteAfter = site0; siteAfter["screens/orders.js"] = "o2"; siteAfter["screens/trade.js"] = "edited"
+    let advanced = PrototypeBaseline.advanced(record, version: 5, rewritten: ["orders"], refreshed: ["orders"], scope: scope1, site: siteAfter)
+    let afterStatus = PrototypeBaseline.status(record: advanced, scope: scope1, site: siteAfter)
+    check(advanced.syncedVersion == 5 && state("orders", afterStatus) == .inSync, "the rebuilt unit is in sync again")
+    check(state("trade", afterStatus) == .prototypeEdited, "a Studio edit that was not overwritten still shows")
+    check(afterStatus.unclaimed == ["src/util.ts"] && afterStatus.added == ["src/new.tsx"], "a changed file no unit lists and a new file are still reported: \(afterStatus.unclaimed) \(afterStatus.added)")
+    check(state("src/OrdersList.tsx", afterStatus) == .inSync, "a component that shares no changed source stays in sync")
+    // A unit that failed to rebuild keeps its old fingerprints, so it still shows as changed.
+    let failedRun = PrototypeBaseline.advanced(record, version: 5, rewritten: [], refreshed: [], scope: scope1, site: site0)
+    check(state("orders", PrototypeBaseline.status(record: failedRun, scope: scope1, site: site0)) == .codeChanged, "a unit that was not refreshed still shows code changed")
+    // A source listed by a refreshed and a not refreshed unit is not advanced.
+    var partial = record
+    partial.units[1].sources = ["src/Orders.tsx", "src/Trade.tsx"]
+    var scopeP = scope0; scopeP["src/Trade.tsx"] = "r1"
+    let half = PrototypeBaseline.advanced(partial, version: 6, rewritten: ["trade"], refreshed: ["trade"], scope: scopeP, site: site0)
+    check(half.scope["src/Trade.tsx"] == "r0", "a source shared with a unit that was not refreshed stays at its old fingerprint")
+    // A removed source of a refreshed unit is recorded as unreadable, not as a change.
+    var scopeR = scope0; scopeR["src/Trade.tsx"] = nil
+    let removedRun = PrototypeBaseline.advanced(record, version: 6, rewritten: ["trade"], refreshed: ["trade"], scope: scopeR, site: site0)
+    check(removedRun.scope["src/Trade.tsx"] == "" && PrototypeBaseline.status(record: removedRun, scope: scopeR, site: site0).unclaimed.isEmpty, "a removed source of a refreshed unit is no longer a difference")
+    // The shell moves with its stylesheets without absorbing Studio edits of its files.
+    var siteShell = site0; siteShell["app.js"] = "a-edited"
+    var scopeS = scope0; scopeS["src/theme.css"] = "t9"
+    let shellRun = PrototypeBaseline.advanced(record, version: 7, rewritten: [], refreshed: ["shell"], scope: scopeS, site: siteShell)
+    let shellStatus = PrototypeBaseline.status(record: shellRun, scope: scopeS, site: siteShell)
+    check(state("shell", shellStatus) == .prototypeEdited && shellStatus.units.first { $0.unit.id == "shell" }?.changedSources == [],
+          "copying the stylesheets again clears the code difference of the shell and keeps its Studio edit")
+
+    // The hand-off to code and the section an agent reads (REQ-012, REQ-013).
+    let entries = [PrototypeFiles.Entry(version: 1, instruction: "", summary: "build", date: Date()),
+                   PrototypeFiles.Entry(version: 2, instruction: "Make the table denser", summary: "Tightened rows.", date: Date()),
+                   PrototypeFiles.Entry(version: 4, instruction: "Go back to v2", summary: "Restored.", date: Date()),
+                   PrototypeFiles.Entry(version: 5, instruction: "Bigger trade button", summary: "The button is larger.", date: Date()),
+                   PrototypeFiles.Entry(version: 6, instruction: "Synced from code", summary: "Reconstructed.", date: Date())]
+    let markers: (String) -> [String] = { $0 == "screens/trade.js" ? ["src/Trade.tsx", "src/Badge.tsx"] : ["src/Orders.tsx"] }
+    let moved = PrototypeHandoff.changes(status: drift, history: entries, markers: markers)
+    check(moved.baselineVersion == 3 && moved.items.map(\.name) == ["Orders", "Trade"], "the changed units, in the order of the prototype: \(moved.items.map(\.name))")
+    check(moved.items[1].components == ["src/Trade.tsx", "src/Badge.tsx"] && moved.items[0].alsoChangedInCode == ["src/Orders.tsx"] && moved.items[1].alsoChangedInCode.isEmpty,
+          "each item names the components its files mark and the sources that also changed in the code")
+    check(moved.history.map(\.version) == [5], "only the requests after the baseline count, not builds, restores or syncs: \(moved.history.map(\.version))")
+    check(moved.codeChanged == ["src/Orders.tsx", "src/util.ts"], "the code files that changed since the baseline: \(moved.codeChanged)")
+    let brief = PrototypeHandoff.brief(title: "Shop", reference: "mv://prototype/shop", version: 7, siteRelative: "docs/prototypes/shop/site", changes: moved)
+    check(brief.contains("RECONSTRUCTION") && brief.contains("Do not copy its markup") && brief.contains("`docs/prototypes/shop/site/`")
+          && brief.contains("last synced with the code at v3"), "the brief says what the prototype is and how not to use it")
+    check(brief.contains("**Trade** (screen): prototype files `screens/trade.js`; reproduces the source components `src/Trade.tsx`, `src/Badge.tsx`")
+          && brief.contains("v5: Bigger trade button\n  Result: The button is larger.") && !brief.contains("Make the table denser") && !brief.contains("Go back"),
+          "the brief lists the files, the components and the requests that led to them")
+    check(brief.contains("Also changed in the code since the last sync") && brief.contains("- Orders: `src/Orders.tsx`"), "a unit that changed on both sides is flagged")
+    check(brief.contains("a branch of its own") && brief.contains("written nothing to the project") && brief.contains("Sync from code"), "the brief leaves the code work to the agent and names the way back")
+    let clean = PrototypeHandoff.changes(status: same, history: entries, markers: markers)
+    check(clean.isEmpty && clean.hasBaseline, "an unchanged prototype has nothing to hand off")
+    check(!PrototypeHandoff.changes(status: none, history: entries, markers: markers).hasBaseline, "no baseline, no changes can be told")
+    let sectionMoved = PrototypeHandoff.section(moved, componentPaths: ["src/Orders.tsx", "src/Other.tsx"])
+    check(sectionMoved.contains("Changes since the last sync (v3)") && sectionMoved.contains("- Trade (screen): screens/trade.js; reproduces src/Trade.tsx, src/Badge.tsx")
+          && sectionMoved.contains("Review requests since then:\n- v5: Bigger trade button → The button is larger.")
+          && sectionMoved.hasSuffix("that also changed in the code since the last sync: src/Orders.tsx."), "the section lists files, components, requests and code changes: \(sectionMoved)")
+    check(PrototypeHandoff.section(clean, componentPaths: ["src/Orders.tsx"]) == "Changes since the last sync (v3): none. The prototype's files are as they were at the last sync.\nSource components named in this result changed in the code since the last sync: none.",
+          "nothing changed: said in a line, and the components are reported unchanged")
+    check(PrototypeHandoff.section(PrototypeHandoff.changes(status: none, history: [], markers: markers), componentPaths: []).hasPrefix("Changes since the last sync: unknown."), "no baseline: said in a line")
+    check(PrototypeHandoff.section(clean, componentPaths: []).hasSuffix("the prototype records no components."), "no components recorded: said")
+
     // Storage per version; carry forward; no source text anywhere.
     let folder = work.appendingPathComponent("docs/prototypes/shop")
     try PrototypeBaseline.save(record, folder: folder, version: 3)
