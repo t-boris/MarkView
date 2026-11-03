@@ -161,9 +161,23 @@ enum AgentActivityParser {
 
     private enum Kind { case working, idle }
 
+    /// Entries the CLI writes for its own commands: the caveat, the command name and its output.
+    private static func isLocalCommand(_ content: Any?) -> Bool {
+        let text: String
+        if let string = content as? String { text = string }
+        else if let first = (content as? [[String: Any]])?.first, let string = first["text"] as? String { text = string }
+        else { return false }
+        let head = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return head.hasPrefix("<local-command-") || head.hasPrefix("<command-name>")
+    }
+
     private static func classifyClaude(type: String, message: [String: Any], date: Date?) -> (kind: Kind, text: String, date: Date?)? {
         let content = message["content"]
         if type == "user" {
+            // A slash command the CLI ran itself (/model, /clear) writes user entries that start no work.
+            // Skipped, the entry before it still says what the agent is doing: after `/model` the agent
+            // is waiting for the user, not working until its next reply.
+            if isLocalCommand(content) { return nil }
             if let text = content as? String { return text.hasPrefix("[Request interrupted") ? (.idle, "Interrupted", date) : (.working, "", date) }
             guard let blocks = content as? [[String: Any]], let block = blocks.last else { return nil }
             let text = block["text"] as? String ?? ""

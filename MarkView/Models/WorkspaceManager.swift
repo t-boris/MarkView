@@ -632,6 +632,7 @@ class WorkspaceManager: ObservableObject {
         research.workspace = self
         agentActivity.terminals = { [weak self] in self?.aiTerminals ?? [] }
         agentActivity.activeTerminalID = { [weak self] in self?.activeAITerminalID }
+        agentActivity.onClaudeModel = { [weak self] id, model in self?.claudeModelReported(model, terminalID: id) }
         agentActivity.start()
 
         // Restore layout from UserDefaults
@@ -4187,8 +4188,62 @@ class WorkspaceManager: ObservableObject {
     func aiModelChanged() {
         guard let session = aiTerminal, session.profile != .shell, !session.isRemote,
               session.model != chosenModel(for: session.profile) else { return }
+        // Only a model picked in MarkView after this assistant started applies to it. A model remembered
+        // from another session (the user switched with /model there, BUG-048) is the next start's, not a
+        // reason to interrupt this one.
+        guard let tool = session.profile.tool,
+              let picked = ModelPickLog.lastPick(tool: tool, project: aiProject), picked > session.launchedAt else { return }
         relaunch(session, as: session.profile)
         objectWillChange.send()
+    }
+
+    /// A Claude Code agent's own log names the model it runs now. When that is not what MarkView shows
+    /// (the user switched with `/model` inside the session), the agent's tab shows it, and it becomes
+    /// the model the project (and every project with no choice of its own) starts Claude Code with next
+    /// time. Nothing restarts: the conversation goes on.
+    private func claudeModelReported(_ model: String, terminalID: UUID) {
+        guard let session = aiTerminals.first(where: { $0.id == terminalID }),
+              session.profile == .claude, !session.isRemote, session.isRunning else { return }
+        let previous = session.observedModel
+        session.observedModel = model
+        let picked = session.pendingModelPick == model
+        if picked { session.pendingModelPick = nil }
+        guard model != session.model else { return }
+        // Started with the CLI's own default: the first reading is that default, not a choice,
+        // unless the Agents header asked for exactly this model.
+        if session.model == nil, previous == nil, !picked { return }
+        // A model pinned by id (--model claude-opus-4-1) and the family alias the log reports are the same.
+        if let pinned = session.model, ClaudeSessionModel.family(of: pinned) == model { return }
+        session.adoptRunningModel(model, title: ClaudeSessionModel.title(session.title, model: model))
+        AIAssistantPreferences.remember(model, for: .claude, project: aiProject)
+        objectWillChange.send()
+    }
+
+    /// The model switch in the Agents header. Claude Code switches live: `/model` is typed into the
+    /// running session, so nothing restarts and the conversation goes on; the session's log then
+    /// confirms it and `claudeModelReported` renames the tab and remembers the model. Another
+    /// assistant starts again with the model, and picks its conversation up where its CLI can resume.
+    func switchModel(of session: TerminalSession, to model: String) {
+        guard session.profile != .shell, !session.isRemote, !model.isEmpty else { return }
+        guard session.profile == .claude else {
+            guard let tool = session.profile.tool else { return }
+            AssistantChoice(project: aiProject).setModel(model, for: tool)
+            // The panel restarts the shown agent only when the project's own assistant changes its
+            // model; a Copilot tab beside a Claude project would stay as it was.
+            if session.model != chosenModel(for: session.profile) {
+                relaunch(session, as: session.profile, continuing: !tool.continueArgs.isEmpty)
+                objectWillChange.send()
+            }
+            return
+        }
+        // Only a family alias is typed, never free text. While the agent answers, the command would
+        // queue behind the answer or land in the wrong place; the menu is off then, this covers the race.
+        guard ClaudeSessionModel.families.contains(model), session.isRunning, !session.printed(within: 3) else {
+            NSSound.beep()
+            return
+        }
+        session.pendingModelPick = model
+        session.paste("/model \(model)", submit: true)
     }
 
     /// Send a prompt to an assistant (prompt buttons, AI Tools menu, graph edits,
