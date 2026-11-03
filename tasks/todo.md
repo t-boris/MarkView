@@ -3721,3 +3721,20 @@ One branch `feat/prototype-and-code-stay-in-step`, one PR, one release (Boris, 2
   the changed files). Sample data (`data.js`) is not refreshed by an incremental sync: asked as Q-005.
 - Not click-tested in the app window: the sync sheet, the "About:" menu, the hand-off sheet; `markview_get_prototype` section checked by unit
   tests of the text only. Q-004 (where the brief goes) is open: implemented its recommended answer (new session, clipboard always available).
+
+## Review: BUG-055 — web app discovery misses monorepo packages and rspack
+
+Plan (approved by Boris, 2026-11-03) and result:
+- [x] Find apps declared by JavaScript workspaces (`pnpm-workspace.yaml` `packages:`, `package.json` `workspaces` as an array or `{packages}`),
+  with `*`, `**` and `!` globs, looking for the declaration up to four levels below the root (`WebAppPreview.workspacePackages`). The plain
+  two-level scan is unchanged; workspace packages are added after it and deduplicated.
+- [x] Know the rspack and rsbuild dev servers: `servesWebOnly`, the web-framework lists, default ports (8080, 3000) and their config files; read
+  the config a script names with `-c` / `--config` (strikedesk serves its renderer with `rspack serve -c rspack.renderer.config.ts`, port 3010).
+- [x] Take the package manager from the closest lockfile between the app and the project root: workspace packages have no lockfile of their own,
+  so `npm run dev:renderer` would have been typed instead of `pnpm run dev:renderer`.
+- Verified: `tools/tests/web-preview-tests.sh` (81 checks; a StrikeDesk-shaped fixture, npm workspaces with an exclusion, `**`, a declaration too
+  deep, `node_modules`, the YAML list reader, the config-file reader). The script did not compile before this change (BrowserSession needs
+  `BrowserElementPick.swift` and `Views/BrowserPopup.swift`); both are in its file list now. The app's own discovery on broker-fabric now lists
+  `apps/strikedesk/app/packages/shell (web only)` with `pnpm run dev:renderer`, ports 3010 and 8080, in 52 ms (619 folders within four levels).
+- Not covered: the dev server was not started (no `pnpm run dev:renderer` in Boris's repository); clicking Preview Web App and the creator sheet in
+  the app window; a workspace declared deeper than four levels or beyond the 400-folder scan limit is still not found.

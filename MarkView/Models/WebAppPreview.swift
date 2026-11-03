@@ -24,21 +24,134 @@ enum WebAppPreview {
 
     // MARK: - Discovery
 
-    /// Apps in the project root and up to two levels down (`web/`, `apps/site/`), the root first.
+    /// Apps in the project root and up to two levels down (`web/`, `apps/site/`), the root first, then the packages of
+    /// the JavaScript workspaces declared deeper in the tree (`workspacePackages`, BUG-055).
     static func targets(root: URL, fileManager: FileManager = .default) -> [WebAppTarget] {
         var folders = [root]
-        let skip: Set<String> = ["node_modules", "build", "dist", "out", "target", "vendor", "Pods", ".git", "DerivedData"]
-        func children(_ folder: URL) -> [URL] {
-            ((try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
-                                                   options: [.skipsHiddenFiles])) ?? [])
-                .filter { !skip.contains($0.lastPathComponent) && (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        }
-        for child in children(root) {
+        for child in subfolders(of: root, fileManager) {
             folders.append(child)
-            folders.append(contentsOf: children(child))
+            folders.append(contentsOf: subfolders(of: child, fileManager))
+        }
+        var known = Set(folders.map { $0.standardizedFileURL.path })
+        for member in workspacePackages(root: root, fileManager: fileManager) where known.insert(member.standardizedFileURL.path).inserted {
+            folders.append(member)
         }
         return folders.compactMap { target(in: $0, root: root, fileManager: fileManager) }
+    }
+
+    /// Folders that never hold a project's own apps.
+    private static let skippedFolders: Set<String> = ["node_modules", "build", "dist", "out", "target", "vendor", "Pods", ".git", "DerivedData"]
+
+    private static func subfolders(of folder: URL, _ fileManager: FileManager) -> [URL] {
+        ((try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                               options: [.skipsHiddenFiles])) ?? [])
+            .filter { !skippedFolders.contains($0.lastPathComponent) && isFolder($0) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private static func isFolder(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    // MARK: - Workspaces
+
+    /// How far below the project root a workspace declaration is looked for (`apps/strikedesk/app` is three levels down).
+    static let workspaceDepth = 4
+    /// At most this many folders are listed while looking for workspaces, shallowest first, so a huge tree cannot stall the discovery.
+    private static let workspaceScanLimit = 400
+    /// At most this many packages are taken from one workspace declaration.
+    private static let workspaceMemberLimit = 200
+
+    /// The packages of every workspace declared in `root` or up to `workspaceDepth` levels below it: the `packages:` of
+    /// a `pnpm-workspace.yaml` and the `workspaces` of a `package.json`, with their globs expanded. An app of a monorepo
+    /// usually lives there (`apps/strikedesk/app/packages/shell`), deeper than the plain two-level scan reaches.
+    static func workspacePackages(root: URL, fileManager: FileManager = .default) -> [URL] {
+        var members: [URL] = []
+        var queue: [(folder: URL, depth: Int)] = [(root, 0)]
+        var index = 0
+        while index < queue.count, index < workspaceScanLimit {
+            let (folder, depth) = queue[index]
+            index += 1
+            members += workspaceMembers(of: folder, fileManager)
+            if depth < workspaceDepth { queue += subfolders(of: folder, fileManager).map { ($0, depth + 1) } }
+        }
+        var seen = Set<String>()
+        return members.filter { seen.insert($0.standardizedFileURL.path).inserted }.sorted { $0.path < $1.path }
+    }
+
+    private static func workspaceMembers(of folder: URL, _ fileManager: FileManager) -> [URL] {
+        var patterns: [String] = []
+        if let text = try? String(contentsOf: folder.appendingPathComponent("pnpm-workspace.yaml"), encoding: .utf8) {
+            patterns += yamlList(named: "packages", in: text)
+        }
+        if let package = readJSON(folder.appendingPathComponent("package.json")) {
+            if let list = package["workspaces"] as? [String] {
+                patterns += list
+            } else if let list = (package["workspaces"] as? [String: Any])?["packages"] as? [String] {
+                patterns += list
+            }
+        }
+        let includes = patterns.filter { !$0.hasPrefix("!") }
+        guard !includes.isEmpty else { return [] }
+        let excluded = Set(patterns.filter { $0.hasPrefix("!") }.flatMap { expand(String($0.dropFirst()), in: folder, fileManager) }
+            .map { $0.standardizedFileURL.path })
+        return includes.flatMap { expand($0, in: folder, fileManager) }
+            .filter { !excluded.contains($0.standardizedFileURL.path) }
+            .prefix(workspaceMemberLimit).map { $0 }
+    }
+
+    /// The folders a workspace glob names, relative to `folder`: `packages/*`, `apps/**`, `libs/ui-*`, `tools/cli`.
+    private static func expand(_ pattern: String, in folder: URL, _ fileManager: FileManager) -> [URL] {
+        var text = pattern.trimmingCharacters(in: .whitespaces)
+        while text.hasPrefix("./") { text.removeFirst(2) }
+        while text.hasSuffix("/") { text.removeLast() }
+        let segments = text.split(separator: "/").map(String.init)
+        guard !segments.isEmpty, !segments.contains("..") else { return [] }
+        func match(_ current: URL, _ segments: ArraySlice<String>, _ levels: Int) -> [URL] {
+            guard let first = segments.first else { return [current] }
+            let rest = segments.dropFirst()
+            if first == "**" {
+                // Zero or more folders, a few levels at most.
+                var found = match(current, rest, levels)
+                if levels < 3 { for child in subfolders(of: current, fileManager) { found += match(child, segments, levels + 1) } }
+                return found
+            }
+            if first.contains(where: { "*?[".contains($0) }) {
+                return subfolders(of: current, fileManager).filter { fnmatch(first, $0.lastPathComponent, 0) == 0 }
+                    .flatMap { match($0, rest, levels) }
+            }
+            let child = current.appendingPathComponent(first)
+            return isFolder(child) ? match(child, rest, levels) : []
+        }
+        return match(folder, segments[...], 0)
+    }
+
+    /// The `- item` lines under a top-level `key:` of a small YAML file such as pnpm-workspace.yaml, or an inline
+    /// `key: [a, b]`. Quotes and comments are dropped; nothing else of YAML is understood.
+    static func yamlList(named key: String, in text: String) -> [String] {
+        func unquoted(_ item: some StringProtocol) -> String {
+            item.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'")))
+        }
+        var items: [String] = []
+        var inside = false
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? raw
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            if trimmed.hasPrefix("-") {
+                if inside { items.append(unquoted(trimmed.dropFirst())) }
+            } else if line.first?.isWhitespace == false {
+                inside = false
+                guard trimmed.hasPrefix(key + ":") else { continue }
+                let rest = trimmed.dropFirst(key.count + 1).trimmingCharacters(in: .whitespaces)
+                if rest.hasPrefix("[") {
+                    items += rest.dropFirst().prefix { $0 != "]" }.split(separator: ",").map { unquoted($0) }
+                } else if rest.isEmpty {
+                    inside = true
+                }
+            }
+        }
+        return items.filter { !$0.isEmpty }
     }
 
     /// The app in `folder`, when it has a recognised development server.
@@ -47,7 +160,7 @@ enum WebAppPreview {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let label = relative.isEmpty ? root.lastPathComponent : relative
         if let package = readJSON(folder.appendingPathComponent("package.json")),
-           let target = nodeTarget(package, folder: folder, label: label, fileManager: fileManager) {
+           let target = nodeTarget(package, folder: folder, root: root, label: label, fileManager: fileManager) {
             return target
         }
         let exists = { (name: String) in fileManager.fileExists(atPath: folder.appendingPathComponent(name).path) }
@@ -64,12 +177,12 @@ enum WebAppPreview {
         return nil
     }
 
-    private static func nodeTarget(_ package: [String: Any], folder: URL, label: String,
+    private static func nodeTarget(_ package: [String: Any], folder: URL, root: URL, label: String,
                                    fileManager: FileManager) -> WebAppTarget? {
         let scripts = package["scripts"] as? [String: String] ?? [:]
         let dependencies = ((package["dependencies"] as? [String: Any]) ?? [:])
             .merging((package["devDependencies"] as? [String: Any]) ?? [:]) { first, _ in first }
-        let manager = packageManager(folder, fileManager)
+        let manager = packageManager(folder, root: root, fileManager)
         if ["electron", "electron-vite", "@electron-forge/cli", "electron-builder", "vite-plugin-electron"].contains(where: { dependencies[$0] != nil }) {
             // These Vite plugins start Electron from a plain `vite`, so no vite script is web only.
             let pluginStartsElectron = ["vite-plugin-electron", "vite-electron-plugin", "vite-plugin-electron-builder"]
@@ -83,17 +196,31 @@ enum WebAppPreview {
         let web = ["vite", "next", "react-scripts", "@angular/core", "@vue/cli-service", "nuxt", "astro",
                    "@sveltejs/kit", "svelte", "@remix-run/dev", "gatsby", "parcel", "webpack-dev-server",
                    "express", "fastify", "koa", "@nestjs/core", "hono", "solid-start", "@builder.io/qwik",
-                   "@docusaurus/core", "vitepress", "@storybook/react", "http-server", "serve", "live-server"]
+                   "@docusaurus/core", "vitepress", "@storybook/react", "http-server", "serve", "live-server",
+                   "@rspack/cli", "@rsbuild/core"]
         let isWeb = web.contains { dependencies[$0] != nil }
-            || ["vite", "next", "ng serve", "nuxt", "astro", "webpack", "parcel", "remix", "gatsby"].contains { script.contains($0) }
+            || ["vite", "next", "ng serve", "nuxt", "astro", "webpack", "parcel", "remix", "gatsby",
+                "rspack serve", "rspack dev", "rsbuild dev"].contains { script.contains($0) }
         guard isWeb else { return nil }
-        var ports = explicitPorts(in: script) + configPorts(folder: folder, files: webConfigFiles)
+        var ports = explicitPorts(in: script) + configPorts(folder: folder, files: webConfigFiles + configFiles(in: script))
         ports += defaultPorts(script: script, dependencies: Set(dependencies.keys))
         return WebAppTarget(folder: folder, label: label, command: runCommand(name, manager: manager), ports: unique(ports))
     }
 
     private static let webConfigFiles = ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts", "angular.json",
-                                         "astro.config.mjs", "astro.config.ts", "nuxt.config.ts", "vue.config.js"]
+                                         "astro.config.mjs", "astro.config.ts", "nuxt.config.ts", "vue.config.js",
+                                         "rspack.config.ts", "rspack.config.js", "rspack.config.mjs", "rsbuild.config.ts",
+                                         "rsbuild.config.js", "rsbuild.config.mjs", "rsbuild.config.mts"]
+
+    /// The config file a script names: `rspack serve -c rspack.renderer.config.ts`, `webpack serve --config=x.js`.
+    static func configFiles(in script: String) -> [String] {
+        let pattern = #"(?:^|\s)(?:-c|--config)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s"']+))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(script.startIndex..., in: script)
+        return regex.matches(in: script, range: range).compactMap { match in
+            (1...3).lazy.compactMap { Range(match.range(at: $0), in: script).map { String(script[$0]) } }.first
+        }.filter { !$0.hasPrefix("/") && !$0.contains("..") }
+    }
 
     // MARK: - Electron
 
@@ -111,7 +238,9 @@ enum WebAppPreview {
         for name in names {
             guard let script = scripts[name], servesWebOnly(script),
                   !(viteStartsElectron && script.lowercased().contains("vite")) else { continue }
-            let ports = explicitPorts(in: script) + configPorts(folder: folder, files: webConfigFiles) + defaultPorts(script: script, dependencies: [])
+            var ports = explicitPorts(in: script)
+            ports += configPorts(folder: folder, files: webConfigFiles + configFiles(in: script))
+            ports += defaultPorts(script: script, dependencies: [])
             return WebAppTarget(folder: folder, label: label, command: runCommand(name, manager: manager), ports: unique(ports), isElectron: true)
         }
         let existing = { (names: [String]) in names.first { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) } }
@@ -136,7 +265,8 @@ enum WebAppPreview {
         guard !text.contains("electron"), !text.contains("wait-on") else { return false }
         let servers = [#"(^|[\s&;(])vite(\s+(--|dev\b|serve\b|preview\b)|\s*$|\s*&&|\s*;)"#, #"\bnext\s+dev\b"#,
                        #"\breact-scripts\s+start\b"#, #"\bwebpack\s+serve\b"#, #"\bwebpack-dev-server\b"#, #"\bng\s+serve\b"#,
-                       #"\bvue-cli-service\s+serve\b"#, #"\bastro\s+dev\b"#, #"\bnuxt\s+dev\b"#, #"\bparcel\b(?!\s+build)"#]
+                       #"\bvue-cli-service\s+serve\b"#, #"\bastro\s+dev\b"#, #"\bnuxt\s+dev\b"#, #"\bparcel\b(?!\s+build)"#,
+                       #"\brspack\s+(serve|dev)\b"#, #"\brsbuild\s+dev\b"#, #"\brspack-dev-server\b"#]
         return servers.contains { text.range(of: $0, options: .regularExpression) != nil }
     }
 
@@ -146,12 +276,19 @@ enum WebAppPreview {
 
     // MARK: - Commands
 
-    private static func packageManager(_ folder: URL, _ fileManager: FileManager) -> String {
-        let exists = { (name: String) in fileManager.fileExists(atPath: folder.appendingPathComponent(name).path) }
-        if exists("pnpm-lock.yaml") { return "pnpm" }
-        if exists("yarn.lock") { return "yarn" }
-        if exists("bun.lockb") || exists("bun.lock") { return "bun" }
-        return "npm"
+    /// The package manager of the app's folder, or of the closest folder above it (up to the project root) that has a
+    /// lockfile: the packages of a workspace share the lockfile of the workspace root.
+    private static func packageManager(_ folder: URL, root: URL, _ fileManager: FileManager) -> String {
+        let top = root.standardizedFileURL.path
+        var current = folder.standardizedFileURL
+        while true {
+            let exists = { (name: String) in fileManager.fileExists(atPath: current.appendingPathComponent(name).path) }
+            if exists("pnpm-lock.yaml") { return "pnpm" }
+            if exists("yarn.lock") { return "yarn" }
+            if exists("bun.lockb") || exists("bun.lock") { return "bun" }
+            guard current.path != top, current.path.hasPrefix(top + "/") else { return "npm" }
+            current = current.deletingLastPathComponent()
+        }
     }
 
     private static func runCommand(_ script: String, manager: String) -> String {
@@ -193,6 +330,8 @@ enum WebAppPreview {
 
     private static func defaultPorts(script: String, dependencies: Set<String>) -> [Int] {
         if script.contains("storybook") { return [6006] }
+        if script.contains("rsbuild") || dependencies.contains("@rsbuild/core") { return [3000] }
+        if script.contains("rspack") || dependencies.contains("@rspack/cli") { return [8080] }
         if dependencies.contains("@angular/core") || script.contains("ng serve") { return [4200] }
         if dependencies.contains("astro") { return [4321] }
         if dependencies.contains("@vue/cli-service") { return [8080] }
