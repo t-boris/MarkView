@@ -51,6 +51,15 @@ check(Set(ProjectAgentTools.guideTopics.map(ProjectAgentTools.guide)).count == P
 check(ProjectAgentTools.guide(nil) == ProjectAgentTools.guide("overview") && ProjectAgentTools.guide("zzz") == ProjectAgentTools.guide("overview"), "the overview is the default")
 check(ProjectAgentTools.guide("overview").contains("docs/features/<slug>/") && ProjectAgentTools.guide("overview").contains("never write these files by hand"), "the overview names the folder and forbids hand-written files")
 check(ProjectAgentTools.guide("prototype").contains("markview_get_prototype") && ProjectAgentTools.guide("prototype").contains("markview_add_requirement"), "the prototype guide shows the way to features")
+let prototypeGuide = ProjectAgentTools.guide("prototype")
+check(prototypeGuide.contains("markview://prototype/<slug>") && prototypeGuide.contains("latest saved version") && prototypeGuide.contains("same project"),
+      "the prototype guide explains the reference, that it means the latest version and that it is local to the project")
+let getPrototype = tools.first { $0.name == "markview_get_prototype" }!
+check(getPrototype.description.contains("markview://prototype/<slug>") && getPrototype.description.contains("latest saved version") && getPrototype.description.contains("checkout"),
+      "markview_get_prototype describes the reference and where it resolves")
+check((getPrototype.properties["prototype"]?["description"] as? String)?.contains("markview://prototype/<slug>") == true
+      && (getPrototype.properties["prototype"]?["description"] as? String)?.contains(".dde/prototypes/<slug>") == true, "the prototype argument takes the reference in its forms")
+check(tools.first { $0.name == "markview_list_prototypes" }!.description.contains("markview://prototype/<slug>"), "markview_list_prototypes shows each reference")
 
 // MARK: Bodies
 
@@ -104,6 +113,8 @@ check(skill.hasPrefix("---\nname: markview\ndescription: ") && skill.contains("-
 check(names.allSatisfy { skill.contains($0) }, "the skill lists every tool")
 check(skill.contains("## How work is done") && skill.contains("CLAUDE.md"), "the skill carries the process and defers to the project's own rules")
 check(skill.contains("\"/Applications/MarkView.app/Contents/MacOS/MarkView\" --project-call"), "the command carries the app's path, quoted")
+check(skill.contains("## A prototype handed to you as a reference") && skill.contains("`markview://prototype/<slug>`") && skill.contains("latest saved version") && skill.contains("same project open"),
+      "the skill explains the prototype reference: its form, latest version, local to the project")
 
 // MARK: Stand-in for the app
 
