@@ -742,3 +742,14 @@ recognizer on synthetic speech on one Mac, never the failure paths on screen.
   (`codesign -dv` shows `adhoc,runtime`) behaves like the notarized build for Speech/microphone entitlements.
 - `tccutil reset <service> <bundle id>` fails ("No such bundle identifier") once the probe bundle is deleted; reset before deleting it, and
   from a path LaunchServices knows (not always the case for bundles under /private/tmp).
+
+## Bug status is a merge event, not a checklist item; keep the integration driver alive (bug audit, 2026-11-02)
+
+Nine bug fixes were ready in worktrees, but the statuses stayed `fixing` for an hour and Boris asked twice what was going on.
+The merge driver ran as a background shell of the session and died with it; the status files live in the fix branches, so
+nothing moved until each PR merged. A `git reset --hard` on the shared main checkout also wiped locally set statuses.
+
+- Set `fixing` through MarkView when work starts, and let the fix branch carry `fixed`; never hand-edit the status in the
+  shared checkout.
+- Write the PR body before queueing a branch; a missing body file stopped the whole queue.
+- Tell Boris the pipeline shape once (sequential PRs, ~5 min of CI each) so a quiet hour reads as progress, not a hang.

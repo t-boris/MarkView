@@ -1,5 +1,22 @@
 # MarkView — Follow-up Tasks
 
+## Automatic Code Architecture (2026-11-02, 4.66.0, feat/automatic-code-architecture, issue #206)
+
+The X-Ray Code view analyzes a code project on its own: at project open and in the background after changes
+(docs/features/automatic-code-architecture, Q-001..004 answered, DEC-001..004, REQ-001..004 approved).
+
+- [x] Coverage report `CodeCoverage`: per language full / partial / not analyzed, counts, reasons; persisted in `arch_meta`.
+- [x] Automatic scenarios (3, max 5) from the analysis answer; `auto` sequences, per-sequence staleness by cited files, cached traces.
+- [x] Background pipeline `startAutomaticCodeAnalysis`: scan → model → scenarios, one run at a time, run-token guarded, cancelled on close.
+- [x] `AutoAnalysisScheduler`: 60 s quiet, ≥15 min between AI runs, ≤5000 files; `ProjectChangeWatcher` (FSEvents) feeds it.
+- [x] Setting `xray.autoAnalyze` (default on); off → nothing starts, no CLI; manual Refresh / Trace still work (DEC-001).
+- [x] Code view: status line, scenario list with Automatic/Manual and stale badges, "What was understood" table, fact/inference legend.
+- [x] Independent review: 7 findings fixed (recursive watcher, pending start, token-guarded state, `.off` state, failed-trace memory,
+      DB load off main, leftovers).
+- [x] `code-architecture-tests.sh` 107 ok / 0 WebKit failures; `auto-analysis-scheduler-tests.sh` 32 ok; Debug build.
+- [ ] Not exercised: the live pipeline with a real CLI agent; dark theme of the new panel CSS.
+
+
 ## BUG-043: switching tabs discarded text typed in the WYSIWYG view (2026-11-02, 4.65.4)
 
 Found while fixing BUG-031. Edits typed in the WYSIWYG view live only in the page until Cmd+S or a switch to Source; a tab
