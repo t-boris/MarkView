@@ -270,6 +270,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                                                         language: promptLanguage, mode: manifest.mode, codeScope: codeScope,
                                                         record: record, stage: stageReporter())
                 adopt(built)
+                await refreshThemes(planned: built.themes, defaultID: built.defaultTheme, persist: false)
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
                 }
@@ -334,6 +335,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let built = try await PrototypeAI.sync(root: root, folder: folder, manifest: before, codeScope: codeScope,
                                                        language: promptLanguage, record: record, stage: stageReporter(milestones: false))
                 adopt(built)
+                await refreshThemes(planned: built.themes, defaultID: built.defaultTheme, persist: false)
                 let screens = built.screens.isEmpty ? "no screen could be written" : "screens: \(built.screens.joined(separator: ", "))"
                 try accept(instruction: "Synced from code", summary: "Reconstructed again from the current code; \(screens).")
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
@@ -599,6 +601,30 @@ final class PrototypeSession: ObservableObject, Identifiable {
         }
         auditActive = false
         return auditReport
+    }
+
+    // MARK: - Themes
+
+    /// Finds the themes of the original in the copied stylesheets and records them in the manifest (REQ-001). `planned` are the ids
+    /// the planner read from the source (nil keeps the earlier ones), `defaultID` the theme the application starts with. The scan
+    /// reads files, so it runs off the main actor; `persist` is false when the caller saves the manifest itself.
+    func refreshThemes(planned: [String]? = nil, defaultID: String? = nil, persist: Bool = true) async {
+        guard manifest.mode == .code else { return }
+        let site = siteFolder
+        let found = await Task.detached { PrototypeThemes.scan(site: site) }.value
+        let updated = PrototypeThemes.record(found: found, planned: planned ?? manifest.themes?.ids ?? [],
+                                             defaultID: defaultID, previous: manifest.themes)
+        guard updated != manifest.themes else { return }
+        manifest.themes = updated
+        if persist { try? PrototypeFiles.saveManifest(manifest, in: folder) }
+    }
+
+    /// The reviewer's theme for the preview: an id, nil for the default, "" for the original look without an attribute (REQ-002).
+    func chooseTheme(_ id: String?) {
+        guard var record = manifest.themes, record.chosen != id else { return }
+        record.chosen = id
+        manifest.themes = record
+        try? PrototypeFiles.saveManifest(manifest, in: folder)
     }
 
     /// The preview began the audit.

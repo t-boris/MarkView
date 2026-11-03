@@ -835,3 +835,9 @@ the answer, with the saved default unchanged because the value was the one alrea
   and verify generated files by content (a comment-only file has the right path and is still a stub).
 - Validate a heuristic against a real artefact before trusting it: the audit run on the real strikedesk v8 found Trade, Transport and Trade journal;
   the fixture alone would have passed a weaker heuristic.
+
+## Themes: a new manifest field must be added to the lenient decoder, and a heuristic must meet real data
+- `PrototypeFiles.Manifest` decodes through a hand-written `init(from:)` (so old files open); a new stored field that is not added there is silently
+  dropped on every load. A round-trip test (`encode` then `decode`, field still there) caught it; write that test with every new manifest field.
+- The first scanner pass looked right on the fixture and found 3 of StrikeDesk's 4 themes: the base theme (`dark`) is `:root` with no attribute
+  selector. Only running it on the real stylesheets showed that; the planner now also reads the theme ids and the default from the source.

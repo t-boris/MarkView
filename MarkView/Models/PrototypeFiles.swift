@@ -92,6 +92,32 @@ enum PrototypeFiles {
         /// Code mode: the source components the prototype reproduces, from the plan and the markers
         /// in the generated files (`components(in:screens:)`). Recorded at generation and at each sync.
         var components: [Component] = []
+        /// Code mode: the themes of the original found in the copied stylesheets, and the one the preview shows. Refreshed by
+        /// a build and by a sync; the choice is the reviewer's and survives both (`PrototypeThemes`).
+        var themes: ThemeRecord?
+    }
+
+    /// The themes of an original application that a root attribute selects, e.g. `data-theme` with dark and light.
+    struct ThemeRecord: Codable, Equatable, Sendable {
+        /// The attribute of the root element, e.g. `data-theme`.
+        var attribute: String
+        /// The values the stylesheets select, in order of first appearance, without repeats.
+        var ids: [String]
+        /// The theme the application starts with, as the build recorded it from the source; nil when it recorded none.
+        var defaultID: String?
+        /// The theme the reviewer chose for the preview; nil keeps the default (or, with no default, the look the prototype has),
+        /// the empty string is "original look": no attribute at all.
+        var chosen: String?
+
+        /// The id applied to the preview's root element, nil for none.
+        var effective: String? {
+            if let chosen {
+                if chosen.isEmpty { return nil }
+                if ids.contains(chosen) { return chosen }
+            }
+            if let defaultID, ids.contains(defaultID) { return defaultID }
+            return nil
+        }
     }
 
     /// One message of the review conversation as saved in `conversation.json`; images are file names in `attachments/`.
@@ -726,5 +752,7 @@ extension PrototypeFiles.Manifest {
         mode = PrototypeFiles.Mode(rawValue: rawMode) ?? .requirements
         gaps = try c.decodeIfPresent([String].self, forKey: .gaps) ?? []
         components = try c.decodeIfPresent([PrototypeFiles.Component].self, forKey: .components) ?? []
+        // A damaged theme record must not stop the prototype from opening: the themes are found again from the stylesheets.
+        themes = (try? c.decodeIfPresent(PrototypeFiles.ThemeRecord.self, forKey: .themes)) ?? nil
     }
 }
