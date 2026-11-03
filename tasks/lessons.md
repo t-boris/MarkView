@@ -1,5 +1,16 @@
 # Lessons
 
+## Documentation goes straight to main (2026-11-03)
+
+I opened a pull request for a README and presentation change, following the branch + PR rule. Boris corrected it:
+"Commit all the documentation, always commit straight to main."
+- Rule: documentation-only changes (README, `docs/`, `tasks/`, presentations, bug and feature records) are committed and
+  pushed directly to `main`. No branch, no PR, no version bump, no DMG.
+- Rule: features and bug fixes keep the branch + PR flow.
+- Rule: "all the documentation" includes records other sessions left uncommitted in the working tree: compare them with
+  `origin/main` first and commit only the files that really differ.
+- Rule: in a shared tree, do it from a throwaway worktree of `origin/main` instead of switching branches, and remove it afterwards.
+
 ## Truncated prototype files need a bounded output protocol (2026-11-03)
 
 The BUG-056 runtime change covered requirements mode, not code reconstruction. A code sync could still fail on a large

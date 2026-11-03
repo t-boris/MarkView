@@ -56,9 +56,13 @@ These rules apply to every agent working in this repository (Claude Code, Codex,
 and others). Only an explicit instruction from Boris for a specific change
 overrides them.
 
-- Never commit to `main` directly. Start each feature, bug fix, or docs change on
-  its own branch from an up-to-date `origin/main`: `feat/<slug>`,
-  `fix/<bug-id>-<slug>`, or `docs/<slug>`.
+- Documentation-only changes (README, `docs/`, `tasks/`, presentations, bug and feature
+  records) are committed and pushed straight to `main`, with no branch or pull request
+  (Boris, 2026-11-03). Pull from `origin/main` first, stage only your own files, and
+  never use `--force`.
+- Never commit to `main` directly for anything else. Start each feature or bug fix on
+  its own branch from an up-to-date `origin/main`: `feat/<slug>` or
+  `fix/<bug-id>-<slug>`.
 - When the work is committed, the version is bumped, and the build passes, push
   the branch and open a pull request into `main` with `gh pr create`. Use one
   pull request per feature or bug. Describe the changes, the version, and a test
@@ -127,5 +131,5 @@ Notarization uses the `markview-notary` keychain profile (`NOTARY_PROFILE` overr
 it). Wait for the `Build & Release` run of the merge commit to succeed (it only compiles
 the app and publishes nothing: the signed DMG is the only installer on GitHub). Verify the app version, code signature, and that
 `spctl` accepts the DMG as notarized, and report the release URL and local paths with
-the merged PR link. A docs-only change still goes through a PR but needs no
-app build or DMG.
+the merged PR link. A docs-only change is committed directly to `main` (see Git
+Workflow) and needs no app build or DMG.
