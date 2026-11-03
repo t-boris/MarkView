@@ -1,5 +1,16 @@
 # Lessons
 
+## Copilot over ACP streams its internal continuations as one answer (BUG-056, 2026-11-03)
+
+When the model hits its 32K output cap, Copilot CLI continues by itself inside the same `session/prompt` and streams every internal
+turn's text as `agent_message_chunk` with no boundary, then reports `end_turn`. Its session log (`~/.copilot/session-state/<id>/
+events.jsonl`) shows the turns (`assistant.turn_start`) and the real texts (`assistant.message`). That is the fastest way to see what
+the model actually wrote versus what MarkView received.
+- Rule: never trust "the JSON never closed" to mean "ask for more". Check whether a complete answer already parses, and stop when the
+  model only says it is finished.
+- Rule: do not make the model emit large fixed code (a runtime, a framework) as an escaped JSON string in every run. Ship it, and
+  let the model write only what is specific. That removes the slowest and most fragile answers.
+
 ## "Script error." is WebKit muting a cross-origin script, not an error message (BUG-047, 2026-11-03)
 
 The Prototype Studio preview loaded `site/index.html` with `loadFileURL`, where every `file:` URL is its own origin. An error thrown in

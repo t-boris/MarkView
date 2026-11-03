@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## BUG-056: Prototype answers run past the output limit (2026-11-03, 5.9.0, fix/bug-056-prototype-output-limit)
+
+Report (Boris): building from a description failed with "cut off before its JSON ended (227596 characters after 10 continuation
+turns)"; a code-mode sync failed with "expected JSON, got I'll explore…". Both were `data.js` answers. Copilot's internal multi-turn
+stream was joined into a broken text, and the continuation loop kept going after the JSON was complete.
+- [x] ACP: continue a structured answer only while no JSON parses; stop after two "the answer is complete" replies; parse the last
+      restarted region. Replayed the real failing sync: parsed after one continuation.
+- [x] Requirements mode on the built-in runtime: index.html, app.js, data.js by MarkView; styles, seed.js and screens at once.
+- [x] Harnesses: acp-continuation, prototype-runtime (WKWebView), prototype-deadline; all prototype suites green.
+
 ## BUG-050: Code-mode prototype of a large app is far from the original (2026-11-03, 5.2.0 planned, fix/bug-050-code-prototype-fidelity)
 
 Report (Boris): the prototype of broker-fabric "Strike Desk" is "infinitely far from the original"

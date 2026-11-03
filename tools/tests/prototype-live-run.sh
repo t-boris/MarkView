@@ -8,5 +8,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/PrototypeLiveRun.swift "$out/main.swift"
 swiftc -O -parse-as-library -o /dev/null /dev/null 2>/dev/null || true
-swiftc -O -o "$out/live" MarkView/Models/PrototypeFiles.swift MarkView/Models/PrototypeStyles.swift MarkView/Models/PrototypeEmbedded.swift MarkView/Models/PrototypeAI.swift MarkView/Models/PrototypeAudit.swift MarkView/Models/PrototypeThemes.swift MarkView/Models/PrototypeBaseline.swift MarkView/Models/PrototypeHandoff.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"
+swiftc -O -o "$out/live" MarkView/Models/PrototypeFiles.swift MarkView/Models/PrototypeStyles.swift MarkView/Models/PrototypeEmbedded.swift MarkView/Models/PrototypeAI.swift MarkView/Models/PrototypeRuntime.swift MarkView/Models/PrototypeAudit.swift MarkView/Models/PrototypeThemes.swift MarkView/Models/PrototypeBaseline.swift MarkView/Models/PrototypeHandoff.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"
 "$out/live" "$1" "$2"

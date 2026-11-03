@@ -112,9 +112,8 @@ enum ACPAssistant {
                 }
             }
 
-            let wantsJSON = request.jsonSchema != nil
             var reply = try await answer(composePrompt(request), tool: tool, connection: connection,
-                                         state: state, wantsJSON: wantsJSON)
+                                         state: state, schema: request.jsonSchema)
             var text = reply.text
             var structured: Any?
             if let schema = request.jsonSchema {
@@ -126,7 +125,7 @@ enum ACPAssistant {
                     let repaired = try await answer("""
                         Your last answer was not one valid JSON object matching the schema. Reply again with \
                         only that JSON object — no prose, no Markdown fences.
-                        """, tool: tool, connection: connection, state: state, wantsJSON: true)
+                        """, tool: tool, connection: connection, state: state, schema: schema)
                     structured = parseJSON(repaired.text, schema: schema)
                     if structured != nil { text = repaired.text; reply = repaired }
                 }
@@ -170,6 +169,12 @@ enum ACPAssistant {
     private static let quotedTail = 200
     /// Shorter repeats are too likely to be ordinary text (indentation, a closing brace) to cut.
     private static let minimumOverlap = 24
+    /// A continuation this short with no quote or escape in it is the model saying it has finished, not more
+    /// of a JSON answer; after two in a row the attempt ends instead of spending the rest of the budget.
+    private static let declineLength = 400
+    private static let declinesAllowed = 2
+    /// How many places where the answer may have started again `parseJSON` tries, latest first.
+    private static let restartCandidates = 40
 
     /// A whole answer and how many continuation turns it took.
     private struct Answer {
@@ -182,11 +187,19 @@ enum ACPAssistant {
     /// fails to parse as JSON. A structured answer is unfinished while its JSON is still open —
     /// a CLI may report a truncated turn as a normal end, so its stop reason cannot be trusted
     /// alone; any other answer is unfinished when the CLI says the model stopped at a limit.
+    /// A structured answer that already parses is finished even when its text looks open: Copilot
+    /// streams every internal turn it takes at its output limit, so the text can hold a cut-off
+    /// first attempt before the complete one (BUG-056).
     private static func answer(_ text: String, tool: CLITool, connection: ACPConnection,
-                               state: RunState, wantsJSON: Bool) async throws -> Answer {
+                               state: RunState, schema: [String: Any]?) async throws -> Answer {
         var (whole, stop) = try await prompt(text, tool: tool, connection: connection, state: state)
         var continuations = 0
-        while continuations < continuationLimit, wantsJSON ? looksCutOff(whole) : stop == .cutOff {
+        var declined = 0
+        func unfinished() -> Bool {
+            guard let schema else { return stop == .cutOff }
+            return looksCutOff(whole) && parseJSON(whole, schema: schema) == nil
+        }
+        while continuations < continuationLimit, unfinished() {
             continuations += 1
             let (more, nextStop) = try await prompt("""
                 Your previous message stopped before the answer was complete. Continue it from exactly the \
@@ -201,6 +214,12 @@ enum ACPAssistant {
             guard let joined = join(whole, more) else { break }
             whole = joined
             stop = nextStop
+            if schema != nil, declines(more) {
+                declined += 1
+                if declined >= declinesAllowed { break }
+            } else {
+                declined = 0
+            }
         }
         return Answer(text: whole.trimmingCharacters(in: .whitespacesAndNewlines), continuations: continuations)
     }
@@ -231,6 +250,15 @@ enum ACPAssistant {
         }
         let addition = overlap >= minimumOverlap ? String(more.dropFirst(overlap)) : more
         return addition.isEmpty ? nil : whole + addition
+    }
+
+    /// Whether a continuation turn is prose that declines to continue ("The answer is complete.",
+    /// "Nothing further to add.") rather than more of the answer: short, no quote or escape that more
+    /// JSON would carry, and the wording of a model that believes it has finished.
+    private static func declines(_ more: String) -> Bool {
+        guard more.count < declineLength, !more.contains("\""), !more.contains("\\") else { return false }
+        return more.range(of: #"\b(complete|completed|finished|done|delivered|nothing (further|more|else|left)|no further|no (remaining|more) (content|text|characters))\b"#,
+                          options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// Whether the JSON in `text` is left open, i.e. the answer stopped in the middle of it.
@@ -347,6 +375,18 @@ enum ACPAssistant {
             candidates.append(String(text[fence]).replacingOccurrences(of: #"^```(?:json)?\s*|```$"#, with: "", options: .regularExpression))
         }
         candidates += jsonRegions(text).filter(\.closed).map(\.text).sorted { $0.count > $1.count }
+        // The answer may have started again after a cut-off attempt: the last `{"` that opens a region
+        // which closes is the answer that finished. Inside a JSON string a quote is escaped, so `{"` only
+        // occurs where an object starts.
+        var starts: [String.Index] = []
+        var from = text.startIndex
+        while let found = text.range(of: "{\"", range: from..<text.endIndex) {
+            starts.append(found.lowerBound)
+            from = found.upperBound
+        }
+        for start in starts.suffix(restartCandidates).reversed() where start != text.startIndex {
+            if let region = jsonRegions(String(text[start...])).first, region.closed { candidates.append(region.text) }
+        }
         if let open = text.firstIndex(of: "{"), let close = text.lastIndex(of: "}"), open < close {
             candidates.append(String(text[open...close]))
         }
