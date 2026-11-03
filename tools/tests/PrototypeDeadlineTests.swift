@@ -28,11 +28,11 @@ import Foundation
             language: "", record: { _ in }, stage: { _ in })
         precondition(spec.contains("Fixture specification"))
         let labels = await CLICompletion.audit.labels
-        precondition(labels == ["prototype:plan", "prototype:foundation:shell", "prototype:foundation:data",
+        precondition(labels == ["prototype:plan", "prototype:foundation:shell", "prototype:foundation:styles", "prototype:foundation:data",
                                 "prototype:screen:home", "prototype:revise", "prototype:spec"])
         let planPrompt = await CLICompletion.audit.prompts["prototype:plan"] ?? ""
         precondition(planPrompt.contains("requirement sources") && !planPrompt.contains("Reconstruct"))
-        print("Prototype deadline policy: plan, both foundations, saved screen, revision and specification complete without wall-clock limits.")
+        print("Prototype deadline policy: plan, the three foundation parts, saved screen, revision and specification complete without wall-clock limits.")
     }
 
     /// Code mode (Previews from Existing Code): the build reads a fixture web app, carries its gaps and evidence
@@ -111,6 +111,7 @@ import Foundation
                      && !screen.contains("ghost"), "the screen writer is told to mark the components that exist, not the ghost")
         precondition(systems["prototype:plan"]?.contains("`components`") == true, "the planner is asked for the components")
         precondition(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)
+        precondition(prompts["prototype:foundation:styles"]?.contains("reproduce the original design tokens") == true)
         precondition(prompts["prototype:foundation:data"]?.contains("reproduce the original design tokens") == true)
 
         // Revision and specification in code mode name the sources and the gaps.

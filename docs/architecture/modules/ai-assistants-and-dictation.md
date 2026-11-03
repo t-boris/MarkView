@@ -458,7 +458,10 @@ In-memory only: `CodeNavigationStore.back/forward` (≤100), answer tasks; `Code
   (`:151-159`); an ACP answer whose JSON is still open is continued for up to 10 turns, joined
   without the repeats and restarts a resuming model produces (`ACPAssistant.answer`/`join`), then
   gets one repair turn, then `invalidOutput` naming the turns spent (BUG-045).
-  `parseJSON` accepts raw, fenced or outermost-brace JSON with all `required` keys.
+  Completeness is read from `jsonRegions`, every top-level brace region of the answer: a model
+  that narrates before answering can close an object inside the narration, and only the last
+  region decides whether the answer is finished (BUG-049). `parseJSON` accepts raw, fenced,
+  any complete brace region (largest first) or outermost-brace JSON with all `required` keys.
 - **ACP model**: an id not in `availableModels` fails fast (Cline would otherwise answer
   nothing, `:96-102`). `stopReason` `cancelled` → `CancellationError`; `refusal` → failure (`:150-157`).
 - **ACP process death**: `terminationHandler` fails all pending requests with the stderr tail;

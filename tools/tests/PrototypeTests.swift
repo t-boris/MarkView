@@ -240,7 +240,8 @@ do {
         ("planPrompt whole project", PrototypeAI.planPrompt(brief: "", sources: []), "fd70176cc8d68cf232da0df9f162179932ffba6cb13b7f9b01404975de9e9e90"),
         ("planPrompt sources", PrototypeAI.planPrompt(brief: "Only tickets", sources: ["docs/a.md", "docs/b"]), "e30e91fc3a3ce128b2f507a0b2ffb392f1ae719b703eec58c4b69e75245bf263"),
         ("dataSystem", PrototypeAI.dataSystem(language: ""), "0831ffa248985aa5ccec0515fee43ccc22c1b6a3c4ca31660920a99bd0400fee"),
-        ("shellSystem", PrototypeAI.shellSystem(language: ""), "cd3f5d17114d2cd348704d70fc4b3b66938cfecaff36562366bf16aafcb166f2"),
+        ("shellSystem", PrototypeAI.shellSystem(language: ""), "8222f48f1287ffd53a754ab368d241ed1658ab087ab5296e815f2f6ebcda505e"),
+        ("stylesSystem", PrototypeAI.stylesSystem(language: ""), "1826c6bd4ce96575b11ba81605f33840b08ae65021905f22c395226f92b1a0ee"),
         ("screenSystem", PrototypeAI.screenSystem(language: ""), "b659702560473db520262a26bca384b2ff5a6af0c08723d9663602fe74dbf9ef"),
         ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "4abe2d1a9daccd4a3dddff69199d15e1539c4d33921b53f09a897eb5fa296bc0"),
         ("foundationPrompt", PrototypeAI.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
@@ -654,6 +655,25 @@ do {
     check(checked.screens.map(\.components) == [["src/OrderList.vue"], ["src/Cart.vue"]], "components without a file are dropped from every screen")
     check(checked.gaps == ["Posts to /api", "Component src/Ghost.vue named by the plan was not found in the sources"], "one gap per missing component: \(checked.gaps)")
     check(!checked.json.contains("Ghost"), "the plan json the writers see does not name it")
+}
+
+// BUG-049: the shell is written in two parts, so no single answer has to carry index.html, app.js
+// and styles.css at once. Each part must know the other's contract and stay out of its files.
+do {
+    let shell = PrototypeAI.shellSystem(language: "")
+    let styles = PrototypeAI.stylesSystem(language: "")
+    check(shell.contains("exactly two files: index.html and app.js") && shell.contains("not styles.css"),
+          "the shell part writes index.html and app.js only")
+    check(styles.contains("exactly one file: styles.css") && styles.contains("Write only styles.css"),
+          "the styles part writes styles.css only")
+    for part in [shell, styles] {
+        check(part.contains("`card-header`") && part.contains("`field-error`") && part.contains("`pagination`"),
+              "both parts share the same class contract")
+    }
+    check(shell.contains("<!--SCREENS-->") && shell.contains("App.register({id, route, title, render(ctx)})"),
+          "the shell part still carries the screen-script marker and the App API")
+    check(styles.contains("tokens as CSS variables") && styles.contains("under 20 KB"),
+          "the styles part still carries the design system and its budget")
 }
 
 // Code-mode prompts carry the marker rule; requirements mode stays pinned above.
