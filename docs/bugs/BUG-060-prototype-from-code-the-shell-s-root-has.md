@@ -2,7 +2,7 @@
 type: bug
 id: BUG-060
 title: "Prototype from code: the shell's root has no height, so the main widget (option chain) collapses and the repair round declines"
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03
@@ -32,3 +32,17 @@ styles.css of the prototype contains only the header, nav, .app-main, toast and 
 ## Environment
 
 MarkView 5.11.0, prototype strikedesk v7 in broker-fabric (docs/prototypes/strikedesk). Related: BUG-058 (clipped content audit, 5.10.0), BUG-059.
+
+## Cause
+
+The page structure that every screen of a prototype from code depends on (a definite height for html, body and #app, a column layout for the dock) was left to the model that writes styles.css. The model wrote the header and navigation rules and left the structural ones out, and nothing checked that they were there. The repair round declined because the fix spanned more than three files.
+
+## Resolution
+
+Fixed in 5.11.1 (pull request #271). MarkView now owns that contract: `PrototypeShellStructure` writes `markview/structure.css` (seven zero-specificity `:where()` rules) in a reserved folder the assistant cannot see or write, links it from index.html before the model's stylesheets, and applies it when a prototype is built, accepted, synced or opened, so an existing prototype repairs itself in the new build and records a version "MarkView linked the page structure". The sync baseline ignores the link, so the repair is not reported as a Studio edit. The build prompts now tell the model not to write these rules.
+
+## Verification
+
+Reproduced on a copy of the real strikedesk prototype in a browser (empty chain, widget 66 px tall), then the real `ensure()` applied to the copy: the option chain renders with its five strikes. The standalone checks pass (`tools/tests/prototype-shell-structure-tests.sh`, the styles, embedded, deadline and baseline suites); `prototype-runtime-tests.sh` has two failures that also occur on main before the change. The `Build & Release` run of the merge commit succeeded, the signed DMG of 5.11.1 is notarized and published as release v5.11.1.
+
+Not covered: a repair round that declines a request spanning more than three files still reports no failure in the toolbar; this is a separate weakness.
