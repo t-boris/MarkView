@@ -82,8 +82,9 @@ enum CLICompletion {
         case "prototype:foundation:shell":
             object = ["summary": "Shell", "files": [
                 ["path": "index.html", "content": "<h1>Fixture title</h1>\n<!--SCREENS-->\n"],
-                ["path": "styles.css", "content": "body { color: black; }"],
                 ["path": "app.js", "content": "window.App = { register() {}, start() {} };"  ]]]
+        case "prototype:foundation:styles":
+            object = ["summary": "Styles", "files": [["path": "styles.css", "content": "body { color: black; }"]]]
         case "prototype:foundation:data":
             object = ["summary": "Data", "files": [["path": "data.js", "content": "window.DB = {};" ]]]
         case "prototype:screen:home":

@@ -36,6 +36,14 @@ import Darwin
         joined = body(try await run("[complete-max-tokens]"))
         precondition(joined == "done", "A finished JSON answer must not spend continuation turns.")
 
+        // BUG-049: the model narrates before the answer and the narration carries a complete object
+        // of its own. The answer is still unfinished, and reading only the first braces hid that.
+        joined = body(try await run("[narrated]"))
+        precondition(joined == expected, "A cut-off answer behind a narrated object must be continued.")
+        // The same narration around a complete answer parses without spending a turn.
+        joined = body(try await run("[narrated-complete]"))
+        precondition(joined == "narrated", "An answer fenced after narration must be read as it is.")
+
         // An answer that never closes ends as an error, after the continuation budget is spent.
         do {
             _ = try await run("[never-ends]")
@@ -74,6 +82,9 @@ import Darwin
     static var full: String { "{\"body\":\"" + expected + "\"}" }
     /// Where the first turn stops: past the restart probe, inside the JSON string.
     static let split = 300
+    /// What a model says before the answer; the complete object in it is not the answer.
+    static let narration = "I'll read the key source files first. The tokens file holds "
+        + "{\"color\":{\"brand\":\"#0b5\"},\"radius\":4} and the shell layout follows it.\n\n"
 
     // MARK: - Fixture assistant
 
@@ -101,7 +112,8 @@ import Darwin
             let params = message["params"] as! [String: Any]
             let text = ((params["prompt"] as! [[String: Any]]).first?["text"] as? String) ?? ""
             if turn == 0 { scenario = ["[resume]", "[repeat-tail]", "[restart]", "[complete-max-tokens]",
-                                       "[never-ends]", "[no-progress]", "[plain-cut-off]"].first { text.contains($0) } ?? "" }
+                                       "[never-ends]", "[no-progress]", "[plain-cut-off]",
+                                       "[narrated-complete]", "[narrated]"].first { text.contains($0) } ?? "" }
             turn += 1
             let head = String(full.prefix(split))
             switch (scenario, turn) {
@@ -138,6 +150,15 @@ import Darwin
                 try send(["id": id, "result": ["stopReason": "max_tokens"]])
             case ("[plain-cut-off]", _):
                 try chunk(" second part")
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[narrated]", 1):
+                try chunk(narration + "```json\n" + head)
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[narrated]", _):
+                try chunk(String(full.dropFirst(split)) + "\n```")
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[narrated-complete]", _):
+                try chunk(narration + "```json\n{\"body\":\"narrated\"}\n```")
                 try send(["id": id, "result": ["stopReason": "end_turn"]])
             default:
                 try send(["id": id, "result": ["stopReason": "end_turn"]])

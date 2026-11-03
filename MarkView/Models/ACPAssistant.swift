@@ -234,33 +234,55 @@ enum ACPAssistant {
     }
 
     /// Whether the JSON in `text` is left open, i.e. the answer stopped in the middle of it.
-    /// Text with no JSON at all is not cut off: it is a different answer than the one asked for,
-    /// and a repair turn can still fix that.
+    /// A model often narrates before the answer ("I'll read the key files…") and that narration can
+    /// contain a complete `{…}` of its own, so every brace region is scanned: the answer is
+    /// unfinished when the last one never closes. Text with no JSON at all is not cut off: it is a
+    /// different answer than the one asked for, and a repair turn can still fix that.
     private static func looksCutOff(_ text: String) -> Bool {
-        guard let start = text.firstIndex(of: "{") else { return false }
-        var depth = 0
-        var inString = false
-        var escaped = false
-        for character in text[start...] {
-            if escaped { escaped = false; continue }
-            if inString {
-                switch character {
-                case "\\": escaped = true
-                case "\"": inString = false
-                default: break
+        guard let last = jsonRegions(text).last else { return false }
+        return !last.closed
+    }
+
+    /// Every top-level brace region of `text`, in order: where it starts, the text of the region,
+    /// and whether it ever closed. A region that closes is followed by a search for the next one.
+    private static func jsonRegions(_ text: String) -> [(text: String, closed: Bool)] {
+        var regions: [(text: String, closed: Bool)] = []
+        var index = text.startIndex
+        while let start = text[index...].firstIndex(of: "{") {
+            var depth = 0
+            var inString = false
+            var escaped = false
+            var end: String.Index?
+            var cursor = start
+            while cursor < text.endIndex {
+                let character = text[cursor]
+                if escaped { escaped = false } else if inString {
+                    switch character {
+                    case "\\": escaped = true
+                    case "\"": inString = false
+                    default: break
+                    }
+                } else {
+                    switch character {
+                    case "\"": inString = true
+                    case "{", "[": depth += 1
+                    case "}", "]":
+                        depth -= 1
+                        if depth == 0 { end = cursor }
+                    default: break
+                    }
                 }
-                continue
+                if end != nil { break }
+                cursor = text.index(after: cursor)
             }
-            switch character {
-            case "\"": inString = true
-            case "{", "[": depth += 1
-            case "}", "]":
-                depth -= 1
-                if depth == 0 { return false }   // the object closed; anything after it is not ours
-            default: break
+            guard let end else {
+                regions.append((String(text[start...]), false))
+                return regions
             }
+            regions.append((String(text[start...end]), true))
+            index = text.index(after: end)
         }
-        return true
+        return regions
     }
 
     /// One `session/prompt` turn: the answer text streamed while it ran, and why it stopped.
@@ -315,13 +337,16 @@ enum ACPAssistant {
         return parts.joined(separator: "\n\n")
     }
 
-    /// The JSON object in `text` (a fenced block or the outermost braces), when it has
-    /// every top-level key the schema requires.
+    /// The JSON object in `text` (a fenced block, one of its brace regions, or the outermost
+    /// braces), when it has every top-level key the schema requires. A model may narrate before
+    /// the answer, and that narration may contain braces of its own, so each complete brace region
+    /// is a candidate — the largest first, because the answer is the substantial one.
     static func parseJSON(_ text: String, schema: [String: Any]) -> Any? {
         var candidates = [text.trimmingCharacters(in: .whitespacesAndNewlines)]
         if let fence = text.range(of: #"```(?:json)?\s*([\s\S]*?)```"#, options: .regularExpression) {
             candidates.append(String(text[fence]).replacingOccurrences(of: #"^```(?:json)?\s*|```$"#, with: "", options: .regularExpression))
         }
+        candidates += jsonRegions(text).filter(\.closed).map(\.text).sorted { $0.count > $1.count }
         if let open = text.firstIndex(of: "{"), let close = text.lastIndex(of: "}"), open < close {
             candidates.append(String(text[open...close]))
         }

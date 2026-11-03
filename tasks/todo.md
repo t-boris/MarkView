@@ -1,5 +1,18 @@
 # MarkView — Follow-up Tasks
 
+## BUG-049: prototype generation fails on a narrated answer and an over-long shell (2026-11-03, 5.1.1, fix/bug-049-prototype-shell-too-long)
+
+Two Copilot prototype runs failed: one on "expected JSON, got I'll read the key source files…", one after ten
+continuation turns at 208166 characters (docs/bugs/BUG-049-prototype-shell-too-long.md).
+
+- [x] `jsonRegions` reads every top-level brace region; an answer is unfinished when the last one is still open, so a
+      complete object quoted in the model's narration no longer hides a cut-off answer.
+- [x] `parseJSON` also tries every complete region, largest first.
+- [x] The shell is written in two concurrent parts: `shellSystem` (index.html, app.js) and `stylesSystem` (styles.css),
+      sharing `shellContract` so the class names still match; app.js has a 60 KB budget.
+- [x] `acp-continuation-tests.sh` covers both narrated shapes and fails with the reported error against the pre-fix code;
+      prototype and deadline tests follow the new split.
+
 ## BUG-047: Prototype preview reports a bare "Script error." (2026-11-03, 5.0.3, fix/bug-047-prototype-script-error)
 
 Report (Boris): "Script error." appears when a prototype is generated, at the last stage. The last stage is the automatic

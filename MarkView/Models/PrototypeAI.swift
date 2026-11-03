@@ -400,20 +400,34 @@ enum PrototypeAI {
         """
     }
 
+    /// The shell contract both shell parts share: the markup/script part and the stylesheet part
+    /// are written at the same time, so each must know exactly what the other provides.
+    private static let shellContract = """
+    The shell is split between engineers working at the same time: one writes index.html and app.js, \
+    another writes styles.css, and the screens are written afterwards. styles.css provides the design \
+    system — tokens as CSS variables and classes for the layout shell (`app-header`, `app-nav`, \
+    `app-main`), buttons (`btn`, `btn-primary`, `btn-ghost`, `btn-danger`), cards (`card`, \
+    `card-header`, `card-body`), tables (`table`), forms and fields with error text (`form`, `field`, \
+    `input`, `select`, `field-error`), badges (`badge`, with status modifiers), tabs (`tabs`, `tab`, \
+    `is-active`), toolbars (`toolbar`), modals (`modal`, `modal-card`, `modal-actions`), toasts \
+    (`toast`, with kind modifiers), skeleton loading (`skeleton`), empty states (`empty`) and \
+    pagination (`pagination`). index.html and app.js use exactly these class names and define no \
+    styles of their own beyond `App.addStyles`.
+    """
+
     static func shellSystem(language: String) -> String {
         craft + """
 
 
-        You write the shell of the prototype: the files every screen builds on. The data backend (data.js) and the \
-        screens are written at the same time by other engineers, using only what you document, so the API must be \
-        complete and exact. \(dataContract) Do not write data.js.
+        You write the markup and the script of the prototype's shell: the files every screen builds on. \
+        The data backend (data.js), the stylesheet (styles.css) and the screens are written at the same \
+        time by other engineers, using only what you document, so the API must be complete and exact. \
+        \(dataContract) \(shellContract) Write only index.html and app.js — not styles.css, not data.js, \
+        not any screen.
         Write these files:
         - index.html: `<div id="app"></div>`, `<link rel="stylesheet" href="styles.css">`, then the scripts `data.js` and \
         `app.js`, then the exact comment `<!--SCREENS-->` on its own line (the screen scripts are inserted there), then \
         `<script>App.start()</script>`. No inline styles or other scripts.
-        - styles.css: the design system (tokens as CSS variables, layout shell, and classes for buttons, cards, tables, \
-        forms and fields with error text, badges, tabs, toolbars, modals, toasts, skeleton loading, empty states, \
-        pagination). Screens use these classes and add only their own small rules. Keep it under 20 KB.
         - app.js: the global `App`. It starts with a header comment documenting the API for the screen authors, then \
         provides: `App.register({id, route, title, render(ctx)})` where route may have `:params` and `render` returns an \
         element or an HTML string (`ctx` has `params`, `query`, `user`, `proto`); a hash router with Back support and an \
@@ -425,8 +439,24 @@ enum PrototypeAI {
         "Force empty state", "Force error state" (both exposed as `ctx.proto.empty` and `ctx.proto.error`, and \
         `App.load` shows the error card with Retry when it is on) and "Reset demo data" (calls `DB.reset()`). A route \
         whose screen is not registered (yet) shows the panel "This screen is still being built." The screens of the \
-        plan are listed in `App.plan` (id, name, route) for the navigation.
-        Answer with the JSON object: `summary` (one sentence) and `files` (path and full content).\(language)
+        plan are listed in `App.plan` (id, name, route) for the navigation. Keep app.js under 60 KB.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly two files: index.html and app.js).\(language)
+        """
+    }
+
+    static func stylesSystem(language: String) -> String {
+        craft + """
+
+
+        You write styles.css, the design system of the prototype. The markup and script (index.html, app.js), the data \
+        backend and the screens are written at the same time by other engineers, so the class names are fixed and you \
+        must provide all of them. \(shellContract) Write only styles.css.
+        styles.css holds the design tokens as CSS variables (colours, typography, spacing, radii, shadows), a reset, the \
+        layout shell, and every class listed above in a light and a dark variant where the plan asks for one, plus \
+        focus-visible and disabled states and a responsive layout down to a narrow window. Screens use these classes and \
+        add only their own small rules through `App.addStyles`. Keep the file under 20 KB and write no JavaScript and no \
+        HTML.
+        Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: styles.css).\(language)
         """
     }
 
@@ -868,22 +898,26 @@ enum PrototypeAI {
         let plan = try Plan(structured: planned.structured, mode: mode, sourceExists: { PrototypeFiles.isSourceFile(root: root, path: $0) })
         stage(.plan(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: plan.screens))
 
-        stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (two parts at once)"))
-        stage(.status("Writing the shell and the data"))
+        stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (three parts at once)"))
+        stage(.status("Writing the shell, the styles and the data"))
         async let shell = foundationPart(root: root, plan: plan, system: foundationShell(language), label: "shell",
-                                         allowed: ["index.html", "styles.css", "app.js"], required: ["index.html", "app.js"],
+                                         allowed: ["index.html", "app.js"], required: ["index.html", "app.js"],
                                          mode: mode, record: record, stage: scoped(stage, label: "Shell", status: false))
+        async let styles = foundationPart(root: root, plan: plan, system: stylesSystem(language: language), label: "styles",
+                                          allowed: ["styles.css"], required: ["styles.css"],
+                                          mode: mode, record: record, stage: scoped(stage, label: "Styles", status: false))
         async let data = foundationPart(root: root, plan: plan, system: dataSystem(language: language), label: "data",
                                         allowed: ["data.js"], required: ["data.js"],
                                         mode: mode, record: record, stage: scoped(stage, label: "Data", status: false))
         var shellChange = try await shell
+        let stylesChange = try await styles
         let dataChange = try await data
         for index in shellChange.files.indices where shellChange.files[index].path == "index.html" {
             shellChange.files[index].content = PrototypeFiles.insertScreenScripts(into: shellChange.files[index].content,
                                                                                   ids: plan.screens.map(\.id)) ?? shellChange.files[index].content
         }
         stage(.step("Saving the foundation"))
-        try PrototypeFiles.apply(PrototypeFiles.Change(files: shellChange.files + dataChange.files), to: site)
+        try PrototypeFiles.apply(PrototypeFiles.Change(files: shellChange.files + stylesChange.files + dataChange.files), to: site)
         stage(.milestone("The shell, navigation and sample data for \(plan.screens.count) screens; the screens follow."))
 
         stage(.phase("Step 3 of \(steps) · Writing the screens"))
