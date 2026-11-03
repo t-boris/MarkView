@@ -437,8 +437,10 @@ In-memory only: `CodeNavigationStore.back/forward` (≤100), answer tasks; `Code
   menu (`:423-434`). `error` events are non-fatal warnings (`:412-416`).
 - **Claude `is_error`**: turns the result text into a failure (`:381-383`).
 - **Structured output**: Claude supplies `structured_output`; Codex's text is parsed as JSON
-  (`:151-159`); ACP answers get one repair turn, then `invalidOutput` (`ACPAssistant.swift:113-126`).
-  `parseJSON` accepts raw, fenced or outermost-brace JSON with all `required` keys (`:187-203`).
+  (`:151-159`); an ACP answer whose JSON is still open is continued for up to 10 turns, joined
+  without the repeats and restarts a resuming model produces (`ACPAssistant.answer`/`join`), then
+  gets one repair turn, then `invalidOutput` naming the turns spent (BUG-045).
+  `parseJSON` accepts raw, fenced or outermost-brace JSON with all `required` keys.
 - **ACP model**: an id not in `availableModels` fails fast (Cline would otherwise answer
   nothing, `:96-102`). `stopReason` `cancelled` → `CancellationError`; `refusal` → failure (`:150-157`).
 - **ACP process death**: `terminationHandler` fails all pending requests with the stderr tail;
