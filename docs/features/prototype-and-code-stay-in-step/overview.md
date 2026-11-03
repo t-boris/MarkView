@@ -2,7 +2,7 @@
 type: feature
 id: prototype-and-code-stay-in-step
 title: Prototype and code stay in step
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-03
 provenance: Created by an AI agent through MarkView from Boris's request in the Prototype Studio discussion, 2026-11-03
