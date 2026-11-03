@@ -1,5 +1,32 @@
 # Lessons
 
+## A contract that never varies belongs to MarkView, not to the model (BUG-060, 2026-11-03)
+
+The StrikeDesk prototype showed only the toolbar of its main widget. The shell's `app.js` documented the page structure that every
+screen needs (a definite height for html, body and #app, a column layout for the dock) and asked the model that writes `styles.css`
+to provide it. The model wrote the header rules and left the structural ones out; the preview audit saw the collapse, and the repair
+round declined because the fix spanned more than three files. Boris, after the first idea of appending the rules to the model's file:
+"don't give me any quick fixes, hard fixes, shortcuts, nothing. It must always be clean architecture only."
+- Rule: a rule that is the same for every prototype is code MarkView owns, written by MarkView, in a folder the assistant cannot see or
+  write (`markview/structure.css`, zero-specificity `:where()` rules so the model's own styles still win). It is never a sentence in a
+  prompt that the model may or may not follow, and never a patch appended to a file the model owns.
+- Rule: such a layer must be baseline-neutral (the fingerprint ignores it, so applying it is not a "Studio edit"), applied wherever a
+  site is built, accepted, synced or opened (an existing prototype repairs itself), and covered by a standalone check.
+- Rule: measure before deciding. The empty chain was found by measuring the boxes in the prototype's own files in a browser, then the
+  real `ensure()` was run on a copy of the real prototype and the same measurement repeated. Never edit the person's prototype by hand.
+
+## Check a second instance of the app without touching the running one (2026-11-03)
+
+To look at a new sheet I started a debug build next to Boris's running MarkView. Three things went wrong at once: `HOME=` does not
+isolate the preferences of a non-sandboxed app, so the copy restored one of his projects and began indexing it; System Events
+addresses processes by name, so with two processes called "MarkView" a window list and a click reached his windows; and a click by
+screen coordinates lands in whichever window is on top.
+- Rule: build the check copy with its own `PRODUCT_BUNDLE_IDENTIFIER` (fresh preferences) and its own `PRODUCT_NAME` (a unique process
+  name), open only a throwaway project, and quit it by its own pid when done.
+- Rule: drive it only through Accessibility elements of `process "<unique name>"`; never by screen coordinates, never by the name
+  "MarkView".
+- Rule: before any `kill`, list the pids with their executable paths; mine is the one under `/tmp/` or the scratchpad.
+
 ## Documentation goes straight to main (2026-11-03)
 
 I opened a pull request for a README and presentation change, following the branch + PR rule. Boris corrected it:

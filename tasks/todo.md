@@ -1,6 +1,6 @@
 # MarkView — Follow-up Tasks
 
-## Hand off to code creates a feature with screenshots (2026-11-03, 5.12.0 planned, feat/prototype-handoff-feature)
+## Hand off to code creates a feature with screenshots (2026-11-03, 5.12.0, PR #272)
 
 Request (Boris): "when I change the prototype and want the code changed, make me a feature or a bug with all the instructions, screenshots
 and the rest; I execute it; then sync again and the prototype is redrawn from the code" ("Так и сделай!!!"). Today "Hand off to code"
@@ -19,15 +19,26 @@ Architecture (each layer testable on its own; no layer reaches past its neighbou
   "Create feature", "Send to agent", "Copy brief".
 
 Steps (each checked before the next):
-- [ ] 1. Fix the units' identity: `PrototypeHandoff.Item.id`, the screen route of a unit, which unit shows which screen (shell: first screen).
-- [ ] 2. `PrototypeScreenshots` + a harness that renders a screen of two versions of the real strikedesk prototype offscreen (first proof:
+- [x] 1. Fix the units' identity: `PrototypeHandoff.Item.id`, the screen route of a unit, which unit shows which screen (shell: first screen).
+- [x] 2. `PrototypeScreenshots` + a harness that renders a screen of two versions of the real strikedesk prototype offscreen (first proof:
       does `takeSnapshot` work in an offscreen window).
-- [ ] 3. Draft model, fallback description, brief with screenshots, feature text; standalone tests.
-- [ ] 4. Describer prompt, schema, parser, `PrototypeAI.describe`; standalone tests; one real run on a copy of the real prototype.
-- [ ] 5. `PrototypeFeatureWriter` on `FeatureStore`; a check that the feature opens and reads back (requirements, sources, links).
-- [ ] 6. Session orchestration and the sheet; build; open a copy in a scratch app; screenshots of the sheet and of the created feature.
-- [ ] 7. Version bump (minor), PR (feature slug and REQ ids in it), merge, `release.sh --publish`, verify, remove worktrees.
-- [ ] 8. Statuses: feature `implemented` after the release; BUG-060 `fixed` after release 5.11.1 is verified (done by hand, as agreed).
+- [x] 3. Draft model, fallback description, brief with screenshots, feature text; standalone tests.
+- [x] 4. Describer prompt, schema, parser, `PrototypeAI.describe`; standalone tests; one real run on a copy of the real prototype.
+- [x] 5. `PrototypeFeatureWriter` on `FeatureStore`; a check that the feature opens and reads back (requirements, sources, links).
+- [x] 6. Session orchestration and the sheet; build; open a copy in a scratch app; screenshots of the sheet and of the created feature.
+- [x] 7. Version bump (minor), PR (feature slug and REQ ids in it), merge, `release.sh --publish`, verify, remove worktrees.
+- [x] 8. Statuses: feature `implemented` after the release; BUG-060 `fixed` after release 5.11.1 is verified (done by hand, as agreed).
+
+Review (2026-11-03):
+- Built as planned: pure model `PrototypeHandoffDraft`/`PrototypeHandoff`, `PrototypeScreenshots` (offscreen window + non-persistent WKWebView +
+  `takeSnapshot`), `PrototypeAI+Handoff` (one describe call per unit, 240 s limit, fallback to the review requests), `PrototypeFeatureWriter`
+  (feature `ready`, approved requirements, screenshot sources under `references/`), `PrototypeHandoffRun` (orchestration) and the sheet.
+- Verified: Debug build; standalone harnesses (prototype, deadline, embedded, styles, shell-structure, handoff-draft, baseline); a live assistant
+  run; an isolated debug copy on a throwaway project (bundle id and process name of its own): the sheet shows real before/after pictures and the
+  assistant's descriptions, "Create feature" wrote a ready feature with 2 requirements and 4 PNG sources and opened it at Build.
+- Known and not caused by this change: `prototype-runtime-tests` has 2 failures that also occur on unmodified main; the automatic repair round
+  declines a request that spans more than three files.
+- Not checked by hand: the "Brief for an agent" tab in the running sheet (covered by the draft harness).
 
 Not in this change: a bug instead of a feature (DEC-010 chose a feature), sending into a running agent session (Q-004), refreshing
 data.js on sync (Q-005).
