@@ -760,6 +760,11 @@ class WorkspaceManager: ObservableObject {
             // Code projects get a prominent "Open Architecture" on the welcome screen.
             let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
             if rootNode?.url == url { isCodeProject = isCode }
+            // Code projects are analyzed in the background without the X-Ray tab; the store
+            // honours the switch (`.off`, DEC-001) and applies the size cap from its own scan (DEC-003).
+            if rootNode?.url == url, isCode {
+                architecture.startAutomaticCodeAnalysis(root: url, db: semanticDatabase)
+            }
             completion?()
         }
     }
@@ -1886,8 +1891,9 @@ class WorkspaceManager: ObservableObject {
             architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
                                      kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
                                      root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "analyzeCode":
-            architecture.analyzeCode(root: root, db: semanticDatabase)
+        case "refreshCode":
+            // The Code view's Refresh (DEC-002): the automatic pipeline now, forced.
+            architecture.refreshCode(root: root, db: semanticDatabase)
         case "traceCode":
             guard let scope = payload["scope"] as? String, let question = payload["question"] as? String else { return }
             architecture.traceCode(scope: scope, question: question, root: root, db: semanticDatabase)
@@ -3497,6 +3503,11 @@ class WorkspaceManager: ObservableObject {
             tabsStore.updateTab(at: index) { mutableTab in
                 mutableTab.isModified = false
                 mutableTab.originalContent = tab.content // new baseline
+            }
+            // A file saved inside the project is a change the automatic code analysis refreshes
+            // from (REQ-002), at once rather than after the change watcher's latency.
+            if let root = rootNode?.url.standardizedFileURL.path, tab.url.standardizedFileURL.path.hasPrefix(root + "/") {
+                architecture.noteProjectChanged()
             }
         } catch {
             NSLog("Error saving file: \(error)")

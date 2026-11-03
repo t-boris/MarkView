@@ -227,6 +227,14 @@ enum AIAssistantPreferences {
         return trimmed.isEmpty ? model(for: tool, project: project) : trimmed
     }
 
+    /// Automatic code analysis of code projects, on unless turned off (DEC-001 of
+    /// automatic-code-architecture). Off: only the local layers, no CLI agent is started.
+    static let autoAnalyzeKey = "xray.autoAnalyze"
+    static var autoAnalyze: Bool {
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: autoAnalyzeKey) == nil ? true : defaults.bool(forKey: autoAnalyzeKey)
+    }
+
     /// Short label for the active selection, e.g. "Claude Code · opus".
     static func summary(tool: CLITool, model: String) -> String {
         let trimmed = model.trimmingCharacters(in: .whitespaces)

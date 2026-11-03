@@ -10,7 +10,10 @@ the AI Importance rating, user AI filters, the ⚡ search and a pull-request rev
 
 The **Code** view is a source-only architecture explorer (`CodeArchitecture.swift`). It is
 selected initially when the scan finds code. Before analysis it projects the source tree
-into explicitly labelled draft layers. **Analyze code** asks the project's read-only CLI
+into explicitly labelled draft layers. The automatic pipeline (below) and the Code view's
+**Refresh** (`refreshCode`: the pipeline forced — with the switch off, above the size cap,
+inside the 15 min interval, and re-reading an unchanged model; a folder X-Ray re-runs
+`analyzeCode` instead) ask the project's read-only CLI
 assistant to infer a nested responsibility tree from actual source. Before the call, a worker
 collects up to 90,000 characters of line-numbered implementation excerpts, balancing source
 centrality with folder/language coverage and leaving complete-file inspection to the assistant.
@@ -25,8 +28,64 @@ are lifted to visible ancestors as the reader drills down.
 `DiagramAI`, and renders a real Mermaid `sequenceDiagram` in the graph area. Messages must
 be ordered and have valid `path:line` evidence; each evidence link opens the source line.
 This is an inferred static path, not a recorded runtime execution. The code model and up to
-30 scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
-snapshots readable. Source signatures mark saved architecture/scenarios stale after a rescan.
+30 manual scenarios persist in optional snapshot fields and `arch_meta` JSON values, keeping older
+snapshots readable. The root source signature marks a saved architecture stale after a rescan;
+a sequence records the paths its participants and messages cite (`citedPaths`) with their
+file signatures and is stale only when one of those files changed or vanished (a sequence saved
+without them falls back to the root signature).
+The analysis answer also proposes `scenarios` (3, at most 5: title, question and a source
+file or directory scope chosen from the entry points). `CodeArchitecture.withAcceptedScenarios`
+drops the invalid ones (empty title or question, duplicate title, unknown or outside scope,
+beyond the cap) and records each reason in the model's `scenarioNotes`, which the coverage
+report repeats. The automatic pipeline traces the accepted scenarios one after another
+through the same path as a manual trace and replaces only the automatic sequences
+(`auto: true`); manual traces are never discarded by it (DEC-002). The model then records
+the root signature it traced (`tracedSignature`) and the failures (`traceNotes`, repeated by
+the coverage report), so a run whose traces all failed is not retried at every open but after
+a source change or Refresh.
+`ArchitectureStore.startAutomaticCodeAnalysis` (project scope only, called by
+`WorkspaceManager.openFolder` for every code project) runs the pipeline in one task without
+the X-Ray tab: the saved snapshot read on a read-only SQLite connection off the main actor
+(`SemanticDatabase.loadArchitectureDetached`) → local scan → size cap (DEC-003) → unchanged
+root signature and traces mean done → `CLIToolLocator.probe` of the project's assistant
+(absent or signed out: `automaticState = .unavailable`, DEC-004) → code analysis → automatic
+traces. With `xray.autoAnalyze` off the state is `.off` and nothing runs (DEC-001); a start
+while the X-Ray tab's own scan runs is taken up when that scan ends
+(`AutoAnalysisScheduler.requestRun`). `automaticState` (idle, scanning, analyzing, done,
+unavailable, off, tooLarge, skipped) is the published state for the Code view; a change bumps
+`revision`, and the payload carries it as `automaticState {kind, step?, reason?, date?, files?}`
+next to `automaticAnalysis` (false for a folder X-Ray, whose Refresh promises no automatic
+scenarios) and `codeSequenceInfo` (per sequence: title, scope, `auto`, `stale` from
+`CodeSequence.isStale`, createdAt). Changes reach `noteProjectChanged` from
+`ProjectChangeWatcher` — an FSEvents stream on the project root (3 s latency, changes inside
+`ArchitectureScanner.skippedDirectories` such as `.dde`, `.git` and build output dropped, the
+callback hopping to the main actor) started with the pipeline and stopped by `reset` — and at
+once from the editor's save of a file inside the project. The pure `AutoAnalysisScheduler`
+(`tools/tests/auto-analysis-scheduler-tests.sh`) decides from timestamps: 60 s of quiet, one
+local rescan per change inside the 15 min AI interval, the AI run once it is allowed, nothing
+while a run is active or with the switch off. Every scan and analysis holds a run token;
+`reset` cancels them and invalidates their cleanup and every later `automaticState` write of
+the pipeline, and a cancelled run commits nothing. The size cap is repeated as a coverage
+reason ("Project has N source files; automatic analysis stops at 5000, use Refresh").
+The code analysis and every trace are cached like the other X-Ray answers (`.dde/cache/xray`,
+keyed by the request plus the Modules signature): a re-run over unchanged source makes no CLI call.
+`CodeArchitecture.coverage` (pure, run off the main thread after every scan and after a code
+analysis) records per language how far the understanding went — `full` (dependency
+extraction, declaration outline and model ownership), `partial` (recognized, something
+missing; the most any language reaches without a model) or `notAnalyzed` (configuration
+formats, bundles, oversized files, files no component owns) — with file counts per level,
+the number of unassigned files and plain-text reasons; it is stored as the optional
+`codeCoverage` snapshot field (`CodeCoverage`, versioned).
+The Code panel of the X-Ray (overview, nothing selected) shows, in order: one status line
+from `automaticState` ("Analyzing code in the background…", "Analyzed 5 minutes ago",
+"Automatic analysis is off", "AI analysis unavailable: …", "Project too large for automatic
+analysis (N files); use Refresh"), the scenario list (every sequence, an Automatic or Manual
+badge and a `stale` badge), the manual "Trace a scenario" field, the collapsible "What was
+understood" table (per language: level and file counts, the unassigned files and the
+reasons; collapsed when every language is `full`) and a fact/inference/draft legend. On the
+graph a dependency with a citation (the AI's inference) is drawn dashed, a scanner fact
+solid, and layers without a code model dotted (REQ-004). Payloads without the new fields
+still render: the status falls back to the model's date and staleness to the root signature.
 A dependency citation must be owned by an endpoint or one of its child components, using the
 same most-specific-path/deepest-owner rule as the diagram. A repair call receives the prior JSON
 and up to 40 validation problems, preserving valid component identities. CRLF line numbers
@@ -724,7 +783,7 @@ cannot be written, it falls back to `~/Library/Application Support/MarkView/<fol
 | `arch_edges` | `view, source, target, kind` (PK), `weight, label` | Edges |
 | `arch_coverage` | `node_id` PK, `status`, `docs_json` | `CoverageEntry` by `m:<path>` |
 | `arch_metrics` | `node_id` PK, `json` | `FileMetrics` JSON |
-| `arch_meta` | `key` PK, `value` | `systemName, systemPurpose, components, assignments, overrides, logicalSignature, language, logicalDraft ("1"), ratings (without tmp-*), coverageReport, deploymentSignature, scannedAt, enrichedAt (unix seconds as text), gitHead, deploymentHints` |
+| `arch_meta` | `key` PK, `value` | `systemName, systemPurpose, components, assignments, overrides, logicalSignature, language, logicalDraft ("1"), ratings (without tmp-*), coverageReport, deploymentSignature, scannedAt, enrichedAt (unix seconds as text), gitHead, deploymentHints, codeSequences, codeModel, codeCoverage` (the last three are optional JSON) |
 | `arch_reviews` | `diff_hash` PK, `json`, `created_at` | Encoded `PROverlay` after `reviewPR`, including the user's marks (dismissed, commented, issueURL). GitHub `info`, work in progress and `fileDiff` are stripped (`ArchitectureStore.swift:2891-2903`) |
 
 `saveArchitecture` deletes the five snapshot tables and reinserts everything in one

@@ -107,6 +107,76 @@ struct LogicalComponent: Codable {
     var layer: String
 }
 
+/// How well the local scanner and the AI code model understood each language of
+/// the project: the explicit incompleteness statement behind the Code view.
+/// Built by `CodeArchitecture.coverage` after a scan and after a code analysis;
+/// persisted with the snapshot. Bump `currentVersion` when the shape changes.
+struct CodeCoverage: Codable, Equatable {
+    static let currentVersion = 1
+
+    enum Level: String, Codable {
+        /// Dependencies were extracted (imports or type references), declarations
+        /// are outlined, and the AI model assigned the files to components.
+        case full
+        /// The language is recognized and scanned, but a dependency extractor, an
+        /// outline pattern or the AI model is missing.
+        case partial
+        /// Nothing beyond the file's existence: configuration formats, bundles,
+        /// oversized files, or files no component of the model owns.
+        case notAnalyzed
+    }
+
+    /// One language of the project with its files counted per level.
+    struct Language: Codable, Equatable {
+        /// Language id as `FileType.codeLanguage` reports it ("text" for plain text).
+        var language: String
+        var level: Level
+        var full: Int
+        var partial: Int
+        var notAnalyzed: Int
+        var files: Int { full + partial + notAnalyzed }
+    }
+
+    /// Why the scanner left a file out of the Modules view.
+    enum SkipReason: String, Codable {
+        /// Configuration, build or plain-text formats without a dependency graph.
+        case configFormat
+        /// Minified or bundled third-party code.
+        case generatedBundle
+        /// Larger than `ArchitectureScanner.maxParseBytes`.
+        case tooLarge
+    }
+
+    /// Files of one language skipped for one reason; kept so a later analysis can
+    /// rebuild the report without rescanning.
+    struct Skipped: Codable, Equatable {
+        var language: String
+        var reason: SkipReason
+        var files: Int
+    }
+
+    /// Which languages the shipping scanner and outline pass understand. Not
+    /// persisted: the report records the outcome, not the tables.
+    struct Capabilities {
+        /// Languages with file-level dependency extraction (import resolution or type references).
+        var dependencyLanguages: Set<String>
+        /// Languages with a declaration outline pattern.
+        var outlineLanguages: Set<String>
+    }
+
+    var version: Int
+    /// Sorted by language id.
+    var languages: [Language]
+    /// Scanned files that no component of the code model owns (0 without a model).
+    var unassignedFiles: Int
+    var skipped: [Skipped]
+    /// Human-readable statements of what was not understood, in a stable order.
+    var reasons: [String]
+    /// The report reflects an AI code model, not only the local scan.
+    var hasModel: Bool
+    var computedAt: Date
+}
+
 /// Everything the Architecture tab shows, as persisted in the workspace database.
 struct ArchitectureSnapshot: Codable {
     var views: [ArchView]
@@ -142,6 +212,8 @@ struct ArchitectureSnapshot: Codable {
     /// Source-grounded scenarios; optional for snapshots saved before the Code view.
     var codeSequences: [CodeSequence]? = nil
     var codeModel: CodeArchitectureModel? = nil
+    /// Per-language understanding report; nil for snapshots saved before it existed.
+    var codeCoverage: CodeCoverage? = nil
 
     func view(_ id: String) -> ArchView? { views.first { $0.id == id } }
 }
