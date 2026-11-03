@@ -3601,3 +3601,47 @@ Review:
 - Not verified: the whole 45-file sweep on strikedesk (about 45 runs, tokens of Boris's provider); a click-through of the Prototype Studio window.
 - Known limit: the first run decides which files are affected; a file it misses is not revised (the reply names the count, a repeat request fixes it).
   A Russian comment in a stylesheet was skipped in the six-file check (not visible text).
+
+## Prototype and code stay in step (feature `prototype-and-code-stay-in-step`) — PLAN FOR APPROVAL, nothing implemented
+
+Request (Boris, Russian chat, 2026-11-03): point at a whole prototype, a screen, a component or an element and say what to change; get the
+prototype changes into the code; make "Sync from code" remember its state and rebuild only what changed. Boris chose variant A for the
+prototype → code direction (an agent changes the code on a branch; Studio never writes application source) and asked for it to be written up
+as a feature. Feature: `docs/features/prototype-and-code-stay-in-step/` (REQ-008…REQ-013, DEC-006…DEC-008, Q-001…Q-004), status draft.
+
+What the code does today (read, not guessed):
+- `PrototypeAI.sync` (PrototypeAI.swift) removes `site/` and calls `build` again: a full rebuild, then `PrototypeSession.syncFromCode` saves a new
+  version. DEC-005 point 1 of `previews-from-existing-code` says Studio edits are not carried over.
+- `PrototypeFiles.Manifest` holds sources, screens, components (path → screens, isolated page), history; no source fingerprints and no
+  "unit ← source files" mapping. The plan's per-screen `evidence` is read by the build but not stored.
+- `PrototypeSession.Request` carries the instruction, the `pick` (one element) and the attached files; `selectedComponent` only highlights.
+- Agents can read a prototype (`markview_get_prototype`) but not what changed in it.
+
+Open before work starts (Boris): confirm DEC-007 (it replaces point 1 of DEC-005) and DEC-008; Q-001 is answered by Stage 0; Q-002 and Q-003 have a
+recommended answer; Q-004 is needed only before Stage 3.
+
+Plan (one branch, one PR, one minor version and one signed release per stage; Boris tries each release before the next stage starts):
+- [ ] Stage 0, spike, no product code: on the strikedesk prototype list five single-file changes in the original source and check whether the
+      plan's `evidence`/`components` paths would flag the units that must be rebuilt; read `build` for where the plan is available and which units
+      exist (foundation parts, screens, component pages, embedded pages). Result: answer to Q-001 and the unit list of Stage 1.
+- [ ] Stage 1, baseline and incremental sync (REQ-009, REQ-010, REQ-011, DEC-007):
+  - [ ] `PrototypeBaseline` (pure Foundation, standalone swiftc test like `PrototypeReference`): sha256 per source file, unit → source paths,
+        stored per version (`versions/v<N>/baseline.json`) and restored with it; `compare` gives changed/added/removed files; `plan` gives the
+        units to rebuild, a reason for each, and the fallback (none / foundation / full).
+  - [ ] `build` records the baseline (paths checked against disk, unknown paths dropped, unit marked incomplete).
+  - [ ] `PrototypeAI.syncIncremental` rebuilds only the planned units with the existing screen/component/foundation runs, keeps all other files, and
+        restores the previous version on failure or Stop; `syncFromCode` short-circuits to "nothing changed" with no run and no version.
+  - [ ] Studio: the list of units to rebuild (Q-003), the overwritten-edits note in the reply, conflict warnings (REQ-011).
+  - [ ] Tests: baseline unit tests; fixture-driven `prototype-deadline-tests` (one unit rebuilt, other files byte-identical, no change → no run,
+        failure restores, no baseline → full rebuild); one live run on the real CLI against a small code prototype; Debug `xcodebuild`.
+- [ ] Stage 2, target of a request (REQ-008): `Request.target` (prototype / screen / component / element), selection from the screen and component
+      lists, a chip next to the field, a scope paragraph in `revisePrompt` (pinned digest updated on purpose), retry/edit keep the target.
+- [ ] Stage 3, hand-off and agent reads (REQ-012, REQ-013, DEC-006): `PrototypeChanges` (pure): files changed since the baseline version → components
+      by markers → brief text; a section in `markview_get_prototype`; "Hand off to code" sheet with an editable brief and the agent choice (Q-004);
+      nothing written to the project by Studio. Needs a look at how the AI panel starts an agent with a first prompt (start of the stage).
+- [ ] Each stage: bug/feature status updates, lesson in `tasks/lessons.md`, PR, wait for all checks, merge, Release build + signed DMG from the merged
+      `origin/main`, report with release URL and paths.
+
+Risks: the source → unit mapping comes from the model and can miss a dependency (stale unit; mitigated by the fallback and by the spike);
+a rebuilt screen must stay consistent with the shared `app.js`/data (the existing revise rules about identifiers apply); the prototype is an
+approximation of the product, so "hand off" transfers intent, not a patch.
