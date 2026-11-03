@@ -208,6 +208,33 @@ enum PrototypeFiles {
         try encoder.encode(manifest).write(to: manifestURL(of: folder), options: .atomic)
     }
 
+    // MARK: - Scope (code mode)
+
+    /// Whether a web app found at `appPath` (project-relative; "" for the root) belongs to the reconstruction
+    /// scope `sources` (files or folders relative to the root). Nothing selected means the whole project
+    /// (DEC-003); otherwise the app is in scope when it contains a selected source or lies inside a selected
+    /// folder. The creator sheet lists the apps in scope and refuses to start when there are none.
+    static func isInScope(appPath: String, sources: [String]) -> Bool {
+        let app = normalizedRelative(appPath)
+        let selected = sources.map(normalizedRelative).filter { !$0.isEmpty }
+        guard !selected.isEmpty else { return true }
+        return selected.contains { source in contains(folder: app, path: source) || contains(folder: source, path: app) }
+    }
+
+    /// `path` is `folder` itself or inside it; the root ("") holds everything.
+    private static func contains(folder: String, path: String) -> Bool {
+        folder.isEmpty || folder == path || path.hasPrefix(folder + "/")
+    }
+
+    /// A project-relative path without surrounding whitespace, a leading `./` or trailing slashes; "." and "/" become "".
+    private static func normalizedRelative(_ raw: String) -> String {
+        var path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while path.hasPrefix("./") { path.removeFirst(2) }
+        while path.hasPrefix("/") { path.removeFirst() }
+        while path.hasSuffix("/") { path.removeLast() }
+        return path == "." ? "" : path
+    }
+
     // MARK: - Inventory (code mode)
 
     /// One web-interface file of the reconstruction scope: its project-relative path and size. The

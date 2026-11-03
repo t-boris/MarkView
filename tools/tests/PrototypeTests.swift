@@ -432,5 +432,21 @@ do {
     check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path), "idempotent: shop stays")
 }
 
+// Code mode scope (DEC-003): nothing selected is the whole project; otherwise an app is in scope when it holds a
+// selected source or sits inside a selected folder.
+do {
+    check(PrototypeFiles.isInScope(appPath: "", sources: []) && PrototypeFiles.isInScope(appPath: "web", sources: []), "nothing selected: every app")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["web"]), "the selected folder is the app")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["web/"]) && PrototypeFiles.isInScope(appPath: "web/", sources: ["./web"]), "slashes and ./ are ignored")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["web/src/App.tsx"]), "a selected file inside the app")
+    check(PrototypeFiles.isInScope(appPath: "apps/site", sources: ["apps"]), "an app inside the selected folder")
+    check(PrototypeFiles.isInScope(appPath: "", sources: ["src/App.tsx"]), "the root app holds every selection")
+    check(!PrototypeFiles.isInScope(appPath: "web", sources: ["server"]), "another folder is out of scope")
+    check(!PrototypeFiles.isInScope(appPath: "web", sources: ["webapp"]), "a prefix that is not a folder is out of scope")
+    check(!PrototypeFiles.isInScope(appPath: "web", sources: ["README.md", "docs"]), "files elsewhere are out of scope")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["server", "web/index.html"]), "one matching source is enough")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: [" ", ""]), "blank sources count as nothing selected")
+}
+
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -94,14 +94,17 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var siteFolder: URL { PrototypeFiles.site(of: folder) }
     var hasSite: Bool { FileManager.default.fileExists(atPath: siteIndex.path) }
 
-    /// A prototype that does not exist yet; `generate()` builds it.
-    init(root: URL, title: String, brief: String, sources: [String]) {
+    /// A prototype that does not exist yet; `generate()` builds it. In `.code` mode the sources are the
+    /// existing web-interface code to reconstruct (Previews from Existing Code).
+    init(root: URL, title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements) {
         self.root = root.standardizedFileURL
         let slug = PrototypeFiles.slug(for: title, existing: Set(PrototypeFiles.existingSlugs(root: root)))
         self.slug = slug
         folder = PrototypeFiles.folder(root: self.root, slug: slug)
-        manifest = PrototypeFiles.Manifest(title: title, slug: slug, brief: brief, sources: sources)
-        messages = [Message(role: .user, text: brief.isEmpty ? "Build a prototype of \(sources.isEmpty ? "the project" : sources.joined(separator: ", "))." : brief)]
+        manifest = PrototypeFiles.Manifest(title: title, slug: slug, brief: brief, sources: sources, mode: mode)
+        let scope = sources.isEmpty ? "the project" : sources.joined(separator: ", ")
+        let opening = mode == .code ? "Reconstruct the web interface of \(scope)." : "Build a prototype of \(scope)."
+        messages = [Message(role: .user, text: brief.isEmpty ? opening : brief)]
     }
 
     /// A prototype saved earlier; nil when its manifest is missing.
