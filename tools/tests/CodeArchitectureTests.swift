@@ -72,6 +72,54 @@ badModel = model; badModel.components[0].evidence = "api.py:99999"
 check((try? CodeArchitecture.validateModel(badModel, modules: modules, root: fixture)) == nil, "invalid component source lines rejected")
 badModel = model; badModel.components[0].id = "api"
 check((try? CodeArchitecture.validateModel(badModel, modules: modules, root: fixture)) == nil, "duplicate component ids rejected")
+
+// BUG-046: a citation must be usable, the answer must be told exactly why it is not, and an
+// otherwise valid model is not thrown away over a line number.
+var citationFormats = model
+citationFormats.components[0].evidence = "api.py:8-19"
+check((try? CodeArchitecture.validateModel(citationFormats, modules: modules, root: fixture)) != nil, "a line range cites one line of one file")
+citationFormats.components[0].evidence = "api.py:8:5"
+check((try? CodeArchitecture.validateModel(citationFormats, modules: modules, root: fixture)) != nil, "a line:column citation names its line")
+citationFormats.components[0].evidence = "api.py"
+check((try? CodeArchitecture.validateModel(citationFormats, modules: modules, root: fixture)) == nil, "a whole-file citation is still not evidence")
+
+func problem(_ broken: CodeArchitectureModel) -> String {
+    do { try CodeArchitecture.validateModel(broken, modules: modules, root: fixture); return "" }
+    catch { return CodeArchitecture.repairFeedback(for: error) }
+}
+var citation = model; citation.components[1].evidence = "api.py:900"
+check(problem(citation).contains("line 900 is past the end of api.py, which has 24 lines"),
+      "a line past the end of the file says so, with the real length")
+check(problem(citation).contains("A usable citation in that code is api.py:8"),
+      "the repair request names a real definition line in the component's own code")
+citation = model; citation.components[1].evidence = "service.py:5"
+check(problem(citation).contains("service.py is not one of its own paths (api.py)"),
+      "a citation outside the component's paths names the paths it may use")
+citation = model; citation.components[1].evidence = "docs/design.md:3"
+check(problem(citation).contains("is not a source file of this project"), "a citation outside the inventory says so")
+citation = model; citation.components[1].evidence = ""
+check(problem(citation).contains("no citation was given"), "a missing citation says so")
+citation = model; citation.dependencies![0].evidence = "web/app.js:900"
+check(problem(citation).contains("past the end of web/app.js") && problem(citation).contains("A usable citation"),
+      "a dependency citation is explained the same way")
+
+var ungrounded = model
+ungrounded.components[1].evidence = "api.py:900"
+ungrounded.components[4].evidence = "service.py:5"
+ungrounded.dependencies![0].evidence = "nowhere.js:1"
+check((try? CodeArchitecture.validateModel(ungrounded, modules: modules, root: fixture)) == nil, "unusable citations are rejected first")
+let regrounded = CodeArchitecture.groundEvidence(ungrounded, modules: modules, root: fixture)
+check((try? CodeArchitecture.validateModel(regrounded, modules: modules, root: fixture)) != nil,
+      "grounding repairs the citations of an otherwise valid model")
+check(regrounded.components[1].evidence.hasPrefix("api.py:") && regrounded.components[4].evidence.hasPrefix("web/app.js:"),
+      "a replaced citation stays inside the component's own paths")
+check(regrounded.dependencies![0].evidence.hasPrefix("web/app.js:"), "a replaced dependency citation belongs to an endpoint")
+check(regrounded.components[0].evidence == model.components[0].evidence && regrounded.components.count == model.components.count,
+      "grounding changes nothing else: valid citations and the assistant's structure stay")
+var invented = model; invented.components[0].paths = ["missing.py"]
+check((try? CodeArchitecture.validateModel(CodeArchitecture.groundEvidence(invented, modules: modules, root: fixture),
+                                           modules: modules, root: fixture)) == nil,
+      "grounding does not rescue invented ownership")
 let excerpts = CodeArchitecture.sourceEvidence(root: fixture, modules: modules)
 check(excerpts.contains("FILE repository.py") && excerpts.contains("INSERT INTO orders"), "analysis receives storage implementation evidence, not only file names")
 check(excerpts.contains("9:         return self.repository.save"), "source excerpts preserve exact implementation line numbers")

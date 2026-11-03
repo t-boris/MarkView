@@ -1220,6 +1220,8 @@ final class ArchitectureStore: ObservableObject {
                 model = cached
             }
             var attempt = prompt
+            // The most recent answer that decoded, kept for the grounding fallback below.
+            var lastParsed: CodeArchitectureModel?
             for round in 0...1 where model == nil {
                 try Task.checkCancellation()
                 fromCache = false
@@ -1236,9 +1238,23 @@ final class ArchitectureStore: ObservableObject {
                         }
                         parsed = try JSONDecoder().decode(CodeArchitectureModel.self, from: Data(text[open...last].utf8))
                     }
+                    lastParsed = parsed
                     try await Task.detached { try CodeArchitecture.validateModel(parsed, modules: modules, root: root) }.value
                     Self.cache(parsed, at: answerFile)
                     model = parsed
+                } catch let error as DiagramAI.Failure where round == 1 && lastParsed != nil {
+                    // Last resort for an answer that is sound apart from its citations: keep the
+                    // assistant's structure and read a real definition line out of the code each
+                    // component already owns, then validate again. A whole analysis is not thrown
+                    // away over a line number the model could not get right twice (BUG-046).
+                    let previous = lastParsed!
+                    let grounded = await Task.detached { () -> CodeArchitectureModel? in
+                        let repaired = CodeArchitecture.groundEvidence(previous, modules: modules, root: root)
+                        return (try? CodeArchitecture.validateModel(repaired, modules: modules, root: root)) == nil ? nil : repaired
+                    }.value
+                    guard let grounded else { throw error }
+                    Self.cache(grounded, at: answerFile)
+                    model = grounded
                 } catch {
                     if round == 1 { throw error }
                     let answer: String
