@@ -479,7 +479,35 @@ enum PrototypeFiles {
     /// deletes remove. Nothing is written unless every part is valid.
     @discardableResult
     static func apply(_ change: Change, to site: URL) throws -> [String] {
-        var state = Dictionary(uniqueKeysWithValues: read(site: site).map { ($0.path, $0.content) })
+        let applied = try applying(change, to: Dictionary(uniqueKeysWithValues: read(site: site).map { ($0.path, $0.content) }))
+        let state = applied.state
+        let removed = applied.removed
+        let fm = FileManager.default
+        for path in applied.touched.sorted() {
+            guard let text = state[path] else { continue }
+            let url = site.appendingPathComponent(path)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        for path in removed { try? fm.removeItem(at: site.appendingPathComponent(path)) }
+        return applied.touched.sorted()
+    }
+
+    /// What a change does to a set of files, before anything is written.
+    struct Applied: Equatable {
+        /// Every file (path → text) after the change.
+        var state: [String: String]
+        /// The files the change wrote or patched.
+        var touched: Set<String>
+        /// The files it deleted that existed.
+        var removed: [String]
+    }
+
+    /// The rules of `apply` on files held in memory (path → text): the same validation, the same exactly-once
+    /// edits. A revise run that owns one file is checked with this, so a bad answer is retried before the run
+    /// that needs the whole prototype writes anything.
+    static func applying(_ change: Change, to files: [String: String]) throws -> Applied {
+        var state = files
         var touched = Set<String>()
         for file in change.files {
             let path = try validate(path: file.path)
@@ -508,15 +536,7 @@ enum PrototypeFiles {
             let path = try validate(path: path)
             if state.removeValue(forKey: path) != nil { removed.append(path) }
         }
-        let fm = FileManager.default
-        for path in touched.sorted() {
-            guard let text = state[path] else { continue }
-            let url = site.appendingPathComponent(path)
-            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try text.write(to: url, atomically: true, encoding: .utf8)
-        }
-        for path in removed { try? fm.removeItem(at: site.appendingPathComponent(path)) }
-        return touched.sorted()
+        return Applied(state: state, touched: touched, removed: removed)
     }
 
     // MARK: - Agent answers

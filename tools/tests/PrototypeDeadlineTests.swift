@@ -6,6 +6,117 @@ import Foundation
         try await requirementsMode()
         try await codeMode()
         try await widgetsMode()
+        try await sweepMode()
+    }
+
+    /// A request for many files (BUG-051): the first run lists them, each file is revised by a run of its own, and one
+    /// write at the end applies them all. Partial failure, retry, an explanation without a change, silence, a prototype
+    /// fix round and cancellation are each checked on a five-file site.
+    static func sweepMode() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("mv-prototype-sweep-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let folder = PrototypeFiles.folder(root: root, slug: "fixture")
+        let site = PrototypeFiles.site(of: folder)
+        let original = ["index.html": "<h1>Fixture title</h1>\n<!--SCREENS-->\n", "app.js": "window.App = {};",
+                        "data.js": "window.DB = {};", "styles.css": "body { color: black; }",
+                        "screens/home.js": "App.register({id: 'home'});"]
+        func reset() throws {
+            try? fm.removeItem(at: root)
+            for (path, text) in original {
+                let url = site.appendingPathComponent(path)
+                try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            }
+            // The copied originals are never read, revised or listed.
+            let kept = site.appendingPathComponent("original/theme.css")
+            try fm.createDirectory(at: kept.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "a { color: red; }".write(to: kept, atomically: true, encoding: .utf8)
+        }
+        func files() -> [String: String] { Dictionary(uniqueKeysWithValues: PrototypeFiles.read(site: site).map { ($0.path, $0.content) }) }
+        let stages = Phases()
+        let events: PrototypeAI.Stage = { event in if case .log(let text) = event { stages.add(text) } else if case .step(let text) = event { stages.add(text) } }
+        func revise(sweep: Bool = true, concurrency: Int = 2) async throws -> PrototypeAI.Outcome {
+            try await PrototypeAI.revise(root: root, folder: folder, instruction: "Convert all preview to English", pick: nil,
+                                         runtimeErrors: [], language: "", sweep: sweep, concurrency: concurrency,
+                                         record: { _ in }, stage: events)
+        }
+
+        // 1. Five listed files: three revised (one after a retry), one needs nothing, one fails; the rest of the site is as it was.
+        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep")
+        try reset()
+        let outcome = try await revise()
+        precondition(outcome.written == ["data.js", "index.html", "styles.css"], "written: \(outcome.written)")
+        precondition(outcome.summary.hasPrefix("Listed the files.\n\nRevised 3 of 5 files; 1 needed no change; could not revise screens/home.js"),
+                     "summary: \(outcome.summary)")
+        let after = files()
+        precondition(after["index.html"]?.contains("Titre du fixture") == true && after["index.html"]?.contains("WRONG") == false,
+                     "a run owns its file: \(after["index.html"] ?? "")")
+        precondition(after["styles.css"] == "body { color: navy; }" && after["data.js"] == "window.DB = { ok: 1 };")
+        precondition(after["app.js"] == original["app.js"] && after["screens/home.js"] == original["screens/home.js"],
+                     "a delete or a failed run left a file changed")
+        let theme = try String(contentsOf: site.appendingPathComponent("original/theme.css"), encoding: .utf8)
+        precondition(theme == "a { color: red; }")
+        let labels = await CLICompletion.audit.labels
+        precondition(labels == ["prototype:revise", "prototype:revise:index.html", "prototype:revise:app.js", "prototype:revise:data.js",
+                                "prototype:revise:styles.css", "prototype:revise:screens/home.js"],
+                     "one run per listed file, the ghost, the repeat and the outside path dropped: \(labels.sorted())")
+        let filePrompt = await CLICompletion.audit.prompts["prototype:revise:index.html"] ?? ""
+        precondition(filePrompt.contains("revises one file of it, `index.html`") && filePrompt.contains("=== index.html ===\n<h1>Fixture title</h1>")
+                     && filePrompt.hasSuffix("Reviewer's request:\nConvert all preview to English"), "the file run is given its file whole")
+        let efforts = await CLICompletion.audit.efforts
+        precondition(efforts["prototype:revise:index.html"] == "low", "file runs are low effort")
+        precondition(stages.all.contains("Could not revise screens/home.js: fixture: home cannot be revised")
+                     && stages.all.contains("No change needed in app.js") && stages.all.contains("Revised data.js"), "progress lines: \(stages.all)")
+
+        // 2. A fix round never fans out: the same listing is only an explanation, nothing is written.
+        await CLICompletion.audit.reset(); try reset()
+        let fix = try await revise(sweep: false)
+        precondition(fix.written.isEmpty && fix.summary == "Listed the files.\n\nNo files were changed." && files() == original, "fix round: \(fix.summary)")
+        let fixLabels = await CLICompletion.audit.labels
+        precondition(fixLabels == ["prototype:revise"], "a fix round starts no per-file run")
+
+        // 3. Every file run fails: the request fails and the site is as it was.
+        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep-all-fail"); try reset()
+        do {
+            _ = try await revise()
+            preconditionFailure("a sweep in which no file could be revised must fail")
+        } catch let error as PrototypeFiles.Failure {
+            precondition(error.localizedDescription.contains("index.html") && error.localizedDescription.contains("failed"), "\(error.localizedDescription)")
+        }
+        precondition(files()["index.html"] == original["index.html"] && files()["styles.css"] == original["styles.css"])
+
+        // 4. An answer without a change that explains itself is a reply, not an error.
+        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "explain"); try reset()
+        let explained = try await revise()
+        precondition(explained.written.isEmpty && explained.summary == "The prototype is already in English.\n\nNo files were changed.",
+                     "\(explained.summary)")
+        let explainLabels = await CLICompletion.audit.labels
+        precondition(explainLabels == ["prototype:revise"])
+
+        // 5. Silence is an error, and the second attempt says why it is asked again.
+        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "silent"); try reset()
+        do {
+            _ = try await revise()
+            preconditionFailure("an answer with no change and no summary must fail")
+        } catch let error as PrototypeFiles.Failure {
+            precondition(error.localizedDescription.contains("no change and no explanation"), "\(error.localizedDescription)")
+        }
+        let again = await CLICompletion.audit.prompts["prototype:revise"] ?? ""
+        precondition(again.contains("Your previous answer was empty:") && !again.contains("could not be applied"), "retry text for an empty answer")
+
+        // 6. Cancelling in the middle of a sweep writes nothing.
+        await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: "sweep-slow"); try reset()
+        let task = Task { try await revise() }
+        try await Task.sleep(nanoseconds: 700_000_000)
+        task.cancel()
+        do {
+            _ = try await task.value
+            preconditionFailure("a cancelled sweep must not finish")
+        } catch is CancellationError {}
+        precondition(files() == original, "a cancelled sweep changed the site")
+        await CLICompletion.audit.set(variant: "")
+        print("Prototype sweep: a request for many files is revised file by file (retry, partial failure, no change, cancel), written once; an explanation is a reply, silence an error; fix rounds never fan out.")
     }
 
     /// The original policy check: every stage runs without a wall-clock limit.

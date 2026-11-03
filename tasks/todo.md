@@ -3568,3 +3568,36 @@ Review:
 - Not verified: a real MarkView window with a real Claude Code session end to end (the stand-ins wrote the logs); Cline and Antigravity
   (the same generic path as Codex and Copilot); remote agents (not covered by design). A `/model` change made within about 3 s of quitting
   the app is not remembered (the log is read every 3 s).
+
+## BUG-051: a review request for the whole prototype fails with an empty answer (2026-11-03, 5.5.0 planned)
+
+Report: "Convert all preview to english" on the 49-file strikedesk prototype (45 files with Russian text, about 450 KB) failed with
+"The answer contained no files, edits or deletes." twice. Evidence: `ai-calls.jsonl` shows both `prototype:revise` runs at 12:17 answered in
+326 and 547 output tokens. A replica of the request on the real Codex CLI (gpt-6.1-terra, medium) made 2 and 4 edits and wrote in `summary` that the
+conversion was incomplete: one read-only run cannot return the changes of 45 files. The output language setting was "document language"
+(no language note), so the Russian text was the model's own choice in the original build; that is a separate prompt question (not part of this fix).
+
+Approved by Boris (Russian chat, 2026-11-03): the fan-out revise, read-only runs + `PrototypeFiles.apply` + versions stay as they are.
+
+Plan:
+- [x] `PrototypeFiles.applying(_:to:)`: the in-memory core of `apply` (same rules), so a change can be checked before anything is written.
+- [x] `reviseSchema.remaining` + a paragraph in `reviseSystem`: a request that touches more than a few files makes no change in the first run and
+      lists every file in `remaining`.
+- [x] `PrototypeAI.revise`: an answer with `remaining` runs one read-only run per file, `concurrency` at a time (like the build); each run owns
+      one file, is checked in memory and retried once; the first change and all file changes are applied once at the end (cancel = unchanged).
+      An empty answer with a `summary` is the assistant's reply ("No files were changed."), not an error; the retry text for a truly empty
+      answer says so instead of talking about edits that did not match. The fix rounds after a preview error never fan out.
+- [x] `PrototypeSession`: no new version when nothing was written; the reply says what was revised, unchanged and what failed.
+- [x] Tests in `prototype-deadline-tests.sh` (fan-out, partial failure, empty answer with summary, empty answer without one, cancellation leaves
+      the site as it was) and the pinned `reviseSystem` digest; live check of the router prompt on the real Codex CLI.
+- [x] Minor bump 5.5.0, bug file `fixed`, lesson.
+- [ ] PR, checks, merge, Release build + signed DMG from the merged `origin/main` commit.
+
+Review:
+- Verified: `prototype-tests.sh` (ALL OK), `prototype-deadline-tests.sh` (new `sweepMode`, 6 scenarios), Debug `xcodebuild` (app 5.5.0).
+- Verified on the real Codex CLI (request replica built from the Swift source): the router lists exactly the 45 files with Cyrillic and changes
+  nothing; two file runs (settings.js whole file, data.js 15 edits) leave no Cyrillic and every edit applies once. Real `claude` CLI through the real
+  `PrototypeAI.revise` on a six-file prototype: three-at-a-time sweep, one write, cross-file status value stays consistent.
+- Not verified: the whole 45-file sweep on strikedesk (about 45 runs, tokens of Boris's provider); a click-through of the Prototype Studio window.
+- Known limit: the first run decides which files are affected; a file it misses is not revised (the reply names the count, a repeat request fixes it).
+  A Russian comment in a stylesheet was skipped in the six-file check (not visible text).
