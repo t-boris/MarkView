@@ -1018,6 +1018,14 @@ class WorkspaceManager: ObservableObject {
             return
         }
 
+        if FileType.from(url: url) == .pdf {
+            var tab = OpenTab(url: url, content: "", originalContent: "")
+            tab.kind = .pdf(PDFReaderController())
+            tabsStore.appendTab(tab)
+            addRecentFile(url)
+            return
+        }
+
         // Archives: the archive view lists them; nothing is unpacked until a file is clicked.
         if Archive.isArchive(url) {
             var tab = OpenTab(url: url, content: "", originalContent: "")
@@ -1104,6 +1112,7 @@ class WorkspaceManager: ObservableObject {
                 let draft = tab.isModified ? WorkspaceDraft(content: tab.content, original: tab.originalContent) : nil
                 saved = .file(url: tab.url, draft: draft, notes: tab.notesView, scroll: Double(tab.scrollPosition))
             case .image: saved = .image(tab.url)
+            case .pdf: saved = .pdf(tab.url)
             case .archive: saved = .archive(tab.url)
             case .deployments: saved = .deployments
             case .discussions: saved = .discussions
@@ -1167,7 +1176,7 @@ class WorkspaceManager: ObservableObject {
                 }
             case .deployments: openDeployments()
             case .discussions: openDiscussions()
-            case .image(let url), .data(let url), .archive(let url):
+            case .image(let url), .pdf(let url), .data(let url), .archive(let url):
                 if url.isFileURL, fm.fileExists(atPath: url.path) { openFile(url) }
             case .github(let item): openGitHubTab(item)
             case .architecture(let scope):
@@ -2295,7 +2304,7 @@ class WorkspaceManager: ObservableObject {
         for index in openTabs.indices.reversed() {
             let tab = openTabs[index]
             switch tab.kind {
-            case .file, .image, .archive:
+            case .file, .image, .pdf, .archive:
                 let path = tab.url.standardizedFileURL.path
                 if path == base || path.hasPrefix(base + "/") { tabsStore.removeTab(at: index) }
             default:

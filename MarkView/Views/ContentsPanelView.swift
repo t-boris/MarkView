@@ -26,7 +26,7 @@ struct ContentsPanelView<Headings: View>: View {
                 headings()
                 Divider().background(VSDark.border)
                 info
-            case .file, .image, .data:
+            case .file, .image, .pdf, .data:
                 if case .image = tab.kind { ImageThumbnail(url: tab.url).id(tab.url) }
                 else if case .file = tab.kind, tab.fileType == .markdown { placeholder("No headings") }
                 ScrollView { FileInfoRows(url: tab.url, revision: tab.dataRevision).padding(10) }

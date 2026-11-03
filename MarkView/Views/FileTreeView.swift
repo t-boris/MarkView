@@ -783,6 +783,7 @@ struct FileTreeView: View {
         case .xml:  return ("chevron.left.forwardslash.chevron.right", VSDark.orange)
         case .yaml: return ("list.bullet.indent", VSDark.purple)
         case .canvas: return ("rectangle.3.group", VSDark.yellow)
+        case .pdf: return ("doc.richtext", VSDark.orange)
         case .markdown: return ("doc.text", VSDark.blue)
         case .code: return ("curlybraces.square", VSDark.cyan)
         case .table: return ("tablecells", VSDark.green)

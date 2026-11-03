@@ -1,5 +1,24 @@
 # MarkView — Follow-up Tasks
 
+## Integrated read-only PDF reader (2026-11-03, 5.13.0)
+
+Specification: `docs/features/pdf-reading-in-markview`; issues #274 through #278.
+
+- [x] Read all recorded answers, accepted decisions, resolved findings and discussion before implementation.
+- [x] Implement dedicated reusable PDF tabs, Finder opening and session restoration without text saves or indexing.
+- [x] Render text, scan and mixed PDFs with page navigation, scrolling, zoom and fit page/width.
+- [x] Add native thumbnails, hierarchical outline navigation, embedded-text search and permission-aware copying.
+- [x] Constrain PDF links and actions, preserve source bytes, make forms read-only and handle passwords/errors.
+- [x] Native reader, routing, ingestion and SwiftUI checks: 66 checks, zero failures; existing window, file, project-search,
+      PDF-book and editor-routing regression suites pass.
+- [x] Version bumped from 5.12.1 to 5.13.0; final Debug build passed.
+- PR checks, merge and signed release are tracked by the feature plan, verification record and linked
+  GitHub issues; issues must remain open until merge.
+- Signed publication/deployment is blocked by F-002 (no local signing identity/notary profile and no CI
+  signing secrets). Do not publish or install an unsigned fallback; the overall objective remains incomplete.
+- Scope deliberately excludes OCR, saved highlights/notes, new PDF search/AI integration,
+  MarkView browser-tab inspection and a stakeholder manual-test checklist.
+
 ## BUG-061: pictures of a Markdown file are not shown (2026-11-03, 5.12.1, PR #273)
 
 Request (Boris): "huge bug, pictures are not shown, I open README.md and there are huge empty pictures; fix it urgently".

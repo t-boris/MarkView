@@ -1,0 +1,24 @@
+name: PDF Reader Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/**'
+      - 'project.yml'
+      - 'tools/tests/PDFReader*'
+      - 'tools/tests/pdf-reader-tests.sh'
+      - 'tools/tests/WindowSessionTests.swift'
+      - '.github/workflows/pdf-reader.yml'
+permissions:
+  contents: read
+jobs:
+  pdf-reader:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native PDF reader and text-only boundaries
+        run: bash tools/tests/pdf-reader-tests.sh
+      - name: Verify window restoration and file classification
+        run: |
+          bash tools/tests/window-session-tests.sh
+          bash tools/tests/all-files-explain-tests.sh
