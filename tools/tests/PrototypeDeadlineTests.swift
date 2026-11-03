@@ -7,6 +7,40 @@ import Foundation
         try await codeMode()
         try await widgetsMode()
         try await sweepMode()
+        try await stubMode()
+    }
+
+    /// A screen that comes back as a stub (BUG-053): a comment-only file is not saved; the second try is told why and
+    /// runs at medium effort; a screen that is still a stub is reported as failed and no file is written for it.
+    static func stubMode() async throws {
+        let fm = FileManager.default
+        func build(_ variant: String) async throws -> (PrototypeAI.Built, URL) {
+            await CLICompletion.audit.reset(); await CLICompletion.audit.set(variant: variant)
+            let root = fm.temporaryDirectory.appendingPathComponent("mv-prototype-stub-" + UUID().uuidString)
+            let folder = PrototypeFiles.folder(root: root, slug: "fixture")
+            try fm.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
+            let built = try await PrototypeAI.build(root: root, folder: folder, brief: "One screen", sources: [], language: "",
+                                                    record: { _ in }, stage: { _ in })
+            return (built, PrototypeFiles.site(of: folder).appendingPathComponent("screens/home.js"))
+        }
+        let once = try await build("stub-once")
+        defer { try? fm.removeItem(at: once.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
+        precondition(once.0.screens == ["Home"] && once.0.failed.isEmpty, "the retry produced the screen: \(once.0.screens) \(once.0.failed)")
+        precondition((try? String(contentsOf: once.1, encoding: .utf8))?.contains("App.register") == true, "the real screen was saved")
+        let calls = await CLICompletion.audit.calls["prototype:screen:home"]
+        let prompt = await CLICompletion.audit.prompts["prototype:screen:home"] ?? ""
+        let effort = await CLICompletion.audit.efforts["prototype:screen:home"]
+        precondition(calls == 2, "a stub is asked again once: \(String(describing: calls))")
+        precondition(prompt.contains("is not a finished screen") && prompt.contains("the file has no code, only comments or nothing"), "the retry says why: \(prompt.suffix(300))")
+        precondition(effort == "medium", "the retry runs at medium effort: \(String(describing: effort))")
+
+        let always = try await build("stub-always")
+        defer { try? fm.removeItem(at: always.1.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) }
+        precondition(always.0.screens.isEmpty && always.0.failed == ["Home"], "a screen that stays a stub is failed: \(always.0.screens) \(always.0.failed)")
+        precondition(!fm.fileExists(atPath: always.1.path), "no file is written for a stub")
+        let again = await CLICompletion.audit.calls["prototype:screen:home"]
+        precondition(again == 2, "two tries, no more: \(String(describing: again))")
+        print("Prototype stub screens: a comment-only screen is asked again once with the reason, a stub that stays is reported as failed and not saved.")
     }
 
     /// A request for many files (BUG-051): the first run lists them, each file is revised by a run of its own, and one

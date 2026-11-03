@@ -10,5 +10,5 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/PrototypeStylesTests.swift "$out/main.swift"
 swiftc -O -o "$out/prototype-styles-tests" MarkView/Models/PrototypeFiles.swift MarkView/Models/PrototypeStyles.swift MarkView/Models/PrototypeEmbedded.swift \
-    MarkView/Models/PrototypeAI.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"
+    MarkView/Models/PrototypeAI.swift MarkView/Models/PrototypeAudit.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"
 "$out/prototype-styles-tests"
