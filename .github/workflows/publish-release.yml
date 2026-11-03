@@ -1,0 +1,168 @@
+name: Publish Release
+
+# Builds the installer for the current MARKETING_VERSION on main and publishes it as
+# GitHub release v<version>, the same artifact ./release.sh produces locally.
+#
+# Signing and notarization need these repository secrets:
+#   MACOS_CERTIFICATE_P12       base64 of the Developer ID Application .p12
+#   MACOS_CERTIFICATE_PASSWORD  its export password
+#   NOTARY_KEY_P8               base64 of the App Store Connect AuthKey .p8
+#   NOTARY_KEY_ID, NOTARY_ISSUER_ID
+# Without them the run still publishes, but as an unsigned pre-release that Gatekeeper
+# rejects on download — only a signed, notarized installer is ever marked Latest.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build the installer without publishing a release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Read version
+        id: meta
+        env:
+          HAS_CERT: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+          HAS_KEY: ${{ secrets.NOTARY_KEY_P8 != '' }}
+        run: |
+          VERSION=$(grep -m1 'MARKETING_VERSION' project.yml | sed -E 's/.*"?MARKETING_VERSION"?: *"?([0-9.]+)"?.*/\1/')
+          [ -n "$VERSION" ] || { echo "No MARKETING_VERSION in project.yml"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$HAS_CERT" = "true" ] && [ "$HAS_KEY" = "true" ]; then
+            echo "signed=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=0" >> "$GITHUB_OUTPUT"
+            echo "::warning::No signing secrets; publishing an unsigned pre-release."
+          fi
+
+      - name: Refuse to overwrite an existing release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+            echo "Release v${{ steps.meta.outputs.version }} already exists; bump the version first"
+            exit 1
+          fi
+
+      - name: Import signing identity
+        if: steps.meta.outputs.signed == '1'
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          PASSWORD=$(uuidgen)
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -m1 "Developer ID Application" | sed -E 's/.*"(.*)"/\1/')
+          [ -n "$IDENTITY" ] || { echo "The imported certificate is not a Developer ID Application identity"; exit 1; }
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build Release
+        run: |
+          xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Release \
+            -derivedDataPath build/ReleaseDerivedData CODE_SIGNING_ALLOWED=NO -quiet build
+          mkdir -p build/release
+          cp -R build/ReleaseDerivedData/Build/Products/Release/MarkView.app build/release/MarkView.app
+
+      - name: Sign the app
+        if: steps.meta.outputs.signed == '1'
+        run: |
+          codesign --force --options runtime --timestamp \
+            --entitlements MarkView/MarkView.entitlements --sign "$SIGN_IDENTITY" build/release/MarkView.app
+          codesign --verify --strict --verbose=2 build/release/MarkView.app
+
+      - name: Create the installer
+        run: |
+          VERSION=${{ steps.meta.outputs.version }}
+          STAGE=build/release/dmg
+          mkdir -p "$STAGE"
+          cp -R build/release/MarkView.app "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "MarkView $VERSION" -srcfolder "$STAGE" -ov -format UDZO \
+            "build/MarkView-$VERSION.dmg" -quiet
+          if [ "${{ steps.meta.outputs.signed }}" = "1" ]; then
+            codesign --force --timestamp --sign "$SIGN_IDENTITY" "build/MarkView-$VERSION.dmg"
+          fi
+
+      - name: Notarize and staple
+        if: steps.meta.outputs.signed == '1'
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          DMG="build/MarkView-${{ steps.meta.outputs.version }}.dmg"
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          SUBMIT=$(xcrun notarytool submit "$DMG" --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait 2>&1) || true
+          echo "$SUBMIT"
+          if ! grep -q "status: Accepted" <<<"$SUBMIT"; then
+            ID=$(awk '/^ *id:/{print $2; exit}' <<<"$SUBMIT")
+            [ -n "$ID" ] && xcrun notarytool log "$ID" --key "$RUNNER_TEMP/AuthKey.p8" \
+              --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" || true
+            rm -f "$RUNNER_TEMP/AuthKey.p8"
+            echo "Notarization was not accepted"; exit 1
+          fi
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+
+      - name: Check the built version
+        run: |
+          BUILT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/release/MarkView.app/Contents/Info.plist)
+          [ "$BUILT" = "${{ steps.meta.outputs.version }}" ] || {
+            echo "Built $BUILT but project.yml says ${{ steps.meta.outputs.version }}"; exit 1; }
+          shasum -a 256 "build/MarkView-${{ steps.meta.outputs.version }}.dmg"
+
+      - name: Publish the release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.meta.outputs.version }}
+          DMG="build/MarkView-$VERSION.dmg"
+          # A copy under a fixed name: releases/latest/download/MarkView.dmg always serves the newest one.
+          cp "$DMG" build/MarkView.dmg
+          if [ "${{ steps.meta.outputs.signed }}" = "1" ]; then
+            gh release create "v$VERSION" "$DMG" build/MarkView.dmg --target "$GITHUB_SHA" --latest \
+              --title "MarkView $VERSION" \
+              --notes "Signed and notarized installer (Developer ID) built from \`main\` at ${{ steps.meta.outputs.sha }}.
+
+          Open \`MarkView-$VERSION.dmg\` (or \`MarkView.dmg\`, the same file) and drag MarkView to Applications."
+          else
+            gh release create "v$VERSION" "$DMG" --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title "MarkView $VERSION (unsigned)" \
+              --notes "Unsigned installer built from \`main\` at ${{ steps.meta.outputs.sha }}: this repository has no signing secrets, so Gatekeeper refuses it on download and it is not marked Latest.
+
+          Build it with \`./release.sh --publish\` for a signed, notarized release, or add MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, NOTARY_KEY_P8, NOTARY_KEY_ID and NOTARY_ISSUER_ID to the repository secrets and run this workflow again."
+          fi
+          gh release view "v$VERSION" --json url -q .url
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MarkView-${{ steps.meta.outputs.version }}-dmg
+          path: build/MarkView-${{ steps.meta.outputs.version }}.dmg
