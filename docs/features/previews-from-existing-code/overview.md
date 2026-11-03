@@ -2,7 +2,7 @@
 type: feature
 id: previews-from-existing-code
 title: Previews from Existing Code
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-02
 provenance: Created from the feature intake
