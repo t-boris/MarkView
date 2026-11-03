@@ -5,9 +5,69 @@ import Foundation
     static func main() async throws {
         try await requirementsMode()
         try await codeMode()
+        try await fragmentedSync()
         try await widgetsMode()
         try await sweepMode()
         try await stubMode()
+    }
+
+    /// Full code sync survives truncated foundation, screen and component answers; failure or cancellation
+    /// halfway through a file keeps the complete previous snapshot, never the unfinished fragments.
+    static func fragmentedSync() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("mv-prototype-fragments-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        for path in ["src/index.html", "src/app.js", "src/styles.css", "src/toolbar.html"] {
+            let url = root.appendingPathComponent(path)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "/* source fixture */".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let folder = PrototypeFiles.folder(root: root, slug: "orders")
+        let site = PrototypeFiles.site(of: folder)
+        try fm.createDirectory(at: site, withIntermediateDirectories: true)
+        let original = PrototypeFiles.Change(files: [
+            .init(path: "index.html", content: "<h1>Version 3</h1>\n<!--SCREENS-->\n"),
+            .init(path: "data.js", content: "window.DB = { version: 3 };"),
+        ])
+        try PrototypeFiles.apply(original, to: site)
+        try PrototypeFiles.snapshot(folder: folder, version: 3)
+        var manifest = PrototypeFiles.Manifest(title: "Orders", slug: "orders", brief: "", sources: ["src"], mode: .code)
+        manifest.version = 3
+        let scope = PrototypeAI.CodeScope()
+        func sync() async throws -> PrototypeAI.Built {
+            try await PrototypeAI.sync(root: root, folder: folder, manifest: manifest, codeScope: scope,
+                                       language: "", record: { _ in }, stage: { _ in })
+        }
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "fragments")
+        let built = try await sync()
+        precondition(built.screens == ["Orders"] && built.failed.isEmpty, "A truncated screen must be rebuilt from fragments.")
+        for path in ["app.js", "data.js", "styles.css", "screens/orders.js", "components/src-index-html.html"] {
+            let actual = try String(contentsOf: site.appendingPathComponent(path), encoding: .utf8)
+            precondition(actual == CLICompletion.fragmentFiles[path], "Fragments must join byte-for-byte: \(path)")
+        }
+        let index = try String(contentsOf: site.appendingPathComponent("index.html"), encoding: .utf8)
+        precondition(index.contains("screens/orders.js") && index.contains("original/src/styles.css"), "The generated shell still receives scripts and copied styles.")
+        let labels = await CLICompletion.audit.labels
+        precondition(labels.contains("prototype:foundation:data:part:data.js:3"), "A large data file requires multiple bounded responses.")
+        precondition(labels.contains("prototype:component:src-index-html:part:components/src-index-html.html:1"))
+
+        for variant in ["fragments-fail", "fragments-cancel"] {
+            await CLICompletion.audit.set(variant: variant)
+            do {
+                _ = try await sync()
+                preconditionFailure("An incomplete fragment must fail the sync.")
+            } catch is CancellationError {
+                precondition(variant == "fragments-cancel")
+            } catch {
+                precondition(variant == "fragments-fail", "\(error)")
+            }
+            let restored = PrototypeFiles.read(site: site)
+            precondition(restored == original.files.sorted { $0.path < $1.path }, "The failed sync must restore v3 exactly.")
+        }
+        await CLICompletion.audit.reset()
+        await CLICompletion.audit.set(variant: "")
+        print("Prototype fragmented sync: truncated foundation, screens and components recover; failed or cancelled parts restore v3.")
     }
 
     /// A screen that comes back as a stub (BUG-053): a comment-only file is not saved; the second try is told why and

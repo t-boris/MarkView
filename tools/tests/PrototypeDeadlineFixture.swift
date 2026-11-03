@@ -60,6 +60,14 @@ enum CLICompletion {
         return "App.register({id: 'orders', render() { return '<div data-mv-component=\"src/index.html\"><h1>\(title)</h1>"
             + "<nav data-mv-component=\"src/toolbar.html\"></nav><span data-mv-component=\"src/phantom.html\"></span></div>'; }});"
     }
+    static var fragmentFiles: [String: String] {
+        ["index.html": "<head><link rel=\"stylesheet\" href=\"styles.css\"></head>\n<!--SCREENS-->\n",
+         "app.js": "window.App = { register() {}, start() {} };",
+         "styles.css": "body { color: black; }",
+         "data.js": "window.DB = { text: \"" + String(repeating: "escaped\\\"value \u{1F680} ", count: 900) + "\" };\n",
+         "screens/orders.js": ordersScreen(variant: ""),
+         "components/src-index-html.html": "<main data-mv-component=\"src/index.html\">Orders alone</main>"]
+    }
     static func run(_ request: Request, onDelta: (@Sendable (String) -> Void)? = nil,
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
         // The provider boundary must receive no deadline for every stage, including follow-ups.
@@ -67,6 +75,29 @@ enum CLICompletion {
         try Task.checkCancellation()
         await audit.record(request.label, prompt: request.prompt, system: request.systemPrompt ?? "", effort: request.effort)
         let variant = await audit.variant
+        if variant.hasPrefix("fragments") {
+            if let range = request.label.range(of: ":part:") {
+                let path = String(request.label[range.upperBound...].split(separator: ":")[0])
+                let line = String(request.prompt.split(separator: "\n").last ?? "")
+                let saved = try JSONSerialization.jsonObject(with: Data(line.utf8)) as! [String: String]
+                let prefix = saved["content"]!
+                let whole = fragmentFiles[path]!
+                precondition(saved["path"] == path && whole.hasPrefix(prefix), "Every part receives the exact saved prefix.")
+                precondition(request.jsonSchema?["required"] as? [String] == ["content", "done"])
+                if path == "data.js", !prefix.isEmpty {
+                    if variant == "fragments-fail" { throw Failure.invalidOutput(.claude, "fixture: fragment failed") }
+                    if variant == "fragments-cancel" { throw CancellationError() }
+                }
+                let rest = String(whole.dropFirst(prefix.count))
+                let content = String(rest.prefix(4_096))
+                let fragment: [String: Any] = ["content": content, "done": rest.count <= 4_096]
+                return Result(text: "", structured: fragment, inputTokens: 1, outputTokens: 1)
+            }
+            if request.label.hasPrefix("prototype:foundation:") || request.label == "prototype:screen:orders"
+                || request.label == "prototype:component:src-index-html" {
+                throw Failure.invalidOutput(.claude, "the answer was cut off before its JSON ended (261514 characters after 3 continuation turns)")
+            }
+        }
         let object: [String: Any]
         switch request.label {
         case "prototype:plan" where variant == "failing":

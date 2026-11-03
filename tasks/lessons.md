@@ -1,5 +1,14 @@
 # Lessons
 
+## Truncated prototype files need a bounded output protocol (2026-11-03)
+
+The BUG-056 runtime change covered requirements mode, not code reconstruction. A code sync could still fail on a large
+escaped file answer. The restart parser also recognized only `{"`, missing the usual pretty-printed `{\n  "summary"`.
+- Rule: test restarted JSON with real formatting and nested records, not only compact synthetic objects.
+- Rule: when raw JSON continuation cannot recover a file, regenerate it through small, independently valid fragment
+  objects; concatenate decoded content, enforce the existing file-size cap, and save only after completion.
+- Check the rollback through the full sync call, including failure and cancellation halfway through a generated file.
+
 ## Copilot over ACP streams its internal continuations as one answer (BUG-056, 2026-11-03)
 
 When the model hits its 32K output cap, Copilot CLI continues by itself inside the same `session/prompt` and streams every internal

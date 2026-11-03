@@ -51,6 +51,16 @@ import Darwin
         // Two cut-off attempts streamed back to back, then a continuation that finishes the second.
         joined = body(try await run("[internal-restart-continued]"))
         precondition(joined == expected, "The continuation must finish the latest attempt, not the first one.")
+        joined = body(try await run("[pretty-restart]"))
+        precondition(joined == expected, "A pretty-printed restart after an unfinished JSON string must parse.")
+        joined = body(try await run("[pretty-restart-continued]"))
+        precondition(joined == expected, "A continuation must finish a pretty-printed restart.")
+        let large: [String: Any] = ["body": (0..<100).map { ["record": $0, "text": String(repeating: "source ", count: 400)] }]
+        let largeJSON = String(decoding: try JSONSerialization.data(withJSONObject: large, options: [.prettyPrinted]), as: UTF8.self)
+        let recovered = ACPAssistant.parseJSON(String(full.prefix(split)) + "\n" + largeJSON,
+                                               schema: ["properties": ["body": [:]], "required": ["body"]]) as? [String: Any]
+        precondition((recovered?["body"] as? [[String: Any]])?.count == 100,
+                     "Nested objects in a large pretty-printed restart must not displace its root from the candidate budget.")
         // A model that keeps answering "the answer is complete" ends the attempt after two such turns.
         do {
             _ = try await run("[declines]")
@@ -95,6 +105,7 @@ import Darwin
     /// repeating pattern that would make an overlap ambiguous.
     static let expected = (0..<40).map { "prototype-markup-\($0) section" }.joined(separator: " ") + " end"
     static var full: String { "{\"body\":\"" + expected + "\"}" }
+    static var pretty: String { "{\n  \"body\": \"" + expected + "\"\n}" }
     /// Where the first turn stops: past the restart probe, inside the JSON string.
     static let split = 300
     /// What a model says before the answer; the complete object in it is not the answer.
@@ -129,10 +140,23 @@ import Darwin
             if turn == 0 { scenario = ["[resume]", "[repeat-tail]", "[restart]", "[complete-max-tokens]",
                                        "[never-ends]", "[no-progress]", "[plain-cut-off]",
                                        "[narrated-complete]", "[narrated]", "[internal-restart-continued]",
-                                       "[internal-restart]", "[declines]"].first { text.contains($0) } ?? "" }
+                                       "[internal-restart]", "[pretty-restart]", "[pretty-restart-continued]",
+                                       "[declines]"].first { text.contains($0) } ?? "" }
             turn += 1
             let head = String(full.prefix(split))
             switch (scenario, turn) {
+            case ("[pretty-restart]", 1):
+                try chunk(head + "\nLet me provide the complete JSON:\n" + pretty)
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[pretty-restart]", _):
+                try chunk("The answer is complete.")
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[pretty-restart-continued]", 1):
+                try chunk(head + "\n" + String(pretty.prefix(split)))
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
+            case ("[pretty-restart-continued]", _):
+                try chunk(String(pretty.dropFirst(split)))
+                try send(["id": id, "result": ["stopReason": "end_turn"]])
             case ("[internal-restart]", 1):
                 try chunk(head)
                 try chunk(full)

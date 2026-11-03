@@ -375,22 +375,20 @@ enum ACPAssistant {
             candidates.append(String(text[fence]).replacingOccurrences(of: #"^```(?:json)?\s*|```$"#, with: "", options: .regularExpression))
         }
         candidates += jsonRegions(text).filter(\.closed).map(\.text).sorted { $0.count > $1.count }
-        // The answer may have started again after a cut-off attempt: the last `{"` that opens a region
-        // which closes is the answer that finished. Inside a JSON string a quote is escaped, so `{"` only
-        // occurs where an object starts.
-        var starts: [String.Index] = []
-        var from = text.startIndex
-        while let found = text.range(of: "{\"", range: from..<text.endIndex) {
-            starts.append(found.lowerBound)
-            from = found.upperBound
-        }
-        for start in starts.suffix(restartCandidates).reversed() where start != text.startIndex {
+        // A restart can begin inside the previous attempt's unfinished string, with whitespace after
+        // its opening brace. Look for schema keys so nested records cannot crowd out the real answer.
+        let required = schema["required"] as? [String] ?? []
+        let keys = Set((schema["properties"] as? [String: Any])?.keys.map { $0 } ?? []).union(required)
+        let keyPattern = keys.isEmpty ? #"(?:[^"\\]|\\.)*"# : keys.sorted().map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let pattern = #"\{\s*"(?:\#(keyPattern))"\s*:"#
+        let matches = (try? NSRegularExpression(pattern: pattern))?.matches(in: text, range: NSRange(text.startIndex..., in: text)) ?? []
+        let starts = matches.suffix(restartCandidates).compactMap { Range($0.range, in: text)?.lowerBound }
+        for start in starts.reversed() where start != text.startIndex {
             if let region = jsonRegions(String(text[start...])).first, region.closed { candidates.append(region.text) }
         }
         if let open = text.firstIndex(of: "{"), let close = text.lastIndex(of: "}"), open < close {
             candidates.append(String(text[open...close]))
         }
-        let required = schema["required"] as? [String] ?? []
         for candidate in candidates {
             guard let data = candidate.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

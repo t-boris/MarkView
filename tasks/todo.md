@@ -1,5 +1,17 @@
 # MarkView — Follow-up Tasks
 
+## Prototype code sync: truncated JSON recovery (2026-11-03, 5.10.1)
+
+Report (Boris): Sync from code still failed at v3 with a cut-off 261514-character answer after three continuation turns.
+- [x] Reproduced a missed recovery case: a pretty-printed complete JSON restart inside an unfinished answer was rejected.
+      ACP restart detection now accepts whitespace and filters candidates by schema keys; nested records cannot hide the root.
+- [x] Foundation, screen and isolated-component file generation recover genuinely cut-off answers by regenerating one file
+      at a time in independently valid JSON fragments of at most 4096 characters; only complete files reach the site.
+- [x] Regression harness: a full code sync recovers truncated shell, styles, data, screen and component answers, preserves
+      escaped text and Unicode, and restores the exact v3 snapshot on a failed or cancelled fragment.
+- [x] ACP continuation, prototype deadline and prototype file suites pass; Debug app build succeeds.
+- [x] Existing Clear conversation action is included unchanged; clearing messages preserves prototype files and versions.
+
 ## BUG-056: Prototype answers run past the output limit (2026-11-03, 5.9.0, fix/bug-056-prototype-output-limit)
 
 Report (Boris): building from a description failed with "cut off before its JSON ended (227596 characters after 10 continuation
