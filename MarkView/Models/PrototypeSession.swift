@@ -69,6 +69,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var screens: [ScreenProgress] = []
     @Published private(set) var reloadToken = 0
     @Published private(set) var runtimeErrors: [String] = []
+    /// Code mode: whether each unit of the prototype matches the code, computed locally from the baseline (REQ-014); nil until checked.
+    @Published private(set) var syncStatus: PrototypeBaseline.Status?
+    @Published private(set) var checkingSync = false
     /// Bumped to ask the preview to open every screen and report the blank, stuck and placeholder ones (BUG-053).
     @Published private(set) var auditToken = 0
     private var auditReport: PrototypeAudit.Report?
@@ -273,6 +276,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 await refreshThemes(planned: built.themes, defaultID: built.defaultTheme, persist: false)
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
+                    await writeBaseline(built)
                 }
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "The prototype is ready.")))
                 await settleAndFix(language: promptLanguage)
@@ -338,6 +342,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 await refreshThemes(planned: built.themes, defaultID: built.defaultTheme, persist: false)
                 let screens = built.screens.isEmpty ? "no screen could be written" : "screens: \(built.screens.joined(separator: ", "))"
                 try accept(instruction: "Synced from code", summary: "Reconstructed again from the current code; \(screens).")
+                await writeBaseline(built)
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
                 await settleAndFix(language: promptLanguage)
             } catch is CancellationError {
@@ -439,7 +444,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 manifest.components = PrototypeFiles.rescanComponents(in: siteFolder, known: manifest.components)
                 if let selected = selectedComponent, component(at: selected) == nil { selectedComponent = nil }
             }
-            try accept(instruction: "Go back to v\(version)", summary: "Restored the prototype of v\(version).")
+            try accept(instruction: "Go back to v\(version)", summary: "Restored the prototype of v\(version).", baselineFrom: version)
             messages.append(Message(role: .assistant, text: "Went back to v\(version) (saved as v\(manifest.version))."))
         } catch {
             messages.append(Message(role: .error, text: error.localizedDescription))
@@ -503,14 +508,17 @@ final class PrototypeSession: ObservableObject, Identifiable {
     // MARK: - Private
 
     /// Records a new accepted version: history, snapshot, manifest, preview reload.
-    private func accept(instruction: String, summary: String) throws {
+    private func accept(instruction: String, summary: String, baselineFrom: Int? = nil) throws {
         manifest.version += 1
+        // A review edit leaves the sources as they were at the sync: the new version has the baseline of the one before it (REQ-009).
+        if manifest.mode == .code { PrototypeBaseline.carryForward(folder: folder, from: baselineFrom ?? manifest.version - 1, to: manifest.version) }
         manifest.approved = false
         manifest.history.append(PrototypeFiles.Entry(version: manifest.version, instruction: instruction,
                                                      summary: summary, date: Date()))
         try PrototypeFiles.snapshot(folder: folder, version: manifest.version)
         try PrototypeFiles.saveManifest(manifest, in: folder)
         archive = nil
+        if manifest.mode == .code { Task { await refreshSyncStatus() } }
         // An isolated page this version removed cannot stay on screen: the screens come back.
         if let page = shownPage, !FileManager.default.fileExists(atPath: siteFolder.appendingPathComponent(page).path) {
             shownPage = nil
@@ -602,6 +610,48 @@ final class PrototypeSession: ObservableObject, Identifiable {
         auditActive = false
         return auditReport
     }
+
+    // MARK: - Sync baseline
+
+    /// Saves the baseline of the version a build or a sync just made: the fingerprints of the scope's source files, the source files and
+    /// prototype files of every unit, and the plan (REQ-009). Hashing reads files, so it runs off the main actor.
+    private func writeBaseline(_ built: PrototypeAI.Built) async {
+        guard let input = built.baseline else { return }
+        let root = self.root, site = siteFolder, folder = self.folder, version = manifest.version, components = manifest.components
+        let record = await Task.detached { () -> PrototypeBaseline.Record in
+            let named = input.scope + input.styles + input.screens.flatMap(\.sources) + components.map(\.path)
+            return PrototypeBaseline.make(version: version, plan: input.plan, styles: input.styles, screens: input.screens,
+                                          components: components, scope: PrototypeBaseline.fingerprints(root: root, paths: named),
+                                          site: PrototypeBaseline.siteFingerprints(site: site),
+                                          sourceExists: { PrototypeFiles.isSourceFile(root: root, path: $0) })
+        }.value
+        try? PrototypeBaseline.save(record, folder: folder, version: version)
+        await refreshSyncStatus()
+    }
+
+    /// Compares the code and the prototype as they are now with the baseline of the live version: no assistant run, no network (REQ-014).
+    /// Safe to call at any time.
+    func refreshSyncStatus() async {
+        guard manifest.mode == .code, manifest.version > 0 else { return }
+        syncCheckGeneration += 1
+        let generation = syncCheckGeneration
+        checkingSync = true
+        let root = self.root, site = siteFolder, folder = self.folder, version = manifest.version, sources = manifest.sources
+        let status = await Task.detached { () -> PrototypeBaseline.Status in
+            guard let record = PrototypeBaseline.load(folder: folder, version: version) else {
+                return PrototypeBaseline.status(record: nil, scope: [:], site: [:])
+            }
+            let inventory = PrototypeFiles.inventory(root: root, sources: sources)
+            let paths = Array(Set(record.scope.keys).union(inventory.entries.map(\.path)))
+            return PrototypeBaseline.status(record: record, scope: PrototypeBaseline.fingerprints(root: root, paths: paths),
+                                            site: PrototypeBaseline.siteFingerprints(site: site))
+        }.value
+        // The latest check wins: an older one that finishes late must not replace a newer answer.
+        guard generation == syncCheckGeneration else { return }
+        syncStatus = status
+        checkingSync = false
+    }
+    private var syncCheckGeneration = 0
 
     // MARK: - Themes
 

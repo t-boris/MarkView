@@ -222,6 +222,14 @@ import Foundation
             "Coverage: the build named or read 1 of 1 UI source files of 2 KB or more (100%, 2 KB of 2 KB).",
         ], "the build carries the plan's gaps, the components without a source file and the one it could not isolate: \(built.gaps)")
         precondition(built.assumptions == ["Prices are in EUR"])
+        // What the sync baseline is made from (REQ-009): the stored plan, the written screens with the files they were built from, the scope.
+        let input = try! { () throws -> PrototypeAI.Built.BaselineInput in
+            guard let input = built.baseline else { throw PrototypeFiles.Failure.edits(["no baseline input"]) }
+            return input
+        }()
+        precondition(input.plan.contains("\"screens\"") && input.screens.map(\.id) == ["orders"], "the baseline input holds the plan and the written screens: \(input.screens.map(\.id))")
+        precondition(input.screens[0].sources.contains("src/index.html"), "a screen's sources are its evidence and components: \(input.screens[0].sources)")
+        precondition(input.scope.contains("src/index.html") && input.scope.contains("src/app.js"), "the scope is the inventory: \(input.scope)")
         precondition(phases.first == "Step 1 of 4 · Reading the code and planning the screens", "\(phases.first ?? "")")
         precondition(phases.last == "Step 4 of 4 · Isolating the source components", "\(phases.last ?? "")")
         let site = PrototypeFiles.site(of: folder)

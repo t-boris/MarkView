@@ -21,6 +21,8 @@ struct PrototypeStudioView: View {
     @State private var referenceCopied = false
     /// The Components list of a code-mode prototype (REQ-007).
     @State private var showingComponents = false
+    /// The sync status panel: which units match the code (REQ-014).
+    @State private var showingSyncStatus = false
 
     private static let widthRange: ClosedRange<Double> = 260...760
 
@@ -42,7 +44,10 @@ struct PrototypeStudioView: View {
         .onDisappear { dictation.cancel() }
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
         // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened.
-        .task { await session.refreshThemes() }
+        .task {
+            await session.refreshThemes()
+            await session.refreshSyncStatus()
+        }
     }
 
     /// The divider between preview and conversation; dragging it left widens the conversation.
@@ -100,6 +105,7 @@ struct PrototypeStudioView: View {
                 .help("The preview shows \(page) on its own; go back to the prototype's screens")
             }
             Spacer()
+            if session.manifest.mode == .code { syncStatusButton }
             if let themes = session.manifest.themes, !themes.ids.isEmpty { themePicker(themes) }
             if !session.manifest.components.isEmpty {
                 Button { showingComponents.toggle() } label: {
@@ -183,6 +189,117 @@ struct PrototypeStudioView: View {
         .frame(maxHeight: 320)
     }
 
+    // MARK: Sync status (REQ-014)
+
+    private func stateColor(_ state: PrototypeBaseline.State) -> Color {
+        switch state {
+        case .inSync: return VSDark.green
+        case .codeChanged: return VSDark.orange
+        case .prototypeEdited: return VSDark.blue
+        case .bothChanged: return Color.red
+        case .unknown: return VSDark.textDim
+        }
+    }
+
+    private func stateSymbol(_ state: PrototypeBaseline.State) -> String {
+        switch state {
+        case .inSync: return "checkmark.circle"
+        case .codeChanged: return "arrow.triangle.2.circlepath"
+        case .prototypeEdited: return "pencil.circle"
+        case .bothChanged: return "exclamationmark.triangle"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    /// The state as a word with a symbol, never a color alone.
+    private func stateBadge(_ unit: PrototypeBaseline.UnitStatus) -> some View {
+        Label(unit.state.title, systemImage: stateSymbol(unit.state))
+            .uiFont(size: 9, weight: .semibold).foregroundColor(stateColor(unit.state))
+            .help(unit.state.meaning + (unit.changedSources.isEmpty && unit.editedFiles.isEmpty ? "" : "\n" + unit.summary))
+    }
+
+    private var syncStatusButton: some View {
+        let status = session.syncStatus
+        let attention = (status?.counts[.codeChanged] ?? 0) + (status?.counts[.bothChanged] ?? 0)
+        let label: String = {
+            guard let status else { return session.checkingSync ? "Checking code…" : "Code match" }
+            if !status.hasBaseline { return "No baseline" }
+            if attention > 0 { return "\(attention) changed in code" }
+            if (status.counts[.prototypeEdited] ?? 0) > 0 { return "Prototype edited" }
+            return status.codeUnchanged ? "Matches the code" : "Check the code"
+        }()
+        return Button { showingSyncStatus.toggle() } label: {
+            Label(label, systemImage: attention > 0 ? "arrow.triangle.2.circlepath" : "checkmark.circle")
+        }
+        .controlSize(.small).fixedSize()
+        .popover(isPresented: $showingSyncStatus, arrowEdge: .bottom) { syncPanel }
+        .help("Which screens and components of this prototype still match the code they were built from")
+    }
+
+    /// The units by state, with the files behind each state, and a button to check again (REQ-014).
+    private var syncPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                if let status = session.syncStatus {
+                    Text(status.summary).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if status.hasBaseline {
+                        Text("Last synced at v\(status.baselineVersion ?? 0). Checked just now, on this computer, without an assistant run.")
+                            .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    }
+                    ForEach(PrototypeBaseline.State.allCases, id: \.self) { state in
+                        let units = status.units.filter { $0.state == state }
+                        if !units.isEmpty {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label("\(state.title) (\(units.count))", systemImage: stateSymbol(state))
+                                    .uiFont(size: 11, weight: .semibold).foregroundColor(stateColor(state))
+                                Text(state.meaning).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                                ForEach(units, id: \.unit.id) { unit in
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(unit.unit.name + (unit.unit.kind == .component ? " · component" : unit.unit.kind == .foundation ? " · shell" : ""))
+                                            .uiFont(size: 11).foregroundColor(VSDark.text)
+                                        if !unit.changedSources.isEmpty {
+                                            Text("code: " + unit.changedSources.joined(separator: ", ")).uiFont(size: 10, design: .monospaced)
+                                                .foregroundColor(VSDark.textDim).lineLimit(3)
+                                        }
+                                        if !unit.editedFiles.isEmpty {
+                                            Text("prototype: " + unit.editedFiles.joined(separator: ", ")).uiFont(size: 10, design: .monospaced)
+                                                .foregroundColor(VSDark.textDim).lineLimit(3)
+                                        }
+                                        if state == .unknown && status.hasBaseline {
+                                            Text(unit.unit.sources.isEmpty ? "No source file is known for this unit." : "Some sources the plan named were not found.")
+                                                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                                        }
+                                    }
+                                    .padding(.leading, 8)
+                                }
+                            }
+                        }
+                    }
+                    if !status.unclaimed.isEmpty {
+                        Text("Changed files no unit lists (the prototype may depend on them): " + PrototypeBaseline.list(status.unclaimed, limit: 6))
+                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !status.added.isEmpty {
+                        Text("New files since the last sync: " + PrototypeBaseline.list(status.added, limit: 6))
+                            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text(session.checkingSync ? "Comparing the code with the last sync…" : "Not checked yet.").uiFont(size: 11).foregroundColor(VSDark.textDim)
+                }
+                HStack {
+                    Button { Task { await session.refreshSyncStatus() } } label: { Label("Check again", systemImage: "arrow.clockwise") }
+                        .controlSize(.small).disabled(session.checkingSync)
+                    Spacer()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+        }
+        .frame(width: 440)
+        .frame(maxHeight: 460)
+    }
+
     private static let defaultThemeTag = "\u{0}default"
     private static let originalLookTag = "\u{0}original"
 
@@ -237,6 +354,7 @@ struct PrototypeStudioView: View {
                 Text(component.label).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
                 Text(usage).uiFont(size: 10).foregroundColor(VSDark.textDim)
                 Spacer()
+                if let state = session.syncStatus?.units.first(where: { $0.unit.id == component.path }) { stateBadge(state) }
                 if selected, let count = session.highlightedInstances {
                     Text(count == 0 ? "not on this page" : "\(count) on this page").uiFont(size: 10).foregroundColor(VSDark.blue)
                 }
