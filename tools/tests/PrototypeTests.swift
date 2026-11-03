@@ -834,7 +834,7 @@ do {
     check(PrototypeAudit.script.contains("function collapsed(") && PrototypeAudit.script.contains("kind = 'clipped'"),
           "the script measures collapsed boxes and reports clipped screens")
     // The shell and host rules for widgets that size themselves with flex:1 or height:100%.
-    check(PrototypeAI.embeddedShellContract.contains("always has a definite height") && PrototypeAI.embeddedShellContract.contains("collapses to 0 px"),
+    check(PrototypeAI.embeddedShellContract.contains("inside a box that has a definite height") && PrototypeAI.embeddedShellContract.contains("collapses to 0 px"),
           "the embedded shell contract demands a definite height for the box that holds a widget")
     let hostPrompt = PrototypeAI.screenPrompt(plan: "{}", screen: PrototypeAI.PlannedScreen(id: "desk", name: "Desk", route: "/", purpose: "", embedded: false),
                                               foundation: [], failure: nil, mode: .code, hosted: [PrototypeAI.PlannedScreen(id: "w", name: "W", route: "/w", purpose: "", embedded: true)])

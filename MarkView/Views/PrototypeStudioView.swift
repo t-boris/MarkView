@@ -50,8 +50,10 @@ struct PrototypeStudioView: View {
         .background(VSDark.bg)
         .onDisappear { dictation.cancel() }
         .onAppear { if !session.hasSite && !session.isBusy && session.manifest.version == 0 { session.generate() } }
-        // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened.
+        // A prototype saved before themes were recorded gets its record from the copied stylesheets when it is opened; one saved before
+        // MarkView owned the page structure gets the structure (BUG-060).
         .task {
+            await session.ensurePageStructure()
             await session.refreshThemes()
             await session.refreshSyncStatus()
         }

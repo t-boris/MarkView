@@ -474,7 +474,7 @@ enum PrototypeFiles {
     static func validate(path raw: String) throws -> String {
         let path = raw.trimmingCharacters(in: .whitespaces)
         let parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !parts.isEmpty, parts.first != originalFolder,
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\\"), !parts.isEmpty, !isReserved(first: parts.first!),
               !parts.contains(where: { $0 == ".." || $0 == "." || $0.hasPrefix(".") }),
               allowedExtensions.contains((parts.last! as NSString).pathExtension.lowercased()) else {
             throw Failure.badPath(raw)
@@ -486,14 +486,23 @@ enum PrototypeFiles {
     /// assistant neither reads nor writes it: a copied theme is hundreds of kilobytes, and editing it would stop it being the original.
     static let originalFolder = "original"
 
-    /// Every text file under `site`, sorted by path; the copied originals are not part of it.
+    /// Where MarkView keeps the files it owns in a prototype from code (BUG-060): the page structure the shell links. Like
+    /// `original/`, the assistant neither reads nor writes it, so a rule that must not vary cannot be edited away by a revision.
+    static let ownedFolder = "markview"
+
+    /// Folders of `site` that are not the assistant's: it neither reads nor writes what is in them.
+    static let reservedFolders: Set<String> = [originalFolder, ownedFolder]
+
+    private static func isReserved(first component: String) -> Bool { reservedFolders.contains(component) }
+
+    /// Every text file under `site`, sorted by path; the copied originals and the files MarkView owns are not part of it.
     static func read(site: URL) -> [File] {
         guard let walker = FileManager.default.enumerator(at: site, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
         var files: [File] = []
         let base = site.standardizedFileURL.path + "/"
         for case let url as URL in walker {
             let full = url.standardizedFileURL.path
-            guard full.hasPrefix(base), !full.hasPrefix(base + originalFolder + "/"),
+            guard full.hasPrefix(base), !reservedFolders.contains(where: { full.hasPrefix(base + $0 + "/") }),
                   (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true,
                   let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             files.append(File(path: String(full.dropFirst(base.count)), content: text))

@@ -19,7 +19,7 @@ open(sys.argv[1], "w", encoding="utf-8").write(match.group(1).replace("\\\\", "\
 PY
 
 cp tools/tests/PrototypeRuntimeTests.swift "$out/main.swift"
-swiftc -O -o "$out/prototype-runtime-tests" MarkView/Models/PrototypeFiles.swift MarkView/Models/PrototypeStyles.swift \
+swiftc -O -o "$out/prototype-runtime-tests" MarkView/Models/PrototypeFiles.swift MarkView/Models/PrototypeStyles.swift MarkView/Models/PrototypeShellStructure.swift \
   MarkView/Models/PrototypeEmbedded.swift MarkView/Models/PrototypeAI.swift MarkView/Models/PrototypeRuntime.swift \
   MarkView/Models/PrototypeAudit.swift MarkView/Models/PrototypeThemes.swift MarkView/Models/PrototypeBaseline.swift \
   MarkView/Models/PrototypeHandoff.swift MarkView/Bridge/PrototypeSchemeHandler.swift tools/tests/PrototypeCLIStub.swift "$out/main.swift"

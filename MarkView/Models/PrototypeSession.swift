@@ -674,6 +674,20 @@ final class PrototypeSession: ObservableObject, Identifiable {
         return !images.isEmpty
     }
 
+    /// A prototype from code made before MarkView owned the page structure (BUG-060) has a page as tall as its content, so a widget that
+    /// fills its box shows only its toolbar. Opening it links the structure and saves that as a version of its own. No assistant run, and
+    /// nothing at all for a prototype that has it.
+    func ensurePageStructure() {
+        guard manifest.mode == .code, manifest.version > 0, !isBusy, hasSite, PrototypeShellStructure.needsApplying(site: siteFolder) else { return }
+        do {
+            try accept(instruction: "", summary: "MarkView linked the page structure (markview/structure.css): the page and #app have a definite height, so widgets that fill their box show their content.")
+            messages.append(Message(role: .assistant, text: "This prototype's page had no fixed height, so a widget that fills its box showed only its toolbar. "
+                + "MarkView added the page structure as v\(manifest.version); no assistant run. Every earlier version is still under Versions."))
+        } catch {
+            messages.append(Message(role: .error, text: error.localizedDescription))
+        }
+    }
+
     /// Called by the preview for each JavaScript error the page raises.
     func report(error text: String) {
         guard runtimeErrors.count < 5, !runtimeErrors.contains(text) else { return }
@@ -685,6 +699,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Records a new accepted version: history, snapshot, manifest, preview reload.
     private func accept(instruction: String, summary: String, baselineFrom: Int? = nil) throws {
         manifest.version += 1
+        // The page structure is MarkView's: a version restored from before it, or a revision that dropped the link, gets it back (BUG-060).
+        if manifest.mode == .code { try PrototypeShellStructure.ensure(site: siteFolder) }
         // A review edit leaves the sources as they were at the sync: the new version has the baseline of the one before it (REQ-009).
         if manifest.mode == .code { PrototypeBaseline.carryForward(folder: folder, from: baselineFrom ?? manifest.version - 1, to: manifest.version) }
         manifest.approved = false
