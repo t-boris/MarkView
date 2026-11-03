@@ -69,6 +69,13 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var screens: [ScreenProgress] = []
     @Published private(set) var reloadToken = 0
     @Published private(set) var runtimeErrors: [String] = []
+    /// Bumped to ask the preview to open every screen and report the blank, stuck and placeholder ones (BUG-053).
+    @Published private(set) var auditToken = 0
+    private var auditReport: PrototypeAudit.Report?
+    private var auditActive = false
+    private var auditAcknowledged = false
+    /// Screens of the last build that could not be written: the build reply names them, the fix round skips them.
+    private var failedScreens: Set<String> = []
     @Published private(set) var archive: URL?
     @Published var pick: PrototypeAI.Pick? {
         didSet {
@@ -283,6 +290,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
     private func adopt(_ built: PrototypeAI.Built) {
         if !built.title.isEmpty { manifest.title = built.title }
         manifest.screens = built.screens + built.failed
+        failedScreens = Set(built.failed)
         manifest.assumptions = built.assumptions
         manifest.gaps = built.gaps
         manifest.components = built.components
@@ -406,7 +414,9 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
-                await settleAndFix(language: promptLanguage)
+                // Only a change that can break a screen is worth opening every screen again.
+                let touchesScreens = outcome.written.contains { $0.hasPrefix("screens/") || $0 == "app.js" || $0 == "index.html" }
+                await settleAndFix(language: promptLanguage, audit: touchesScreens)
             } catch is CancellationError {
                 messages.append(Message(role: .error, text: "Stopped. The prototype is unchanged.", retry: request))
             } catch {
@@ -514,17 +524,23 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// A screen landed: show it, keeping the errors of the page for the fix round at the end.
     private func reloadPreview() { reloadToken += 1 }
 
-    /// Lets the reloaded page run, and when it reported JavaScript errors, has the assistant fix them.
-    private func settleAndFix(language: String) async {
+    /// Lets the reloaded page run, opens every screen in the preview, and when the page reported JavaScript errors or a
+    /// screen is blank, stuck or a placeholder, has the assistant fix them once. What is still wrong afterwards is named.
+    private func settleAndFix(language: String, audit shouldAudit: Bool = true) async {
         for _ in 0..<Self.autoFixRounds {
             try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !Task.isCancelled, !runtimeErrors.isEmpty else { return }
-            let errors = runtimeErrors
+            guard !Task.isCancelled else { return }
+            let found = shouldAudit ? await auditedProblems() : []
+            guard !Task.isCancelled else { return }
+            let errors = Array((runtimeErrors + found).prefix(Self.fixLimit))
+            guard !errors.isEmpty else { return }
             stage = "Fixing errors found in the preview"; log("Fixing errors found in the preview")
-            messages.append(Message(role: .assistant, text: "The preview reported \(errors.count) error\(errors.count == 1 ? "" : "s"); fixing:\n" + errors.map { "• \($0)" }.joined(separator: "\n")))
+            messages.append(Message(role: .assistant, text: "The preview reported \(errors.count) problem\(errors.count == 1 ? "" : "s"); fixing:\n" + errors.map { "• \($0)" }.joined(separator: "\n")))
             do {
-                let outcome = try await PrototypeAI.revise(root: root, folder: folder,
-                                                           instruction: "Fix the JavaScript errors reported by the preview. Change nothing else.",
+                let instruction = found.isEmpty
+                    ? "Fix the JavaScript errors reported by the preview. Change nothing else."
+                    : "Fix the errors and the blank or unfinished screens reported by the preview. Change nothing else."
+                let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction,
                                                            pick: nil, runtimeErrors: errors, language: language,
                                                            mode: manifest.mode, sources: manifest.sources, sweep: false,
                                                            record: record, stage: stageReporter())
@@ -534,11 +550,64 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 }
                 try accept(instruction: "Fix preview errors", summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
+                if !found.isEmpty {
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    guard !Task.isCancelled else { return }
+                    let left = await auditedProblems()
+                    if !left.isEmpty {
+                        messages.append(Message(role: .assistant, text: "Still not right after the fix:\n" + left.map { "• \($0)" }.joined(separator: "\n")
+                            + "\nAsk me to rebuild these screens."))
+                    }
+                }
             } catch {
                 messages.append(Message(role: .error, text: error.localizedDescription))
                 return
             }
         }
+    }
+
+    /// At most this many problems go to one fix round.
+    private static let fixLimit = 12
+    /// The preview must start the audit within this time, or there is no preview to ask.
+    private static let auditAcknowledgeLimit: TimeInterval = 8
+    private static let auditLimit: TimeInterval = 240
+
+    /// Opens every screen in the preview and describes the ones that are blank, stuck or placeholders, except the
+    /// screens the build already reported as failed. Empty when no preview took the request.
+    private func auditedProblems() async -> [String] {
+        stage = "Checking every screen in the preview"; log("Checking every screen in the preview")
+        guard let report = await audit() else {
+            log("The preview did not check the screens")
+            return []
+        }
+        let found = report.findings.filter { !failedScreens.contains($0.name) }
+        log("Checked \(report.checked) screen\(report.checked == 1 ? "" : "s"); \(found.count) with a problem")
+        return found.map(PrototypeAudit.message(for:))
+    }
+
+    /// Asks the preview to run the audit and waits for its report; nil when nobody answered.
+    private func audit() async -> PrototypeAudit.Report? {
+        auditReport = nil
+        auditAcknowledged = false
+        auditActive = true
+        auditToken += 1
+        let started = Date()
+        while auditActive, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            let waited = Date().timeIntervalSince(started)
+            if (!auditAcknowledged && waited > Self.auditAcknowledgeLimit) || waited > Self.auditLimit { break }
+        }
+        auditActive = false
+        return auditReport
+    }
+
+    /// The preview began the audit.
+    func auditStarted() { auditAcknowledged = true }
+
+    /// The preview's answer: the report, or nil when the page could not be audited.
+    func finishAudit(_ report: PrototypeAudit.Report?) {
+        auditReport = report
+        auditActive = false
     }
 }
 

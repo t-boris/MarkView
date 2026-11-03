@@ -243,7 +243,8 @@ do {
         ("dataSystem", PrototypeAI.dataSystem(language: ""), "0831ffa248985aa5ccec0515fee43ccc22c1b6a3c4ca31660920a99bd0400fee"),
         ("shellSystem", PrototypeAI.shellSystem(language: ""), "8222f48f1287ffd53a754ab368d241ed1658ab087ab5296e815f2f6ebcda505e"),
         ("stylesSystem", PrototypeAI.stylesSystem(language: ""), "1826c6bd4ce96575b11ba81605f33840b08ae65021905f22c395226f92b1a0ee"),
-        ("screenSystem", PrototypeAI.screenSystem(language: ""), "b659702560473db520262a26bca384b2ff5a6af0c08723d9663602fe74dbf9ef"),
+        // Changed on purpose by BUG-053: the sentence on what the callback of App.load returns.
+        ("screenSystem", PrototypeAI.screenSystem(language: ""), "65b10d41921495bb31e3bfc4cb5945cbdd15d6f85a1bfd8d0f36503a500c321b"),
         // Changed on purpose by BUG-051: the `remaining` paragraph (a request for many files is revised file by file).
         ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "31abde9e8392f5063365002697bd0b3e5a3dbb15da99b00c5bf9edd944bf6023"),
         ("foundationPrompt", PrototypeAI.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
@@ -772,6 +773,49 @@ do {
     // Without a note the prompts are what they were (the pinned digests above stay valid).
     check(PrototypeAI.screenSystem(language: PrototypeAI.languageNote(explicit: "", mode: .requirements)) == PrototypeAI.screenSystem(language: ""),
           "a requirements prototype's prompts are unchanged")
+}
+
+// BUG-053: a stub or blank screen is not accepted and the preview audit reports what it finds.
+do {
+    // The stub of the strikedesk Settings screen: only a comment, 255 bytes, no App.register.
+    let comment = "/* Экран настроек не реализован: требуется полностью изучить дочерние формы, их зависимости и правила сохранения. */"
+    check(PrototypeAudit.stubProblem(id: "settings", content: comment) == "the file has no code, only comments or nothing", "a comment-only file is a stub")
+    check(PrototypeAudit.stubProblem(id: "settings", content: "") != nil && PrototypeAudit.stubProblem(id: "settings", content: "  \n ") != nil,
+          "an empty file is a stub")
+    check(PrototypeAudit.stubProblem(id: "x", content: "const a = 1; // App.register({id: 'x', render() {}})")?.contains("never calls App.register") == true,
+          "App.register inside a comment does not count")
+    check(PrototypeAudit.stubProblem(id: "x", content: "App.register({id: 'x', route: '/x'});")?.contains("no render function") == true,
+          "a screen without render is refused")
+    check(PrototypeAudit.stubProblem(id: "x", content: "App.register({id: 'x', render() { return 'Not implemented yet'; }});")?.contains("placeholder") == true,
+          "a short screen whose text says it is not implemented is a placeholder")
+    check(PrototypeAudit.stubProblem(id: "x", content: "App.register({id: 'x', render() { return 'TODO'; }});") != nil, "TODO is a placeholder")
+    check(PrototypeAudit.stubProblem(id: "home", content: "App.register({id: 'home', render() { return 'Home'; }});") == nil,
+          "a short but real screen passes")
+    let long = "App.register({id: 'big', render() { return '<input placeholder=\"Search\">' + " + String(repeating: "'<p>row</p>' + ", count: 40) + "''; }});"
+    check(long.count > PrototypeAudit.placeholderLimit && PrototypeAudit.stubProblem(id: "big", content: long) == nil,
+          "the word placeholder in a long screen is an attribute, not a stub")
+    check(PrototypeAudit.stubProblem(id: "x", content: "// TODO later\nApp.register({id: 'x', render() { return 'Orders'; }});") == nil,
+          "a TODO in a comment does not make a screen a stub")
+    check(PrototypeAudit.withoutComments("a = 'http://x.y'; // c\nb = \"/* not a comment */\"; /* gone */ c") == "a = 'http://x.y'; \nb = \"/* not a comment */\";   c",
+          "comments are removed and strings are kept")
+
+    // The report the page posts.
+    let payload: [String: Any] = ["checked": 5, "skipped": 1, "problems": [
+        ["id": "trade", "name": "Trade", "route": "/widgets/trade", "kind": "blank", "sample": ""],
+        ["id": "settings", "name": "Settings", "route": "/settings", "kind": "error", "sample": "Не удалось загрузить данные."],
+        ["id": "bad", "name": "Bad", "route": "/bad", "kind": "nonsense", "sample": ""]]]
+    let report = PrototypeAudit.report(from: payload)
+    check(report?.checked == 5 && report?.findings.map(\.id) == ["trade", "settings"], "unknown kinds are dropped: \(String(describing: report))")
+    check(PrototypeAudit.report(from: ["error": "boom"]) == nil && PrototypeAudit.report(from: "text") == nil, "an error payload is no report")
+    let blank = PrototypeAudit.message(for: report!.findings[0])
+    check(blank.hasPrefix("Screen \"Trade\" (#/widgets/trade, screens/trade.js) renders nothing") && blank.contains("callback of App.load"), blank)
+    check(PrototypeAudit.message(for: report!.findings[1]).contains("error card (\"Не удалось загрузить данные.\")"), "the error card message quotes the card")
+    check(PrototypeAudit.message(for: PrototypeAudit.Finding(id: "a", name: "", route: "/a", kind: .loading, sample: "")).hasPrefix("Screen \"a\""),
+          "a screen without a name is named by its id")
+    check(PrototypeAudit.script.contains("window.__mvAudit") && PrototypeAudit.script.contains("App.plan") && PrototypeAudit.script.contains("/modals/"),
+          "the script defines __mvAudit over App.plan and skips modal routes")
+    // The screen prompt tells the writer what made the strikedesk Trade screen blank.
+    check(PrototypeAI.screenSystem(language: "").contains("never the container that `App.load` returned"), "the screen prompt carries the App.load rule")
 }
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")

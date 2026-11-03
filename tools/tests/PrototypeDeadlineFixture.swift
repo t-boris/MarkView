@@ -32,6 +32,8 @@ enum CLICompletion {
         var systems: [String: String] = [:]
         /// The effort asked for under each label.
         var efforts: [String: String] = [:]
+        /// How many runs each label had.
+        var calls: [String: Int] = [:]
         /// What the fixture app "looks like" to the assistant: "" at creation, "synced" after the code changed,
         /// "failing" when the planner cannot answer (a sync that must restore the previous version).
         var variant = ""
@@ -40,8 +42,9 @@ enum CLICompletion {
             prompts[label] = prompt
             systems[label] = system
             efforts[label] = effort
+            calls[label, default: 0] += 1
         }
-        func reset() { labels = []; prompts = [:]; systems = [:]; efforts = [:] }
+        func reset() { labels = []; prompts = [:]; systems = [:]; efforts = [:]; calls = [:] }
         func set(variant: String) { self.variant = variant }
     }
     static let audit = Audit()
@@ -113,6 +116,13 @@ enum CLICompletion {
             object = ["summary": "Styles", "files": [["path": "styles.css", "content": "body { color: black; }"]]]
         case "prototype:foundation:data":
             object = ["summary": "Data", "files": [["path": "data.js", "content": "window.DB = {};" ]]]
+        case "prototype:screen:home" where variant == "stub-once" || variant == "stub-always":
+            // BUG-053: the Settings screen of the strikedesk build was only a comment saying it is not implemented.
+            let first = await audit.calls["prototype:screen:home"] == 1
+            let stub = variant == "stub-always" || first
+            object = ["summary": "Home", "files": [["path": "screens/home.js", "content": stub
+                ? "/* The home screen is not implemented: the forms and the rules must be studied first. */"
+                : "App.register({id: 'home', render() { return 'Home'; }});"]]]
         case "prototype:screen:home":
             object = ["summary": "Home", "files": [["path": "screens/home.js", "content": "App.register({id: 'home', render() { return 'Home'; }});" ]]]
         case "prototype:screen:orders":

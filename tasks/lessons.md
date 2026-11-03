@@ -828,3 +828,10 @@ the answer, with the saved default unchanged because the value was the one alrea
   the project, whose documents may be in another language.
 - A record-writing tool call (`markview_add_decision` and the like) with a malformed parameter list can still succeed and store the stray markup as
   text: read the record back (`markview_get_feature` with `id`) after every write and repair it with `markview_update_object`.
+
+## BUG-053: check what a screen shows, not only that its file exists
+- "No JavaScript error" is not "it works": a render function that returns an empty element, or an `App.load` that swallows its callback's error into
+  a card, throws nothing. Verify generated UI by looking at the page (`PrototypeAudit` opens every route and measures what each adds to the shell),
+  and verify generated files by content (a comment-only file has the right path and is still a stub).
+- Validate a heuristic against a real artefact before trusting it: the audit run on the real strikedesk v8 found Trade, Transport and Trade journal;
+  the fixture alone would have passed a weaker heuristic.

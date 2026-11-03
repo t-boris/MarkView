@@ -575,8 +575,10 @@ enum PrototypeAI {
         CSS classes that exist, and implements everything the plan lists for the screen: every data field, every \
         action with its validation and permission rules, every state. Make links to other screens with their hash \
         routes (`#/route`). If you need a data function that `DB` lacks, define it in your own file (`DB.name = …`) \
-        with a name starting with your screen id. Screen-specific CSS goes through `App.addStyles`. Do not edit other \
-        files and do not change global behaviour.
+        with a name starting with your screen id. Screen-specific CSS goes through `App.addStyles`. `App.load(fn)` returns \
+        a container that shows a loading indicator and then holds what `fn` returns: return the content to show (an \
+        element or an HTML string), never the container that `App.load` returned or an element that already contains \
+        it, or the screen stays blank. Do not edit other files and do not change global behaviour.
         Answer with the JSON object: `summary` (one sentence) and `files` (exactly one file: path and full content).\(language)
         """
     }
@@ -1305,17 +1307,27 @@ enum PrototypeAI {
         let hosted = screen.hosts.compactMap { id in plan.screens.first { $0.id == id } }
         let wanted = "screens/\(screen.id).js"
         var failure: String?
+        var effort = mode == .code ? screenEffort(screen) : "low"
         for attempt in 0..<2 {
             let result = try await call(root: root, system: screenSystem(language: language),
                                         prompt: screenPrompt(plan: plan.json, screen: screen, foundation: foundation,
                                                              failure: failure, mode: mode, originalStyles: originalStyles, hosted: hosted),
                                         schema: filesSchema, label: "prototype:screen:\(screen.id)",
-                                        effort: mode == .code ? screenEffort(screen) : "low", readLog: readLog,
+                                        effort: effort, readLog: readLog,
                                         record: record, stage: stage)
             let files = PrototypeFiles.change(from: result.structured).files
             guard let file = files.first(where: { (try? PrototypeFiles.validate(path: $0.path)) == wanted }) else {
                 failure = "The answer must contain exactly one file, \(wanted)."
                 if attempt == 1 { throw PrototypeFiles.Failure.edits([failure!]) }
+                continue
+            }
+            // A comment that says "not implemented", or a file that never registers the screen, is not an answer (BUG-053):
+            // the second try gets the reason and more effort, and a screen that is still a stub is reported as failed.
+            if let problem = PrototypeAudit.stubProblem(id: screen.id, content: file.content) {
+                failure = "\(wanted) is not a finished screen: \(problem). Write the complete screen with everything the plan lists for it."
+                effort = "medium"
+                if attempt == 1 { throw PrototypeFiles.Failure.edits([failure!]) }
+                stage(.log("\(wanted) was a stub (\(problem)); asking again"))
                 continue
             }
             stage(.log("Saving \(wanted)"))

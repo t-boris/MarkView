@@ -3674,3 +3674,9 @@ One branch and PR per item, in this order; each item is verified before the next
 - Records: the features "Prototype and code stay in step" and "Themes in a prototype made from code" moved from exploring to ready
   (requirements approved, DEC-001 accepted) and ship in this same pull request at Boris's request.
 - Next, in order: BUG-053 (blank/stub screens), themes, code-sync stages (a)-(d).
+
+## Review: BUG-053 (5.5.2) — blank and stub screens
+- [x] `PrototypeAudit.stubProblem` in `buildScreen` (retry once at medium effort, then failed); App.load rule in the screen prompt.
+- [x] Preview audit (`PrototypeAudit.script`, session `audit()`, coordinator `runAudit`), joined to the single fix round, rechecked after the fix.
+- [x] Tests: unit, `stubMode` scenario, headless Chrome fixture check, real WKWebView harness on the fixture and on strikedesk v8.
+- Not covered: modal routes are only checked statically; the fix round through a real assistant was not run.

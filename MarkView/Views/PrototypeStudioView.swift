@@ -631,7 +631,9 @@ private struct PrototypePreview: NSViewRepresentable {
         let controller = configuration.userContentController
         controller.add(context.coordinator, name: "mvPick")
         controller.add(context.coordinator, name: "mvError")
+        controller.add(context.coordinator, name: "mvAudit")
         controller.addUserScript(WKUserScript(source: Self.pickScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        controller.addUserScript(WKUserScript(source: PrototypeAudit.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // One origin for all files of the site: errors in app.js and screens/*.js keep their text (BUG-047).
         configuration.setURLSchemeHandler(context.coordinator.files, forURLScheme: PrototypeSchemeHandler.scheme)
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -650,6 +652,10 @@ private struct PrototypePreview: NSViewRepresentable {
         }
         coordinator.applyPickMode(session.pickMode)
         coordinator.applyHighlight(session.selectedComponent)
+        if coordinator.auditToken != session.auditToken {
+            coordinator.auditToken = session.auditToken
+            coordinator.runAudit()
+        }
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -661,6 +667,10 @@ private struct PrototypePreview: NSViewRepresentable {
         var session: PrototypeSession
         weak var webView: WKWebView?
         var loadedToken = -1
+        /// The last audit request of the session this preview took up (BUG-053).
+        var auditToken = 0
+        /// An audit asked for while the page was still loading; it starts when the page finished.
+        private var auditWaiting = false
         private var pickMode = false
         /// The component whose instances are outlined, as last sent to the page.
         private var highlighted: String?
@@ -695,6 +705,20 @@ private struct PrototypePreview: NSViewRepresentable {
             }
         }
 
+        /// Opens every screen of the loaded prototype in turn and sends what `PrototypeAudit.script` found back to the session.
+        func runAudit() {
+            guard let webView else { return }
+            if webView.isLoading { auditWaiting = true; return }
+            auditWaiting = false
+            session.auditStarted()
+            webView.evaluateJavaScript("""
+            window.__mvAudit ? window.__mvAudit().then(
+              function (report) { window.webkit.messageHandlers.mvAudit.postMessage(report); },
+              function (error) { window.webkit.messageHandlers.mvAudit.postMessage({ error: String(error) }); }
+            ) : window.webkit.messageHandlers.mvAudit.postMessage({ error: 'no audit' });
+            """)
+        }
+
         func applyPickMode(_ on: Bool) {
             pickMode = on
             webView?.evaluateJavaScript("window.__mvPick && window.__mvPick(\(on))")
@@ -717,6 +741,7 @@ private struct PrototypePreview: NSViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             applyPickMode(pickMode)
             applyHighlight(highlighted, force: true)
+            if auditWaiting { runAudit() }
         }
 
         /// A screenshot of the pointed-at element, kept with the pick; sent only if the reviewer chose HTML + screenshot.
@@ -741,6 +766,8 @@ private struct PrototypePreview: NSViewRepresentable {
             Task { @MainActor in
                 if name == "mvError", let text = body as? String {
                     session.report(error: String(text.prefix(300)))
+                } else if name == "mvAudit" {
+                    session.finishAudit(PrototypeAudit.report(from: body))
                 } else if name == "mvPick", let info = body as? [String: Any] {
                     func field(_ key: String) -> String { info[key] as? String ?? "" }
                     let box = info["rect"] as? [String: Any] ?? [:]
