@@ -427,7 +427,7 @@ struct GitHubPublishView: View {
             case .needsSignIn(let message):
                 Text(message).uiFont(.caption).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Sign In to GitHub…") { GitHubSettingsSection.openLoginInTerminal() }
+                    Button("Sign In to GitHub…") { GitHubSettingsSection.openLoginInTerminal(root: publisher.root) }
                     Button("Check Again") { Task { await publisher.prepare() } }
                     Spacer()
                     Button("Close", action: close)

@@ -1348,6 +1348,7 @@ struct GitHubSettingsSection: View {
     @AppStorage(GitHubSettings.activeIntervalKey) private var activeInterval: Double = 30
     @AppStorage(GitHubSettings.notifyKey) private var notify = true
     @AppStorage(GitHubSettings.autoReviewKey) private var autoReview = true
+    @AppStorage(GitHubProfile.configDirectoryKey) private var configDirectory = ""
     @State private var account: GitHubClient.Account?
     @State private var accountError: String?
     @State private var checking = false
@@ -1365,6 +1366,7 @@ struct GitHubSettingsSection: View {
                 if enabled {
                     Divider()
                     accountRow
+                    profileRow
                     HStack {
                         Text("Repository:").uiFont(.caption, weight: .bold)
                         Text(repositoryText).uiFont(.caption).foregroundColor(.secondary)
@@ -1421,7 +1423,9 @@ struct GitHubSettingsSection: View {
                     Text(accountError ?? "Not signed in").uiFont(.caption).foregroundColor(.secondary).lineLimit(2)
                 }
                 Spacer()
-                Button(account == nil ? "Sign In…" : "Switch Account…") { GitHubSettingsSection.openLoginInTerminal() }
+                Button(account == nil ? "Sign In…" : "Switch Account…") {
+                    GitHubSettingsSection.openLoginInTerminal(root: workspaceManager.rootNode?.url)
+                }
                 Button("Check") { checkAccount() }
             }
             if let account {
@@ -1436,11 +1440,46 @@ struct GitHubSettingsSection: View {
         }
     }
 
+    /// Which `gh` configuration this folder's requests use. Several GitHub accounts on one
+    /// machine each keep their own, and a project picks one with a `.ghprofile` file.
+    private var profileRow: some View {
+        let profile = GitHubProfile.resolve(root: workspaceManager.rootNode?.url)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Profile:").uiFont(.caption, weight: .bold)
+                Text(profile.source).uiFont(.caption).foregroundColor(.secondary)
+                Spacer()
+                Button("Choose…") { chooseConfigDirectory() }
+                if !configDirectory.isEmpty {
+                    Button("Use Folder's") { configDirectory = ""; checkAccount() }
+                }
+            }
+            if let directory = profile.directory {
+                Text(directory.path).uiFont(.caption2).foregroundColor(.secondary).lineLimit(1).truncationMode(.middle)
+            } else {
+                Text("gh uses its own configuration (~/.config/gh). Put a \(GitHubProfile.markerFile) file naming a profile under ~/.config/gh-profiles/ in the project, or choose a directory.")
+                    .uiFont(.caption2).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func chooseConfigDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the GitHub CLI configuration directory (GH_CONFIG_DIR) for this account."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        configDirectory = url.path
+        checkAccount()
+    }
+
     private func checkAccount() {
         checking = true
+        let root = workspaceManager.rootNode?.url ?? URL(fileURLWithPath: NSHomeDirectory())
         Task {
             do {
-                account = try await GitHubClient.account(root: URL(fileURLWithPath: NSHomeDirectory()))
+                account = try await GitHubClient.account(root: root)
                 accountError = nil
             } catch {
                 account = nil
@@ -1451,7 +1490,9 @@ struct GitHubSettingsSection: View {
     }
 
     /// `gh auth login` in Terminal.app, like the AI CLIs' login (a `.command` file, no Apple Events).
-    static func openLoginInTerminal() {
+    /// The folder's configuration directory is exported first, so the sign-in lands in the
+    /// profile this project uses rather than in the default one.
+    static func openLoginInTerminal(root: URL?) {
         guard let gh = GitHubClient.ghPath() else {
             showError("GitHub CLI not found", "Install it with `brew install gh`, then sign in.")
             return
@@ -1459,9 +1500,12 @@ struct GitHubSettingsSection: View {
         let directory = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/MarkView", isDirectory: true)
         let script = directory.appendingPathComponent("login-github.command")
+        let profile = GitHubProfile.resolve(root: root)
+        let configLine = profile.directory.map { "export GH_CONFIG_DIR=\"\($0.path)\"\nunset GITHUB_TOKEN" } ?? ""
         let body = """
             #!/bin/zsh
             export PATH="\(CLIToolLocator.subprocessPath(toolPath: gh))"
+            \(configLine)
             echo "Signing in to GitHub (repo, workflow and read:org access)…"
             "\(gh)" auth login --web --git-protocol https --scopes repo,workflow,read:org
             echo

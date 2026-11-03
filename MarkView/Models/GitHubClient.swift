@@ -18,6 +18,133 @@ struct GitHubError: LocalizedError, Sendable {
     var errorDescription: String? { message }
 }
 
+/// Host aliases of the person's SSH configuration. A Git remote may name an alias rather than
+/// a real host (`git@my-github:owner/name.git`, with `HostName github.com` in `~/.ssh/config`),
+/// and such a remote still points at GitHub. Reading the configuration keeps that recognition
+/// out of a subprocess: it happens while a window loads its Git state.
+enum SSHHostAliases {
+    /// One `HostName` with the `Host` patterns it belongs to.
+    private struct Entry {
+        let patterns: [String]
+        let hostName: String
+    }
+
+    /// The person's home directory. A checker passes one of its own.
+    static var defaultHome: URL { FileManager.default.homeDirectoryForCurrentUser }
+
+    /// Configuration files, in the order ssh reads them.
+    private static func roots(home: URL) -> [URL] {
+        [home.appendingPathComponent(".ssh/config"), URL(fileURLWithPath: "/etc/ssh/ssh_config")]
+    }
+    /// Files `Include` may reach, and how deep it may nest; a broken configuration cannot
+    /// turn into an endless walk.
+    private static let fileLimit = 64
+    private static let depthLimit = 8
+
+    private static let lock = NSLock()
+    /// Parsed entries with the files they came from and the modification dates seen then.
+    private static var cache: (signature: String, files: [URL], entries: [Entry])?
+
+    /// The host an alias stands for, or `host` itself when no `Host` block matches it.
+    static func resolve(_ host: String, home: URL = defaultHome) -> String {
+        guard !host.isEmpty else { return host }
+        for entry in entries(home: home) where matches(host, entry.patterns) {
+            // ssh keeps the first HostName it finds, and %h is the host as given.
+            return entry.hostName.replacingOccurrences(of: "%h", with: host)
+        }
+        return host
+    }
+
+    /// True when ssh would apply a `Host` line's patterns to this host: at least one positive
+    /// pattern matches and no negated one does.
+    private static func matches(_ host: String, _ patterns: [String]) -> Bool {
+        var matched = false
+        for pattern in patterns {
+            if pattern.hasPrefix("!") {
+                if fnmatch(String(pattern.dropFirst()), host, 0) == 0 { return false }
+            } else if fnmatch(pattern, host, 0) == 0 {
+                matched = true
+            }
+        }
+        return matched
+    }
+
+    private static func entries(home: URL) -> [Entry] {
+        lock.lock()
+        defer { lock.unlock() }
+        // The files of the last parse are re-checked, not re-read: an unchanged configuration
+        // costs a few stats, and an edited or newly included file changes the signature.
+        if let cache, cache.signature == signature(of: cache.files, home: home) { return cache.entries }
+        var files: [URL] = []
+        var parsed: [Entry] = []
+        for root in roots(home: home) { parse(root, home: home, depth: 0, files: &files, into: &parsed) }
+        cache = (signature(of: files, home: home), files, parsed)
+        return parsed
+    }
+
+    private static func signature(of files: [URL], home: URL) -> String {
+        // The roots are always part of the signature, files only once they were read: a
+        // configuration created after the first lookup has to be noticed too.
+        let all = roots(home: home) + files.filter { file in !roots(home: home).contains { $0.path == file.path } }
+        return all.map { "\($0.path)@\(modified($0))" }.joined(separator: "|")
+    }
+
+    private static func modified(_ url: URL) -> TimeInterval {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)?.timeIntervalSince1970 ?? 0
+    }
+
+    private static func parse(_ url: URL, home: URL, depth: Int, files: inout [URL], into entries: inout [Entry]) {
+        let path = url.standardizedFileURL.path
+        guard depth <= depthLimit, files.count < fileLimit, !files.contains(where: { $0.path == path }) else { return }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        files.append(url.standardizedFileURL)
+        var patterns: [String] = []
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = String(rawLine)
+            if let comment = line.firstIndex(of: "#") { line = String(line[line.startIndex..<comment]) }
+            let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "=" })
+                .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+            guard let keyword = tokens.first?.lowercased(), tokens.count > 1 else { continue }
+            let values = Array(tokens.dropFirst())
+            switch keyword {
+            case "host":
+                patterns = values
+            case "match":
+                // A Match block depends on the connection being made; none of its HostName
+                // values can be claimed here, so the block is skipped.
+                patterns = []
+            case "hostname":
+                if !patterns.isEmpty, let name = values.first { entries.append(Entry(patterns: patterns, hostName: name)) }
+            case "include":
+                for value in values {
+                    for included in expand(value, home: home, relativeTo: url) {
+                        parse(included, home: home, depth: depth + 1, files: &files, into: &entries)
+                    }
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    /// Files an `Include` value names. Relative paths are read from `~/.ssh` (from `/etc/ssh`
+    /// for the system-wide file), and a pattern is matched against the directory it names.
+    private static func expand(_ value: String, home: URL, relativeTo parent: URL) -> [URL] {
+        var path = value
+        if path == "~" || path.hasPrefix("~/") { path = home.appendingPathComponent(String(path.dropFirst(1))).path }
+        if !path.hasPrefix("/") {
+            let base = parent.path.hasPrefix("/etc/ssh") ? URL(fileURLWithPath: "/etc/ssh") : home.appendingPathComponent(".ssh")
+            path = base.appendingPathComponent(path).path
+        }
+        guard path.contains("*") || path.contains("?") || path.contains("[") else { return [URL(fileURLWithPath: path)] }
+        let directory = (path as NSString).deletingLastPathComponent
+        let pattern = (path as NSString).lastPathComponent
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        return names.filter { fnmatch(pattern, $0, 0) == 0 }.sorted()
+            .map { URL(fileURLWithPath: directory).appendingPathComponent($0) }
+    }
+}
+
 // MARK: - Models (the JSON `gh` prints)
 
 struct GHUser: Codable, Hashable, Sendable {
@@ -268,6 +395,122 @@ enum GHDate {
 
 // MARK: - The `gh` command
 
+/// The GitHub CLI configuration an open folder belongs to. People who work under more than one
+/// GitHub account give each one its own `GH_CONFIG_DIR`, and their shell switches between them
+/// per directory. A window has no shell, so the folder's configuration is resolved here and
+/// passed to every `gh` it starts; otherwise the Git tab would speak as the default account,
+/// which may not even see the repository.
+enum GitHubProfile {
+    /// Settings key of an explicit configuration directory. Empty: follow the folder.
+    static let configDirectoryKey = "settings.github.configDirectory"
+    /// A folder names its profile in this file, as the shell helper reads it.
+    static let markerFile = ".ghprofile"
+    /// Profiles live in `~/.config/gh-profiles/<name>/`, each a `GH_CONFIG_DIR` of its own.
+    static func profilesRoot(home: URL = SSHHostAliases.defaultHome) -> URL {
+        home.appendingPathComponent(".config/gh-profiles", isDirectory: true)
+    }
+
+    /// Where `gh` reads its configuration for a folder, and what the choice was made from.
+    struct Resolved: Sendable {
+        /// nil: `gh` keeps its own default (`~/.config/gh`).
+        var directory: URL?
+        var token: String?
+        var sshCommand: String?
+        /// Profile name, when a `.ghprofile` chose it.
+        var name: String?
+        /// Short description for the settings pane.
+        var source: String
+    }
+
+    static func resolve(root: URL?, home: URL = SSHHostAliases.defaultHome) -> Resolved {
+        let setting = (UserDefaults.standard.string(forKey: configDirectoryKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !setting.isEmpty {
+            let directory = URL(fileURLWithPath: expandTilde(setting, home: home))
+            return Resolved(directory: directory, source: "Settings")
+        }
+        guard let root, let name = profileName(near: root) else {
+            return Resolved(source: "Default (gh)")
+        }
+        let directory = profilesRoot(home: home).appendingPathComponent(name, isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return Resolved(name: name, source: "Default (gh) — no profile “\(name)”")
+        }
+        let values = environmentFile(directory.appendingPathComponent("profile.env"))
+        let key = values["GHP_SSH_KEY"].map { expandTilde($0, home: home) }
+        return Resolved(directory: directory,
+                        token: values["GHP_TOKEN"],
+                        sshCommand: key.map { "ssh -i \($0) -o IdentitiesOnly=yes" },
+                        name: name,
+                        source: "\(markerFile): \(name)")
+    }
+
+    /// Apply a folder's configuration to the environment of a `gh` or `git` run. A profile
+    /// replaces an inherited token: the token of another account would override it.
+    static func apply(to environment: inout [String: String], root: URL, home: URL = SSHHostAliases.defaultHome) {
+        let resolved = resolve(root: root, home: home)
+        guard let directory = resolved.directory else { return }
+        environment["GH_CONFIG_DIR"] = directory.path
+        if let token = resolved.token { environment["GITHUB_TOKEN"] = token } else { environment["GITHUB_TOKEN"] = nil }
+        if let command = resolved.sshCommand { environment["GIT_SSH_COMMAND"] = command }
+    }
+
+    /// The profile named by the nearest `.ghprofile` at or above `root`.
+    private static func profileName(near root: URL) -> String? {
+        var directory = root.standardizedFileURL
+        while directory.path != "/" {
+            let marker = directory.appendingPathComponent(markerFile)
+            if let text = try? String(contentsOf: marker, encoding: .utf8) {
+                let name = text.split(separator: "\n")
+                    .map { line -> String in
+                        let body = line.firstIndex(of: "#").map { String(line[line.startIndex..<$0]) } ?? String(line)
+                        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    .first { !$0.isEmpty }
+                // A profile is a directory name; anything with a separator is not one.
+                if let name, !name.contains("/") { return name }
+                return nil
+            }
+            let parent = directory.deletingLastPathComponent().standardizedFileURL
+            guard parent != directory else { break }
+            directory = parent
+        }
+        return nil
+    }
+
+    /// A leading `~` stands for the home directory, as it does in a shell.
+    private static func expandTilde(_ path: String, home: URL) -> String {
+        guard path == "~" || path.hasPrefix("~/") else { return path }
+        return home.appendingPathComponent(String(path.dropFirst(1))).path
+    }
+
+    /// `KEY=value` lines of a profile's `profile.env`, without quotes and `export`.
+    private static func environmentFile(_ url: URL) -> [String: String] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var values: [String: String] = [:]
+        for rawLine in text.split(separator: "\n") {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#") { continue }
+            if line.hasPrefix("export ") { line = String(line.dropFirst("export ".count)) }
+            guard let equals = line.firstIndex(of: "="), equals > line.startIndex else { continue }
+            let key = String(line[line.startIndex..<equals]).trimmingCharacters(in: .whitespaces)
+            var value = String(line[line.index(after: equals)...]).trimmingCharacters(in: .whitespaces)
+            if let quote = value.first, quote == "\"" || quote == "'" {
+                // A quoted value ends at its closing quote; anything after it is a comment.
+                let body = value.dropFirst()
+                guard let end = body.firstIndex(of: quote) else { continue }
+                value = String(body[body.startIndex..<end])
+            } else if let comment = value.firstIndex(of: "#") {
+                value = String(value[value.startIndex..<comment]).trimmingCharacters(in: .whitespaces)
+            }
+            guard !key.isEmpty, !value.isEmpty else { continue }
+            values[key] = value
+        }
+        return values
+    }
+}
+
 /// Runs the GitHub CLI for one repository. Everything happens off the main thread; both
 /// pipes are drained while `gh` runs, so a large answer (logs, diffs) cannot deadlock it.
 struct GitHubClient: Sendable {
@@ -328,6 +571,7 @@ struct GitHubClient: Sendable {
         env["GH_NO_UPDATE_NOTIFIER"] = "1"
         env["NO_COLOR"] = "1"
         env["GIT_TERMINAL_PROMPT"] = "0"
+        GitHubProfile.apply(to: &env, root: root)
         process.environment = env
         let out = Pipe(), err = Pipe()
         // A PTY can fork concurrently with Process.run. Do not leave our pipe ends open
@@ -457,12 +701,44 @@ struct GitHubClient: Sendable {
     }
 
     /// "owner/name" from git@github.com:owner/name.git or https://github.com/owner/name(.git).
-    static func slug(fromRemoteURL url: String) -> String? {
+    /// An SSH remote may name a host alias instead of github.com (`git@my-github:owner/name.git`
+    /// with the real host in `~/.ssh/config`), so an unrecognized SSH host is resolved through
+    /// that configuration before the remote is given up on.
+    static func slug(fromRemoteURL url: String, home: URL = SSHHostAliases.defaultHome) -> String? {
+        if let slug = githubSlug(fromURL: url) { return slug }
+        guard let (host, path) = sshHostAndPath(url) else { return nil }
+        let resolved = SSHHostAliases.resolve(host, home: home)
+        guard resolved.lowercased() != host.lowercased() else { return nil }
+        return githubSlug(fromURL: resolved + ":" + path)
+    }
+
+    /// "owner/name" when the URL names github.com itself.
+    private static func githubSlug(fromURL url: String) -> String? {
         guard let range = url.range(of: #"github\.com[:/]([^/\s]+)/([^/\s]+?)(\.git)?/?$"#, options: .regularExpression) else { return nil }
         var tail = String(url[range]).dropFirst("github.com".count + 1)
         if tail.hasSuffix("/") { tail = tail.dropLast() }
         if tail.hasSuffix(".git") { tail = tail.dropLast(4) }
         return String(tail)
+    }
+
+    /// Host and path of an SSH remote — `ssh://git@host[:port]/owner/name.git` or the scp form
+    /// `git@host:owner/name.git` — or nil when the URL is not SSH-like.
+    static func sshHostAndPath(_ url: String) -> (host: String, path: String)? {
+        let text = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        var host: String, path: String
+        if let rest = text.range(of: "ssh://").flatMap({ $0.lowerBound == text.startIndex ? String(text[$0.upperBound...]) : nil }) {
+            guard let slash = rest.firstIndex(of: "/") else { return nil }
+            host = String(rest[rest.startIndex..<slash])
+            path = String(rest[rest.index(after: slash)...])
+            if let colon = host.lastIndex(of: ":") { host = String(host[host.startIndex..<colon]) }
+        } else {
+            guard !text.contains("://"), let colon = text.firstIndex(of: ":") else { return nil }
+            host = String(text[text.startIndex..<colon])
+            path = String(text[text.index(after: colon)...])
+        }
+        if let at = host.lastIndex(of: "@") { host = String(host[host.index(after: at)...]) }
+        guard !host.isEmpty, !host.contains("/"), !path.isEmpty else { return nil }
+        return (host, path)
     }
 
     struct Account: Sendable {
