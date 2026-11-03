@@ -1,29 +1,47 @@
 import AppKit
 import SwiftUI
 
-/// Starts Prototype Studio: choose the requirement sources (files or folders of the project), say what to
-/// build, and open the studio tab. Earlier prototypes of the project are listed to reopen.
+/// Starts Prototype Studio: choose the sources (files or folders of the project), say what to build, and
+/// open the studio tab. In `.requirements` mode the sources are requirement documents; in `.code` mode
+/// (Previews from Existing Code, DEC-004) they are the existing web-interface code the agent reconstructs,
+/// and the sheet refuses to start when no web interface is detected in the chosen scope (DEC-003).
+/// Earlier prototypes of the project are listed to reopen.
 struct PrototypeCreatorSheet: View {
     @ObservedObject var workspaceManager: WorkspaceManager
     @Binding var isPresented: Bool
+    var mode: PrototypeFiles.Mode = .requirements
 
     @State private var sources: [String] = []
     @State private var title = ""
     @State private var brief = ""
+    /// Code mode: the web apps detected inside the selected scope; nil while detection runs.
+    @State private var detected: [PrototypeAI.CodeScope.App]?
+    /// Code mode: the web-interface files of the selected scope, by name; nil while detection runs.
+    @State private var inventory: PrototypeFiles.Inventory?
+
+    private var isCode: Bool { mode == .code }
+
+    /// DEC-003: an app was found in the scope, or the scope holds web-interface files.
+    private var webInterfaceDetected: Bool {
+        guard let detected, let inventory else { return false }
+        return PrototypeFiles.hasWebInterface(inventory: inventory, apps: detected)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "rectangle.on.rectangle.angled").uiFont(size: 16).foregroundColor(VSDark.blue)
-                Text("New Prototype").uiFont(.title3, weight: .bold).foregroundColor(VSDark.text)
+                Text(isCode ? "New Prototype from Code" : "New Prototype").uiFont(.title3, weight: .bold).foregroundColor(VSDark.text)
                 Spacer()
             }
-            Text("An agent reads the requirements and builds a clickable HTML prototype. You then review it in the studio — point at things, ask for changes — until you approve it and export the package for implementation.")
-                .uiFont(size: 11).foregroundColor(VSDark.textDim)
+            Text(intro).uiFont(size: 11).foregroundColor(VSDark.textDim)
 
-            GroupBox("Requirements") {
+            GroupBox(isCode ? "Existing code" : "Requirements") {
                 VStack(alignment: .leading, spacing: 6) {
-                    if sources.isEmpty {
+                    if isCode {
+                        Text("The agent reproduces the interface found in these files; nothing selected means the whole project.")
+                            .uiFont(size: 11).foregroundColor(VSDark.textDim)
+                    } else if sources.isEmpty {
                         Text("Nothing chosen: the agent reads the whole project.").uiFont(size: 11).foregroundColor(VSDark.textDim)
                     }
                     ForEach(sources, id: \.self) { path in
@@ -42,16 +60,18 @@ struct PrototypeCreatorSheet: View {
                         }
                     }
                     .controlSize(.small)
+                    if isCode { detection }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(4)
             }
 
-            GroupBox("What should the prototype show?") {
+            GroupBox(isCode ? "What should the preview focus on?" : "What should the prototype show?") {
                 TextEditor(text: $brief)
                     .uiFont(size: 12).frame(height: 90).scrollContentBackground(.hidden)
                     .padding(2)
             }
-            Text("Optional: the audience, the flows that matter most, what to leave out.")
+            Text(isCode ? "Optional: the screens or flows that matter most, what to leave out."
+                        : "Optional: the audience, the flows that matter most, what to leave out.")
                 .uiFont(size: 10).foregroundColor(VSDark.textDim)
 
             TextField("Name (optional)", text: $title).textFieldStyle(.roundedBorder)
@@ -80,21 +100,75 @@ struct PrototypeCreatorSheet: View {
                 Button("Cancel") { isPresented = false }.keyboardShortcut(.cancelAction)
                 Button("Build Prototype") {
                     isPresented = false
-                    workspaceManager.newPrototype(title: title.isEmpty ? defaultTitle : title, brief: brief, sources: sources)
+                    workspaceManager.newPrototype(title: title.isEmpty ? defaultTitle : title, brief: brief, sources: sources,
+                                                  mode: mode, codeScope: PrototypeAI.CodeScope(apps: detected ?? []))
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(isCode && !webInterfaceDetected)
             }
         }
         .padding(16)
         .frame(width: 520)
-        .onAppear { if sources.isEmpty, let current = currentFile { sources = [current] } }
+        .onAppear {
+            // The open file is a natural first source; in code mode only when it is a web-interface file.
+            guard sources.isEmpty, let current = currentFile else { return }
+            if !isCode || PrototypeFiles.isInventoryFile((current as NSString).lastPathComponent) { sources = [current] }
+        }
+        .task(id: sources) { await detect() }
+    }
+
+    private var intro: String {
+        if isCode {
+            return "An agent reads the existing code and rebuilds its web interface as a standalone clickable HTML prototype with simulated data. You then review it in the studio — point at things, ask for changes — until you approve it and export the package for implementation. What the reconstruction cannot reproduce is listed as known gaps."
+        }
+        return "An agent reads the requirements and builds a clickable HTML prototype. You then review it in the studio — point at things, ask for changes — until you approve it and export the package for implementation."
+    }
+
+    /// Code mode: what Preview Web App discovery found inside the selected scope, or, when it found no app, the
+    /// web-interface files the scope holds; neither means the sheet refuses to start (DEC-003).
+    @ViewBuilder
+    private var detection: some View {
+        if let detected, let inventory {
+            if !detected.isEmpty {
+                ForEach(detected, id: \.path) { app in
+                    Label("Detected: \(app.label)\(app.isElectron ? " (Electron renderer)" : "")", systemImage: "checkmark.circle")
+                        .uiFont(size: 11).foregroundColor(VSDark.green)
+                }
+            } else if !inventory.isEmpty {
+                Label("Detected: web interface files (\(inventory.entries.count + inventory.omitted))", systemImage: "checkmark.circle")
+                    .uiFont(size: 11).foregroundColor(VSDark.green)
+            } else {
+                Label("No web interface detected in the selected files. Select a folder that contains a web application or an Electron renderer.",
+                      systemImage: "exclamationmark.triangle")
+                    .uiFont(size: 11).foregroundColor(VSDark.yellow)
+            }
+        } else {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Looking for web interfaces…").uiFont(size: 11).foregroundColor(VSDark.textDim)
+            }
+        }
+    }
+
+    /// Runs the web-app discovery and the code-mode inventory off the main thread for the selected scope (the
+    /// same `CodeScope.detect` that "Sync from code" runs later, so both see the same hints, and the same
+    /// inventory the planner is given).
+    private func detect() async {
+        guard isCode, let root else { return }
+        let sources = self.sources
+        let found = await Task.detached { () -> (PrototypeAI.CodeScope, PrototypeFiles.Inventory) in
+            (PrototypeAI.CodeScope.detect(root: root, sources: sources), PrototypeFiles.inventory(root: root, sources: sources))
+        }.value
+        guard !Task.isCancelled else { return }
+        detected = found.0.apps
+        inventory = found.1
     }
 
     private var root: URL? { workspaceManager.rootNode?.url.standardizedFileURL }
 
     /// The active tab's file, relative to the project, when it is a real file inside it.
     private var currentFile: String? {
-        guard let root, let tab = workspaceManager.activeTab, case .file = tab.kind else { return nil }
+        guard root != nil, let tab = workspaceManager.activeTab, case .file = tab.kind else { return nil }
         return relative(tab.url)
     }
 

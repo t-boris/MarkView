@@ -71,8 +71,19 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published private(set) var runtimeErrors: [String] = []
     @Published private(set) var archive: URL?
     @Published var pick: PrototypeAI.Pick? {
-        didSet { if pick == nil { pickShot = nil } }
+        didSet {
+            if pick == nil { pickShot = nil }
+            // A pick selects its component in the Components list (REQ-007); a pick without one leaves the list alone.
+            if let component = pick?.component, !component.isEmpty { selectedComponent = component }
+        }
     }
+    /// The component selected in the Components list, by source path: its instances are outlined in the preview.
+    @Published var selectedComponent: String?
+    /// How many elements of `selectedComponent` the loaded page holds; nil until the preview counted them.
+    @Published var highlightedInstances: Int?
+    /// The page the preview shows instead of `index.html`: a component's isolated view, relative to `site/`
+    /// ("View alone"); nil shows the screens.
+    @Published var shownPage: String?
     /// A screenshot of the pointed-at element, taken when it was clicked.
     @Published var pickShot: Data?
     @Published private(set) var attachments: [Attachment] = []
@@ -82,6 +93,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var record: PrototypeAI.Record = { _ in }
     /// Appended to prompts when the output language differs from the documents' language.
     var languageNote = ""
+    /// Code mode: the detected web apps, as hints for the planner (the caller maps them from WebAppPreview).
+    var codeScope = PrototypeAI.CodeScope()
 
     private var task: Task<Void, Never>?
     /// Runs of the assistant that fix reported errors by themselves, per request.
@@ -91,15 +104,41 @@ final class PrototypeSession: ObservableObject, Identifiable {
     var siteIndex: URL { PrototypeFiles.site(of: folder).appendingPathComponent("index.html") }
     var siteFolder: URL { PrototypeFiles.site(of: folder) }
     var hasSite: Bool { FileManager.default.fileExists(atPath: siteIndex.path) }
+    /// What the preview loads: the isolated page when one is shown, else `index.html`.
+    var shownURL: URL { shownPage.map { siteFolder.appendingPathComponent($0) } ?? siteIndex }
+    /// "Sync from code" applies to a code-mode prototype that has a saved version (REQ-006).
+    var canSyncFromCode: Bool { manifest.mode == .code && manifest.version > 0 && hasSite }
 
-    /// A prototype that does not exist yet; `generate()` builds it.
-    init(root: URL, title: String, brief: String, sources: [String]) {
+    /// The component record of a source path, when the manifest lists it.
+    func component(at path: String) -> PrototypeFiles.Component? {
+        manifest.components.first { $0.path == path }
+    }
+
+    /// The source file of a component, when it exists in the project (an "Open source" target).
+    func sourceURL(of path: String) -> URL? {
+        let url = root.appendingPathComponent(path).standardizedFileURL
+        guard url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    /// Shows a component's isolated page in the preview, or the screens again with nil.
+    func show(page: String?) {
+        guard page != shownPage else { return }
+        shownPage = page
+        reloadToken += 1
+    }
+
+    /// A prototype that does not exist yet; `generate()` builds it. In `.code` mode the sources are the
+    /// existing web-interface code to reconstruct (Previews from Existing Code).
+    init(root: URL, title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements) {
         self.root = root.standardizedFileURL
         let slug = PrototypeFiles.slug(for: title, existing: Set(PrototypeFiles.existingSlugs(root: root)))
         self.slug = slug
         folder = PrototypeFiles.folder(root: self.root, slug: slug)
-        manifest = PrototypeFiles.Manifest(title: title, slug: slug, brief: brief, sources: sources)
-        messages = [Message(role: .user, text: brief.isEmpty ? "Build a prototype of \(sources.isEmpty ? "the project" : sources.joined(separator: ", "))." : brief)]
+        manifest = PrototypeFiles.Manifest(title: title, slug: slug, brief: brief, sources: sources, mode: mode)
+        let scope = sources.isEmpty ? "the project" : sources.joined(separator: ", ")
+        let opening = mode == .code ? "Reconstruct the web interface of \(scope)." : "Build a prototype of \(scope)."
+        messages = [Message(role: .user, text: brief.isEmpty ? opening : brief)]
     }
 
     /// A prototype saved earlier; nil when its manifest is missing.
@@ -136,11 +175,13 @@ final class PrototypeSession: ObservableObject, Identifiable {
 
     // MARK: - Runs
 
-    private var stageReporter: PrototypeAI.Stage {
-        { [weak self] event in Task { @MainActor in self?.apply(event) } }
+    /// Events of a run, applied on the main actor. A build's milestones become versions unless `milestones` is
+    /// off: a sync records one version at its end, not the shell on its way (REQ-006).
+    private func stageReporter(milestones: Bool = true) -> PrototypeAI.Stage {
+        { [weak self] event in Task { @MainActor in self?.apply(event, milestones: milestones) } }
     }
 
-    private func apply(_ event: PrototypeAI.Event) {
+    private func apply(_ event: PrototypeAI.Event, milestones: Bool) {
         guard stage != nil else { return }
         switch event {
         case .status(let text): stage = text
@@ -165,8 +206,25 @@ final class PrototypeSession: ObservableObject, Identifiable {
             case .failed(let problem): log("Failed: \(screens.first { $0.id == id }?.name ?? id) — \(problem)")
             case .queued: break
             }
+        case .component(let path, let state):
+            // Isolated component views join the progress list after the screens, under their source path.
+            let id = "component:" + path
+            if let index = screens.firstIndex(where: { $0.id == id }) {
+                screens[index].state = state
+            } else {
+                screens.append(ScreenProgress(id: id, name: "Component \(path)", state: state))
+            }
+            let components = screens.filter { $0.id.hasPrefix("component:") }
+            stage = "Writing the isolated component views (\(components.filter { $0.state == .done }.count) of \(components.count) done)"
+            switch state {
+            case .writing: log("Started: component \(path)")
+            case .done: log("Done: component \(path)")
+            case .failed(let problem): log("Could not isolate component \(path) — \(problem)")
+            case .queued: break
+            }
         case .written: reloadPreview()
         case .milestone(let summary):
+            guard milestones else { return }
             do { try accept(instruction: "", summary: summary) } catch { messages.append(Message(role: .error, text: error.localizedDescription)) }
         }
     }
@@ -195,25 +253,19 @@ final class PrototypeSession: ObservableObject, Identifiable {
     /// Builds the prototype from the sources and the brief: plan, foundation, then the screens side by side.
     func generate() {
         guard !isBusy else { return }
-        beginRun("Reading the requirements")
+        beginRun(manifest.mode == .code ? "Reading the code" : "Reading the requirements")
         task = Task { [self] in
             defer { endRun() }
             do {
                 try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
                 let built = try await PrototypeAI.build(root: root, folder: folder, brief: manifest.brief, sources: manifest.sources,
-                                                        language: languageNote, record: record, stage: stageReporter)
-                manifest.screens = built.screens + built.failed
+                                                        language: languageNote, mode: manifest.mode, codeScope: codeScope,
+                                                        record: record, stage: stageReporter())
+                adopt(built)
                 if !built.screens.isEmpty {
                     try accept(instruction: "", summary: "All screens: \(built.screens.joined(separator: ", ")).")
                 }
-                var reply = built.summary.isEmpty ? "The prototype is ready." : built.summary
-                if !built.failed.isEmpty {
-                    reply += "\n\nThese screens could not be written: \(built.failed.joined(separator: ", ")). Ask me to build them and I will try again."
-                }
-                if !built.assumptions.isEmpty {
-                    reply += "\n\nAssumptions I made:\n" + built.assumptions.map { "• \($0)" }.joined(separator: "\n")
-                }
-                messages.append(Message(role: .assistant, text: reply))
+                messages.append(Message(role: .assistant, text: reply(for: built, opening: "The prototype is ready.")))
                 await settleAndFix(language: languageNote)
             } catch is CancellationError {
                 messages.append(Message(role: .error, text: manifest.version > 0
@@ -223,6 +275,76 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 messages.append(Message(role: .error, text: error.localizedDescription))
             }
         }
+    }
+
+    /// Puts what a build found into the manifest: screens, assumptions, gaps and components. Gaps and components
+    /// are fixed at generation (and at a sync); review edits never change them (DEC-004).
+    private func adopt(_ built: PrototypeAI.Built) {
+        if !built.title.isEmpty { manifest.title = built.title }
+        manifest.screens = built.screens + built.failed
+        manifest.assumptions = built.assumptions
+        manifest.gaps = built.gaps
+        manifest.components = built.components
+    }
+
+    /// The assistant's message after a build: summary, screens that failed, assumptions, gaps and components.
+    private func reply(for built: PrototypeAI.Built, opening: String) -> String {
+        var reply = built.summary.isEmpty ? opening : built.summary
+        if !built.failed.isEmpty {
+            reply += "\n\nThese screens could not be written: \(built.failed.joined(separator: ", ")). Ask me to build them and I will try again."
+        }
+        if !built.assumptions.isEmpty {
+            reply += "\n\nAssumptions I made:\n" + built.assumptions.map { "• \($0)" }.joined(separator: "\n")
+        }
+        if !built.gaps.isEmpty {
+            reply += "\n\nKnown gaps (what the original does that this prototype only simulates or lacks):\n"
+                + built.gaps.map { "• \($0)" }.joined(separator: "\n")
+        }
+        if !built.components.isEmpty {
+            let isolated = built.components.filter { $0.page != nil }.count
+            reply += "\n\nSource components linked: \(built.components.count) (\(isolated) with an isolated view). "
+                + "Use Components in the preview header to see them."
+        }
+        return reply
+    }
+
+    /// Reconstructs a code-mode prototype again from the current sources and saves the result as a new version
+    /// (REQ-006, DEC-005). The scope is found again from the project, as the creator sheet found it; the
+    /// conversation stays and gets the summary; the earlier versions, with any edits, remain restorable. A
+    /// failure or Stop restores the previous version and changes nothing.
+    func syncFromCode() {
+        guard !isBusy, canSyncFromCode else { return }
+        beginRun("Reading the code")
+        let before = manifest
+        show(page: nil)
+        task = Task { [self] in
+            defer { endRun() }
+            do {
+                let root = self.root, sources = manifest.sources
+                codeScope = await Task.detached { PrototypeAI.CodeScope.detect(root: root, sources: sources) }.value
+                let built = try await PrototypeAI.sync(root: root, folder: folder, manifest: before, codeScope: codeScope,
+                                                       language: languageNote, record: record, stage: stageReporter(milestones: false))
+                adopt(built)
+                let screens = built.screens.isEmpty ? "no screen could be written" : "screens: \(built.screens.joined(separator: ", "))"
+                try accept(instruction: "Synced from code", summary: "Reconstructed again from the current code; \(screens).")
+                messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
+                await settleAndFix(language: languageNote)
+            } catch is CancellationError {
+                keepPrevious(before, note: "Stopped. The prototype is unchanged (v\(before.version)).")
+            } catch {
+                keepPrevious(before, note: "Sync from code failed; the prototype is unchanged (v\(before.version)). \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A sync that did not end as a saved version leaves the previous one live: the build restores its files
+    /// when it fails itself, but `accept` can fail after a successful build, with the new files in `site/` and
+    /// no copy of them, so the files are restored here as well and the manifest is what it was.
+    private func keepPrevious(_ before: PrototypeFiles.Manifest, note: String) {
+        try? PrototypeFiles.restore(folder: folder, version: before.version)
+        manifest = before
+        reload()
+        messages.append(Message(role: .error, text: note))
     }
 
     /// One reviewer request, with the element pointed at in the preview and the images sent with it. The screenshot of
@@ -273,7 +395,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
             do {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder, instruction: instruction, pick: pick,
                                                            attachments: files, runtimeErrors: runtimeErrors, language: languageNote,
-                                                           record: record, stage: stageReporter)
+                                                           mode: manifest.mode, sources: manifest.sources,
+                                                           record: record, stage: stageReporter())
                 if !outcome.screens.isEmpty { manifest.screens = outcome.screens }
                 try accept(instruction: instruction, summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
@@ -286,11 +409,18 @@ final class PrototypeSession: ObservableObject, Identifiable {
         }
     }
 
-    /// Makes `version` the live prototype again, as a new version so the history stays complete.
+    /// Makes `version` the live prototype again, as a new version so the history stays complete. The preview
+    /// shows the screens again, and in code mode the component links are scanned from the restored files, so
+    /// the manifest matches what is on disk (REQ-007).
     func revert(to version: Int) {
         guard !isBusy else { return }
         do {
             try PrototypeFiles.restore(folder: folder, version: version)
+            show(page: nil)
+            if manifest.mode == .code {
+                manifest.components = PrototypeFiles.rescanComponents(in: siteFolder, known: manifest.components)
+                if let selected = selectedComponent, component(at: selected) == nil { selectedComponent = nil }
+            }
             try accept(instruction: "Go back to v\(version)", summary: "Restored the prototype of v\(version).")
             messages.append(Message(role: .assistant, text: "Went back to v\(version) (saved as v\(manifest.version))."))
         } catch {
@@ -306,11 +436,12 @@ final class PrototypeSession: ObservableObject, Identifiable {
             defer { endRun() }
             do {
                 let spec = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest,
-                                                               language: languageNote, record: record, stage: stageReporter)
+                                                               language: languageNote, record: record, stage: stageReporter())
                 stage = "Packing the archive"; log("Packing the archive")
                 let folder = self.folder, manifest = self.manifest
+                let root = self.root
                 let zip = try await Task.detached(priority: .userInitiated) {
-                    try PrototypeAI.packageArchive(folder: folder, manifest: manifest, spec: spec)
+                    try PrototypeAI.packageArchive(root: root, folder: folder, manifest: manifest, spec: spec)
                 }.value
                 try spec.write(to: folder.appendingPathComponent("SPEC.md"), atomically: true, encoding: .utf8)
                 self.manifest.approved = true
@@ -362,6 +493,10 @@ final class PrototypeSession: ObservableObject, Identifiable {
         try PrototypeFiles.snapshot(folder: folder, version: manifest.version)
         try PrototypeFiles.saveManifest(manifest, in: folder)
         archive = nil
+        // An isolated page this version removed cannot stay on screen: the screens come back.
+        if let page = shownPage, !FileManager.default.fileExists(atPath: siteFolder.appendingPathComponent(page).path) {
+            shownPage = nil
+        }
         reload()
     }
 
@@ -385,7 +520,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 let outcome = try await PrototypeAI.revise(root: root, folder: folder,
                                                            instruction: "Fix the JavaScript errors reported by the preview. Change nothing else.",
                                                            pick: nil, runtimeErrors: errors, language: language,
-                                                           record: record, stage: stageReporter)
+                                                           mode: manifest.mode, sources: manifest.sources,
+                                                           record: record, stage: stageReporter())
                 try accept(instruction: "Fix preview errors", summary: outcome.summary)
                 messages.append(Message(role: .assistant, text: outcome.summary))
             } catch {
@@ -393,5 +529,15 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 return
             }
         }
+    }
+}
+
+extension PrototypeAI.CodeScope {
+    /// The reconstruction scope of `sources` under `root`, from the project's web-app discovery: the one call
+    /// the creator sheet and "Sync from code" share, so a sync sees the hints creation saw (REQ-006). Reads
+    /// the file system; the caller keeps it off the main thread.
+    static func detect(root: URL, sources: [String]) -> PrototypeAI.CodeScope {
+        let found = WebAppPreview.targets(root: root).map { ($0.folder, $0.label, $0.isElectron) as Detected }
+        return PrototypeAI.CodeScope(root: root, sources: sources, detected: found)
     }
 }

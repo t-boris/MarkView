@@ -157,17 +157,28 @@ enum ProjectToolRunner {
     private static func listPrototypes(_ root: URL) -> String {
         let slugs = PrototypeFiles.existingSlugs(root: root)
         guard !slugs.isEmpty else { return "No prototypes yet. They are made in Prototype Studio (AI Tools → Prototype)." }
-        return slugs.compactMap { slug -> String? in
+        let rows = slugs.compactMap { slug -> String? in
             guard let m = PrototypeFiles.loadManifest(PrototypeFiles.folder(root: root, slug: slug)) else { return nil }
-            return "\(slug) — \(m.title) v\(m.version)\(m.approved ? " (approved)" : "") · \(m.screens.count) screens: \(m.screens.joined(separator: ", "))"
-        }.joined(separator: "\n")
+            let approved = m.approved ? " (approved)" : ""
+            var row = "\(slug) — \(m.title) v\(m.version)\(approved) · \(m.screens.count) screens: \(m.screens.joined(separator: ", "))"
+            row += " · \(PrototypeReference.string(slug: slug))"
+            return row
+        }
+        return rows.joined(separator: "\n")
     }
 
     private static func getPrototype(_ root: URL, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
-        let slug = try ProjectAgentTools.text(args, "prototype", required: true)
-        guard ProjectAgentTools.isPlainName(slug), PrototypeFiles.existingSlugs(root: root).contains(slug) else {
-            throw ProjectAgentTools.Invalid(message: "No prototype \"\(slug)\". " + listPrototypes(root))
+        // `prototype` is a slug or a reference in any form PrototypeReference reads; the slug it names must be listed.
+        let given = try ProjectAgentTools.text(args, "prototype", required: true)
+        guard let reference = PrototypeReference.components(given), ProjectAgentTools.isPlainName(reference.slug),
+              PrototypeFiles.existingSlugs(root: root).contains(reference.slug) else {
+            var message = "No prototype \"\(given)\". "
+            if PrototypeReference.parse(given) == nil {
+                message += "Name a prototype by its slug or its reference \(PrototypeReference.string(slug: "<slug>")). "
+            }
+            throw ProjectAgentTools.Invalid(message: message + listPrototypes(root))
         }
+        let slug = reference.slug
         let folder = PrototypeFiles.folder(root: root, slug: slug)
         let site = PrototypeFiles.site(of: folder)
         let file = try ProjectAgentTools.text(args, "file")
@@ -179,13 +190,38 @@ enum ProjectToolRunner {
             return .init(text: clip(text))
         }
         guard let m = PrototypeFiles.loadManifest(folder) else { throw ProjectAgentTools.Invalid(message: "The prototype has no manifest.") }
-        var out = "\(slug) — \(m.title) v\(m.version)\(m.approved ? " (approved)" : " (not approved yet)")\n"
+        let approval = m.approved ? " (approved)" : " (not approved yet)"
+        var out = "\(slug) — \(m.title) v\(m.version)\(approval)\n"
+        out += "Reference: \(PrototypeReference.string(slug: slug)) (resolves to the latest saved version in this project checkout)\n"
+        if let asked = reference.version {
+            out += "Note: references always resolve to the latest version (v\(m.version)); the versions/v\(asked) folder in the reference was ignored.\n"
+        }
+        out += "Mode: \(m.mode.rawValue)\n"
         if !m.brief.isEmpty { out += "\nBrief: \(m.brief)\n" }
-        out += "Requirement sources: \(m.sources.isEmpty ? "the project folder" : m.sources.joined(separator: ", "))\n"
+        // The sources are requirement documents, or in code mode the implementation that was reconstructed.
+        let sourcesLabel = m.mode == .code ? "Reconstruction sources" : "Requirement sources"
+        out += "\(sourcesLabel): \(m.sources.isEmpty ? "the project folder" : m.sources.joined(separator: ", "))\n"
         out += "\nScreens: \(m.screens.joined(separator: ", "))\n"
         if !m.assumptions.isEmpty {
             let assumptions = m.assumptions.map { "- \($0)" }
             out += "\nAssumptions:\n\(assumptions.joined(separator: "\n"))\n"
+        }
+        if !m.gaps.isEmpty {
+            let gaps = m.gaps.map { "- \($0)" }
+            out += "\nKnown gaps:\n\(gaps.joined(separator: "\n"))\n"
+        }
+        if !m.components.isEmpty {
+            // Source component → the screens that reproduce it, and its isolated page (REQ-007). Built with
+            // `+=` so the Swift 6.0 compiler (CI) type-checks it in reasonable time.
+            var lines: [String] = []
+            for component in m.components {
+                var line = "- \(component.path) → "
+                line += component.screens.isEmpty ? "no screen named" : component.screens.joined(separator: ", ")
+                if let page = component.page { line += "; isolated page \(page)" }
+                lines.append(line)
+            }
+            out += "\nComponents (source files the prototype reproduces; elements carry \(PrototypeFiles.componentMarker)=\"<path>\"):\n"
+            out += lines.joined(separator: "\n") + "\n"
         }
         if !m.history.isEmpty {
             // Split up: the Swift 6.0 compiler (CI) cannot type-check this as one concatenation in reasonable time.

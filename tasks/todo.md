@@ -1,5 +1,26 @@
 # MarkView — Follow-up Tasks
 
+## Previews from Existing Code (2026-11-03, 5.0.0, feat/previews-from-existing-code, issue #234)
+
+Prototype Studio reconstructs an existing web interface as a standalone editable prototype, links it to the source
+components, re-syncs it from the code and hands it to an agent by reference (docs/features/previews-from-existing-code,
+Q-001..003 answered, DEC-001..006, REQ-001..003 + REQ-006..007 approved).
+
+- [x] Model: `PrototypeFiles.Mode` (requirements / code), `gaps`, `components`, web-interface inventory, lenient manifest decode.
+- [x] Code-mode prompts: inventory + detected apps as hints, evidence per screen, `data-mv-component` markers, isolated
+      component pages, gaps; requirements-mode prompts pinned by digest and unchanged.
+- [x] "New Prototype from Code…" menu item; detection (dev-server apps or web-interface files in scope); refused when none.
+- [x] Studio: "From code" badge, Assumptions & gaps popover, Copy reference, pick card with component / Open source /
+      View alone, Components popover with highlight, Sync from code.
+- [x] Agent handoff: `markview://prototype/<slug>` (always latest), `markview_get_prototype` resolves it; Components block.
+- [x] Storage moved to `docs/prototypes/<slug>/` (committable) with one-time migration from `.dde/prototypes/`; approval
+      ZIPs under `.dde/exports/prototypes/`.
+- [x] Independent review: 8 findings fixed before the PR.
+- [x] `prototype-tests.sh`, `prototype-deadline-tests.sh`, `prototype-reference-tests.sh`, `project-agent-tools-tests.sh`,
+      `prototype-images-tests.sh`; Debug build.
+- [ ] Not exercised: a live reconstruction with a real CLI agent; the Studio UI by hand.
+
+
 ## Automatic Code Architecture (2026-11-02, 4.66.0, feat/automatic-code-architecture, issue #206)
 
 The X-Ray Code view analyzes a code project on its own: at project open and in the background after changes

@@ -36,5 +36,5 @@ manifest.version = 2
 manifest.history = [.init(version: 1, instruction: "", summary: built.summary, date: Date()),
                     .init(version: 2, instruction: "legend", summary: outcome.summary, date: Date())]
 let spec = try await PrototypeAI.specification(root: root, folder: folder, manifest: manifest, language: "", record: noRecord, stage: stage)
-let zip = try PrototypeAI.packageArchive(folder: folder, manifest: manifest, spec: spec)
+let zip = try PrototypeAI.packageArchive(root: root, folder: folder, manifest: manifest, spec: spec)
 print("SPEC chars: \(spec.count)\nZIP: \(zip.path)")

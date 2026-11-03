@@ -277,7 +277,8 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $workspaceManager.showPrototypeCreator) {
-            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $workspaceManager.showPrototypeCreator)
+            PrototypeCreatorSheet(workspaceManager: workspaceManager, isPresented: $workspaceManager.showPrototypeCreator,
+                                  mode: workspaceManager.prototypeCreatorMode)
         }
         .sheet(isPresented: Binding(get: { workspaceManager.doneRequest != nil },
                                     set: { if !$0 { workspaceManager.doneRequest = nil } })) {
@@ -1088,7 +1089,9 @@ struct AIToolsMenu: View {
                 Button("Entity-Relationship") { workspaceManager.runAITool(named: "er") }
             }
             Section("Prototype") {
-                Button("New Prototype…") { workspaceManager.showPrototypeCreator = true }
+                Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
+                    .disabled(workspaceManager.rootNode == nil)
+                Button("New Prototype from Code…") { workspaceManager.openPrototypeCreator(mode: .code) }
                     .disabled(workspaceManager.rootNode == nil)
                 let saved = workspaceManager.savedPrototypes()
                 Menu("Open Prototype (\(saved.count))") {

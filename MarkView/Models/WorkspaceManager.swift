@@ -737,6 +737,11 @@ class WorkspaceManager: ObservableObject {
             try? await Task.sleep(nanoseconds: 100_000_000) // 100ms — let UI render progress
             Self.debugLog("Task started, building tree...")
 
+            // Prototypes made before DEC-006 move from .dde/prototypes to docs/prototypes once, before the
+            // tree and the prototype lists read the folder; a slug already there stays and is only logged.
+            let migration = await Task.detached { PrototypeFiles.migrateLegacy(root: url) }.value
+            if !migration.isEmpty { Self.debugLog("Prototype storage migration: \(migration.summary)") }
+
             // Build tree on background thread to avoid blocking UI
             let sort = self.fileTreeStore.sortOrder
             let node = await Task.detached {
@@ -4736,6 +4741,15 @@ class WorkspaceManager: ObservableObject {
 
     /// Opens the creator sheet of Prototype Studio.
     @Published var showPrototypeCreator = false
+    /// What the creator sheet makes: a prototype from requirement documents, or a reconstruction of the
+    /// project's existing web interface ("New Prototype from Code…", DEC-004).
+    @Published var prototypeCreatorMode = PrototypeFiles.Mode.requirements
+
+    /// Opens the creator sheet of Prototype Studio in `mode`.
+    func openPrototypeCreator(mode: PrototypeFiles.Mode) {
+        prototypeCreatorMode = mode
+        showPrototypeCreator = true
+    }
 
     /// A prototype saved in the open project, for the lists in the menu and the creator sheet.
     struct SavedPrototype: Identifiable {
@@ -4760,10 +4774,15 @@ class WorkspaceManager: ObservableObject {
         .sorted { $0.1 > $1.1 }.map(\.0)
     }
 
-    /// A new prototype from `sources` (project-relative files or folders) and the reviewer's brief; it builds at once.
-    func newPrototype(title: String, brief: String, sources: [String]) {
+    /// A new prototype from `sources` (project-relative files or folders) and the reviewer's brief; it builds at
+    /// once. In `.code` mode the sources are existing code and `codeScope` lists the web apps detected in them,
+    /// as hints for the planner.
+    func newPrototype(title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements,
+                      codeScope: PrototypeAI.CodeScope = PrototypeAI.CodeScope()) {
         guard let root = rootNode?.url else { return }
-        openPrototype(PrototypeSession(root: root, title: title, brief: brief, sources: sources))
+        let session = PrototypeSession(root: root, title: title, brief: brief, sources: sources, mode: mode)
+        session.codeScope = codeScope
+        openPrototype(session)
     }
 
     /// The Deployments tab: where the project runs, with CPU, memory, disks, services and logs of each place.

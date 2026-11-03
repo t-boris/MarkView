@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 var failures = 0
@@ -23,6 +24,9 @@ let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("proto-\
 defer { try? FileManager.default.removeItem(at: tmp) }
 let folder = PrototypeFiles.folder(root: tmp, slug: "demo")
 let site = PrototypeFiles.site(of: folder)
+check(PrototypeFiles.storageFolder == "docs/prototypes" && PrototypeFiles.legacyStorageFolder == ".dde/prototypes", "storage folders (DEC-006)")
+check(folder.path == tmp.appendingPathComponent("docs/prototypes/demo").path, "a prototype lives in docs/prototypes/<slug>")
+check(PrototypeFiles.storage(root: tmp).path == tmp.appendingPathComponent("docs/prototypes").path, "the storage folder")
 try FileManager.default.createDirectory(at: site, withIntermediateDirectories: true)
 
 var change = PrototypeFiles.Change(files: [.init(path: "index.html", content: "<h1>Hello</h1><p>x</p>"),
@@ -66,6 +70,87 @@ manifest.history.append(.init(version: 1, instruction: "first", summary: "s", da
 try PrototypeFiles.saveManifest(manifest, in: folder)
 check(PrototypeFiles.loadManifest(folder) == manifest, "manifest round trip")
 check(PrototypeFiles.existingSlugs(root: tmp) == ["demo"], "existing slugs")
+check(manifest.mode == .requirements && manifest.gaps.isEmpty, "manifest defaults to requirements mode without gaps")
+
+// A prototype.json written before `mode` and `gaps` existed still opens, with the defaults.
+do {
+    let old = """
+    {"approved":false,"assumptions":["a"],"brief":"b","history":[{"date":"2023-11-14T22:13:20Z","instruction":"first","summary":"s","version":1}],
+     "screens":["Home"],"slug":"old","sources":["docs"],"title":"Old","version":1}
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let decoded = try? decoder.decode(PrototypeFiles.Manifest.self, from: Data(old.utf8))
+    check(decoded?.mode == .requirements && decoded?.gaps == [] && decoded?.title == "Old" && decoded?.history.count == 1
+          && decoded?.assumptions == ["a"], "old manifest decodes with mode and gaps defaults")
+    let minimal = try? decoder.decode(PrototypeFiles.Manifest.self, from: Data("{\"title\":\"T\",\"slug\":\"t\"}".utf8))
+    check(minimal?.sources == [] && minimal?.version == 0 && minimal?.brief == "", "minimal manifest decodes with every default")
+    let unknownMode = try? decoder.decode(PrototypeFiles.Manifest.self,
+                                          from: Data("{\"title\":\"T\",\"slug\":\"t\",\"mode\":\"hologram\"}".utf8))
+    check(unknownMode?.mode == .requirements, "unknown mode falls back to requirements")
+    check((try? decoder.decode(PrototypeFiles.Manifest.self, from: Data("{\"slug\":\"t\"}".utf8))) == nil, "manifest without a title is rejected")
+}
+
+// Code mode and its gaps round-trip through prototype.json.
+do {
+    var code = PrototypeFiles.Manifest(title: "Shop", slug: "shop", brief: "", sources: ["web/src"], mode: .code,
+                                       gaps: ["Checkout posts to /api/orders; the prototype confirms locally."])
+    code.assumptions = ["Prices in EUR"]
+    try PrototypeFiles.saveManifest(code, in: PrototypeFiles.folder(root: tmp, slug: "shop"))
+    let loaded = PrototypeFiles.loadManifest(PrototypeFiles.folder(root: tmp, slug: "shop"))
+    check(loaded == code && loaded?.mode == .code && loaded?.gaps.count == 1, "code-mode manifest round trip keeps mode and gaps")
+    let text = String(decoding: try Data(contentsOf: PrototypeFiles.manifestURL(of: PrototypeFiles.folder(root: tmp, slug: "shop"))), as: UTF8.self)
+    check(text.contains("\"mode\" : \"code\"") && text.contains("\"gaps\""), "mode is stored as its raw string")
+}
+
+// The inventory of a reconstruction scope: web-interface files only, noise folders skipped, capped.
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("inv-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    func put(_ path: String, _ content: String = "x") throws {
+        let url = proj.appendingPathComponent(path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+    for path in ["package.json", "index.html", "src/App.tsx", "src/app.css", "src/theme.scss", "src/Widget.vue", "src/Card.svelte",
+                 "src/legacy.htm", "src/util.ts", "src/main.jsx", "src/less.less", "public/manifest.json",
+                 "src/logo.png", "src/data.json", "README.md", "src/vendor.min.js", "src/.secret.js",
+                 "node_modules/react/index.js", "dist/bundle.js", "build/app.js", ".git/config.js", ".dde/prototypes/x/site/index.html",
+                 "docs/prototypes/x/site/index.html", "docs/prototypes/x/site/screens/home.js", "docs/guide/page.html",
+                 ".hidden/app.js", "server/api.py", "server/routes.js", "electron/preload.js"] {
+        try put(path)
+    }
+    try put("src/big.js", String(repeating: "a", count: 2048))
+    let whole = PrototypeFiles.inventory(root: proj, sources: [])
+    let paths = whole.entries.map(\.path)
+    check(paths == paths.sorted() && Set(paths).count == paths.count, "inventory is sorted and unique")
+    for wanted in ["package.json", "index.html", "src/App.tsx", "src/app.css", "src/theme.scss", "src/Widget.vue", "src/Card.svelte",
+                   "src/legacy.htm", "src/util.ts", "src/main.jsx", "src/less.less", "public/manifest.json", "server/routes.js",
+                   "electron/preload.js", "src/big.js", "docs/guide/page.html"] {
+        check(paths.contains(wanted), "inventory lists \(wanted)")
+    }
+    for unwanted in ["src/logo.png", "src/data.json", "README.md", "src/vendor.min.js", "src/.secret.js", "node_modules/react/index.js",
+                     "dist/bundle.js", "build/app.js", ".git/config.js", ".dde/prototypes/x/site/index.html", ".hidden/app.js",
+                     "server/api.py", "docs/prototypes/x/site/index.html", "docs/prototypes/x/site/screens/home.js"] {
+        check(!paths.contains(unwanted), "inventory skips \(unwanted)")
+    }
+    check(whole.entries.first { $0.path == "src/big.js" }?.bytes == 2048, "inventory carries the file size")
+    check(whole.omitted == 0 && !whole.lines.contains { $0.hasPrefix("+") }, "no marker under the cap")
+    check(whole.lines.contains("- src/big.js (2048 bytes)"), "inventory line format")
+
+    let scoped = PrototypeFiles.inventory(root: proj, sources: ["src", "index.html", "missing", "../etc", "src/logo.png"])
+    let scopedPaths = scoped.entries.map(\.path)
+    check(scopedPaths.contains("src/App.tsx") && scopedPaths.contains("index.html"), "scoped inventory lists the selected folder and file")
+    check(!scopedPaths.contains("package.json") && !scopedPaths.contains("server/routes.js"), "scoped inventory leaves other folders out")
+    check(!scopedPaths.contains("src/logo.png"), "a selected file still passes the extension filter")
+    check(PrototypeFiles.inventory(root: proj, sources: ["src", "src/App.tsx"]).entries.filter { $0.path == "src/App.tsx" }.count == 1,
+          "a file inside a selected folder is listed once")
+
+    let capped = PrototypeFiles.inventory(root: proj, sources: [], limit: 3)
+    check(capped.entries.count == 3 && capped.omitted == whole.entries.count - 3, "inventory is capped")
+    check(capped.lines.last == "+\(whole.entries.count - 3) more files not listed", "cap marker names the omitted count")
+    check(PrototypeFiles.inventory(root: proj, sources: ["server/api.py"]).isEmpty, "a non-web scope gives an empty inventory")
+}
 
 // Screen scripts are inserted by the program at the marker.
 let html = "<body>\n<script src=\"app.js\"></script>\n<!--SCREENS-->\n<script>App.start()</script>\n</body>"
@@ -139,6 +224,471 @@ do {
     check(PrototypeFiles.loadConversation(dir) == nil, "no conversation file yet")
     PrototypeFiles.saveConversation(saved, in: dir)
     check(PrototypeFiles.loadConversation(dir) == saved, "conversation round-trips")
+}
+
+// MARK: - Previews from Existing Code (code mode)
+
+// Requirements mode keeps its prompts byte for byte: these SHA-256 digests were taken from the prompts
+// before code mode existed. A pinned digest changes only when a requirements-mode prompt is changed on purpose.
+func sha(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
+do {
+    let screen = PrototypeAI.PlannedScreen(id: "home", name: "Home", route: "/home", purpose: "p")
+    let files = [PrototypeFiles.File(path: "app.js", content: "x")]
+    let pinned: [(String, String, String)] = [
+        ("planSystem", PrototypeAI.planSystem(language: ""), "5e396efba058a77fb33e1a8bb28feb31569dc9ff1edcc9a98410095289d4809e"),
+        ("planSystem with language", PrototypeAI.planSystem(language: " Answer in French."), "e036ad8be91345ed6de6bd6c7c12d4c1b347d1cdec1a1cb2ad5dc9d2b63fbe79"),
+        ("planPrompt whole project", PrototypeAI.planPrompt(brief: "", sources: []), "fd70176cc8d68cf232da0df9f162179932ffba6cb13b7f9b01404975de9e9e90"),
+        ("planPrompt sources", PrototypeAI.planPrompt(brief: "Only tickets", sources: ["docs/a.md", "docs/b"]), "e30e91fc3a3ce128b2f507a0b2ffb392f1ae719b703eec58c4b69e75245bf263"),
+        ("dataSystem", PrototypeAI.dataSystem(language: ""), "0831ffa248985aa5ccec0515fee43ccc22c1b6a3c4ca31660920a99bd0400fee"),
+        ("shellSystem", PrototypeAI.shellSystem(language: ""), "cd3f5d17114d2cd348704d70fc4b3b66938cfecaff36562366bf16aafcb166f2"),
+        ("screenSystem", PrototypeAI.screenSystem(language: ""), "b659702560473db520262a26bca384b2ff5a6af0c08723d9663602fe74dbf9ef"),
+        ("reviseSystem", PrototypeAI.reviseSystem(language: ""), "4abe2d1a9daccd4a3dddff69199d15e1539c4d33921b53f09a897eb5fa296bc0"),
+        ("foundationPrompt", PrototypeAI.foundationPrompt(plan: "{plan}", failure: "bad"), "97fed5ee5fa21774cd81a51a96520b245e334c98258563edc5dc71cfbe4a1e0e"),
+        ("screenPrompt", PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: files, failure: "bad"), "f7fdd93d414cdeb3b3b13ad41ac08f939988dfb430620eb3ce11cacb1547f228"),
+        ("revisePrompt", PrototypeAI.revisePrompt(instruction: "do", pick: nil, siteRelative: ".dde/prototypes/x/site", files: files,
+                                                  runtimeErrors: ["e"], priorFailure: "pf", attachments: [.init(path: "a.png", note: "n")]),
+         "eb7e24aa369b6d4d2b7b4f9edd7459c26172314336f583a1a12460b7c69e0c0e"),
+        ("specSystem", PrototypeAI.specSystem, "286eaf7fb14e6cd7eafdc948900374470d1135d0459ddbbde101e0852e8c1e51"),
+    ]
+    for (name, text, digest) in pinned { check(sha(text) == digest, "requirements-mode \(name) is unchanged") }
+
+    // The spec request and the README of requirements mode, pinned as text.
+    var m = PrototypeFiles.Manifest(title: "Desk", slug: "desk", brief: "", sources: ["docs/req.md"])
+    m.version = 2
+    m.assumptions = ["Tickets have one owner"]
+    m.history = [.init(version: 1, instruction: "", summary: "Built", date: Date()), .init(version: 2, instruction: "Add filters", summary: "Filters added", date: Date())]
+    let expectedSpec = """
+    Write SPEC.md for the approved prototype "Desk" (version 2). The prototype files are in `.dde/prototypes/desk/site/`; the requirement sources are:
+    - docs/req.md
+
+    Sections, in this order:
+    1. Purpose and users (from the requirements).
+    2. Screens: for each, its route, purpose, the data it shows, every control and what it does, and its empty, loading, error and permission states.
+    3. Navigation and flows: the transitions between screens as a table (from, trigger, to, condition).
+    4. Data model: entities, fields, types, relations, validation rules and the sample data shape used by data.js.
+    5. Business rules and behaviours the prototype demonstrates (numbered, testable statements).
+    6. Requirements traceability: a table of requirement (quote or reference to the source) → screens and rules that satisfy it, and requirements not covered.
+    7. Decisions made during review (below), and assumptions the requirements did not settle.
+    8. Out of scope for the prototype, and what the real implementation must add (authentication, persistence, integrations).
+
+    Decisions made during review:
+    - v1: initial build → Built
+    - v2: Add filters → Filters added
+
+    Assumptions recorded at the first build:
+    - Tickets have one owner
+    """
+    check(PrototypeAI.specPrompt(manifest: m, siteRelative: ".dde/prototypes/desk/site", language: "") == expectedSpec, "requirements-mode spec prompt is unchanged")
+    let expectedReadme = """
+    # Desk — approved prototype (v2)
+
+    - `prototype/index.html` — open it in a browser; it is self-contained and needs no server.
+    - `SPEC.md` — screens, states, flows, data, rules and requirement traceability.
+    - `CHANGES.md` — the review requests that shaped this version.
+
+    The prototype is the agreed behaviour and look. Implement the product to match it; where the prototype and SPEC.md differ, ask before choosing.
+
+    """
+    check(PrototypeAI.readme(manifest: m) == expectedReadme, "requirements-mode README is unchanged")
+}
+
+// The plan schema is additive: gaps at the top, evidence per screen, both required so Codex's strict schema is the same.
+do {
+    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    let screenItem = (props["screens"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
+    let screenProps = screenItem["properties"] as? [String: Any] ?? [:]
+    check(props["gaps"] != nil && (PrototypeAI.planSchema["required"] as? [String] ?? []).contains("gaps"), "plan schema has gaps")
+    check(screenProps["evidence"] != nil && (screenItem["required"] as? [String] ?? []).contains("evidence"), "plan schema has evidence per screen")
+    check(props["assumptions"] != nil && screenProps["requirements"] != nil, "plan schema keeps the old keys")
+    // The code-mode fields tell the planner of requirements mode to leave them empty.
+    for (name, field) in [("gaps", props["gaps"]), ("evidence", screenProps["evidence"]), ("components", screenProps["components"])] {
+        let description = (field as? [String: Any])?["description"] as? String ?? ""
+        check(description.contains("empty unless reconstructing existing code"), "plan schema describes \(name) as empty outside code mode: \(description)")
+    }
+    check(((props["assumptions"] as? [String: Any])?["description"]) == nil, "the other list fields carry no description")
+}
+
+// The plan carries gaps and evidence in code mode; a plan cut at the cap records the dropped screens as a gap in any mode.
+do {
+    let answer: [String: Any] = ["title": "Shop", "summary": "s", "assumptions": [], "gaps": ["Checkout posts to /api/orders (src/checkout.js).", "  "],
+        "screens": [["id": "cart", "name": "Cart", "route": "/cart", "purpose": "p", "evidence": ["src/Cart.vue", " src/cart.css ", ""]],
+                    ["id": "home", "name": "Home", "route": "/", "purpose": "p"]]]
+    let plan = try PrototypeAI.Plan(structured: answer, mode: .code)
+    check(plan.gaps == ["Checkout posts to /api/orders (src/checkout.js)."], "plan keeps the non-empty gaps")
+    check(plan.screens[0].evidence == ["src/Cart.vue", "src/cart.css"] && plan.screens[1].evidence.isEmpty, "plan keeps trimmed evidence per screen")
+    // JSONSerialization writes "/" as "\/", so look for the words.
+    check(plan.json.contains("Cart.vue") && plan.json.contains("\"evidence\"") && plan.json.contains("\"gaps\"") && plan.json.contains("orders"),
+          "plan json carries evidence and gaps for the later runs")
+    let old = try PrototypeAI.Plan(structured: ["screens": [["id": "a", "name": "A"]]], mode: .code)
+    check(old.gaps.isEmpty, "a plan without gaps has none")
+    // Requirements mode: the schema makes the planner fill `gaps` anyway; nothing of it may surface as a known gap.
+    let designed = try PrototypeAI.Plan(structured: answer)
+    check(designed.gaps.isEmpty && designed.screens.count == 2, "requirements mode drops the planner's gaps")
+    check(!designed.json.contains("orders") && designed.json.contains("\"gaps\""), "the requirements-mode plan json keeps the key for the writers, without the text")
+    var tooMany = answer
+    tooMany["screens"] = (1...11).map { ["id": "s\($0)", "name": "Screen \($0)"] as [String: Any] }
+    let cutDesigned = try PrototypeAI.Plan(structured: tooMany)
+    check(cutDesigned.gaps.count == 1 && cutDesigned.gaps[0].contains("11 screens"), "requirements mode keeps the screen-cap gap only: \(cutDesigned.gaps)")
+    let many: [String: Any] = ["screens": (1...12).map { ["id": "s\($0)", "name": "Screen \($0)"] as [String: Any] }]
+    let cut = try PrototypeAI.Plan(structured: many)
+    check(cut.screens.count == 10 && cut.gaps.count == 1 && cut.gaps[0].contains("12 screens") && cut.gaps[0].contains("Screen 11, Screen 12"),
+          "a plan past the cap records the dropped screens as a gap")
+}
+
+// Code mode: the planner is told that the code is the reference and what it must return.
+do {
+    let system = PrototypeAI.codePlanSystem(language: " Answer in German.")
+    for phrase in ["reconstructs an EXISTING web interface", "`evidence`", "`gaps`", "`ipcRenderer`", "at most 10",
+                   "Every screen maps to a real route", "do not add screens, controls or features the code does not have", "Answer in German."] {
+        check(system.contains(phrase), "code plan system says: \(phrase)")
+    }
+    let inventory = PrototypeFiles.Inventory(entries: [.init(path: "web/src/App.tsx", bytes: 1200), .init(path: "web/src/app.css", bytes: 300)], omitted: 7)
+    let scope = PrototypeAI.CodeScope(apps: [.init(path: "web", label: "web", isElectron: false),
+                                             .init(path: "apps/desktop", label: "desktop", isElectron: true)])
+    let prompt = PrototypeAI.codePlanPrompt(brief: "", sources: ["web/src", "web/index.html"], scope: scope, inventory: inventory)
+    for phrase in ["Reconstruct the existing web interface", "- web/src\n", "- web/index.html\n", "read them with your tools",
+                   "Web applications detected", "- web (web) — web application",
+                   "- apps/desktop (desktop) — Electron renderer: only the browser part is in scope; `window.electron`/`ipcRenderer` calls must be simulated and listed as gaps",
+                   "Web-interface files in the scope (2 listed", "- web/src/App.tsx (1200 bytes)", "+7 more files not listed",
+                   "A faithful reconstruction of everything the sources implement."] {
+        check(prompt.contains(phrase), "code plan prompt says: \(phrase)")
+    }
+    check(!prompt.contains("requirement"), "code plan prompt never calls the sources requirements")
+    let whole = PrototypeAI.codePlanPrompt(brief: "Only the cart", sources: [], scope: PrototypeAI.CodeScope(), inventory: PrototypeFiles.Inventory())
+    check(whole.contains("the whole project folder: find the web interface in it yourself") && !whole.contains("Web applications detected")
+          && whole.contains("No web-interface files") && whole.hasSuffix("Only the cart"), "code plan prompt: whole project, no hints, empty inventory, brief")
+
+    // The foundation and each screen are pointed at the original sources.
+    let foundation = PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil, mode: .code)
+    check(foundation.hasPrefix("The plan of the prototype:\n{plan}") && foundation.contains("reproduce the original design tokens"),
+          "code-mode foundation prompt keeps the plan and asks for the original tokens")
+    let screen = PrototypeAI.PlannedScreen(id: "cart", name: "Cart", route: "/cart", purpose: "p", evidence: ["web/src/Cart.vue", "web/src/cart.css"])
+    let screenPrompt = PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: "bad", mode: .code)
+    check(screenPrompt.contains("- web/src/Cart.vue\n- web/src/cart.css\n") && screenPrompt.contains("CSS tokens")
+          && screenPrompt.contains("no network request") && screenPrompt.hasSuffix("Your previous answer was not usable:\nbad"),
+          "code-mode screen prompt lists the evidence and keeps the standalone rule and the failure")
+    let noEvidence = PrototypeAI.screenPrompt(plan: "{plan}", screen: PrototypeAI.PlannedScreen(id: "a", name: "A", route: "/a", purpose: ""),
+                                              foundation: [], failure: nil, mode: .code)
+    check(noEvidence.contains("find its source files with your tools"), "code-mode screen prompt without evidence asks the writer to find the sources")
+
+    // Revisions name the sources instead of the project's documents.
+    let revise = PrototypeAI.revisePrompt(instruction: "Bigger button", pick: nil, siteRelative: "site", files: [], runtimeErrors: [],
+                                          priorFailure: nil, mode: .code, sources: ["web/src"])
+    check(revise.contains("reconstruction of the existing interface implemented in the project's source code in `web/src`")
+          && !revise.contains("requirements come from the project's documents") && revise.hasSuffix("Reviewer's request:\nBigger button"),
+          "code-mode revise prompt names the sources")
+    check(PrototypeAI.revisePrompt(instruction: "x", pick: nil, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
+            .contains("implemented in the project's own source code;"), "code-mode revise prompt without sources names the project")
+
+    // The specification and the README disclose the reconstruction and its gaps.
+    var m = PrototypeFiles.Manifest(title: "Shop", slug: "shop", brief: "", sources: ["web/src"], mode: .code,
+                                    gaps: ["Checkout posts to /api/orders; the prototype confirms locally."])
+    m.version = 1
+    let spec = PrototypeAI.specPrompt(manifest: m, siteRelative: "site", language: "")
+    for phrase in ["reconstruction of the existing interface implemented in these sources", "- web/src", "Source traceability",
+                   "Reconstruction: sources, evidence, known gaps", "do not present it as verified reproduction",
+                   "Known gaps recorded at the first build:\n- Checkout posts to /api/orders; the prototype confirms locally."] {
+        check(spec.contains(phrase), "code-mode spec prompt says: \(phrase)")
+    }
+    check(!spec.contains("Requirements traceability"), "code-mode spec prompt traces to sources, not requirements")
+    check(PrototypeAI.codeSpecSystem.contains("never present simulated behaviour as a verified reproduction"), "code-mode spec system forbids fake verification")
+    let readme = PrototypeAI.readme(manifest: m)
+    check(readme.contains("reconstruction of the project's existing web interface in `web/src`") && readme.contains("Known reconstruction gaps")
+          && readme.contains("- Checkout posts to /api/orders; the prototype confirms locally.\n"), "code-mode README discloses the reconstruction and its gaps")
+    m.gaps = []
+    check(PrototypeAI.readme(manifest: m).contains("No reconstruction gaps were recorded"), "code-mode README says when no gaps were recorded")
+}
+
+// Code mode progress lines read the code, not the requirements.
+do {
+    let lines = Lines()
+    let tracker = PrototypeAI.ProgressTracker(root: URL(fileURLWithPath: "/proj"), reading: "the code", emit: { event in
+        if case .status(let t) = event { lines.statuses.append(t) }
+    })
+    tracker.handle(.read("/proj/web/src/App.tsx"))
+    check(lines.statuses == ["Reading the code (1 file so far)"], "progress: code-mode read counter")
+}
+
+// Legacy prototypes move from .dde/prototypes to docs/prototypes once; a conflict stays; nothing is deleted (DEC-006).
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("mig-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let fm = FileManager.default
+    func put(_ path: String, _ content: String = "x") throws {
+        let url = proj.appendingPathComponent(path)
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+    check(PrototypeFiles.migrateLegacy(root: proj) == PrototypeFiles.MigrationReport(), "no legacy folder: nothing to do")
+    check(PrototypeFiles.MigrationReport().summary == "nothing to migrate" && PrototypeFiles.MigrationReport().isEmpty, "empty report")
+    try put(".dde/prototypes/shop/prototype.json", "{\"title\":\"Shop\",\"slug\":\"shop\"}")
+    try put(".dde/prototypes/shop/site/index.html", "<h1>shop</h1>")
+    try put(".dde/prototypes/shop/versions/v1/index.html", "<h1>shop</h1>")
+    // The implementation ZIPs an earlier app wrote inside the prototype must not be committed with it (DEC-006).
+    try put(".dde/prototypes/shop/export/shop-v1.zip", "PK1")
+    try put(".dde/prototypes/shop/export/shop-v2.zip", "PK2")
+    try put(".dde/prototypes/shop/export/.DS_Store", "")
+    try put(".dde/prototypes/desk/prototype.json", "{\"title\":\"Desk\",\"slug\":\"desk\"}")
+    try put(".dde/prototypes/desk/site/index.html", "<h1>legacy desk</h1>")
+    try put(".dde/prototypes/.DS_Store", "")
+    try put(".dde/prototypes/stray.txt", "not a prototype")
+    try put("docs/prototypes/desk/prototype.json", "{\"title\":\"Desk\",\"slug\":\"desk\"}")
+    try put("docs/prototypes/desk/site/index.html", "<h1>new desk</h1>")
+    // A ZIP whose name is already taken in the exports folder cannot move: its prototype stays and is reported.
+    try put(".dde/prototypes/blog/prototype.json", "{\"title\":\"Blog\",\"slug\":\"blog\"}")
+    try put(".dde/prototypes/blog/site/index.html", "<h1>blog</h1>")
+    try put(".dde/prototypes/blog/export/blog-v1.zip", "PKold")
+    try put(".dde/exports/prototypes/blog-v1.zip", "PKnew")
+    let first = PrototypeFiles.migrateLegacy(root: proj)
+    check(first == PrototypeFiles.MigrationReport(moved: ["shop"], conflicts: ["desk"],
+                                                  failed: ["blog: .dde/exports/prototypes/blog-v1.zip already exists"],
+                                                  exports: ["shop-v1.zip", "shop-v2.zip"]), "moves shop and its archives, leaves desk and blog: \(first)")
+    check(first.summary == "moved shop to docs/prototypes; moved export archives to .dde/exports/prototypes: shop-v1.zip, shop-v2.zip; "
+          + "left in .dde/prototypes (slug already in docs/prototypes): desk; could not move: blog: .dde/exports/prototypes/blog-v1.zip already exists",
+          "report summary: \(first.summary)")
+    check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/versions/v1/index.html").path)
+          && fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path)
+          && !fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/shop").path), "the whole folder moved")
+    check((try? String(contentsOf: proj.appendingPathComponent(".dde/exports/prototypes/shop-v1.zip"), encoding: .utf8)) == "PK1"
+          && (try? String(contentsOf: proj.appendingPathComponent(".dde/exports/prototypes/shop-v2.zip"), encoding: .utf8)) == "PK2",
+          "the archives are in .dde/exports/prototypes")
+    check(!fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/export").path), "no export folder reaches docs/prototypes")
+    check((try? String(contentsOf: proj.appendingPathComponent("docs/prototypes/desk/site/index.html"), encoding: .utf8)) == "<h1>new desk</h1>"
+          && (try? String(contentsOf: proj.appendingPathComponent(".dde/prototypes/desk/site/index.html"), encoding: .utf8)) == "<h1>legacy desk</h1>",
+          "a conflict is left in place: neither copy is touched")
+    check(fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/stray.txt").path), "files in the legacy folder are not moved or deleted")
+    check(fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/blog/export/blog-v1.zip").path)
+          && !fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/blog").path)
+          && (try? String(contentsOf: proj.appendingPathComponent(".dde/exports/prototypes/blog-v1.zip"), encoding: .utf8)) == "PKnew",
+          "a prototype whose archive cannot move stays in .dde/prototypes with it; the existing archive is untouched")
+    check(PrototypeFiles.existingSlugs(root: proj) == ["desk", "shop"], "the new storage lists both")
+    let second = PrototypeFiles.migrateLegacy(root: proj)
+    check(second == PrototypeFiles.MigrationReport(conflicts: ["desk"], failed: ["blog: .dde/exports/prototypes/blog-v1.zip already exists"]),
+          "a second run moves nothing and reports the conflict and the failure again: \(second)")
+    check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path), "idempotent: shop stays")
+}
+
+// DEC-003: a web interface is detected when the discovery found an app in the scope or the scope holds web-interface files.
+do {
+    let files = PrototypeFiles.Inventory(entries: [.init(path: "index.html", bytes: 10)])
+    check(PrototypeFiles.hasWebInterface(inventory: files, apps: [String]()), "web-interface files alone count (a static site)")
+    check(PrototypeFiles.hasWebInterface(inventory: PrototypeFiles.Inventory(), apps: ["web"]), "a detected app alone counts")
+    check(PrototypeFiles.hasWebInterface(inventory: files, apps: ["web"]), "both count")
+    check(!PrototypeFiles.hasWebInterface(inventory: PrototypeFiles.Inventory(), apps: [String]()), "neither: refused")
+    check(PrototypeFiles.hasWebInterface(inventory: PrototypeFiles.Inventory(entries: [], omitted: 3), apps: [String]()) == false,
+          "an inventory with nothing listed is empty")
+}
+
+// Code mode scope (DEC-003): nothing selected is the whole project; otherwise an app is in scope when it holds a
+// selected source or sits inside a selected folder.
+do {
+    check(PrototypeFiles.isInScope(appPath: "", sources: []) && PrototypeFiles.isInScope(appPath: "web", sources: []), "nothing selected: every app")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["web"]), "the selected folder is the app")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["web/"]) && PrototypeFiles.isInScope(appPath: "web/", sources: ["./web"]), "slashes and ./ are ignored")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["web/src/App.tsx"]), "a selected file inside the app")
+    check(PrototypeFiles.isInScope(appPath: "apps/site", sources: ["apps"]), "an app inside the selected folder")
+    check(PrototypeFiles.isInScope(appPath: "", sources: ["src/App.tsx"]), "the root app holds every selection")
+    check(!PrototypeFiles.isInScope(appPath: "web", sources: ["server"]), "another folder is out of scope")
+    check(!PrototypeFiles.isInScope(appPath: "web", sources: ["webapp"]), "a prefix that is not a folder is out of scope")
+    check(!PrototypeFiles.isInScope(appPath: "web", sources: ["README.md", "docs"]), "files elsewhere are out of scope")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: ["server", "web/index.html"]), "one matching source is enough")
+    check(PrototypeFiles.isInScope(appPath: "web", sources: [" ", ""]), "blank sources count as nothing selected")
+}
+
+// MARK: - Components (REQ-007, DEC-005)
+
+// Component paths, labels and isolated page names.
+do {
+    check(PrototypeFiles.componentPath(" ./src/components/OrderList.vue ") == "src/components/OrderList.vue", "component path is trimmed and loses ./")
+    check(PrototypeFiles.componentPath("src//a.tsx") == "src/a.tsx", "component path loses a doubled slash")
+    for bad in ["", "   ", "/abs/x.vue", "../x.vue", "src/../x.vue", "src/./x.vue", "src/${name}.vue", "src/a b.vue", "a\\b.vue"] {
+        check(PrototypeFiles.componentPath(bad) == nil, "component path rejects \(bad.debugDescription)")
+    }
+    check(PrototypeFiles.componentLabel("src/components/OrderList.vue") == "OrderList", "component label is the file name without extension")
+    check(PrototypeFiles.componentLabel("templates/index.html") == "index" && PrototypeFiles.componentLabel("Makefile") == "Makefile", "label without extension")
+    check(PrototypeFiles.componentPage(for: "src/components/OrderList.vue") == "components/src-components-orderlist-vue.html", "isolated page name")
+    check(PrototypeFiles.componentPage(for: "Äpp/Главная.svelte") == "components/pp-svelte.html", "isolated page name is ASCII only")
+    check((try? PrototypeFiles.validate(path: PrototypeFiles.componentPage(for: "src/A.tsx"))) != nil, "isolated page is a valid site path")
+    check(PrototypeFiles.componentMarker == "data-mv-component", "the marker attribute")
+}
+
+// A component link must name a regular file of the sources (REQ-007: no link is invented).
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("src-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let file = proj.appendingPathComponent("src/components/OrderList.vue")
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "<template/>".write(to: file, atomically: true, encoding: .utf8)
+    check(PrototypeFiles.isSourceFile(root: proj, path: "src/components/OrderList.vue"), "an existing file")
+    check(PrototypeFiles.isSourceFile(root: proj, path: "./src/components/OrderList.vue"), "the path is normalised first")
+    check(!PrototypeFiles.isSourceFile(root: proj, path: "src/components/Missing.vue"), "a missing file")
+    check(!PrototypeFiles.isSourceFile(root: proj, path: "src/components"), "a folder is not a component file")
+    check(!PrototypeFiles.isSourceFile(root: proj, path: "../\(proj.lastPathComponent)/src/components/OrderList.vue")
+          && !PrototypeFiles.isSourceFile(root: proj, path: file.path), "paths that climb out or are absolute")
+}
+
+// Markers are read from HTML and from the scripts that build it, in every form the screen writers use.
+do {
+    let text = """
+    <div data-mv-component="src/Header.vue"><span data-mv-component='src/Logo.vue'></span></div>
+    App.h('section', {'data-mv-component': 'src/OrderList.vue'}, rows)
+    el.setAttribute("data-mv-component", "src/Footer.vue"); x.setAttribute('data-mv-component', `src/${name}.vue`)
+    <p data-mv-component="src/Header.vue">again</p> <b data-mv-component="../etc/passwd">bad</b>
+    """
+    check(PrototypeFiles.componentMarkers(in: text) == ["src/Header.vue", "src/Logo.vue", "src/OrderList.vue", "src/Footer.vue"],
+          "markers: attribute, single quotes, attribute object, setAttribute; duplicates once; template and escapes skipped")
+    check(PrototypeFiles.componentMarkers(in: "<div class=\"x\">no markers</div>").isEmpty, "no markers")
+}
+
+// The component scan: plan and markup together, screens attributed by file, pages linked only when they exist.
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("comp-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let site = PrototypeFiles.site(of: PrototypeFiles.folder(root: proj, slug: "shop"))
+    try PrototypeFiles.apply(.init(files: [
+        .init(path: "index.html", content: "<header data-mv-component=\"src/Shell.vue\"></header>\n<!--SCREENS-->"),
+        .init(path: "app.js", content: "window.App = {};"),
+        .init(path: "screens/orders.js", content: "App.register({render(){ return '<div data-mv-component=\"src/OrderList.vue\"><i data-mv-component=\"src/Badge.vue\"></i></div>'; }})"),
+        .init(path: "screens/cart.js", content: "App.h('div', {'data-mv-component': 'src/Badge.vue'})"),
+        .init(path: "components/src-orderlist-vue.html", content: "<main data-mv-component=\"src/OrderList.vue\"></main>"),
+        .init(path: "components/src-stray-vue.html", content: "<main data-mv-component=\"src/Stray.vue\"></main>"),
+    ]), to: site)
+    let screens = [PrototypeFiles.ScreenRef(id: "orders", name: "Orders", components: ["src/OrderList.vue", "src/Planned.vue"]),
+                   PrototypeFiles.ScreenRef(id: "cart", name: "Cart", components: ["./src/Planned.vue"])]
+    let found = PrototypeFiles.components(in: site, screens: screens)
+    check(found.map(\.path) == ["src/OrderList.vue", "src/Planned.vue", "src/Shell.vue", "src/Badge.vue"],
+          "components: plan first in plan order, then markers in file order, each once: \(found.map(\.path))")
+    check(found[0] == .init(path: "src/OrderList.vue", label: "OrderList", screens: ["Orders"], page: "components/src-orderlist-vue.html"),
+          "a planned component gets its screens and its isolated page")
+    check(found[1] == .init(path: "src/Planned.vue", label: "Planned", screens: ["Orders", "Cart"], page: nil),
+          "a planned component without markup keeps both screens and has no page")
+    check(found[2] == .init(path: "src/Shell.vue", label: "Shell", screens: [], page: nil), "a shell marker counts for no screen")
+    check(found[3] == .init(path: "src/Badge.vue", label: "Badge", screens: ["Cart", "Orders"], page: nil),
+          "a marker in two screen scripts lists both screens (file order)")
+    check(!found.contains { $0.path == "src/Stray.vue" }, "a marker only in an isolated page is not a component")
+    check(PrototypeFiles.components(in: site.appendingPathComponent("missing"), screens: []).isEmpty, "no site, no components")
+    check(PrototypeFiles.components(in: site, screens: [.init(id: "x", name: "X", components: ["../out.vue", " "])]).map(\.path)
+            == ["src/Shell.vue", "src/Badge.vue", "src/OrderList.vue"], "bad plan paths are dropped; markers stay in file order")
+
+    // A restored version is scanned again: the manifest's screens and order are kept for what the files still mark,
+    // a component the files no longer mention goes unless its isolated page is there, a new marker joins with no screens.
+    let known: [PrototypeFiles.Component] = [
+        .init(path: "src/Badge.vue", label: "Badge", screens: ["Cart", "Orders"]),
+        .init(path: "src/Gone.vue", label: "Gone", screens: ["Orders"]),
+        .init(path: "src/OrderList.vue", label: "OrderList", screens: ["Orders"], page: "components/src-orderlist-vue.html"),
+        .init(path: "src/Planned.vue", label: "Planned", screens: ["Orders", "Cart"]),
+    ]
+    _ = try PrototypeFiles.apply(.init(files: [.init(path: "components/src-planned-vue.html", content: "<main data-mv-component=\"src/Planned.vue\"></main>")]), to: site)
+    let rescanned = PrototypeFiles.rescanComponents(in: site, known: known)
+    check(rescanned == [
+        .init(path: "src/Badge.vue", label: "Badge", screens: ["Cart", "Orders"]),
+        .init(path: "src/OrderList.vue", label: "OrderList", screens: ["Orders"], page: "components/src-orderlist-vue.html"),
+        .init(path: "src/Planned.vue", label: "Planned", screens: ["Orders", "Cart"], page: "components/src-planned-vue.html"),
+        .init(path: "src/Shell.vue", label: "Shell", screens: []),
+    ], "rescan after a restore: \(rescanned)")
+    check(PrototypeFiles.rescanComponents(in: site.appendingPathComponent("missing"), known: known).isEmpty, "no files, no components, whatever was known")
+}
+
+// The manifest carries the components; an older prototype.json decodes with none.
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("cman-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let folder = PrototypeFiles.folder(root: proj, slug: "shop")
+    var m = PrototypeFiles.Manifest(title: "Shop", slug: "shop", brief: "", sources: ["web"], mode: .code)
+    m.components = [.init(path: "web/src/A.vue", label: "A", screens: ["Home"], page: "components/web-src-a-vue.html"),
+                    .init(path: "web/src/B.vue", label: "B")]
+    try PrototypeFiles.saveManifest(m, in: folder)
+    let loaded = PrototypeFiles.loadManifest(folder)
+    check(loaded == m && loaded?.components.count == 2 && loaded?.components[1].page == nil, "manifest round trip keeps the components")
+    let text = String(decoding: try Data(contentsOf: PrototypeFiles.manifestURL(of: folder)), as: UTF8.self)
+    check(text.contains("\"components\"") && text.contains("\"page\" : \"components\\/web-src-a-vue.html\""), "components are stored under their key")
+    try "{\"title\":\"Old\",\"slug\":\"shop\",\"mode\":\"code\",\"gaps\":[\"g\"]}".write(to: PrototypeFiles.manifestURL(of: folder), atomically: true, encoding: .utf8)
+    let old = PrototypeFiles.loadManifest(folder)
+    check(old?.components == [] && old?.gaps == ["g"] && old?.mode == .code, "a manifest without components decodes with none")
+}
+
+// The implementation ZIP lives outside the committed prototype folder (DEC-006).
+do {
+    let root = URL(fileURLWithPath: "/proj")
+    check(PrototypeFiles.exportsFolder == ".dde/exports/prototypes", "exports folder")
+    check(PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path == "/proj/.dde/exports/prototypes/shop-v3.zip", "export archive path")
+    check(!PrototypeFiles.exportArchive(root: root, slug: "shop", version: 3).path.hasPrefix(PrototypeFiles.storage(root: root).path), "the archive is not under docs/prototypes")
+}
+
+// The scope mapping the creator sheet and "Sync from code" share (REQ-006).
+do {
+    let root = URL(fileURLWithPath: "/proj")
+    let detected: [PrototypeAI.CodeScope.Detected] = [
+        (URL(fileURLWithPath: "/proj"), "proj", false),
+        (URL(fileURLWithPath: "/proj/web/"), "web", false),
+        (URL(fileURLWithPath: "/proj/apps/desktop"), "desktop", true),
+        (URL(fileURLWithPath: "/elsewhere/app"), "stray", false),
+    ]
+    let whole = PrototypeAI.CodeScope(root: root, sources: [], detected: detected)
+    check(whole.apps == [.init(path: "", label: "proj", isElectron: false), .init(path: "web", label: "web", isElectron: false),
+                         .init(path: "apps/desktop", label: "desktop", isElectron: true)], "whole project: every app inside the root, relative paths: \(whole.apps)")
+    let scoped = PrototypeAI.CodeScope(root: root, sources: ["apps"], detected: detected)
+    check(scoped.apps.map(\.path) == ["", "apps/desktop"], "sources keep the root app and the apps inside them: \(scoped.apps.map(\.path))")
+    check(PrototypeAI.CodeScope(root: root, sources: ["server"], detected: detected).apps.map(\.path) == [""], "only the root app holds an unrelated source")
+    check(PrototypeAI.CodeScope(apps: []).apps.isEmpty && PrototypeAI.CodeScope().apps.isEmpty, "the plain initialisers stay")
+}
+
+// The plan schema and parsing carry the components of each screen.
+do {
+    let props = PrototypeAI.planSchema["properties"] as? [String: Any] ?? [:]
+    let screenItem = (props["screens"] as? [String: Any])?["items"] as? [String: Any] ?? [:]
+    let screenProps = screenItem["properties"] as? [String: Any] ?? [:]
+    check(screenProps["components"] != nil && (screenItem["required"] as? [String] ?? []).contains("components"), "plan schema has components per screen")
+    let answer: [String: Any] = ["screens": [["id": "orders", "name": "Orders", "components": [" ./src/OrderList.vue", "src/OrderList.vue", "../x.vue", ""]],
+                                             ["id": "home", "name": "Home"]]]
+    let plan = try PrototypeAI.Plan(structured: answer, mode: .code)
+    check(plan.screens[0].components == ["src/OrderList.vue"] && plan.screens[1].components.isEmpty, "plan components are normalised and unique")
+    check(plan.json.contains("\"components\"") && plan.json.contains("OrderList.vue") && !plan.json.contains("x.vue"), "plan json carries the normalised components")
+    check(try PrototypeAI.Plan(structured: answer).screens[0].components.isEmpty, "requirements mode has no components to link")
+
+    // A plan component without a source file is not linked: it is a gap, once, and the writers never see it (REQ-007).
+    let ghosts: [String: Any] = ["gaps": ["Posts to /api"], "screens": [
+        ["id": "orders", "name": "Orders", "components": ["src/OrderList.vue", "src/Ghost.vue"]],
+        ["id": "cart", "name": "Cart", "components": ["src/Ghost.vue", "src/Cart.vue"]]]]
+    let checked = try PrototypeAI.Plan(structured: ghosts, mode: .code, sourceExists: { $0 != "src/Ghost.vue" })
+    check(checked.screens.map(\.components) == [["src/OrderList.vue"], ["src/Cart.vue"]], "components without a file are dropped from every screen")
+    check(checked.gaps == ["Posts to /api", "Component src/Ghost.vue named by the plan was not found in the sources"], "one gap per missing component: \(checked.gaps)")
+    check(!checked.json.contains("Ghost"), "the plan json the writers see does not name it")
+}
+
+// Code-mode prompts carry the marker rule; requirements mode stays pinned above.
+do {
+    check(PrototypeAI.codePlanSystem(language: "").contains("`components` (the component files among the evidence"), "code plan system asks for the components")
+    check(PrototypeAI.componentRule.contains("data-mv-component=\"<path>\"") && PrototypeAI.componentRule.contains("never invent a marker"),
+          "the marker rule names the attribute and forbids invented markers")
+    check(PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil, mode: .code).contains(PrototypeAI.componentRule), "code-mode foundation prompt carries the marker rule")
+    check(!PrototypeAI.foundationPrompt(plan: "{plan}", failure: nil).contains("data-mv-component"), "requirements-mode foundation prompt has no marker rule")
+    let screen = PrototypeAI.PlannedScreen(id: "orders", name: "Orders", route: "/orders", purpose: "p", evidence: ["src/Orders.vue"],
+                                           components: ["src/Orders.vue", "src/Badge.vue"])
+    let prompt = PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil, mode: .code)
+    check(prompt.contains(PrototypeAI.componentRule) && prompt.contains("as the plan names them:\n- src/Orders.vue\n- src/Badge.vue\n"),
+          "code-mode screen prompt carries the rule and the screen's components")
+    check(!PrototypeAI.screenPrompt(plan: "{plan}", screen: screen, foundation: [], failure: nil).contains("data-mv-component"), "requirements-mode screen prompt has no markers")
+    let system = PrototypeAI.componentSystem(language: " In French.")
+    for phrase in ["isolated view of a source component", "`../styles.css`", "does not call `App.start()`", "<main id=\"component\">",
+                   "data-mv-component", "Do not edit other files", "In French."] {
+        check(system.contains(phrase), "component system says: \(phrase)")
+    }
+    let isolated = PrototypeAI.componentPrompt(plan: "{plan}", component: "src/Badge.vue", page: "components/src-badge-vue.html",
+                                               screens: [screen], foundation: [.init(path: "app.js", content: "x")], failure: "bad")
+    for phrase in ["{plan}", "=== app.js ===\nx", "component `src/Badge.vue` as `components/src-badge-vue.html`",
+                   "- Orders: screens/orders.js\n", "Read the component's source file `src/Badge.vue`", "Your previous answer was not usable:\nbad"] {
+        check(isolated.contains(phrase), "component prompt says: \(phrase)")
+    }
+    check(PrototypeAI.componentPrompt(plan: "{plan}", component: "src/X.vue", page: "components/x.html", screens: [], foundation: [], failure: nil)
+            .contains("No screen script names it"), "component prompt without screens sends the writer to the source")
+    let pick = PrototypeAI.Pick(selector: "div", tag: "div", text: "t", html: "<div/>", screen: "#/orders", component: "src/Badge.vue")
+    let revise = PrototypeAI.revisePrompt(instruction: "x", pick: pick, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil, mode: .code)
+    check(revise.contains("html: <div/>\nsource component: src/Badge.vue (the element"), "revise prompt names the picked element's component")
+    var plain = pick
+    plain.component = nil
+    check(!PrototypeAI.revisePrompt(instruction: "x", pick: plain, siteRelative: "site", files: [], runtimeErrors: [], priorFailure: nil)
+            .contains("source component"), "no component, no component line")
 }
 
 print(failures == 0 ? "ALL OK" : "\(failures) FAILED")
