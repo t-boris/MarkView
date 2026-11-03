@@ -160,23 +160,33 @@ enum PrototypeFiles {
         var conflicts: [String] = []
         /// Left in place because the move failed; each with the error text.
         var failed: [String] = []
+        /// Implementation ZIPs moved out of the prototypes to `.dde/exports/prototypes/`, by file name: a
+        /// derived binary never reaches the committed tree (DEC-006).
+        var exports: [String] = []
 
-        var isEmpty: Bool { moved.isEmpty && conflicts.isEmpty && failed.isEmpty }
+        var isEmpty: Bool { moved.isEmpty && conflicts.isEmpty && failed.isEmpty && exports.isEmpty }
 
         /// One line for the log.
         var summary: String {
             var parts: [String] = []
             if !moved.isEmpty { parts.append("moved \(moved.joined(separator: ", ")) to \(PrototypeFiles.storageFolder)") }
+            if !exports.isEmpty { parts.append("moved export archives to \(PrototypeFiles.exportsFolder): \(exports.joined(separator: ", "))") }
             if !conflicts.isEmpty { parts.append("left in \(PrototypeFiles.legacyStorageFolder) (slug already in \(PrototypeFiles.storageFolder)): \(conflicts.joined(separator: ", "))") }
             if !failed.isEmpty { parts.append("could not move: \(failed.joined(separator: "; "))") }
             return parts.isEmpty ? "nothing to migrate" : parts.joined(separator: "; ")
         }
     }
 
+    private struct ExportConflict: LocalizedError {
+        var path: String
+        var errorDescription: String? { "\(path) already exists" }
+    }
+
     /// Moves every folder of `.dde/prototypes/` to `docs/prototypes/`, once. A folder whose name already
-    /// exists at the new place is left where it is and reported; nothing is deleted or rewritten, so the
-    /// call is idempotent and safe to repeat on every project open. Pure file-system work; the caller keeps
-    /// it off the main thread.
+    /// exists at the new place is left where it is and reported. The implementation ZIPs an earlier app wrote
+    /// to `<slug>/export/` go to `.dde/exports/prototypes/` first (`moveLegacyExports`), so no archive is
+    /// committed with the prototype. Nothing else is deleted or rewritten, so the call is idempotent and safe to
+    /// repeat on every project open. Pure file-system work; the caller keeps it off the main thread.
     static func migrateLegacy(root: URL, fileManager: FileManager = .default) -> MigrationReport {
         let legacy = root.appendingPathComponent(legacyStorageFolder, isDirectory: true)
         var isDirectory: ObjCBool = false
@@ -193,6 +203,7 @@ enum PrototypeFiles {
             }
             do {
                 try fileManager.createDirectory(at: storage(root: root), withIntermediateDirectories: true)
+                report.exports += try moveLegacyExports(from: source, root: root, fileManager: fileManager)
                 try fileManager.moveItem(at: source, to: target)
                 report.moved.append(name)
             } catch {
@@ -200,6 +211,30 @@ enum PrototypeFiles {
             }
         }
         return report
+    }
+
+    /// Moves the `*.zip` files of `<prototype>/export/` (where apps before DEC-006 wrote the implementation
+    /// archive) to `.dde/exports/prototypes/` and removes the `export/` folder once only hidden files remain;
+    /// returns the archive names. An archive that cannot move, because one of that name is already in the
+    /// exports folder or the move fails, throws, so the prototype stays in `.dde/prototypes/` and is reported
+    /// rather than committed with the archive.
+    private static func moveLegacyExports(from prototype: URL, root: URL, fileManager: FileManager) throws -> [String] {
+        let exportFolder = prototype.appendingPathComponent("export", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: exportFolder.path, isDirectory: &isDirectory), isDirectory.boolValue else { return [] }
+        let exports = root.appendingPathComponent(exportsFolder, isDirectory: true)
+        var moved: [String] = []
+        for name in try fileManager.contentsOfDirectory(atPath: exportFolder.path).sorted()
+        where !name.hasPrefix(".") && name.lowercased().hasSuffix(".zip") {
+            let target = exports.appendingPathComponent(name)
+            guard !fileManager.fileExists(atPath: target.path) else { throw ExportConflict(path: "\(exportsFolder)/\(name)") }
+            try fileManager.createDirectory(at: exports, withIntermediateDirectories: true)
+            try fileManager.moveItem(at: exportFolder.appendingPathComponent(name), to: target)
+            moved.append(name)
+        }
+        let remaining = try fileManager.contentsOfDirectory(atPath: exportFolder.path).filter { !$0.hasPrefix(".") }
+        if remaining.isEmpty { try fileManager.removeItem(at: exportFolder) }
+        return moved
     }
 
     // MARK: - Conversation
@@ -245,6 +280,13 @@ enum PrototypeFiles {
         let selected = sources.map(normalizedRelative).filter { !$0.isEmpty }
         guard !selected.isEmpty else { return true }
         return selected.contains { source in contains(folder: app, path: source) || contains(folder: source, path: app) }
+    }
+
+    /// Whether a web interface counts as detected in a scope (DEC-003): the project's web-app discovery found
+    /// an app in it (`apps`), or the scope holds web-interface files by name (`inventory`), so a static site or
+    /// an Electron renderer without a dev-server script qualifies. The creator sheet refuses to start otherwise.
+    static func hasWebInterface<App>(inventory: Inventory, apps: [App]) -> Bool {
+        !apps.isEmpty || !inventory.isEmpty
     }
 
     /// `path` is `folder` itself or inside it; the root ("") holds everything.
@@ -478,6 +520,18 @@ enum PrototypeFiles {
         return parts.joined(separator: "/")
     }
 
+    /// Whether `path` (project-relative, in the form `componentPath` gives) is a regular file under `root`: the
+    /// test every component link passes before the manifest records it, so no link names a file that is not in
+    /// the sources (REQ-007).
+    static func isSourceFile(root: URL, path: String) -> Bool {
+        guard let path = componentPath(path) else { return false }
+        let base = root.standardizedFileURL
+        let url = base.appendingPathComponent(path).standardizedFileURL
+        guard url.path.hasPrefix(base.path + "/") else { return false }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
     /// The file name without its extension: the label of a component.
     static func componentLabel(_ path: String) -> String {
         let name = (path as NSString).lastPathComponent
@@ -537,6 +591,28 @@ enum PrototypeFiles {
             guard var component = found[path] else { return nil }
             let page = componentPage(for: path)
             if fm.fileExists(atPath: site.appendingPathComponent(page).path) { component.page = page }
+            return component
+        }
+    }
+
+    /// The components of a prototype whose files changed outside a build (a restored version): the markers and
+    /// isolated pages of `site` are scanned again, and each component found keeps the screens the manifest
+    /// recorded for it (`known`), in the manifest's order; a component the manifest did not know comes after
+    /// them with no screens, since the plan that named them is gone. A known component that the files no
+    /// longer mark stays only while its isolated page exists, so no link outlives its element (REQ-007).
+    static func rescanComponents(in site: URL, known: [Component]) -> [Component] {
+        var found = components(in: site, screens: [])
+        for component in known where !found.contains(where: { $0.path == component.path }) {
+            let page = componentPage(for: component.path)
+            guard FileManager.default.fileExists(atPath: site.appendingPathComponent(page).path) else { continue }
+            found.append(Component(path: component.path, label: component.label, page: page))
+        }
+        let screens = Dictionary(known.map { ($0.path, $0.screens) }, uniquingKeysWith: { first, _ in first })
+        let ordered = known.compactMap { item in found.first { $0.path == item.path } }
+            + found.filter { item in !known.contains { $0.path == item.path } }
+        return ordered.map { component in
+            var component = component
+            component.screens = screens[component.path] ?? []
             return component
         }
     }

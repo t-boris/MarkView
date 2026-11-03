@@ -15,7 +15,8 @@ import Foundation
         try FileManager.default.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
         let built = try await PrototypeAI.build(root: root, folder: folder, brief: "One screen", sources: [], language: "",
             record: { _ in }, stage: { _ in })
-        precondition(built.screens == ["Home"] && built.failed.isEmpty && built.gaps.isEmpty)
+        precondition(built.screens == ["Home"] && built.failed.isEmpty && built.gaps.isEmpty && built.components.isEmpty,
+                     "requirements mode has no gaps or components, whatever the planner filled in: \(built.gaps)")
         let screen = PrototypeFiles.site(of: folder).appendingPathComponent("screens/home.js")
         precondition(FileManager.default.fileExists(atPath: screen.path))
         _ = try await PrototypeAI.revise(root: root, folder: folder, instruction: "Revise title", pick: nil,
@@ -51,11 +52,12 @@ import Foundation
         try put("src/index.html", "<html><body><h1>Orders</h1><table id=\"orders\"></table><button id=\"export\">Export</button></body></html>")
         try put("src/app.js", "fetch('/api/orders'); document.getElementById('export').onclick = () => window.electron.saveFile();")
         try put("src/styles.css", ":root { --accent: #0a84ff; } h1 { color: var(--accent); }")
+        try put("src/toolbar.html", "<nav><button>Export</button></nav>")
         try put("README.md", "# Fixture\n")
         try put("node_modules/left-pad/index.js", "module.exports = s => s;")
 
         let before = try checksums(root: root)
-        precondition(before.count == 7, "the fixture tree has seven files, found \(before.count)")
+        precondition(before.count == 8, "the fixture tree has eight files, found \(before.count)")
 
         let folder = PrototypeFiles.folder(root: root, slug: "orders")
         try fm.createDirectory(at: PrototypeFiles.site(of: folder), withIntermediateDirectories: true)
@@ -66,8 +68,11 @@ import Foundation
                 if case .phase(let text) = event { phases.add(text) }
             })
         precondition(built.title == "Fixture Orders" && built.screens == ["Orders"] && built.failed.isEmpty)
-        precondition(built.gaps == CLICompletion.codeGaps + ["Could not isolate component src/toolbar.html: the toolbar has no source file to read"],
-                     "the build carries the plan's gaps and the component it could not isolate: \(built.gaps)")
+        precondition(built.gaps == CLICompletion.codeGaps + [
+            "Component src/ghost.vue named by the plan was not found in the sources",
+            "Component src/phantom.html marked in the files was not found in the sources",
+            "Could not isolate component src/toolbar.html: the toolbar has no source file to read",
+        ], "the build carries the plan's gaps, the components without a source file and the one it could not isolate: \(built.gaps)")
         precondition(built.assumptions == ["Prices are in EUR"])
         precondition(phases.first == "Step 1 of 4 · Reading the code and planning the screens", "\(phases.first ?? "")")
         precondition(phases.last == "Step 4 of 4 · Isolating the source components", "\(phases.last ?? "")")
@@ -75,7 +80,8 @@ import Foundation
         precondition(fm.fileExists(atPath: site.appendingPathComponent("screens/orders.js").path))
 
         // Components (REQ-007): the planned template and the toolbar found by its marker; the isolated page of the
-        // first exists and is linked, the second has none and is a gap.
+        // first exists and is linked, the second has none and is a gap. The ghost the plan named and the phantom
+        // the markup named have no source file: neither is linked.
         precondition(built.components == [
             PrototypeFiles.Component(path: "src/index.html", label: "index", screens: ["Orders"], page: "components/src-index-html.html"),
             PrototypeFiles.Component(path: "src/toolbar.html", label: "toolbar", screens: ["Orders"], page: nil),
@@ -101,8 +107,8 @@ import Foundation
         precondition(!plan.contains("fetch('/api/orders')"), "the inventory never inlines file content")
         let screen = prompts["prototype:screen:orders"] ?? ""
         precondition(screen.contains("- src/index.html\n- src/app.js\n- src/styles.css\n") && screen.contains("no network request"))
-        precondition(screen.contains(PrototypeAI.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n"),
-                     "the screen writer is told to mark the components")
+        precondition(screen.contains(PrototypeAI.componentRule) && screen.contains("as the plan names them:\n- src/index.html\n")
+                     && !screen.contains("ghost"), "the screen writer is told to mark the components that exist, not the ghost")
         precondition(systems["prototype:plan"]?.contains("`components`") == true, "the planner is asked for the components")
         precondition(prompts["prototype:foundation:shell"]?.contains("reproduce the original design tokens") == true)
         precondition(prompts["prototype:foundation:data"]?.contains("reproduce the original design tokens") == true)

@@ -300,21 +300,35 @@ do {
     check(props["gaps"] != nil && (PrototypeAI.planSchema["required"] as? [String] ?? []).contains("gaps"), "plan schema has gaps")
     check(screenProps["evidence"] != nil && (screenItem["required"] as? [String] ?? []).contains("evidence"), "plan schema has evidence per screen")
     check(props["assumptions"] != nil && screenProps["requirements"] != nil, "plan schema keeps the old keys")
+    // The code-mode fields tell the planner of requirements mode to leave them empty.
+    for (name, field) in [("gaps", props["gaps"]), ("evidence", screenProps["evidence"]), ("components", screenProps["components"])] {
+        let description = (field as? [String: Any])?["description"] as? String ?? ""
+        check(description.contains("empty unless reconstructing existing code"), "plan schema describes \(name) as empty outside code mode: \(description)")
+    }
+    check(((props["assumptions"] as? [String: Any])?["description"]) == nil, "the other list fields carry no description")
 }
 
-// The plan carries gaps and evidence; a plan cut at the cap records the dropped screens as a gap.
+// The plan carries gaps and evidence in code mode; a plan cut at the cap records the dropped screens as a gap in any mode.
 do {
     let answer: [String: Any] = ["title": "Shop", "summary": "s", "assumptions": [], "gaps": ["Checkout posts to /api/orders (src/checkout.js).", "  "],
         "screens": [["id": "cart", "name": "Cart", "route": "/cart", "purpose": "p", "evidence": ["src/Cart.vue", " src/cart.css ", ""]],
                     ["id": "home", "name": "Home", "route": "/", "purpose": "p"]]]
-    let plan = try PrototypeAI.Plan(structured: answer)
+    let plan = try PrototypeAI.Plan(structured: answer, mode: .code)
     check(plan.gaps == ["Checkout posts to /api/orders (src/checkout.js)."], "plan keeps the non-empty gaps")
     check(plan.screens[0].evidence == ["src/Cart.vue", "src/cart.css"] && plan.screens[1].evidence.isEmpty, "plan keeps trimmed evidence per screen")
     // JSONSerialization writes "/" as "\/", so look for the words.
     check(plan.json.contains("Cart.vue") && plan.json.contains("\"evidence\"") && plan.json.contains("\"gaps\"") && plan.json.contains("orders"),
           "plan json carries evidence and gaps for the later runs")
-    let old = try PrototypeAI.Plan(structured: ["screens": [["id": "a", "name": "A"]]])
+    let old = try PrototypeAI.Plan(structured: ["screens": [["id": "a", "name": "A"]]], mode: .code)
     check(old.gaps.isEmpty, "a plan without gaps has none")
+    // Requirements mode: the schema makes the planner fill `gaps` anyway; nothing of it may surface as a known gap.
+    let designed = try PrototypeAI.Plan(structured: answer)
+    check(designed.gaps.isEmpty && designed.screens.count == 2, "requirements mode drops the planner's gaps")
+    check(!designed.json.contains("orders") && designed.json.contains("\"gaps\""), "the requirements-mode plan json keeps the key for the writers, without the text")
+    var tooMany = answer
+    tooMany["screens"] = (1...11).map { ["id": "s\($0)", "name": "Screen \($0)"] as [String: Any] }
+    let cutDesigned = try PrototypeAI.Plan(structured: tooMany)
+    check(cutDesigned.gaps.count == 1 && cutDesigned.gaps[0].contains("11 screens"), "requirements mode keeps the screen-cap gap only: \(cutDesigned.gaps)")
     let many: [String: Any] = ["screens": (1...12).map { ["id": "s\($0)", "name": "Screen \($0)"] as [String: Any] }]
     let cut = try PrototypeAI.Plan(structured: many)
     check(cut.screens.count == 10 && cut.gaps.count == 1 && cut.gaps[0].contains("12 screens") && cut.gaps[0].contains("Screen 11, Screen 12"),
@@ -410,26 +424,59 @@ do {
     try put(".dde/prototypes/shop/prototype.json", "{\"title\":\"Shop\",\"slug\":\"shop\"}")
     try put(".dde/prototypes/shop/site/index.html", "<h1>shop</h1>")
     try put(".dde/prototypes/shop/versions/v1/index.html", "<h1>shop</h1>")
+    // The implementation ZIPs an earlier app wrote inside the prototype must not be committed with it (DEC-006).
+    try put(".dde/prototypes/shop/export/shop-v1.zip", "PK1")
+    try put(".dde/prototypes/shop/export/shop-v2.zip", "PK2")
+    try put(".dde/prototypes/shop/export/.DS_Store", "")
     try put(".dde/prototypes/desk/prototype.json", "{\"title\":\"Desk\",\"slug\":\"desk\"}")
     try put(".dde/prototypes/desk/site/index.html", "<h1>legacy desk</h1>")
     try put(".dde/prototypes/.DS_Store", "")
     try put(".dde/prototypes/stray.txt", "not a prototype")
     try put("docs/prototypes/desk/prototype.json", "{\"title\":\"Desk\",\"slug\":\"desk\"}")
     try put("docs/prototypes/desk/site/index.html", "<h1>new desk</h1>")
+    // A ZIP whose name is already taken in the exports folder cannot move: its prototype stays and is reported.
+    try put(".dde/prototypes/blog/prototype.json", "{\"title\":\"Blog\",\"slug\":\"blog\"}")
+    try put(".dde/prototypes/blog/site/index.html", "<h1>blog</h1>")
+    try put(".dde/prototypes/blog/export/blog-v1.zip", "PKold")
+    try put(".dde/exports/prototypes/blog-v1.zip", "PKnew")
     let first = PrototypeFiles.migrateLegacy(root: proj)
-    check(first == PrototypeFiles.MigrationReport(moved: ["shop"], conflicts: ["desk"]), "moves shop, leaves desk: \(first)")
-    check(first.summary == "moved shop to docs/prototypes; left in .dde/prototypes (slug already in docs/prototypes): desk", "report summary")
+    check(first == PrototypeFiles.MigrationReport(moved: ["shop"], conflicts: ["desk"],
+                                                  failed: ["blog: .dde/exports/prototypes/blog-v1.zip already exists"],
+                                                  exports: ["shop-v1.zip", "shop-v2.zip"]), "moves shop and its archives, leaves desk and blog: \(first)")
+    check(first.summary == "moved shop to docs/prototypes; moved export archives to .dde/exports/prototypes: shop-v1.zip, shop-v2.zip; "
+          + "left in .dde/prototypes (slug already in docs/prototypes): desk; could not move: blog: .dde/exports/prototypes/blog-v1.zip already exists",
+          "report summary: \(first.summary)")
     check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/versions/v1/index.html").path)
           && fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path)
           && !fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/shop").path), "the whole folder moved")
+    check((try? String(contentsOf: proj.appendingPathComponent(".dde/exports/prototypes/shop-v1.zip"), encoding: .utf8)) == "PK1"
+          && (try? String(contentsOf: proj.appendingPathComponent(".dde/exports/prototypes/shop-v2.zip"), encoding: .utf8)) == "PK2",
+          "the archives are in .dde/exports/prototypes")
+    check(!fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/export").path), "no export folder reaches docs/prototypes")
     check((try? String(contentsOf: proj.appendingPathComponent("docs/prototypes/desk/site/index.html"), encoding: .utf8)) == "<h1>new desk</h1>"
           && (try? String(contentsOf: proj.appendingPathComponent(".dde/prototypes/desk/site/index.html"), encoding: .utf8)) == "<h1>legacy desk</h1>",
           "a conflict is left in place: neither copy is touched")
     check(fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/stray.txt").path), "files in the legacy folder are not moved or deleted")
+    check(fm.fileExists(atPath: proj.appendingPathComponent(".dde/prototypes/blog/export/blog-v1.zip").path)
+          && !fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/blog").path)
+          && (try? String(contentsOf: proj.appendingPathComponent(".dde/exports/prototypes/blog-v1.zip"), encoding: .utf8)) == "PKnew",
+          "a prototype whose archive cannot move stays in .dde/prototypes with it; the existing archive is untouched")
     check(PrototypeFiles.existingSlugs(root: proj) == ["desk", "shop"], "the new storage lists both")
     let second = PrototypeFiles.migrateLegacy(root: proj)
-    check(second == PrototypeFiles.MigrationReport(conflicts: ["desk"]), "a second run moves nothing and reports the conflict again: \(second)")
+    check(second == PrototypeFiles.MigrationReport(conflicts: ["desk"], failed: ["blog: .dde/exports/prototypes/blog-v1.zip already exists"]),
+          "a second run moves nothing and reports the conflict and the failure again: \(second)")
     check(fm.fileExists(atPath: proj.appendingPathComponent("docs/prototypes/shop/site/index.html").path), "idempotent: shop stays")
+}
+
+// DEC-003: a web interface is detected when the discovery found an app in the scope or the scope holds web-interface files.
+do {
+    let files = PrototypeFiles.Inventory(entries: [.init(path: "index.html", bytes: 10)])
+    check(PrototypeFiles.hasWebInterface(inventory: files, apps: [String]()), "web-interface files alone count (a static site)")
+    check(PrototypeFiles.hasWebInterface(inventory: PrototypeFiles.Inventory(), apps: ["web"]), "a detected app alone counts")
+    check(PrototypeFiles.hasWebInterface(inventory: files, apps: ["web"]), "both count")
+    check(!PrototypeFiles.hasWebInterface(inventory: PrototypeFiles.Inventory(), apps: [String]()), "neither: refused")
+    check(PrototypeFiles.hasWebInterface(inventory: PrototypeFiles.Inventory(entries: [], omitted: 3), apps: [String]()) == false,
+          "an inventory with nothing listed is empty")
 }
 
 // Code mode scope (DEC-003): nothing selected is the whole project; otherwise an app is in scope when it holds a
@@ -463,6 +510,21 @@ do {
     check(PrototypeFiles.componentPage(for: "Äpp/Главная.svelte") == "components/pp-svelte.html", "isolated page name is ASCII only")
     check((try? PrototypeFiles.validate(path: PrototypeFiles.componentPage(for: "src/A.tsx"))) != nil, "isolated page is a valid site path")
     check(PrototypeFiles.componentMarker == "data-mv-component", "the marker attribute")
+}
+
+// A component link must name a regular file of the sources (REQ-007: no link is invented).
+do {
+    let proj = FileManager.default.temporaryDirectory.appendingPathComponent("src-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: proj) }
+    let file = proj.appendingPathComponent("src/components/OrderList.vue")
+    try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "<template/>".write(to: file, atomically: true, encoding: .utf8)
+    check(PrototypeFiles.isSourceFile(root: proj, path: "src/components/OrderList.vue"), "an existing file")
+    check(PrototypeFiles.isSourceFile(root: proj, path: "./src/components/OrderList.vue"), "the path is normalised first")
+    check(!PrototypeFiles.isSourceFile(root: proj, path: "src/components/Missing.vue"), "a missing file")
+    check(!PrototypeFiles.isSourceFile(root: proj, path: "src/components"), "a folder is not a component file")
+    check(!PrototypeFiles.isSourceFile(root: proj, path: "../\(proj.lastPathComponent)/src/components/OrderList.vue")
+          && !PrototypeFiles.isSourceFile(root: proj, path: file.path), "paths that climb out or are absolute")
 }
 
 // Markers are read from HTML and from the scripts that build it, in every form the screen writers use.
@@ -507,6 +569,24 @@ do {
     check(PrototypeFiles.components(in: site.appendingPathComponent("missing"), screens: []).isEmpty, "no site, no components")
     check(PrototypeFiles.components(in: site, screens: [.init(id: "x", name: "X", components: ["../out.vue", " "])]).map(\.path)
             == ["src/Shell.vue", "src/Badge.vue", "src/OrderList.vue"], "bad plan paths are dropped; markers stay in file order")
+
+    // A restored version is scanned again: the manifest's screens and order are kept for what the files still mark,
+    // a component the files no longer mention goes unless its isolated page is there, a new marker joins with no screens.
+    let known: [PrototypeFiles.Component] = [
+        .init(path: "src/Badge.vue", label: "Badge", screens: ["Cart", "Orders"]),
+        .init(path: "src/Gone.vue", label: "Gone", screens: ["Orders"]),
+        .init(path: "src/OrderList.vue", label: "OrderList", screens: ["Orders"], page: "components/src-orderlist-vue.html"),
+        .init(path: "src/Planned.vue", label: "Planned", screens: ["Orders", "Cart"]),
+    ]
+    _ = try PrototypeFiles.apply(.init(files: [.init(path: "components/src-planned-vue.html", content: "<main data-mv-component=\"src/Planned.vue\"></main>")]), to: site)
+    let rescanned = PrototypeFiles.rescanComponents(in: site, known: known)
+    check(rescanned == [
+        .init(path: "src/Badge.vue", label: "Badge", screens: ["Cart", "Orders"]),
+        .init(path: "src/OrderList.vue", label: "OrderList", screens: ["Orders"], page: "components/src-orderlist-vue.html"),
+        .init(path: "src/Planned.vue", label: "Planned", screens: ["Orders", "Cart"], page: "components/src-planned-vue.html"),
+        .init(path: "src/Shell.vue", label: "Shell", screens: []),
+    ], "rescan after a restore: \(rescanned)")
+    check(PrototypeFiles.rescanComponents(in: site.appendingPathComponent("missing"), known: known).isEmpty, "no files, no components, whatever was known")
 }
 
 // The manifest carries the components; an older prototype.json decodes with none.
@@ -561,9 +641,19 @@ do {
     check(screenProps["components"] != nil && (screenItem["required"] as? [String] ?? []).contains("components"), "plan schema has components per screen")
     let answer: [String: Any] = ["screens": [["id": "orders", "name": "Orders", "components": [" ./src/OrderList.vue", "src/OrderList.vue", "../x.vue", ""]],
                                              ["id": "home", "name": "Home"]]]
-    let plan = try PrototypeAI.Plan(structured: answer)
+    let plan = try PrototypeAI.Plan(structured: answer, mode: .code)
     check(plan.screens[0].components == ["src/OrderList.vue"] && plan.screens[1].components.isEmpty, "plan components are normalised and unique")
     check(plan.json.contains("\"components\"") && plan.json.contains("OrderList.vue") && !plan.json.contains("x.vue"), "plan json carries the normalised components")
+    check(try PrototypeAI.Plan(structured: answer).screens[0].components.isEmpty, "requirements mode has no components to link")
+
+    // A plan component without a source file is not linked: it is a gap, once, and the writers never see it (REQ-007).
+    let ghosts: [String: Any] = ["gaps": ["Posts to /api"], "screens": [
+        ["id": "orders", "name": "Orders", "components": ["src/OrderList.vue", "src/Ghost.vue"]],
+        ["id": "cart", "name": "Cart", "components": ["src/Ghost.vue", "src/Cart.vue"]]]]
+    let checked = try PrototypeAI.Plan(structured: ghosts, mode: .code, sourceExists: { $0 != "src/Ghost.vue" })
+    check(checked.screens.map(\.components) == [["src/OrderList.vue"], ["src/Cart.vue"]], "components without a file are dropped from every screen")
+    check(checked.gaps == ["Posts to /api", "Component src/Ghost.vue named by the plan was not found in the sources"], "one gap per missing component: \(checked.gaps)")
+    check(!checked.json.contains("Ghost"), "the plan json the writers see does not name it")
 }
 
 // Code-mode prompts carry the marker rule; requirements mode stays pinned above.

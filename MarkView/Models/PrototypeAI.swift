@@ -179,16 +179,22 @@ enum PrototypeAI {
         "required": ["path", "content"], "additionalProperties": false,
     ]
 
-    private static func strings() -> [String: Any] { ["type": "array", "items": ["type": "string"]] }
+    private static func strings(_ description: String? = nil) -> [String: Any] {
+        var schema: [String: Any] = ["type": "array", "items": ["type": "string"]]
+        if let description { schema["description"] = description }
+        return schema
+    }
 
+    /// The plan of both modes: one schema, so a strict provider sees the same contract. The code-mode fields
+    /// (`gaps`, `evidence`, `components`) are required but described as empty in requirements mode, and
+    /// `Plan` drops whatever the planner put there in that mode.
     static let planSchema: [String: Any] = [
         "type": "object",
         "properties": [
             "title": ["type": "string"],
             "summary": ["type": "string"],
             "assumptions": strings(),
-            // Code mode: behaviour of the original the prototype cannot reproduce. Empty in requirements mode.
-            "gaps": strings(),
+            "gaps": strings("Behaviour of the original that the prototype cannot reproduce; empty unless reconstructing existing code."),
             "roles": strings(),
             "entities": ["type": "array", "items": [
                 "type": "object",
@@ -201,10 +207,8 @@ enum PrototypeAI {
                     "id": ["type": "string"], "name": ["type": "string"], "route": ["type": "string"],
                     "purpose": ["type": "string"], "data": strings(), "actions": strings(),
                     "states": strings(), "rules": strings(), "requirements": strings(),
-                    // Code mode: the source files read for the screen. Empty in requirements mode.
-                    "evidence": strings(),
-                    // Code mode: the component files among the evidence (REQ-007). Empty in requirements mode.
-                    "components": strings(),
+                    "evidence": strings("Source files read for the screen; empty unless reconstructing existing code."),
+                    "components": strings("Component files among the evidence that the screen reproduces; empty unless reconstructing existing code."),
                 ],
                 "required": ["id", "name", "route", "purpose", "data", "actions", "states", "rules", "requirements", "evidence",
                              "components"],
@@ -696,19 +700,25 @@ enum PrototypeAI {
         var title: String
         var summary: String
         var assumptions: [String]
-        /// Behaviour the prototype cannot reproduce (code mode), plus the screens dropped past `maxScreens`.
+        /// Code mode: behaviour the prototype cannot reproduce and the plan components that have no source
+        /// file. Any mode: the screens dropped past `maxScreens`.
         var gaps: [String]
         var screens: [PlannedScreen]
 
         static let maxScreens = 10
 
-        init(structured: Any?) throws {
+        /// In `.code` mode the planner's gaps are kept and each screen's components are kept only when
+        /// `sourceExists` finds their file, the others becoming gaps, so no link is invented (REQ-007). In
+        /// `.requirements` mode there is no original to fall short of or link to: gaps and components the
+        /// planner filled in anyway are dropped.
+        init(structured: Any?, mode: PrototypeFiles.Mode = .requirements, sourceExists: (String) -> Bool = { _ in true }) throws {
             guard let object = structured as? [String: Any],
                   let raw = object["screens"] as? [[String: Any]], !raw.isEmpty else {
                 throw CLICompletion.Failure.invalidOutput(.claude, "the plan has no screens")
             }
             var seen = Set<String>()
             var screens: [PlannedScreen] = []
+            var missing: [String] = []
             var normalised = raw.prefix(Self.maxScreens).map { $0 }
             for (index, item) in normalised.enumerated() {
                 let name = item["name"] as? String ?? "Screen \(index + 1)"
@@ -721,21 +731,33 @@ enum PrototypeAI {
                 let evidence = (item["evidence"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
                 // Component paths are normalised here, so the screen writer marks exactly what the manifest records.
                 var components: [String] = []
-                for raw in item["components"] as? [String] ?? [] {
-                    if let path = PrototypeFiles.componentPath(raw), !components.contains(path) { components.append(path) }
+                if mode == .code {
+                    for raw in item["components"] as? [String] ?? [] {
+                        guard let path = PrototypeFiles.componentPath(raw), !components.contains(path) else { continue }
+                        if sourceExists(path) {
+                            components.append(path)
+                        } else if !missing.contains(path) {
+                            missing.append(path)
+                        }
+                    }
                 }
                 normalised[index]["components"] = components
                 screens.append(PlannedScreen(id: unique, name: name, route: item["route"] as? String ?? "/" + unique,
                                              purpose: item["purpose"] as? String ?? "", evidence: evidence, components: components))
             }
+            // The planner's gaps belong to a reconstruction only; the writers see the same list as the manifest.
+            let planned = mode == .code
+                ? (object["gaps"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                : []
             var plan = object
             plan["screens"] = normalised
+            plan["gaps"] = planned
             let data = try JSONSerialization.data(withJSONObject: plan, options: [.prettyPrinted, .sortedKeys])
             json = String(decoding: data, as: UTF8.self)
             title = object["title"] as? String ?? "Prototype"
             summary = object["summary"] as? String ?? ""
             assumptions = object["assumptions"] as? [String] ?? []
-            var gaps = (object["gaps"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            var gaps = planned + missing.map { "Component \($0) named by the plan was not found in the sources" }
             if raw.count > Self.maxScreens {
                 // A plan past the cap is cut without asking; the reviewer must know what is missing.
                 let dropped = raw.dropFirst(Self.maxScreens).enumerated().map { pair -> String in
@@ -761,7 +783,8 @@ enum PrototypeAI {
         var assumptions: [String]
         var screens: [String]
         var failed: [String]
-        /// Known reconstruction gaps (code mode; a plan cut at `Plan.maxScreens` adds one in any mode).
+        /// Known reconstruction gaps: code mode only, where they also name the components dropped for lack of a
+        /// source file; a plan cut at `Plan.maxScreens` adds one in any mode.
         var gaps: [String] = []
         /// Code mode: the source components the files reproduce, with their isolated pages (REQ-007).
         var components: [PrototypeFiles.Component] = []
@@ -842,7 +865,7 @@ enum PrototypeAI {
         }
         let planned = try await call(root: root, system: system, prompt: prompt, schema: planSchema, label: "prototype:plan",
                                      reading: reading, record: record, stage: scoped(stage, label: nil, status: true))
-        let plan = try Plan(structured: planned.structured)
+        let plan = try Plan(structured: planned.structured, mode: mode, sourceExists: { PrototypeFiles.isSourceFile(root: root, path: $0) })
         stage(.plan(title: plan.title, summary: plan.summary, assumptions: plan.assumptions, screens: plan.screens))
 
         stage(.phase("Step 2 of \(steps) · Building the shell, styles and sample data (two parts at once)"))
@@ -885,9 +908,23 @@ enum PrototypeAI {
         var components: [PrototypeFiles.Component] = []
         if mode == .code {
             stage(.phase("Step 4 of 4 · Isolating the source components"))
-            components = PrototypeFiles.components(in: site, screens: screenRefs(plan.screens))
+            var unattributed: [String] = []
+            // Only a component whose file is in the sources is linked; a marker the screen writers invented
+            // becomes a gap, reported once (REQ-007). The plan's own components were checked the same way.
+            func attributed(_ found: [PrototypeFiles.Component]) -> [PrototypeFiles.Component] {
+                found.filter { component in
+                    if PrototypeFiles.isSourceFile(root: root, path: component.path) { return true }
+                    if !unattributed.contains(component.path) {
+                        unattributed.append(component.path)
+                        gaps.append("Component \(component.path) marked in the files was not found in the sources")
+                    }
+                    return false
+                }
+            }
+            components = attributed(PrototypeFiles.components(in: site, screens: screenRefs(plan.screens)))
             if components.isEmpty {
-                stage(.step("No source component is named by the plan or marked in the files; nothing to isolate"))
+                stage(.step("No source component could be attributed to a source file; nothing to isolate"))
+                gaps.append("No component could be attributed to a source file")
             } else {
                 for component in components { stage(.component(path: component.path, state: .queued)) }
                 stage(.status("Writing the isolated component views"))
@@ -905,7 +942,7 @@ enum PrototypeAI {
                     }
                 })
                 // Scanned again: the pages that were written are now linked from the components.
-                components = PrototypeFiles.components(in: site, screens: screenRefs(plan.screens))
+                components = attributed(PrototypeFiles.components(in: site, screens: screenRefs(plan.screens)))
             }
         }
         let built = plan.screens.map(\.name).filter { !failed.contains($0) }

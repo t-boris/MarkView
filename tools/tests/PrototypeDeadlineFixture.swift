@@ -47,11 +47,12 @@ enum CLICompletion {
     static let codeGaps = ["Saving an order posts to /api/orders (src/app.js); the prototype confirms locally.",
                            "The Export button calls window.electron.saveFile (src/app.js); the prototype shows a toast instead."]
     /// The orders screen of code mode: the list is marked with its template (planned), the toolbar with a file
-    /// the plan did not name (found by the markup scan), as the screen writer is told to (REQ-007).
+    /// the plan did not name (found by the markup scan), as the screen writer is told to (REQ-007), and a
+    /// phantom with a file that does not exist, which the build must drop as a gap rather than link.
     static func ordersScreen(variant: String) -> String {
         let title = variant == "synced" ? "Orders (synced)" : "Orders"
         return "App.register({id: 'orders', render() { return '<div data-mv-component=\"src/index.html\"><h1>\(title)</h1>"
-            + "<nav data-mv-component=\"src/toolbar.html\"></nav></div>'; }});"
+            + "<nav data-mv-component=\"src/toolbar.html\"></nav><span data-mv-component=\"src/phantom.html\"></span></div>'; }});"
     }
     static func run(_ request: Request, onDelta: (@Sendable (String) -> Void)? = nil,
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
@@ -70,11 +71,14 @@ enum CLICompletion {
                       "gaps": codeGaps, "roles": [], "entities": [],
                       "screens": [["id": "orders", "name": "Orders", "route": "/orders", "purpose": "The order list of src/index.html",
                                    "data": [], "actions": [], "states": [], "rules": [], "requirements": ["Reproduces src/index.html"],
-                                   "evidence": ["src/index.html", "src/app.js", "src/styles.css"], "components": ["src/index.html"]]]]
+                                   // src/ghost.vue is not in the fixture: the plan named it, the build must not link it.
+                                   "evidence": ["src/index.html", "src/app.js", "src/styles.css"], "components": ["src/index.html", "src/ghost.vue"]]]]
         case "prototype:plan":
+            // The schema requires `gaps` and `components` in every mode; what the planner fills in here must not surface.
             object = ["title": "Fixture", "summary": "One screen", "assumptions": [], "roles": ["Owner"], "entities": [],
+                      "gaps": ["A gap that requirements mode must drop"],
                       "screens": [["id": "home", "name": "Home", "route": "/home", "purpose": "Overview",
-                                   "data": [], "actions": [], "states": [], "rules": [], "requirements": []]]]
+                                   "data": [], "actions": [], "states": [], "rules": [], "requirements": [], "components": ["src/x.vue"]]]]
         case "prototype:foundation:shell":
             object = ["summary": "Shell", "files": [
                 ["path": "index.html", "content": "<h1>Fixture title</h1>\n<!--SCREENS-->\n"],

@@ -330,15 +330,21 @@ final class PrototypeSession: ObservableObject, Identifiable {
                 messages.append(Message(role: .assistant, text: reply(for: built, opening: "Synced from the current code as v\(manifest.version).")))
                 await settleAndFix(language: languageNote)
             } catch is CancellationError {
-                manifest = before
-                reload()
-                messages.append(Message(role: .error, text: "Stopped. The prototype is unchanged (v\(before.version))."))
+                keepPrevious(before, note: "Stopped. The prototype is unchanged (v\(before.version)).")
             } catch {
-                manifest = before
-                reload()
-                messages.append(Message(role: .error, text: "Sync from code failed; the prototype is unchanged (v\(before.version)). \(error.localizedDescription)"))
+                keepPrevious(before, note: "Sync from code failed; the prototype is unchanged (v\(before.version)). \(error.localizedDescription)")
             }
         }
+    }
+
+    /// A sync that did not end as a saved version leaves the previous one live: the build restores its files
+    /// when it fails itself, but `accept` can fail after a successful build, with the new files in `site/` and
+    /// no copy of them, so the files are restored here as well and the manifest is what it was.
+    private func keepPrevious(_ before: PrototypeFiles.Manifest, note: String) {
+        try? PrototypeFiles.restore(folder: folder, version: before.version)
+        manifest = before
+        reload()
+        messages.append(Message(role: .error, text: note))
     }
 
     /// One reviewer request, with the element pointed at in the preview and the images sent with it. The screenshot of
@@ -403,11 +409,18 @@ final class PrototypeSession: ObservableObject, Identifiable {
         }
     }
 
-    /// Makes `version` the live prototype again, as a new version so the history stays complete.
+    /// Makes `version` the live prototype again, as a new version so the history stays complete. The preview
+    /// shows the screens again, and in code mode the component links are scanned from the restored files, so
+    /// the manifest matches what is on disk (REQ-007).
     func revert(to version: Int) {
         guard !isBusy else { return }
         do {
             try PrototypeFiles.restore(folder: folder, version: version)
+            show(page: nil)
+            if manifest.mode == .code {
+                manifest.components = PrototypeFiles.rescanComponents(in: siteFolder, known: manifest.components)
+                if let selected = selectedComponent, component(at: selected) == nil { selectedComponent = nil }
+            }
             try accept(instruction: "Go back to v\(version)", summary: "Restored the prototype of v\(version).")
             messages.append(Message(role: .assistant, text: "Went back to v\(version) (saved as v\(manifest.version))."))
         } catch {
@@ -480,6 +493,10 @@ final class PrototypeSession: ObservableObject, Identifiable {
         try PrototypeFiles.snapshot(folder: folder, version: manifest.version)
         try PrototypeFiles.saveManifest(manifest, in: folder)
         archive = nil
+        // An isolated page this version removed cannot stay on screen: the screens come back.
+        if let page = shownPage, !FileManager.default.fileExists(atPath: siteFolder.appendingPathComponent(page).path) {
+            shownPage = nil
+        }
         reload()
     }
 

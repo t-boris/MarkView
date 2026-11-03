@@ -16,8 +16,16 @@ struct PrototypeCreatorSheet: View {
     @State private var brief = ""
     /// Code mode: the web apps detected inside the selected scope; nil while detection runs.
     @State private var detected: [PrototypeAI.CodeScope.App]?
+    /// Code mode: the web-interface files of the selected scope, by name; nil while detection runs.
+    @State private var inventory: PrototypeFiles.Inventory?
 
     private var isCode: Bool { mode == .code }
+
+    /// DEC-003: an app was found in the scope, or the scope holds web-interface files.
+    private var webInterfaceDetected: Bool {
+        guard let detected, let inventory else { return false }
+        return PrototypeFiles.hasWebInterface(inventory: inventory, apps: detected)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -96,7 +104,7 @@ struct PrototypeCreatorSheet: View {
                                                   mode: mode, codeScope: PrototypeAI.CodeScope(apps: detected ?? []))
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(isCode && (detected?.isEmpty ?? true))
+                .disabled(isCode && !webInterfaceDetected)
             }
         }
         .padding(16)
@@ -116,19 +124,23 @@ struct PrototypeCreatorSheet: View {
         return "An agent reads the requirements and builds a clickable HTML prototype. You then review it in the studio — point at things, ask for changes — until you approve it and export the package for implementation."
     }
 
-    /// Code mode: what Preview Web App discovery found inside the selected scope (DEC-003).
+    /// Code mode: what Preview Web App discovery found inside the selected scope, or, when it found no app, the
+    /// web-interface files the scope holds; neither means the sheet refuses to start (DEC-003).
     @ViewBuilder
     private var detection: some View {
-        if let detected {
-            if detected.isEmpty {
-                Label("No web interface detected in the selected files. Select a folder that contains a web application or an Electron renderer.",
-                      systemImage: "exclamationmark.triangle")
-                    .uiFont(size: 11).foregroundColor(VSDark.yellow)
-            } else {
+        if let detected, let inventory {
+            if !detected.isEmpty {
                 ForEach(detected, id: \.path) { app in
                     Label("Detected: \(app.label)\(app.isElectron ? " (Electron renderer)" : "")", systemImage: "checkmark.circle")
                         .uiFont(size: 11).foregroundColor(VSDark.green)
                 }
+            } else if !inventory.isEmpty {
+                Label("Detected: web interface files (\(inventory.entries.count + inventory.omitted))", systemImage: "checkmark.circle")
+                    .uiFont(size: 11).foregroundColor(VSDark.green)
+            } else {
+                Label("No web interface detected in the selected files. Select a folder that contains a web application or an Electron renderer.",
+                      systemImage: "exclamationmark.triangle")
+                    .uiFont(size: 11).foregroundColor(VSDark.yellow)
             }
         } else {
             HStack(spacing: 6) {
@@ -138,14 +150,18 @@ struct PrototypeCreatorSheet: View {
         }
     }
 
-    /// Runs the web-app discovery off the main thread and keeps the apps inside the selected scope (the same
-    /// `CodeScope.detect` that "Sync from code" runs later, so both see the same hints).
+    /// Runs the web-app discovery and the code-mode inventory off the main thread for the selected scope (the
+    /// same `CodeScope.detect` that "Sync from code" runs later, so both see the same hints, and the same
+    /// inventory the planner is given).
     private func detect() async {
         guard isCode, let root else { return }
         let sources = self.sources
-        let scope = await Task.detached { PrototypeAI.CodeScope.detect(root: root, sources: sources) }.value
+        let found = await Task.detached { () -> (PrototypeAI.CodeScope, PrototypeFiles.Inventory) in
+            (PrototypeAI.CodeScope.detect(root: root, sources: sources), PrototypeFiles.inventory(root: root, sources: sources))
+        }.value
         guard !Task.isCancelled else { return }
-        detected = scope.apps
+        detected = found.0.apps
+        inventory = found.1
     }
 
     private var root: URL? { workspaceManager.rootNode?.url.standardizedFileURL }
