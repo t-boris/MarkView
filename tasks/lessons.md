@@ -905,3 +905,14 @@ the answer, with the saved default unchanged because the value was the one alrea
   unknown kind and the repair round got no findings. Compile the harness from the worktree that holds the change, and check that its first output
   shows the new behaviour before trusting the run.
 - Never `defaults read <domain> | grep ...` for a key you only suspect: it can print a credential. Read one named key.
+
+
+## A separate process does not see the app's settings: read the real preferences file
+- BUG-057 took hours because every headless planner run answered in English: the setting that caused the Russian (Output language) lives in the
+  app's preferences, and a harness process has its own. Before concluding "the model ignored the rule", list what the app adds to the prompt:
+  grep for every setting that reaches the prompt (`ActionOutputLanguage.current`, `ProjectAIChoice`, model and backend keys) and read their values.
+- `defaults read com.markview.MarkView` from this shell returned a 10-key container copy; the real file has 150 keys. Read
+  `~/Library/Preferences/com.markview.MarkView.plist` with `plistlib` (print key names and the single value you need, never the whole file: it holds API keys).
+  A "key absent" answer from `defaults` is not proof; I wrote a wrong fact into a bug record because of it.
+- A harness that re-implements a call (my `PrototypeCLIStub`) hides differences; compiling the real `CLICompletion.swift` with tiny stubs (`SemanticDatabase`, `AICallLog`) took five minutes.
+- A test that persists state outside the repository (WebKit data of `prototype-runtime-tests`) passes once and fails the next time; give such harnesses a non-persistent store.

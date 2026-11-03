@@ -756,9 +756,11 @@ do {
     let rule = PrototypeAI.sourceLanguageRule
     check(PrototypeAI.languageNote(explicit: "", mode: .code) == rule, "code mode on Document language gets the keep-the-source-language rule")
     check(PrototypeAI.languageNote(explicit: "", mode: .requirements).isEmpty, "requirements mode on Document language gets nothing")
-    let explicit = "\n\nWrite every label, text and message in the prototype in English."
-    check(PrototypeAI.languageNote(explicit: explicit, mode: .code) == explicit
-          && PrototypeAI.languageNote(explicit: explicit, mode: .requirements) == explicit, "an explicit output language replaces the rule in both modes")
+    // BUG-057: the global output language (Russian in Boris's settings) must not translate the labels of a reconstruction.
+    let explicit = "\n\nWrite every label, text and message in the prototype in Russian."
+    check(PrototypeAI.languageNote(explicit: explicit, mode: .code) == rule, "an explicit output language does not replace the rule in code mode")
+    check(PrototypeAI.languageNote(explicit: explicit, mode: .requirements) == explicit, "an explicit output language still applies to a requirements prototype")
+    check(!PrototypeAI.languageNote(explicit: explicit, mode: .code).contains("Russian"), "the code-mode note never carries the chosen language")
     check(rule.hasPrefix("\n\n") && rule.contains("never translate them") && rule.contains("`lang` attribute of index.html")
           && rule.contains("`summary`, `assumptions`, `gaps`") && rule.contains("asks for another language overrides"),
           "the rule says what to copy, the lang attribute, the English summaries and that the reviewer can override it")
