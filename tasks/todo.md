@@ -1,5 +1,20 @@
 # MarkView — Follow-up Tasks
 
+## BUG-061: pictures of a Markdown file are not shown (2026-11-03, 5.12.1, PR #273)
+
+Request (Boris): "huge bug, pictures are not shown, I open README.md and there are huge empty pictures; fix it urgently".
+
+- [x] Reproduce in an isolated debug copy (own bundle id and process name, throwaway project): HTML `<img>` shows empty boxes at the asked width;
+      Markdown images work but the tab is marked modified and a save writes 180 KB of base64 into a 729-byte file.
+- [x] Design: no rewriting of the text; pictures served at `markview-doc:` (policy `DocumentFiles`, handler `DocumentFileSchemeHandler`,
+      page module `markview-document-files.js`); author's paths restored on WYSIWYG serialization; PDF export registers the handler.
+- [x] Checks: `tools/tests/document-files-tests.sh` (policy, node, page in WKWebView, handler in WKWebView) and the `Document Pictures Checks` workflow.
+- [x] Verified in the debug copy: Markdown and HTML pictures, `%20`, `<…>`, title, `./`, `../`, `picture/source`, widths, the repository README, links still open, no modified marker.
+- [x] Repaired `docs/bugs/BUG-007-…md` (374 KB of base64 restored to its two asset references; bytes proven equal to the asset files).
+- [x] Version 5.12.1, PR, merge, `release.sh --publish`, verification.
+- Not hand-checked in the running app: PDF export of a document with pictures (the same handler is covered by a WKWebView check).
+- Known and left alone: WYSIWYG edit turns an `<img width=…>` into `![](…)` (Turndown), losing the width; the editor loads Turndown from a CDN.
+
 ## Hand off to code creates a feature with screenshots (2026-11-03, 5.12.0, PR #272)
 
 Request (Boris): "when I change the prototype and want the code changed, make me a feature or a bug with all the instructions, screenshots

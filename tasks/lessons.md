@@ -1,5 +1,18 @@
 # Lessons
 
+## A document's text is never rewritten to make it displayable (BUG-061, 2026-11-03)
+
+README.md showed empty picture boxes. The editor inlined Markdown images as base64 into the text it held, which also made every file
+with a picture look modified and, on save, wrote the base64 into the file (BUG-007's record was corrupted that way), while HTML `<img>`
+tags were never handled at all. Boris: "We have a huge bug. Pictures are not shown. This is terrible. Fix it urgently."
+- Rule: a resource the page cannot read is served by the app at a URL (`markview-doc:`, like `markview-data:`); the text the editor
+  holds stays byte-for-byte what is on disk. A fix that changes the text to carry a resource is not a fix.
+- Rule: when a page rewrites an address for display, it keeps the author's own value in a data attribute and puts it back when the
+  rendered page is turned into text again.
+- Rule: reproduce with the real thing first (an isolated debug copy on a throwaway project with every form of the input: `%20`,
+  `<…>`, `./`, `../`, `srcset`, `picture`), then look at what else the same mechanism does (here: the "modified" marker and the save).
+- Rule: after finding corruption of this kind, search the person's own repositories for it and repair what the bug wrote.
+
 ## A contract that never varies belongs to MarkView, not to the model (BUG-060, 2026-11-03)
 
 The StrikeDesk prototype showed only the toolbar of its main widget. The shell's `app.js` documented the page structure that every
