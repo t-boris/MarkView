@@ -138,6 +138,7 @@
 		620D68BE2FF9C442E49CCA22 /* cytoscape-elk.js in Resources */ = {isa = PBXBuildFile; fileRef = FA31302DC2D267B205E5A3F6 /* cytoscape-elk.js */; };
 		6278B1EF91F8CD761F6FD6DC /* BookPDFExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1FF1C13F696948C3553311 /* BookPDFExportView.swift */; };
 		633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */; };
+		4C7D1E2F9A3B5C6D8E0F2A1B /* ProjectChangeWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D8E2F3A0B4C6D7E9F1A3B2C /* ProjectChangeWatcher.swift */; };
 		6385489E290DE4853BB7817C /* markdown-it-task-lists.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 4033AD5C5A31B2C7D17C4334 /* markdown-it-task-lists.min.js */; };
 		63CEFB40058DD013BF985C51 /* KaTeX_Fraktur-Bold.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = F5052FB2920AFA8A801BF1A3 /* KaTeX_Fraktur-Bold.woff2 */; };
 		642DFB3CA2C30513BBD38856 /* BookPDFSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B1419B5CA931083661B6F3 /* BookPDFSource.swift */; };
@@ -460,6 +461,7 @@
 		65C20CCECAE81DAC301D96C3 /* ImageViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageViewerView.swift; sourceTree = "<group>"; };
 		663292B1115EE20A8D51CB93 /* markdown-it-footnote.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it-footnote.min.js"; sourceTree = "<group>"; };
 		667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoAnalysisScheduler.swift; sourceTree = "<group>"; };
+		5D8E2F3A0B4C6D7E9F1A3B2C /* ProjectChangeWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeWatcher.swift; sourceTree = "<group>"; };
 		66E0D277415C2D86CE21A125 /* xterm.bundle.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = xterm.bundle.js; sourceTree = "<group>"; };
 		672BEDAD7EC9263CEB5A94A1 /* FILES_CREATED.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = FILES_CREATED.txt; sourceTree = "<group>"; };
 		6779BE82AF1FEBCC63597CDC /* prism-css.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-css.min.js"; sourceTree = "<group>"; };
@@ -724,6 +726,7 @@
 				9A4D926B6E77144DA360543F /* ArchitectureStore.swift */,
 				9727733DA44ECA2B9BBAD30E /* ArchiveSupport.swift */,
 				667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */,
+				5D8E2F3A0B4C6D7E9F1A3B2C /* ProjectChangeWatcher.swift */,
 				D001177FB31E944E039375B0 /* BookAnnotator.swift */,
 				1024FF456031B1D1BC834778 /* BookBuilder.swift */,
 				BED228E05C82D2EF282BC91F /* BookPDFAssistant.swift */,
@@ -1294,6 +1297,7 @@
 				026ACF09E6ABAA2B642614D3 /* ArchiveSupport.swift in Sources */,
 				776B4CCD3D7E382170DA54D9 /* ArchiveTabView.swift in Sources */,
 				633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */,
+				4C7D1E2F9A3B5C6D8E0F2A1B /* ProjectChangeWatcher.swift in Sources */,
 				CDF179D5B91A3BF8ED0DF3F4 /* BookAnnotator.swift in Sources */,
 				C437CB6464A6748152C17D72 /* BookBuilder.swift in Sources */,
 				29FC575DF10ED809E7BBAA16 /* BookPDFAssistant.swift in Sources */,

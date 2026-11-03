@@ -73,6 +73,16 @@ expect(scheduler.decision(at: at(3600)), .analyze, "the same state once the run 
 scheduler = AutoAnalysisScheduler(lastChange: base, lastAIRun: at(30), runActive: true)
 expect(scheduler.decision(at: at(90)), .waitForRun, "active run beats the rescan decision")
 
+// A start requested during a run (the X-Ray tab's scan at project open) follows that run
+scheduler = AutoAnalysisScheduler(runActive: true)
+scheduler.requestRun()
+expect(scheduler.decision(at: base), .waitForRun, "a requested run waits for the active one")
+scheduler.runActive = false
+expect(scheduler.decision(at: base), .analyze, "the requested run starts as soon as the active one ended")
+scheduler = AutoAnalysisScheduler(enabled: false)
+scheduler.requestRun()
+expect(scheduler.decision(at: base), .nothing(reason: AutoAnalysisScheduler.switchOffReason), "a requested run still respects the switch")
+
 // Switch off: nothing, even with a pending change and a free slot
 scheduler = AutoAnalysisScheduler(enabled: false, lastChange: base)
 expect(scheduler.decision(at: at(3600)), .nothing(reason: AutoAnalysisScheduler.switchOffReason), "switch off")
@@ -88,9 +98,9 @@ expect(scheduler.decision(at: at(3600)), .analyze, "at the size cap the project 
 scheduler.sourceFileCount = nil
 expect(scheduler.decision(at: at(3600)), .analyze, "an unknown count does not block the first run")
 
-// Reasons are plain sentences without file contents
-expect(AutoAnalysisScheduler.sizeCapReason(7000).contains("7000"), true, "the reason names the count")
-expect(AutoAnalysisScheduler.sizeCapReason(7000).contains("5000"), true, "the reason names the limit")
+// Reasons are plain sentences without file contents; the size cap one is repeated by the coverage report
+expect(AutoAnalysisScheduler.sizeCapReason(7000), "Project has 7000 source files; automatic analysis stops at 5000, use Refresh",
+       "the size cap reason names the count, the limit and the way out")
 
 print(failures == 0 ? "OK: \(checks) checks passed" : "FAILED: \(failures) of \(checks) checks")
 exit(failures == 0 ? 0 : 1)

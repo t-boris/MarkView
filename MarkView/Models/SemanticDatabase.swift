@@ -772,7 +772,26 @@ class SemanticDatabase {
     }
 
     /// The stored architecture, or nil when this workspace was never scanned.
-    func loadArchitecture() -> ArchitectureSnapshot? {
+    func loadArchitecture() -> ArchitectureSnapshot? { Self.readArchitecture(db) }
+
+    /// The stored architecture read on a read-only connection of its own, off the main
+    /// actor: the automatic code analysis loads it at project open without blocking the UI.
+    /// WAL mode lets this reader run beside the main connection and the indexer.
+    nonisolated func loadArchitectureDetached() async -> ArchitectureSnapshot? {
+        let path = dbPath
+        return await Task.detached(priority: .userInitiated) {
+            var handle: OpaquePointer?
+            let opened = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil)
+            // A failed open still allocates a handle that must be closed.
+            defer { sqlite3_close(handle) }
+            guard opened == SQLITE_OK else { return nil }
+            sqlite3_busy_timeout(handle, 5000)
+            return Self.readArchitecture(handle)
+        }.value
+    }
+
+    /// The architecture tables of `db` as a snapshot; the connection stays the caller's.
+    nonisolated private static func readArchitecture(_ db: OpaquePointer?) -> ArchitectureSnapshot? {
         func text(_ stmt: OpaquePointer?, _ column: Int32) -> String? {
             sqlite3_column_text(stmt, column).map { String(cString: $0) }
         }

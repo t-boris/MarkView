@@ -69,6 +69,9 @@ final class ArchitectureStore: ObservableObject {
     private var automaticContext: (root: URL, db: SemanticDatabase?)?
     /// Sleeps until the scheduler's next decision.
     private var refreshTask: Task<Void, Never>?
+    /// Reports changes below the project root (the file tree only sees its top level);
+    /// started with `automaticContext`, stopped by `reset`.
+    private var changeWatcher: ProjectChangeWatcher?
     /// A folder's own X-Ray is kept here (JSON) instead of the project database, and its
     /// AI answers are cached in `cacheDirectory` — both inside the project's `.dde`, so
     /// nothing is written into the folder itself.
@@ -289,6 +292,8 @@ final class ArchitectureStore: ObservableObject {
         answerByCall = [:]
         scheduler = AutoAnalysisScheduler()
         automaticContext = nil
+        changeWatcher?.stop()
+        changeWatcher = nil
         automaticState = .idle
         clearUnderstandingAttachments()
         understandingTasks.values.forEach { $0.cancel() }
@@ -432,8 +437,10 @@ final class ArchitectureStore: ObservableObject {
                                         enrichedAt: previous?.enrichedAt, gitHead: result.gitHead,
                                         codeSequences: previous?.codeSequences, codeModel: previous?.codeModel)
         let model = previous?.codeModel
+        let sourceFileCount = automaticSourceFileCount(result.modules)
         next.codeCoverage = await Task.detached(priority: .userInitiated) {
-            CodeArchitecture.coverage(modules: result.modules, model: model, skipped: result.skipped, capabilities: .current)
+            CodeArchitecture.coverage(modules: result.modules, model: model, skipped: result.skipped, capabilities: .current,
+                                      sourceFileCount: sourceFileCount)
         }.value
         guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return nil }
         pendingDeploymentSignature = result.deploymentSignature
@@ -1252,18 +1259,29 @@ final class ArchitectureStore: ObservableObject {
             next.codeModel = model
             let skipped = next.codeCoverage?.skipped ?? []
             let analyzed = model
+            let sourceFileCount = automaticSourceFileCount(modules)
             next.codeCoverage = await Task.detached(priority: .userInitiated) {
-                CodeArchitecture.coverage(modules: modules, model: analyzed, skipped: skipped, capabilities: .current)
+                CodeArchitecture.coverage(modules: modules, model: analyzed, skipped: skipped, capabilities: .current,
+                                          sourceFileCount: sourceFileCount)
             }.value
+            guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return .cancelled }
             commit(next, db: db)
             return .analyzed(fromCache: fromCache)
         } catch is CancellationError {
             // Keep the previous architecture when stopped.
             return .cancelled
         } catch {
+            // A CLI run ended by the cancellation may report its own error: not the user's concern.
+            guard !Task.isCancelled else { return .cancelled }
             self.error = "Could not analyze the code: \(error.localizedDescription)"
             return .failed
         }
+    }
+
+    /// The source file count behind the size cap of the automatic analysis (DEC-003), for
+    /// the coverage reasons; nil for a folder X-Ray, which is never analyzed automatically.
+    private func automaticSourceFileCount(_ modules: ArchView) -> Int? {
+        projectRoot == nil ? modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" }.count : nil
     }
 
     /// Trace one scenario with the project's existing read-only assistant. A failed
@@ -1361,20 +1379,6 @@ final class ArchitectureStore: ObservableObject {
         return diagram
     }
 
-    /// Trace the scenarios the code analysis chose (`codeModel.scenarios`) one after
-    /// another through the same path as a manual trace, then replace the automatic
-    /// sequences with the result; manual traces are kept (DEC-002). A cancelled run
-    /// changes nothing, and a run in which every scenario failed keeps the previous
-    /// automatic sequences. The automatic pipeline chains this after the code analysis.
-    func runAutoScenarios(root: URL, db: SemanticDatabase?) {
-        guard !busy, Self.autoScenarios(in: snapshot) != nil else { return }
-        let token = beginRun()
-        analysisTask = Task {
-            defer { endRun(token) }
-            await performAutoScenarios(root: root, db: db)
-        }
-    }
-
     /// The accepted scenarios and the source files they may start from; nil without any.
     private static func autoScenarios(in snapshot: ArchitectureSnapshot?)
         -> (modules: ArchView, scenarios: [CodeArchitectureModel.Scenario], files: [String])? {
@@ -1384,21 +1388,27 @@ final class ArchitectureStore: ObservableObject {
         return (modules, scenarios, files)
     }
 
-    /// The traces themselves, shared by `runAutoScenarios` and the automatic pipeline.
-    /// Runs inside the caller's run (flag, progress and task are the caller's).
+    /// Trace the scenarios the code analysis chose (`codeModel.scenarios`) one after
+    /// another through the same path as a manual trace, then replace the automatic
+    /// sequences with the result; manual traces are kept (DEC-002). A cancelled run
+    /// changes nothing. A run in which every scenario failed keeps the previous automatic
+    /// sequences and, like a successful one, records the source signature it traced
+    /// (`tracedSignature`) with the failures (`traceNotes`, repeated by the coverage
+    /// report), so the traces are not retried at every open but after a source change
+    /// or Refresh. Runs inside the caller's run (flag, progress and task are the caller's).
     private func performAutoScenarios(root: URL, db: SemanticDatabase?) async {
         guard let auto = Self.autoScenarios(in: snapshot) else { return }
         let (modules, scenarios, files) = auto
         let started = Date()
         var traced: [CodeSequence] = []
-        var failures: [String] = []
+        var failures: [(title: String, reason: String)] = []
         for (index, scenario) in scenarios.enumerated() {
             if Task.isCancelled { break }
             beginStep(index + 1, "Tracing " + scenario.title, started: started, steps: scenarios.count)
             setProgressScope(scenario.question)
             let paths = files.filter { $0 == scenario.scope || $0.hasPrefix(scenario.scope + "/") }.sorted()
             guard !paths.isEmpty else {
-                failures.append("\(scenario.title): no source files under \(scenario.scope)")
+                failures.append((scenario.title, "no source files under \(scenario.scope)"))
                 continue
             }
             do {
@@ -1410,16 +1420,24 @@ final class ArchitectureStore: ObservableObject {
             } catch is CancellationError {
                 break
             } catch {
-                failures.append("\(scenario.title): \(error.localizedDescription)")
+                failures.append((scenario.title, error.localizedDescription))
             }
         }
-        if !Task.isCancelled, !traced.isEmpty, rootPath == root.standardizedFileURL.path, var next = snapshot {
+        guard !Task.isCancelled, rootPath == root.standardizedFileURL.path, var next = snapshot, var model = next.codeModel else { return }
+        if !traced.isEmpty {
             next.codeSequences = CodeArchitecture.replacingAutoSequences(in: next.codeSequences ?? [], with: traced)
-            commit(next, db: db)
         }
-        if !Task.isCancelled, !failures.isEmpty {
-            error = "Could not trace \(failures.count) of \(scenarios.count) automatic scenarios: " + failures.joined(separator: "; ")
-        }
+        model.tracedSignature = modules.nodes.first { $0.id == "m:" }?.signature
+        model.traceNotes = failures.isEmpty ? nil : failures.map { "Could not trace the scenario \"\($0.title)\": \($0.reason)" }
+        next.codeModel = model
+        let skipped = next.codeCoverage?.skipped ?? []
+        let sourceFileCount = automaticSourceFileCount(modules)
+        next.codeCoverage = await Task.detached(priority: .userInitiated) {
+            CodeArchitecture.coverage(modules: modules, model: model, skipped: skipped, capabilities: .current,
+                                      sourceFileCount: sourceFileCount)
+        }.value
+        guard !Task.isCancelled, rootPath == root.standardizedFileURL.path else { return }
+        commit(next, db: db)
     }
 
     // MARK: - Automatic code analysis (REQ-002 of automatic-code-architecture)
@@ -1427,30 +1445,48 @@ final class ArchitectureStore: ObservableObject {
     /// Analyze the project's code in the background, without the X-Ray tab: a local scan,
     /// then — when the source changed since the saved model — the code analysis and the
     /// automatic scenario traces, one run at a time. Project scope only: folder X-Rays stay
-    /// manual. A start while a scan or analysis runs is ignored; `reset` (project close or
-    /// switch) cancels the run, and a cancelled run commits nothing. Nothing starts with the
-    /// `xray.autoAnalyze` switch off (DEC-001); the size cap (DEC-003) and a missing or
-    /// signed-out agent (DEC-004) end the run after the local scan, in `automaticState`.
-    /// `force` is the Code view's Refresh (DEC-002): it runs now, with the switch off, above
-    /// the size cap and inside the 15 min interval, and reads the model again even when the
-    /// source did not change (cached answers make that free).
+    /// manual. A start while a scan or analysis runs (the X-Ray tab restored first) is
+    /// taken up when that run ends; `reset` (project close or switch) cancels the run, and
+    /// a cancelled run commits nothing. With the `xray.autoAnalyze` switch off nothing runs
+    /// and the state is `.off` (DEC-001); the size cap (DEC-003) and a missing or signed-out
+    /// agent (DEC-004) end the run after the local scan, in `automaticState`. Either way the
+    /// project is watched for changes from here on (`noteProjectChanged`), so a later switch
+    /// or Refresh works without reopening. `force` is the Code view's Refresh (DEC-002): it
+    /// runs now, with the switch off, above the size cap and inside the 15 min interval, and
+    /// reads the model again even when the source did not change (cached answers make that free).
     func startAutomaticCodeAnalysis(root: URL, db: SemanticDatabase?, force: Bool = false) {
         guard projectRoot == nil else { return }
         automaticContext = (root, db)
+        watchProjectChanges(root)
         guard AIAssistantPreferences.autoAnalyze || force else {
             automaticState = .off
             return
         }
-        guard !busy else { return }
+        guard !busy else {
+            // `endRun` of the active run arms the scheduler, whose decision is then to run.
+            scheduler.requestRun()
+            return
+        }
         if rootPath == nil { rootPath = root.standardizedFileURL.path }
         guard rootPath == root.standardizedFileURL.path else { return }
-        loadStoredSnapshot(db: db)
         scheduler.lastChange = nil
         let token = beginRun()
         analysisTask = Task {
             defer { endRun(token) }
-            await runAutomaticPipeline(root: root, db: db, force: force)
+            await runAutomaticPipeline(root: root, db: db, force: force, token: token)
         }
+    }
+
+    /// Changes below the project root reach `noteProjectChanged` through an FSEvents
+    /// stream (the file tree only reports its top level); one watcher per root.
+    private func watchProjectChanges(_ root: URL) {
+        if let watcher = changeWatcher {
+            if watcher.root.standardizedFileURL == root.standardizedFileURL { return }
+            watcher.stop()
+        }
+        let watcher = ProjectChangeWatcher(root: root) { [weak self] in self?.noteProjectChanged() }
+        watcher.start()
+        changeWatcher = watcher
     }
 
     /// The Code view's Refresh: the automatic pipeline, forced, for the project; a folder
@@ -1465,59 +1501,77 @@ final class ArchitectureStore: ObservableObject {
     }
 
     /// The stages, chained explicitly inside one task so that cancellation reaches each.
-    private func runAutomaticPipeline(root: URL, db: SemanticDatabase?, force: Bool) async {
-        automaticState = .scanning
+    /// `token` is this run's: after `reset` every state write is skipped, so a cancelled
+    /// run cannot overwrite the next workspace's state.
+    private func runAutomaticPipeline(root: URL, db: SemanticDatabase?, force: Bool, token: Int) async {
+        func show(_ state: AutomaticState) {
+            guard token == runToken, !Task.isCancelled else { return }
+            automaticState = state
+        }
+        show(.scanning)
+        // The saved architecture, read on a connection of its own so the open does not block the UI.
+        if snapshot == nil {
+            let stored = await db?.loadArchitectureDetached()
+            guard token == runToken, !Task.isCancelled else { return }
+            if snapshot == nil, let stored = stored ?? loadPersisted() {
+                snapshot = stored
+                revision += 1
+            }
+        }
         guard let result = await performScan(root: root, db: db) else {
-            automaticState = .idle
+            show(.idle)
             return
         }
-        if !Task.isCancelled { outlineContents(root: root) }
+        guard token == runToken, !Task.isCancelled else { return }
+        outlineContents(root: root)
         scheduler.sourceFileCount = result.sourceFileCount
         if !force, AutoAnalysisScheduler.exceedsSizeCap(result.sourceFileCount) {
-            automaticState = .tooLarge(files: result.sourceFileCount)
+            show(.tooLarge(files: result.sourceFileCount))
             return
         }
         guard let code = Self.codeFiles(in: snapshot) else {
-            automaticState = .skipped(reason: "No source files to analyze")
+            show(.skipped(reason: "No source files to analyze"))
             return
         }
         let signature = code.modules.nodes.first { $0.id == "m:" }?.signature
         let model = snapshot?.codeModel
         let modelIsCurrent = model != nil && signature != nil && model?.signature == signature
-        let tracesMissing = !(model?.scenarios ?? []).isEmpty && snapshot?.codeSequences?.contains(where: \.auto) != true
+        // Traces are current when the model chose none, when automatic sequences exist, or
+        // when the last automatic run traced this very source (even if every trace failed).
+        let tracesMissing = !(model?.scenarios ?? []).isEmpty
+            && snapshot?.codeSequences?.contains(where: \.auto) != true
+            && model?.tracedSignature != signature
         if modelIsCurrent, !tracesMissing, !force {
-            automaticState = .done(model?.analyzedAt ?? Date())
+            show(.done(model?.analyzedAt ?? Date()))
             return
         }
 
         // DEC-004: no agent or signed out — local layers only, one quiet status line.
-        automaticState = .analyzing(step: "Checking the assistant")
+        show(.analyzing(step: "Checking the assistant"))
         let tool = AIAssistantPreferences.backend(project: project)
         let probe = await CLIToolLocator.probe(tool)
-        guard !Task.isCancelled else { automaticState = .idle; return }
+        guard token == runToken, !Task.isCancelled else { return }
         if let problem = probe.error {
-            automaticState = .unavailable(reason: "\(tool.displayName) is not available: \(problem)")
+            show(.unavailable(reason: "\(tool.displayName) is not available: \(problem)"))
             return
         }
         if probe.loggedIn == false {
-            automaticState = .unavailable(reason: "\(tool.displayName) is signed out")
+            show(.unavailable(reason: "\(tool.displayName) is signed out"))
             return
         }
 
         scheduler.lastAIRun = Date()
         if !modelIsCurrent || force {
-            automaticState = .analyzing(step: "Reading the code architecture")
+            show(.analyzing(step: "Reading the code architecture"))
             switch await performCodeAnalysis(root: root, db: db) {
             case .analyzed: break
-            case .cancelled: automaticState = .idle; return
-            case .failed: automaticState = .idle; return
+            case .cancelled, .failed: show(.idle); return
             }
         }
-        guard !Task.isCancelled else { automaticState = .idle; return }
-        automaticState = .analyzing(step: "Tracing scenarios")
+        guard token == runToken, !Task.isCancelled else { return }
+        show(.analyzing(step: "Tracing scenarios"))
         await performAutoScenarios(root: root, db: db)
-        guard !Task.isCancelled else { automaticState = .idle; return }
-        automaticState = .done(Date())
+        show(.done(Date()))
     }
 
     /// The project's files changed (file-tree reload): refresh after the quiet period,
@@ -4031,6 +4085,9 @@ final class ArchitectureStore: ObservableObject {
             let codeSequenceDiagrams: [String]
             /// The automatic code analysis, for the Code view's status line.
             let automaticState: AutomaticStatePayload
+            /// The automatic pipeline applies to this X-Ray (the project's, not a folder's):
+            /// Refresh runs it, with the automatic scenarios.
+            let automaticAnalysis: Bool
             /// One entry per `snapshot.codeSequences`, in the same order: what the scenario
             /// list shows (the snapshot's own sequences carry the diagram and citations).
             let codeSequenceInfo: [CodeSequenceInfo]
@@ -4044,6 +4101,7 @@ final class ArchitectureStore: ObservableObject {
                               understandingAnswers: understandingAnswers, edgeNotes: edgeNotes,
                               codeSequenceDiagrams: (snapshot?.codeSequences ?? []).map { CodeArchitecture.sequenceMermaid($0.diagram) },
                               automaticState: AutomaticStatePayload(automaticState),
+                              automaticAnalysis: projectRoot == nil,
                               codeSequenceInfo: (snapshot?.codeSequences ?? []).map { sequence in
                                   CodeSequenceInfo(title: sequence.diagram.title, scope: sequence.scope, auto: sequence.auto,
                                                    stale: modules.map { sequence.isStale(modules: $0) } ?? false, createdAt: sequence.createdAt)

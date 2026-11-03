@@ -139,6 +139,16 @@ document.getElementById('arch-analyze').click();
 return document.getElementById('arch-analyze').textContent;
 """)
 check(text == "Refresh" && bridge.messages.contains { ($0["payload"] as? [String: Any])?["action"] as? String == "refreshCode" }, "Refresh runs the automatic code pipeline now", text)
+text = js("""
+const folder = JSON.parse(JSON.stringify(window.testPayload)); folder.automaticAnalysis = false;
+window.showArchitecture(folder);
+const folderTitle = document.getElementById('arch-analyze').title;
+window.showArchitecture(window.testPayload);
+return folderTitle + '|' + document.getElementById('arch-analyze').title;
+""")
+check(text.hasPrefix("Analyze the code of this folder again now") && !text.split(separator: "|")[0].contains("automatic")
+      && text.hasSuffix("|Analyze the code again now: components, layers and automatic scenarios (manual traces are kept)"),
+      "a folder X-Ray's Refresh does not promise automatic scenarios", text)
 
 // Automatic Code Architecture, step 5: the status line, "What was understood", the legend and the scenario markers.
 text = js("""

@@ -204,9 +204,11 @@ enum CodeArchitecture {
     ///   extractor and an outline pattern;
     /// - partial: otherwise (no model yet, or a scanner capability is missing).
     /// A language's level is the best level any of its files reached; the counts
-    /// state how many files reached each level.
+    /// state how many files reached each level. `sourceFileCount` is the scanner's count
+    /// behind the size cap of the automatic analysis (DEC-003), reported as a reason when
+    /// it is exceeded; nil for a folder X-Ray, which is never analyzed automatically.
     static func coverage(modules: ArchView, model: CodeArchitectureModel?, skipped: [CodeCoverage.Skipped],
-                         capabilities: CodeCoverage.Capabilities, now: Date = Date()) -> CodeCoverage {
+                         capabilities: CodeCoverage.Capabilities, sourceFileCount: Int? = nil, now: Date = Date()) -> CodeCoverage {
         let files = modules.nodes.filter { $0.kind == "file" && $0.language != "markdown" && $0.language != nil && $0.path != nil }
         let assignments = model.map { fileAssignments($0, paths: files.map { $0.path! }) } ?? [:]
         var counts: [String: (full: Int, partial: Int, notAnalyzed: Int)] = [:]
@@ -259,7 +261,11 @@ enum CodeArchitecture {
             case .tooLarge: reasons.append(what + ": larger than the \(ArchitectureScanner.maxParseBytes / 1024) KB parse limit")
             }
         }
+        if let sourceFileCount, AutoAnalysisScheduler.exceedsSizeCap(sourceFileCount) {
+            reasons.append(AutoAnalysisScheduler.sizeCapReason(sourceFileCount))
+        }
         reasons += model?.scenarioNotes ?? []
+        reasons += model?.traceNotes ?? []
         return CodeCoverage(version: CodeCoverage.currentVersion, languages: languages, unassignedFiles: unassigned,
                             skipped: skipped, reasons: reasons, hasModel: model != nil, computedAt: now)
     }
@@ -698,4 +704,10 @@ struct CodeArchitectureModel: Codable {
     var scenarios: [Scenario]? = nil
     /// Why suggested scenarios were dropped, or that too few were suggested.
     var scenarioNotes: [String]? = nil
+    /// Root signature of the Modules view when the automatic run last traced `scenarios`,
+    /// whether or not any trace succeeded; nil before the first automatic trace. A run
+    /// whose traces all failed is not repeated until the source changes or Refresh runs.
+    var tracedSignature: String? = nil
+    /// Why automatic scenarios could not be traced in that run; the coverage report repeats them.
+    var traceNotes: [String]? = nil
 }

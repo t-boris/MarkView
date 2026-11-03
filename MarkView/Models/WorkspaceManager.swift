@@ -19,9 +19,6 @@ final class WorkspaceFileTreeStore: ObservableObject {
     var shouldAutoRefresh: () -> Bool = { true }
     /// Called on every beat of the watcher's timer (the Git status changes without the top folder changing).
     var onTimer: () -> Void = {}
-    /// Called after the tree was rebuilt because the folder changed on disk (not after a
-    /// sort or exclusion change); the automatic code analysis refreshes from it.
-    var onFolderChanged: () -> Void = {}
 
     private var fileWatcher: DispatchSourceFileSystemObject?
     private var fileWatchTimer: Timer?
@@ -140,7 +137,7 @@ final class WorkspaceFileTreeStore: ObservableObject {
 
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.shouldAutoRefresh() else { return }
-                self.reloadFileTree(folderChanged: true)
+                self.reloadFileTree()
             }
 
             self.fileWatchDebounce = work
@@ -165,12 +162,11 @@ final class WorkspaceFileTreeStore: ObservableObject {
 
         if modDate != lastRootModDate {
             lastRootModDate = modDate
-            reloadFileTree(folderChanged: true)
+            reloadFileTree()
         }
     }
 
-    /// Rebuild the tree; `folderChanged` when the disk changed, not the view of it.
-    private func reloadFileTree(folderChanged: Bool = false) {
+    private func reloadFileTree() {
         guard let currentRoot = rootNode else {
             Self.log("reloadFileTree: rootNode is nil, skipping")
             return
@@ -192,7 +188,6 @@ final class WorkspaceFileTreeStore: ObservableObject {
                 self.rootNode = rebuilt
                 self.lastRootModDate = self.rootModificationDate(for: rootURL)
                 Self.log("reloadFileTree: rootNode updated on MainActor")
-                if folderChanged { self.onFolderChanged() }
             }
         }
     }
@@ -656,11 +651,6 @@ class WorkspaceManager: ObservableObject {
             guard let self, self.gitClient.isGitRepo, !self.gitClient.isOperating, NSApp.isActive else { return }
             Task { await self.gitClient.refreshStatus() }
         }
-        // The project's files changed: the automatic code analysis refreshes after the quiet
-        // period (DEC-003); the store ignores it unless the analysis was started for this project.
-        fileTreeStore.onFolderChanged = { [weak self] in
-            self?.architecture.noteProjectChanged()
-        }
         fileTreeStore.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
@@ -770,9 +760,9 @@ class WorkspaceManager: ObservableObject {
             // Code projects get a prominent "Open Architecture" on the welcome screen.
             let isCode = await Task.detached { ArchitectureScanner.looksLikeCodeProject(url) }.value
             if rootNode?.url == url { isCodeProject = isCode }
-            // Code projects are analyzed in the background without the X-Ray tab (DEC-001);
-            // the store applies the size cap from its own scan (DEC-003).
-            if rootNode?.url == url, isCode, AIAssistantPreferences.autoAnalyze {
+            // Code projects are analyzed in the background without the X-Ray tab; the store
+            // honours the switch (`.off`, DEC-001) and applies the size cap from its own scan (DEC-003).
+            if rootNode?.url == url, isCode {
                 architecture.startAutomaticCodeAnalysis(root: url, db: semanticDatabase)
             }
             completion?()
@@ -1901,8 +1891,6 @@ class WorkspaceManager: ObservableObject {
             architecture.explainEdge(view: payload["view"] as? String ?? "modules", source: source, target: target,
                                      kind: payload["kind"] as? String ?? "uses", label: payload["label"] as? String,
                                      root: root, db: semanticDatabase, fresh: payload["again"] as? Bool == true)
-        case "analyzeCode":
-            architecture.analyzeCode(root: root, db: semanticDatabase)
         case "refreshCode":
             // The Code view's Refresh (DEC-002): the automatic pipeline now, forced.
             architecture.refreshCode(root: root, db: semanticDatabase)
@@ -3515,6 +3503,11 @@ class WorkspaceManager: ObservableObject {
             tabsStore.updateTab(at: index) { mutableTab in
                 mutableTab.isModified = false
                 mutableTab.originalContent = tab.content // new baseline
+            }
+            // A file saved inside the project is a change the automatic code analysis refreshes
+            // from (REQ-002), at once rather than after the change watcher's latency.
+            if let root = rootNode?.url.standardizedFileURL.path, tab.url.standardizedFileURL.path.hasPrefix(root + "/") {
+                architecture.noteProjectChanged()
             }
         } catch {
             NSLog("Error saving file: \(error)")

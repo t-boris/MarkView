@@ -40,10 +40,17 @@ struct AutoAnalysisScheduler: Equatable {
     /// A scan or analysis is in progress.
     var runActive = false
 
+    /// A run was requested while one was active (the X-Ray tab's scan at project open):
+    /// record a change older than any quiet period, so the decision once the active run
+    /// ends is to run at once.
+    mutating func requestRun() { lastChange = .distantPast }
+
     static let switchOffReason = "Automatic analysis is off in Settings"
 
+    /// Why nothing ran above the size cap; `CodeArchitecture.coverage` repeats it in the
+    /// "What was understood" reasons (DEC-003).
     static func sizeCapReason(_ count: Int) -> String {
-        "\(count) source files exceed the automatic limit of \(maximumSourceFiles); use Refresh to analyze"
+        "Project has \(count) source files; automatic analysis stops at \(maximumSourceFiles), use Refresh"
     }
 
     /// Whether a project of `count` source files is analyzed automatically.

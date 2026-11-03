@@ -2813,7 +2813,10 @@
                 el.codeTrace.hidden = ui.view !== 'code' || p.mode === 'pr';
                 el.analyze.disabled = !!p.busy || !p.snapshot;
                 el.analyze.textContent = ui.view === 'code' ? 'Refresh' : 'Analyze';
-                el.analyze.title = ui.view === 'code' ? 'Analyze the code again now: components, layers and automatic scenarios (manual traces are kept)' : 'Describe modules and map deployment with the selected AI assistant';
+                // A folder X-Ray has no automatic pipeline: its Refresh re-reads components and layers only.
+                el.analyze.title = ui.view !== 'code' ? 'Describe modules and map deployment with the selected AI assistant'
+                    : p.automaticAnalysis === false ? 'Analyze the code of this folder again now: components and layers (traces stay manual)'
+                    : 'Analyze the code again now: components, layers and automatic scenarios (manual traces are kept)';
                 el.rescan.disabled = !!p.busy;
                 renderDeployButton();
                 // The progress bar shows the analysis; the status line covers everything else.

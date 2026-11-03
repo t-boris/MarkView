@@ -220,6 +220,18 @@ check(CodeArchitecture.withAcceptedScenarios(model, modules: modules).scenarioNo
 let scenarioCoverage = CodeArchitecture.coverage(modules: modules, model: accepted, skipped: [], capabilities: capabilities)
 check(scenarioCoverage.reasons.suffix(6) == notes[...] && scenarioCoverage.languages == analyzed.languages,
       "the coverage report repeats the scenario notes after the language reasons")
+// Failed automatic traces and the size cap of the automatic analysis are coverage reasons too.
+var untraced = accepted
+untraced.tracedSignature = "sig1"
+untraced.traceNotes = ["Could not trace the scenario \"Place an order\": the assistant is signed out"]
+let untracedCoverage = CodeArchitecture.coverage(modules: modules, model: untraced, skipped: [], capabilities: capabilities)
+check(untracedCoverage.reasons.suffix(7) == (notes + untraced.traceNotes!)[...], "trace failures follow the scenario notes in the coverage reasons")
+let cappedReason = "Project has 5001 source files; automatic analysis stops at 5000, use Refresh"
+let capped = CodeArchitecture.coverage(modules: modules, model: model, skipped: [], capabilities: capabilities, sourceFileCount: 5001)
+check(capped.reasons.contains(cappedReason) && capped.reasons.last == cappedReason
+      && !CodeArchitecture.coverage(modules: modules, model: model, skipped: [], capabilities: capabilities, sourceFileCount: 5000).reasons.contains(cappedReason)
+      && !analyzed.reasons.contains { $0.hasPrefix("Project has") },
+      "the size cap is a coverage reason only above 5000 source files of a project X-Ray")
 // Sequences: per-sequence staleness through the cited files, automatic ones replaced as a set.
 var signed = modules
 for i in signed.nodes.indices where signed.nodes[i].kind == "file" { signed.nodes[i].signature = "s-" + signed.nodes[i].path! }
@@ -252,7 +264,7 @@ check(replaced.map(\.diagram.title) == ["New automatic", "Place an order"] && re
 check(CodeArchitecture.replacingAutoSequences(in: [oldAuto, manual], with: []).map(\.diagram.title) == ["Place an order"],
       "an automatic refresh without results removes nothing manual")
 snapshot.codeSequences = [manual, traced]
-snapshot.codeModel = accepted
+snapshot.codeModel = untraced
 snapshot.codeCoverage = skipped
 let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
 let encoded = try encoder.encode(snapshot)
@@ -269,17 +281,20 @@ beforeScenarios["codeSequences"] = (beforeScenarios["codeSequences"] as! [[Strin
 }
 var oldModel = beforeScenarios["codeModel"] as! [String: Any]
 oldModel.removeValue(forKey: "scenarios"); oldModel.removeValue(forKey: "scenarioNotes")
+oldModel.removeValue(forKey: "tracedSignature"); oldModel.removeValue(forKey: "traceNotes")
 beforeScenarios["codeModel"] = oldModel
 let preScenario = try? decoder.decode(ArchitectureSnapshot.self, from: JSONSerialization.data(withJSONObject: beforeScenarios))
 check(preScenario?.codeSequences?.map(\.auto) == [false, false] && preScenario?.codeSequences?.allSatisfy { $0.citedPaths.isEmpty && $0.citedSignatures.isEmpty } == true
-      && preScenario?.codeModel?.scenarios == nil && preScenario?.codeModel?.scenarioNotes == nil,
-      "sequences and models saved before scenarios decode as manual traces without scenarios")
+      && preScenario?.codeModel?.scenarios == nil && preScenario?.codeModel?.scenarioNotes == nil
+      && preScenario?.codeModel?.tracedSignature == nil && preScenario?.codeModel?.traceNotes == nil,
+      "sequences and models saved before scenarios decode as manual traces without scenarios or trace records")
 let restored = try decoder.decode(ArchitectureSnapshot.self, from: encoded)
 check(restored.codeModel?.components.count == 5 && restored.codeSequences?.count == 2, "model and sequences survive snapshot encoding")
 check(restored.codeSequences?.map(\.auto) == [false, true] && restored.codeSequences?[1].citedPaths == traced.citedPaths
       && restored.codeSequences?[1].citedSignatures == traced.citedSignatures
-      && restored.codeModel?.scenarios == accepted.scenarios && restored.codeModel?.scenarioNotes == notes,
-      "the automatic flag, cited files and scenarios survive snapshot encoding")
+      && restored.codeModel?.scenarios == accepted.scenarios && restored.codeModel?.scenarioNotes == notes
+      && restored.codeModel?.tracedSignature == "sig1" && restored.codeModel?.traceNotes == untraced.traceNotes,
+      "the automatic flag, cited files, scenarios and the trace record survive snapshot encoding")
 check(restored.codeCoverage.map { $0.languages == skipped.languages && $0.reasons == skipped.reasons && $0.skipped == skips && $0.version == skipped.version } == true,
       "the coverage report survives snapshot encoding")
 snapshot.views.append(CodeArchitecture.view(withSymbols))

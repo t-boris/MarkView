@@ -38,7 +38,8 @@ struct ArchitectureScanner {
     /// Languages whose import statements `ImportResolver.resolve` understands; keep in
     /// sync with its `switch`.
     static let importLanguages: Set<String> = ["javascript", "typescript", "html", "python", "go", "rust", "c", "cpp", "objectivec", "objectivecpp", "ruby", "swift"]
-    private static let skippedDirectories: Set<String> = [
+    /// Folders the scan never enters; `ProjectChangeWatcher` ignores changes inside them too.
+    static let skippedDirectories: Set<String> = [
         "node_modules", "build", "dist", "out", "target", "Pods", "DerivedData", ".build",
         "venv", ".venv", "__pycache__", "coverage", ".next", ".nuxt", ".dde", ".git",
         ".markview-insight", ".idea", ".vscode", "bower_components",

@@ -37,23 +37,36 @@ The analysis answer also proposes `scenarios` (3, at most 5: title, question and
 file or directory scope chosen from the entry points). `CodeArchitecture.withAcceptedScenarios`
 drops the invalid ones (empty title or question, duplicate title, unknown or outside scope,
 beyond the cap) and records each reason in the model's `scenarioNotes`, which the coverage
-report repeats. `ArchitectureStore.runAutoScenarios` traces the accepted scenarios one after
-another through the same path as a manual trace and replaces only the automatic sequences
-(`auto: true`); manual traces are never discarded by it (DEC-002).
+report repeats. The automatic pipeline traces the accepted scenarios one after another
+through the same path as a manual trace and replaces only the automatic sequences
+(`auto: true`); manual traces are never discarded by it (DEC-002). The model then records
+the root signature it traced (`tracedSignature`) and the failures (`traceNotes`, repeated by
+the coverage report), so a run whose traces all failed is not retried at every open but after
+a source change or Refresh.
 `ArchitectureStore.startAutomaticCodeAnalysis` (project scope only, called by
-`WorkspaceManager.openFolder` for code projects while `xray.autoAnalyze` is on, DEC-001) runs
-the pipeline in one task without the X-Ray tab: local scan → size cap (DEC-003) → unchanged
-root signature means done → `CLIToolLocator.probe` of the project's assistant (absent or
-signed out: `automaticState = .unavailable`, DEC-004) → code analysis → automatic traces.
-`automaticState` (idle, scanning, analyzing, done, unavailable, off, tooLarge, skipped) is
-the published state for the Code view; a change bumps `revision`, and the payload carries it
-as `automaticState {kind, step?, reason?, date?, files?}` next to `codeSequenceInfo`
-(per sequence: title, scope, `auto`, `stale` from `CodeSequence.isStale`, createdAt). File-tree reloads caused by the folder changing on disk call
-`noteProjectChanged`; the pure `AutoAnalysisScheduler` (`tools/tests/auto-analysis-scheduler-tests.sh`)
-decides from timestamps: 60 s of quiet, one local rescan per change inside the 15 min AI
-interval, the AI run once it is allowed, nothing while a run is active. Every scan and
-analysis holds a run token; `reset` cancels them and invalidates their cleanup, and a
-cancelled run commits nothing.
+`WorkspaceManager.openFolder` for every code project) runs the pipeline in one task without
+the X-Ray tab: the saved snapshot read on a read-only SQLite connection off the main actor
+(`SemanticDatabase.loadArchitectureDetached`) → local scan → size cap (DEC-003) → unchanged
+root signature and traces mean done → `CLIToolLocator.probe` of the project's assistant
+(absent or signed out: `automaticState = .unavailable`, DEC-004) → code analysis → automatic
+traces. With `xray.autoAnalyze` off the state is `.off` and nothing runs (DEC-001); a start
+while the X-Ray tab's own scan runs is taken up when that scan ends
+(`AutoAnalysisScheduler.requestRun`). `automaticState` (idle, scanning, analyzing, done,
+unavailable, off, tooLarge, skipped) is the published state for the Code view; a change bumps
+`revision`, and the payload carries it as `automaticState {kind, step?, reason?, date?, files?}`
+next to `automaticAnalysis` (false for a folder X-Ray, whose Refresh promises no automatic
+scenarios) and `codeSequenceInfo` (per sequence: title, scope, `auto`, `stale` from
+`CodeSequence.isStale`, createdAt). Changes reach `noteProjectChanged` from
+`ProjectChangeWatcher` — an FSEvents stream on the project root (3 s latency, changes inside
+`ArchitectureScanner.skippedDirectories` such as `.dde`, `.git` and build output dropped, the
+callback hopping to the main actor) started with the pipeline and stopped by `reset` — and at
+once from the editor's save of a file inside the project. The pure `AutoAnalysisScheduler`
+(`tools/tests/auto-analysis-scheduler-tests.sh`) decides from timestamps: 60 s of quiet, one
+local rescan per change inside the 15 min AI interval, the AI run once it is allowed, nothing
+while a run is active or with the switch off. Every scan and analysis holds a run token;
+`reset` cancels them and invalidates their cleanup and every later `automaticState` write of
+the pipeline, and a cancelled run commits nothing. The size cap is repeated as a coverage
+reason ("Project has N source files; automatic analysis stops at 5000, use Refresh").
 The code analysis and every trace are cached like the other X-Ray answers (`.dde/cache/xray`,
 keyed by the request plus the Modules signature): a re-run over unchanged source makes no CLI call.
 `CodeArchitecture.coverage` (pure, run off the main thread after every scan and after a code
