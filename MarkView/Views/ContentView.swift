@@ -230,7 +230,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .archive, .deployments, .discussions, .terminal, .browser, .data, .prototype:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .data, .prototype:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -613,6 +613,9 @@ struct ContentView: View {
                         ImageViewerView(url: activeTab.url)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
+                    } else if case .pdf(let reader) = activeTab.kind {
+                        PDFReaderView(url: activeTab.url, reader: reader)
+                            .id(activeTab.id)
                     } else if case .discussions = activeTab.kind {
                         DiscussionsView(store: workspaceManager.discussions)
                             .environmentObject(workspaceManager)
@@ -660,7 +663,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .archive, .deployments, .discussions, .terminal, .browser, .prototype: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .prototype: return true
                 default: return false
                 }
             }) {

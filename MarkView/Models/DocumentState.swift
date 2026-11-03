@@ -9,6 +9,7 @@ enum FileType: String {
     case xml
     case yaml
     case canvas
+    case pdf
     /// Source code or plain text, shown read-only in the code viewer.
     case code
     /// Data files with their own viewers (Task 84), read by the page from `markview-data:`:
@@ -26,8 +27,8 @@ enum FileType: String {
 
     /// Data viewers whose original bytes can also be explained as line-numbered text.
     static func hasTextSource(_ url: URL) -> Bool {
-        !isData(url) || ["csv", "tsv", "tab", "psv", "jsonl", "ndjson", "har", "log", "out"]
-            .contains(url.pathExtension.lowercased())
+        from(url: url) != .pdf && (!isData(url) || ["csv", "tsv", "tab", "psv", "jsonl", "ndjson", "har", "log", "out"]
+            .contains(url.pathExtension.lowercased()))
     }
 
     /// A data file: opened without reading it as text, shown by the page's data viewers.
@@ -47,10 +48,10 @@ enum FileType: String {
         "json",
         "xml", "plist", "xsd", "xsl", "xslt", "svg",
         "yml", "yaml",
-        "canvas"
+        "canvas", "pdf"
     ]).union(tableExtensions).union(parquetExtensions).union(sqliteExtensions).union(logExtensions)
 
-    /// Whether the filename identifies a known text format (unknown formats still open as text).
+    /// Whether the filename identifies a dedicated viewer or known text format.
     static func isSupported(_ url: URL) -> Bool {
         supportedExtensions.contains(url.pathExtension.lowercased()) || codeLanguage(for: url) != nil
     }
@@ -78,6 +79,7 @@ enum FileType: String {
         case "xml", "plist", "xsd", "xsl", "xslt", "svg": return .xml
         case "yml", "yaml": return .yaml
         case "canvas": return .canvas
+        case "pdf": return .pdf
         case _ where tableExtensions.contains(ext): return .table
         case _ where parquetExtensions.contains(ext): return .parquet
         case _ where sqliteExtensions.contains(ext): return .sqlite
@@ -232,6 +234,8 @@ enum TabKind {
     case terminal(UUID)
     /// An image file, shown by `ImageViewerView` (no text content).
     case image
+    /// A read-only PDF; state belongs to the tab, not to the underlying text editor.
+    case pdf(PDFReaderController)
     /// An archive (zip, tar, 7z…), shown by `ArchiveTabView`; its entries open as temporary copies.
     case archive
     /// The project's Deployments: where it runs and how each place is doing (`DeploymentsView`).

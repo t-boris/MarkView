@@ -70,6 +70,7 @@ struct TabBarView: View {
         case .architecture(let scope): return scope == TabKind.pullRequestScope ? "arrow.triangle.pull" : "viewfinder"
         case .insight: return "sparkles"
         case .image: return "photo"
+        case .pdf: return "doc.richtext"
         case .archive: return "archivebox"
         case .deployments: return "server.rack"
         case .discussions: return "bubble.left.and.text.bubble.right"

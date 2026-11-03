@@ -65,6 +65,12 @@ in a clean window: WYSIWYG or source, Mermaid diagrams, math, task lists, front 
 `[[wikilinks]]`. Export to PDF. Nothing else is required: no project, no AI, no account.
 → [Reading and writing](#reading-and-writing)
 
+**Read PDFs.** Open a PDF in a dedicated read-only tab, including multipage scans.
+Scroll, zoom, fit the page or width, jump to a page, or navigate thumbnails and the document outline.
+Search embedded text, select and copy it when permitted, and follow internal or safe external links.
+Scans display without OCR. Password-protected documents can be unlocked for reading; source PDFs
+are never saved or annotated. PDF reading adds no AI processing or workspace content indexing.
+
 **PDF books.** Select files and folders in Files (⌘-click or ⇧-click), then choose **Export PDF Book…**
 from the context menu or the selection bar. A single file/folder has the same command;
 right-click empty space to export the current folder, or use **File → Export PDF Book…** (⌘⇧E).

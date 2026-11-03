@@ -35,6 +35,7 @@ struct WorkspaceDraft: Codable {
 enum WorkspaceTabState: Codable {
     case file(url: URL, draft: WorkspaceDraft?, notes: Bool, scroll: Double)
     case image(URL)
+    case pdf(URL)
     /// An archive tab; added in 4.19.
     case archive(URL)
     /// The Deployments tab; added in 4.25.

@@ -23,7 +23,8 @@ import Foundation
         let first = WorkspaceWindowState(id: UUID(), folder: folder,
             tabs: [.file(url: file, draft: draft, notes: true, scroll: 123.5),
                    .github(.issue(number: 33, repo: "owner/repo", title: "#33")),
-                   .image(folder.appendingPathComponent("image.png")), .architecture("src"), .terminal(folder)],
+                   .image(folder.appendingPathComponent("image.png")), .architecture("src"), .terminal(folder),
+                   .pdf(folder.appendingPathComponent("read only.pdf"))],
             activeTabIndex: 1,
             panels: WorkspacePanelState(workspaceArea: "Work", workSection: "Git", navigator: "terminal", left: "issues", feature: "one", git: "changes", stage: "explore", showFiles: true, showNavigator: false, contentsVisible: false, terminalVisible: true, showCenter: false),
             frame: CGRect(x: 300, y: 400, width: 1200, height: 800), minimized: true)
@@ -41,7 +42,10 @@ import Foundation
               "workspace and Work section survive per window")
         check(loaded.windows[0].panels?.contentsVisible == false && loaded.windows[0].panels?.terminalVisible == true &&
               loaded.windows[0].panels?.showCenter == false, "column visibility survives per window")
-        check(loaded.windows[0].tabs.count == 5, "all supported tab kinds survive")
+        check(loaded.windows[0].tabs.count == 6, "all supported tab kinds survive")
+        if case .pdf(let restoredPDF) = loaded.windows[0].tabs[5] {
+            check(restoredPDF == folder.appendingPathComponent("read only.pdf"), "PDF tabs survive session restoration without text drafts")
+        } else { fatalError("wrong PDF tab kind") }
         if case .file(let restoredURL, let restoredDraft, let notes, let scroll) = loaded.windows[0].tabs[0] {
             check(restoredURL == file && notes && scroll == 123.5, "file view state survives")
             check(restoredDraft?.content == draft.content && restoredDraft?.original == draft.original, "unsaved text survives without a disk write")
