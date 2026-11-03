@@ -2,35 +2,35 @@
 type: feature
 id: previews-from-existing-code
 title: Previews from Existing Code
-status: exploring
+status: implementing
 owner: Boris Tsekinovsky
 created: 2026-11-02
 provenance: Created from the feature intake
 understanding:
   Problem: known
-  Target Users: partial
-  Primary Workflow: partial
-  Permissions: partial
-  Failure Scenarios: partial
-  Data Model: partial
+  Target Users: known
+  Primary Workflow: known
+  Permissions: known
+  Failure Scenarios: known
+  Data Model: known
   Notifications: n/a
-  Security: partial
+  Security: known
   Analytics: n/a
-  Dependencies: partial
-  Acceptance Criteria: partial
+  Dependencies: known
+  Acceptance Criteria: known
 understanding_notes:
-  Problem: Нужно начинать работу с превью существующей реализации и передавать визуальные изменения в разработку.
-  Target Users: Пользователь MarkView, обсуждающий изменения интерфейса; получатель ссылки пока не определён.
-  Primary Workflow: Код → превью → редактирование → ссылка для изменения реализации. Способ воспроизведения кода требует решения.
-  Permissions: Не определено, достаточно ли доступа в текущем проекте или нужен внешний доступ.
-  Failure Scenarios: В Studio есть остановка, повтор запроса и обработка ошибок превью; сбои создания из кода предстоит разобрать при ревью.
-  Data Model: Уже есть сохранённые прототипы, версии и история. Связь превью с исходной реализацией пока не определена.
-  Notifications: Отдельные уведомления запросом не предусмотрены; существующий Studio показывает ход работы.
-  Security: Текущие прототипы работают без сети; исполнение исходного приложения и внешняя передача потребуют проверки после выбора сценария.
-  Analytics: Новые метрики и аналитика для этой функции не запрошены.
-  Dependencies: Есть Prototype Studio, Preview Web App и доступ агентов к прототипам; набор поддерживаемых приложений открыт.
-  Acceptance Criteria: Основная цепочка определена; точность превью и доступность ссылки зависят от трёх продуктовых решений.
-questions_left: 3
+  Problem: Нужно начинать визуальное обсуждение с существующего интерфейса; выбран самостоятельный AI-прототип.
+  Target Users: Пользователь редактирует превью в MarkView и передаёт его AI-агенту того же проекта.
+  Primary Workflow: Код → реконструкция → существующий процесс Studio → ссылка агенту. Выбор файлов и папок уже предусмотрен в PrototypeCreatorSheet.swift.
+  Permissions: Получатель уже имеет доступ к проекту; внешняя публикация не требуется.
+  Failure Scenarios: Требуется показывать известные пробелы реконструкции. В проекте уже есть обработка ошибок генерации и проверки правок; детали обработки определит реализация.
+  Data Model: PrototypeFiles.swift уже хранит прототипы отдельно от исходников, с версиями и историей. Внутренние изменения модели определит реализация.
+  Notifications: Отдельные уведомления для этого сценария не нужны.
+  Security: Используется существующий локальный прототип без сетевых запросов; исходники не изменяются автоматически. Внешний доступ не входит в объём.
+  Analytics: Аналитика не заявлена и не нужна для определения функции.
+  Dependencies: Первая версия охватывает веб-интерфейсы и Electron renderer. Prototype Studio и чтение прототипов агентами уже существуют; Preview Web App остаётся отдельным сценарием.
+  Acceptance Criteria: Критерии уточнены в трёх существующих требованиях. Дополнительных продуктовых вопросов для этой спецификации не требуется.
+questions_left: 0
 issue: "#234"
 ---
 
@@ -46,7 +46,7 @@ issue: "#234"
 
 ## Scope
 
-IN: Create a preview from existing code; use the established editing and review workflow; pass a preview link for implementation changes. OPEN: execution versus reconstruction, supported application types, and recipient access. OUT of the stated request: automatic bidirectional synchronization between preview and source code, and automatic application of preview edits to production code.
+IN: Create a preview from existing code; use the established editing and review workflow; pass a preview link for implementation changes. DECIDED: AI shall reconstruct the existing interface and its scenarios as a standalone editable prototype; reconstruction limitations must be disclosed. OPEN: supported application types and recipient access. OUT of the stated request: automatic bidirectional synchronization between preview and source code, and automatic application of preview edits to production code.
 
 ## Existing behaviour
 
