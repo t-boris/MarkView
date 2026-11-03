@@ -2,7 +2,7 @@
 type: bug
 id: BUG-059
 title: "Prototype from code does not look like the real application: a big widget is reduced to a generic look-alike (OptionDesk TRADE tab)"
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-03
