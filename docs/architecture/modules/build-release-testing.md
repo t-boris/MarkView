@@ -188,7 +188,17 @@ Step references: `release.sh:13` (version), `:14-15` (identity), `:17-21` (clean
 `:49-61` (install).
 
 Without notarization, first launch needs "Open Anyway" in System Settings → Privacy & Security
-(`release.sh:7-9`, `README.md:147-149`). Publishing the DMG to GitHub Releases is manual.
+(`release.sh:7-9`, `README.md:147-149`). `./release.sh --publish` publishes the DMG as release
+`v<version>` marked Latest.
+
+**Release from CI** (`.github/workflows/publish-release.yml`): a `workflow_dispatch` run on
+`macos-15` that produces the same installer for the current `MARKETING_VERSION` on `main` and
+publishes it as release `v<version>`. It refuses a version that already has a release, and
+`dry_run` builds the DMG as a workflow artifact without publishing. Signing and notarization need
+the repository secrets `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `NOTARY_KEY_P8`,
+`NOTARY_KEY_ID` and `NOTARY_ISSUER_ID`: the certificate is imported into a temporary keychain and
+`notarytool` is called with the App Store Connect key. Without them the run still publishes, but
+as an unsigned pre-release that is never marked Latest — only a signed, notarized installer is.
 
 **CI** (`.github/workflows/build-release.yml`): on every push to `main`, on `macos-15` with
 `Xcode_16.app` (`:3-5`, `:12`, `:17`). It builds Release with ad-hoc signing (`:19-26`), zips the
