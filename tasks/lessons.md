@@ -1216,3 +1216,8 @@ the answer, with the saved default unchanged because the value was the one alrea
   push out the one that matters.
 - Verify a prompt change against the real project: rebuild the prompt from its `environment.json` and session log, run the
   assistant on it once, and check the answer with the app's own validator.
+- 5.26.0 still failed in the app: the assistant refused because the prompt showed the answer with its lists shortened, and
+  it believed it needed the hidden items. My check had passed on another model, without the conversation history, once.
+  Rules: verify on the tool, model and effort the app uses (`~/Library/Application Support/MarkView/ai-calls.jsonl`), with
+  the real history, several runs. A fix must not depend on the model: show small data whole (fixed answers are a few KB),
+  and add a deterministic guard. An `unsupported` note that gives up on a fixed-answer rule is sent back once (5.26.1).

@@ -876,13 +876,21 @@ func contextChecks() {
     check("BUG-084 the rules that answered the page come first, also beyond the listed limit",
           firstRule.map { chainLines[$0].hasPrefix("- fetch-chain: GET /api/chain → respond (answered the page)") } == true
           && firstRule.map { chainLines[$0 + 2].hasPrefix("- list-projects:") } == true && !chainBlock.contains("- gone"), chainBlock)
-    check("BUG-084 a fixed answer that answered the page is shown with its lists shortened and its secrets redacted",
-          chainBlock.contains("Fixed answer 200 (lists shortened):") && chainBlock.contains("… 3 more like these")
-          && chainBlock.contains("… 1 more like these") && chainBlock.contains("SPX") && !chainBlock.contains("k-123")
+    check("BUG-084 a fixed answer that answered the page is shown in full, with its secrets redacted",
+          chainBlock.contains("Current answer 200, in full: {") && chainBlock.contains("5910") && chainBlock.contains(#""strike":5900"#)
+          && !chainBlock.contains(StudioJSON.shortenedNote) && chainBlock.contains("SPX") && !chainBlock.contains("k-123")
           && !chainBlock.contains("filler-1: GET /api/filler/1 → respond (answered"), chainBlock)
     let crowded = StudioPrompts.contextBlock(spec: chainSpec, scenario: base, redactor: StudioRedactor(),
                                              reached: (1...40).map { "filler-\($0)" } + ["fetch-chain"])
-    check("BUG-084 many small answers before it do not crowd out the page's data", crowded.contains("SPX") && crowded.contains("… 3 more like these"))
+    check("BUG-084 many small answers before it do not crowd out the page's data", crowded.contains("SPX") && crowded.contains("5910"))
+    // Only an answer longer than the limit is shortened, and its line says where the whole answer is.
+    var hugeSpec = chainSpec
+    hugeSpec.rules.append(StudioRule(id: "fetch-huge", method: "GET", path: "/api/huge", operation: .respond,
+                                     response: StudioFixedResponse(status: 200, body: .object(["rows": .array((1...2_000).map { .object(["n": .number(Double($0))]) })]))))
+    let huge = StudioPrompts.contextBlock(spec: hugeSpec, scenario: base, redactor: StudioRedactor(), reached: ["fetch-huge"])
+    check("BUG-084 a very long answer is shortened and says where the whole one is",
+          huge.contains("Current answer 200, lists shortened; the whole answer is in .markview/studio/environment.json (rules, id fetch-huge)")
+          && huge.contains("… 1997 more like these") && huge.count < 20_000, String(huge.prefix(1_500)))
     var chainScenario = base
     chainScenario.overrides = [StudioOverride(ruleId: "fetch-chain", status: 200, body: .object(["underlying": .string("NDX")]))]
     check("BUG-084 the shown answer is the scenario's current one",
@@ -902,6 +910,21 @@ func contextChecks() {
           dropped.count == 1 && dropped[0].contains("fetch-chain") && dropped[0].contains("strikes, underlying"), dropped.joined(separator: " | "))
     check("BUG-084 a new body of another kind is refused", chainProblems("[1,2]").first?.contains("must be a JSON object") == true)
     check("BUG-084 an error override keeps any body", chainProblems(#"{"error":"down"}"#, status: 503).isEmpty)
+    let copied = chainProblems(#"{"underlying":"SPX","strikes":[5890,"… 3 more like these"],"contracts":[]}"#)
+    check("BUG-084 a body that copies a shortened list is refused", copied.count == 1 && copied[0].contains("shortened list"), copied.joined(separator: " | "))
+    // Giving up on data the application can change is asked about once.
+    func givenUp(_ unsupported: [String], overrides: [[String: Any]] = []) -> [String] {
+        StudioContextValidator.givenUpProblems(StudioContextPlan(structured: contextObject(overrides: overrides, unsupported: unsupported)),
+                                               current: base, spec: chainSpec)
+    }
+    let gaveUp = givenUp(["Could not build the full answer of fetch-chain: its lists are shortened."])
+    check("BUG-084 an unsupported note that gives up on a fixed-answer rule is sent back, naming the override to write",
+          gaveUp.count == 1 && gaveUp[0].contains("override of fetch-chain") && gaveUp[0].contains("Do not leave it in `unsupported`"), gaveUp.joined(separator: " | "))
+    check("BUG-084 the same note given up by its path is sent back too", givenUp(["GET /api/chain cannot return more strikes"]).count == 1)
+    check("BUG-084 an honest note about something no rule answers stays", givenUp(["A live tick stream is not simulated."]).isEmpty
+          && givenUp(["list-projects has no field for colours"]).isEmpty)
+    check("BUG-084 a note next to an override of that rule stays",
+          givenUp(["fetch-chain: the second expiry is unchanged"], overrides: [overrideObject(ruleId: "fetch-chain", status: 200, body: "{}")]).isEmpty)
     check("BUG-084 the change names a new answer",
           StudioContextValidator.describe(StudioOverride(ruleId: "fetch-chain", status: 200, body: .object([:]))) == "fetch-chain: status 200, a new answer")
     check("BUG-084 lists are shortened to their first items, nested too",

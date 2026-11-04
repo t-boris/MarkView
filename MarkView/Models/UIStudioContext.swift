@@ -261,6 +261,9 @@ enum StudioContextValidator {
             if let rule, let body = override.body, let status = override.status, (200..<300).contains(status) {
                 problems += shapeProblems(body, rule: rule, label: label)
             }
+            if let body = override.body, body.text.contains(StudioJSON.shortenedNote) {
+                problems.append("\(label): the body copies a shortened list (\"… more like these\"). Write every item of every list.")
+            }
             if let delay = override.delayMs, !(0...maxDelayMs).contains(delay) {
                 problems.append("\(label): delayMs must be between 0 and \(maxDelayMs).")
             }
@@ -269,6 +272,23 @@ enum StudioContextValidator {
             }
         }
         return problems
+    }
+
+    /// Data the plan gives up on although the application can change it (BUG-084): an `unsupported` note that names a
+    /// fixed-answer rule of the environment, by id or path, while the plan has no override of that rule. The session asks
+    /// once more with these problems; on the second answer they no longer block, so an honest note is never lost.
+    static func givenUpProblems(_ plan: StudioContextPlan, current: StudioScenario, spec: StudioEnvironmentSpec) -> [String] {
+        let notes = plan.unsupported.joined(separator: "\n")
+        guard !notes.isEmpty else { return [] }
+        let overridden = Set(plan.overrides.compactMap(\.ruleId))
+        return spec.rules.compactMap { rule in
+            guard rule.operation == .respond, !overridden.contains(rule.id),
+                  notes.contains(rule.id) || (rule.path.count > 8 && notes.contains(rule.path)),
+                  StudioPrompts.currentAnswer(rule, scenario: current) != nil else { return nil }
+            return "`unsupported` gives up on \(rule.id), but it answers with a fixed body that the prompt shows: change its data "
+                + "with an override of \(rule.id) (`status` 200 and the whole new `body`, every key kept, every list written in full "
+                + "with as many items as asked). Do not leave it in `unsupported`."
+        }
     }
 
     /// A new successful body of a fixed-answer rule keeps the shape of the rule's answer (BUG-084): the same kind of value,

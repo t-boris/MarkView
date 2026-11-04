@@ -1,5 +1,16 @@
 # MarkView — Follow-up Tasks
 
+## UI Studio still refused to fill the option chain — release 5.26.1 (2026-11-04, BUG-084 follow-up)
+
+- [x] The context block shows each fixed answer that answered the page in full; only one over 12,000 characters is
+      shortened, and then its line says where the whole answer is.
+- [x] The validator refuses a body that copies a shortened list; an `unsupported` note that gives up on a fixed-answer rule
+      is sent back once with the override to write (never blocks the second answer).
+- [x] Checks: ui-studio (new cases), session, web, gateway, node. Replayed Boris's request with the app's real prompt and
+      history: gpt-6.1-terra ×3 and gpt-6.1-sol ×1 all returned the override (33 strikes, 66 contracts), validator clean;
+      his actual refusal note is sent back by the new guard.
+- [ ] Release 5.26.1, install (Boris: "ставь как сможешь").
+
 ## MarkView eats all resources — release 5.26.0 (2026-11-04, BUG-081…BUG-084)
 
 Evidence: footprint peak 24.9 GB within 100 s of launch (9 restored windows); a UI Studio Rspack server rebuilding ~30×/s at

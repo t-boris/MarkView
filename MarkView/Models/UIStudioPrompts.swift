@@ -289,10 +289,11 @@ enum StudioPrompts {
            (the prompt lists them in this same form). An override names a rule by `ruleId` (or `method` and `path`) and sets \
            a `status` with an optional `body` (JSON text), `empty` (an empty list; a detail answers 404), `hang` (it never \
            answers: the loading state) or `delayMs`. Data that a rule answers with a fixed body (operation `respond`; the \
-           prompt shows the current answer of each such rule that answered the page, with long lists shortened) is \
-           changed by an override of that rule: `status` 200 and the whole new `body`, in the same shape. Keep every key, \
-           change the values, and write every list in full with as many items as the request asks for (a shortened list \
-           in the prompt is only an example of its items). That is how such data is filled, not a fake. \
+           prompt shows the current answer of each such rule that answered the page) is changed by an override of that \
+           rule: `status` 200 and the whole new `body`, in the same shape. Keep every key, change the values, and write \
+           every list in full with as many items as the request asks for. You write the new lists yourself, so you never \
+           need items the prompt does not show. That is how such data is filled, not a fake, and such data is never \
+           `unsupported`. \
            Steps rebuild a page state after the route loads: click, type (`text` \
            into a field), press (a key in `text`), wait (`ms`, at most 10000), navigate (an in-app path in `text`). Use \
            selectors that exist in the project's markup and prefer stable attributes (data-testid, id, name, aria-label) \
@@ -410,7 +411,10 @@ enum StudioPrompts {
     /// The characters of all fixed answers the context block shows and of each one, and the items kept of each list
     /// (BUG-084). A budget, not a count: a page asks dozens of rules, most of them answer a few characters (`{"ok":true}`),
     /// and the one holding the page's data may come late.
-    static let contextAnswersBudget = 40_000, contextAnswer = 2_000, contextAnswerItems = 2
+    /// Answers are shown in full: a shortened one made an assistant refuse to rewrite it, because it believed it needed
+    /// the items it could not see. Only an answer longer than `contextAnswer` is shortened, and its line says where the
+    /// whole one is.
+    static let contextAnswersBudget = 60_000, contextAnswer = 12_000, contextAnswerItems = 3
 
     /// The rules in the order a context change should see them (BUG-084): those that answered the page, most recent
     /// first, then the others in the environment's order. An environment holds hundreds of rules, and the page's data
@@ -426,14 +430,14 @@ enum StudioPrompts {
     }
 
     /// What a fixed-answer rule answers in `scenario`: its override's status and body, or the rule's own answer.
-    static func currentAnswer(_ rule: StudioRule, scenario: StudioScenario) -> (status: Int, body: StudioJSON)? {
+    static func currentAnswer(_ rule: StudioRule, scenario: StudioScenario) -> (status: Int, body: StudioJSON, fromScenario: Bool)? {
         let override = scenario.overrides.first { override in
             if let id = override.ruleId { return id == rule.id }
             return override.method?.uppercased() == rule.method.uppercased() && override.path == rule.path
         }
-        if let override, let status = override.status, let body = override.body { return (status, body) }
+        if let override, let status = override.status, let body = override.body { return (status, body, true) }
         guard let response = rule.response, let body = response.body else { return nil }
-        return (response.status, body)
+        return (response.status, body, false)
     }
 
     /// What a context change works with (REQ-013): the environment's entities with their fields, ids and an example
@@ -472,11 +476,20 @@ enum StudioPrompts {
             lines.append("- \(rule.id): \(rule.method) \(rule.path) → \(rule.operation.rawValue)" + (rule.entity.map { " " + $0 } ?? "")
                          + (answered ? " (answered the page)" : ""))
             guard answered, rule.operation == .respond, budget > 0, let answer = currentAnswer(rule, scenario: scenario) else { continue }
-            var text = redactor.redact(answer.body.abbreviated(items: contextAnswerItems)).text
+            let full = redactor.redact(answer.body).text
             let limit = min(contextAnswer, budget)
+            if full.count <= limit {
+                budget -= full.count
+                lines.append("  Current answer \(answer.status), in full: " + full)
+                continue
+            }
+            var text = redactor.redact(answer.body.abbreviated(items: contextAnswerItems)).text
             if text.count > limit { text = String(text.prefix(limit - 1)) + "…" }
             budget -= text.count
-            lines.append("  Fixed answer \(answer.status) (lists shortened): " + text)
+            let whole = answer.fromScenario
+                ? ".markview/studio/scenarios/\(StudioStore.safeID(scenario.id)).json (overrides)"
+                : ".markview/studio/environment.json (rules, id \(rule.id))"
+            lines.append("  Current answer \(answer.status), lists shortened; the whole answer is in \(whole): " + text)
         }
         if spec.rules.count > contextRules { lines.append("- … and \(spec.rules.count - contextRules) more") }
         lines.append("Current scenario \"\(scenario.name)\":")

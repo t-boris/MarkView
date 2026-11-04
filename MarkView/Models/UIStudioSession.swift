@@ -1992,7 +1992,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     return session.append(operation)
                 case .context:
                     let context = plan.context ?? StudioContextPlan(structured: nil)
-                    let problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
+                    var problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
+                    // Giving up on data the application can change is asked about once, and never blocks a second answer.
+                    if attempt == 1 {
+                        problems += StudioContextValidator.givenUpProblems(context, current: session.scenario, spec: session.spec)
+                    }
                     if problems.isEmpty {
                         return await session.applyContext(context, operation: operation, summary: plan.summary, snapshot: snapshot,
                                                           selection: selection)
