@@ -144,23 +144,39 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         }
     }
 
-    /// A click at a point of the page (CSS pixels), delivered through the window like a real one.
+    /// The view a click at `point` (window coordinates) lands on, found by hit testing through the zoomed container, when it
+    /// is the web view or inside it.
+    private func target(at point: NSPoint) -> NSView? {
+        guard let content = window.contentView else { return nil }
+        let inSuperview = content.superview?.convert(point, from: nil) ?? point
+        guard let view = content.hitTest(inSuperview), view === webView || view.isDescendant(of: webView) else {
+            print("     a click at \(point) in the window does not reach the web view")
+            return nil
+        }
+        return view
+    }
+
+    /// A click at a point of the page (CSS pixels): the point is mapped through the zoomed container to the window, hit
+    /// tested there, and the events go to the view that was hit. They are not sent through `NSWindow.sendEvent`, which
+    /// drops them on a CI runner where the test window never becomes key.
     func click(cssX x: CGFloat, y: CGFloat) {
         let point = webView.convert(NSPoint(x: x, y: y), to: nil)
+        guard let view = target(at: point) else { return }
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
-                window.sendEvent(event)
-            }
+            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { continue }
+            if type == .leftMouseDown { view.mouseDown(with: event) } else { view.mouseUp(with: event) }
         }
     }
 
     func move(cssX x: CGFloat, y: CGFloat) {
         let point = webView.convert(NSPoint(x: x, y: y), to: nil)
-        if let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
-            window.sendEvent(event)
-        }
+        guard let view = target(at: point),
+              let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+        else { return }
+        view.mouseMoved(with: event)
     }
 
     func settle(_ seconds: Double = 0.4) async {
