@@ -920,6 +920,8 @@ class Handler(BaseHTTPRequestHandler):
                 rate = str(json.loads(answer.read()).get('rate'))
         except Exception:
             rate = 'error'
+        with open('renders.log', 'a') as renders:
+            renders.write(self.path + '\n')
         with open('seen.json', 'w') as seen:
             json.dump({'simulated': base.startswith('http://127.0.0.1:'), 'testSecret': os.environ.get('API_SECRET', '').startswith('markview-test-'),
                        'clock': bool(os.environ.get('MARKVIEW_STUDIO_CLOCK')), 'noProxy': '127.0.0.1' in os.environ.get('NO_PROXY', '')}, seen)
@@ -973,6 +975,10 @@ func serverRequestChecks() async {
           "\(session.serverConnections)")
     // The page's services were prepared before it loaded, so its first render is already simulated (BUG-074).
     let rate = await text("return document.getElementById('rate') ? document.getElementById('rate').textContent : '';")
+    // The server was found listening: no probe rendered the page (and made its requests) before the first load (BUG-076).
+    let renders = ((try? String(contentsOf: root.appendingPathComponent("renders.log"), encoding: .utf8)) ?? "").split(separator: "\n")
+    check("BUG-076 the server is found without rendering the page: one render, the first load", renders.count == 1,
+          renders.joined(separator: " "))
     check("BUG-074 the first render is simulated although the agent is slower than the server's own deadline", rate == "1.23", rate ?? "nil")
     let ahead = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
     check("BUG-074 the page is prepared ahead, with the service's address and variable", ahead.first?.prompt.contains("before it loads") == true
@@ -1185,7 +1191,7 @@ func logChecks() async {
         return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
     }
     let limits = StudioSession.preparationLimits
-    StudioSession.preparationLimits = StudioPreparationLimits(deadline: 1, queueWait: 10, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40)
+    StudioSession.preparationLimits = StudioPreparationLimits(deadline: 1, aheadDeadline: 1, queueWait: 10, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40)
     let port = freePort()
     let session = StudioSession(root: root)
     StudioSession.preparationLimits = limits

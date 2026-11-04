@@ -361,6 +361,62 @@ enum WebAppPreview {
 
     // MARK: - Probing
 
+    /// The first of `ports` that accepts a TCP connection on this Mac, in the given order (BUG-076). It tells that a server is
+    /// listening without an HTTP request, so a server-rendered page is not rendered (and its data calls are not made) just to
+    /// learn that the server is up; `firstAnswering` needs the page's whole body within its timeout.
+    static func firstListening(_ ports: [Int], timeout: TimeInterval = 0.5) async -> URL? {
+        for port in ports where await isListening(port, timeout: timeout) {
+            return URL(string: "http://localhost:\(port)/")
+        }
+        return nil
+    }
+
+    /// Whether something accepts a TCP connection on `port` of the loopback interface, IPv4 or IPv6.
+    static func isListening(_ port: Int, timeout: TimeInterval = 0.5) async -> Bool {
+        guard (1...65_535).contains(port) else { return false }
+        return await Task.detached {
+            connects(port: port, family: AF_INET, timeout: timeout) || connects(port: port, family: AF_INET6, timeout: timeout)
+        }.value
+    }
+
+    /// A non-blocking connect, bounded by `timeout`; the socket is closed again at once.
+    private static func connects(port: Int, family: Int32, timeout: TimeInterval) -> Bool {
+        let socketFD = socket(family, SOCK_STREAM, IPPROTO_TCP)
+        guard socketFD >= 0 else { return false }
+        defer { close(socketFD) }
+        var on: Int32 = 1
+        setsockopt(socketFD, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(socketFD, F_SETFL, fcntl(socketFD, F_GETFL, 0) | O_NONBLOCK)
+        let result: Int32
+        if family == AF_INET {
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = in_port_t(UInt16(port).bigEndian)
+            address.sin_addr = in_addr(s_addr: in_addr_t(UInt32(0x7F00_0001).bigEndian))
+            result = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+            }
+        } else {
+            var address = sockaddr_in6()
+            address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+            address.sin6_family = sa_family_t(AF_INET6)
+            address.sin6_port = in_port_t(UInt16(port).bigEndian)
+            address.sin6_addr = in6addr_loopback
+            result = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in6>.size)) }
+            }
+        }
+        if result == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var poller = pollfd(fd: socketFD, events: Int16(POLLOUT), revents: 0)
+        guard poll(&poller, 1, Int32(max(1, timeout * 1_000))) == 1 else { return false }
+        var failure: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(socketFD, SOL_SOCKET, SO_ERROR, &failure, &length) == 0 else { return false }
+        return failure == 0
+    }
+
     /// The first of `ports` where an HTTP server answers on localhost, in the given order.
     static func firstAnswering(_ ports: [Int], timeout: TimeInterval = 0.8) async -> URL? {
         let configuration = URLSessionConfiguration.ephemeral

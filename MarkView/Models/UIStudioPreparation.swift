@@ -6,6 +6,9 @@ struct StudioPreparationLimits: Equatable {
     /// One attempt's time, counted from when it gets a slot: waiting in the queue does not use it up (BUG-074). An agent
     /// that reads a large project needs well over 30 s.
     var deadline: TimeInterval = 90
+    /// A preparation ahead of a page covers every request the page makes, so it gets longer (BUG-076): Codex needed more than
+    /// 90 s for vivaa's home page. The page waits for it once per route; the rules are saved.
+    var aheadDeadline: TimeInterval = 240
     /// How long a preparation waits for a free slot before it ends as timed out.
     var queueWait: TimeInterval = 120
     var maxAttempts = 2
@@ -225,7 +228,7 @@ final class StudioPreparationQueue: ObservableObject {
             attemptContext.problems = problems
             let request = attemptContext
             modelCalls += 1
-            let answer = await Self.withDeadline(Date().addingTimeInterval(limits.deadline)) { try await preparer.prepare(request) }
+            let answer = await Self.withDeadline(Date().addingTimeInterval(deadline(for: context))) { try await preparer.prepare(request) }
             // Every check happens here, on the main actor, right before the state could change.
             if Task.isCancelled { return .cancelled }
             if currentGeneration() != generation { return .stale }
@@ -250,13 +253,21 @@ final class StudioPreparationQueue: ObservableObject {
         return .failed(problems.first ?? "No rule was prepared.")
     }
 
+    /// One attempt's time: longer for a page's requests prepared ahead (BUG-076).
+    private func deadline(for context: StudioPreparationContext) -> TimeInterval {
+        context.ahead == nil ? limits.deadline : limits.aheadDeadline
+    }
+
     private func finish(_ contract: String, generation: Int, outcome: StudioPreparationOutcome) {
         guard var record = records[contract], record.generation == generation else { return }
         record.finished = Date()
         switch outcome {
         case .registered(let rules): record.status = .registered; record.message = "Registered " + rules.joined(separator: ", ")
         case .failed(let message): record.status = .failed; record.message = message
-        case .timedOut: record.status = .timedOut; record.message = "The agent did not finish within \(Int(limits.deadline)) s."
+        case .timedOut:
+            record.status = .timedOut
+            let seconds = generation == Self.environmentGeneration ? limits.aheadDeadline : limits.deadline
+            record.message = "The agent did not finish within \(Int(seconds)) s."
         case .cancelled: record.status = .cancelled; record.message = "Cancelled."
         case .unsupported(let reason): record.status = .unsupported; record.message = reason
         case .stale: record.status = .stale; record.message = "The session was reset while the agent worked; its answer was dropped."

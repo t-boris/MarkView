@@ -1140,3 +1140,32 @@ the answer, with the saved default unchanged because the value was the one alrea
 - A synthesized decoder fails the whole file when one element of an optional array is malformed, and UI Studio then replaces
   environment.json. Give stored entries a lenient `init(from:)` (unknown enum values fall back, missing fields are empty) and
   check that a file written before the field, and a damaged entry, both still load.
+
+## A test value must keep the shape the libraries check (BUG-073)
+- UI Studio gave a JWT secret an unsigned `header.payload.` test value. vivaa's auth middleware requires three non-empty
+  segments, failed closed and sent every page to login. A replacement value has to pass the same shape checks as the real
+  one: a JWT is signed (HS256 with a fixed test key) and keeps only a known `role` claim.
+- The unit test asserted `hasSuffix(".")`, so it pinned the bug down. When a test checks a format, check it against what the
+  real consumer accepts, not against what the code happens to produce.
+
+## Application deadlines are shorter than an agent (BUG-074)
+- vivaa gives each server call 5 s. Preparing a simulation rule when the request arrives takes an agent 17–30 s, so the first
+  render always failed, however long MarkView waited. Prepare the requests a page makes before it loads, save the route as
+  prepared, and count a deadline per attempt from when it gets a slot, never including the queue.
+
+## Installing MarkView ends this session and its agents
+- The detached install quits MarkView, and the Claude Code session runs in one of its terminals. A background agent of the
+  session stopped with it and its worktree was clean, so its work was lost. Install only when no agent is running.
+
+## A readiness probe must not render the page (BUG-076)
+- UI Studio decided a server was up when `GET /` returned its whole body within 0.8–1 s. A server-rendered page whose data
+  calls wait for simulation rules never does, so the session stayed at Starting. Each probe also rendered the page again and
+  started more rule preparations. Probe by TCP connect (`WebAppPreview.firstListening`) and give the first load the compile
+  time instead.
+- Once the probe returned early, a preparation that finished during the restore reported the session ready before the page
+  loaded. A restore owns the state until it ends (`restoringPage`).
+
+## WebKit and the UI Studio log (REQ-011)
+- WebKit asks `decidePolicyFor` about a redirect's target before `didReceiveServerRedirect`, so the "from" address of a
+  redirect has to be taken in `didStartProvisionalNavigation`.
+- `busy` is nil while a session launches, so "state is degraded and busy is nil" does not mean the page has finished loading.

@@ -291,6 +291,35 @@ server.terminate()
 check("answering port found", probed?.absoluteString == "http://localhost:\(port)/", "\(String(describing: probed))")
 check("silent port not reported", probeDone && deadPort == nil)
 
+// BUG-076: a server that accepts connections but takes long to render a page is listening, though it does not answer a GET in
+// time; nothing listens on a closed port.
+let slowPort = 49_000 + Int.random(in: 0..<2_000)
+let slow = Process()
+slow.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+slow.arguments = ["-c", "import socket, time\ns = socket.socket()\ns.bind(('127.0.0.1', \(slowPort)))\ns.listen(8)\nprint('up', flush=True)\n"
+                  + "conns = []\nwhile True:\n    conns.append(s.accept())\n"]
+let slowOut = Pipe()
+slow.standardOutput = slowOut
+slow.standardError = FileHandle.nullDevice
+try! slow.run()
+_ = slowOut.fileHandleForReading.availableData
+var listening: URL?
+var slowAnswering: URL?
+var closedListening: URL?
+var listenDone = false
+Task {
+    listening = await WebAppPreview.firstListening([slowPort - 1, slowPort])
+    slowAnswering = await WebAppPreview.firstAnswering([slowPort], timeout: 0.8)
+    closedListening = await WebAppPreview.firstListening([slowPort - 1])
+    listenDone = true
+}
+let listenEnd = Date().addingTimeInterval(20)
+while !listenDone && Date() < listenEnd { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+slow.terminate()
+check("BUG-076 a slow server is found listening", listening?.absoluteString == "http://localhost:\(slowPort)/", "\(String(describing: listening))")
+check("BUG-076 the same server does not answer a GET within the probe's time", listenDone && slowAnswering == nil)
+check("BUG-076 a closed port is not listening", listenDone && closedListening == nil)
+
 // MARK: Converter in WebKit
 
 func spin(until done: () -> Bool, timeout: TimeInterval = 15) {

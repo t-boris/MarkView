@@ -173,6 +173,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var aheadTasks: [String: Task<Void, Never>] = [:]
     /// Routes prepared ahead in this session, whatever came of it, so a failure is not asked again on every Reset.
     private var aheadTried: Set<String> = []
+    /// The server was just started and has not compiled a page yet, so the next load may take minutes (BUG-076).
+    private var firstLoadAfterStart = false
+    /// A restore is preparing, loading or replaying the page: its own end decides the state (BUG-076).
+    private var restoringPage = false
     /// The generation that already reloaded for rules that arrived late (at most once per generation).
     private var reloadedForRules: Int?
     /// Rules arrived for a server request after its page had rendered, and the page was not reloaded by itself because the
@@ -282,7 +286,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             electronGlobals = await Task.detached { StudioTargetLimits.electronGlobals(in: folder) }.value
         }
         set(.starting, "Looking for a running development server")
-        var url = await WebAppPreview.firstAnswering(target.ports)
+        // Listening is enough: a GET of a server-rendered page waits for its data calls (BUG-076).
+        var url = await WebAppPreview.firstListening(target.ports)
         if url == nil {
             set(.starting, "Starting `\(target.command)` in \(target.label)")
             url = await startServer(target)
@@ -339,11 +344,16 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 set(.failed, "The development server stopped (exit \(code)). See its output below.")
                 return nil
             }
-            if let printed = WebAppPreview.firstLocalURL(in: server.output),
-               await WebAppPreview.firstAnswering([printed.port ?? 80], timeout: 1) != nil {
+            // The server is up once it listens (BUG-076). Rendering the page to find out would make its data calls before
+            // their rules are prepared, again on every probe; the first load waits for the first compile instead.
+            if let printed = WebAppPreview.firstLocalURL(in: server.output), await WebAppPreview.isListening(printed.port ?? 80) {
+                firstLoadAfterStart = true
                 return URL(string: "\(printed.scheme ?? "http")://\(printed.host ?? "localhost"):\(printed.port ?? 80)/")
             }
-            if round % 4 == 3, let answering = await WebAppPreview.firstAnswering(target.ports) { return answering }
+            if round % 4 == 3, let listening = await WebAppPreview.firstListening(target.ports) {
+                firstLoadAfterStart = true
+                return listening
+            }
             round += 1
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
@@ -597,7 +607,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         // A fresh server render: Next.js serves cached server fetches in development unless the request says no-cache.
         StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
         webView.load(page)
-        return await waitForLoad(timeout: 45)
+        // The first load after MarkView started the server includes the framework's first compile (BUG-076).
+        let timeout: TimeInterval = firstLoadAfterStart ? 180 : 45
+        firstLoadAfterStart = false
+        return await waitForLoad(timeout: timeout)
     }
 
     private func waitForLoad(timeout: TimeInterval) async -> Bool {
@@ -650,6 +663,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         await restoreKeptCookies()
         rulesArrivedLate = false
+        // Until the page is loaded and restored, a preparation that ends must not report the session ready (BUG-076).
+        restoringPage = true
+        defer { restoringPage = false }
         if let ahead = beginAhead(scenario.route) {
             set(.preparing, "Preparing the services the page at \(scenario.route) calls from the server")
             await ahead.value
@@ -663,6 +679,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let problem = await replay(scenario.steps)
         if let problem { notice = problem }
         await refreshPageState()
+        restoringPage = false
         updateReadiness()
         if mode == .select { startPicking() }
         return problem
@@ -1204,7 +1221,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     /// ready / degraded / preparing from what the page and the environment report (REQ-001).
     func updateReadiness() {
-        guard !closed, appURL != nil, [.ready, .degraded, .preparing, .starting].contains(state) else { return }
+        guard !closed, appURL != nil, !restoringPage, [.ready, .degraded, .preparing, .starting].contains(state) else { return }
         var reasons: [String] = []
         if let buildError { reasons.append("Build error: " + String(buildError.prefix(160))) }
         let errors = events.filter { $0.kind == .runtimeError && $0.generation == simulator.generation }
