@@ -1598,7 +1598,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     /// Runs one piece of work at a time. `pending` is the conversation turn it answers, shown until the work appends it
     /// to the history; whatever way the work ends (answered, failed, cancelled), no pending turn outlives it.
-    private func runWork(_ title: String, pending: PendingTurn? = nil, _ work: @escaping @MainActor (StudioSession) async -> Void) {
+    func runWork(_ title: String, pending: PendingTurn? = nil, _ work: @escaping @MainActor (StudioSession) async -> Void) {
         guard busy == nil, !closed else {
             notice = "Wait for \(busy ?? "the current work") to finish."
             return
@@ -1740,6 +1740,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 operation.scope = plan.scope
                 operation.scopeNote = plan.scopeNote
                 operation.summary = plan.summary
+                operation.changeKind = plan.changeKind
+                operation.changeReason = plan.changeReason.isEmpty ? nil : plan.changeReason
                 if plan.needsClarification && clarification == nil {
                     operation.status = .clarification
                     operation.question = plan.question
@@ -1793,6 +1795,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             operation.patch = await StudioChanges.unifiedDiff(operation.files)
             session.append(operation)
             await session.verify(&operation, previous: selection, label: "After: " + String(request.prefix(60)))
+            await session.trackChange(&operation)
             session.replace(operation)
         }
     }
@@ -1884,6 +1887,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             operation.afterCapture = capture.id
         }
         if let selection { await revalidateSelection(selection, afterEdit: true) }
+        await trackContextChange(&operation)
         replace(operation)
     }
 
@@ -1902,6 +1906,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             _ = await session.restore()
             var next = operation
             next.status = .undone
+            session.trackUndo(next)
             session.replace(next)
             session.notice = "Back to \(previous.name). \(change.scenarioName) stays saved in the Scenario menu."
         }
@@ -2008,6 +2013,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             next.status = .undone
             next.conflict = nil
             await session.verify(&next, previous: session.selection, label: "After undo: " + String(operation.request.prefix(50)))
+            session.trackUndo(next)
             session.replace(next)
         }
     }
@@ -2033,7 +2039,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         persistHistory()
     }
 
-    private func replace(_ operation: StudioOperation) {
+    func replace(_ operation: StudioOperation) {
         if let index = history.firstIndex(where: { $0.id == operation.id }) { history[index] = operation } else { history.append(operation) }
         persistHistory()
     }
@@ -2108,9 +2114,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     // MARK: - Feature packages
 
-    /// The edit operations a feature package can be made of.
+    /// The operations a feature package can be made of: applied code changes and the context changes that made a scenario.
     var exportableOperations: [StudioOperation] {
-        history.filter { $0.kind == .edit && [.applied, .kept].contains($0.status) && !$0.files.isEmpty }
+        history.filter { [.applied, .kept].contains($0.status)
+            && ($0.kind == .edit ? !$0.files.isEmpty : $0.kind == .context && $0.context?.scenarioId.isEmpty == false) }
     }
 
     /// Exports the chosen operations as a feature (CAP-05) through the feature store, with a package in

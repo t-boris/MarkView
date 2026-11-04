@@ -583,17 +583,19 @@ func run() async {
     session.exportFeature(title: "Digits in the list", summary: "Paragraph numbers as digits.", operations: exportable)
     _ = await idle()
     let package = session.packages.first
-    check("AC-21 the export creates a feature with requirements", package != nil && store.objects.contains { $0.kind == .requirement },
+    // Tracking (REQ-012) writes its own features into the same store: look at the exported one.
+    let exported = package?.featureSlug ?? "-"
+    check("AC-21 the export creates a feature with requirements", package != nil && store.objects.contains { $0.slug == exported && $0.kind == .requirement },
           session.notice ?? "")
     check("AC-21 the package has revisions, scenario, rendering, patch and checks", package?.patch.isEmpty == false && package?.checks.isEmpty == false
           && package?.rendering != nil && package?.files.isEmpty == false)
-    let overview = store.overviews.values.first?.body ?? ""
+    let overview = store.overviews[exported]?.body ?? ""
     check("AC-21 the feature overview carries scenario, revisions, rendering, requests and verification",
           ["Scenario:", "Baseline code revision", "Final code revision", "Rendering:", "Use digits for the last paragraph", "Verification"]
             .allSatisfy(overview.contains), String(overview.prefix(800)))
     check("AC-21 each change becomes a requirement with its code changes",
-          store.objects.contains { $0.kind == .requirement && $0.body.contains("```diff") && $0.body.contains("<p>4</p>") })
-    check("AC-21 the captures are attached to the feature", store.objects.contains { $0.kind == .source })
+          store.objects.contains { $0.slug == exported && $0.kind == .requirement && $0.body.contains("```diff") && $0.body.contains("<p>4</p>") })
+    check("AC-21 the captures are attached to the feature", store.objects.contains { $0.slug == exported && $0.kind == .source })
     try? (file() + "<!-- later -->\n").write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
     await session.revalidatePackages()
     check("AC-22 a later change of the files marks the package for revalidation", session.packages.first?.status == .revalidationRequired
@@ -631,6 +633,8 @@ func run() async {
           editPrompt.contains("button.cta") && !editPrompt.contains("button.accept"), String(editPrompt.prefix(300)))
     check("BUG-068 the change records the selected element", session.history.last?.selection.hasPrefix("button.cta") == true,
           session.history.last?.selection ?? "nil")
+
+    await trackingChecks(session, store: store, assistant: assistant, root: root, idle: idle)
 
     // BUG-069: an element made by a bundled chunk is traced to its source file through the chunk's source map; a chunk
     // without a map falls back to searching for the component, offered as a candidate.
@@ -708,6 +712,7 @@ func run() async {
     check("BUG-071 the replay reports no failed step", !(session.notice ?? "").contains("restoration step failed"), session.notice ?? "")
 
     await contextChecks(session, web: web, root: root, assistant: assistant, text: text, idle: idle)
+    contextTrackingChecks(session, store: store)
     await browserChecks(session, web: web, root: root, text: text, idle: idle, clickElement: clickElement)
     finish(session, port: port)
 }
@@ -791,7 +796,9 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
           && session.savedScenarios.contains { $0.id == made } && filled?.context?.previousScenarioId == base.id
           && filled?.selection == "page /context.html", "\(made) \(session.scenario.id)")
     check("REQ-013 the page shows the new scenario's records", numbers == "417,92,3051", numbers ?? "nil")
-    check("REQ-013 only the new scenario's file is written", !changed.isEmpty && changed.split(separator: "\n").allSatisfy { $0.contains(".markview/studio/scenarios/") },
+    // Besides the scenario, only the turn's tracking records (REQ-012) are written; no source file.
+    check("REQ-013 only the new scenario's file is written", changed.contains(".markview/studio/scenarios/")
+          && changed.split(separator: "\n").allSatisfy { $0.contains(".markview/studio/scenarios/") || $0.contains("docs/features/") },
           changed)
     check("REQ-013 the context change is verified and captured", filled?.checks.allSatisfy(\.passed) == true
           && filled?.checks.map(\.name) == ["Scenario saved", "Page loaded in the new scenario", "No runtime errors", "Project files unchanged"]
@@ -870,6 +877,156 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
         session.undo(code.id)
         _ = await idle()
     }
+}
+
+/// REQ-012 for the context turns that `contextChecks` made: an applied context change is a requirement of the
+/// conversation's feature with the scenario it made, its Undo marks it rejected, and an answer or a refused change is not
+/// recorded. Applied context changes can be exported, and nothing carries the test token.
+@MainActor
+func contextTrackingChecks(_ session: StudioSession, store: FeatureStore) {
+    func turn(_ request: String) -> StudioOperation? { session.history.last { $0.request == request } }
+    func object(_ tracking: StudioOperation.Tracking?) -> FeatureStore.Written? {
+        tracking.flatMap { tracking in store.objects.first { $0.slug == tracking.feature && $0.id == tracking.id } }
+    }
+    let filled = turn("Fill it with random numbers"), dialog = turn("Show me the booking dialog")
+    let filledRecord = object(filled?.tracking), dialogRecord = object(dialog?.tracking)
+    check("REQ-012 an applied context change is a requirement of the conversation's feature", dialog?.tracking?.isRecorded == true
+          && dialog?.tracking?.isBug == false && dialog?.tracking?.feature == filled?.tracking?.feature && dialog?.changeKind == nil
+          && dialogRecord?.title == "Scenario: Show me the booking dialog" && dialogRecord?.front.string("status") == "approved"
+          && dialogRecord?.body.contains("- New scenario: Booking dialog, made from Random numbers") == true
+          && dialogRecord?.body.contains("- Steps: click [data-testid=open-booking]") == true
+          && dialogRecord?.front.strings("sources").isEmpty == false, dialogRecord?.body ?? "\(dialog?.tracking.map { "\($0.id) \($0.feature)" } ?? "nil")")
+    check("REQ-012 Undo of a context change marks its requirement rejected with a note", filled?.status == .undone
+          && filledRecord?.front.string("status") == "rejected" && filledRecord?.body.contains("- Records: items 2 → 3") == true
+          && filledRecord?.body.contains("## Reverted\n\nUndo in MarkView UI Studio returned to the scenario") == true,
+          "\(filledRecord?.front.string("status") ?? "nil")\n\(filledRecord?.body ?? "")")
+    check("REQ-012 an answer and a refused context change are not recorded",
+          turn("Where do these items come from?")?.tracking == nil && turn("Add some users")?.tracking == nil)
+    check("REQ-012 applied context changes can be exported with the code changes",
+          session.exportableOperations.contains { $0.id == dialog?.id } && !session.exportableOperations.contains { $0.id == filled?.id })
+    let records = store.objects.map { $0.title + "\n" + $0.front.join(body: $0.body) }
+    check("REQ-012 no record carries the test token", records.allSatisfy { !$0.contains("markview-test-token") })
+}
+
+/// REQ-012 in a real session: the applied changes of a conversation are one feature with a requirement each and a repair
+/// is a fixed bug linked to it, with the pictures; Switch moves a record and Undo marks it reverted, without deleting
+/// anything; Clear starts the next feature; and the fake secret reaches no record.
+@MainActor
+func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: Assistant, root: URL, idle: () async -> Bool) async {
+    watchdog.reached("REQ-012 every change is tracked as a requirement or a bug")
+    let fm = FileManager.default
+    let css = root.appendingPathComponent("web/track.css")
+    // Rules apart from each other, so that undoing one change never overlaps the next.
+    let filler = (1...4).map { "/* spacer \($0) */" }.joined(separator: "\n")
+    try? [".a { color: red; }", ".b { color: green; }", ".c { color: blue; }", ".d { color: gray; }"].map { $0 + "\n" + filler }
+        .joined(separator: "\n").appending("\n").write(to: css, atomically: true, encoding: .utf8)
+    let fake = "sk-" + "mvfake" + "Q7x9K2p4L8z3W6r1"
+    func plan(_ search: String, _ replace: String, kind: String = "change", reason: String = "A new look", summary: String = "Restyled a rule") -> [String: Any] {
+        ["scope": "theme", "scopeNote": "", "needsClarification": false, "question": "", "options": [], "summary": summary,
+         "edits": [["path": "web/track.css", "search": search, "replace": replace]], "changeKind": kind, "changeReason": reason]
+    }
+    func change(_ request: String, _ plan: [String: Any]) async -> StudioOperation? {
+        assistant.lock.withLock { assistant.edits = [plan] }
+        session.change(request)
+        _ = await idle()
+        return session.history.last { $0.request == request }
+    }
+    func operation(_ id: String?) -> StudioOperation? { session.history.first { $0.id == id } }
+    func requirements(_ slug: String) -> [FeatureStore.Written] { store.objects.filter { $0.slug == slug && $0.kind == .requirement } }
+    func object(_ slug: String, _ id: String?) -> FeatureStore.Written? { store.objects.first { $0.slug == slug && $0.id == id } }
+    func bugFile(_ id: String?) -> String {
+        guard let id, !id.isEmpty else { return "" }
+        return store.bugFiles.first { $0.lastPathComponent.hasPrefix(id + "-") }.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    }
+
+    session.clearConversation()
+    let featuresBefore = Set(store.overviews.keys)
+    let first = await change("Make the first rule darker", plan(".a { color: red; }", ".a { color: darkred; }"))
+    let feature = first?.tracking?.feature ?? ""
+    let overview = store.overviews[feature]
+    check("REQ-012 the first change of a conversation creates a feature titled from its request",
+          first?.status == .applied && !feature.isEmpty && !featuresBefore.contains(feature) && session.conversationFeature == feature
+          && overview?.front.string("title") == "UI Studio: Make the first rule darker",
+          "\(first?.status.rawValue ?? "nil") \(feature) \(session.notice ?? "")")
+    check("REQ-012 the feature is a UI Studio intake being implemented", overview?.front.string("intake") == "ui-studio"
+          && overview?.front.string("status") == "implementing" && overview?.body.contains("## UI Studio conversation") == true)
+    let req1 = object(feature, first?.tracking?.id)
+    check("REQ-012 a change is an approved requirement with its request, element, scope, files, checks and patch",
+          first?.tracking?.id == "REQ-001" && req1?.front.string("status") == "approved"
+          && ["- [x] Application rebuilt and reloaded", "- Request: Make the first rule darker", "- Element: `button.cta",
+              "- Scope: Shared theme", "- Files: `web/track.css`", "```diff", "+.a { color: darkred; }"].allSatisfy { req1?.body.contains($0) == true },
+          req1?.body ?? "nil")
+    let sources = req1?.front.strings("sources") ?? []
+    check("REQ-012 the before and after captures are the requirement's sources", sources.count == 2
+          && sources.allSatisfy { id in store.objects.contains { $0.slug == feature && $0.kind == .source && $0.id == id && !$0.front.string("file").isEmpty } }
+          && first?.tracking?.pictures.count == 2 && first?.tracking?.pictures.allSatisfy { fm.fileExists(atPath: root.appendingPathComponent($0).path) } == true,
+          "\(sources) \(first?.tracking?.pictures ?? [])")
+
+    let second = await change("Make the second rule lighter", plan(".b { color: green; }", ".b { color: lightgreen; }"))
+    check("REQ-012 two changes make one feature with two requirements", second?.tracking?.feature == feature && second?.tracking?.id == "REQ-002"
+          && requirements(feature).count == 2 && Set(store.overviews.keys).subtracting(featuresBefore) == [feature],
+          "\(second?.tracking.map { "\($0.id) \($0.feature)" } ?? "nil") \(requirements(feature).count)")
+
+    let third = await change("Fix the third rule; the debug key \(fake) shows over the price",
+                             plan(".c { color: blue; }", ".c { color: blue; } /* api_key=\(fake) */", kind: "repair",
+                                  reason: "The debug key \(fake) covered the price", summary: "Hid the key \(fake)"))
+    let bugID = third?.tracking?.id
+    let bug = bugFile(bugID)
+    check("REQ-012 a repair is a fixed bug linked to the feature, not a requirement", third?.tracking?.isBug == true && third?.changeKind == .repair
+          && bug.contains("status: fixed") && bug.contains("feature: \(feature)") && requirements(feature).count == 2, bug)
+    let link = bug.range(of: #"\(\.\./[^)]+\.png\)"#, options: .regularExpression).map { String(bug[$0].dropFirst().dropLast()) }
+    let linked = link.flatMap { store.bugsFolder?.appendingPathComponent($0).standardizedFileURL.path }
+    check("REQ-012 the bug has steps, expected and actual from the request, and its pictures",
+          ["## Steps to reproduce", "## Expected\n\nFix the third rule", "## Actual\n\nThe debug key", "![Before"].allSatisfy { bug.contains($0) }
+          && linked.map { fm.fileExists(atPath: $0) } == true, "\(linked ?? "no picture link")\n\(bug)")
+
+    session.switchTracking(third?.id ?? "")
+    _ = await idle()
+    let switched = operation(third?.id)
+    let closedBug = bugFile(bugID)
+    check("REQ-012 Switch moves a bug to a requirement and closes the bug with a note", switched?.tracking?.id == "REQ-003"
+          && switched?.tracking?.feature == feature && switched?.changeKind == .change && closedBug.contains("status: closed")
+          && closedBug.contains("Recorded as REQ-003 of \(feature) instead")
+          && object(feature, "REQ-003")?.front.strings("sources") == third?.tracking?.sources
+          && object(feature, "REQ-003")?.body.contains("Moved from \(bugID ?? "-")") == true,
+          "\(switched?.tracking?.id ?? "nil") \(session.notice ?? "")\n\(closedBug)")
+    session.switchTracking(second?.id ?? "")
+    _ = await idle()
+    let moved = operation(second?.id)
+    let req2 = object(feature, "REQ-002")
+    let movedBug = bugFile(moved?.tracking?.id)
+    check("REQ-012 Switch moves a requirement to a bug and marks the requirement superseded", moved?.tracking?.isBug == true
+          && req2?.front.string("status") == "superseded" && req2?.body.contains("Recorded as \(moved?.tracking?.id ?? "-") instead") == true
+          && movedBug.contains("status: fixed") && movedBug.contains("Moved from REQ-002"), "\(moved?.tracking?.id ?? "nil")\n\(req2?.body ?? "")")
+    let saved = await waitUntil(5) { StudioStore.loadHistory(root).first { $0.id == second?.id }?.tracking == moved?.tracking }
+    check("REQ-012 the record ids are saved with the operation", saved && moved?.tracking != nil)
+
+    session.undo(first?.id ?? "")
+    _ = await idle()
+    let req1After = object(feature, "REQ-001")
+    check("REQ-012 Undo marks the requirement rejected with a note, and nothing is deleted",
+          operation(first?.id)?.status == .undone && req1After?.front.string("status") == "rejected"
+          && req1After?.body.contains("## Reverted") == true && requirements(feature).count == 3,
+          "\(operation(first?.id)?.status.rawValue ?? "nil") \(req1After?.front.string("status") ?? "nil")")
+    session.undo(second?.id ?? "")
+    _ = await idle()
+    let revertedBug = bugFile(moved?.tracking?.id)
+    check("REQ-012 Undo marks the bug closed with a note, and nothing is deleted", operation(second?.id)?.status == .undone
+          && revertedBug.contains("status: closed") && revertedBug.contains("## Reverted") && store.bugFiles.count == 2, revertedBug)
+
+    session.clearConversation()
+    check("REQ-012 Clear leaves the next change without a feature", session.conversationFeature == nil)
+    let next = await change("Make the fourth rule bolder", plan(".d { color: gray; }", ".d { color: gray; font-weight: bold; }"))
+    let nextFeature = next?.tracking?.feature ?? ""
+    check("REQ-012 Clear followed by a change makes a new feature", !nextFeature.isEmpty && nextFeature != feature
+          && next?.tracking?.id == "REQ-001" && store.overviews[nextFeature]?.front.string("title") == "UI Studio: Make the fourth rule bolder",
+          "\(nextFeature) \(next?.tracking?.id ?? "nil")")
+
+    let records = store.overviews.map { $0.key + "\n" + $0.value.front.join(body: $0.value.body) }
+        + store.objects.map { $0.title + "\n" + $0.front.join(body: $0.body) }
+        + store.bugFiles.map { $0.lastPathComponent + "\n" + ((try? String(contentsOf: $0, encoding: .utf8)) ?? "") }
+    check("REQ-012 the fake secret appears in no record", !records.isEmpty && records.allSatisfy { !$0.contains("mvfake") },
+          records.first { $0.contains("mvfake") }.map { String($0.prefix(600)) } ?? "")
 }
 
 /// REQ-008 in a real session: the scenario's browser settings reach the page and its uses are listed; kept cookies

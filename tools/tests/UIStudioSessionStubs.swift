@@ -122,4 +122,33 @@ final class FeatureStore {
     }
 
     func reloadSync(_ slug: String? = nil) {}
+
+    func feature(_ slug: String) -> String? { overviews[slug] == nil ? nil : slug }
+
+    // Bug reports (REQ-012): written by the app's BugReportWriter into a real docs/bugs folder next to the features,
+    // numbered like FeatureAssistant.nextNumbered, and rewritten like the real store does.
+    let defaultOwner = "Test Person"
+    var bugsFolder: URL? { folder.deletingLastPathComponent().appendingPathComponent("bugs", isDirectory: true) }
+
+    var bugFiles: [URL] {
+        guard let bugsFolder else { return [] }
+        return ((try? FileManager.default.contentsOfDirectory(at: bugsFolder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "md" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    func createBug(_ draft: BugReportDraft) throws -> (id: String, url: URL) {
+        guard let bugsFolder else { throw BugReportWriter.Failure(message: "No project folder.") }
+        let id = String(format: "BUG-%03d", bugFiles.count + 1)
+        let slug = draft.title.lowercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" }
+        let url = try BugReportWriter.write(draft, id: id, slug: String(slug), created: "2026-11-04", in: bugsFolder)
+        return (id, url)
+    }
+
+    @discardableResult
+    func updateBug(_ url: URL, _ change: (inout FrontMatter, inout String) -> Void) -> Bool {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        var (front, body) = FrontMatter.split(text)
+        change(&front, &body)
+        return (try? front.join(body: body).write(to: url, atomically: true, encoding: .utf8)) != nil
+    }
 }

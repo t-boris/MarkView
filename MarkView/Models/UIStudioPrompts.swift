@@ -18,6 +18,9 @@ struct StudioEditPlan: Equatable {
     var answer = ""
     /// The change of a `context`, not yet validated.
     var context: StudioContextPlan? = nil
+    /// Whether the change repairs something broken (filed as a bug) or is new or different (a requirement), and why (REQ-012).
+    var changeKind: StudioOperation.ChangeKind = .change
+    var changeReason = ""
 }
 
 /// The prompts of UI Studio's two assistants (environment and UI editing), their answer schemas and the parsing of their
@@ -229,7 +232,10 @@ enum StudioPrompts {
            data or MarkView's files (.markview, .dde).
         3. Each edit names a file relative to the project root, a `search` text copied exactly from the current file (long \
            enough to occur once) and its `replace` text. An empty `search` creates a new file. Keep edits minimal.
-        4. `summary` says in one or two sentences what changed and where.
+        4. `summary` says in one or two sentences what changed and where. `changeKind` is `repair` when the code change \
+           fixes something broken (an overlap, cut-off or wrong text, an error, a layout that falls apart) and `change` for a \
+           new or different look or behaviour; `changeReason` says why in one line, for a repair what was broken. An answer \
+           or a context change is a `change`.
 
         Context changes:
         5. `data` is JSON text of an object {"<entity>": [records]}: each entity named there gets exactly these records. \
@@ -282,6 +288,8 @@ enum StudioPrompts {
                          "timeZone", "theme", "unsupported"]]
         return ["type": "object", "properties": [
             "kind": ["type": "string", "enum": StudioEditPlan.Kind.allCases.map(\.rawValue)],
+            "changeKind": ["type": "string", "enum": StudioOperation.ChangeKind.allCases.map(\.rawValue)],
+            "changeReason": ["type": "string"],
             "answer": ["type": "string"],
             "scope": ["type": "string", "enum": StudioOperation.Scope.allCases.map(\.rawValue)],
             "scopeNote": ["type": "string"],
@@ -293,7 +301,7 @@ enum StudioPrompts {
                 "path": ["type": "string"], "search": ["type": "string"], "replace": ["type": "string"]],
                 "required": ["path", "search", "replace"]]],
             "context": context,
-        ], "required": ["kind", "answer", "scope", "scopeNote", "needsClarification", "question", "options", "summary", "edits", "context"]]
+        ], "required": ["kind", "changeKind", "changeReason", "answer", "scope", "scopeNote", "needsClarification", "question", "options", "summary", "edits", "context"]]
     }()
 
     static func editPlan(from structured: Any?) -> StudioEditPlan? {
@@ -313,6 +321,8 @@ enum StudioPrompts {
         let inferred: StudioEditPlan.Kind = !edits.isEmpty || plan.needsClarification ? .code : plan.answer.isEmpty ? .code : .answer
         plan.kind = (object["kind"] as? String).flatMap(StudioEditPlan.Kind.init(rawValue:)) ?? inferred
         if plan.kind == .context { plan.context = StudioContextPlan(structured: object["context"]) }
+        plan.changeKind = (object["changeKind"] as? String).flatMap(StudioOperation.ChangeKind.init(rawValue:)) ?? .change
+        plan.changeReason = (object["changeReason"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return plan
     }
 

@@ -520,6 +520,50 @@ struct StudioCheck: Codable, Hashable, Sendable {
     var detail: String = ""
 }
 
+extension StudioOperation {
+    /// What an applied change is (REQ-012, DEC-008), as the assistant classified it: a repair of something broken (an
+    /// overlap, wrong text, an error) is filed as a bug; a new or different look or behaviour is a requirement of the
+    /// conversation's feature. Lenient: a value this version does not know reads as a change.
+    enum ChangeKind: String, Codable, CaseIterable, Sendable {
+        case repair, change
+
+        init(from decoder: Decoder) throws {
+            self = Self(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .change
+        }
+    }
+
+    /// Where an applied change is recorded (REQ-012): a requirement of the conversation's feature or a bug report linked
+    /// to it, written through the project's feature store.
+    struct Tracking: Codable, Hashable, Sendable {
+        /// `REQ-003` or `BUG-079`; empty when a damaged entry was read, which counts as not recorded.
+        var id = ""
+        /// The slug of the conversation's feature.
+        var feature = ""
+        /// The record's file, relative to the project root.
+        var file = ""
+        /// The change's before and after pictures, attached to the feature as sources: their ids and their files
+        /// (relative to the project root). A switch between requirement and bug reuses them.
+        var sources: [String] = []
+        var pictures: [String] = []
+
+        var isBug: Bool { id.hasPrefix("BUG-") }
+        var isRecorded: Bool { !id.isEmpty && !feature.isEmpty }
+    }
+}
+
+extension StudioOperation.Tracking {
+    /// Lenient, so one damaged entry never fails the whole history: a missing or malformed field is empty.
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let container = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        id = (try? container.decodeIfPresent(String.self, forKey: .id)) ?? ""
+        feature = (try? container.decodeIfPresent(String.self, forKey: .feature)) ?? ""
+        file = (try? container.decodeIfPresent(String.self, forKey: .file)) ?? ""
+        sources = (try? container.decodeIfPresent([String].self, forKey: .sources)) ?? []
+        pictures = (try? container.decodeIfPresent([String].self, forKey: .pictures)) ?? []
+    }
+}
+
 /// One file of an operation: its text before and after, for the patch and for selective undo.
 struct StudioFileChange: Codable, Hashable, Sendable {
     var path: String
@@ -563,6 +607,11 @@ struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
     var scopeNote = ""
     var answer = ""
     var summary = ""
+    /// The assistant's classification of the change and its one-line reason, and where the applied change is recorded
+    /// (REQ-012). Optional, so that history saved before them still loads.
+    var changeKind: ChangeKind? = nil
+    var changeReason: String? = nil
+    var tracking: Tracking? = nil
     var question: String? = nil
     var options: [String] = []
     var selection: String = ""

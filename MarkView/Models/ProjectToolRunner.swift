@@ -380,7 +380,7 @@ enum ProjectToolRunner {
     }
 
     private static func createBug(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
-        guard let folder = store.bugsFolder else { return .error("This window has no project folder open.") }
+        guard store.bugsFolder != nil else { return .error("This window has no project folder open.") }
         let title = try ProjectAgentTools.text(args, "title", required: true)
         guard title.count <= 200 else { throw ProjectAgentTools.Invalid(message: "`title` is too long (200 characters at most).") }
         let summary = try ProjectAgentTools.text(args, "summary", required: true)
@@ -388,25 +388,15 @@ enum ProjectToolRunner {
         let body = ProjectAgentTools.bugBody(title: title, summary: summary, steps: try ProjectAgentTools.list(args, "steps"),
                                              expected: try ProjectAgentTools.text(args, "expected"), actual: try ProjectAgentTools.text(args, "actual"),
                                              environment: try ProjectAgentTools.text(args, "environment"))
-        let id = FeatureAssistant.nextNumbered("BUG", in: folder)
-        let file = folder.appendingPathComponent("\(id)-\(featureSlug(title).prefix(50)).md")
-        var front = FrontMatter()
-        front.set("type", "bug")
-        front.set("id", id)
-        front.set("title", title)
-        front.set("status", "open")
-        front.set("severity", severity)
-        front.set("reporter", store.defaultOwner)
-        front.set("created", FeatureStore.today)
-        front.set("provenance", provenance(""))
+        let draft = BugReportDraft(title: title, body: body, status: "open", severity: severity, reporter: store.defaultOwner,
+                                   provenance: provenance(""))
+        let written: (id: String, url: URL)
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try Data(front.join(body: body).utf8).write(to: file, options: .withoutOverwriting)
+            written = try store.createBug(draft)
         } catch {
             return .error("Could not write the bug report: \(error.localizedDescription)")
         }
-        store.reloadSync()
-        return .init(text: "Created \(id) \"\(title)\" [\(severity)] at docs/bugs/\(file.lastPathComponent).")
+        return .init(text: "Created \(written.id) \"\(title)\" [\(severity)] at docs/bugs/\(written.url.lastPathComponent).")
     }
 
     private static func setBugStatus(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {

@@ -555,6 +555,16 @@ final class FeatureStore: ObservableObject {
         return true
     }
 
+    /// Writes a new numbered bug report in docs/bugs/ through `BugReportWriter`, for the `markview_create_bug` tool and UI
+    /// Studio's change tracking (REQ-012). Returns its id and file.
+    func createBug(_ draft: BugReportDraft) throws -> (id: String, url: URL) {
+        guard let folder = bugsFolder else { throw BugReportWriter.Failure(message: "This window has no project folder open.") }
+        let id = FeatureAssistant.nextNumbered("BUG", in: folder)
+        let url = try BugReportWriter.write(draft, id: id, slug: featureSlug(draft.title), created: Self.today, in: folder)
+        reloadSync()
+        return (id, url)
+    }
+
     func bug(at url: URL) -> BugReport? {
         let path = url.standardizedFileURL.path
         return bugs.first { $0.url.standardizedFileURL.path == path }

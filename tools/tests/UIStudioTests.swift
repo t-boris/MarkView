@@ -1599,6 +1599,138 @@ func logChecks() async {
           && records.last?.status == .registered, "\(records.map { "\($0.contract) \($0.status)" })")
 }
 
+// MARK: - Change tracking (REQ-012)
+
+/// A bug file exactly as `ProjectToolRunner.createBug` wrote it before its writer was shared (the reference).
+func legacyBugText(id: String, title: String, severity: String, reporter: String, created: String, provenance: String, body: String) -> String {
+    var front = FrontMatter()
+    front.set("type", "bug")
+    front.set("id", id)
+    front.set("title", title)
+    front.set("status", "open")
+    front.set("severity", severity)
+    front.set("reporter", reporter)
+    front.set("created", created)
+    front.set("provenance", provenance)
+    return front.join(body: body)
+}
+
+func trackingChecks() {
+    // The shared writer writes the file the markview_create_bug tool wrote before.
+    let provenance = "Created by an AI agent through MarkView"
+    let body = "# Login fails\n\n## Summary\n\nIt fails.\n\n## Steps to reproduce\n\n1. Open\n2. Sign in"
+    let cases = [("Login fails: \"quoted\"", "Ann", "high"), ("Plain title", "", "medium"), ("#hash - leading: x", "B. O'Brien", "critical")]
+    let same = cases.allSatisfy { title, reporter, severity in
+        let draft = BugReportDraft(title: title, body: body, status: "open", severity: severity, reporter: reporter, provenance: provenance)
+        return BugReportWriter.text(draft, id: "BUG-007", created: "2026-11-04")
+            == legacyBugText(id: "BUG-007", title: title, severity: severity, reporter: reporter, created: "2026-11-04", provenance: provenance, body: body)
+    }
+    check("REQ-012 the shared bug writer writes the same file as the tool did", same)
+    let golden = "---\ntype: bug\nid: BUG-007\ntitle: Plain title\nstatus: open\nseverity: medium\nreporter: \"\"\ncreated: 2026-11-04\n"
+        + "provenance: \(provenance)\n---\n\n" + body + "\n"
+    let plain = BugReportWriter.text(BugReportDraft(title: "Plain title", body: body, provenance: provenance), id: "BUG-007", created: "2026-11-04")
+    check("REQ-012 a bug file has its front matter in the tool's order", plain == golden, plain)
+    let longSlug = String(repeating: "ab-", count: 30)
+    check("REQ-012 a bug file is named by its id and 50 characters of its slug",
+          BugReportWriter.fileName(id: "BUG-012", slug: longSlug) == "BUG-012-" + longSlug.prefix(50) + ".md")
+    let bugs = tmp.appendingPathComponent("docs/bugs")
+    let draft = BugReportDraft(title: "Plain title", body: body, provenance: provenance, fields: [(key: "feature", value: "ui-studio-x")])
+    let written = try? BugReportWriter.write(draft, id: "BUG-001", slug: "plain-title", created: "2026-11-04", in: bugs)
+    let again = try? BugReportWriter.write(draft, id: "BUG-001", slug: "plain-title", created: "2026-11-04", in: bugs)
+    let file = written.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    check("REQ-012 a bug file is written into a new folder, never over an existing report",
+          written?.lastPathComponent == "BUG-001-plain-title.md" && again == nil && file.contains("provenance: \(provenance)\nfeature: ui-studio-x\n---"), file)
+
+    // Every record a change makes is redacted: credential shapes, confidential pairs and the project's own secret values.
+    let fake = "sk-" + "mvfake" + "Q7x9K2p4L8z3W6r1"
+    let known = "kept-value-" + "8237461"
+    var operation = StudioOperation(id: "op-1", kind: .edit, request: "Fix the overlap; it shows \(fake) and \(known)", status: .applied)
+    operation.selection = "button.cta · web/index.html"
+    operation.summary = "Moved the badge (token=\(known))"
+    operation.scope = .instance
+    operation.scopeNote = "Only \(fake)"
+    operation.changeKind = .repair
+    operation.changeReason = "The badge covered the price, see \(fake)"
+    operation.files = [StudioFileChange(path: "web/index.html", before: "a", after: "b")]
+    operation.patch = "--- a/web/index.html\n+++ b/web/index.html\n@@ -1 +1 @@\n-<p>a</p>\n+<p>b</p> <!-- api_key=\(known) \(fake) ``` -->\n"
+    operation.checks = [StudioCheck(name: "Scenario restored", passed: true, detail: "Populated"),
+                        StudioCheck(name: "No runtime errors", passed: false, detail: "Error: \(fake) is invalid")]
+    let text = StudioTrackingText(redactor: StudioRedactor(), hashes: [StudioConnections.hash(known): "PAYMENT_KEY"], date: "2026-11-04")
+    let facts = StudioTrackingText.Facts(scenario: "Populated (route /)",
+                                         pictures: [(label: "Before", source: "SRC-001", file: "docs/features/ui-studio-x/references/SRC-001-cap-1.png")])
+    let bug = BugReportWriter.text(text.bugDraft(operation, feature: "ui-studio-x", facts: facts, reporter: "Ann", folder: "docs/bugs"),
+                                   id: "BUG-001", created: "2026-11-04")
+    let requirement = text.requirementBody(operation, facts: facts)
+    let records = [text.featureTitle(operation), text.featureOverview(title: text.featureTitle(operation), operation), text.requirementTitle(operation),
+                   requirement, text.contextTitle(operation), text.contextBody(operation, facts: facts), bug]
+    check("REQ-012 no record carries a credential or a project secret", records.allSatisfy { !$0.contains("mvfake") && !$0.contains(known) },
+          records.first { $0.contains("mvfake") || $0.contains(known) } ?? "")
+    check("REQ-012 the redaction shows in the records", requirement.contains("[redacted") && bug.contains("[redacted:PAYMENT_KEY]"))
+    check("REQ-012 a requirement has the checks as criteria, the change's facts and its patch",
+          requirement.contains("- [x] Scenario restored\n- [ ] No runtime errors (failed: ") && requirement.contains("- Element: `button.cta · web/index.html`")
+          && requirement.contains("- Scope: This instance only") && requirement.contains("- Files: `web/index.html`")
+          && requirement.contains("- Scenario: Populated (route /)") && requirement.contains("- Kind: repair — ")
+          && requirement.contains("````diff\n") && requirement.contains("+<p>b</p>"), requirement)
+    check("REQ-012 a repair is a fixed bug linked to the feature, with steps, expected, actual and the pictures",
+          bug.contains("status: fixed") && bug.contains("feature: ui-studio-x\n---") && bug.contains("## Steps to reproduce\n\n1. Open the scenario")
+          && bug.contains("## Expected\n\nFix the overlap") && bug.contains("## Actual\n\nThe badge covered the price")
+          && bug.contains("![Before (SRC-001)](../features/ui-studio-x/references/SRC-001-cap-1.png)"), bug)
+    check("REQ-012 pictures are linked relative to the record",
+          StudioTrackingText.link(to: "docs/features/x/references/a.png", from: "docs/features/x/requirements") == "../references/a.png"
+          && StudioTrackingText.link(to: "docs/features/x/a b.png", from: "docs/bugs") == "../features/x/a%20b.png")
+    var contextTurn = StudioOperation(id: "op-2", kind: .context, request: "Show the booking dialog for \(fake)", status: .applied)
+    contextTurn.summary = "A scenario with the dialog open"
+    contextTurn.context = StudioContextChange(previousScenarioId: "base", previousScenarioName: "Base", scenarioId: "dialog",
+                                              scenarioName: "Booking dialog", records: ["items": 3], recordsBefore: ["items": 2],
+                                              route: "/booking", unsupported: ["No rule serves users (token=\(known))"])
+    let contextRecord = text.contextBody(contextTurn, facts: facts)
+    check("REQ-012 a context turn's requirement says which scenario it made and what changed, redacted",
+          contextRecord.contains("- New scenario: Booking dialog, made from Base\n- Records: items 2 → 3\n- Route: /booking\n- Not done: No rule serves users")
+          && !contextRecord.contains("- Scope:") && !contextRecord.contains("- Kind:") && !contextRecord.contains("mvfake") && !contextRecord.contains(known)
+          && text.contextTitle(contextTurn).hasPrefix("Scenario: Show the booking dialog for [redacted")
+          && text.revertNote(isBug: false, context: true).contains("the new scenario stays saved"), contextRecord)
+    let reverted = text.revertNote(isBug: false), moved = text.movedNote(to: StudioOperation.Tracking(id: "BUG-002", feature: "x"))
+    check("REQ-012 Undo and a switch leave notes, never delete", reverted.contains("## Reverted") && moved.contains("Recorded as BUG-002 instead"))
+    check("REQ-012 the turn says where the change is recorded",
+          StudioTrackingText.label(StudioOperation.Tracking(id: "REQ-003", feature: "ui-studio-x"), reverted: false) == "Tracked as REQ-003 of ui-studio-x"
+          && StudioTrackingText.label(StudioOperation.Tracking(id: "BUG-079", feature: "ui-studio-x"), reverted: true)
+            == "Tracked as BUG-079, linked to ui-studio-x · marked reverted")
+
+    // The assistant classifies each change; the schema asks for it.
+    let repair = StudioPrompts.editPlan(from: ["scope": "instance", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
+                                               "summary": "Moved", "edits": [], "changeKind": "repair", "changeReason": "  The badge overlapped  "])
+    let unclassified = StudioPrompts.editPlan(from: ["scope": "instance", "summary": "", "edits": []])
+    let required = StudioPrompts.editSchema["required"] as? [String] ?? []
+    check("REQ-012 the edit plan carries the classification, a change by default",
+          repair?.changeKind == .repair && repair?.changeReason == "The badge overlapped" && unclassified?.changeKind == .change
+          && required.contains("changeKind") && required.contains("changeReason") && StudioPrompts.editSystem.contains("`changeKind`"))
+
+    // History saved before tracking still loads; a damaged classification or record does not fail the file.
+    let old = #"""
+    [{"afterCapture":"cap-2","answer":"","beforeCapture":"cap-1","checks":[{"detail":"","name":"Scenario restored","passed":true}],
+      "created":"2026-11-03T10:00:00Z","files":[{"after":"b","before":"a","path":"web/index.html"}],"id":"op-old","kind":"edit",
+      "options":[],"patch":"-a\n+b\n","request":"Make it blue","scope":"instance","scopeNote":"","selection":"h1.title",
+      "status":"applied","summary":"Blue heading"}]
+    """#
+    let loaded = try? StudioStore.decoder.decode([StudioOperation].self, from: Data(old.utf8))
+    check("REQ-012 history saved before tracking still loads", loaded?.count == 1 && loaded?.first?.changeKind == nil
+          && loaded?.first?.tracking == nil && loaded?.first?.beforeCapture == "cap-1")
+    let damaged = old.replacingOccurrences(of: #""summary":"Blue heading""#,
+                                           with: #""summary":"Blue heading","changeKind":"refactor","tracking":{"id":7,"feature":"x"}"#)
+    let oddRecord = old.replacingOccurrences(of: #""summary":"Blue heading""#, with: #""summary":"Blue heading","tracking":"REQ-001""#)
+    let read = try? StudioStore.decoder.decode([StudioOperation].self, from: Data(damaged.utf8))
+    let readOdd = try? StudioStore.decoder.decode([StudioOperation].self, from: Data(oddRecord.utf8))
+    check("REQ-012 a damaged classification or record reads as a change that is not recorded",
+          read?.first?.changeKind == .change && read?.first?.tracking?.isRecorded == false && read?.first?.tracking?.feature == "x"
+          && readOdd?.first?.tracking?.isRecorded == false)
+    var tracked = loaded?.first ?? operation
+    tracked.changeKind = .repair
+    tracked.tracking = StudioOperation.Tracking(id: "BUG-004", feature: "ui-studio-x", file: "docs/bugs/BUG-004-x.md",
+                                                sources: ["SRC-001"], pictures: ["docs/features/ui-studio-x/references/SRC-001-cap-1.png"])
+    let roundTrip = (try? StudioStore.encoder.encode([tracked])).flatMap { try? StudioStore.decoder.decode([StudioOperation].self, from: $0) }
+    check("REQ-012 the record ids are kept with the operation", roundTrip?.first == tracked && roundTrip?.first?.tracking?.isBug == true)
+}
+
 // MARK: - Run
 
 gatewayParserChecks()
@@ -1616,6 +1748,7 @@ Task { @MainActor in
     connectionChecks()
     await processChecks()
     await logChecks()
+    trackingChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

@@ -795,6 +795,7 @@ struct UIStudioOperationRow: View {
                 }
                 .controlSize(.small).disabled(session.busy != nil)
             }
+            UIStudioTrackingLine(session: session, operation: operation)
         }
     }
 
@@ -1506,7 +1507,7 @@ struct UIStudioContentsPanel: View {
         ScrollView {
             FactRows(rows: [("Tab", "UI Studio"), ("Application", session.target?.label ?? "—"), ("State", session.state.title),
                             ("Address", session.appURL?.absoluteString ?? "—"), ("Scenario", session.scenario.name),
-                            ("Route", session.route), ("Changes", String(session.history.filter { $0.kind == .edit }.count)),
+                            ("Route", session.route), ("Changes", String(session.history.filter { $0.kind != .question }.count)),
                             ("Captures", String(session.captures.count))])
                 .padding(10)
         }
