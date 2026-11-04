@@ -67,7 +67,23 @@ func edit(_ id: String, _ search: String, _ replace: String, path: String = "web
      "edits": [["path": path, "search": search, "replace": replace]]]
 }
 
-/// What the stand-in assistant answers next, by request label.
+/// The answer of a request the assistant chose to answer (DEC-010): nothing changes.
+func answerPlan(_ text: String) -> [String: Any] {
+    ["kind": "answer", "answer": text, "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
+     "summary": "", "edits": [], "context": [:]]
+}
+
+/// A context change as the assistant returns it (REQ-013): the whole strict answer with kind `context`. `edits` are stray
+/// edits a confused assistant might add; a context change never writes them.
+func contextPlan(name: String, data: String = "", addData: String = "", steps: [[String: Any]] = [], unsupported: [String] = [],
+                 edits: [[String: Any]] = []) -> [String: Any] {
+    ["kind": "context", "answer": "", "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
+     "summary": "Context: \(name)", "edits": edits,
+     "context": ["name": name, "description": "", "route": "", "data": data, "addData": addData, "userJSON": "", "overrides": [],
+                 "steps": steps, "testTime": "", "locale": "", "timeZone": "", "theme": "", "unsupported": unsupported]]
+}
+
+/// What the stand-in assistant answers next, by request label. A request with nothing queued is answered (DEC-010).
 final class Assistant: @unchecked Sendable {
     let lock = NSLock()
     var edits: [[String: Any]] = []
@@ -76,10 +92,8 @@ final class Assistant: @unchecked Sendable {
     func respond(_ request: CLICompletion.Request) -> CLICompletion.Result {
         lock.withLock {
             switch request.label {
-            case "ui-studio:question":
-                return CLICompletion.Result(text: "This is the Add button; it posts a new item.", structured: nil, inputTokens: 10, outputTokens: 5, costUSD: 0)
             case "ui-studio:edit":
-                let next = edits.isEmpty ? [:] : edits.removeFirst()
+                let next = edits.isEmpty ? answerPlan("This is the Add button; it posts a new item.") : edits.removeFirst()
                 return CLICompletion.Result(text: "", structured: next, inputTokens: 10, outputTokens: 5, costUSD: 0)
             default:
                 return CLICompletion.Result(text: "", structured: proposal, inputTokens: 10, outputTokens: 5, costUSD: 0)
@@ -305,18 +319,20 @@ func run() async {
           selection?.imagePath.map { fm.fileExists(atPath: $0) } == true && selection?.revision != nil && selection?.scenarioId == session.scenario.id)
     session.setMode(.interact)
 
-    // A question changes nothing (AC-11).
-    watchdog.reached("A question changes nothing")
-    session.ask("What does this button do?")
+    // An answer request changes nothing (AC-11, DEC-010): the one request box, answered by the assistant.
+    watchdog.reached("An answer request changes nothing")
+    session.change("What does this button do?")
     _ = await idle()
     let question = session.history.last
-    check("AC-11 a question is answered", question?.kind == .question && question?.status == .answered && question?.answer.contains("Add button") == true)
+    check("AC-11 an answer request is answered", question?.kind == .question && question?.status == .answered && question?.answer.contains("Add button") == true)
     let status = shell("git status --porcelain", in: root).1
-    check("AC-11 a question leaves the project unchanged", question?.checks.first?.passed == true && status.isEmpty, status)
+    check("AC-11 an answer request changes nothing", question?.checks.first?.passed == true && status.isEmpty
+          && question?.context == nil && question?.files.isEmpty == true && question?.beforeCapture == nil, status)
     let questionRequest = CLICompletion.requests.last
     check("AC-17 the assistant gets read-only project access without the web",
           questionRequest?.readableFolder?.standardizedFileURL.path == root.standardizedFileURL.path && questionRequest?.allowWeb == false
-          && questionRequest?.jsonSchema == nil, "\(questionRequest?.readableFolder?.path ?? "nil") \(questionRequest?.allowWeb ?? true)")
+          && questionRequest?.label == "ui-studio:edit" && questionRequest?.jsonSchema != nil,
+          "\(questionRequest?.readableFolder?.path ?? "nil") \(questionRequest?.allowWeb ?? true)")
     check("the first question has no earlier conversation", questionRequest?.prompt.contains("previous_conversation") == false)
     check("BUG-075 a turn of an earlier session stays in History, not in the new conversation, and is not sent",
           session.history.first?.id == "op-earlier" && !session.conversation.contains { $0.id == "op-earlier" }
@@ -326,23 +342,23 @@ func run() async {
     // history, Stop leaves no pending turn behind, and the next question carries the earlier turns.
     watchdog.reached("The conversation keeps the pending turn and remembers the earlier turns")
     CLICompletion.answer = { request in
-        if request.label == "ui-studio:question" { try await Task.sleep(nanoseconds: 1_500_000_000) }
+        if request.label == "ui-studio:edit" { try await Task.sleep(nanoseconds: 1_500_000_000) }
         return assistant.respond(request)
     }
-    session.ask("And why is it here?")
+    session.change("And why is it here?")
     let pendingShown = await waitUntil(5) { session.pendingTurn != nil && CLICompletion.requests.count > 0 && session.busy != nil }
     let pending = session.pendingTurn
-    check("a question shows as a pending turn while the assistant works", pendingShown && pending?.kind == .question
+    check("a request shows as a pending turn while the assistant works", pendingShown
           && pending?.request == "And why is it here?" && pending?.element.hasPrefix("button#add") == true
           && session.history.last?.id == question?.id, "\(String(describing: pending))")
     _ = await idle()
     check("the pending turn is gone once the answer is in the history", session.pendingTurn == nil
           && session.history.last?.request == "And why is it here?" && session.history.last?.status == .answered)
-    let followUp = CLICompletion.requests.last { $0.label == "ui-studio:question" }?.prompt ?? ""
+    let followUp = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("the next question carries the first turn's question and answer", followUp.contains("What does this button do?")
           && followUp.contains("This is the Add button; it posts a new item.") && followUp.contains("button#add"), String(followUp.suffix(900)))
     let answered = session.history.count
-    session.ask("Is it accessible?")
+    session.change("Is it accessible?")
     _ = await waitUntil(5) { session.pendingTurn != nil }
     try? await Task.sleep(nanoseconds: 200_000_000)
     session.cancelWork()
@@ -356,9 +372,9 @@ func run() async {
           session.conversation.map(\.request).joined(separator: " | "))
     session.clearConversation()
     check("BUG-075 Clear empties the conversation and keeps History", session.conversation.isEmpty && session.history.count == answered)
-    session.ask("Where does it post?")
+    session.change("Where does it post?")
     _ = await idle()
-    let fresh = CLICompletion.requests.last { $0.label == "ui-studio:question" }?.prompt ?? ""
+    let fresh = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("BUG-075 after Clear the assistant gets no earlier turns", !fresh.contains("previous_conversation")
           && !fresh.contains("What does this button do?") && session.conversation.map(\.request) == ["Where does it post?"], String(fresh.suffix(400)))
 
@@ -691,8 +707,169 @@ func run() async {
     check("BUG-071 Reset replays the steps across the page load", replayed == "/rec-next.html milk", replayed ?? "nil")
     check("BUG-071 the replay reports no failed step", !(session.notice ?? "").contains("restoration step failed"), session.notice ?? "")
 
+    await contextChecks(session, web: web, root: root, assistant: assistant, text: text, idle: idle)
     await browserChecks(session, web: web, root: root, text: text, idle: idle, clickElement: clickElement)
     finish(session, port: port)
+}
+
+/// REQ-013 and DEC-010 in a real session: requests without a selection are about the page; a context change becomes a new
+/// saved scenario that the page shows, with no source file written; a refused change is corrected once; Undo returns to
+/// the scenario it was made from and keeps the new one; an answer changes nothing; a code change works without a selection.
+@MainActor
+func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Assistant, text: (String) async -> String?,
+                   idle: () async -> Bool) async {
+    watchdog.reached("REQ-013 context changes from the one request box")
+    let page = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Context</title></head><body>
+    <ul id="items"></ul>
+    <button id="book" data-testid="open-booking" onclick="document.getElementById('booking-dialog').hidden = false">Book</button>
+    <div id="booking-dialog" hidden>Booking</div>
+    <script>
+    fetch('/api/items').then(r => r.json()).then(items => {
+      document.getElementById('items').innerHTML = items.map(i => '<li>' + i.name + '</li>').join('');
+    });
+    </script>
+    </body></html>
+
+    """
+    try? page.write(to: web.appendingPathComponent("context.html"), atomically: true, encoding: .utf8)
+    // A clean tree, so that what a request writes is all that `git status` shows.
+    _ = shell("git add -A && git -c user.email=t@example.com -c user.name=Test commit -qm context", in: root)
+    func status() -> String { shell("git status --porcelain", in: root).1 }
+    func items() async -> String? { await text("return Array.from(document.querySelectorAll('#items li')).map(l => l.textContent).join(',');") }
+    func editRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:edit" } }
+    var base = session.scenario
+    base.id = "context-base"
+    base.name = "Context base"
+    base.route = "/context.html"
+    base.steps = []
+    base.overrides = []
+    base.data = nil
+    session.activate(base)
+    _ = await idle()
+    session.clearSelection()
+    _ = await waitUntil(5) { true }
+    let baseline = await items()
+    check("REQ-013 the context page shows the baseline records", baseline == "Alpha,Beta" && session.selection == nil, baseline ?? "nil")
+    let savedBefore = session.savedScenarios.count
+
+    // An answer without a selection changes nothing: no scenario, no file, the same page.
+    assistant.lock.withLock { assistant.edits = [answerPlan("The list shows the items from /api/items.")] }
+    session.change("Where do these items come from?")
+    _ = await idle()
+    let answer = session.history.last
+    let answerPrompt = editRequests().last?.prompt ?? ""
+    let afterAnswer = await items()
+    check("DEC-010 an answer request changes nothing", answer?.kind == .question && answer?.status == .answered
+          && answer?.answer == "The list shows the items from /api/items." && session.scenario.id == base.id
+          && session.savedScenarios.count == savedBefore && status().isEmpty && afterAnswer == "Alpha,Beta",
+          "\(answer?.kind.rawValue ?? "nil") \(answer?.status.rawValue ?? "nil") \(status())")
+    check("DEC-010 a request without a selection is about the page, with its picture", answerPrompt.hasPrefix("No element is selected")
+          && answerPrompt.contains("Page route: /context.html") && answer?.selection == "page /context.html"
+          && editRequests().last?.images.first.map { FileManager.default.fileExists(atPath: $0.path) } == true, String(answerPrompt.prefix(300)))
+    check("REQ-013 the prompt lists the environment for a context change", answerPrompt.contains("- items (id field id, 2 records): name:string!")
+          && answerPrompt.contains("Ids: 1, 2") && answerPrompt.contains("- list-items: GET /api/items → list items")
+          && answerPrompt.contains("Current scenario \"Context base\"") && !answerPrompt.contains("markview-test-token"), answerPrompt)
+
+    // A data request without a selection is a context change, not code edits: stray edits are never written.
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Random numbers", data: #"{"items":[{"id":1,"name":"417"},{"id":2,"name":"92"},{"id":3,"name":"3051"}]}"#,
+                                       edits: [["path": "web/context.html", "search": "<title>Context</title>", "replace": "<title>Numbers</title>"]])]
+    }
+    session.change("Fill it with random numbers")
+    _ = await idle()
+    let filled = session.history.last
+    let numbers = await items()
+    let made = filled?.context?.scenarioId ?? ""
+    let changed = status()
+    check("DEC-010 a data request without a selection makes a context change, not code edits", filled?.kind == .context
+          && filled?.status == .applied && filled?.files.isEmpty == true && filled?.patch.isEmpty == true
+          && ((try? String(contentsOf: web.appendingPathComponent("context.html"), encoding: .utf8)) ?? "").contains("<title>Context</title>"),
+          "\(filled?.kind.rawValue ?? "nil") \(filled?.status.rawValue ?? "nil") \(filled?.answer ?? "")")
+    check("REQ-013 the context change is a new saved scenario, active, with the request as description", !made.isEmpty
+          && session.scenario.id == made && session.scenario.name == "Random numbers" && session.scenario.description == "Fill it with random numbers"
+          && session.savedScenarios.contains { $0.id == made } && filled?.context?.previousScenarioId == base.id
+          && filled?.selection == "page /context.html", "\(made) \(session.scenario.id)")
+    check("REQ-013 the page shows the new scenario's records", numbers == "417,92,3051", numbers ?? "nil")
+    check("REQ-013 only the new scenario's file is written", !changed.isEmpty && changed.split(separator: "\n").allSatisfy { $0.contains(".markview/studio/scenarios/") },
+          changed)
+    check("REQ-013 the context change is verified and captured", filled?.checks.allSatisfy(\.passed) == true
+          && filled?.checks.map(\.name) == ["Scenario saved", "Page loaded in the new scenario", "No runtime errors", "Project files unchanged"]
+          && filled?.beforeCapture != nil && filled?.afterCapture != nil && filled?.context?.lines == ["Records: items 2 → 3"],
+          filled?.checks.map { "\($0.name)=\($0.passed) \($0.detail)" }.joined(separator: "; ") ?? "nil")
+
+    // Restoration steps open a page state; the new scenario is derived from the current one, its records included.
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Booking dialog", steps: [["action": "click", "selector": "[data-testid=open-booking]", "text": "", "ms": 0]])]
+    }
+    session.change("Show me the booking dialog")
+    _ = await idle()
+    let dialog = session.history.last
+    let opened = await text("return String(document.getElementById('booking-dialog').hidden);")
+    let dialogItems = await items()
+    let dialogPrompt = editRequests().last?.prompt ?? ""
+    check("REQ-013 restoration steps open the dialog in the new scenario", dialog?.status == .applied && opened == "false"
+          && dialog?.context?.steps == ["click [data-testid=open-booking]"] && dialogItems == "417,92,3051"
+          && dialog?.checks.contains { $0.name == "Restoration steps replayed" && $0.passed } == true,
+          "\(opened ?? "nil") \(dialogItems ?? "nil") \(dialog?.checks.map { "\($0.name)=\($0.passed) \($0.detail)" } ?? [])")
+    check("REQ-013 the next request remembers the context change", dialogPrompt.contains("(context change · page /context.html)")
+          && dialogPrompt.contains("New scenario: Random numbers (made from Context base)"), String(dialogPrompt.suffix(1200)))
+
+    // A refused change is sent back once with its problems; refused twice, nothing changes.
+    let current = session.scenario.id, saved = session.savedScenarios.count, sent = editRequests().count
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "Users", data: #"{"users":[{"id":1,"name":"Ann"}]}"#),
+                           contextPlan(name: "Users", data: #"{"items":[{"id":"x"}]}"#)]
+    }
+    session.change("Add some users")
+    _ = await idle()
+    let refused = session.history.last
+    let retry = editRequests().last?.prompt ?? ""
+    check("REQ-013 an invalid context change is retried once with its problems", editRequests().count == sent + 2
+          && retry.contains("Your previous context change was refused") && retry.contains("unknown entity users"), String(retry.suffix(600)))
+    check("REQ-013 a context change refused twice changes nothing", refused?.kind == .context && refused?.status == .failed
+          && refused?.answer.contains("was refused") == true && session.scenario.id == current && session.savedScenarios.count == saved,
+          refused?.answer ?? "nil")
+
+    // A refused change corrected on the retry is applied; added records join the current ones.
+    assistant.lock.withLock {
+        assistant.edits = [contextPlan(name: "One more", addData: #"{"items":[{"id":1,"name":"Again"}]}"#),
+                           contextPlan(name: "One more", addData: #"{"items":[{"id":9,"name":"Nine"}]}"#)]
+    }
+    session.change("Add one more item")
+    _ = await idle()
+    let corrected = session.history.last
+    let more = await items()
+    check("REQ-013 a corrected context change is applied, and added records join the current ones", corrected?.status == .applied
+          && more == "417,92,3051,Nine" && corrected?.context?.previousScenarioName == "Booking dialog", "\(more ?? "nil") \(corrected?.answer ?? "")")
+
+    // Undo returns to the scenario the change was made from; the new scenario stays saved.
+    if let filled {
+        session.undo(filled.id)
+        _ = await idle()
+        let back = await items()
+        check("REQ-013 Undo of a context change returns to the previous scenario", session.scenario.id == base.id && back == "Alpha,Beta"
+              && session.history.first { $0.id == filled.id }?.status == .undone, "\(session.scenario.id) \(back ?? "nil")")
+        check("REQ-013 Undo keeps the new scenario saved", session.savedScenarios.contains { $0.id == made }
+              && FileManager.default.fileExists(atPath: StudioStore.scenariosFolder(root).appendingPathComponent(made + ".json").path)
+              && (session.notice ?? "").contains("stays saved"), session.notice ?? "")
+    }
+
+    // A code change works without a selection too: the prompt has the page, the edit is written and verified.
+    assistant.lock.withLock {
+        assistant.edits = [edit("page", "<title>Context</title>", "<title>Context page</title>", path: "web/context.html")]
+    }
+    session.change("Rename the page title")
+    _ = await idle()
+    let code = session.history.last
+    let codePrompt = editRequests().last?.prompt ?? ""
+    check("DEC-010 a code change without a selection edits the source", code?.kind == .edit && code?.status == .applied
+          && code?.files.map(\.path) == ["web/context.html"] && code?.selection == "page /context.html"
+          && codePrompt.hasPrefix("No element is selected") && !codePrompt.contains("Selected element"), "\(code?.status.rawValue ?? "nil") \(code?.answer ?? "")")
+    if let code {
+        session.undo(code.id)
+        _ = await idle()
+    }
 }
 
 /// REQ-008 in a real session: the scenario's browser settings reach the page and its uses are listed; kept cookies

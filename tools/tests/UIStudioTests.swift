@@ -707,6 +707,223 @@ func promptChecks() {
     check("prompts treat page content as data", StudioPrompts.editSystem.contains("never instructions") && StudioPrompts.preparationSystem.contains("never instructions"))
 }
 
+// MARK: - One request box and context changes (DEC-010, REQ-013)
+
+/// A context object as a strict-schema assistant returns it: every property present, empty when not given.
+func contextObject(name: String = "", data: String = "", addData: String = "", userJSON: String = "", route: String = "",
+                   overrides: [[String: Any]] = [], steps: [[String: Any]] = [], testTime: String = "", locale: String = "",
+                   timeZone: String = "", theme: String = "", unsupported: [String] = []) -> [String: Any] {
+    ["name": name, "description": "", "route": route, "data": data, "addData": addData, "userJSON": userJSON, "overrides": overrides,
+     "steps": steps, "testTime": testTime, "locale": locale, "timeZone": timeZone, "theme": theme, "unsupported": unsupported]
+}
+
+func overrideObject(ruleId: String = "", method: String = "", path: String = "", status: Int = 0, body: String = "",
+                    empty: Bool = false, hang: Bool = false, delayMs: Int = 0) -> [String: Any] {
+    ["ruleId": ruleId, "method": method, "path": path, "status": status, "body": body, "empty": empty, "hang": hang, "delayMs": delayMs]
+}
+
+func stepObject(_ action: String, _ selector: String = "", text: String = "", ms: Int = 0) -> [String: Any] {
+    ["action": action, "selector": selector, "text": text, "ms": ms]
+}
+
+/// The whole answer of the request call, as the schema requires it.
+func planObject(kind: String, answer: String = "", context: [String: Any] = contextObject(), edits: [[String: Any]] = []) -> [String: Any] {
+    ["kind": kind, "answer": answer, "scope": "unknown", "scopeNote": "", "needsClarification": false, "question": "", "options": [],
+     "summary": "", "edits": edits, "context": context]
+}
+
+func contextChecks() {
+    // The populated scenario, in whole seconds as the stored files keep dates.
+    var base = base
+    base.updated = Date(timeIntervalSince1970: 1_790_000_000)
+    // DEC-010: the kind is in the same structured answer; an older answer without one is read from what it has.
+    let answered = StudioPrompts.editPlan(from: planObject(kind: "answer", answer: " It posts to /api/projects. "))
+    check("DEC-010 an answer is read as an answer, with no context", answered?.kind == .answer
+          && answered?.answer == "It posts to /api/projects." && answered?.context == nil && answered?.edits.isEmpty == true)
+    let older = StudioPrompts.editPlan(from: ["scope": "instance", "summary": "x", "edits": [["path": "a.css", "search": "a", "replace": "b"]]])
+    check("DEC-010 an answer without a kind and with edits is a code change", older?.kind == .code && older?.edits.count == 1)
+    check("DEC-010 an answer without a kind and with only an answer text is an answer", StudioPrompts.editPlan(from: ["answer": "Because."])?.kind == .answer)
+    check("DEC-010 the schema's kinds are answer, context and code",
+          ((StudioPrompts.editSchema["properties"] as? [String: Any])?["kind"] as? [String: Any])?["enum"] as? [String] == ["answer", "context", "code"])
+    let system = StudioPrompts.editSystem.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+    check("DEC-010 a data request is always a context change, never a pointer to another button",
+          system.contains("Every request to see, add, fill or show data is a context change") && system.contains("never send the person to another button")
+          && system.contains("never say that data cannot be changed"))
+    check("DEC-010 the clarification stays for ambiguous code changes", system.contains("`needsClarification`"))
+
+    // Strict structured output (Codex): every object lists all of its properties as required.
+    func strictProblems(_ schema: Any, at path: String) -> [String] {
+        guard let object = schema as? [String: Any] else { return [] }
+        var problems: [String] = []
+        if let properties = object["properties"] as? [String: Any] {
+            let required = Set(object["required"] as? [String] ?? [])
+            if required != Set(properties.keys) { problems.append(path + ": required " + required.sorted().joined(separator: ",")) }
+            for (key, value) in properties { problems += strictProblems(value, at: path + "." + key) }
+        }
+        if let items = object["items"] { problems += strictProblems(items, at: path + "[]") }
+        return problems
+    }
+    let strict = strictProblems(StudioPrompts.editSchema, at: "plan")
+    check("REQ-013 the request schema is strict: every property is required, also in context, overrides and steps", strict.isEmpty, strict.joined(separator: "; "))
+    let contextProperties = ((StudioPrompts.editSchema["properties"] as? [String: Any])?["context"] as? [String: Any])?["properties"] as? [String: Any]
+    check("REQ-013 records, the user and bodies travel as JSON text", (contextProperties?["data"] as? [String: Any])?["type"] as? String == "string"
+          && (contextProperties?["addData"] as? [String: Any])?["type"] as? String == "string"
+          && (contextProperties?["userJSON"] as? [String: Any])?["type"] as? String == "string")
+
+    // Reading a context plan.
+    let raw = contextObject(name: "Many projects",
+                            data: #"{"projects":[{"id":1,"name":"Apollo","status":"active"},{"id":4,"name":"Vega","status":"archived"}]}"#,
+                            overrides: [overrideObject(ruleId: "list-projects", delayMs: 1500)],
+                            steps: [stepObject("click", "#add"), stepObject("type", "input[name=title]", text: " New task ")],
+                            testTime: "2026-03-01T09:30:00Z", locale: "de-DE", timeZone: "Europe/Berlin", theme: "dark",
+                            unsupported: ["A chart nothing serves", ""])
+    let contextPlan = StudioPrompts.editPlan(from: planObject(kind: "context", context: raw))
+    let plan = contextPlan?.context ?? StudioContextPlan()
+    check("REQ-013 a context answer is read as a context plan", contextPlan?.kind == .context && plan.parseProblems.isEmpty
+          && plan.data?["projects"]?.count == 2 && plan.addedData == nil && plan.user == nil, "\(plan.parseProblems)")
+    check("REQ-013 overrides and steps are read; zero and empty mean not given", plan.overrides.count == 1 && plan.overrides[0].ruleId == "list-projects"
+          && plan.overrides[0].delayMs == 1500 && plan.overrides[0].status == nil && plan.overrides[0].empty == nil && plan.overrides[0].method == nil
+          && plan.steps.count == 2 && plan.steps[0].selector == "#add" && plan.steps[0].text == nil && plan.steps[1].text == " New task ")
+    check("REQ-013 clock, locale, time zone, theme and notes are read", plan.testTime == ISO8601DateFormatter().date(from: "2026-03-01T09:30:00Z")
+          && plan.locale == "de-DE" && plan.timeZone == "Europe/Berlin" && plan.theme == .dark && plan.unsupported == ["A chart nothing serves"])
+    let broken = StudioContextPlan(structured: contextObject(data: "not json", userJSON: "[1]", overrides: [overrideObject(ruleId: "me", status: 200, body: "{oops")],
+                                                             steps: [stepObject("hover", "#a")], testTime: "next tuesday", theme: "sepia"))
+    let brokenText = broken.parseProblems.joined(separator: " | ")
+    check("REQ-013 what cannot be read is a problem, not a guess", broken.parseProblems.count == 6 && brokenText.contains("`data`")
+          && brokenText.contains("`userJSON`") && brokenText.contains("`body`") && brokenText.contains("hover") && brokenText.contains("`testTime`")
+          && brokenText.contains("`theme`"), brokenText)
+    check("REQ-013 an answer without a context object is a problem", StudioContextPlan(structured: nil).parseProblems.count == 1)
+
+    // Checks against the environment and the current scenario.
+    func problems(_ object: [String: Any]) -> [String] {
+        StudioContextValidator.problems(StudioContextPlan(structured: object), current: base, spec: spec)
+    }
+    check("REQ-013 a valid plan passes", StudioContextValidator.problems(plan, current: base, spec: spec).isEmpty,
+          StudioContextValidator.problems(plan, current: base, spec: spec).joined(separator: " | "))
+    let unknown = problems(contextObject(data: #"{"users":[{"id":1}]}"#))
+    check("REQ-013 records of an unknown entity are refused, naming the known ones", unknown.count == 1 && unknown[0].contains("unknown entity users")
+          && unknown[0].contains("projects, tasks"), unknown.joined(separator: " | "))
+    let invalid = problems(contextObject(data: #"{"projects":[{"id":5,"name":"X","status":"paused"},{"id":6,"name":7,"status":"active"},{"name":"No id","status":"active"}]}"#))
+    check("REQ-013 records are checked like any record: enumerations, types and ids", invalid.count >= 3
+          && invalid.contains { $0.contains("must be one of") } && invalid.contains { $0.contains("must be string") }
+          && invalid.contains { $0.contains("needs a string or integer id") }, invalid.joined(separator: " | "))
+    let twice = problems(contextObject(addData: #"{"projects":[{"id":1,"name":"Again","status":"active"}]}"#))
+    check("REQ-013 an added record cannot reuse an id", twice.contains { $0.contains("id 1 is used twice") }, twice.joined(separator: " | "))
+    let dangling = problems(contextObject(data: #"{"projects":[{"id":9,"name":"Only","status":"active"}]}"#))
+    check("REQ-013 kept records may not be left pointing at replaced ones", dangling.count == 2
+          && dangling.allSatisfy { $0.contains("points at projects 1") }, dangling.joined(separator: " | "))
+    let addedTask = problems(contextObject(addData: #"{"tasks":[{"id":12,"title":"Ship","projectId":2},{"id":13,"title":"Lost","projectId":99}]}"#))
+    check("REQ-013 an added record's references are checked", addedTask.count == 1 && addedTask[0].contains("projects 99"), addedTask.joined(separator: " | "))
+    let rules = problems(contextObject(overrides: [overrideObject(ruleId: "nope", status: 500), overrideObject(method: "get", path: "/api/projects", status: 500),
+                                                   overrideObject(ruleId: "list-projects", empty: true), overrideObject(ruleId: "me"),
+                                                   overrideObject(ruleId: "get-project", body: #"{"error":"x"}"#), overrideObject(ruleId: "delete-project", status: 999)]))
+    check("REQ-013 overrides name rules that exist, once, and change something", rules.count == 5
+          && rules[0].contains("nope, which does not exist") && rules[0].contains("list-projects")
+          && rules.contains { $0.contains("list-projects has two overrides") } && rules.contains { $0.contains("changes nothing") }
+          && rules.contains { $0.contains("a body needs a status") } && rules.contains { $0.contains("999 is not an HTTP status") }, rules.joined(separator: " | "))
+    let steps = problems(contextObject(steps: [stepObject("click"), stepObject("wait", ms: 0), stepObject("navigate", text: "https://evil.example/"),
+                                               stepObject("press", "input", text: "Enter"), stepObject("wait", ms: 500), stepObject("navigate", text: "/projects/2")]))
+    check("REQ-013 steps are checked before they are replayed", steps.count == 3 && steps[0].contains("Step 1 (click)")
+          && steps[1].contains("Step 2 (wait)") && steps[2].contains("Step 3 (navigate)"), steps.joined(separator: " | "))
+    let place = problems(contextObject(route: "projects list", locale: "??", timeZone: "Mars/Olympus"))
+    check("REQ-013 the route, locale and time zone are checked", place.count == 3, place.joined(separator: " | "))
+
+    // The new scenario derived from the current one.
+    let taken = [base, StudioScenario(id: "many-projects", name: "Many projects")]
+    let request = "Show many projects, with a slow list"
+    let next = StudioContextValidator.scenario(plan, from: base, spec: spec, request: request, taken: taken, now: Date(timeIntervalSince1970: 1_800_000_000))
+    check("REQ-013 the new scenario has a name and id of its own, the request as description, and kind custom",
+          next.name == "Many projects 2" && next.id == StudioStore.safeID("Many projects 2") && next.id != base.id && next.kind == .custom
+          && next.description == request && next.revision == 1, "\(next.name) \(next.id)")
+    check("REQ-013 only the named entities' records are replaced", next.data?["projects"]?.count == 2 && next.data?["tasks"] == spec.seed["tasks"])
+    check("REQ-013 the overrides, steps, clock, locale, time zone and theme come from the plan", next.overrides == plan.overrides
+          && next.steps == plan.steps && next.testTime == plan.testTime && next.locale == "de-DE" && next.timeZone == "Europe/Berlin" && next.theme == .dark
+          && next.route == base.route && next.viewport == base.viewport)
+    check("REQ-013 the new scenario is compatible with the environment", StudioScenarioCompatibility.problems(next, spec: spec).isEmpty
+          && !next.contractFingerprint.isEmpty, StudioScenarioCompatibility.problems(next, spec: spec).joined(separator: " | "))
+    let change = StudioContextValidator.change(from: base, to: next, spec: spec, unsupported: plan.unsupported)
+    check("REQ-013 the change says what changed", change.previous == base && change.previousScenarioName == "Populated"
+          && change.scenarioName == "Many projects 2" && change.records == ["projects": 2] && change.recordsBefore == ["projects": 3]
+          && change.lines.contains("Records: projects 3 → 2") && change.overrides == ["list-projects: after 1500 ms"]
+          && change.steps == ["click #add", "type \" New task \" into input[name=title]"] && change.route == nil
+          && change.other.contains("Locale: de-DE") && change.other.contains("Time zone: Europe/Berlin") && change.other.contains("Theme: dark")
+          && change.other.contains { $0.hasPrefix("Clock: 2026-03-01") } && change.unsupported == ["A chart nothing serves"], change.lines.joined(separator: " | "))
+    let added = StudioContextPlan(structured: contextObject(addData: #"{"projects":[{"id":7,"name":"Orion","status":"active"}]}"#))
+    let addedScenario = StudioContextValidator.scenario(added, from: base, spec: spec, request: "Add a project", taken: taken)
+    check("REQ-013 added records join the current ones", addedScenario.data?["projects"]?.count == 4
+          && addedScenario.data?["projects"]?.last?["name"]?.stringValue == "Orion" && addedScenario.name == "Add a project")
+    let nothing = StudioContextValidator.scenario(StudioContextPlan(structured: contextObject()), from: base, spec: spec, request: "Leave it", taken: taken)
+    check("REQ-013 a plan that changes nothing makes no change", !StudioContextValidator.change(from: base, to: nothing, spec: spec, unsupported: []).changesAnything)
+    check("REQ-013 a new scenario never takes a built-in id", StudioContextValidator.uniqueName("builtin-populated", taken: []).id.hasPrefix("scenario-")
+          && StudioContextValidator.uniqueName("", taken: []).name == "Scenario")
+    var unserved = spec
+    unserved.entities.append(StudioEntity(name: "notes", fields: []))
+    let notes = StudioContextValidator.notes(StudioContextPlan(structured: contextObject(data: #"{"notes":[{"id":1}]}"#)), spec: unserved)
+    check("REQ-013 records no rule serves are reported as not shown", notes.count == 1 && notes[0].contains("no simulation rule serves"), notes.joined())
+
+    // Stored history and scenarios: new fields are optional, old files load, an unknown kind does not lose the history.
+    func reencode<T: Codable>(_ value: T, _ edit: (inout [String: Any]) -> Void) -> T? {
+        guard let data = try? StudioStore.encoder.encode(value),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        edit(&object)
+        guard let edited = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return try? StudioStore.decoder.decode(T.self, from: edited)
+    }
+    let plain = StudioOperation(id: "e0", kind: .edit, request: "Bigger", created: Date(timeIntervalSince1970: 1_800_000_000), status: .applied)
+    check("REQ-013 a history entry from before context changes loads", reencode(plain) { $0["context"] = nil } == plain)
+    var contextOperation = StudioOperation(id: "c1", kind: .context, request: request, created: Date(timeIntervalSince1970: 1_800_000_000), status: .applied)
+    contextOperation.context = change
+    contextOperation.selection = StudioPrompts.pageElement("/projects")
+    check("REQ-013 a context change round-trips", reencode(contextOperation) { _ in } == contextOperation)
+    check("REQ-013 an unknown kind of a later version loads as a question", reencode(contextOperation) { $0["kind"] = "future" }?.kind == .question)
+    let damaged = reencode(contextOperation) { $0["context"] = 42 }
+    check("REQ-013 a damaged context entry does not lose the history", damaged?.id == "c1" && damaged?.context?.scenarioId == "")
+    let partial = reencode(contextOperation) { object in
+        var context = object["context"] as? [String: Any] ?? [:]
+        context["records"] = "many"
+        context["previous"] = nil
+        object["context"] = context
+    }
+    check("REQ-013 a context entry with a wrong field keeps the rest", partial?.context?.scenarioName == "Many projects 2"
+          && partial?.context?.records.isEmpty == true && partial?.context?.previous == nil)
+    check("REQ-013 a scenario from before descriptions loads", reencode(base) { $0["description"] = nil } == base
+          && reencode(next) { _ in }?.description == request)
+
+    // The prompt: the page when nothing is selected, the environment for a context change, the refused change once.
+    var shown = base
+    shown.route = "/projects"
+    shown.overrides = [StudioOverride(ruleId: "list-projects", empty: true)]
+    shown.steps = [StudioStep(action: .click, selector: "#add")]
+    shown.role.user = .object(["name": .string("Test User"), "email": .string("test@example.com"), "apiKey": .string("sk-ant-abcdefghijklmnopqrstuvwxyz")])
+    var secretSpec = spec
+    secretSpec.seed["projects"]?[0] = .object(["id": .number(1), "name": .string("Apollo"), "status": .string("active"), "password": .string("hunter2secret")])
+    let page = StudioPrompts.editPrompt("Fill it with random numbers", selection: nil, scenario: shown, revision: nil, history: [],
+                                        redactor: redactor, clarification: nil, retryProblem: nil, route: "/projects",
+                                        pageImage: "/tmp/page.png", spec: secretSpec, refusedContext: ["projects 5: status must be one of active, archived"])
+    check("DEC-010 a request without a selection is about the page", page.hasPrefix("No element is selected") && page.contains("Page route: /projects")
+          && page.contains("A picture of the page: /tmp/page.png") && !page.contains("Selected element"), String(page.prefix(300)))
+    check("REQ-013 the prompt lists entities with fields, ids and rules", page.contains("- projects (id field id, 3 records): name:string!, status:string!(active|archived)")
+          && page.contains("projectId:integer!→projects") && page.contains("Ids: 1, 2, 3") && page.contains("- list-projects: GET /api/projects → list projects")
+          && page.contains("- me: GET /api/me → session"), page)
+    check("REQ-013 the prompt shows the current overrides and steps in the plan's form",
+          page.contains(#"{"body":"","delayMs":0,"empty":true,"hang":false,"method":"","path":"","ruleId":"list-projects","status":0}"#)
+          && page.contains(##"{"action":"click","ms":0,"selector":"#add","text":""}"##), page)
+    check("REQ-013 the prompt never shows the test token or confidential values", !page.contains("markview-test-token") && !page.contains("hunter2secret")
+          && !page.contains("sk-ant-") && page.contains("test@example.com"), page)
+    check("REQ-013 a refused change comes back with its problems", page.contains("Your previous context change was refused")
+          && page.contains("- projects 5: status must be one of active, archived") && page.hasSuffix("return the whole corrected change."))
+    let elementPrompt = StudioPrompts.editPrompt("Why?", selection: StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 1, "height": 1], "tag": "h1", "selector": "h1"])!,
+                                                 scenario: nil, revision: nil, history: [], redactor: redactor, clarification: nil, retryProblem: nil)
+    check("DEC-010 a request with a selection is about the element, without an environment block when none is known",
+          elementPrompt.hasPrefix("Selected element: h1") && !elementPrompt.contains("No element is selected") && !elementPrompt.contains("Simulated environment"))
+
+    // The conversation remembers what a context change made.
+    let remembered = StudioPrompts.conversationBlock([contextOperation], redactor: redactor)
+    check("REQ-013 a remembered context change names its scenario and what changed", remembered.contains("(context change · page /projects)")
+          && remembered.contains("New scenario: Many projects 2 (made from Populated)") && remembered.contains("Records: projects 3 → 2")
+          && remembered.contains("Not done: A chart nothing serves") && !remembered.contains("· element page"), remembered)
+}
+
 // MARK: - Selection (PRE-07…PRE-09)
 
 func selectionChecks() {
@@ -946,21 +1163,23 @@ func conversationChecks() {
     check("a remembered change carries neither its patch nor file contents", !edit.contains("font-size") && !edit.contains("+++"), edit)
 
     let selection = StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": "button#add", "selector": "button#add"])!
-    let follow = StudioPrompts.questionPrompt("And its padding?", selection: selection, scenario: nil, revision: nil,
-                                              history: [question(1)], redactor: redactor)
-    if let end = position("</previous_conversation>", in: follow), let asked = position("Question: And its padding?", in: follow),
+    // DEC-010: a question goes through the one request prompt.
+    let follow = StudioPrompts.editPrompt("And its padding?", selection: selection, scenario: nil, revision: nil,
+                                          history: [question(1)], redactor: redactor, clarification: nil, retryProblem: nil)
+    if let end = position("</previous_conversation>", in: follow), let asked = position("Request: And its padding?", in: follow),
        let element = position("Selected element: button#add", in: follow), let start = position("<previous_conversation>", in: follow) {
         check("a question carries the conversation between the selection and the new question",
               follow.contains("Question #1#") && follow.contains("Answer #1#") && element < start && end < asked
-              && follow.hasSuffix("Question: And its padding?"), follow)
+              && follow.hasSuffix("Request: And its padding?"), follow)
     } else {
         check("a question carries the conversation between the selection and the new question", false, follow)
     }
     let followEdit = StudioPrompts.editPrompt("Make it smaller instead", selection: selection, scenario: nil, revision: nil, history: [change],
                                               redactor: redactor, clarification: nil, retryProblem: nil)
     check("a change request carries the conversation", followEdit.contains("Request: Make the heading bigger")
-          && followEdit.contains("Change request: Make it smaller instead"), followEdit)
-    let first = StudioPrompts.questionPrompt("Why?", selection: selection, scenario: nil, revision: nil, history: [], redactor: redactor)
+          && followEdit.contains("Request: Make it smaller instead"), followEdit)
+    let first = StudioPrompts.editPrompt("Why?", selection: selection, scenario: nil, revision: nil, history: [], redactor: redactor,
+                                         clarification: nil, retryProblem: nil)
     check("the first question has no conversation block", !first.contains("previous_conversation") && !first.contains("Previous conversation"))
 
     // Page events: repeats of the same kind and text are one row with a count, newest first.
@@ -1391,6 +1610,7 @@ Task { @MainActor in
     browserChecks()
     evidenceChecks()
     promptChecks()
+    contextChecks()
     conversationChecks()
     selectionChecks()
     connectionChecks()

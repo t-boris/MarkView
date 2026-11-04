@@ -214,6 +214,9 @@ struct StudioScenario: Codable, Hashable, Identifiable, Sendable {
     /// What the page gets for location, clipboard, camera and microphone, and notifications (REQ-008). Optional, so that
     /// scenarios saved before it still load; nil is the default profile.
     var browser: StudioBrowserProfile? = nil
+    /// What the scenario is for: the request a context change made it from (REQ-013). Optional, so that scenarios saved
+    /// before it still load.
+    var description: String? = nil
 
     var browserProfile: StudioBrowserProfile { browser ?? StudioBrowserProfile() }
 }
@@ -525,9 +528,13 @@ struct StudioFileChange: Codable, Hashable, Sendable {
     var after: String?
 }
 
-/// A question or a source change made from UI Studio (ChangeSet, §10.1; EDIT-06).
+/// A question, a source change or a context change made from UI Studio (ChangeSet, §10.1; EDIT-06; REQ-013).
 struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
-    enum Kind: String, Codable, Sendable { case question, edit }
+    enum Kind: String, Codable, Sendable {
+        case question, edit
+        /// What the view shows changed, not the code: a new saved scenario derived from the current one (DEC-009).
+        case context
+    }
     enum Status: String, Codable, Sendable {
         case answered, applied, kept, undone, conflict, failed
         /// The assistant asked what was meant before changing anything.
@@ -568,6 +575,83 @@ struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
     var conflict: String? = nil
     var beforeCapture: String? = nil
     var afterCapture: String? = nil
+    /// The scenarios and the changes of a context change (REQ-013). Optional, so that history saved before it still loads.
+    var context: StudioContextChange? = nil
+}
+
+extension StudioOperation.Kind {
+    /// Lenient: a kind this version does not know reads as a question, which nothing undoes or exports, so a history that
+    /// holds it still loads.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: raw) ?? .question
+    }
+}
+
+/// What a context change did (REQ-013, DEC-009): the scenario it was made from, the new saved scenario, what changed in
+/// words and what could not be done.
+struct StudioContextChange: Codable, Hashable, Sendable {
+    var previousScenarioId = ""
+    var previousScenarioName = ""
+    /// The scenario as it was, so that Undo returns to it exactly, also when it was never saved or was changed in memory.
+    var previous: StudioScenario? = nil
+    /// The new saved scenario; empty when nothing could be changed and no scenario was made.
+    var scenarioId = ""
+    var scenarioName = ""
+    /// The number of records of each entity whose records changed, after and before the change.
+    var records: [String: Int] = [:]
+    var recordsBefore: [String: Int] = [:]
+    /// The new scenario's overrides in words; nil when they did not change, empty when they were all removed.
+    var overrides: [String]? = nil
+    /// The new route; nil when it did not change.
+    var route: String? = nil
+    /// The new scenario's restoration steps in words; nil when they did not change, empty when they were all removed.
+    var steps: [String]? = nil
+    /// Other changes in words: the test user, the clock, the locale, the time zone, the theme.
+    var other: [String] = []
+    /// What the assistant could not do (an entity no rule serves, a state no step reaches), reported instead of faked.
+    var unsupported: [String] = []
+
+    private enum CodingKeys: String, CodingKey {
+        case previousScenarioId, previousScenarioName, previous, scenarioId, scenarioName, records, recordsBefore, overrides, route, steps
+        case other, unsupported
+    }
+
+    var changesAnything: Bool { !records.isEmpty || overrides != nil || route != nil || steps != nil || !other.isEmpty }
+
+    /// What changed, one line per part.
+    var lines: [String] {
+        var lines: [String] = []
+        if !records.isEmpty {
+            lines.append("Records: " + records.keys.sorted().map { name in
+                "\(name) " + (recordsBefore[name].map { "\($0) → " } ?? "") + "\(records[name] ?? 0)"
+            }.joined(separator: ", "))
+        }
+        if let overrides { lines.append("Overrides: " + (overrides.isEmpty ? "none" : overrides.joined(separator: "; "))) }
+        if let route { lines.append("Route: \(route)") }
+        if let steps { lines.append("Steps: " + (steps.isEmpty ? "none" : steps.joined(separator: " → "))) }
+        return lines + other
+    }
+}
+
+extension StudioContextChange {
+    /// Lenient: a damaged entry keeps what can be read, so the history it is in still loads.
+    init(from decoder: Decoder) throws {
+        self.init()
+        guard let container = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        previousScenarioId = (try? container.decodeIfPresent(String.self, forKey: .previousScenarioId)) ?? ""
+        previousScenarioName = (try? container.decodeIfPresent(String.self, forKey: .previousScenarioName)) ?? ""
+        previous = (try? container.decodeIfPresent(StudioScenario.self, forKey: .previous)) ?? nil
+        scenarioId = (try? container.decodeIfPresent(String.self, forKey: .scenarioId)) ?? ""
+        scenarioName = (try? container.decodeIfPresent(String.self, forKey: .scenarioName)) ?? ""
+        records = (try? container.decodeIfPresent([String: Int].self, forKey: .records)) ?? [:]
+        recordsBefore = (try? container.decodeIfPresent([String: Int].self, forKey: .recordsBefore)) ?? [:]
+        overrides = (try? container.decodeIfPresent([String].self, forKey: .overrides)) ?? nil
+        route = (try? container.decodeIfPresent(String.self, forKey: .route)) ?? nil
+        steps = (try? container.decodeIfPresent([String].self, forKey: .steps)) ?? nil
+        other = (try? container.decodeIfPresent([String].self, forKey: .other)) ?? []
+        unsupported = (try? container.decodeIfPresent([String].self, forKey: .unsupported)) ?? []
+    }
 }
 
 /// The rendering conditions of a capture (CAP-02): two captures compare only when these are equal.

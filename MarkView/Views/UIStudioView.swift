@@ -408,7 +408,7 @@ struct UIStudioView: View {
         } else {
             Text(session.mode == .select
                  ? "Click an element in the preview. In Select mode a click selects; it does not run the element's action. Escape ends selecting."
-                 : "Choose Select in the toolbar, then click an element to ask about it or change it.")
+                 : "Nothing is selected: a request is about the whole page. To point at one element, choose Select in the toolbar and click it.")
                 .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(10)
         }
@@ -423,8 +423,10 @@ struct UIStudioView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     if session.conversation.isEmpty, session.pendingTurn == nil {
-                        Text("A new conversation. Questions and changes appear here, and the assistant remembers the last turns, so a "
-                             + "follow-up can refer to them. Earlier changes are in History, where they can be undone.")
+                        Text("A new conversation. Ask a question, ask for other data or another state (\"fill it with random numbers\", "
+                             + "\"show the error\"), or ask for a change to the interface: the assistant answers, makes a new scenario, or "
+                             + "edits the code, and says which. It remembers the last turns, so a follow-up can refer to them. Earlier "
+                             + "changes are in History, where they can be undone.")
                             .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(session.conversation) { operation in
@@ -473,7 +475,7 @@ struct UIStudioView: View {
     private func pendingTurn(_ turn: StudioSession.PendingTurn) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: turn.kind == .question ? "questionmark.bubble" : "wand.and.stars").uiFont(size: 10)
+                Image(systemName: "paperplane").uiFont(size: 10)
                     .foregroundColor(VSDark.blue)
                 Text(turn.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -550,8 +552,8 @@ struct UIStudioView: View {
                 Button(option) { session.answerClarification(operation, choice: option) }
                     .controlSize(.small).disabled(session.busy != nil)
             }
-            if session.conversation.last(where: { $0.status == .clarification })?.id == operation.id {
-                Text("Or type the answer below and press Change.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+            if session.conversation.last?.id == operation.id {
+                Text("Or type the answer below and press Send.").uiFont(size: 10).foregroundColor(VSDark.textDim)
             }
         }
     }
@@ -567,20 +569,18 @@ struct UIStudioView: View {
                 Button("Clear") { session.clearConversation() }
                     .disabled(session.conversation.isEmpty || session.busy != nil)
                     .help("Start a new conversation: the thread empties and the assistant forgets it. Every change stays in History, where it can be undone")
-                Text(session.selection == nil ? "Select an element first." : "Ask reads only. Change edits the project's source files.")
+                Text(session.selection == nil ? "About the whole page." : "About the selected element.")
                     .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    .help("The assistant answers a question, makes a new scenario for a request about data or state, or edits the code, "
+                          + "and the turn says which. A new scenario and a code change can both be undone.")
                 Spacer()
                 DictationButton(dictation: dictation) { transcript, window in
                     DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
                 }
-                Button("Ask") {
-                    session.ask(draft)
-                    draft = ""
-                }
-                .disabled(!canSend).help("A question about the selected element; nothing in the project changes")
-                Button("Change") {
-                    // Only a question of this conversation is answered; one from before Clear is not.
-                    if let pending = session.conversation.last(where: { $0.status == .clarification }) {
+                Button("Send") {
+                    // Only a question of this conversation is answered; one from before Clear is not. With one request box, only
+                    // the latest turn's question is: a request sent after another turn is a request of its own (DEC-010).
+                    if let pending = session.conversation.last, pending.status == .clarification {
                         session.answerClarification(pending, choice: draft)
                     } else {
                         session.change(draft)
@@ -589,7 +589,9 @@ struct UIStudioView: View {
                 }
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(!canSend)
-                .help("Change the interface: the assistant names the scope, edits the sources, and MarkView verifies the rebuilt application (⌘↩)")
+                .help("Send the request (⌘↩). A question is answered and changes nothing; other data, a state, the route or the clock "
+                      + "become a new scenario in the Scenario menu; a change to the interface edits the sources and MarkView verifies "
+                      + "the rebuilt application")
             }
             .controlSize(.small)
         }
@@ -598,7 +600,7 @@ struct UIStudioView: View {
     }
 
     private var canSend: Bool {
-        session.selection != nil && session.busy == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        session.appURL != nil && session.busy == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: Trust
@@ -682,7 +684,8 @@ struct UIStudioHistoryPanel: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 8) {
                 if session.history.isEmpty {
-                    Text("Questions and changes appear here with their verification. Each change can be undone on its own.")
+                    Text("Answers, new scenarios and code changes appear here with their verification. Each change can be undone on its "
+                         + "own: a code change is removed from the sources, a new scenario gives way to the one it was made from.")
                         .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                 }
                 ForEach(session.history.reversed()) { operation in
@@ -708,8 +711,8 @@ struct UIStudioOperationRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Image(systemName: operation.kind == .question ? "questionmark.bubble" : "wand.and.stars").uiFont(size: 10)
-                    .foregroundColor(VSDark.blue)
+                Image(systemName: kindIcon).uiFont(size: 10)
+                    .foregroundColor(VSDark.blue).help(kindTitle)
                 Text(operation.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(compact ? nil : 4)
                     .fixedSize(horizontal: false, vertical: compact)
                 Spacer()
@@ -720,10 +723,10 @@ struct UIStudioOperationRow: View {
             if !operation.selection.isEmpty {
                 Text(operation.selection).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
             }
-            if operation.kind == .edit, operation.scope != .unknown {
-                Text("Scope: \(operation.scope.title)" + (operation.scopeNote.isEmpty ? "" : " — \(operation.scopeNote)"))
-                    .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-            }
+            Text(kindTitle + (operation.kind == .edit && operation.scope != .unknown
+                              ? " · Scope: \(operation.scope.title)" + (operation.scopeNote.isEmpty ? "" : " — \(operation.scopeNote)") : ""))
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            if let change = operation.context { contextDetails(change) }
             let text = operation.answer.isEmpty ? operation.summary : operation.answer
             if !text.isEmpty {
                 Text(text).uiFont(size: 11).foregroundColor(VSDark.text)
@@ -762,14 +765,16 @@ struct UIStudioOperationRow: View {
                     .buttonStyle(.plain).foregroundColor(VSDark.blue)
                 }
             }
-            if operation.kind == .edit {
+            if operation.kind != .question {
                 HStack(spacing: 6) {
                     if operation.status == .applied {
                         Button("Keep") { session.keep(operation.id) }.help("Keep the change; it can still be undone later")
                     }
-                    if [.applied, .kept, .conflict].contains(operation.status), !operation.files.isEmpty {
+                    if canUndo {
                         Button("Undo") { session.undo(operation.id) }
-                            .help("Remove this change only; later independent changes stay, overlapping ones are shown as a conflict")
+                            .help(operation.kind == .context
+                                  ? "Return to the scenario this one was made from; the new scenario stays saved in the Scenario menu"
+                                  : "Remove this change only; later independent changes stay, overlapping ones are shown as a conflict")
                     }
                     if !operation.patch.isEmpty {
                         Button("Diff") { showingPatch.toggle() }
@@ -790,6 +795,45 @@ struct UIStudioOperationRow: View {
                 }
                 .controlSize(.small).disabled(session.busy != nil)
             }
+        }
+    }
+
+    private var kindIcon: String {
+        switch operation.kind {
+        case .question: return "questionmark.bubble"
+        case .edit: return "wand.and.stars"
+        case .context: return "square.stack.3d.up"
+        }
+    }
+
+    /// Which kind the assistant chose for the request (DEC-010).
+    private var kindTitle: String {
+        switch operation.kind {
+        case .question: return "Answer"
+        case .edit: return "Code change"
+        case .context: return "Context change"
+        }
+    }
+
+    private var canUndo: Bool {
+        switch operation.kind {
+        case .question: return false
+        case .edit: return [.applied, .kept, .conflict].contains(operation.status) && !operation.files.isEmpty
+        case .context: return [.applied, .kept].contains(operation.status) && operation.context?.scenarioId.isEmpty == false
+        }
+    }
+
+    /// The scenario a context change made and what it changed, with what could not be done (REQ-013).
+    @ViewBuilder private func contextDetails(_ change: StudioContextChange) -> some View {
+        if !change.scenarioId.isEmpty {
+            Text("New scenario \u{201C}\(change.scenarioName)\u{201D}, made from \u{201C}\(change.previousScenarioName)\u{201D}; the source code is not changed")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(change.lines, id: \.self) { line in
+            Text(line).uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+        }
+        ForEach(change.unsupported, id: \.self) { note in
+            Text("Not done: " + note).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -894,6 +938,10 @@ struct UIStudioScenariosPanel: View {
                     Button { session.deleteScenario(scenario.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain)
                         .foregroundColor(VSDark.textDim).help("Delete the saved scenario")
                 }
+            }
+            if let description = scenario.description, !description.isEmpty {
+                Text(description).uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(2)
+                    .help(description)
             }
             if !problems.isEmpty {
                 ForEach(problems, id: \.self) { problem in

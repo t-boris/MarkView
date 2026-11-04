@@ -1641,84 +1641,47 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return "op-\(stamp)-\(UUID().uuidString.prefix(4).lowercased())"
     }
 
-    /// A question about the selected element (EDIT-01, AC-11): read-only, nothing in the project changes.
-    func ask(_ question: String) {
-        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let selection else { return }
-        let element = Self.turnElement(selection)
-        runWork("Asking the assistant", pending: PendingTurn(kind: .question, request: text, element: element)) { session in
-            var operation = StudioOperation(id: session.newOperationID(), kind: .question, request: text, status: .answered)
-            operation.selection = element
-            operation.scenarioId = session.scenario.id
-            let before = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
-            operation.baseRevision = before
-            var request = CLICompletion.Request(project: session.root,
-                                                prompt: StudioPrompts.questionPrompt(text, selection: selection, scenario: session.scenario,
-                                                                                     revision: before, history: session.conversation,
-                                                                                     redactor: session.redactor),
-                                                systemPrompt: StudioPrompts.questionSystem, readableFolder: session.root)
-            request.images = selection.imagePath.map { [URL(fileURLWithPath: $0)] } ?? []
-            request.timeout = 600
-            request.effort = "medium"
-            request.label = "ui-studio:question"
-            do {
-                let result = try await CLICompletion.run(request, onActivity: { activity in
-                    Task { @MainActor in session.progress(activity) }
-                })
-                session.recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-                operation.answer = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            } catch is CancellationError {
-                return
-            } catch {
-                operation.status = .failed
-                operation.answer = error.localizedDescription
-            }
-            let after = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
-            operation.finalRevision = after
-            operation.checks = [StudioCheck(name: "Project files unchanged", passed: after.id == before.id,
-                                            detail: after.id == before.id ? "" : "The working tree changed while the question ran; the assistant itself had read-only access.")]
-            session.append(operation)
-        }
-    }
-
-    /// A change request for the selected element (EDIT-02…EDIT-08, AC-12, AC-13, AC-15): the scenario is restored and
-    /// captured, the assistant names the scope and proposes exact edits, MarkView checks them against the working tree as
-    /// it was when the request started, writes them, waits for the rebuilt application, restores the scenario again and
-    /// verifies it.
+    /// One request of the request box (DEC-010; EDIT-01…EDIT-08, AC-11…AC-15, REQ-013). The assistant chooses its kind: an
+    /// answer changes nothing; a context change is checked (and corrected once) and becomes a new saved scenario derived
+    /// from the current one; a code change names the scope and proposes exact edits, which MarkView checks against the
+    /// working tree as it was when the request started, writes after restoring and capturing the scenario, and verifies in
+    /// the rebuilt application. A selection is optional: without one, the request is about the current page.
     func change(_ text: String, clarification: String? = nil, replacing pending: StudioOperation? = nil) {
         let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !request.isEmpty, var selection else { return }
+        guard !request.isEmpty, appURL != nil else { return }
+        var selection = self.selection
+        let pageRoute = route
+        let element = selection.map(Self.turnElement) ?? StudioPrompts.pageElement(pageRoute)
         // An answer to the assistant's question is what the person just said; the question itself stays in the thread.
-        let turn = PendingTurn(kind: .edit, request: clarification ?? request, element: Self.turnElement(selection))
-        runWork("Changing the interface", pending: turn) { session in
-            session.busyDetail = "Restoring the scenario"
-            _ = await session.restore()
-            if session.selection == nil {
-                await session.revalidateSelection(selection, afterEdit: false)
-                if let current = session.selection { selection = current }
-            }
-            let before = await session.capture(label: "Before: " + String(request.prefix(60)))
+        let turn = PendingTurn(kind: .edit, request: clarification ?? request, element: element)
+        runWork("Working on the request", pending: turn) { session in
             let (revision, snapshot) = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers())
             var operation = pending ?? StudioOperation(id: session.newOperationID(), kind: .edit, request: request, status: .applied)
             operation.status = .applied
             operation.question = nil
             operation.options = []
-            operation.selection = Self.turnElement(selection)
+            operation.selection = element
             operation.scenarioId = session.scenario.id
             operation.baseRevision = revision
-            operation.beforeCapture = before?.id
+            // Without a selection the assistant sees the page as it is.
+            let pageImage = selection == nil ? await session.pagePicture() : nil
             var retryProblem: String?
+            var refusedContext: [String]?
+            var restored = false
             for attempt in 1...2 {
-                session.busyDetail = attempt == 1 ? "The assistant is reading the project" : "The assistant is correcting its edits"
+                session.busyDetail = attempt == 1 ? "The assistant is reading the project"
+                    : refusedContext != nil ? "The assistant is correcting its context change" : "The assistant is correcting its edits"
                 // The history includes a clarification being answered: its turn says what the assistant asked.
                 var call = CLICompletion.Request(project: session.root,
                                                  prompt: StudioPrompts.editPrompt(request, selection: selection, scenario: session.scenario,
                                                                                   revision: revision, history: session.conversation,
                                                                                   redactor: session.redactor, clarification: clarification,
-                                                                                  retryProblem: retryProblem),
+                                                                                  retryProblem: retryProblem, route: pageRoute,
+                                                                                  pageImage: pageImage, spec: session.spec,
+                                                                                  refusedContext: refusedContext),
                                                  systemPrompt: StudioPrompts.editSystem, jsonSchema: StudioPrompts.editSchema,
                                                  readableFolder: session.root)
-                call.images = selection.imagePath.map { [URL(fileURLWithPath: $0)] } ?? []
+                call.images = (selection?.imagePath ?? pageImage).map { [URL(fileURLWithPath: $0)] } ?? []
                 call.timeout = 900
                 call.effort = "medium"
                 call.label = "ui-studio:edit"
@@ -1741,6 +1704,39 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     operation.answer = error.localizedDescription
                     return session.append(operation)
                 }
+                switch plan.kind {
+                case .answer:
+                    operation.kind = .question
+                    operation.status = .answered
+                    operation.answer = plan.answer.isEmpty ? plan.summary : plan.answer
+                    let after = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
+                    operation.finalRevision = after
+                    operation.checks = [StudioCheck(name: "Project files unchanged", passed: after.id == revision.id,
+                                                    detail: after.id == revision.id ? "" : "The working tree changed while the request ran; the assistant itself had read-only access.")]
+                    return session.append(operation)
+                case .context:
+                    let context = plan.context ?? StudioContextPlan(structured: nil)
+                    let problems = StudioContextValidator.problems(context, current: session.scenario, spec: session.spec)
+                    if problems.isEmpty {
+                        return await session.applyContext(context, operation: operation, summary: plan.summary, snapshot: snapshot,
+                                                          selection: selection)
+                    }
+                    if attempt == 1 {
+                        refusedContext = problems
+                        retryProblem = nil
+                        continue
+                    }
+                    operation.kind = .context
+                    operation.status = .failed
+                    operation.summary = plan.summary
+                    operation.answer = "The context change was refused, so the scenario did not change: "
+                        + problems.prefix(5).joined(separator: " ") + (problems.count > 5 ? " (and \(problems.count - 5) more)" : "")
+                    operation.context = StudioContextChange(previousScenarioId: session.scenario.id, previousScenarioName: session.scenario.name,
+                                                            unsupported: context.unsupported)
+                    return session.append(operation)
+                case .code:
+                    break
+                }
                 operation.scope = plan.scope
                 operation.scopeNote = plan.scopeNote
                 operation.summary = plan.summary
@@ -1757,6 +1753,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                         : (plan.summary.isEmpty ? "The assistant proposed no change." : plan.summary)
                     return session.append(operation)
                 }
+                if !restored {
+                    // The scenario's baseline and its picture before anything is written.
+                    restored = true
+                    session.busyDetail = "Restoring the scenario"
+                    _ = await session.restore()
+                    if let previous = selection, session.selection == nil {
+                        await session.revalidateSelection(previous, afterEdit: false)
+                        if let current = session.selection { selection = current }
+                    }
+                    operation.beforeCapture = await session.capture(label: "Before: " + String(request.prefix(60)))?.id
+                }
                 do {
                     let unsaved = Set(session.editorBuffers().keys)
                     let changes = try await StudioChanges.plan(plan.edits, snapshot: snapshot, unsavedNow: unsaved)
@@ -1771,6 +1778,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     return session.append(operation)
                 } catch let error as StudioChangeError where attempt == 1 {
                     retryProblem = error.localizedDescription
+                    refusedContext = nil
                 } catch {
                     operation.status = .failed
                     operation.answer = error.localizedDescription
@@ -1794,6 +1802,109 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         // The question being answered belongs to the conversation.
         conversationIds.insert(operation.id)
         change(operation.request, clarification: choice, replacing: operation)
+    }
+
+    /// A picture of the page as it is, for a request made without a selection (DEC-010). It is overwritten by the next one.
+    private func pagePicture() async -> String? {
+        _ = try? await call("return window.__markviewStudio.prepareCapture();")
+        let image = await snapshot(nil)
+        _ = try? await call("return window.__markviewStudio.finishCapture();")
+        guard let image else { return nil }
+        let root = root, file = StudioStore.selectionFolder(root).appendingPathComponent("page.png")
+        let written = await Task.detached { () -> Bool in
+            StudioStore.prepareLocalFolder(root)
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            return StudioImageDiff.writePNG(image, to: file)
+        }.value
+        return written ? file.path : nil
+    }
+
+    /// Applies a checked context change (REQ-013, DEC-009): the new scenario derived from the current one is saved, made the
+    /// active one and restored, and the turn records what changed and what could not be done. No source file is written;
+    /// Undo returns to the scenario it was made from.
+    private func applyContext(_ plan: StudioContextPlan, operation start: StudioOperation, summary: String,
+                              snapshot: StudioWorkingSnapshot, selection: StudioSelectionContext?) async {
+        var operation = start
+        operation.kind = .context
+        operation.summary = summary.isEmpty ? plan.description : summary
+        let current = scenario
+        let next = StudioContextValidator.scenario(plan, from: current, spec: spec, request: operation.request,
+                                                   taken: savedScenarios + presets)
+        var change = StudioContextValidator.change(from: current, to: next, spec: spec,
+                                                   unsupported: plan.unsupported + StudioContextValidator.notes(plan, spec: spec))
+        guard change.changesAnything else {
+            // Nothing to show differently: no scenario is made.
+            change.previous = nil
+            change.scenarioId = ""
+            change.scenarioName = ""
+            operation.context = change
+            operation.status = .answered
+            if operation.summary.isEmpty { operation.answer = "Nothing in the scenario needed to change." }
+            return append(operation)
+        }
+        busyDetail = "Saving the new scenario"
+        let root = root
+        do {
+            savedScenarios = try await Task.detached { () throws -> [StudioScenario] in
+                try StudioStore.saveScenario(next, root: root)
+                return StudioStore.loadScenarios(root)
+            }.value
+        } catch {
+            operation.status = .failed
+            operation.answer = "The new scenario could not be saved, so the scenario did not change: \(error.localizedDescription)"
+            change.scenarioId = ""
+            change.previous = nil
+            operation.context = change
+            return append(operation)
+        }
+        operation.beforeCapture = await capture(label: "Before: " + String(operation.request.prefix(60)))?.id
+        operation.context = change
+        operation.scenarioId = next.id
+        operation.status = .applied
+        scenario = next
+        simulator.activate(next)
+        recordedSteps = []
+        append(operation)
+        busyDetail = "Restoring the new scenario"
+        let problem = await restore()
+        let errors = events.filter { $0.kind == .runtimeError && $0.generation == simulator.generation }
+        let (revision, after) = await StudioRevisionProbe.compute(root: root, editorBuffers: editorBuffers())
+        let pageLoaded = problem == nil || problem?.hasPrefix("Restoration step") == true
+        var checks = [StudioCheck(name: "Scenario saved", passed: true, detail: ".markview/studio/scenarios/\(StudioStore.safeID(next.id)).json"),
+                      StudioCheck(name: "Page loaded in the new scenario", passed: pageLoaded, detail: pageLoaded ? next.name : problem ?? "")]
+        if !next.steps.isEmpty { checks.append(StudioCheck(name: "Restoration steps replayed", passed: problem == nil, detail: problem ?? "")) }
+        checks.append(StudioCheck(name: "No runtime errors", passed: errors.isEmpty,
+                                  detail: errors.prefix(3).map { String($0.detail.prefix(300)) }.joined(separator: "\n")))
+        let same = StudioContextValidator.sameSources(snapshot, after)
+        checks.append(StudioCheck(name: "Project files unchanged", passed: same,
+                                  detail: same ? "" : "The working tree changed while the request ran; the context change itself writes no source file."))
+        operation.checks = checks
+        operation.finalRevision = revision
+        if pageLoaded, let capture = await capture(label: "After: " + String(operation.request.prefix(60)), operationId: operation.id) {
+            operation.afterCapture = capture.id
+        }
+        if let selection { await revalidateSelection(selection, afterEdit: true) }
+        replace(operation)
+    }
+
+    /// Undo of a context change (REQ-013): the scenario it was made from is active again and the turn is marked undone. The
+    /// new scenario is never deleted; it stays saved in the Scenario menu.
+    private func undoContext(_ operation: StudioOperation) {
+        guard let change = operation.context, !change.scenarioId.isEmpty, [.applied, .kept].contains(operation.status) else { return }
+        guard let previous = change.previous ?? (savedScenarios + presets).first(where: { $0.id == change.previousScenarioId }) else {
+            notice = "The scenario \(change.previousScenarioName) is no longer available."
+            return
+        }
+        runWork("Returning to the previous scenario") { session in
+            session.scenario = previous
+            session.simulator.activate(previous)
+            session.recordedSteps = []
+            _ = await session.restore()
+            var next = operation
+            next.status = .undone
+            session.replace(next)
+            session.notice = "Back to \(previous.name). \(change.scenarioName) stays saved in the Scenario menu."
+        }
     }
 
     /// Waits for the rebuilt application, restores the scenario and records the checks (EDIT-08, AC-15).
@@ -1854,6 +1965,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// Selective undo (EDIT-07, AC-14): the operation's reverse change is merged into the files as they are now; later
     /// independent edits stay. Overlapping edits are a conflict, shown for resolution, and nothing is written.
     func undo(_ id: String) {
+        if let operation = history.first(where: { $0.id == id }), operation.kind == .context { return undoContext(operation) }
         guard let operation = history.first(where: { $0.id == id }), operation.kind == .edit, !operation.files.isEmpty,
               [.applied, .kept, .conflict].contains(operation.status) else { return }
         runWork("Undoing the change") { session in
