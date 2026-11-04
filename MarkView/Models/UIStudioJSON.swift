@@ -2,7 +2,7 @@ import Foundation
 
 /// A JSON value of UI Studio's simulated data: scenario records, request and response bodies, agent proposals.
 /// Numbers keep integers as integers when they are written back (`anyValue`), so an id `7` never becomes `7.0`.
-enum StudioJSON: Codable, Hashable {
+enum StudioJSON: Codable, Hashable, Sendable {
     case null
     case bool(Bool)
     case number(Double)

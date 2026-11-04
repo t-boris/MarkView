@@ -543,6 +543,63 @@ func selectionChecks() {
     if case .cleared = StudioSelectionRevalidation.decide(previous: selected, candidates: []) { check("a vanished element clears the selection", true) } else { check("vanished", false) }
 }
 
+// MARK: - Session processes and connection policy (REQ-006, AC-17, AC-18)
+
+@MainActor
+func processChecks() async {
+    // A server the session started runs in a process group of its own; stopping it ends what it started too.
+    let server = StudioDevServer(command: "sleep 300 & echo child=$!; wait", folder: tmp)
+    do { try server.start(environment: ["PATH": "/usr/bin:/bin"]) } catch { check("AC-18 the server starts", false, "\(error)") }
+    var child: pid_t = 0
+    for _ in 0..<50 where child == 0 {
+        if let range = server.output.range(of: #"child=(\d+)"#, options: .regularExpression) {
+            child = pid_t(server.output[range].dropFirst(6)) ?? 0
+        } else {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+    check("AC-18 the server runs in its own process group", server.processID > 0 && getpgid(server.processID) == server.processID,
+          "pid \(server.processID) group \(getpgid(server.processID))")
+    check("AC-18 a process the server started is in the same group", child > 0 && getpgid(child) == server.processID, "child \(child)")
+    check("the server does not share MarkView's process group", getpgid(server.processID) != getpgrp())
+    await server.stop(grace: 2)
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    check("AC-18 stopping the session's server ends the server", server.exitStatus != nil && kill(server.processID, 0) != 0)
+    check("AC-18 stopping the session's server ends what it started", child > 0 && kill(child, 0) != 0)
+
+    // A server that exits on its own reports its status and leaves nothing behind.
+    let failing = StudioDevServer(command: "echo broken >&2; exit 3", folder: tmp)
+    try? failing.start(environment: ["PATH": "/usr/bin:/bin"])
+    let ended = await failing.waitForExit(timeout: 5)
+    check("a server that fails reports its exit status and output", ended && failing.exitStatus == 3 && failing.output.contains("broken"),
+          "\(failing.exitStatus ?? -1) \(failing.output)")
+
+    // The launch environment carries no production secrets and keeps browsers closed (§11, AC-17).
+    let base = ["PATH": "/usr/bin", "HOME": NSHomeDirectory(), "SHELL": "/bin/sh", "OPENAI_API_KEY": "sk-test-not-real",
+                "AWS_SECRET_ACCESS_KEY": "not-real", "GITHUB_TOKEN": "not-real", "CLAUDECODE": "1", "LANG": "en_US.UTF-8"]
+    let launch = await StudioLaunchEnvironment.make(base: base)
+    check("AC-17 secrets of MarkView's environment do not reach the project's processes",
+          launch.environment["OPENAI_API_KEY"] == nil && launch.environment["AWS_SECRET_ACCESS_KEY"] == nil
+          && launch.environment["GITHUB_TOKEN"] == nil && launch.environment["CLAUDECODE"] == nil,
+          launch.environment.keys.sorted().joined(separator: ","))
+    check("AC-17 the removed names are listed, never their values", launch.removed.contains("OPENAI_API_KEY") && !launch.removed.contains("sk-test-not-real"))
+    check("the project's processes get a usable PATH and no browser", (launch.environment["PATH"] ?? "").contains("/usr/bin")
+          && launch.environment["BROWSER"] == "none" && launch.environment["LANG"] == "en_US.UTF-8")
+
+    // Connection policy: allowed patterns become anchored filters; dev-server files pass, application data does not.
+    check("AC-16 an allowed address becomes an anchored filter", StudioConnectionPolicy.filter(forAllowed: "https://fonts.googleapis.com/*") == #"^https://fonts\.googleapis\.com/"#,
+          StudioConnectionPolicy.filter(forAllowed: "https://fonts.googleapis.com/*") ?? "nil")
+    check("AC-16 something that is not an address is not allowed", StudioConnectionPolicy.filter(forAllowed: "javascript:alert(1)") == nil
+          && StudioConnectionPolicy.filter(forAllowed: "https://evil.com\\@x/") == nil)
+    let folder = tmp.appendingPathComponent("app")
+    try? fm.createDirectory(at: folder.appendingPathComponent("public/locales"), withIntermediateDirectories: true)
+    try? Data("{}".utf8).write(to: folder.appendingPathComponent("public/locales/en.json"))
+    func resource(_ path: String) -> Bool { StudioConnectionPolicy.isDevelopmentResource(URL(string: "http://localhost:5173" + path)!, appFolder: folder) }
+    check("the development server's own files pass", resource("/src/main.tsx") && resource("/@vite/client") && resource("/assets/logo.svg"))
+    check("a JSON file the app folder serves passes", resource("/locales/en.json"))
+    check("AC-16 application data is never passed through", !resource("/api/projects") && !resource("/api/projects.json") && !resource("/../secret.json"))
+}
+
 // MARK: - Run
 
 let done = DispatchSemaphore(value: 0)
@@ -553,6 +610,7 @@ Task { @MainActor in
     evidenceChecks()
     promptChecks()
     selectionChecks()
+    await processChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

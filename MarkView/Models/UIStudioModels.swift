@@ -6,7 +6,7 @@ import Foundation
 
 /// Where a session is (REQ-001): `ready` means the target scenario loaded and its required dependencies are provided;
 /// `degraded` means the interface is partly available (unknown or unsupported requests, a stale preview, a stand-in in use).
-enum StudioSessionState: String, Codable, CaseIterable {
+enum StudioSessionState: String, Codable, CaseIterable, Sendable {
     case analyzing, preparing, starting, ready, degraded, failed, stopped
 
     var title: String {
@@ -23,15 +23,15 @@ enum StudioSessionState: String, Codable, CaseIterable {
 }
 
 /// What a contract was inferred from (ENV-02, ENV-03): a TypeScript type alone is never a guarantee of the real format.
-struct StudioEvidence: Codable, Hashable {
-    enum Kind: String, Codable { case contract, type, test, example, observation, assumption }
+struct StudioEvidence: Codable, Hashable, Sendable {
+    enum Kind: String, Codable, Sendable { case contract, type, test, example, observation, assumption }
     var kind: Kind
     var detail: String
 }
 
 /// One dependency of the application and how the session provides it.
-struct StudioDependency: Codable, Hashable, Identifiable {
-    enum Mode: String, Codable {
+struct StudioDependency: Codable, Hashable, Identifiable, Sendable {
+    enum Mode: String, Codable, Sendable {
         /// Answered by registered simulation rules.
         case simulated
         /// Reaches a local resource or an address the user allowed explicitly.
@@ -49,7 +49,7 @@ struct StudioDependency: Codable, Hashable, Identifiable {
 }
 
 /// A field of a simulated entity, checked when rules and records are validated (SIM-06).
-struct StudioField: Codable, Hashable {
+struct StudioField: Codable, Hashable, Sendable {
     var name: String
     /// string, integer, number, boolean, object, array.
     var type: String
@@ -60,34 +60,34 @@ struct StudioField: Codable, Hashable {
 }
 
 /// A collection of the shared state: lists, details and writes of one kind of record read the same records (SIM-02).
-struct StudioEntity: Codable, Hashable {
+struct StudioEntity: Codable, Hashable, Sendable {
     var name: String
     var idField: String = "id"
     var fields: [StudioField] = []
 }
 
 /// Related records attached to a detail answer: `tasks` of a project are the `tasks` whose `projectId` is the project's id.
-struct StudioInclude: Codable, Hashable {
+struct StudioInclude: Codable, Hashable, Sendable {
     var field: String
     var entity: String
     var foreignKey: String
 }
 
 /// A fixed answer of a `respond` rule or of an override.
-struct StudioFixedResponse: Codable, Hashable {
+struct StudioFixedResponse: Codable, Hashable, Sendable {
     var status: Int
     var body: StudioJSON?
     var headers: [String: String]? = nil
 }
 
 /// A registered simulation rule: a declarative operation on the state (§6.2), never code written by an agent.
-struct StudioRule: Codable, Hashable, Identifiable {
-    enum Operation: String, Codable, CaseIterable {
+struct StudioRule: Codable, Hashable, Identifiable, Sendable {
+    enum Operation: String, Codable, CaseIterable, Sendable {
         case list, get, create, update, delete, respond
         /// The test user of the scenario's role (ENV-05): `/api/me`, `/auth/session`.
         case session
     }
-    enum Origin: String, Codable { case project, agent, user }
+    enum Origin: String, Codable, Sendable { case project, agent, user }
 
     var id: String
     var method: String
@@ -111,7 +111,7 @@ struct StudioRule: Codable, Hashable, Identifiable {
 }
 
 /// Everything a session simulates for the project, reusable across sessions (EnvironmentSpec, §10.1).
-struct StudioEnvironmentSpec: Codable, Equatable {
+struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     var schemaVersion = 1
     var entities: [StudioEntity] = []
     var rules: [StudioRule] = []
@@ -128,7 +128,7 @@ struct StudioEnvironmentSpec: Codable, Equatable {
 }
 
 /// An answer a scenario puts in place of a rule's normal one: an error, an empty list, a delay (loading) (SIM-11).
-struct StudioOverride: Codable, Hashable {
+struct StudioOverride: Codable, Hashable, Sendable {
     /// The rule it changes, by id; or `method` and `path` of a rule.
     var ruleId: String? = nil
     var method: String? = nil
@@ -143,15 +143,15 @@ struct StudioOverride: Codable, Hashable {
 }
 
 /// A restoration step (SCN-02): the UI state is rebuilt by explicit actions, not from a memory snapshot.
-struct StudioStep: Codable, Hashable {
-    enum Action: String, Codable { case click, type, wait, navigate, press }
+struct StudioStep: Codable, Hashable, Sendable {
+    enum Action: String, Codable, Sendable { case click, type, wait, navigate, press }
     var action: Action
     var selector: String? = nil
     var text: String? = nil
     var ms: Int? = nil
 }
 
-struct StudioViewport: Codable, Hashable {
+struct StudioViewport: Codable, Hashable, Sendable {
     var width: Int
     var height: Int
 
@@ -164,7 +164,7 @@ struct StudioViewport: Codable, Hashable {
 }
 
 /// The test user of a scenario (test credentials only, never a real account).
-struct StudioRole: Codable, Hashable {
+struct StudioRole: Codable, Hashable, Sendable {
     var name: String
     var user: StudioJSON
     var token: String = "markview-test-token"
@@ -176,9 +176,9 @@ struct StudioRole: Codable, Hashable {
 
 /// A saved situation of the interface (SCN-01): route, baseline data, role, response rules, viewport, theme, locale, seed,
 /// test time and restoration steps. The baseline never changes because a session changed its data (CAP-01).
-struct StudioScenario: Codable, Hashable, Identifiable {
-    enum Kind: String, Codable, CaseIterable { case populated, empty, loading, error, detail, editing, custom }
-    enum Theme: String, Codable { case light, dark }
+struct StudioScenario: Codable, Hashable, Identifiable, Sendable {
+    enum Kind: String, Codable, CaseIterable, Sendable { case populated, empty, loading, error, detail, editing, custom }
+    enum Theme: String, Codable, Sendable { case light, dark }
 
     var id: String
     var revision = 1
@@ -203,7 +203,7 @@ struct StudioScenario: Codable, Hashable, Identifiable {
 
 /// The identity of the code a preview or capture was built from: the commit, the uncommitted changes and the unsaved
 /// editor buffers (§10.1: a commit SHA alone is not enough).
-struct StudioRevision: Codable, Hashable {
+struct StudioRevision: Codable, Hashable, Sendable {
     var id: String
     var head: String?
     var changedFiles: Int
@@ -219,14 +219,14 @@ struct StudioRevision: Codable, Hashable {
 }
 
 /// One check of an operation's verification.
-struct StudioCheck: Codable, Hashable {
+struct StudioCheck: Codable, Hashable, Sendable {
     var name: String
     var passed: Bool
     var detail: String = ""
 }
 
 /// One file of an operation: its text before and after, for the patch and for selective undo.
-struct StudioFileChange: Codable, Hashable {
+struct StudioFileChange: Codable, Hashable, Sendable {
     var path: String
     /// nil = the file did not exist.
     var before: String?
@@ -234,14 +234,14 @@ struct StudioFileChange: Codable, Hashable {
 }
 
 /// A question or a source change made from UI Studio (ChangeSet, §10.1; EDIT-06).
-struct StudioOperation: Codable, Hashable, Identifiable {
-    enum Kind: String, Codable { case question, edit }
-    enum Status: String, Codable {
+struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
+    enum Kind: String, Codable, Sendable { case question, edit }
+    enum Status: String, Codable, Sendable {
         case answered, applied, kept, undone, conflict, failed
         /// The assistant asked what was meant before changing anything.
         case clarification
     }
-    enum Scope: String, Codable, CaseIterable {
+    enum Scope: String, Codable, CaseIterable, Sendable {
         case recordData = "record-data", instance, sharedComponent = "shared-component", theme, unknown
 
         var title: String {
@@ -279,7 +279,7 @@ struct StudioOperation: Codable, Hashable, Identifiable {
 }
 
 /// The rendering conditions of a capture (CAP-02): two captures compare only when these are equal.
-struct StudioRendering: Codable, Hashable {
+struct StudioRendering: Codable, Hashable, Sendable {
     var engine: String
     var os: String
     var viewport: StudioViewport
@@ -292,7 +292,7 @@ struct StudioRendering: Codable, Hashable {
 }
 
 /// A picture of the preview linked to the code and scenario it shows (Capture, §10.1).
-struct StudioCapture: Codable, Hashable, Identifiable {
+struct StudioCapture: Codable, Hashable, Identifiable, Sendable {
     var id: String
     var label: String
     var file: String

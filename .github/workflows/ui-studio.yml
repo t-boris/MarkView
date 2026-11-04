@@ -1,0 +1,29 @@
+name: UI Studio Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Models/UIStudio*.swift'
+      - 'MarkView/Views/UIStudio*.swift'
+      - 'MarkView/Models/WebAppPreview.swift'
+      - 'MarkView/Models/FrontMatter.swift'
+      - 'MarkView/Models/BrowserElementPick.swift'
+      - 'MarkView/Resources/Editor/vendor/js/markview-ui-studio.js'
+      - 'tools/tests/UIStudio*'
+      - 'tools/tests/ui-studio*.sh'
+      - '.github/workflows/ui-studio.yml'
+permissions:
+  contents: read
+jobs:
+  ui-studio:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check simulation, rule preparation, redaction, bridge, changes and undo, scenarios, evidence, selection and processes
+        run: bash tools/tests/ui-studio-tests.sh
+      - name: Run the page runtime in WebKit (requests, clock, selection, zoom, replay, connection policy)
+        run: bash tools/tests/ui-studio-web-tests.sh
+      - name: Run a session against a real development server
+        run: bash tools/tests/ui-studio-session-tests.sh
+      - name: Build application
+        run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewUIStudioCI CODE_SIGNING_ALLOWED=NO build

@@ -10,7 +10,9 @@ enum StudioProcess {
         var stderr: String
     }
 
-    static func run(_ executable: String, _ arguments: [String], in directory: URL? = nil, input: Data? = nil) async -> Output {
+    /// `timeout` ends the process (SIGTERM) when it runs longer; its output so far is returned.
+    static func run(_ executable: String, _ arguments: [String], in directory: URL? = nil, input: Data? = nil,
+                    timeout: TimeInterval? = nil) async -> Output {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
@@ -24,6 +26,9 @@ enum StudioProcess {
                 do { try process.run() } catch {
                     continuation.resume(returning: Output(status: -1, stdout: "", stderr: error.localizedDescription))
                     return
+                }
+                if let timeout {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if process.isRunning { process.terminate() } }
                 }
                 if let input {
                     DispatchQueue.global().async {

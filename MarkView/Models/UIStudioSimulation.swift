@@ -389,7 +389,7 @@ struct StudioSimulator {
 }
 
 /// What an agent proposes for an unknown request (or a whole environment): declarative rules, entities and records.
-struct StudioProposal: Codable, Equatable {
+struct StudioProposal: Codable, Equatable, Sendable {
     var entities: [StudioEntity] = []
     var records: [String: [StudioJSON]] = [:]
     var rules: [StudioRule] = []
