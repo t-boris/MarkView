@@ -250,6 +250,8 @@ enum TabKind {
     case data
     /// Prototype Studio: a clickable prototype and its review conversation, shown by `PrototypeStudioView`.
     case prototype(PrototypeSession)
+    /// UI Studio: the project's real web interface with simulated dependencies, shown by `UIStudioView`.
+    case uiStudio(StudioSession)
 
     /// Scope of the PR X-Ray tab: the project's X-Ray seen through one change.
     static let pullRequestScope = "#pr"
@@ -315,6 +317,7 @@ struct OpenTab: Identifiable {
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.
         if case .browser = kind { return "Browser" }
         if case .prototype(let session) = kind { return "Prototype: " + session.slug }
+        if case .uiStudio = kind { return "UI Studio" }
         if case .architecture(let scope) = kind {
             if scope == TabKind.pullRequestScope { return "PR X-Ray" }
             return scope.isEmpty ? "X-Ray" : "X-Ray: " + (scope as NSString).lastPathComponent

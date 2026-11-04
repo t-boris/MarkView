@@ -1127,6 +1127,7 @@ class WorkspaceManager: ObservableObject {
                 saved = .browser(url)
             case .insight: continue // in-memory jobs have their own export workflow
             case .prototype: continue // reopened from AI Tools → Prototype
+            case .uiStudio: continue // a live session with a development server: opened again from View → UI Studio
             }
             if index == activeTabIndex { state.activeTabIndex = state.tabs.count }
             state.tabs.append(saved)
@@ -2245,6 +2246,11 @@ class WorkspaceManager: ObservableObject {
             tabsStore.removeTab(at: index)
             return
         }
+        if case .uiStudio(let session) = tab.kind {
+            Task { await session.close() }
+            tabsStore.removeTab(at: index)
+            return
+        }
         if case .insight(let session) = tab.kind {
             let releaseHook = self.releaseInsightBlobsHook
             let sessionId = session.id
@@ -2325,6 +2331,7 @@ class WorkspaceManager: ObservableObject {
 
     /// Close all tabs
     func closeAllTabs() {
+        closeUIStudioSessions()
         tabsStore.reset()
     }
 
@@ -4814,16 +4821,60 @@ class WorkspaceManager: ObservableObject {
         return session
     }
 
+    // MARK: - UI Studio
+
+    /// Opens UI Studio on the project's real web interface (REQ-001); the session already open is shown instead.
+    func openUIStudio() {
+        guard let root = rootNode?.url else { return }
+        layout.workspaceArea = .files
+        showCenter = true
+        if let index = openTabs.firstIndex(where: { if case .uiStudio = $0.kind { return true }; return false }) {
+            activeTabIndex = index
+            return
+        }
+        let session = StudioSession(root: root)
+        let base = root.standardizedFileURL.path + "/"
+        session.editorBuffers = { [weak self] in
+            var buffers: [String: String] = [:]
+            for tab in self?.openTabs ?? [] where tab.isFileBacked && tab.isModified {
+                let path = tab.url.standardizedFileURL.path
+                if path.hasPrefix(base) { buffers[String(path.dropFirst(base.count))] = tab.content }
+            }
+            return buffers
+        }
+        session.recordUsage = { [weak self] input, output, cost in
+            self?.semanticDatabase?.addUsage(inputTokens: input, outputTokens: output, costCents: cost * 100)
+        }
+        session.openFile = { [weak self] url in self?.openFile(url) }
+        session.featureStore = { [weak self] in self?.features }
+        session.onFeatureExported = { [weak self] slug in self?.showFeatureContext(slug) }
+        var tab = OpenTab(url: root.appendingPathComponent(".dde/.markview-ui-studio-" + session.id.uuidString),
+                          content: "", originalContent: "")
+        tab.kind = .uiStudio(session)
+        tabsStore.appendTab(tab, activate: true)
+        session.start()
+    }
+
+    /// Ends every UI Studio session of this window (closing the window or the folder): development servers a session
+    /// started are stopped; servers that were already running are left alone (REQ-006).
+    func closeUIStudioSessions() {
+        for tab in openTabs {
+            if case .uiStudio(let session) = tab.kind { Task { await session.close() } }
+        }
+    }
+
     // MARK: - Prototype Studio
 
     /// Opens the creator sheet of Prototype Studio.
     @Published var showPrototypeCreator = false
-    /// What the creator sheet makes: a prototype from requirement documents, or a reconstruction of the
-    /// project's existing web interface ("New Prototype from Code…", DEC-004).
+    /// What the creator sheet makes: a prototype from requirement documents. Existing code is no longer reconstructed:
+    /// it opens in UI Studio (DEC-002, DEC-005).
     @Published var prototypeCreatorMode = PrototypeFiles.Mode.requirements
 
-    /// Opens the creator sheet of Prototype Studio in `mode`.
+    /// Opens the creator sheet of Prototype Studio for requirements; `.code` ("New Prototype from Code…") opens UI Studio
+    /// on the real application instead of generating a reconstruction (REQ-001).
     func openPrototypeCreator(mode: PrototypeFiles.Mode) {
+        guard mode == .requirements else { return openUIStudio() }
         prototypeCreatorMode = mode
         showPrototypeCreator = true
     }
@@ -4834,9 +4885,13 @@ class WorkspaceManager: ObservableObject {
         let title: String
         let version: Int
         let approved: Bool
+        /// A reconstruction of existing code, saved before UI Studio replaced them: history, not the live interface.
+        var historical = false
         var id: String { slug }
-        /// "Support Desk · v3 · approved"
-        var label: String { "\(title) · v\(version)" + (approved ? " · approved" : "") }
+        /// "Support Desk · v3 · approved", "Admin · v2 · historical reconstruction"
+        var label: String {
+            "\(title) · v\(version)" + (approved ? " · approved" : "") + (historical ? " · historical reconstruction" : "")
+        }
     }
 
     /// Prototypes saved in the open project, newest first.
@@ -4846,7 +4901,8 @@ class WorkspaceManager: ObservableObject {
             let folder = PrototypeFiles.folder(root: root, slug: slug)
             guard let manifest = PrototypeFiles.loadManifest(folder) else { return nil }
             let date = manifest.history.last?.date ?? .distantPast
-            return (SavedPrototype(slug: slug, title: manifest.title, version: manifest.version, approved: manifest.approved), date)
+            return (SavedPrototype(slug: slug, title: manifest.title, version: manifest.version, approved: manifest.approved,
+                                   historical: manifest.mode == .code), date)
         }
         .sorted { $0.1 > $1.1 }.map(\.0)
     }
@@ -4856,6 +4912,8 @@ class WorkspaceManager: ObservableObject {
     /// as hints for the planner.
     func newPrototype(title: String, brief: String, sources: [String], mode: PrototypeFiles.Mode = .requirements,
                       codeScope: PrototypeAI.CodeScope = PrototypeAI.CodeScope()) {
+        // Existing code is not reconstructed any more: it opens in UI Studio (DEC-002, DEC-005).
+        guard mode == .requirements else { return openUIStudio() }
         guard let root = rootNode?.url else { return }
         let session = PrototypeSession(root: root, title: title, brief: brief, sources: sources, mode: mode)
         session.codeScope = codeScope
