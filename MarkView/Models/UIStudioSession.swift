@@ -163,6 +163,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// The listeners the simulated connections point at, by variable (REQ-007).
     private var gateway: StudioGateway?
     private var gatewayPorts: [String: UInt16] = [:]
+    /// The simulated WebSocket, EventSource and Socket.IO connections of the page and of the server (REQ-015).
+    private lazy var channels = makeChannelHub()
+    /// Frames pushed to the page, one after the other.
+    private var channelDeliveries: Task<Void, Never>?
+    /// The gateway's WebSocket and event-stream events, read in order.
+    private var gatewayStreams: Task<Void, Never>?
     /// Hashes of the project's secret values (from its env files), to redact them from requests; never the values.
     private var secretHashes: [String: String] = [:] {
         didSet { sessionLog.secretHashes = secretHashes }
@@ -384,6 +390,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         gateway?.close()
         gateway = nil
         gatewayPorts = [:]
+        gatewayStreams?.cancel()
+        channels.closeAll(source: "server")
         let simulated = found.connections.filter { $0.mode == .simulated }.map(\.variable)
         if !simulated.isEmpty {
             let gateway = StudioGateway { [weak self] request, reply in
@@ -393,6 +401,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     }
                     self.handleServerRequest(request, reply: reply)
                 }
+            }
+            var continuation: AsyncStream<StudioGatewayStreamEvent>.Continuation?
+            let events = AsyncStream<StudioGatewayStreamEvent> { continuation = $0 }
+            if let continuation { gateway.setStreamHandler { event in continuation.yield(event) } }
+            gatewayStreams = Task { [weak self] in
+                for await event in events { self?.handleServerStream(event, on: gateway) }
             }
             do {
                 gatewayPorts = try await gateway.open(simulated)
@@ -534,6 +548,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         server = nil
         gateway?.close()
         gateway = nil
+        gatewayStreams?.cancel()
+        channels.closeAll()
         if let folder = clockFile?.deletingLastPathComponent() {
             await Task.detached { try? FileManager.default.removeItem(at: folder) }.value
         }
@@ -665,6 +681,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         selection = nil
         clockAnchor = Date()
         gateway?.releaseHeld()
+        // The page's connections end with its page; the server's are closed so that they connect again to the baseline.
+        channels.closeAll(source: "page")
+        channels.closeAll(source: "server", code: 1012, reason: "The simulated service was reset.")
         if ownsServer, serverFollowsClock {
             await writeClockFile()
             // The preload rereads the clock file within 250 ms; the page's first server render must see the new clock.
@@ -799,6 +818,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         pageCommits += 1
+        channels.closeAll(source: "page")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -866,6 +886,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             reply(true, nil)
         case .success(.request(let request)):
             handle(request, reply: reply)
+        case .success(.channel(let message)):
+            handleChannel(message, reply: reply)
         }
     }
 
@@ -919,6 +941,184 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return URL(string: connection.origin + target)
     }
 
+    /// The simulation's answer to `http`; a write that changed the state is pushed to the channels and GraphQL
+    /// subscriptions (REQ-015).
+    private func simulate(_ http: StudioHTTPRequest) -> StudioSimOutcome {
+        let before = http.isWrite ? simulator.state : nil
+        let outcome = simulator.handle(http)
+        if let before { channels.entitiesChanged(StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)) }
+        return outcome
+    }
+
+    // MARK: - Channels (REQ-015)
+
+    private func makeChannelHub() -> StudioChannelHub {
+        StudioChannelHub(environment: StudioChannelHub.Environment(
+            spec: { [weak self] in self?.simulator.spec ?? StudioEnvironmentSpec() },
+            state: { [weak self] in self?.simulator.state ?? [:] },
+            appOrigin: { [weak self] in self?.appOrigin?.text },
+            perform: { [weak self] operation, entity, id, fields in
+                guard let self else { return .json(503, nil) }
+                let before = self.simulator.state
+                let response = self.simulator.perform(operation, entity: entity, id: id, fields: fields)
+                self.pushChanges(since: before)
+                return response
+            },
+            graphQL: { [weak self] url, payload in
+                guard let self else { return .null }
+                let http = StudioHTTPRequest(method: "POST", url: url, headers: ["content-type": "application/json"], body: payload.text,
+                                             requestId: UUID().uuidString)
+                let before = self.simulator.state
+                let outcome = self.simulator.handle(http)
+                self.pushChanges(since: before)
+                func errors(_ message: String) -> StudioJSON { .object(["errors": .array([StudioGraphQLExecutor.error(message)])]) }
+                switch outcome {
+                case .respond(let response, _):
+                    return response.body.flatMap { StudioJSON(text: $0) } ?? .null
+                case .unknown(let contract):
+                    // Prepared now, so the client's next try is answered.
+                    self.prepare(http, contract: contract, source: .page) { _ in }
+                    return errors("MarkView UI Studio is preparing a simulation rule for \(contract); try again in a moment.")
+                case .unsupported(_, let reason):
+                    return errors("MarkView UI Studio does not simulate \(reason).")
+                }
+            },
+            redact: { [weak self] json in self?.redactor.redact(json) ?? json },
+            log: { [weak self] text, problem in self?.sessionLog.add(.request, problem: problem, text) }
+        ))
+    }
+
+    /// Writes made while a channel message is answered reach the subscribers after that answer.
+    private func pushChanges(since before: [String: [StudioJSON]]) {
+        let changes = StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)
+        guard !changes.isEmpty else { return }
+        Task { [weak self] in self?.channels.entitiesChanged(changes) }
+    }
+
+    /// A page WebSocket or EventSource on a simulated channel. One to a gateway port (a public variable inlined in the
+    /// page's code) keeps the service's address, like a request.
+    private func handleChannel(_ message: StudioBridge.Channel, reply: @escaping (Any?, String?) -> Void) {
+        let id = "page-" + message.id
+        switch message.action {
+        case .open:
+            guard let asked = message.url else { return reply(nil, "No URL.") }
+            let http = StudioChannelRoute.httpURL(asked)
+            let transport: StudioChannelTransport = message.transport == .eventSource ? .eventSource : .webSocket
+            openChannel(id: id, url: logicalURL(for: http) ?? http, protocols: message.protocols, transport: transport, source: .page,
+                        sink: pageSink(message.id)) { opening in
+                switch opening {
+                case .accepted(let chosen, let frames):
+                    reply(["ok": true, "protocol": chosen ?? "", "frames": frames.map(\.bridgeValue)], nil)
+                case .refused(let reason), .unknown(let reason):
+                    reply(["ok": false, "code": 1006, "reason": String(reason.prefix(120))], nil)
+                }
+            }
+        case .send:
+            var frames: [StudioChannelFrame] = []
+            if let text = message.text { frames = channels.receive(id: id, text: text) }
+            else if let data = message.binary { frames = channels.receive(id: id, binary: data) }
+            reply(["frames": frames.map(\.bridgeValue)], nil)
+        case .close:
+            channels.close(id: id, code: message.code)
+            reply(["ok": true], nil)
+        }
+    }
+
+    /// Frames for page connection `pageID`, delivered in order to the page of the current generation.
+    private func pageSink(_ pageID: String) -> StudioChannelHub.Sink {
+        { [weak self] frames in
+            guard let self, !frames.isEmpty else { return }
+            let generation = self.simulator.generation
+            let values = frames.map(\.bridgeValue)
+            let previous = self.channelDeliveries
+            self.channelDeliveries = Task { [weak self] in
+                await previous?.value
+                guard let self, !self.closed, self.simulator.generation == generation else { return }
+                _ = try? await self.call("return window.__markviewStudio ? window.__markviewStudio.deliver(id, frames) : false;",
+                                         ["id": pageID, "frames": values])
+            }
+        }
+    }
+
+    /// Opens a channel connection; an address no channel answers yet is prepared first (the connection waits), like an
+    /// unknown request. It never reaches a real service.
+    private func openChannel(id: String, url: URL, protocols: [String], transport: StudioChannelTransport, source: StudioRequestSource,
+                             sink: @escaping StudioChannelHub.Sink, done: @escaping (StudioChannelHub.Opening) -> Void) {
+        let shown = redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
+        let opening = channels.open(id: id, url: url, protocols: protocols, transport: transport, source: source.transport, shown: shown, sink: sink)
+        guard case .unknown(let contract) = opening else { return done(opening) }
+        let kind = transport == .eventSource ? "EventSource" : "WebSocket"
+        sessionLog.add(.request, "\(kind) \(shown) · \(source.transport) · preparing")
+        var headers = transport == .eventSource ? ["accept": "text/event-stream"] : ["upgrade": "websocket"]
+        if !protocols.isEmpty { headers["sec-websocket-protocol"] = protocols.joined(separator: ", ") }
+        let context = StudioPreparationContext(contract: contract, method: "GET", url: shown, headers: headers, body: nil, attempt: 1, problems: [],
+                                               serverVariable: source.variable, group: StudioBridge.Origin(url: url)?.text)
+        let generation = simulator.generation
+        let preparer = makePreparer()
+        updateReadiness()
+        Task { [weak self] in
+            guard let self else { return done(.refused("The session is closed.")) }
+            let outcome = await self.preparation.resolve(context, generation: generation, preparer: preparer,
+                                                         currentGeneration: { [weak self] in self?.simulator.generation ?? -1 },
+                                                         commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
+            guard !self.closed else { return done(.refused("The session is closed.")) }
+            var reason: String?
+            switch outcome {
+            case .registered:
+                let again = self.channels.open(id: id, url: url, protocols: protocols, transport: transport, source: source.transport,
+                                               shown: shown, sink: sink)
+                if case .unknown = again { reason = "the rules registered for it do not answer this connection." } else { done(again) }
+            case .unsupported(let why):
+                self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: why))
+                self.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unsupported: \(why)")
+                done(.refused("MarkView UI Studio does not simulate \(contract): \(why)"))
+            case .stale:
+                done(.refused("The simulation was reset."))
+            default:
+                reason = self.preparation.records[contract]?.message ?? "it could not be prepared."
+            }
+            if let reason {
+                self.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
+                self.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unresolved: \(reason)")
+                done(.refused("MarkView UI Studio has no simulation rule for \(contract): \(reason)"))
+            }
+            self.updateReadiness()
+        }
+    }
+
+    /// A WebSocket or event stream the development server opened to a simulated connection's gateway port.
+    private func handleServerStream(_ event: StudioGatewayStreamEvent, on gateway: StudioGateway) {
+        switch event {
+        case .open(let stream, let kind, let request):
+            guard !closed, let connection = serverConnections.first(where: { $0.variable == request.variable && $0.mode == .simulated }),
+                  let url = URL(string: connection.origin + request.target) else {
+                return gateway.refuseStream(stream, status: 503, "MarkView UI Studio has no simulated connection for this address.")
+            }
+            var protocols: [String] = []
+            var transport = StudioChannelTransport.eventSource
+            if case .webSocket(let asked) = kind {
+                protocols = asked
+                transport = .webSocket
+            }
+            openChannel(id: "server-\(stream)", url: url, protocols: protocols, transport: transport, source: .server(variable: request.variable),
+                        sink: { [weak gateway] frames in frames.forEach { gateway?.sendStream(stream, $0) } }) { [weak gateway] opening in
+                switch opening {
+                case .accepted(let chosen, let frames):
+                    gateway?.acceptStream(stream, protocol: chosen)
+                    frames.forEach { gateway?.sendStream(stream, $0) }
+                case .refused(let reason), .unknown(let reason):
+                    gateway?.refuseStream(stream, status: 404, reason)
+                }
+            }
+        case .text(let stream, let text):
+            channels.receive(id: "server-\(stream)", text: text).forEach { gateway.sendStream(stream, $0) }
+        case .binary(let stream, let data):
+            channels.receive(id: "server-\(stream)", binary: data).forEach { gateway.sendStream(stream, $0) }
+        case .closed(let stream, let code):
+            channels.close(id: "server-\(stream)", code: code)
+        }
+    }
+
     /// The session's decision for any request, from the page or from the server: pass it to its address, answer it from
     /// the simulation, or prepare rules for it.
     private func route(_ http: StudioHTTPRequest, source: StudioRequestSource, reply: @escaping (StudioReply) -> Void) {
@@ -937,14 +1137,15 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
             return reply(.pass(adding: [:]))
         }
-        switch simulator.handle(http) {
+        if channels.poll(http, source: transport, shown: shown, reply: { reply(.respond($0)) }) { return }
+        switch simulate(http) {
         case .respond(let response, _):
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status, transport: transport))
             reply(.respond(response))
         case .unsupported(let contract, let reason):
-            noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason + " are outside the first release."))
+            noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason + " are not simulated."))
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "unsupported", status: 501, transport: transport))
-            reply(.respond(.unsupported(contract, reason: reason + " are not simulated in the first release.")))
+            reply(.respond(.unsupported(contract, reason: reason)))
             updateReadiness()
         case .unknown(let contract):
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: nil, transport: transport))
@@ -975,7 +1176,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             if let group {
                 await self.preparation.waitForGroup(group)
                 guard !self.closed else { return reply(.dropped("closed")) }
-                if self.simulator.generation == generation, case .respond(let response, _) = self.simulator.handle(http) {
+                if self.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
                     self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
                                            transport: source.transport))
                     reply(.respond(response))
@@ -989,7 +1190,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             guard !self.closed else { return reply(.dropped("closed")) }
             switch outcome {
             case .registered:
-                if self.simulator.generation == generation, case .respond(let response, _) = self.simulator.handle(http) {
+                if self.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
                     self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
                                            transport: source.transport))
                     reply(.respond(response))
@@ -1111,6 +1312,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             let evidence = rule.evidence + proposal.assumptions.map { StudioEvidence(kind: .assumption, detail: $0) }
             let dependency = StudioDependency(id: "\(rule.method) \(rule.path)", mode: .simulated,
                                               note: "\(rule.operation.rawValue)\(rule.entity.map { " \($0)" } ?? "")", evidence: evidence)
+            next.dependencies.removeAll { $0.id == dependency.id }
+            next.dependencies.append(dependency)
+        }
+        let assumptions = proposal.assumptions.map { StudioEvidence(kind: .assumption, detail: $0) }
+        let realTime = (proposal.channels ?? []).map {
+            StudioDependency(id: "WS \($0.path)", mode: .simulated, note: "\($0.wire.rawValue) channel", evidence: $0.evidence + assumptions)
+        } + (proposal.graphQL ?? []).map {
+            StudioDependency(id: "GRAPHQL \($0.path) \($0.kind.rawValue) \($0.field)", mode: .simulated,
+                             note: "\($0.action.rawValue)\($0.entity.map { " \($0)" } ?? "")", evidence: $0.evidence + assumptions)
+        }
+        for dependency in realTime {
             next.dependencies.removeAll { $0.id == dependency.id }
             next.dependencies.append(dependency)
         }

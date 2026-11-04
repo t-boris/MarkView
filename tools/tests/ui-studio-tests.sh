@@ -18,5 +18,6 @@ swiftc -o "$out/ui-studio-tests" \
   MarkView/Models/UIStudioPolicy.swift MarkView/Models/UIStudioGateway.swift MarkView/Models/UIStudioServer.swift MarkView/Models/UIStudioConnections.swift \
   MarkView/Models/UIStudioTracking.swift MarkView/Models/BugReportWriter.swift MarkView/Models/FrontMatter.swift \
   MarkView/Models/UIStudioEnvironmentMap.swift MarkView/Models/UIStudioEnvironmentMapper.swift \
-  tools/tests/UIStudioAuthTests.swift "$out/main.swift"
+  MarkView/Models/UIStudioGraphQL.swift MarkView/Models/UIStudioChannels.swift MarkView/Models/UIStudioGatewayStreams.swift \
+  MarkView/Models/UIStudioRealtimePrompts.swift tools/tests/UIStudioAuthTests.swift "$out/main.swift"
 "$out/ui-studio-tests"

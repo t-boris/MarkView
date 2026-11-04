@@ -40,6 +40,11 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     var simulator: StudioSimulator
     var events: [StudioBridge.Event] = []
     var rejected: [String] = []
+    /// Simulated WebSocket and EventSource connections of the page (REQ-015), when a check sets it.
+    var channelHub: StudioChannelHub?
+    var channelMessages: [StudioBridge.Channel] = []
+    var channelLog: [String] = []
+    var deliveries: Task<Void, Never>?
     var loaded: CheckedContinuation<Void, Never>?
     let window: NSWindow
     let host: StudioPreviewScrollView
@@ -80,6 +85,7 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         // A check never reaches the Mac's location, camera, microphone or clipboard: these guards answer in their place
         // unless the runtime replaces them (REQ-008).
         controller.addUserScript(WKUserScript(source: """
+            window.__NativeWebSocket = window.WebSocket; window.__NativeEventSource = window.EventSource;
             (function () { var real = window.fetch; window.__passed = [];
               window.fetch = function (input, init) { var r = new Request(input, init);
                 if (r.url.indexOf('/__framework') < 0) return real.apply(this, arguments);
@@ -146,13 +152,22 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         case .success(.event(let event)):
             events.append(event)
             replyHandler(true, nil)
+        case .success(.channel(let channel)):
+            channelMessages.append(channel)
+            handleChannel(channel, reply: replyHandler)
         case .success(.request(let request)):
             let http = StudioHTTPRequest(method: request.method, url: request.url, headers: request.headers, body: request.body,
                                          requestId: request.requestId)
             if request.url.path == "/__framework" {
                 return replyHandler(StudioBridge.passThrough(adding: ["cache-control": "no-cache"]), nil)
             }
-            if case .respond(let response, _) = simulator.handle(http) {
+            if let hub = channelHub, hub.poll(http, source: "page", shown: http.url.absoluteString, reply: { replyHandler(StudioBridge.reply($0), nil) }) {
+                return
+            }
+            let before = simulator.state
+            let outcome = simulator.handle(http)
+            channelHub?.entitiesChanged(StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec))
+            if case .respond(let response, _) = outcome {
                 replyHandler(StudioBridge.reply(response), nil)
             } else {
                 replyHandler(StudioBridge.reply(.unresolved("\(request.method) \(request.url.path)", reason: "no rule")), nil)
@@ -392,6 +407,7 @@ func run() async {
     await harness.settle(1)
 
     await browserChecks(harness)
+    await realtimeChecks(harness)
 
     // Messages of an earlier generation are rejected after Reset (SIM-10).
     watchdog.reached("Messages of an earlier generation are rejected after Reset")
@@ -597,3 +613,276 @@ let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
 Task { @MainActor in await run() }
 application.run()
+
+// MARK: - Real-time channels and GraphQL (REQ-015)
+
+extension Harness {
+    /// The session's channel handling, without preparation: an address no channel answers fails like a refused socket.
+    func handleChannel(_ message: StudioBridge.Channel, reply: @escaping (Any?, String?) -> Void) {
+        guard let hub = channelHub else { return reply(["ok": false, "code": 1006, "reason": "no channels"], nil) }
+        let id = "page-" + message.id
+        switch message.action {
+        case .open:
+            guard let url = message.url else { return reply(nil, "No URL.") }
+            let pageID = message.id
+            let opening = hub.open(id: id, url: StudioChannelRoute.httpURL(url), protocols: message.protocols,
+                                   transport: message.transport == .eventSource ? .eventSource : .webSocket, source: "page",
+                                   shown: url.absoluteString, sink: { [weak self] frames in self?.deliver(pageID, frames) })
+            switch opening {
+            case .accepted(let chosen, let frames): reply(["ok": true, "protocol": chosen ?? "", "frames": frames.map(\.bridgeValue)], nil)
+            case .unknown(let reason), .refused(let reason): reply(["ok": false, "code": 1006, "reason": reason], nil)
+            }
+        case .send:
+            let frames = message.text.map { hub.receive(id: id, text: $0) } ?? message.binary.map { hub.receive(id: id, binary: $0) } ?? []
+            reply(["frames": frames.map(\.bridgeValue)], nil)
+        case .close:
+            hub.close(id: id, code: message.code)
+            reply(["ok": true], nil)
+        }
+    }
+
+    /// Pushes frames to the page in order, as the session does.
+    func deliver(_ pageID: String, _ frames: [StudioChannelFrame]) {
+        guard !frames.isEmpty else { return }
+        let values = frames.map(\.bridgeValue)
+        let previous = deliveries
+        deliveries = Task { @MainActor [weak self] in
+            await previous?.value
+            _ = await self?.js("return window.__markviewStudio.deliver(id, frames);", ["id": pageID, "frames": values])
+        }
+    }
+
+    func makeChannelHub() -> StudioChannelHub {
+        StudioChannelHub(environment: StudioChannelHub.Environment(
+            spec: { [unowned self] in simulator.spec }, state: { [unowned self] in simulator.state }, appOrigin: { [unowned self] in origin.text },
+            perform: { [unowned self] operation, entity, id, fields in
+                let before = simulator.state
+                let response = simulator.perform(operation, entity: entity, id: id, fields: fields)
+                let changes = StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)
+                Task { @MainActor [weak self] in self?.channelHub?.entitiesChanged(changes) }
+                return response
+            },
+            graphQL: { [unowned self] url, payload in
+                let before = simulator.state
+                let http = StudioHTTPRequest(method: "POST", url: url, headers: ["content-type": "application/json"], body: payload.text,
+                                             requestId: UUID().uuidString)
+                let outcome = simulator.handle(http)
+                let changes = StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)
+                Task { @MainActor [weak self] in self?.channelHub?.entitiesChanged(changes) }
+                if case .respond(let response, _) = outcome { return response.body.flatMap { StudioJSON(text: $0) } ?? .null }
+                return .object(["errors": .array([StudioGraphQLExecutor.error("not simulated")])])
+            },
+            redact: { $0 }, log: { [unowned self] text, _ in channelLog.append(text) }))
+    }
+}
+
+@MainActor
+func realtimeChecks(_ harness: Harness) async {
+    func text(_ script: String) async -> String { (await harness.js(script) as? String) ?? "nil" }
+    func json(_ text: String) -> StudioJSON { StudioJSON(text: text) ?? .null }
+    let saved = harness.simulator
+    var spec = StudioEnvironmentSpec()
+    spec.entities = [StudioEntity(name: "messages", fields: [StudioField(name: "text", type: "string", required: true)]),
+                     StudioEntity(name: "posts", fields: [StudioField(name: "title", type: "string", required: true)])]
+    spec.seed = ["messages": [json(#"{"id":1,"text":"Hello"}"#)], "posts": [json(#"{"id":1,"title":"First"}"#), json(#"{"id":2,"title":"Second"}"#)]]
+    spec.rules = [StudioRule(id: "messages-create", method: "POST", path: "/api/messages", operation: .create, entity: "messages")]
+    spec.channels = [
+        StudioChannel(id: "chat", path: "/ws/chat", wire: .raw, onConnect: [StudioChannelMessage(data: json(#"{"type":"welcome"}"#))],
+                      onMessage: [StudioChannelReply(match: ["type": .string("ping")], reply: [StudioChannelMessage(data: json(#"{"type":"pong"}"#))]),
+                                  StudioChannelReply(match: ["size": .number(3)], reply: [StudioChannelMessage(event: "binary", data: .string("{{message.binary}}"))])],
+                      links: [StudioChannelLink(entity: "messages", on: [.create], message: StudioChannelMessage(data: json(#"{"type":"new","message":"{{record}}"}"#)))]),
+        StudioChannel(id: "io", path: "/socket.io", wire: .socketio, onConnect: [StudioChannelMessage(event: "hello", data: json(#"{"user":"test"}"#))],
+                      onMessage: [StudioChannelReply(match: ["event": .string("get-rooms")], reply: [StudioChannelMessage(data: json(#"["general","random"]"#))])]),
+        StudioChannel(id: "realtime", path: "wss://abc.supabase.co/realtime/v1/websocket", wire: .phoenix),
+        StudioChannel(id: "feed", path: "/api/stream", wire: .raw, onConnect: [StudioChannelMessage(event: "hello", data: json(#"{"ok":true}"#))]),
+        StudioChannel(id: "gql", path: "/graphql", wire: .graphqlWS),
+    ]
+    spec.graphQL = [StudioGraphQLOperation(id: "q-posts", kind: .query, field: "posts", action: .list, entity: "posts"),
+                    StudioGraphQLOperation(id: "m-post", kind: .mutation, field: "createPost", action: .create, entity: "posts"),
+                    StudioGraphQLOperation(id: "s-post", kind: .subscription, field: "postAdded", action: .get, entity: "posts", on: [.create])]
+    harness.simulator = StudioSimulator(spec: spec, scenario: StudioScenario(id: "live", name: "Live", kind: .populated), appOrigin: harness.origin.text)
+    harness.channelHub = harness.makeChannelHub()
+    let rejectedBefore = harness.rejected.count
+    let realtimePage = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Live</title></head><body><ul id="posts"></ul>
+    <script>
+    window.postsShown = fetch('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query: 'query Posts { posts { id title } }' }) })
+      .then(r => r.json()).then(body => { document.getElementById('posts').innerHTML = body.data.posts.map(p => '<li>' + p.title + '</li>').join(''); return true; });
+    </script></body></html>
+    """
+    await harness.load(realtimePage)
+    await harness.settle(0.3)
+
+    // The development server's own sockets stay real; nothing about them crosses the bridge.
+    watchdog.reached("REQ-015 hot reload sockets stay real")
+    let openedBefore = harness.channelMessages.count
+    let real = await text("""
+        const sockets = [new WebSocket('ws://localhost:5173/_next/webpack-hmr'), new WebSocket('ws://localhost:5173/', 'vite-hmr'),
+          new WebSocket('/ws'), new WebSocket('ws://localhost:5173/sockjs-node/123/abc/websocket'), new WebSocket('/some/dev/reload')];
+        const kinds = sockets.map(s => Object.getPrototypeOf(s) === window.__NativeWebSocket.prototype ? 'real' : 'simulated');
+        const source = new EventSource('/__dev/reload');
+        kinds.push(Object.getPrototypeOf(source) === window.__NativeEventSource.prototype ? 'real' : 'simulated');
+        kinds.push(String(sockets[0] instanceof WebSocket));
+        sockets.forEach(s => s.close()); source.close();
+        return kinds.join(',');
+        """)
+    await harness.settle(0.2)
+    check("REQ-015 hot reload and other dev-server sockets keep the real WebSocket and EventSource", real == "real,real,real,real,real,real,true", real)
+    check("REQ-015 a kept socket sends nothing over the bridge", harness.channelMessages.count == openedBefore,
+          "\(harness.channelMessages.dropFirst(openedBefore).map { $0.url?.absoluteString ?? "" })")
+
+    // A GraphQL query renders from the simulated state.
+    watchdog.reached("REQ-015 GraphQL")
+    let rendered = await text("await window.postsShown; return document.getElementById('posts').textContent;")
+    check("REQ-015 a GraphQL query renders the simulated records", rendered == "FirstSecond", rendered)
+
+    // A raw WebSocket: connect message, a reply, a close with code; a REST write pushed through the entity link.
+    watchdog.reached("REQ-015 raw WebSocket")
+    let raw = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('ws://localhost:5173/ws/chat'); const log = ['state:' + ws.readyState];
+          ws.onopen = () => { log.push('open:' + ws.readyState); ws.send(JSON.stringify({ type: 'ping' })); };
+          ws.onmessage = e => { log.push(e.data); if (JSON.parse(e.data).type === 'pong') ws.close(4000, 'done'); };
+          ws.onerror = () => log.push('error');
+          ws.onclose = e => { log.push('close:' + e.code + ':' + e.reason + ':' + e.wasClean + ':' + ws.readyState); resolve(log.join('|')); };
+          setTimeout(() => resolve('timeout ' + log.join('|')), 5000);
+        });
+        """)
+    check("REQ-015 a simulated WebSocket connects, gets the connect message, sends and gets the reply, and closes",
+          raw == #"state:0|open:1|{"type":"welcome"}|{"type":"pong"}|close:4000:done:true:3"#, raw)
+    let pushed = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('ws://localhost:5173/ws/chat');
+          ws.onmessage = e => {
+            const message = JSON.parse(e.data);
+            if (message.type === 'welcome') fetch('/api/messages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Live' }) });
+            if (message.type === 'new') { ws.close(); resolve(message.message.text + ' ' + message.message.id); }
+          };
+          setTimeout(() => resolve('timeout'), 5000);
+        });
+        """)
+    check("REQ-015 a REST write is pushed to the open WebSocket", pushed == "Live 2", pushed)
+    let binary = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('ws://localhost:5173/ws/chat'); ws.binaryType = 'arraybuffer';
+          ws.onopen = () => ws.send(new Uint8Array([1, 2, 3]));
+          ws.onmessage = e => { if (e.data instanceof ArrayBuffer) { ws.close(); resolve(Array.from(new Uint8Array(e.data)).join(',')); } };
+          setTimeout(() => resolve('timeout'), 5000);
+        });
+        """)
+    check("REQ-015 binary messages travel as ArrayBuffer", binary == "1,2,3", binary)
+    let errors = await text("""
+        const ws = new WebSocket('ws://localhost:5173/ws/chat'); const out = [];
+        try { ws.send('early'); } catch (e) { out.push(e.name); }
+        try { ws.close(1006); } catch (e) { out.push(e.name); }
+        try { new WebSocket('ftp://example.org/'); } catch (e) { out.push(e.name); }
+        ws.close(); return out.join(',');
+        """)
+    check("REQ-015 the simulated WebSocket throws like the browser's", errors == "InvalidStateError,InvalidAccessError,SyntaxError", errors)
+    let unknown = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('ws://localhost:5173/api/nothing-here'); const log = [];
+          ws.onerror = () => log.push('error'); ws.onclose = e => { log.push('close:' + e.code); resolve(log.join('|')); };
+          setTimeout(() => resolve('timeout'), 5000);
+        });
+        """)
+    check("REQ-015 a socket no channel answers fails like a refused connection", unknown == "error|close:1006", unknown)
+
+    // Socket.IO over a WebSocket and over long-polling.
+    watchdog.reached("REQ-015 Socket.IO")
+    let socketIO = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('ws://localhost:5173/socket.io/?EIO=4&transport=websocket'); const log = [];
+          ws.onmessage = e => {
+            const packet = String(e.data); log.push(packet.slice(0, 2));
+            if (packet[0] === '0') ws.send('40');
+            if (packet.startsWith('40')) ws.send('421["get-rooms"]');
+            if (packet.startsWith('42')) log.push(packet);
+            if (packet.startsWith('431')) { log.push(packet); ws.close(); resolve(log.join('|')); }
+          };
+          setTimeout(() => resolve('timeout ' + log.join('|')), 5000);
+        });
+        """)
+    check("REQ-015 Socket.IO: open, connect, greeting and acknowledgement", socketIO == #"0{|40|42|42["hello",{"user":"test"}]|43|431[["general","random"]]"#, socketIO)
+    let polling = await text("""
+        const base = '/socket.io/?EIO=4&transport=polling';
+        const open = await (await fetch(base + '&t=1')).text();
+        const sid = JSON.parse(open.slice(1)).sid;
+        const posted = await (await fetch(base + '&sid=' + sid, { method: 'POST', body: '40' })).text();
+        const next = await (await fetch(base + '&sid=' + sid)).text();
+        return [open.slice(0, 2), posted, next.split('\\u001e').map(p => p.slice(0, 2)).join('+')].join('|');
+        """)
+    check("REQ-015 Socket.IO long-polling from the page", polling == "0{|ok|40+42", polling)
+
+    // Supabase Realtime: a join with postgres_changes, then a write pushed as a change.
+    watchdog.reached("REQ-015 Supabase Realtime")
+    let supabase = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('wss://abc.supabase.co/realtime/v1/websocket?apikey=test-key&vsn=1.0.0');
+          ws.onopen = () => ws.send(JSON.stringify({ topic: 'realtime:public:messages', event: 'phx_join', ref: '1', join_ref: '1',
+            payload: { config: { postgres_changes: [{ event: '*', schema: 'public', table: 'messages' }] } } }));
+          ws.onmessage = e => {
+            const m = JSON.parse(e.data);
+            if (m.event === 'phx_reply' && m.ref === '1') fetch('/api/messages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'Realtime' }) });
+            if (m.event === 'postgres_changes') { ws.close(); resolve(m.payload.data.type + ' ' + m.payload.data.table + ' ' + m.payload.data.record.text); }
+          };
+          setTimeout(() => resolve('timeout'), 5000);
+        });
+        """)
+    check("REQ-015 Supabase Realtime pushes a REST insert to the joined channel", supabase == "INSERT messages Realtime", supabase)
+
+    // Server-sent events.
+    watchdog.reached("REQ-015 EventSource")
+    let events = await text("""
+        return await new Promise(resolve => {
+          const source = new EventSource('/api/stream'); const log = ['state:' + source.readyState];
+          source.onopen = () => log.push('open:' + source.readyState);
+          source.addEventListener('hello', e => { log.push(e.data); source.close(); log.push('closed:' + source.readyState); resolve(log.join('|')); });
+          setTimeout(() => resolve('timeout ' + log.join('|')), 5000);
+        });
+        """)
+    check("REQ-015 a simulated EventSource opens and receives named events", events == #"state:0|open:1|{"ok":true}|closed:2"#, events)
+
+    // GraphQL subscriptions over graphql-ws, fed by a mutation over HTTP.
+    watchdog.reached("REQ-015 graphql-ws")
+    let subscription = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('ws://localhost:5173/graphql', 'graphql-transport-ws'); const log = [ws.protocol || 'none'];
+          ws.onopen = () => { log.push(ws.protocol); ws.send(JSON.stringify({ type: 'connection_init' })); };
+          ws.onmessage = e => {
+            const m = JSON.parse(e.data); log.push(m.type);
+            if (m.type === 'connection_ack') {
+              ws.send(JSON.stringify({ id: '1', type: 'subscribe', payload: { query: 'subscription { postAdded { id title } }' } }));
+              // The mutation follows once the subscription is registered.
+              setTimeout(() => fetch('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ query: 'mutation($t: String!) { createPost(input: { title: $t }) { id } }', variables: { t: 'Third' } }) }), 300);
+            }
+            if (m.type === 'next') { log.push(m.payload.data.postAdded.title); ws.close(); resolve(log.join('|')); }
+          };
+          setTimeout(() => resolve('timeout ' + log.join('|')), 5000);
+        });
+        """)
+    check("REQ-015 a graphql-ws subscription receives a mutation's record", subscription == "none|graphql-transport-ws|connection_ack|next|Third", subscription)
+
+    // A Reset closes the page's connections with a close frame.
+    let resetClose = await text("""
+        window.__resetClose = new Promise(resolve => { const ws = new WebSocket('ws://localhost:5173/ws/chat');
+          ws.onopen = () => resolve(new Promise(done => { ws.onclose = e => done(e.code + ' ' + e.reason); })); });
+        return 'started';
+        """)
+    await harness.settle(0.3)
+    harness.channelHub?.closeAll(source: "page", code: 1012, reason: "The simulated service was reset.")
+    let closedByReset = await text("return await (await window.__resetClose);")
+    check("REQ-015 a Reset closes the page's sockets with 1012", resetClose == "started" && closedByReset == "1012 The simulated service was reset.", closedByReset)
+    check("REQ-015 channel messages pass the bridge's validation", harness.rejected.count == rejectedBefore,
+          harness.rejected.dropFirst(rejectedBefore).joined(separator: "; "))
+    check("REQ-015 opens, messages and closes are logged", harness.channelLog.contains { $0.contains("open · raw channel chat") }
+          && harness.channelLog.contains { $0.contains("→") } && harness.channelLog.contains { $0.contains("closed") }, harness.channelLog.joined(separator: "\n"))
+
+    harness.channelHub?.closeAll()
+    harness.channelHub = nil
+    harness.simulator = saved
+    await harness.load(page)
+    await harness.settle()
+}

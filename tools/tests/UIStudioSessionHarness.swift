@@ -549,6 +549,36 @@ func run() async {
     check("AC-07 an invalid proposal ends in a controlled error", invalid == "503", invalid ?? "nil")
     check("AC-07 an invalid proposal changes nothing", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "bad" } != true)
 
+    // A WebSocket and a GraphQL field nothing answers yet are prepared like a request, then simulated (REQ-015).
+    watchdog.reached("REQ-015 an unknown WebSocket and GraphQL field are prepared, then simulated")
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [], "assumptions": ["The page listens for live updates."], "graphql": "[]",
+                              "channels": #"[{"id":"live","path":"/ws/live","protocol":"raw","onConnect":[{"data":{"type":"hello"}}],"onMessage":[{"match":{"type":"ping"},"reply":[{"data":{"type":"pong"}}]}],"evidence":[{"kind":"observation","detail":"Opened by the page"}]}]"#]
+    }
+    let live = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('/ws/live'); const log = [];
+          ws.onmessage = e => { log.push(JSON.parse(e.data).type); if (log.length === 1) ws.send(JSON.stringify({ type: 'ping' })); else { ws.close(); resolve(log.join(',')); } };
+          ws.onclose = e => { if (log.length < 2) resolve('closed ' + e.code); };
+          setTimeout(() => resolve('timeout'), 30000);
+        });
+        """)
+    check("REQ-015 an unknown WebSocket is prepared, then connects and answers", live == "hello,pong", live ?? "nil")
+    let channelPrompt = CLICompletion.requests.last { $0.label == "ui-studio:prepare" }
+    check("REQ-015 the preparation asks for a channel by its contract", channelPrompt?.prompt.contains("WS /ws/live") == true
+          && channelPrompt?.prompt.contains("real-time connection") == true, channelPrompt.map { String($0.prompt.prefix(300)) } ?? "no prompt")
+    check("REQ-015 the prepared channel is kept for later sessions", StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true)
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [], "assumptions": ["The page shows its team."], "channels": "[]",
+                              "graphql": #"[{"id":"q-team","kind":"query","field":"team","action":"respond","response":{"name":"Core","size":3}}]"#]
+    }
+    let team = await text("""
+        const r = await fetch('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: '{ team { name } }' }) });
+        return r.status + ' ' + JSON.stringify(await r.json());
+        """)
+    check("REQ-015 an unknown GraphQL field is prepared and answered for its selection", team == #"200 {"data":{"team":{"name":"Core"}}}"#, team ?? "nil")
+    check("REQ-015 the prepared operation is kept", StudioStore.loadEnvironment(root)?.graphQL?.contains { $0.id == "q-team" } == true)
+
     // The page cannot leave the application (AC-16): another site is a local stand-in page, and nothing is sent (REQ-010).
     watchdog.reached("The page cannot leave the application")
     _ = try? await session.call("location.href = 'https://example.org/elsewhere'; return true;")

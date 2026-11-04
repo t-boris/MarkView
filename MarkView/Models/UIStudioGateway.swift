@@ -487,6 +487,8 @@ final class StudioGateway: @unchecked Sendable {
     private var links: [UInt64: Link] = [:]
     private var lastLinkID: UInt64 = 0
     private var generation = 0
+    /// Receives WebSocket and event-stream connections (REQ-015); without it they are answered like any request.
+    private var streamHandler: (@Sendable (StudioGatewayStreamEvent) -> Void)?
 
     /// `requestTimeout`: how long a client has to send its whole request (head and body).
     init(handler: @escaping Handler, requestTimeout: TimeInterval = 30) {
@@ -652,7 +654,7 @@ final class StudioGateway: @unchecked Sendable {
 
     // MARK: Connections
 
-    private enum Phase { case reading, waiting, delaying, held, writing }
+    private enum Phase { case reading, waiting, delaying, held, writing, upgrading, streaming }
 
     private final class Link {
         let id: UInt64
@@ -665,6 +667,7 @@ final class StudioGateway: @unchecked Sendable {
         var continued = false
         var isHead = false
         var timer: DispatchWorkItem?
+        var stream: StudioGatewayStream?
 
         init(id: UInt64, connection: NWConnection, variable: String, port: UInt16) {
             self.id = id
@@ -708,6 +711,7 @@ final class StudioGateway: @unchecked Sendable {
     private func received(_ id: UInt64, _ data: Data?, ended: Bool) {
         guard let link = links[id] else { return }
         guard link.phase == .reading else {
+            if link.phase == .streaming || link.phase == .upgrading { return streamReceived(link, data, ended: ended) }
             // After the request: extra bytes are ignored; a client that leaves is dropped and its answer never sent.
             if ended { drop(id) } else if link.phase != .writing { receive(link) }
             return
@@ -717,12 +721,16 @@ final class StudioGateway: @unchecked Sendable {
         switch result {
         case .failure(let status, let reason):
             answer(link, with: Self.plain(status, reason))
-        case .complete(let message, _):
+        case .complete(let message, let consumed):
             link.timer?.cancel()
             link.isHead = message.method == "HEAD"
             if let refusal = refusal(message.headers, port: link.port) {
                 answer(link, with: refusal)
                 return
+            }
+            if streamHandler != nil, let kind = StudioWebSocketCodec.kind(method: message.method, headers: message.headers) {
+                link.buffer = consumed < link.buffer.count ? Data(link.buffer[(link.buffer.startIndex + consumed)...]) : Data()
+                return beginStream(link, kind: kind, message: message, ended: ended)
             }
             link.phase = .waiting
             // A client that ended its side together with the request (half-close) still gets the answer.
@@ -820,9 +828,141 @@ final class StudioGateway: @unchecked Sendable {
         guard let link = links.removeValue(forKey: id) else { return }
         link.timer?.cancel()
         link.connection.cancel()
+        if let stream = link.stream, stream.accepted, !stream.closing { streamHandler?(.closed(id, nil)) }
     }
 
     private static func plain(_ status: Int, _ text: String) -> StudioGatewayResponse {
         StudioGatewayResponse(status: status, headers: ["content-type": "text/plain; charset=utf-8"], body: Data((text + "\n").utf8))
+    }
+}
+
+// MARK: - Streams (REQ-015)
+
+extension StudioGateway {
+    /// Sets the receiver of WebSocket and event-stream connections. Its events arrive in order on the gateway's queue.
+    func setStreamHandler(_ handler: (@Sendable (StudioGatewayStreamEvent) -> Void)?) {
+        onQueue { streamHandler = handler }
+    }
+
+    /// Completes the handshake of stream `id` (101 Switching Protocols, or the event-stream head) and starts reading frames.
+    func acceptStream(_ id: UInt64, protocol chosen: String?) {
+        queue.async { [self] in
+            guard let link = links[id], link.phase == .upgrading, let stream = link.stream else { return }
+            stream.accepted = true
+            link.phase = .streaming
+            switch stream.kind {
+            case .webSocket:
+                link.connection.send(content: StudioWebSocketCodec.handshake(key: stream.key, protocol: chosen), completion: .idempotent)
+                if !link.buffer.isEmpty {
+                    let pending = link.buffer
+                    link.buffer = Data()
+                    // A receive is already waiting; the replay must not start a second one.
+                    streamReceived(link, pending, ended: false, rearm: false)
+                }
+            case .eventSource:
+                link.connection.send(content: StudioWebSocketCodec.eventStreamHead(), completion: .idempotent)
+            }
+        }
+    }
+
+    /// Answers a stream request with a plain HTTP response instead (no channel answers it).
+    func refuseStream(_ id: UInt64, status: Int, _ text: String) {
+        queue.async { [self] in
+            guard let link = links[id], link.phase == .upgrading else { return }
+            link.stream = nil
+            answer(link, with: Self.plain(status, text))
+        }
+    }
+
+    /// Sends one frame of a channel on stream `id`; a close frame ends the stream.
+    func sendStream(_ id: UInt64, _ frame: StudioChannelFrame) {
+        queue.async { [self] in
+            guard let link = links[id], link.phase == .streaming, let stream = link.stream, !stream.closing else { return }
+            switch (stream.kind, frame) {
+            case (.webSocket, .text(let text)):
+                link.connection.send(content: StudioWebSocketCodec.frame(.text, Data(text.utf8)), completion: .idempotent)
+            case (.webSocket, .binary(let data)):
+                link.connection.send(content: StudioWebSocketCodec.frame(.binary, data), completion: .idempotent)
+            case (.webSocket, .event(_, let data, _)):
+                link.connection.send(content: StudioWebSocketCodec.frame(.text, Data(data.utf8)), completion: .idempotent)
+            case (.eventSource, .text(let text)):
+                link.connection.send(content: StudioWebSocketCodec.event(name: nil, data: text, id: nil), completion: .idempotent)
+            case (.eventSource, .event(let name, let data, let eventID)):
+                link.connection.send(content: StudioWebSocketCodec.event(name: name, data: data, id: eventID), completion: .idempotent)
+            case (.eventSource, .binary):
+                break
+            case (_, .close(let code, let reason)):
+                endStream(link, code: code, reason: reason)
+            }
+        }
+    }
+
+    private func beginStream(_ link: Link, kind: StudioGatewayStreamKind, message: StudioHTTPParser.Message, ended: Bool) {
+        if case .webSocket = kind, message.headers["sec-websocket-version"]?.trimmingCharacters(in: .whitespaces) != "13" {
+            var response = Self.plain(426, "This simulated service speaks WebSocket version 13.")
+            response.headers["sec-websocket-version"] = "13"
+            return answer(link, with: response)
+        }
+        let stream = StudioGatewayStream(kind: kind, key: message.headers["sec-websocket-key"] ?? "")
+        link.stream = stream
+        link.phase = .upgrading
+        if !ended { receive(link) }
+        let request = StudioGatewayRequest(variable: link.variable, method: message.method, target: message.target,
+                                           headers: message.headers, body: message.body)
+        streamHandler?(.open(link.id, kind, request))
+    }
+
+    /// Bytes of an open stream: frames for a WebSocket (pings answered here, close echoed), nothing for an event stream.
+    private func streamReceived(_ link: Link, _ data: Data?, ended: Bool, rearm: Bool = true) {
+        guard let stream = link.stream else { return drop(link.id) }
+        if let data, !data.isEmpty {
+            if link.phase == .upgrading || !stream.accepted {
+                link.buffer.append(data)
+                if link.buffer.count > StudioWebSocketCodec.maxMessage { return drop(link.id) }
+            } else if case .webSocket = stream.kind {
+                do {
+                    for output in try stream.decoder.feed(data) {
+                        switch output {
+                        case .text(let text): streamHandler?(.text(link.id, text))
+                        case .binary(let bytes): streamHandler?(.binary(link.id, bytes))
+                        case .ping(let payload): link.connection.send(content: StudioWebSocketCodec.frame(.pong, payload), completion: .idempotent)
+                        case .pong: break
+                        case .close(let code, _):
+                            stream.closing = true
+                            streamHandler?(.closed(link.id, code))
+                            let echo = code.map { StudioWebSocketCodec.closeFrame(code: $0 == 1005 || $0 == 1006 ? 1000 : $0, reason: "") }
+                                ?? StudioWebSocketCodec.frame(.close, Data())
+                            return finish(link, with: echo)
+                        }
+                    }
+                } catch let failure as StudioWebSocketCodec.Decoder.Failure {
+                    stream.closing = true
+                    streamHandler?(.closed(link.id, failure.code))
+                    return finish(link, with: StudioWebSocketCodec.closeFrame(code: failure.code, reason: failure.reason))
+                } catch {
+                    return drop(link.id)
+                }
+            }
+        }
+        if ended { return drop(link.id) }
+        if rearm { receive(link) }
+    }
+
+    private func endStream(_ link: Link, code: Int, reason: String) {
+        guard let stream = link.stream else { return }
+        stream.closing = true
+        switch stream.kind {
+        case .webSocket: finish(link, with: StudioWebSocketCodec.closeFrame(code: code, reason: reason))
+        case .eventSource: finish(link, with: Data())
+        }
+    }
+
+    /// Sends the last bytes of a stream and closes the connection once they are handed to the system.
+    private func finish(_ link: Link, with data: Data) {
+        link.phase = .writing
+        let id = link.id
+        link.connection.send(content: data, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] _ in
+            self?.drop(id)
+        })
     }
 }

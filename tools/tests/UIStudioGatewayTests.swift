@@ -368,11 +368,234 @@ func gatewayChecks() async {
     impatient.close()
 }
 
+// MARK: - Streams (REQ-015): WebSocket and server-sent events through the gateway
+
+final class StreamLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func add(_ item: String) { lock.withLock { items.append(item) } }
+    var all: [String] { lock.withLock { items } }
+}
+
+func sendData(_ fd: Int32, _ data: Data) {
+    let bytes = [UInt8](data)
+    var sent = 0
+    while sent < bytes.count {
+        let written = bytes[sent...].withUnsafeBytes { Darwin.send(fd, $0.baseAddress, $0.count, 0) }
+        guard written > 0 else { return }
+        sent += written
+    }
+}
+
+/// A WebSocket client on a raw socket: the handshake, then frames read with the codec (server frames are not masked).
+final class SocketClient {
+    let fd: Int32
+    var head = ""
+    var decoder = StudioWebSocketCodec.Decoder()
+    var outputs: [StudioWebSocketCodec.Decoder.Output] = []
+    var closed = false
+    private var pending = Data()
+
+    init?(_ port: UInt16, target: String = "/ws", protocols: String? = nil, version: String = "13", extra: Data = Data()) {
+        guard let fd = connectSocket(port) else { return nil }
+        self.fd = fd
+        decoder.requireMask = false
+        var request = "GET \(target) HTTP/1.1\r\nHost: localhost:\(port)\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+            + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: \(version)\r\n"
+        if let protocols { request += "Sec-WebSocket-Protocol: \(protocols)\r\n" }
+        sendData(fd, Data((request + "\r\n").utf8) + extra)
+        var data = Data()
+        let deadline = Date().addingTimeInterval(5)
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while Date() < deadline, data.range(of: Data("\r\n\r\n".utf8)) == nil {
+            guard readable(fd, within: Int32(max(1, deadline.timeIntervalSinceNow * 1000))) else { break }
+            let count = recv(fd, &buffer, buffer.count, 0)
+            if count <= 0 { closed = true; break }
+            data.append(contentsOf: buffer[0..<count])
+        }
+        if let end = data.range(of: Data("\r\n\r\n".utf8)) {
+            head = String(decoding: data[..<end.lowerBound], as: UTF8.self)
+            pending = Data(data[end.upperBound...])
+        } else {
+            head = String(decoding: data, as: UTF8.self)
+        }
+    }
+
+    func send(_ opcode: StudioWebSocketCodec.Opcode, _ payload: Data, masked: Bool = true, fin: Bool = true) {
+        sendData(fd, StudioWebSocketCodec.frame(opcode, payload, masked: masked, fin: fin))
+    }
+
+    /// Reads frames until `count` have arrived (in all), the server closes the connection or `timeout` passes.
+    @discardableResult
+    func read(_ count: Int, timeout: TimeInterval = 3) -> [StudioWebSocketCodec.Decoder.Output] {
+        if !pending.isEmpty {
+            outputs += (try? decoder.feed(pending)) ?? []
+            pending = Data()
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while outputs.count < count, !closed, Date() < deadline {
+            guard readable(fd, within: Int32(max(1, deadline.timeIntervalSinceNow * 1000))) else { break }
+            let received = recv(fd, &buffer, buffer.count, 0)
+            if received <= 0 { closed = true; break }
+            outputs += (try? decoder.feed(Data(buffer[0..<received]))) ?? []
+        }
+        return outputs
+    }
+
+    /// Waits until the server closes the TCP connection.
+    func waitClosed(timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while !closed, Date() < deadline {
+            guard readable(fd, within: Int32(max(1, deadline.timeIntervalSinceNow * 1000))) else { break }
+            let received = recv(fd, &buffer, buffer.count, 0)
+            if received <= 0 { closed = true } else { outputs += (try? decoder.feed(Data(buffer[0..<received]))) ?? [] }
+        }
+        return closed
+    }
+
+    deinit { Darwin.close(fd) }
+}
+
+func streamChecks() async {
+    let log = StreamLog()
+    let gateway = StudioGateway(handler: handler)
+    let plainGateway = StudioGateway(handler: handler)
+    gateway.setStreamHandler { [gateway] event in
+        switch event {
+        case .open(let id, .webSocket(let protocols), let request):
+            log.add("open \(request.target) \(protocols.joined(separator: ","))")
+            if request.target == "/refuse" { return gateway.refuseStream(id, status: 404, "No channel answers this address.") }
+            gateway.acceptStream(id, protocol: protocols.first)
+            gateway.sendStream(id, .text("welcome"))
+        case .open(let id, .eventSource, let request):
+            log.add("sse \(request.target)")
+            gateway.acceptStream(id, protocol: nil)
+            gateway.sendStream(id, .event(name: "tick", data: "a\nb", id: "1"))
+            gateway.sendStream(id, .text("plain"))
+            if request.target == "/events/once" { gateway.sendStream(id, .close(code: 1000, reason: "")) }
+        case .text(let id, let text):
+            log.add("text \(text.count)")
+            if text == "bye" { gateway.sendStream(id, .close(code: 1000, reason: "done")) } else { gateway.sendStream(id, .text("echo:" + text)) }
+        case .binary(let id, let data):
+            gateway.sendStream(id, .binary(Data(data.reversed())))
+        case .closed(_, let code):
+            log.add("closed \(code.map(String.init) ?? "none")")
+        }
+    }
+    guard let port = (try? await gateway.open(["REALTIME_URL"]))?["REALTIME_URL"],
+          let plainPort = (try? await plainGateway.open(["PLAIN_URL"]))?["PLAIN_URL"] else {
+        check("streams: the gateways open", false)
+        return
+    }
+
+    // The handshake: 101, the RFC 6455 accept key, the chosen subprotocol and the first message.
+    if let client = SocketClient(port, protocols: "graphql-transport-ws, graphql-ws") {
+        let lines = client.head.lowercased()
+        check("streams: the WebSocket handshake answers 101 with the accept key", client.head.hasPrefix("HTTP/1.1 101")
+              && lines.contains("sec-websocket-accept: s3pplmbitxaq9kygzzhzrbk+xoo=") && lines.contains("upgrade: websocket"), client.head)
+        check("streams: the first offered subprotocol is chosen", lines.contains("sec-websocket-protocol: graphql-transport-ws"), client.head)
+        check("streams: the server's first message arrives unmasked", client.read(1) == [.text("welcome")], "\(client.outputs)")
+
+        // A masked frame split over two writes, then a fragmented message with a ping between its fragments.
+        let frame = StudioWebSocketCodec.frame(.text, Data("hello".utf8), masked: true)
+        sendData(client.fd, frame.prefix(4))
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        sendData(client.fd, frame.dropFirst(4))
+        check("streams: a masked frame in two pieces is one message", client.read(2).last == .text("echo:hello"), "\(client.outputs)")
+        client.send(.text, Data("frag".utf8), fin: false)
+        client.send(.ping, Data("p1".utf8))
+        client.send(.continuation, Data("ment".utf8))
+        let answers = Array(client.read(4).dropFirst(2))
+        check("streams: a ping between fragments is answered with a pong, then the message", answers == [.pong(Data("p1".utf8)), .text("echo:fragment")],
+              "\(answers)")
+        let long = String(repeating: "x", count: 70_000)
+        client.send(.text, Data(long.utf8))
+        check("streams: a 64-bit length frame is read and answered", client.read(5).last == .text("echo:" + long))
+        client.send(.binary, Data([1, 2, 3]))
+        check("streams: binary messages travel both ways", client.read(6).last == .binary(Data([3, 2, 1])), "\(client.outputs.last.map { "\($0)" } ?? "")")
+
+        // The client closes: the server echoes the close and tells the channel handler.
+        sendData(client.fd, StudioWebSocketCodec.frame(.close, Data([0x03, 0xE8]) + Data("leaving".utf8), masked: true))
+        check("streams: a client close is echoed and ends the connection", client.read(7).last == .close(1000, "") && client.waitClosed())
+        check("streams: the channel handler hears the close", await waitFor({ log.all.contains("closed 1000") }), "\(log.all)")
+    } else { check("streams: a WebSocket connects", false) }
+
+    // Frame bytes sent together with the handshake are kept for after the accept.
+    let early = StudioWebSocketCodec.frame(.text, Data("early".utf8), masked: true)
+    if let client = SocketClient(port, extra: early) {
+        check("streams: a frame sent with the handshake is answered after it", client.read(2) == [.text("welcome"), .text("echo:early")],
+              "\(client.outputs)")
+    } else { check("streams: early frame", false) }
+
+    // The server closes with a code and reason.
+    if let client = SocketClient(port) {
+        client.send(.text, Data("bye".utf8))
+        check("streams: the server closes with its code and reason", client.read(2).last == .close(1000, "done") && client.waitClosed(), "\(client.outputs)")
+    } else { check("streams: server close", false) }
+
+    // Protocol violations close the connection with the RFC 6455 codes.
+    if let client = SocketClient(port) {
+        client.read(1)
+        client.send(.text, Data("unmasked".utf8), masked: false)
+        check("streams: an unmasked client frame closes with 1002", client.read(2).last == .close(1002, "Client frames must be masked") && client.waitClosed(),
+              "\(client.outputs)")
+    } else { check("streams: unmasked", false) }
+    if let client = SocketClient(port) {
+        client.read(1)
+        sendData(client.fd, Data([0x82, 0xFF, 0, 0, 0, 0, 0, 0x20, 0, 0]))
+        check("streams: a frame over the size limit closes with 1009", client.read(2).last == .close(1009, "The frame is too large") && client.waitClosed(),
+              "\(client.outputs)")
+    } else { check("streams: too large", false) }
+    if let client = SocketClient(port) {
+        client.read(1)
+        client.send(.text, Data([0xFF, 0xFE, 0x41, 0x42, 0x43]))
+        check("streams: text that is not UTF-8 closes with 1007", client.read(2).last == .close(1007, "The text is not UTF-8") && client.waitClosed(),
+              "\(client.outputs)")
+    } else { check("streams: invalid UTF-8", false) }
+
+    // Refusals.
+    if let client = SocketClient(port, version: "8") {
+        check("streams: another WebSocket version is 426 with the supported one", status(client.head) == 426
+              && client.head.lowercased().contains("sec-websocket-version: 13"), client.head)
+    } else { check("streams: version", false) }
+    if let client = SocketClient(port, target: "/refuse") {
+        check("streams: an address no channel answers gets a plain answer", status(client.head) == 404, client.head)
+    } else { check("streams: refused", false) }
+    if let client = SocketClient(plainPort) {
+        check("streams: without a stream handler an upgrade is an ordinary request", status(client.head) == 201, client.head)
+    } else { check("streams: plain gateway", false) }
+
+    // Server-sent events: the stream is held open, events are framed, a close ends it.
+    if let fd = connectSocket(port) {
+        send(fd, "GET /events/once HTTP/1.1\r\nHost: localhost:\(port)\r\nAccept: text/event-stream\r\n\r\n")
+        let outcome = read(fd, timeout: 3)
+        check("streams: an event stream answers text/event-stream with framed events",
+              outcome.text.hasPrefix("HTTP/1.1 200") && outcome.text.lowercased().contains("content-type: text/event-stream")
+              && outcome.text.hasSuffix("\r\n\r\nevent: tick\ndata: a\ndata: b\nid: 1\n\ndata: plain\n\n") && outcome.closed, outcome.text)
+        close(fd)
+    } else { check("streams: event stream", false) }
+    if let fd = connectSocket(port) {
+        send(fd, "GET /events/live HTTP/1.1\r\nHost: localhost:\(port)\r\nAccept: text/event-stream\r\n\r\n")
+        let first = read(fd, until: "data: plain\n\n", timeout: 3)
+        let later = read(fd, timeout: 0.5)
+        check("streams: an event stream stays open until the channel ends it", first.text.contains("data: plain") && !first.closed && !later.closed,
+              first.text)
+        close(fd)
+        check("streams: a client that leaves an event stream is heard", await waitFor({ log.all.filter { $0 == "closed none" }.count >= 1 }), "\(log.all)")
+    } else { check("streams: live event stream", false) }
+
+    gateway.close()
+    plainGateway.close()
+}
+
 // MARK: - Run
 
 let done = DispatchSemaphore(value: 0)
 Task { @MainActor in
     await gatewayChecks()
+    await streamChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

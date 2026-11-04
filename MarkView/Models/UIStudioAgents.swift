@@ -14,9 +14,10 @@ struct StudioCLIPreparer: StudioRulePreparing {
 
     func prepare(_ context: StudioPreparationContext) async throws -> StudioProposal {
         var request = CLICompletion.Request(project: project,
-                                            prompt: StudioPrompts.preparationPrompt(context, spec: spec, appFolder: appFolder),
-                                            systemPrompt: StudioPrompts.preparationSystem,
-                                            jsonSchema: StudioPrompts.preparationSchema,
+                                            prompt: StudioRealtimePrompts.prompt(StudioPrompts.preparationPrompt(context, spec: spec, appFolder: appFolder),
+                                                                                 context: context, spec: spec),
+                                            systemPrompt: StudioRealtimePrompts.system(StudioPrompts.preparationSystem),
+                                            jsonSchema: StudioRealtimePrompts.schema(StudioPrompts.preparationSchema),
                                             readableFolder: project)
         request.timeout = StudioPreparationLimits().cliTimeout(for: context)
         request.effort = "low"
@@ -24,7 +25,9 @@ struct StudioCLIPreparer: StudioRulePreparing {
         request.label = "ui-studio:prepare"
         let result = try await CLICompletion.run(request)
         usage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
-        guard let proposal = StudioPrompts.proposal(from: result.structured) else { throw Unreadable() }
+        guard let proposal = StudioRealtimePrompts.proposal(StudioPrompts.proposal(from: result.structured), from: result.structured) else {
+            throw Unreadable()
+        }
         return proposal
     }
 }

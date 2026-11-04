@@ -50,6 +50,28 @@ enum StudioBridge {
     enum Message: Equatable {
         case request(Request)
         case event(Event)
+        /// A WebSocket or EventSource of the page talking to a simulated channel (REQ-015).
+        case channel(Channel)
+    }
+
+    /// A step of a page connection to a simulated channel: open it, send a message on it, close it.
+    struct Channel: Equatable {
+        enum Action: String { case open, send, close }
+        enum Transport: String { case webSocket = "websocket", eventSource = "eventsource" }
+
+        var action: Action
+        /// The page's id for the connection.
+        var id: String
+        /// `open`: the ws(s) or http(s) URL and the subprotocols asked for.
+        var url: URL?
+        var protocols: [String] = []
+        var transport = Transport.webSocket
+        /// `send`: a text message, or a binary one (sent as base64).
+        var text: String?
+        var binary: Data?
+        /// `close`: the code and reason the page gave.
+        var code: Int?
+        var reason: String?
     }
 
     struct Request: Equatable {
@@ -68,7 +90,7 @@ enum StudioBridge {
             /// The dev server's build error overlay (Vite, webpack, Next) appeared on the page; an empty
             /// detail says it is gone again (the build works).
             case buildError
-            /// A dependency the first release does not simulate was used (WebSocket, EventSource, sendBeacon).
+            /// A dependency the simulation does not serve was used (sendBeacon).
             case unsupported
             /// A no-op Electron stand-in was called (preload, IPC).
             case electron
@@ -118,6 +140,7 @@ enum StudioBridge {
         switch object["kind"] as? String {
         case "request": return parseRequest(object).map(Message.request)
         case "event": return parseEvent(object).map(Message.event)
+        case "channel": return parseChannel(object).map(Message.channel)
         default: return .failure(.malformed("unknown kind"))
         }
     }
@@ -145,6 +168,50 @@ enum StudioBridge {
         let transport = object["transport"] as? String ?? "fetch"
         guard ["fetch", "xhr"].contains(transport) else { return .failure(.malformed("transport")) }
         return .success(Request(requestId: id, method: method, url: url, headers: headers, body: body, transport: transport))
+    }
+
+    private static func parseChannel(_ object: [String: Any]) -> Result<Channel, Rejection> {
+        guard let id = object["id"] as? String, id.count <= 100,
+              id.range(of: #"^[A-Za-z0-9_\-:.]+$"#, options: .regularExpression) != nil else { return .failure(.malformed("channel id")) }
+        guard let action = (object["action"] as? String).flatMap(Channel.Action.init) else { return .failure(.malformed("channel action")) }
+        var channel = Channel(action: action, id: id)
+        switch action {
+        case .open:
+            guard let text = object["url"] as? String, text.utf8.count <= maxURL, let url = URL(string: text),
+                  let scheme = url.scheme?.lowercased(), ["ws", "wss", "http", "https"].contains(scheme), url.host != nil else {
+                return .failure(.malformed("channel url"))
+            }
+            channel.url = url
+            guard let transport = (object["transport"] as? String).flatMap(Channel.Transport.init) else { return .failure(.malformed("channel transport")) }
+            channel.transport = transport
+            if let raw = object["protocols"], !(raw is NSNull) {
+                guard let list = raw as? [String], list.count <= 20,
+                      list.allSatisfy({ $0.range(of: #"^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,128}$"#, options: .regularExpression) != nil }) else {
+                    return .failure(.malformed("channel protocols"))
+                }
+                channel.protocols = list
+            }
+        case .send:
+            if let text = object["text"] as? String {
+                guard text.utf8.count <= maxBody else { return .failure(.malformed("channel message")) }
+                channel.text = text
+            } else if let encoded = object["binary"] as? String, encoded.utf8.count <= maxBody / 3 * 4 + 4, let data = Data(base64Encoded: encoded) {
+                channel.binary = data
+            } else {
+                return .failure(.malformed("channel message"))
+            }
+        case .close:
+            if let code = (object["code"] as? NSNumber)?.intValue {
+                // What a page may pass to WebSocket.close (the browser refuses the others).
+                guard code == 1000 || (3000...4999).contains(code) else { return .failure(.malformed("channel close code")) }
+                channel.code = code
+            }
+            if let reason = object["reason"] as? String {
+                guard reason.utf8.count <= 123 else { return .failure(.malformed("channel close reason")) }
+                channel.reason = reason
+            }
+        }
+        return .success(channel)
     }
 
     private static func parseEvent(_ object: [String: Any]) -> Result<Event, Rejection> {

@@ -5,8 +5,9 @@
 // - Every fetch and XMLHttpRequest is asked of MarkView first (`markviewStudio` message handler with reply). MarkView
 //   answers from the simulated environment or lets a local or explicitly allowed request through; nothing falls through
 //   to a real service on its own (REQ-002, REQ-006).
-// - WebSocket, EventSource and sendBeacon are outside the first release: the dev server's hot reload socket is kept,
-//   everything else is reported as unsupported and answered by a closed stand-in.
+// - WebSocket and EventSource talk to MarkView's simulated channels (REQ-015): open, messages and close travel over the
+//   bridge, and MarkView pushes its own messages with `deliver`. The dev server's own sockets (hot reload, and anything on
+//   its origin that is not a known API path) stay real. sendBeacon is reported as unsupported and not sent.
 // - Math.random is seeded, the clock starts at the scenario's test time, and the locale (and the time zone of formatted
 //   dates) follow the scenario, so captures are reproducible.
 // - Location, permissions, the clipboard, camera and microphone, and notifications answer from the scenario's browser
@@ -132,17 +133,19 @@
     if (signal && signal.aborted) return Promise.reject(abortError(signal));
     details.kind = 'request';
     details.requestId = nextRequestId();
-    pending += 1;
+    // A Socket.IO long-poll waits for the server's next message by design: it does not keep the page busy.
+    var counted = !(/[?&]EIO=\d/.test(details.url) && /[?&]transport=polling/.test(details.url)) ? 1 : 0;
+    pending += counted;
     noteActivity();
     return send(details).then(function (reply) {
-      pending -= 1;
+      pending -= counted;
       noteActivity();
       if (!reply || (reply.action !== 'pass' && reply.action !== 'respond')) {
         throw new TypeError('MarkView UI Studio did not answer ' + details.method + ' ' + details.url);
       }
       return reply;
     }, function (error) {
-      pending -= 1;
+      pending -= counted;
       noteActivity();
       throw new TypeError('Failed to fetch (MarkView UI Studio: ' + ((error && error.message) || error) + ')');
     });
@@ -456,63 +459,249 @@
   });
   if (RealXHR) window.XMLHttpRequest = StudioXHR;
 
-  // MARK: Connections outside the first release
+  // MARK: Connections (REQ-015)
 
-  var HOT_RELOAD_PATH = /(^|\/)(__vite_ping|_next\/webpack-hmr|__webpack_hmr|sockjs-node|ws|hmr)(\/|$)/;
+  // The application's own development server keeps its sockets: hot reload (Vite, webpack-dev-server, Next.js and
+  // Turbopack, Nuxt, Angular, sockjs, Metro, Storybook, livereload) and anything else on the dev server's origin that is
+  // not a known API path. Every other WebSocket and EventSource talks to MarkView's simulated channels over the bridge;
+  // none reaches a real service. `/ws` alone is webpack-dev-server's; `/ws/<more>` is the application's.
+  var HOT_RELOAD_PATH = /^\/(ws|hmr|hot|ng-cli-ws|__vite_ping|livereload)$|^\/(sockjs-node|__webpack_hmr|storybook-server-channel)(\/|$)|^\/(@vite|_next|__nextjs|__turbopack|_nuxt)\/|webpack-hmr|turbopack-hmr/;
+  var HOT_RELOAD_PROTOCOL = /^(vite-hmr|vite-ping)$/;
+  var API_PATH = /(^|\/)(socket\.io|graphql|subscriptions?|realtime|cable|api|sse|events|stream|channels?|ws|websockets?|sockets?|live|chat|notifications?|pubsub|hubs?|rpc)(\/|$)/i;
 
-  function closedStandIn(prototype, url, extra) {
-    var events = new EventTarget();
-    var object = Object.create(prototype);
-    var own = function (name, value, writable) { Object.defineProperty(object, name, { value: value, writable: !!writable, enumerable: true, configurable: true }); };
-    own('url', url);
-    own('readyState', 0, true);
-    own('addEventListener', events.addEventListener.bind(events));
-    own('removeEventListener', events.removeEventListener.bind(events));
-    own('dispatchEvent', events.dispatchEvent.bind(events));
-    own('close', function () { object.readyState = extra.closed; });
-    ['onopen', 'onmessage', 'onerror', 'onclose'].forEach(function (name) { own(name, null, true); });
-    Object.keys(extra.fields || {}).forEach(function (name) { own(name, extra.fields[name], true); });
-    realSetTimeout(function () {
-      object.readyState = extra.closed;
-      var fire = function (event) {
-        var handler = object['on' + event.type];
-        if (typeof handler === 'function') { try { handler.call(object, event); } catch (error) {} }
-        events.dispatchEvent(event);
-      };
-      fire(new Event('error'));
-      if (extra.closeEvent) fire(new CloseEvent('close', { code: 1006, reason: 'Not simulated by MarkView UI Studio', wasClean: false }));
-    }, 0);
-    return object;
+  function keepsReal(absolute, protocols) {
+    var url;
+    try { url = new URL(absolute); } catch (error) { return false; }
+    var hotProtocol = protocols.some(function (p) { return HOT_RELOAD_PROTOCOL.test(p); });
+    if (hotProtocol && loopback[url.hostname]) return true;
+    if (!sameServer(absolute)) return false;
+    return hotProtocol || HOT_RELOAD_PATH.test(url.pathname) || !API_PATH.test(url.pathname);
+  }
+
+  var STATE = typeof Symbol === 'function' ? Symbol('markview-channel') : '__markviewChannel';
+  var channels = Object.create(null);
+  var channelCounter = 0;
+  function nextChannelId() {
+    channelCounter += 1;
+    return 'c' + config.generation + '-' + channelCounter + '-' + Math.floor(realRandom() * 2176782336).toString(36);
+  }
+
+  function bufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var text = '';
+    for (var i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(text);
+  }
+
+  function base64ToBuffer(text) {
+    var raw = atob(text || '');
+    var bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  // An `on…` handler, then the listeners; an error of the application's handler surfaces as an uncaught error.
+  function fire(target, event) {
+    var handler = target['on' + event.type];
+    if (typeof handler === 'function') {
+      try { handler.call(target, event); } catch (error) { realSetTimeout(function () { throw error; }, 0); }
+    }
+    EventTarget.prototype.dispatchEvent.call(target, event);
+  }
+
+  function originOf(href) {
+    try { return new URL(href).origin; } catch (error) { return ''; }
+  }
+
+  function finish(state, code, reason, clean) {
+    if (state.readyState === state.closedState) return;
+    state.readyState = state.closedState;
+    delete channels[state.id];
+    if (state.transport === 'websocket') fire(state.target, new CloseEvent('close', { code: code, reason: reason || '', wasClean: clean }));
+  }
+
+  function fail(state, reason) {
+    if (state.readyState === state.closedState) return;
+    var target = state.target;
+    state.readyState = state.closedState;
+    delete channels[state.id];
+    fire(target, new Event('error'));
+    if (state.transport === 'websocket') fire(target, new CloseEvent('close', { code: 1006, reason: '', wasClean: false }));
+    if (reason) console.warn('MarkView UI Studio: ' + state.url + ': ' + reason);
+  }
+
+  function receive(state, frames) {
+    for (var i = 0; i < frames.length; i += 1) {
+      var frame = frames[i];
+      if (state.readyState !== 1) return;
+      if (frame.type === 'close') {
+        finish(state, frame.code || 1005, frame.reason, true);
+        return;
+      }
+      var data = frame.data;
+      if (frame.type === 'binary') {
+        var buffer = base64ToBuffer(frame.data);
+        data = state.target.binaryType === 'arraybuffer' ? buffer : new Blob([buffer]);
+      }
+      var type = frame.type === 'event' ? (frame.event || 'message') : 'message';
+      fire(state.target, new MessageEvent(type, { data: data, origin: originOf(state.url), lastEventId: frame.id || '' }));
+    }
+  }
+
+  function connect(target, absolute, protocols, transport) {
+    var state = { id: nextChannelId(), target: target, url: absolute, transport: transport, readyState: 0, protocol: '',
+      closedState: transport === 'websocket' ? 3 : 2, early: [], chain: Promise.resolve() };
+    channels[state.id] = state;
+    pending += 1;
+    noteActivity();
+    send({ kind: 'channel', action: 'open', id: state.id, url: absolute, protocols: protocols, transport: transport }).then(function (reply) {
+      pending -= 1;
+      noteActivity();
+      if (state.readyState !== 0) {
+        if (reply && reply.ok) send({ kind: 'channel', action: 'close', id: state.id, code: 1000 }).catch(function () {});
+        return;
+      }
+      if (!reply || !reply.ok) return fail(state, reply && reply.reason);
+      state.protocol = reply.protocol || '';
+      state.readyState = 1;
+      fire(target, new Event('open'));
+      receive(state, reply.frames || []);
+      var early = state.early;
+      state.early = [];
+      receive(state, early);
+    }, function (error) {
+      pending -= 1;
+      noteActivity();
+      fail(state, (error && error.message) || String(error));
+    });
+    return state;
+  }
+
+  function payloadOf(data) {
+    if (typeof data === 'string') return Promise.resolve({ text: data });
+    if (data instanceof ArrayBuffer) return Promise.resolve({ binary: bufferToBase64(data) });
+    if (ArrayBuffer.isView(data)) return Promise.resolve({ binary: bufferToBase64(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)) });
+    if (typeof Blob !== 'undefined' && data instanceof Blob) return data.arrayBuffer().then(function (buffer) { return { binary: bufferToBase64(buffer) }; });
+    return Promise.resolve({ text: String(data) });
+  }
+
+  function deliverChannel(id, frames) {
+    var state = channels[id];
+    if (!state || !frames || !frames.length) return false;
+    if (state.readyState === 0) state.early = state.early.concat(frames); else receive(state, frames);
+    return true;
   }
 
   if (RealWebSocket) {
-    var StudioWebSocket = function WebSocket(url, protocols) {
-      var absolute = new URL(String(url), location.href.replace(/^http/, 'ws')).href;
-      var list = protocols == null ? [] : [].concat(protocols);
-      var hot = list.some(function (p) { return /^vite-(hmr|ping)$/.test(p); }) || HOT_RELOAD_PATH.test(new URL(absolute).pathname);
-      if (sameServer(absolute) && hot) return protocols === undefined ? new RealWebSocket(url) : new RealWebSocket(url, protocols);
-      report('unsupported', 'WebSocket ' + absolute + ' (WebSocket connections are not simulated in the first release).', absolute);
-      var socket = closedStandIn(RealWebSocket.prototype, absolute, {
-        closed: 3, closeEvent: true,
-        fields: { protocol: '', extensions: '', bufferedAmount: 0, binaryType: 'blob',
-          send: function () { if (socket.readyState === 0) throw new DOMException('Still in CONNECTING state.', 'InvalidStateError'); } }
-      });
-      return socket;
+    var StudioWebSocket = class WebSocket extends EventTarget {
+      constructor(url, protocols) {
+        if (arguments.length === 0) throw new TypeError("Failed to construct 'WebSocket': 1 argument required, but only 0 present.");
+        var absolute;
+        try {
+          var parsed = new URL(String(url), location.href);
+          if (parsed.protocol === 'http:') parsed.protocol = 'ws:';
+          if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+          if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') throw new Error('scheme');
+          parsed.hash = '';
+          absolute = parsed.href;
+        } catch (error) {
+          throw new DOMException("Failed to construct 'WebSocket': The URL '" + String(url) + "' is invalid.", 'SyntaxError');
+        }
+        var list = protocols == null ? [] : [].concat(protocols).map(String);
+        if (keepsReal(absolute, list)) return protocols === undefined ? new RealWebSocket(url) : new RealWebSocket(url, protocols);
+        super();
+        this.onopen = null;
+        this.onmessage = null;
+        this.onerror = null;
+        this.onclose = null;
+        var state = connect(this, absolute, list, 'websocket');
+        state.binaryType = 'blob';
+        this[STATE] = state;
+      }
+      get url() { return this[STATE].url; }
+      get readyState() { return this[STATE].readyState; }
+      get protocol() { return this[STATE].protocol; }
+      get extensions() { return ''; }
+      get bufferedAmount() { return 0; }
+      get binaryType() { return this[STATE].binaryType; }
+      set binaryType(value) { if (value === 'blob' || value === 'arraybuffer') this[STATE].binaryType = value; }
+      send(data) {
+        var state = this[STATE];
+        if (state.readyState === 0) throw new DOMException("Failed to execute 'send' on 'WebSocket': Still in CONNECTING state.", 'InvalidStateError');
+        if (state.readyState !== 1) return;
+        var payload = payloadOf(data);
+        state.chain = state.chain.then(function () { return payload; }).then(function (message) {
+          if (state.readyState !== 1) return;
+          message.kind = 'channel';
+          message.action = 'send';
+          message.id = state.id;
+          return send(message).then(function (reply) { if (reply && reply.frames) receive(state, reply.frames); });
+        }).catch(function () {});
+      }
+      close(code, reason) {
+        var state = this[STATE];
+        if (code !== undefined && code !== 1000 && !(code >= 3000 && code <= 4999)) {
+          throw new DOMException("Failed to execute 'close' on 'WebSocket': The close code must be either 1000, or between 3000 and 4999.", 'InvalidAccessError');
+        }
+        var text = reason === undefined ? '' : String(reason);
+        if (new TextEncoder().encode(text).length > 123) throw new DOMException("Failed to execute 'close' on 'WebSocket': The close reason must not be greater than 123 UTF-8 bytes.", 'SyntaxError');
+        if (state.readyState === 2 || state.readyState === 3) return;
+        var connecting = state.readyState === 0;
+        state.readyState = 2;
+        if (!connecting) send({ kind: 'channel', action: 'close', id: state.id, code: code === undefined ? 1000 : code, reason: text }).catch(function () {});
+        // Closing while connecting fails the connection (error, then close 1006), as in a browser.
+        realSetTimeout(function () {
+          if (connecting) return fail(state, '');
+          finish(state, code === undefined ? 1005 : code, text, true);
+        }, 0);
+      }
+      static [Symbol.hasInstance](object) {
+        return object instanceof RealWebSocket || Function.prototype[Symbol.hasInstance].call(this, object);
+      }
     };
-    StudioWebSocket.prototype = RealWebSocket.prototype;
-    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (name, value) { Object.defineProperty(StudioWebSocket, name, { value: value }); });
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (name, value) {
+      Object.defineProperty(StudioWebSocket, name, { value: value });
+      Object.defineProperty(StudioWebSocket.prototype, name, { value: value });
+    });
     window.WebSocket = StudioWebSocket;
   }
 
   if (RealEventSource) {
-    var StudioEventSource = function EventSource(url, options) {
-      var absolute = new URL(String(url), location.href).href;
-      if (sameServer(absolute) && HOT_RELOAD_PATH.test(new URL(absolute).pathname)) return new RealEventSource(url, options);
-      report('unsupported', 'EventSource ' + absolute + ' (server-sent events are not simulated in the first release).', absolute);
-      return closedStandIn(RealEventSource.prototype, absolute, { closed: 2, closeEvent: false, fields: { withCredentials: false } });
+    var StudioEventSource = class EventSource extends EventTarget {
+      constructor(url, options) {
+        if (arguments.length === 0) throw new TypeError("Failed to construct 'EventSource': 1 argument required, but only 0 present.");
+        var absolute;
+        try { absolute = new URL(String(url), location.href).href; } catch (error) {
+          throw new DOMException("Failed to construct 'EventSource': Cannot open an EventSource to '" + String(url) + "'. The URL is invalid.", 'SyntaxError');
+        }
+        if (keepsReal(absolute, [])) return new RealEventSource(url, options);
+        super();
+        this.onopen = null;
+        this.onmessage = null;
+        this.onerror = null;
+        var state = connect(this, absolute, [], 'eventsource');
+        state.withCredentials = !!(options && options.withCredentials);
+        this[STATE] = state;
+      }
+      get url() { return this[STATE].url; }
+      get readyState() { return this[STATE].readyState; }
+      get withCredentials() { return this[STATE].withCredentials; }
+      close() {
+        var state = this[STATE];
+        if (state.readyState === 2) return;
+        var open = state.readyState === 1;
+        state.readyState = 2;
+        delete channels[state.id];
+        if (open) send({ kind: 'channel', action: 'close', id: state.id, code: 1000 }).catch(function () {});
+      }
+      static [Symbol.hasInstance](object) {
+        return object instanceof RealEventSource || Function.prototype[Symbol.hasInstance].call(this, object);
+      }
     };
-    StudioEventSource.prototype = RealEventSource.prototype;
-    ['CONNECTING', 'OPEN', 'CLOSED'].forEach(function (name, value) { Object.defineProperty(StudioEventSource, name, { value: value }); });
+    ['CONNECTING', 'OPEN', 'CLOSED'].forEach(function (name, value) {
+      Object.defineProperty(StudioEventSource, name, { value: value });
+      Object.defineProperty(StudioEventSource.prototype, name, { value: value });
+    });
     window.EventSource = StudioEventSource;
   }
 
@@ -1700,6 +1889,8 @@
     finishCapture: finishCapture,
     rendering: rendering,
     storage: storageEntries,
+    // Frames MarkView pushes to a simulated WebSocket or EventSource (REQ-015).
+    deliver: deliverChannel,
     state: function () {
       return { pending: pending, loaded: loaded, buildError: overlayText().slice(0, 8000), route: location.pathname + location.search + location.hash,
         title: document.title };

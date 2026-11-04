@@ -11,7 +11,7 @@ cp tools/tests/UIStudioWebHarness.swift "$out/main.swift"
 swiftc -o "$out/ui-studio-web-harness" \
   MarkView/Models/UIStudioJSON.swift MarkView/Models/UIStudioModels.swift MarkView/Models/UIStudioConnections.swift MarkView/Models/UIStudioSimulation.swift MarkView/Models/UIStudioAuthMock.swift \
   MarkView/Models/UIStudioRedaction.swift MarkView/Models/UIStudioBridge.swift MarkView/Models/UIStudioSelection.swift MarkView/Models/UIStudioChanges.swift \
-  MarkView/Models/UIStudioPolicy.swift MarkView/Models/UIStudioGateway.swift \
-  MarkView/Models/UIStudioEnvironmentMap.swift \
+  MarkView/Models/UIStudioPolicy.swift MarkView/Models/UIStudioGateway.swift MarkView/Models/UIStudioGatewayStreams.swift \
+  MarkView/Models/UIStudioGraphQL.swift MarkView/Models/UIStudioChannels.swift MarkView/Models/UIStudioEnvironmentMap.swift \
   MarkView/Views/UIStudioPreviewHost.swift "$out/main.swift"
 "$out/ui-studio-web-harness" MarkView/Resources/Editor/vendor/js/markview-ui-studio.js

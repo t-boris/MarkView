@@ -122,9 +122,9 @@ if case .unknown(let contract) = sim.handle(request("GET", "/api/projects/7/memb
 if case .unknown(let contract) = sim.handle(StudioHTTPRequest(method: "GET", url: URL(string: "https://api.example.com/v1/users/42")!, requestId: "x1")) {
     check("cross-origin unknown request keeps its origin in the contract", contract == "GET https://api.example.com/v1/users/:id", contract)
 } else { check("cross-origin unknown", false) }
-if case .unsupported(_, let reason) = sim.handle(request("POST", "/graphql", body: #"{"query":"query { me { id } }"}"#)) {
-    check("GraphQL is unsupported, not prepared", reason.contains("GraphQL"))
-} else { check("GraphQL is unsupported", false) }
+if case .unknown(let contract) = sim.handle(request("POST", "/graphql", body: #"{"query":"query { me { id } }"}"#)) {
+    check("REQ-015 GraphQL without an operation is prepared, not refused", contract == "GRAPHQL /graphql query me", contract)
+} else { check("REQ-015 GraphQL without an operation is prepared", false) }
 let unresolved = StudioSimResponse.unresolved("GET /api/x", reason: "the agent did not finish in time.")
 check("AC-06 controlled error names the contract and that nothing reached a real service",
       unresolved.status == 503 && unresolved.headers["x-markview-simulation"] == "unresolved" && (unresolved.body ?? "").contains("did not reach any real service"))
@@ -1986,6 +1986,450 @@ func environmentMapChecks() async {
           && groupText.contains("id b1 is used twice") && groupText.contains("CORE_URL → http://core.example.test/v1"))
 }
 
+// MARK: - Real-time channels and GraphQL (REQ-015)
+
+func json(_ text: String) -> StudioJSON { StudioJSON(text: text) ?? .null }
+func texts(_ frames: [StudioChannelFrame]) -> [String] { frames.compactMap { if case .text(let text) = $0 { return text }; return nil } }
+
+func graphQLChecks() {
+    // Documents: operations, variables with defaults, aliases, arguments, fragments, directives, block strings, comments.
+    let source = """
+        # The feed
+        query Feed($first: Int = 2, $skipAuthor: Boolean!) {
+          latest: posts(first: $first, where: {status: {_eq: "published"}}) { ...postFields author @skip(if: $skipAuthor) { name } }
+          ... on Query { me { id } }
+        }
+        fragment postFields on Post { id title __typename body: text(format: \"\"\"
+            block
+            \"\"\") }
+        """
+    let document = try? StudioGraphQLParser.parse(source)
+    check("GraphQL: a document with a fragment and a named operation is read", document?.operations.count == 1
+          && document?.operations.first?.name == "Feed" && document?.fragments["postFields"] != nil
+          && document?.operations.first?.defaults["first"] == .constant(.number(2)))
+    if let document, let operation = document.operations.first {
+        let roots = StudioGraphQLExecutor.fields(operation.selections, fragments: document.fragments, variables: ["skipAuthor": .bool(true)])
+        check("GraphQL: inline fragments are spread into the root fields", roots.map(\.responseKey) == ["latest", "me"], "\(roots.map(\.responseKey))")
+        let nested = roots.first.map { StudioGraphQLExecutor.fields($0.selections, fragments: document.fragments, variables: ["skipAuthor": .bool(true)]) } ?? []
+        check("GraphQL: fragment spreads, aliases and @skip apply", nested.map(\.responseKey) == ["id", "title", "__typename", "body"],
+              "\(nested.map(\.responseKey))")
+        if case .constant(.string(let block))? = nested.last?.arguments["format"] {
+            check("GraphQL: a block string loses its indentation", block == "block", block)
+        } else { check("GraphQL: block string argument", false) }
+    }
+    check("GraphQL: an unterminated selection set is a syntax error", (try? StudioGraphQLParser.parse("{ posts { id }")) == nil)
+    check("GraphQL: an empty selection set is a syntax error", (try? StudioGraphQLParser.parse("query { }")) == nil)
+
+    // Which requests are GraphQL.
+    func post(_ path: String, _ body: String, headers: [String: String] = ["content-type": "application/json"]) -> StudioHTTPRequest {
+        request("POST", path, body: body, headers: headers)
+    }
+    check("GraphQL: POST JSON with a document is GraphQL", (try? StudioGraphQLRequest.read(post("/graphql", #"{"query":"{ me { id } }"}"#))?.get()) != nil)
+    check("GraphQL: GET ?query= is GraphQL", (try? StudioGraphQLRequest.read(request("GET", "/graphql?query=%7B%20me%20%7B%20id%20%7D%20%7D"))?.get()) != nil)
+    check("GraphQL: application/graphql is GraphQL",
+          (try? StudioGraphQLRequest.read(post("/api/gql", "query { me { id } }", headers: ["content-type": "application/graphql"]))?.get()) != nil)
+    check("GraphQL: a REST search with a query field is not GraphQL", StudioGraphQLRequest.read(post("/api/search", #"{"query":"red shoes"}"#)) == nil
+          && StudioGraphQLRequest.read(request("GET", "/api/search?query=hello")) == nil)
+    if case .failure(let failure)? = StudioGraphQLRequest.read(post("/graphql", #"{"extensions":{"persistedQuery":{"version":1,"sha256Hash":"abc"}}}"#)) {
+        check("GraphQL: a persisted query hash asks for the document", failure.code == "PERSISTED_QUERY_NOT_FOUND")
+    } else { check("GraphQL: persisted query", false) }
+    if case .failure(let failure)? = StudioGraphQLRequest.read(post("/graphql", #"{"query":"query A { me { id } } query B { me { id } }"}"#)) {
+        check("GraphQL: several operations need an operationName", failure.message.contains("operation name"))
+    } else { check("GraphQL: several operations", false) }
+
+    // Answers from the state.
+    var gspec = StudioEnvironmentSpec()
+    gspec.entities = [StudioEntity(name: "users", fields: [StudioField(name: "name", type: "string", required: true)]),
+                      StudioEntity(name: "posts", fields: [StudioField(name: "title", type: "string", required: true),
+                                                           StudioField(name: "authorId", type: "integer", references: "users"),
+                                                           StudioField(name: "status", type: "string")])]
+    gspec.seed = ["users": [json(#"{"id":1,"name":"Ada"}"#), json(#"{"id":2,"name":"Lin"}"#)],
+                  "posts": [json(#"{"id":1,"title":"One","authorId":1,"status":"published"}"#), json(#"{"id":2,"title":"Two","authorId":2,"status":"draft"}"#),
+                            json(#"{"id":3,"title":"Three","authorId":1,"status":"published"}"#)]]
+    gspec.graphQL = [
+        StudioGraphQLOperation(id: "q-posts", kind: .query, field: "posts", action: .list, entity: "posts"),
+        StudioGraphQLOperation(id: "q-post", kind: .query, field: "post", action: .get, entity: "posts"),
+        StudioGraphQLOperation(id: "q-feed", kind: .query, field: "feed", action: .list, entity: "posts", connection: true),
+        StudioGraphQLOperation(id: "q-page", kind: .query, field: "postPage", action: .list, entity: "posts", envelope: "items"),
+        StudioGraphQLOperation(id: "q-me", kind: .query, field: "me", action: .respond, response: json(#"{"id":"u-1","name":"Test {{args.x}}"}"#)),
+        StudioGraphQLOperation(id: "m-create", kind: .mutation, field: "createPost", action: .create, entity: "posts"),
+        StudioGraphQLOperation(id: "m-update", kind: .mutation, field: "updatePost", action: .update, entity: "posts"),
+        StudioGraphQLOperation(id: "m-delete", kind: .mutation, field: "deletePost", action: .delete, entity: "posts"),
+    ]
+    var gsim = StudioSimulator(spec: gspec, scenario: StudioScenario(id: "g", name: "G", kind: .populated), appOrigin: app)
+    func graph(_ query: String, variables: String = "{}", id: String? = nil) -> (Int, StudioJSON?) {
+        answer(gsim.handle(post("/graphql", StudioJSON.object(["query": .string(query), "variables": json(variables)]).text, headers: [:])
+            .withID(id)))
+    }
+    let (listStatus, list) = graph(#"{ posts(where: {status: {_eq: "published"}}) { id title author { name } __typename } }"#)
+    check("GraphQL: a list filters by where, resolves author from authorId and names the type",
+          listStatus == 200 && list?["data"]?["posts"] == json(#"[{"id":1,"title":"One","author":{"name":"Ada"},"__typename":"Post"},{"id":3,"title":"Three","author":{"name":"Ada"},"__typename":"Post"}]"#),
+          list?.text ?? "nil")
+    let (_, detail) = graph("query($id: ID!) { a: post(id: $id) { title } b: post(id: 1) { title } }", variables: #"{"id":"2"}"#)
+    check("GraphQL: a detail by variable and aliases", detail?["data"] == json(#"{"a":{"title":"Two"},"b":{"title":"One"}}"#), detail?.text ?? "nil")
+    let (_, feed) = graph("{ feed(first: 2) { totalCount edges { cursor node { id } } pageInfo { hasNextPage endCursor } } }")
+    check("GraphQL: a Relay connection pages with cursors",
+          feed?["data"]?["feed"] == json(#"{"totalCount":3,"edges":[{"cursor":"1","node":{"id":1}},{"cursor":"2","node":{"id":2}}],"pageInfo":{"hasNextPage":true,"endCursor":"2"}}"#),
+          feed?.text ?? "nil")
+    let (_, after) = graph(#"{ feed(first: 2, after: "2") { edges { node { id } } } }"#)
+    check("GraphQL: after continues from the cursor", after?["data"]?["feed"]?["edges"] == json(#"[{"node":{"id":3}}]"#), after?.text ?? "nil")
+    let (_, page) = graph("{ postPage(limit: 1) { total items { title } } }")
+    check("GraphQL: an envelope wraps the list", page?["data"]?["postPage"] == json(#"{"total":3,"items":[{"title":"One"}]}"#), page?.text ?? "nil")
+    let (_, me) = graph(#"{ me(x: "A") { name } __typename }"#)
+    check("GraphQL: a respond operation fills its arguments", me?["data"] == json(#"{"me":{"name":"Test A"},"__typename":"Query"}"#), me?.text ?? "nil")
+    if case .unknown(let contract) = gsim.handle(post("/graphql", #"{"query":"{ comments { id } posts { id } }"}"#)) {
+        check("GraphQL: a field without an operation is prepared, by its contract", contract == "GRAPHQL /graphql query comments", contract)
+    } else { check("GraphQL: an unknown field is unknown", false) }
+    let create = #"mutation { createPost(input: {title: "New", authorId: 2}) { id title author { name } } }"#
+    let (_, created) = graph(create, id: "gm-1")
+    _ = graph(create, id: "gm-1")
+    check("GraphQL: a mutation creates the record once per request id",
+          created?["data"]?["createPost"] == json(#"{"id":4,"title":"New","author":{"name":"Lin"}}"#) && gsim.state["posts"]?.count == 4,
+          "\(created?.text ?? "nil") \(gsim.state["posts"]?.count ?? 0)")
+    let (_, restList) = graph("{ posts { title } }")
+    check("GraphQL: the list shows the new record", restList?["data"]?["posts"]?.arrayValue?.count == 4)
+    let (_, updated) = graph(#"mutation { updatePost(id: 1, input: {title: "Uno"}) { id title } }"#)
+    check("GraphQL: an update changes the record", updated?["data"]?["updatePost"] == json(#"{"id":1,"title":"Uno"}"#), updated?.text ?? "nil")
+    let (_, deleted) = graph("mutation { deletePost(id: 3) { id title } }")
+    check("GraphQL: a delete answers the record it removed", deleted?["data"]?["deletePost"] == json(#"{"id":3,"title":"Three"}"#)
+          && gsim.state["posts"]?.count == 3, deleted?.text ?? "nil")
+    let (_, invalid) = graph("mutation { createPost(input: {authorId: 1}) { id } }")
+    check("GraphQL: a write the schema refuses is an error with a null field",
+          invalid?["data"]?["createPost"] == .null && invalid?["errors"]?.arrayValue?.first?["message"]?.stringValue?.contains("title is required") == true,
+          invalid?.text ?? "nil")
+    if case .unsupported(_, let reason) = gsim.handle(post("/graphql", #"{"query":"subscription { postAdded { id } }"}"#)) {
+        check("GraphQL: a subscription over HTTP is named as not simulated", reason.contains("subscriptions over HTTP"), reason)
+    } else { check("GraphQL: subscription over HTTP", false) }
+    var failing = StudioScenario(id: "f", name: "F", kind: .error)
+    failing.overrides = [StudioOverride(ruleId: "q-posts", status: 500)]
+    gsim.activate(failing)
+    check("GraphQL: a scenario override fails the operation", graph("{ posts { id } }").0 == 500)
+}
+
+extension StudioHTTPRequest {
+    func withID(_ id: String?) -> StudioHTTPRequest {
+        var copy = self
+        if let id { copy.requestId = id }
+        return copy
+    }
+}
+
+final class SimulatorBox {
+    var sim: StudioSimulator
+    var changes: [StudioEntityChange] = []
+    init(_ sim: StudioSimulator) { self.sim = sim }
+}
+
+@MainActor
+func channelChecks() async {
+    func message(_ data: String, event: String? = nil, topic: String? = nil) -> StudioChannelMessage {
+        StudioChannelMessage(event: event, topic: topic, data: json(data))
+    }
+    var cspec = StudioEnvironmentSpec()
+    cspec.entities = [StudioEntity(name: "messages", fields: [StudioField(name: "text", type: "string", required: true), StudioField(name: "room", type: "string")])]
+    cspec.seed = ["messages": [json(#"{"id":1,"text":"Hello","room":"general"}"#)]]
+    cspec.rules = [StudioRule(id: "messages-create", method: "POST", path: "/api/messages", operation: .create, entity: "messages")]
+    cspec.channels = [
+        StudioChannel(id: "chat", path: "/ws/chat", wire: .raw, onConnect: [message(#"{"type":"welcome"}"#)],
+                      onMessage: [StudioChannelReply(match: ["type": .string("ping")], reply: [message(#"{"type":"pong"}"#)]),
+                                  StudioChannelReply(match: ["type": .string("send")], reply: [message(#"{"type":"sent","message":"{{record}}"}"#)],
+                                                     entity: "messages", operation: .create, recordPath: "message")],
+                      events: [StudioChannelEvent(afterMs: 30, message: message(#"{"type":"tick","n":"{{count}}"}"#))],
+                      links: [StudioChannelLink(entity: "messages", on: [.create], message: message(#"{"type":"new","message":"{{record}}"}"#))]),
+        StudioChannel(id: "io", path: "/socket.io", wire: .socketio, onConnect: [message(#"{"user":"test"}"#, event: "hello")],
+                      onMessage: [StudioChannelReply(match: ["event": .string("get-rooms")], reply: [message(#"["general","random"]"#)]),
+                                  StudioChannelReply(match: ["event": .string("chat")], broadcast: [message(#""{{message.data}}""#, event: "chat")])]),
+        StudioChannel(id: "realtime", path: "wss://abc.supabase.co/realtime/v1/websocket", wire: .phoenix),
+        StudioChannel(id: "gql", path: "/graphql", wire: .graphqlWS),
+        StudioChannel(id: "feed", path: "https://api.example.com/events/:room", wire: .raw, onConnect: [message(#"{"room":"{{params.room}}"}"#, event: "hello")]),
+    ]
+    cspec.graphQL = [StudioGraphQLOperation(id: "s-msg", kind: .subscription, field: "messageAdded", action: .get, entity: "messages", on: [.create]),
+                     StudioGraphQLOperation(id: "q-msgs", kind: .query, field: "messages", action: .list, entity: "messages")]
+    let box = SimulatorBox(StudioSimulator(spec: cspec, scenario: StudioScenario(id: "s", name: "S", kind: .populated), appOrigin: app))
+    var logs: [String] = []
+    var pushed: [String: [StudioChannelFrame]] = [:]
+    let hub = StudioChannelHub(environment: StudioChannelHub.Environment(
+        spec: { box.sim.spec }, state: { box.sim.state }, appOrigin: { app },
+        perform: { operation, entity, id, fields in
+            let before = box.sim.state
+            let response = box.sim.perform(operation, entity: entity, id: id, fields: fields)
+            box.changes += StudioEntityChange.diff(before: before, after: box.sim.state, spec: box.sim.spec)
+            return response
+        },
+        graphQL: { url, payload in
+            let http = StudioHTTPRequest(method: "POST", url: url, headers: ["content-type": "application/json"], body: payload.text, requestId: UUID().uuidString)
+            if case .respond(let response, _) = box.sim.handle(http) { return StudioJSON(text: response.body ?? "") ?? .null }
+            return .null
+        },
+        redact: { StudioRedactor().redact($0) }, log: { text, _ in logs.append(text) }))
+    func open(_ id: String, _ url: String, protocols: [String] = [], transport: StudioChannelTransport = .webSocket) -> StudioChannelHub.Opening {
+        hub.open(id: id, url: URL(string: url)!, protocols: protocols, transport: transport, source: "page", shown: url,
+                 sink: { pushed[id, default: []] += $0 })
+    }
+    func flushChanges() {
+        hub.entitiesChanged(box.changes)
+        box.changes = []
+    }
+
+    // Matching and templates.
+    check("channels: a ws URL matches a channel of the app's origin", StudioChannelRoute.channel(for: URL(string: "ws://localhost:5173/ws/chat")!,
+          in: cspec.channels ?? [], appOrigin: app)?.0.id == "chat")
+    check("channels: a full-URL channel matches wss and https alike, with parameters",
+          StudioChannelRoute.channel(for: URL(string: "https://api.example.com/events/general")!, in: cspec.channels ?? [], appOrigin: app)?.1 == ["room": "general"]
+          && StudioChannelRoute.channel(for: URL(string: "wss://abc.supabase.co/realtime/v1/websocket?vsn=1.0.0")!, in: cspec.channels ?? [], appOrigin: app)?.0.id == "realtime")
+    check("channels: another origin does not match a path channel", StudioChannelRoute.channel(for: URL(string: "wss://other.example.com/ws/chat")!,
+          in: cspec.channels ?? [], appOrigin: app) == nil)
+    check("channels: a whole placeholder keeps its JSON value, an embedded one becomes text",
+          StudioChannelTemplate.fill(json(#"{"a":"{{record}}","b":"id {{record.id}}!"}"#), ["record": json(#"{"id":7}"#)]) == json(#"{"a":{"id":7},"b":"id 7!"}"#))
+    check("channels: match by dotted field and any value", StudioChannelTemplate.matches(["payload.type": .string("*"), "event": .string("x")],
+          json(#"{"event":"x","payload":{"type":1}}"#)) && !StudioChannelTemplate.matches(["event": .string("y")], json(#"{"event":"x"}"#)))
+    if case .unknown(let contract) = open("u1", "ws://localhost:5173/other/7") {
+        check("channels: an address no channel answers is prepared by its contract", contract == "WS /other/:id", contract)
+    } else { check("channels: unknown address", false) }
+    if case .unknown(let contract) = open("u2", "https://api.example.com/stream", transport: .eventSource) {
+        check("channels: an unknown event stream keeps its origin in the contract", contract == "SSE https://api.example.com/stream", contract)
+    } else { check("channels: unknown event stream", false) }
+
+    // Raw JSON: connect message, reply, a write that the link pushes to every connection, a REST write pushed too.
+    if case .accepted(_, let welcome) = open("a", "ws://localhost:5173/ws/chat") {
+        check("raw: the connect message arrives with the open", texts(welcome) == [#"{"type":"welcome"}"#], "\(welcome)")
+    } else { check("raw: open", false) }
+    _ = open("b", "ws://localhost:5173/ws/chat")
+    check("raw: a matched message gets its reply", texts(hub.receive(id: "a", text: #"{"type":"ping"}"#)) == [#"{"type":"pong"}"#])
+    let sent = texts(hub.receive(id: "a", text: #"{"type":"send","message":{"text":"Hi","room":"general"}}"#))
+    check("raw: a message that creates a record answers with it", sent.count == 1 && json(sent[0])["message"]?["id"] == .number(2)
+          && box.sim.state["messages"]?.count == 2, "\(sent)")
+    flushChanges()
+    check("raw: the link pushes the new record to the other connection",
+          texts(pushed["b"] ?? []).contains { json($0)["type"] == .string("new") && json($0)["message"]?["text"] == .string("Hi") }, "\(pushed["b"] ?? [])")
+    let before = box.sim.state
+    _ = box.sim.handle(request("POST", "/api/messages", body: #"{"text":"From REST"}"#))
+    hub.entitiesChanged(StudioEntityChange.diff(before: before, after: box.sim.state, spec: box.sim.spec))
+    check("raw: a REST create reaches the subscriber through the link",
+          texts(pushed["b"] ?? []).contains { json($0)["message"]?["text"] == .string("From REST") })
+    check("raw: an unmatched message is logged, not answered", hub.receive(id: "a", text: "plain words").isEmpty
+          && logs.contains { $0.contains("no channel rule answers") })
+    try? await Task.sleep(nanoseconds: 200_000_000)
+    check("raw: a timed event is pushed", texts(pushed["a"] ?? []).contains(#"{"n":1,"type":"tick"}"#), "\(pushed["a"] ?? [])")
+    check("raw: an oversized message closes the connection with 1009",
+          hub.receive(id: "b", text: String(repeating: "x", count: StudioChannelHub.maxMessage + 1)) == [.close(code: 1009, reason: "The message is larger than 1000000 bytes.")]
+          && hub.connections["b"] == nil)
+    if case .accepted(_, let hello) = open("f", "wss://api.example.com/events/sales", transport: .eventSource) {
+        check("raw: an event stream sends named events with path parameters", hello == [.event(name: "hello", data: #"{"room":"sales"}"#, id: nil)], "\(hello)")
+    } else { check("raw: event stream", false) }
+
+    // Socket.IO over a WebSocket: open packet, namespace connect, greeting, acknowledgements, broadcast.
+    if case .accepted(_, let opened) = open("io1", "ws://localhost:5173/socket.io/?EIO=4&transport=websocket") {
+        let packet = texts(opened).first ?? ""
+        check("socket.io: the Engine.IO open packet stays on this transport", packet.hasPrefix("0{") && packet.contains(#""upgrades":[]"#)
+              && packet.contains(#""pingInterval":25000"#), packet)
+    } else { check("socket.io: open", false) }
+    let connected = texts(hub.receive(id: "io1", text: "40"))
+    check("socket.io: connect answers with a sid and the greeting", connected.count == 2 && connected[0].hasPrefix(#"40{"sid":"#)
+          && connected[1] == #"42["hello",{"user":"test"}]"#, "\(connected)")
+    check("socket.io: an emit with a callback gets the reply as its acknowledgement",
+          texts(hub.receive(id: "io1", text: #"421["get-rooms"]"#)) == [#"431[["general","random"]]"#])
+    check("socket.io: an unanswered callback still gets an empty acknowledgement", texts(hub.receive(id: "io1", text: #"422["nobody"]"#)) == ["432[]"])
+    check("socket.io: a ping is answered with a pong", texts(hub.receive(id: "io1", text: "2")) == ["3"])
+    _ = open("io2", "ws://localhost:5173/socket.io/?EIO=4&transport=websocket")
+    _ = hub.receive(id: "io2", text: "40")
+    _ = hub.receive(id: "io1", text: #"42["chat",{"text":"yo"}]"#)
+    check("socket.io: a broadcast reaches the other socket", texts(pushed["io2"] ?? []).contains(#"42["chat",{"text":"yo"}]"#), "\(pushed["io2"] ?? [])")
+
+    // Socket.IO over HTTP long-polling.
+    var polls: [StudioSimResponse] = []
+    func poll(_ method: String, _ query: String, body: String? = nil) -> Bool {
+        hub.poll(StudioHTTPRequest(method: method, url: URL(string: app + "/socket.io/?EIO=4&transport=polling" + query)!, body: body, requestId: UUID().uuidString),
+                 source: "page", shown: "polling", reply: { polls.append($0) })
+    }
+    check("polling: a request without EIO is not a poll", !hub.poll(request("GET", "/socket.io/"), source: "page", shown: "", reply: { _ in }))
+    _ = poll("GET", "&t=1")
+    let sid = (polls.first?.body).flatMap { StudioJSON(text: String($0.dropFirst())) }?["sid"]?.stringValue ?? ""
+    check("polling: the handshake opens a session", polls.first?.body?.hasPrefix("0{") == true && !sid.isEmpty, polls.first?.body ?? "nil")
+    _ = poll("POST", "&sid=\(sid)", body: "40")
+    check("polling: a POST of packets answers ok", polls.last?.body == "ok")
+    _ = poll("GET", "&sid=\(sid)")
+    let batch = polls.last?.body?.split(separator: "\u{1e}").map(String.init) ?? []
+    check("polling: the next GET carries the connect answer and the greeting", batch.count == 2 && batch[0].hasPrefix("40{") && batch[1].hasPrefix(#"42["hello""#),
+          polls.last?.body ?? "nil")
+    let waitingCount = polls.count
+    _ = poll("GET", "&sid=\(sid)")
+    check("polling: a GET with nothing to send waits", polls.count == waitingCount)
+    _ = poll("POST", "&sid=\(sid)", body: #"421["get-rooms"]"#)
+    check("polling: the waiting GET gets the acknowledgement", polls.contains { $0.body == #"431[["general","random"]]"# }, "\(polls.map { $0.body ?? "" })")
+    _ = poll("GET", "&sid=unknown")
+    check("polling: an unknown sid is refused", polls.last?.status == 400)
+
+    // Supabase Realtime (Phoenix): join with postgres_changes, heartbeat, a change pushed to the matching binding.
+    if case .accepted(_, let none) = open("ph1", "wss://abc.supabase.co/realtime/v1/websocket?apikey=test-key&vsn=1.0.0") {
+        check("phoenix: nothing is sent before a join", none.isEmpty)
+    } else { check("phoenix: open", false) }
+    let join = texts(hub.receive(id: "ph1", text: #"{"topic":"realtime:public:messages","event":"phx_join","payload":{"config":{"broadcast":{"self":false},"presence":{"key":""},"postgres_changes":[{"event":"INSERT","schema":"public","table":"messages"}]},"access_token":"test-token"},"ref":"1","join_ref":"1"}"#))
+    let joinReply = join.first.map(json) ?? .null
+    let binding = joinReply["payload"]?["response"]?["postgres_changes"]?.arrayValue?.first
+    check("phoenix: the join reply echoes the bindings with ids and no invented filter",
+          joinReply["event"] == .string("phx_reply") && joinReply["payload"]?["status"] == .string("ok") && joinReply["ref"] == .string("1")
+          && binding?["table"] == .string("messages") && binding?["event"] == .string("INSERT") && binding?["id"]?.numberValue != nil
+          && binding?["filter"] == nil, join.first ?? "nil")
+    check("phoenix: presence is announced on join", join.contains { json($0)["event"] == .string("presence_state") })
+    check("phoenix: a heartbeat is answered", texts(hub.receive(id: "ph1", text: #"{"topic":"phoenix","event":"heartbeat","payload":{},"ref":"2"}"#)).first.map(json)?["payload"]?["status"] == .string("ok"))
+    pushed["ph1"] = []
+    hub.entitiesChanged([StudioEntityChange(entity: "messages", kind: .create, record: json(#"{"id":9,"text":"Live"}"#), old: nil)])
+    let change = texts(pushed["ph1"] ?? []).first.map(json) ?? .null
+    check("phoenix: an insert is pushed as postgres_changes to the binding",
+          change["event"] == .string("postgres_changes") && change["payload"]?["ids"] == .array([binding?["id"] ?? .null])
+          && change["payload"]?["data"]?["type"] == .string("INSERT") && change["payload"]?["data"]?["record"]?["text"] == .string("Live")
+          && change["payload"]?["data"]?["table"] == .string("messages"), change.text)
+    pushed["ph1"] = []
+    hub.entitiesChanged([StudioEntityChange(entity: "messages", kind: .update, record: json(#"{"id":9,"text":"Edited"}"#), old: json(#"{"id":9,"text":"Live"}"#))])
+    check("phoenix: an update does not reach an INSERT binding", (pushed["ph1"] ?? []).isEmpty)
+    _ = open("ph2", "wss://abc.supabase.co/realtime/v1/websocket?vsn=2.0.0")
+    let arrayJoin = texts(hub.receive(id: "ph2", text: #"["1","1","realtime:room","phx_join",{"config":{"broadcast":{"self":true}}}]"#))
+    check("phoenix: vsn 2.0.0 answers in arrays", arrayJoin.first.map(json)?.arrayValue?[3] == .string("phx_reply"), "\(arrayJoin)")
+    let echo = texts(hub.receive(id: "ph2", text: #"[null,"2","realtime:room","broadcast",{"type":"broadcast","event":"typing","payload":{"u":1}}]"#))
+    check("phoenix: broadcast with self comes back", echo.first.map(json)?.arrayValue?[3] == .string("broadcast")
+          && echo.first.map(json)?.arrayValue?[4]["event"] == .string("typing"), "\(echo)")
+
+    // GraphQL over WebSocket (graphql-transport-ws): ack, a query answered at once, a subscription pushed by a write.
+    if case .accepted(let chosen, _) = open("g1", "ws://localhost:5173/graphql", protocols: ["graphql-transport-ws"]) {
+        check("graphql-ws: the subprotocol is chosen", chosen == "graphql-transport-ws")
+    } else { check("graphql-ws: open", false) }
+    check("graphql-ws: connection_init is acknowledged", texts(hub.receive(id: "g1", text: #"{"type":"connection_init","payload":{}}"#)) == [#"{"type":"connection_ack"}"#])
+    check("graphql-ws: a subscription waits for writes", hub.receive(id: "g1", text: #"{"id":"1","type":"subscribe","payload":{"query":"subscription { messageAdded { id text __typename } }"}}"#).isEmpty)
+    let queried = texts(hub.receive(id: "g1", text: #"{"id":"2","type":"subscribe","payload":{"query":"{ messages { text } }"}}"#))
+    check("graphql-ws: a query is answered with next and complete", queried.count == 2 && json(queried[0])["type"] == .string("next")
+          && json(queried[0])["payload"]?["data"]?["messages"]?.arrayValue?.isEmpty == false && json(queried[1])["type"] == .string("complete"), "\(queried)")
+    pushed["g1"] = []
+    hub.entitiesChanged([StudioEntityChange(entity: "messages", kind: .create, record: json(#"{"id":10,"text":"Sub"}"#), old: nil)])
+    check("graphql-ws: a create is pushed to the subscription", texts(pushed["g1"] ?? []).first.map(json) == json(#"{"id":"1","type":"next","payload":{"data":{"messageAdded":{"id":10,"text":"Sub","__typename":"Message"}}}}"#),
+          "\(pushed["g1"] ?? [])")
+    _ = hub.receive(id: "g1", text: #"{"id":"1","type":"complete"}"#)
+    pushed["g1"] = []
+    hub.entitiesChanged([StudioEntityChange(entity: "messages", kind: .create, record: json(#"{"id":11,"text":"After"}"#), old: nil)])
+    check("graphql-ws: complete ends the subscription", (pushed["g1"] ?? []).isEmpty)
+    let missing = texts(hub.receive(id: "g1", text: #"{"id":"3","type":"subscribe","payload":{"query":"subscription { nothing { id } }"}}"#))
+    check("graphql-ws: a subscription without a rule is a named error", missing.first.map(json)?["type"] == .string("error"), "\(missing)")
+
+    // Changes between states; closing.
+    let diff = StudioEntityChange.diff(before: ["messages": [json(#"{"id":1,"text":"a"}"#), json(#"{"id":2,"text":"b"}"#)]],
+                                       after: ["messages": [json(#"{"id":1,"text":"A"}"#), json(#"{"id":3,"text":"c"}"#)]], spec: cspec)
+    check("changes: update, create and delete by id", diff.map(\.kind) == [.update, .create, .delete], "\(diff.map(\.kind))")
+    pushed["a"] = []
+    hub.closeAll(source: "page", code: 1012, reason: "reset")
+    check("channels: the session closes connections with a close frame", pushed["a"]?.last == .close(code: 1012, reason: "reset") && hub.connections.isEmpty)
+    check("channels: opens and closes are logged", logs.contains { $0.contains("open · raw channel chat") } && logs.contains { $0.contains("closed 1012") })
+}
+
+func realtimeModelChecks() {
+    // Older environment files load; damaged channel parts are left out instead of failing the file.
+    let old = #"{"schemaVersion":1,"entities":[],"rules":[],"seed":{},"allowedRequests":[],"confidentialFields":[],"dependencies":[]}"#
+    let oldSpec = try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: Data(old.utf8))
+    check("REQ-015 an environment file without channels or GraphQL loads", oldSpec != nil && oldSpec?.channels == nil && oldSpec?.graphQL == nil)
+    let damaged = String(old.dropLast()) + #","channels":[{"id":"x","path":"/ws","protocol":"carrier-pigeon","onMessage":[5,{"match":{"type":"a"}}]},"oops",{"id":7}],"graphQL":[{"id":"g","field":"posts","kind":"nope"},{}]}"#
+    let damagedSpec = try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: Data(damaged.utf8))
+    let usable = (damagedSpec?.channels ?? []).filter(\.isUsable)
+    check("REQ-015 damaged channels and operations decode leniently", damagedSpec != nil && usable.count == 1 && usable.first?.wire == .raw
+          && usable.first?.onMessage.count == 1 && (damagedSpec?.graphQL ?? []).filter(\.isUsable).first?.kind == .query,
+          "\(damagedSpec.map { "\($0.channels ?? [])" } ?? "nil")")
+    var roundTrip = StudioEnvironmentSpec()
+    roundTrip.channels = [StudioChannel(id: "io", path: "/socket.io", wire: .socketio)]
+    let encoded = (try? JSONEncoder().encode(roundTrip)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    check("REQ-015 a channel's wire is saved as protocol", encoded.contains(#""protocol":"socketio""#)
+          && (try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: Data(encoded.utf8)))?.channels == roundTrip.channels)
+
+    // Validation and registration of proposals with channels and operations only.
+    var vspec = StudioEnvironmentSpec()
+    vspec.entities = [StudioEntity(name: "messages", fields: [])]
+    var proposal = StudioProposal()
+    proposal.channels = [StudioChannel(id: "chat", path: "/ws/chat", links: [StudioChannelLink(entity: "messages", message: StudioChannelMessage(data: .string("x")))])]
+    proposal.graphQL = [StudioGraphQLOperation(id: "q", kind: .query, field: "messages", action: .list, entity: "messages")]
+    check("REQ-015 a proposal with only a channel and an operation is valid", StudioValidator.problems(proposal: proposal, spec: vspec, state: [:]).isEmpty,
+          "\(StudioValidator.problems(proposal: proposal, spec: vspec, state: [:]))")
+    var vsim = StudioSimulator(spec: vspec, scenario: StudioScenario(id: "v", name: "V", kind: .populated), appOrigin: app)
+    check("REQ-015 registration adds channels and operations", vsim.register(proposal).isEmpty && vsim.spec.channels?.first?.id == "chat"
+          && vsim.spec.graphQL?.first?.id == "q")
+    check("REQ-015 the same channel and operation are not registered twice", !vsim.register(proposal).isEmpty)
+    var bad = StudioProposal()
+    bad.channels = [StudioChannel(id: "c", path: "chat", wire: .raw, events: [StudioChannelEvent(everyMs: 10)],
+                                  links: [StudioChannelLink(entity: "ghosts")])]
+    bad.graphQL = [StudioGraphQLOperation(id: "g", field: "bad-name", action: .respond)]
+    let problems = StudioValidator.problems(proposal: bad, spec: vspec, state: [:]).joined(separator: "\n")
+    check("REQ-015 bad channels and operations are named", problems.contains("must start with /") && problems.contains("entity ghosts is not defined")
+          && problems.contains("needs a message") && problems.contains("at least 250") && problems.contains("not a GraphQL name")
+          && problems.contains("needs a response"), problems)
+
+    // The preparation schema and prompts.
+    let schema = StudioRealtimePrompts.schema(StudioPrompts.preparationSchema)
+    check("REQ-015 the preparation schema requires channels and graphql", (schema["required"] as? [String] ?? []).contains("channels")
+          && (schema["required"] as? [String] ?? []).contains("graphql") && (schema["properties"] as? [String: Any])?["graphql"] != nil)
+    let structured: [String: Any] = ["unsupported": false, "reason": "", "assumptions": [], "entities": [], "records": [], "rules": [],
+                                     "channels": #"[{"id":"chat","path":"/ws","protocol":"socketio","onConnect":[{"event":"hello","data":{"a":1}}]}]"#,
+                                     "graphql": #"[{"id":"q","field":"posts","action":"list","entity":"posts"},{"bad":true}]"#]
+    let parsed = StudioRealtimePrompts.proposal(StudioPrompts.proposal(from: structured), from: structured)
+    check("REQ-015 channels and operations are read from the answer", parsed?.channels?.first?.wire == .socketio
+          && parsed?.channels?.first?.onConnect.first?.event == "hello" && parsed?.graphQL?.count == 1)
+    let withoutThem = StudioRealtimePrompts.proposal(StudioPrompts.proposal(from: ["rules": []]), from: ["rules": []])
+    check("REQ-015 an answer without channels still reads", withoutThem != nil && withoutThem?.channels == nil)
+    let system = StudioRealtimePrompts.system(StudioPrompts.preparationSystem)
+    check("REQ-015 the preparation prompt no longer refuses GraphQL and WebSockets",
+          !system.contains("cannot answer over HTTP: GraphQL") && system.contains("Supabase Realtime") && system.contains("graphql-ws"))
+    let channelPrompt = StudioRealtimePrompts.prompt("base", context: context("WS /socket"), spec: vspec)
+    check("REQ-015 a channel contract asks for a channel", channelPrompt.contains("real-time connection") && channelPrompt.hasPrefix("base"))
+
+    // The bridge's channel messages.
+    func message(_ fields: [String: Any]) -> [String: Any] {
+        fields.merging(["session": "s-1", "generation": 3, "kind": "channel"]) { first, _ in first }
+    }
+    if case .success(.channel(let open)) = StudioBridge.validate(message(["action": "open", "id": "c3-1-ab", "url": "wss://abc.supabase.co/realtime/v1/websocket",
+                                                                        "protocols": ["graphql-transport-ws"], "transport": "websocket"]),
+                                                               isMainFrame: true, origin: origin, expecting: expectation) {
+        check("bridge: a channel open is accepted", open.url?.host == "abc.supabase.co" && open.protocols == ["graphql-transport-ws"])
+    } else { check("bridge: a channel open is accepted", false) }
+    let refusedOpen = StudioBridge.validate(message(["action": "open", "id": "c1", "url": "file:///etc/passwd", "transport": "websocket"]),
+                                            isMainFrame: true, origin: origin, expecting: expectation)
+    let badCode = StudioBridge.validate(message(["action": "close", "id": "c1", "code": 1006]), isMainFrame: true, origin: origin, expecting: expectation)
+    let badProtocol = StudioBridge.validate(message(["action": "open", "id": "c1", "url": "ws://localhost:5173/x", "transport": "websocket", "protocols": ["a b"]]),
+                                            isMainFrame: true, origin: origin, expecting: expectation)
+    check("bridge: a channel to a non-web URL, a reserved close code and a bad subprotocol are refused",
+          refusedOpen == .failure(.malformed("channel url")) && badCode == .failure(.malformed("channel close code"))
+          && badProtocol == .failure(.malformed("channel protocols")), "\(refusedOpen) \(badCode) \(badProtocol)")
+    if case .success(.channel(let binary)) = StudioBridge.validate(message(["action": "send", "id": "c1", "binary": Data([1, 2, 3]).base64EncodedString()]),
+                                                                 isMainFrame: true, origin: origin, expecting: expectation) {
+        check("bridge: a binary message arrives as bytes", binary.binary == Data([1, 2, 3]))
+    } else { check("bridge: binary message", false) }
+
+    // WebSocket framing and server-sent events.
+    check("websocket: the accept key of RFC 6455", StudioWebSocketCodec.acceptKey("dGhlIHNhbXBsZSBub25jZQ==") == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+    var decoder = StudioWebSocketCodec.Decoder()
+    let hello = StudioWebSocketCodec.frame(.text, Data("Hello".utf8), masked: true)
+    let firstPart = (try? decoder.feed(hello.prefix(3))) ?? [.close(nil, "error")]
+    let secondPart = (try? decoder.feed(hello.dropFirst(3))) ?? []
+    check("websocket: a masked frame in two pieces", firstPart.isEmpty && secondPart == [.text("Hello")])
+    let fragmented = StudioWebSocketCodec.frame(.text, Data("Hel".utf8), masked: true, fin: false) + StudioWebSocketCodec.frame(.ping, Data("p".utf8), masked: true)
+        + StudioWebSocketCodec.frame(.continuation, Data("lo".utf8), masked: true)
+    check("websocket: fragments with a ping between them", (try? decoder.feed(fragmented)) == [.ping(Data("p".utf8)), .text("Hello")])
+    let long = String(repeating: "a", count: 70_000)
+    check("websocket: a 64-bit length frame", (try? decoder.feed(StudioWebSocketCodec.frame(.text, Data(long.utf8), masked: true))) == [.text(long)])
+    check("websocket: a close frame carries its code", (try? decoder.feed(StudioWebSocketCodec.frame(.close, Data([0x03, 0xE8]) + Data("bye".utf8), masked: true)))
+          == [.close(1000, "bye")])
+    var strict = StudioWebSocketCodec.Decoder()
+    do { _ = try strict.feed(StudioWebSocketCodec.frame(.text, Data("x".utf8))); check("websocket: an unmasked client frame is refused", false) } catch let failure as StudioWebSocketCodec.Decoder.Failure {
+        check("websocket: an unmasked client frame is refused", failure.code == 1002)
+    } catch { check("websocket: unmasked", false) }
+    var big = StudioWebSocketCodec.Decoder()
+    do { _ = try big.feed(StudioWebSocketCodec.frame(.binary, Data(count: StudioWebSocketCodec.maxMessage + 1), masked: true)); check("websocket: too large", false) } catch let failure as StudioWebSocketCodec.Decoder.Failure {
+        check("websocket: a frame over the limit closes with 1009", failure.code == 1009)
+    } catch { check("websocket: too large", false) }
+    check("sse: an event with lines and an id", String(decoding: StudioWebSocketCodec.event(name: "update", data: "a\nb", id: "7"), as: UTF8.self)
+          == "event: update\ndata: a\ndata: b\nid: 7\n\n")
+    check("streams: an Upgrade and an event-stream request are recognised",
+          StudioWebSocketCodec.kind(method: "GET", headers: ["upgrade": "websocket", "connection": "keep-alive, Upgrade", "sec-websocket-key": "k",
+                                                             "sec-websocket-protocol": "graphql-transport-ws, graphql-ws"])
+              == .webSocket(protocols: ["graphql-transport-ws", "graphql-ws"])
+          && StudioWebSocketCodec.kind(method: "GET", headers: ["accept": "text/event-stream"]) == .eventSource
+          && StudioWebSocketCodec.kind(method: "POST", headers: ["accept": "text/event-stream"]) == nil)
+}
+
 // MARK: - Run
 
 gatewayParserChecks()
@@ -2006,6 +2450,9 @@ Task { @MainActor in
     await logChecks()
     trackingChecks()
     await environmentMapChecks()
+    graphQLChecks()
+    await channelChecks()
+    realtimeModelChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

@@ -47,7 +47,7 @@ struct StudioSimResponse: Equatable, Codable {
         return response
     }
 
-    /// GraphQL, SDK and other dependencies outside the first release (DEC-004).
+    /// SDKs and other dependencies the simulation cannot serve (DEC-004), named in `reason`.
     static func unsupported(_ contract: String, reason: String) -> StudioSimResponse {
         var response = json(501, .object([
             "error": .string("markview_simulation_unsupported"),
@@ -65,7 +65,7 @@ enum StudioSimOutcome: Equatable {
     case respond(StudioSimResponse, rule: String)
     /// No rule matches: prepare one (or answer with a controlled error).
     case unknown(contract: String)
-    /// A dependency the first release does not simulate (GraphQL).
+    /// A dependency the simulation cannot serve (a GraphQL subscription over HTTP), named in `reason`.
     case unsupported(contract: String, reason: String)
 }
 
@@ -193,8 +193,14 @@ struct StudioSimulator {
     /// Answers `request` from the state; a write changes the state once.
     mutating func handle(_ request: StudioHTTPRequest) -> StudioSimOutcome {
         if let answer = authAnswer(request) { return answer }
-        if let reason = Self.unsupportedReason(request) {
-            return .unsupported(contract: StudioRoute.contractKey(method: request.method, url: request.url, appOrigin: appOrigin), reason: reason)
+        // GraphQL is answered by its operation rules over the same state (REQ-015); a mutation is applied once per request id.
+        if let graphQL = StudioGraphQLRequest.read(request) {
+            let mutation = (try? graphQL.get())?.operation.kind == .mutation
+            let key = mutation ? "write:" + (request.idempotencyKey ?? request.requestId) : nil
+            if let key, let recorded = journal[key] { return .respond(recorded, rule: "graphql") }
+            let outcome = handleGraphQL(graphQL, request: request)
+            if let key, case .respond(let response, _) = outcome, response.status == 200, !response.hang { journal[key] = response }
+            return outcome
         }
         guard let (rule, parameters) = rule(for: request) else {
             return .unknown(contract: StudioRoute.contractKey(method: request.method, url: request.url, appOrigin: appOrigin))
@@ -242,14 +248,22 @@ struct StudioSimulator {
         }
     }
 
-    /// GraphQL is outside the first release (overview Scope): recognised by its path or its `query` document.
-    static func unsupportedReason(_ request: StudioHTTPRequest) -> String? {
-        if request.path.lowercased().contains("graphql") { return "GraphQL requests" }
-        if request.method == "POST", let query = request.jsonBody?["query"]?.stringValue,
-           query.trimmingCharacters(in: .whitespacesAndNewlines).range(of: #"^(query|mutation|subscription|\{)"#, options: .regularExpression) != nil {
-            return "GraphQL requests"
+    /// A write that does not come through a REST rule: a GraphQL mutation or a channel message (REQ-015). The operation a
+    /// rule would run, validated and applied atomically to the state; returns the answer the rule would give.
+    mutating func perform(_ operation: StudioRule.Operation, entity: String, id: String?, fields: StudioJSON) -> StudioSimResponse {
+        let method = operation == .update ? "PATCH" : operation == .delete ? "DELETE" : "POST"
+        let rule = StudioRule(id: "perform", method: method, path: "/", operation: operation, entity: entity)
+        let request = StudioHTTPRequest(method: method, url: URL(string: "http://simulation.markview.invalid/")!, body: fields.text,
+                                        requestId: "perform")
+        var next = state
+        var retired = retiredIDs
+        let response = Self.apply(rule, parameters: id.map { ["id": $0] } ?? [:], request: request, state: &next, retired: &retired, spec: spec,
+                                  role: scenario.role)
+        if (200..<300).contains(response.status) {
+            state = next
+            retiredIDs = retired
         }
-        return nil
+        return response
     }
 
     // MARK: Operations
@@ -379,6 +393,8 @@ struct StudioSimulator {
             nextState[name, default: []] += records
         }
         nextSpec.rules += proposal.rules
+        if let channels = proposal.channels, !channels.isEmpty { nextSpec.channels = (nextSpec.channels ?? []) + channels }
+        if let operations = proposal.graphQL, !operations.isEmpty { nextSpec.graphQL = (nextSpec.graphQL ?? []) + operations }
         nextSpec.updated = Date()
         spec = nextSpec
         state = nextState
@@ -408,7 +424,11 @@ struct StudioProposal: Codable, Equatable, Sendable {
     var entities: [StudioEntity] = []
     var records: [String: [StudioJSON]] = [:]
     var rules: [StudioRule] = []
-    /// The request needs a dependency the first release does not simulate.
+    /// WebSocket, server-sent event and Socket.IO channels (REQ-015). Optional, so proposals without them still decode.
+    var channels: [StudioChannel]? = nil
+    /// GraphQL operations (REQ-015).
+    var graphQL: [StudioGraphQLOperation]? = nil
+    /// The request needs a dependency the simulation cannot serve.
     var unsupported = false
     var reason = ""
     var assumptions: [String] = []
@@ -451,7 +471,9 @@ enum StudioValidator {
     static func problems(proposal: StudioProposal, spec: StudioEnvironmentSpec, state: [String: [StudioJSON]]) -> [String] {
         if proposal.unsupported { return ["The request needs a dependency UI Studio does not simulate: \(proposal.reason)"] }
         var problems: [String] = []
-        if proposal.rules.isEmpty { problems.append("The proposal has no rule") }
+        if proposal.rules.isEmpty, (proposal.channels ?? []).isEmpty, (proposal.graphQL ?? []).isEmpty {
+            problems.append("The proposal has no rule")
+        }
         if proposal.rules.count > maxRules { problems.append("Too many rules (\(proposal.rules.count) > \(maxRules))") }
         if proposal.entities.count > maxEntities { problems.append("Too many entities (\(proposal.entities.count) > \(maxEntities))") }
         let recordCount = proposal.records.values.reduce(0) { $0 + $1.count }
@@ -507,6 +529,8 @@ enum StudioValidator {
             }
             if let status = rule.status, !(100...599).contains(status) { problems.append("\(rule.id): status \(status) is not an HTTP status") }
         }
+        problems += StudioChannelValidator.problems(channels: proposal.channels ?? [], operations: proposal.graphQL ?? [], spec: nextSpec,
+                                                    registered: spec)
         // Records are checked in dependency order against the state they will join.
         var nextState = state
         for (name, records) in proposal.records {

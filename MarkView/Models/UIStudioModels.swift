@@ -141,6 +141,11 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     /// The application role of the built-in scenarios' test user (REQ-014), when the application does not know the default
     /// `member`: the ordinary role the map found in the code. Optional, so files written before it still decode.
     var testUserRole: String? = nil
+    /// Simulated WebSocket, server-sent event and Socket.IO channels (REQ-015). Optional, so older files still decode;
+    /// a damaged channel is read leniently and ignored.
+    var channels: [StudioChannel]? = nil
+    /// Simulated GraphQL operations (REQ-015). Optional, like `channels`.
+    var graphQL: [StudioGraphQLOperation]? = nil
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
 }

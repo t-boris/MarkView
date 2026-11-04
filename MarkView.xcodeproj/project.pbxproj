@@ -29,6 +29,7 @@
 		0AFD563E4ABAF072CA960D9E /* RemoteWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52DC2D0783E00801AB365DA7 /* RemoteWorkspace.swift */; };
 		0B74AD8ABE5F52A06C27603F /* RecordingLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECB51274610487A79DBF6B0C /* RecordingLevel.swift */; };
 		0C0B58829F665EFC10A3D79B /* MANIFEST.txt in Resources */ = {isa = PBXBuildFile; fileRef = ECEFAE17263C5440B18AEDF2 /* MANIFEST.txt */; };
+		0D0DAF16A58014CC6DF7D96F /* UIStudioRealtimePrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1063B9D7CDA3A8ED21222035 /* UIStudioRealtimePrompts.swift */; };
 		0D0E7699A94DA632F228BFC7 /* GitStatusModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F51142258159DFBAE3D4E66 /* GitStatusModel.swift */; };
 		0D1620D4F638BFBE26F57280 /* IncrementalCompiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CE23AFAF75C072899E5648F /* IncrementalCompiler.swift */; };
 		0ED25ED5BCFC0275EF437229 /* UIStudioPreviewHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6291D82348E4A264695D63 /* UIStudioPreviewHost.swift */; };
@@ -158,6 +159,7 @@
 		620D68BE2FF9C442E49CCA22 /* cytoscape-elk.js in Resources */ = {isa = PBXBuildFile; fileRef = FA31302DC2D267B205E5A3F6 /* cytoscape-elk.js */; };
 		6278B1EF91F8CD761F6FD6DC /* BookPDFExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1FF1C13F696948C3553311 /* BookPDFExportView.swift */; };
 		633818C4C0B55262B8E03D5D /* AutoAnalysisScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 667F1344BF2C7E12038C9AEB /* AutoAnalysisScheduler.swift */; };
+		637D1F81F39D39142035E3B4 /* UIStudioChannels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDE3E1FD4F69D4D75576057 /* UIStudioChannels.swift */; };
 		6385489E290DE4853BB7817C /* markdown-it-task-lists.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 4033AD5C5A31B2C7D17C4334 /* markdown-it-task-lists.min.js */; };
 		63CEFB40058DD013BF985C51 /* KaTeX_Fraktur-Bold.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = F5052FB2920AFA8A801BF1A3 /* KaTeX_Fraktur-Bold.woff2 */; };
 		642DFB3CA2C30513BBD38856 /* BookPDFSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B1419B5CA931083661B6F3 /* BookPDFSource.swift */; };
@@ -167,6 +169,7 @@
 		66A2E7B7F4FDF6FD2B44C822 /* ArchitectureModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6B0748CACE05B758D369F89 /* ArchitectureModel.swift */; };
 		66A73DE1997AAA080DB84EA4 /* markview-ui-studio-node.cjs in Resources */ = {isa = PBXBuildFile; fileRef = D13854E2284DBEC355EE394C /* markview-ui-studio-node.cjs */; };
 		66B92D183453F703F252CA0D /* BookPDFTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE660973A59C47670C4496C /* BookPDFTransform.swift */; };
+		66B964022E78264490F8C8F8 /* UIStudioGraphQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */; };
 		6706B449CBD9E1E2DFCF7244 /* KaTeX_Script-Regular.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = C8129CD4E329CC3065FA3E44 /* KaTeX_Script-Regular.woff2 */; };
 		671658A7DC24F4BC565337F7 /* markview-pick-element.js in Resources */ = {isa = PBXBuildFile; fileRef = AE2D1E5946002DCAB54BA616 /* markview-pick-element.js */; };
 		680E68CB74543FD075CEDBB8 /* WhisperClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1881E85659AB8A7AD62A1F95 /* WhisperClient.swift */; };
@@ -274,6 +277,7 @@
 		B62A636C3D15F3FCDADB4309 /* AgentModelMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F1056937343F57E558663BD /* AgentModelMenu.swift */; };
 		B7604ECF4767B530E6DA96E4 /* UIStudioContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED38A3D93E96C54E2A3BCD06 /* UIStudioContext.swift */; };
 		B776ABDEC4DEBC3133A3FD1D /* KaTeX_Main-BoldItalic.woff2 in Resources */ = {isa = PBXBuildFile; fileRef = 4901BB46E719AF40B6110311 /* KaTeX_Main-BoldItalic.woff2 */; };
+		B825F0FFD08A662195ECC93B /* UIStudioGatewayStreams.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9349C52AD7BD9E3B5DDA14 /* UIStudioGatewayStreams.swift */; };
 		BA33CA169FFA17EBC8CD2BE3 /* prism-yaml.min.js in Resources */ = {isa = PBXBuildFile; fileRef = F58E38B38401EBC2C62DEA97 /* prism-yaml.min.js */; };
 		BAC0B21B067959AEAA6CA07D /* xterm.bundle.js in Resources */ = {isa = PBXBuildFile; fileRef = 66E0D277415C2D86CE21A125 /* xterm.bundle.js */; };
 		BB52026DF6F312589FA3BC0E /* GitClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF4614EF60F2106DE512B32 /* GitClient.swift */; };
@@ -409,6 +413,7 @@
 		0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRedaction.swift; sourceTree = "<group>"; };
 		0ED15DDB619C352BEA2D90F4 /* IssueSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueSync.swift; sourceTree = "<group>"; };
 		1024FF456031B1D1BC834778 /* BookBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookBuilder.swift; sourceTree = "<group>"; };
+		1063B9D7CDA3A8ED21222035 /* UIStudioRealtimePrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioRealtimePrompts.swift; sourceTree = "<group>"; };
 		1128F0C9820E78B348DCCB79 /* UIStudioLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioLog.swift; sourceTree = "<group>"; };
 		11A52E34064E19CA3B2691E2 /* DeploymentStore+Databases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DeploymentStore+Databases.swift"; sourceTree = "<group>"; };
 		11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityMonitor.swift; sourceTree = "<group>"; };
@@ -588,6 +593,7 @@
 		85A5D63235ACB47FEA0FF70C /* PanelLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLayout.swift; sourceTree = "<group>"; };
 		85C85E2BEE8759104FBAE2CE /* ProjectChangeReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectChangeReview.swift; sourceTree = "<group>"; };
 		8617D6996AEA0B711F366A7C /* CLICompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletion.swift; sourceTree = "<group>"; };
+		8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioGraphQL.swift; sourceTree = "<group>"; };
 		872961C48C130402739DD233 /* UIStudioServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioServer.swift; sourceTree = "<group>"; };
 		89AF21E7EC037DF41CC973BB /* ProjectAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectAgentTools.swift; sourceTree = "<group>"; };
 		89E15210EC0B4B920554FD0D /* FeatureVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureVocabulary.swift; sourceTree = "<group>"; };
@@ -663,6 +669,7 @@
 		BED228E05C82D2EF282BC91F /* BookPDFAssistant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookPDFAssistant.swift; sourceTree = "<group>"; };
 		BEFD6DFD2725A8E5CA0B9E6B /* UIStudioBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioBridge.swift; sourceTree = "<group>"; };
 		BF5B52ABAB4C525B14894004 /* AgentUsageLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentUsageLogs.swift; sourceTree = "<group>"; };
+		BFDE3E1FD4F69D4D75576057 /* UIStudioChannels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioChannels.swift; sourceTree = "<group>"; };
 		C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYWriter.swift; sourceTree = "<group>"; };
 		C1816FF9F2B5D0B46742FD13 /* PrototypeSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeSchemeHandler.swift; sourceTree = "<group>"; };
 		C18592F11080A421A6A1EC86 /* ListSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListSelection.swift; sourceTree = "<group>"; };
@@ -734,6 +741,7 @@
 		EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeShellStructure.swift; sourceTree = "<group>"; };
 		EC54928AB02E62BBA0C8C709 /* KaTeX_Main-Italic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Main-Italic.woff2"; sourceTree = "<group>"; };
 		EC88CD59AA9428A2869FFDC4 /* ProjectOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectOperation.swift; sourceTree = "<group>"; };
+		EC9349C52AD7BD9E3B5DDA14 /* UIStudioGatewayStreams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioGatewayStreams.swift; sourceTree = "<group>"; };
 		ECB51274610487A79DBF6B0C /* RecordingLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingLevel.swift; sourceTree = "<group>"; };
 		ECE2007A33F690F2F444E2AA /* ProjectColorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectColorViews.swift; sourceTree = "<group>"; };
 		ECEFAE17263C5440B18AEDF2 /* MANIFEST.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = MANIFEST.txt; sourceTree = "<group>"; };
@@ -992,18 +1000,22 @@
 				AE30F452BE6F56F06FCC972E /* UIStudioAuthMock.swift */,
 				BEFD6DFD2725A8E5CA0B9E6B /* UIStudioBridge.swift */,
 				B23477A08B2C57826A5F9B40 /* UIStudioChanges.swift */,
+				BFDE3E1FD4F69D4D75576057 /* UIStudioChannels.swift */,
 				3C1A7D7E3414B22FEF3836BD /* UIStudioConnections.swift */,
 				ED38A3D93E96C54E2A3BCD06 /* UIStudioContext.swift */,
 				FD36C8EC6805326FE6D91574 /* UIStudioEnvironmentMap.swift */,
 				FEE76C2ADB908748CA265A52 /* UIStudioEnvironmentMapper.swift */,
 				83829D1752CE48AE3223142A /* UIStudioEvidence.swift */,
 				D3441FC520D23442EBB84DD6 /* UIStudioGateway.swift */,
+				EC9349C52AD7BD9E3B5DDA14 /* UIStudioGatewayStreams.swift */,
+				8713CD727E78F36BD7A6CBBF /* UIStudioGraphQL.swift */,
 				48C8A2BC6E7E6F820F6B3C5C /* UIStudioJSON.swift */,
 				1128F0C9820E78B348DCCB79 /* UIStudioLog.swift */,
 				5AA953CE3F790CC504854A3A /* UIStudioModels.swift */,
 				4AC7C67BC8175D511DE0C11A /* UIStudioPolicy.swift */,
 				4DAE64D3DEB0D0DFB0ABB6A2 /* UIStudioPreparation.swift */,
 				8A691B8C8A96CED660607A98 /* UIStudioPrompts.swift */,
+				1063B9D7CDA3A8ED21222035 /* UIStudioRealtimePrompts.swift */,
 				0D54B115714DE50CAF6CDA0F /* UIStudioRedaction.swift */,
 				437E30B3E5F2185484ADA2D6 /* UIStudioSelection.swift */,
 				872961C48C130402739DD233 /* UIStudioServer.swift */,
@@ -1694,12 +1706,15 @@
 				99C90D6D88A9F9AE4D8AF123 /* UIStudioAuthMock.swift in Sources */,
 				5A2CFFAE2DD498F851B8B3FE /* UIStudioBridge.swift in Sources */,
 				6C195EFE891969CC8CE2E72F /* UIStudioChanges.swift in Sources */,
+				637D1F81F39D39142035E3B4 /* UIStudioChannels.swift in Sources */,
 				9C3121F4B7629B8EBE5DE49D /* UIStudioConnections.swift in Sources */,
 				B7604ECF4767B530E6DA96E4 /* UIStudioContext.swift in Sources */,
 				B442742D59A52CE38F5FC022 /* UIStudioEnvironmentMap.swift in Sources */,
 				21FF5F26DEDCF7BA72BC7314 /* UIStudioEnvironmentMapper.swift in Sources */,
 				AD1A9D000AE91E8675089859 /* UIStudioEvidence.swift in Sources */,
 				D664BF3E1626441B84C4E70D /* UIStudioGateway.swift in Sources */,
+				B825F0FFD08A662195ECC93B /* UIStudioGatewayStreams.swift in Sources */,
+				66B964022E78264490F8C8F8 /* UIStudioGraphQL.swift in Sources */,
 				25EC754A3C32A775C4F13F39 /* UIStudioJSON.swift in Sources */,
 				51EF23EFF18B23D265B0671C /* UIStudioLog.swift in Sources */,
 				900ECE863153B574438A6AF1 /* UIStudioModels.swift in Sources */,
@@ -1707,6 +1722,7 @@
 				602AB6890DB7E2A7F5F041FD /* UIStudioPreparation.swift in Sources */,
 				0ED25ED5BCFC0275EF437229 /* UIStudioPreviewHost.swift in Sources */,
 				7CCA2D80C0C226010DFFE03C /* UIStudioPrompts.swift in Sources */,
+				0D0DAF16A58014CC6DF7D96F /* UIStudioRealtimePrompts.swift in Sources */,
 				FD1C0F289E9ACBBE25E0BE8A /* UIStudioRedaction.swift in Sources */,
 				8FE54D4E55AA567CEA794978 /* UIStudioSelection.swift in Sources */,
 				68978C2FAA308134A818B87D /* UIStudioServer.swift in Sources */,

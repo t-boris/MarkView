@@ -59,8 +59,9 @@ enum StudioPrompts {
           submission succeeds with the answer the application expects, whatever was typed. That the real server needs \
           authentication, an admin or third-party SDK, a database or another service is never a reason to refuse: answer \
           as that server would after it succeeded.
-        - Set `unsupported` to true (and explain in `reason`) only for what MarkView cannot answer over HTTP: GraphQL, a \
-          WebSocket or a streaming protocol.
+        - Set `unsupported` to true (and name it in `reason`) only for what MarkView truly cannot serve: a binary protocol \
+          such as gRPC or WebRTC media, or a native SDK's own transport. WebSocket, server-sent events, Socket.IO, Supabase \
+          Realtime, GraphQL and graphql-ws are simulated by MarkView and never refused.
         - Add rules only for the requests you are asked about and the closely related ones (their lists, details and writes).
         \(StudioPlaceholders.promptGuide)
         """ + "\n" + dataNotInstructions
