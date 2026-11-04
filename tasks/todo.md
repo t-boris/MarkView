@@ -3958,3 +3958,37 @@ Plan (asked by Boris, 2026-11-03: "explain where the Russian comes from, and fix
   was made after the fix (the code path is a one-line precedence rule and the prompt already produced English in four headless runs).
 - Observation, not fixed here: `tools/tests/prototype-runtime-tests.sh` keeps its WKWebView data in `~/Library/WebKit/prototype-runtime-tests`, so
   a second local run fails 2 checks (role switch) until that folder is deleted; CI starts clean and is unaffected.
+
+
+## BUG-063 and BUG-064 — a Tailwind prototype has no styles; the preview check reports screens that work (one release, 5.13.2)
+
+Reported by Boris (2026-11-03): the vivaa client-web-app prototype is "terrible" again (raw HTML). Decisions of Boris the same day: embed the
+Tailwind v4 browser build (a new vendored file, offline, no CDN), and ship both bugs in one release.
+
+Findings (checked outside MarkView in headless Chrome on copies; Boris's prototype folders were not changed):
+- BUG-063: the source stylesheet is Tailwind v4 (`@import "tailwindcss"`, `@theme`, `@utility`); a browser ignores it, so 377 utility classes
+  have no rule. The same site with `@tailwindcss/browser` and the stylesheet in a `text/tailwindcss` style looks like the real app.
+- BUG-064: (a) the audit counts text that most routes show as the shell, and a sign-in gate ("Studio", "Sign in") repeats the navigation labels,
+  so it is reported as "renders nothing"; (b) the loader check of 5.13.1 flags 7 of 40 screens of this prototype, `gallery.js` among them, which
+  works: it reads a retry handler as a call made while the loader is on screen and ignores what the callback returns. The real defect (trade.js)
+  clears the host synchronously and then moves the host's children into the element it returns.
+
+Plan:
+- [x] 1. BUG-064 audit: text counts as shell only when it appears outside the chrome elements on most routes (the header labels no longer make a
+  screen's own heading "shell"); a header, nav, aside or footer inside <main> is the screen's content (a widget whose root is an <aside>). Fixture screen for a sign-in gate in `Tests/Fixtures/prototype-audit`; `prototype-audit-check.sh` expects it fine.
+- [x] 2. BUG-064 loader check: only code that runs before the callback returns counts (function literals inside the callback are not called
+  there); a defect needs the host cleared and its children or the host itself taken into the returned element. Tests for gallery/orders-style
+  shapes (no flag) and trade.js (flag); run over the three real corpora (strikedesk 30, vivaa old 12, vivaa client-web-app 40): only trade.js.
+- [ ] 3. BUG-063 vendor: `@tailwindcss/browser` 4.3.3 (published 2026-07-16; 4.3.4 is a day old) pinned in `tools/web-vendor`, copied by
+  `build.sh` to `vendor/js/tailwind-browser.js`, a row in `vendor/MANIFEST.txt` (sha256, source, advisory check).
+- [ ] 4. BUG-063 `PrototypeTailwind` (pure Foundation, like `PrototypeShellStructure`): finds the Tailwind entry among `site/original/` stylesheets,
+  writes `markview/tailwind-source.js` (the entry without `@source`, `@plugin`, `@config` and local `@import`, as a style of type
+  `text/tailwindcss`) and `markview/tailwind.js`, and links both from `index.html` and every `components/*.html`. `authored` strips the lines, so
+  the sync baseline does not read them as an edit. Idempotent; nothing for a site without a Tailwind entry.
+- [ ] 5. Wiring: `accept()` ensures it for every version (build, sync, revision, restore); opening an existing prototype from code that lacks it saves
+  a version of its own with no assistant run (as BUG-060 did for the page structure).
+- [ ] 6. Tests: `prototype-tailwind-tests.sh` (logic, idempotence, components, baseline fingerprint unchanged) and a WKWebView check through the
+  prototype scheme handler (utility classes get rules); the existing suites; a Debug build.
+- [ ] 7. On a scratchpad copy of the vivaa prototype: apply, render in headless Chrome and WKWebView, run the audit (Studio and Orders not blank);
+  on a copy of strikedesk the audit still reports trade as blank.
+- [ ] 8. Version 5.13.2, PR, checks, merge, signed DMG, both bugs to fixed (with Cause, Resolution, Verification), worktree removed.

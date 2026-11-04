@@ -39,10 +39,10 @@ found = {p["id"]: p["kind"] for p in report["problems"]}
 expected = {"settings": "unbuilt", "trade": "blank", "risky": "error", "stuck": "loading", "ghost": "unbuilt", "chain": "clipped"}
 if found != expected:
     sys.exit("FAIL: expected %s, got %s" % (expected, found))
-if report["checked"] != 12 or report["skipped"] != 2:
-    sys.exit("FAIL: checked %s skipped %s (want 12 and 2: routes with parameters and modals are skipped)" % (report["checked"], report["skipped"]))
+if report["checked"] != 14 or report["skipped"] != 2:
+    sys.exit("FAIL: checked %s skipped %s (want 14 and 2: routes with parameters and modals are skipped)" % (report["checked"], report["skipped"]))
 chain = [p for p in report["problems"] if p["id"] == "chain"][0]
 if "chain-body" not in chain["detail"] or "0px" not in chain["detail"]:
     sys.exit("FAIL: the clipped finding must name the collapsed box and its height, got %r" % chain["detail"])
-print("Prototype audit script: blank, placeholder, error-card, stuck-loading and clipped screens are reported (the clipped one names the collapsed box); the six real screens (a scrolling table and folded panels among them), the parameter route and the modal are not.")
+print("Prototype audit script: blank, placeholder, error-card, stuck-loading and clipped screens are reported (the clipped one names the collapsed box); the eight real screens (a scrolling table, folded panels, a sign-in gate that repeats navigation labels and an aside widget among them), the parameter route and the modal are not.")
 PY
