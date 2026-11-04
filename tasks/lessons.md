@@ -1009,3 +1009,14 @@ the answer, with the saved default unchanged because the value was the one alrea
   A defect that has two halves (clear the host, then return it or its children) is found only by reading both halves, and only in code that runs before the
   callback returns. Tested on 12 screens it looked clean; the 40-screen prototype of the next report broke it.
 - Run a new check over every real unit available (all prototypes on disk) before shipping it, and say which corpus it was checked on.
+
+## A model file that gains a dependency breaks every standalone test that compiles it
+- Bug validity check (5.14.0): `BugReport.load` in `FeatureModels.swift` started to read `BugValidity.sectionName`, and `tools/tests/feature-discovery-tests.sh`,
+  which compiles `FeatureModels.swift` on its own with a fixed file list, stopped compiling. The app build was green, so only running the neighbouring suites
+  found it.
+- After adding a type to a model file, `grep -l <file> tools/tests/*.sh` and run each suite that compiles it, not only the new test.
+
+## Check a prompt against the real assistant, not only against fakes
+- The validity check was tested with fake answers (evidence rules, order of steps) and then once with the real `claude` CLI on an export of main: two fixed bugs were
+  closed with evidence that exists, an open one stayed open, and a report about a feature that does not exist came back inconclusive ("not found" is not proof).
+  A throwaway harness that compiles the model file with a small `main.swift` is enough; keep it in the scratchpad, not in the repository.

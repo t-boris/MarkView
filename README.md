@@ -326,7 +326,13 @@ plain Markdown.
 
 **Bugs** get the same care: *New Bug* writes a structured report (and optionally a GitHub
 issue), *Investigate* asks up to three focused questions, and the **bug basket** fixes two or more bugs
-with AI — one branch, one commit per bug.
+with AI — one branch, one commit per bug. Before every analysis of an existing report — *Investigate*,
+an answer, a discussion message — MarkView checks whether the bug still exists on the project's `main`
+branch (a read-only look at one commit, never your working tree or other branches). A problem that is
+already fixed there is closed automatically, with the commit, the evidence and the reason kept in the
+report's *Validity check* section; not being able to reproduce a bug is never enough. The closure is
+local: GitHub changes only when you run **Sync**. An inconclusive check keeps the status and goes on
+with the analysis.
 
 **Understand and research.** *I Need to Understand* (the ⚡ box in X-Ray, or **+ → I Need to
 Understand…**) answers a question about the project with **What, Why, How and Origin** and clickable
