@@ -459,6 +459,8 @@ func run() async {
     let json = StudioConnectionPolicy.ruleListJSON(appOrigin: harness.origin, allowed: allowed)
     let list = await StudioConnectionPolicy.compile(identifier: "markview-ui-studio-harness", json: json)
     check("the connection policy compiles as a content rule list", list != nil, json)
+    check("DEC-011 pictures of any address pass; documents, scripts and data of other origins stay blocked",
+          json.contains(#""resource-type":["image"]"#) && json.components(separatedBy: "resource-type").count == 2, json)
     if let list {
         harness.webView.configuration.userContentController.add(list)
         harness.webView.configuration.userContentController.removeAllUserScripts()

@@ -62,6 +62,10 @@ enum StudioPrompts {
           point at records that exist, and every value the page groups or filters by (each category, city, status or tab it \
           shows) gets 2-4 records, so no carousel, tab or list is empty unless the scenario asks for empty. A list has \
           6-12 records in all.
+        - A field the code compares with fixed values (a status, kind, role, type or step) takes only those values (BUG-080). \
+          Read them from the code: the TypeScript union or enum, a zod or JSON schema, the `switch` or lookup that handles \
+          them, and the translation keys built from them (`t(`list.next.${status}`)` needs a key for every value). List them \
+          in `enumValues`, and spread the seed over them. A value the code does not know crashes the page.
         - `filters` name fields of the entity's records only. Paging and sorting parameters (limit, offset, page, per_page, \
           cursor, sort, order) are not filters: MarkView pages lists itself.
         - UI Studio is a mock-up (DEC-007): nothing is checked for real. A write, a sign-in, a consent, a payment or a form \

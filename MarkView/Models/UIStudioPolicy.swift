@@ -2,9 +2,10 @@ import Foundation
 import WebKit
 
 /// The application connection policy of a session (REQ-006, §11): the page reaches its own development server, local
-/// `data:`/`blob:` resources and the addresses the person allowed explicitly — nothing else. It is enforced by a content
-/// rule list in WebKit for every load (documents, scripts, styles, images, fonts, sockets) and, for fetch and XHR, again by
-/// the session before a request may pass. The model's connections are a separate policy (`StudioModelPolicy`).
+/// `data:`/`blob:` resources, pictures from any address (DEC-011) and the addresses the person allowed explicitly —
+/// nothing else. It is enforced by a content rule list in WebKit for every load (documents, scripts, styles, fonts,
+/// sockets) and, for fetch and XHR, again by the session before a request may pass. The model's connections are a
+/// separate policy (`StudioModelPolicy`).
 enum StudioConnectionPolicy {
     /// The rule list as WebKit's content blocker JSON: block everything, then let the allowed addresses through.
     static func ruleListJSON(appOrigin: StudioBridge.Origin, allowed: [String]) -> String {
@@ -13,6 +14,9 @@ enum StudioConnectionPolicy {
             rules.append(["trigger": ["url-filter": filter], "action": ["type": "ignore-previous-rules"]])
         }
         for scheme in ["data", "blob", "about"] { allow("^\(scheme):") }
+        // DEC-011: pictures load from their address, so simulated records show the photos the assistant chose (an <img>,
+        // a CSS background, a preloaded image). Only the picture's address leaves the Mac; data requests stay simulated.
+        rules.append(["trigger": ["url-filter": "^https?://", "resource-type": ["image"]], "action": ["type": "ignore-previous-rules"]])
         let loopback: Set<String> = ["localhost", "127.0.0.1"]
         let hosts = loopback.contains(appOrigin.host) ? ["localhost", "127\\.0\\.0\\.1"] : [escape(appOrigin.host)]
         for host in hosts {
