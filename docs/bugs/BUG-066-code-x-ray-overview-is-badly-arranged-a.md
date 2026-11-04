@@ -2,7 +2,7 @@
 type: bug
 id: BUG-066
 title: "Code X-Ray overview is badly arranged: a cross-cutting column runs through External and bands collapse to empty bars"
-status: fixing
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-04

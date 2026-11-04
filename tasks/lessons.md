@@ -1,5 +1,30 @@
 # Lessons
 
+## A layout bug is reproduced on the person's own data, measured, then fixed at the data and the layout (BUG-066, 2026-11-04)
+
+The Code X-Ray overview of vivaa-platform had a column running through External and empty bands. The layout code alone
+explained only half of it: the other half was the data (files the code model did not own were hung from the root, one part
+each, so 317 migrations closed the Data band). Both causes showed only on the real snapshot.
+- Rule: extract the stored snapshot (`.dde/state.db` → JSON with `python3 -I`), run the shipping `CodeArchitecture.view`
+  with the harness's compile set, render with the shipping editor in WKWebView (`CodeArchitectureWebTests.swift` pattern),
+  and print bounding boxes. Count parts per layer before deciding what is "layout".
+- Rule: a model path and a draft path that build the same view must agree on structure (folders kept in both).
+- Rule: a placement routine that returns a size must have that size used by whatever sits below it; a fixed cell width is
+  never a grid rule for a container whose width is fixed.
+- Rule: run a harness on `main` before trusting a failure of it: `"nodes":4` had been failing since the layered overview.
+
+## A dev overlay is not a build failure until its label says so (BUG-067, 2026-11-04)
+
+UI Studio called a working Next.js page a failed build: Next 16 shows console, runtime and recoverable errors in the same
+`[data-nextjs-dialog]` as a build error and names the kind only in `#nextjs__container_errors_label`. A second path did the
+same from the dev-server log (`\berror\b[: ]` matched a handled `console.error`). The banner then never cleared.
+- Rule: classify framework signals by the framework's own label, verified in the project's installed version
+  (`node_modules/next/dist/compiled/next-devtools`), never by the presence of a container element.
+- Rule: a log scan that decides "the build failed" matches compile and bundle failures only, and is a pure function checked
+  against real lines of an application that built (the person's own log line first).
+- Rule: a state the page sets must have a way back: report the overlay going away, watch where it really lives (a shadow
+  root), and do not deduplicate a signal that can repeat.
+
 ## A repair path must not be allowed to decline silently (BUG-062, 2026-11-03)
 
 The preview check found five problems in the strikedesk prototype and the fix round "fixed" none of them. The fix round used the revision
