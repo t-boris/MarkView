@@ -5,6 +5,24 @@
 import AppKit
 import WebKit
 
+// CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
+setvbuf(stdout, nil, _IONBF, 0)
+final class Watchdog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var step = "start"
+    init(seconds: Double) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [self] in
+            print("TIMEOUT: no result after \(Int(seconds)) s; last step: \(lock.withLock { step })")
+            exit(1)
+        }
+    }
+    func reached(_ name: String) {
+        lock.withLock { step = name }
+        print("--  \(name)")
+    }
+}
+let watchdog = Watchdog(seconds: 240)
+
 var failures = 0
 func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
     if condition {
@@ -171,11 +189,13 @@ func run() async {
         print("usage: ui-studio-web-harness <markview-ui-studio.js>")
         exit(2)
     }
+    watchdog.reached("Open a window and load the page")
     let harness = Harness(source: source)
     await harness.load(page)
     await harness.settle()
 
     // Requests: fetch and XHR are answered by the simulator through the validated bridge (REQ-002, REQ-006).
+    watchdog.reached("Requests")
     let items = await harness.js("const list = await window.loadedItems; return list.map(i => i.name).join(',');") as? String
     check("fetch is answered by the simulation", items == "Alpha,Beta", items ?? "nil")
     let xhr = await harness.js("""
@@ -189,6 +209,7 @@ func run() async {
     check("no message was rejected", harness.rejected.isEmpty, harness.rejected.joined(separator: "; "))
 
     // Reproducible conditions: seeded random numbers, the scenario's clock and locale.
+    watchdog.reached("Reproducible conditions")
     let first = await harness.js("return [Math.random(), Math.random()].join(',');") as? String
     let now = await harness.js("return Date.now() >= 1767225600000 && Date.now() < 1767225600000 + 60000;") as? Bool
     let locale = await harness.js("return navigator.language + ' ' + new Intl.DateTimeFormat().resolvedOptions().timeZone;") as? String
@@ -200,19 +221,22 @@ func run() async {
     check("random numbers repeat for the same seed", first != nil && first == second, "\(first ?? "nil") vs \(second ?? "nil")")
 
     // Zoom keeps the application's viewport (PRE-03).
+    watchdog.reached("Zoom keeps the application's viewport")
     let size = await harness.js("return innerWidth + 'x' + innerHeight;") as? String
     check("the page keeps its 800x600 viewport at 50 % zoom", size == "800x600", size ?? "nil")
     let shown = harness.webView.convert(harness.webView.bounds, to: nil).size
     check("the preview is drawn at half size", abs(shown.width - 400) < 1 && abs(shown.height - 300) < 1, "\(shown)")
 
     // Interact mode: a click reaches the element and runs its action.
+    watchdog.reached("Interact mode")
     harness.click(cssX: 200, y: 125)
     await harness.settle()
     let bought = await harness.js("return window.bought || 0;") as? NSNumber
     check("a click in interact mode runs the element's action at 50 % zoom", bought?.intValue == 1, "\(bought ?? -1)")
 
     // Select mode: the click selects and does not run the action (PRE-01, PRE-02).
-    let picking = Task { @MainActor in await harness.js("return await window.__markviewStudio.pick();") }
+    watchdog.reached("Select mode")
+    let picking = Task { @MainActor in await harness.js("return await Promise.race([window.__markviewStudio.pick(), new Promise(r => setTimeout(() => r(null), 8000))]);") }
     await harness.settle(0.3)
     harness.move(cssX: 200, y: 125)
     harness.click(cssX: 200, y: 125)
@@ -235,7 +259,8 @@ func run() async {
           "\(picked?["boundary"] ?? "nil")")
 
     // A canvas has nothing inside it to select: the boundary is disclosed (PRE-07).
-    let pickingCanvas = Task { @MainActor in await harness.js("return await window.__markviewStudio.pick();") }
+    watchdog.reached("A canvas has nothing inside it to select")
+    let pickingCanvas = Task { @MainActor in await harness.js("return await Promise.race([window.__markviewStudio.pick(), new Promise(r => setTimeout(() => r(null), 8000))]);") }
     await harness.settle(0.3)
     harness.move(cssX: 450, y: 125)
     harness.click(cssX: 450, y: 125)
@@ -244,9 +269,10 @@ func run() async {
           "\(canvas?["tag"] ?? "nil") \(canvas?["boundary"] ?? "nil")")
 
     // Scrolled page, still at 50 % zoom: the element under the pointer is selected and its geometry follows the scroll (PRE-02).
+    watchdog.reached("Scrolled page, still at 50 % zoom")
     _ = await harness.js("window.scrollTo(0, 700); return scrollY;")
     await harness.settle(0.3)
-    let pickingFar = Task { @MainActor in await harness.js("return await window.__markviewStudio.pick();") }
+    let pickingFar = Task { @MainActor in await harness.js("return await Promise.race([window.__markviewStudio.pick(), new Promise(r => setTimeout(() => r(null), 8000))]);") }
     await harness.settle(0.3)
     harness.move(cssX: 200, y: 225)
     harness.click(cssX: 200, y: 225)
@@ -263,6 +289,7 @@ func run() async {
     _ = await harness.js("window.scrollTo(0, 0); return window.__markviewStudio.setSelecting(false);")
 
     // Restoration steps replay (SCN-02).
+    watchdog.reached("Restoration steps replay")
     let replay = await harness.js("return await window.__markviewStudio.replay(steps);",
                                   ["steps": [["action": "type", "selector": "[data-testid=\"name\"]", "text": "Delta"],
                                              ["action": "click", "selector": "[data-testid=\"buy\"]"]]]) as? [String: Any]
@@ -270,12 +297,14 @@ func run() async {
     check("restoration steps replay", replay?["ok"] as? Bool == true && typed == "Delta 2", "\(replay ?? [:]) \(typed ?? "nil")")
 
     // A build error overlay of the dev server is reported (EDIT-08).
+    watchdog.reached("A build error overlay of the dev server is reported")
     _ = await harness.js("document.body.appendChild(document.createElement('vite-error-overlay')).textContent = 'Failed to compile App.tsx'; return true;")
     await harness.settle(1.5)
     check("the dev server's build error overlay is reported", harness.events.contains { $0.kind == .buildError },
           harness.events.map(\.kind.rawValue).joined(separator: ","))
 
     // Messages of an earlier generation are rejected after Reset (SIM-10).
+    watchdog.reached("Messages of an earlier generation are rejected after Reset")
     harness.simulator.reset()
     _ = await harness.js("try { await fetch('/api/items'); } catch (e) {} return true;")
     await harness.settle()
@@ -284,6 +313,7 @@ func run() async {
 
     // The application connection policy as a WebKit content rule list (REQ-006): it compiles, blocks other origins before
     // any network access and lets the development server and explicitly allowed addresses through.
+    watchdog.reached("The application connection policy as a WebKit content rule list")
     let allowed = ["https://fonts.googleapis.com/*", "https://*.example.net/*"]
     let json = StudioConnectionPolicy.ruleListJSON(appOrigin: harness.origin, allowed: allowed)
     let list = await StudioConnectionPolicy.compile(identifier: "markview-ui-studio-harness", json: json)

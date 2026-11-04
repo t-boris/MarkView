@@ -7,6 +7,24 @@
 import AppKit
 import WebKit
 
+// CI runners give no clue when a windowed WebKit test hangs: print every line at once and stop with the last step reached.
+setvbuf(stdout, nil, _IONBF, 0)
+final class Watchdog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var step = "start"
+    init(seconds: Double) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [self] in
+            print("TIMEOUT: no result after \(Int(seconds)) s; last step: \(lock.withLock { step })")
+            exit(1)
+        }
+    }
+    func reached(_ name: String) {
+        lock.withLock { step = name }
+        print("--  \(name)")
+    }
+}
+let watchdog = Watchdog(seconds: 480)
+
 var failures = 0
 func check(_ name: String, _ condition: Bool, _ detail: @autoclosure () -> String = "") {
     if condition {
@@ -166,6 +184,7 @@ func run() async {
     }
 
     // Launch: the session starts the server it needs and reaches Ready (REQ-001).
+    watchdog.reached("Launch")
     session.start(target)
     let ready = await waitUntil(90) { session.state == .ready || session.state == .failed }
     check("AC-01 the session starts the development server and becomes ready", ready && session.state == .ready,
@@ -179,6 +198,7 @@ func run() async {
     check("AC-16 the page's own files load from the development server", styled == "rgb(51, 51, 51)", styled ?? "nil")
 
     // Shared state across requests, and Reset back to the baseline (AC-03, AC-04).
+    watchdog.reached("Shared state across requests, and Reset back to the baseline")
     await clickElement("#add")
     _ = await waitUntil(5) { session.requests.contains { $0.contract == "POST /api/items" } }
     try? await Task.sleep(nanoseconds: 500_000_000)
@@ -190,6 +210,7 @@ func run() async {
     check("AC-04 Reset restores the scenario's baseline", afterReset == "2", afterReset ?? "nil")
 
     // Select mode finds the element's source without running its action (AC-08, AC-09).
+    watchdog.reached("Select mode finds the element's source without running its action")
     let postsBefore = session.requests.filter { $0.contract == "POST /api/items" }.count
     session.setMode(.select)
     try? await Task.sleep(nanoseconds: 600_000_000)
@@ -205,6 +226,7 @@ func run() async {
     session.setMode(.interact)
 
     // A question changes nothing (AC-11).
+    watchdog.reached("A question changes nothing")
     session.ask("What does this button do?")
     _ = await idle()
     let question = session.history.last
@@ -217,6 +239,7 @@ func run() async {
           && questionRequest?.jsonSchema == nil, "\(questionRequest?.readableFolder?.path ?? "nil") \(questionRequest?.allowWeb ?? true)")
 
     // A change is applied, the app reloads, the scenario is restored and verified (AC-12, AC-13).
+    watchdog.reached("A change is applied, the app reloads, the scenario is restored and verified")
     assistant.lock.withLock { assistant.edits = [edit("title", "<h1 class=\"title\">Items</h1>", "<h1 class=\"title\">All items</h1>")] }
     session.change("Rename the heading to All items")
     _ = await idle()
@@ -232,6 +255,7 @@ func run() async {
     check("AC-19 before and after captures are linked to the change", first.beforeCapture != nil && first.afterCapture != nil)
 
     // An independent later edit stays when the change is undone (AC-14).
+    watchdog.reached("An independent later edit stays when the change is undone")
     try? file().replacingOccurrences(of: "Add item</button>", with: "Add one item</button>").write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
     session.undo(first.id)
     _ = await idle()
@@ -240,6 +264,7 @@ func run() async {
     check("AC-14 the undone change is marked", session.history.first { $0.id == first.id }?.status == .undone)
 
     // An overlapping later edit is a conflict: nothing is written (AC-14).
+    watchdog.reached("An overlapping later edit is a conflict")
     assistant.lock.withLock { assistant.edits = [edit("intro", "Everything the team is working on.", "What the team does.")] }
     session.change("Shorten the intro")
     _ = await idle()
@@ -256,6 +281,7 @@ func run() async {
     }
 
     // An edit the assistant gets wrong is retried once with the problem, then applied (EDIT-03).
+    watchdog.reached("An edit the assistant gets wrong is retried once with the problem, then applied")
     assistant.lock.withLock {
         assistant.edits = [edit("missing", "<p>Five</p>", "<p>5</p>"), edit("fixed", "<p>Four</p>", "<p>4</p>")]
     }
@@ -268,6 +294,7 @@ func run() async {
     check("EDIT-03 the retry tells the assistant what failed", retryPrompt.contains("<p>Five</p>") || retryPrompt.lowercased().contains("not found"))
 
     // A materially ambiguous request is clarified before anything is edited (REQ-004, EDIT-02).
+    watchdog.reached("A materially ambiguous request is clarified before anything is edited")
     assistant.lock.withLock {
         assistant.edits = [["scope": "shared", "scopeNote": "The paragraphs share one style.", "needsClarification": true,
                             "question": "Only this paragraph, or every paragraph of the section?",
@@ -291,6 +318,7 @@ func run() async {
     }
 
     // A change that breaks the build: the failure is visible and the previous preview is stale (AC-15).
+    watchdog.reached("A change that breaks the build")
     assistant.lock.withLock {
         assistant.edits = [edit("broken", "<ul id=\"list\"></ul>", "<ul id=\"list\"></ul><vite-error-overlay>Failed to compile app.js</vite-error-overlay>")]
     }
@@ -308,6 +336,7 @@ func run() async {
     }
 
     // An unknown request is prepared once, validated, registered and then served without the model (AC-05, AC-06).
+    watchdog.reached("An unknown request is prepared once, validated, registered and then served without the model")
     assistant.lock.withLock {
         assistant.proposal = ["rules": [["id": "stats", "method": "GET", "path": "/api/stats", "operation": "respond",
                                          "responseStatus": 200, "responseBody": #"{"open":2}"#,
@@ -332,6 +361,7 @@ func run() async {
     check("AC-07 an invalid proposal changes nothing", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "bad" } != true)
 
     // The page cannot leave the application (AC-16).
+    watchdog.reached("The page cannot leave the application")
     _ = try? await session.call("location.href = 'https://example.org/elsewhere'; return true;")
     _ = await waitUntil(5) { session.events.contains { $0.kind == .blocked && $0.detail.contains("example.org") } }
     let stillHere = await text("return location.origin;")
@@ -340,6 +370,7 @@ func run() async {
           stillHere ?? "nil")
 
     // Captures and their comparison (AC-19, AC-20).
+    watchdog.reached("Captures and their comparison")
     let before = session.history.first { $0.beforeCapture != nil && $0.afterCapture != nil }
     if let before, let a = before.beforeCapture, let b = before.afterCapture {
         session.compare(a, b)
@@ -356,6 +387,7 @@ func run() async {
     }
 
     // Feature export and revalidation (AC-21, AC-22).
+    watchdog.reached("Feature export and revalidation")
     let exportable = session.exportableOperations.map(\.id)
     session.exportFeature(title: "Digits in the list", summary: "Paragraph numbers as digits.", operations: exportable)
     _ = await idle()

@@ -23,7 +23,9 @@ jobs:
         run: bash tools/tests/ui-studio-tests.sh
       - name: Run the page runtime in WebKit (requests, clock, selection, zoom, replay, connection policy)
         run: bash tools/tests/ui-studio-web-tests.sh
+        timeout-minutes: 8
       - name: Run a session against a real development server
         run: bash tools/tests/ui-studio-session-tests.sh
+        timeout-minutes: 12
       - name: Build application
         run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewUIStudioCI CODE_SIGNING_ALLOWED=NO build
