@@ -2,7 +2,7 @@
 type: feature
 id: bug-validity-check-before-analysis
 title: Bug Validity Check Before Analysis
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-02
 provenance: Created from the feature intake
