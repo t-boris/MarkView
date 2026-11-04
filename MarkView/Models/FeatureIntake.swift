@@ -338,8 +338,6 @@ extension FeatureAssistant {
 
     /// Answered or skipped questions after which a bug asks nothing more.
     static let bugQuestionLimit = 8
-    /// Sections the investigation keeps as they are; everything else is rewritten by the AI.
-    private static let keptBugSections = ["Attachments", "Clarifications", "Discussion", "Original description"]
 
     /// Copy follow-up files beside the report before the AI sees them. The report links are
     /// durable; clipboard cache files and the original file locations need not survive.
@@ -385,30 +383,41 @@ extension FeatureAssistant {
         store.updateBug(url) { front, body in
             if let ready { front.set("ready_to_fix", ready ? "true" : nil) }
             var sections = Self.bugSections(body)
-            let entry = "### \(speaker) · \(FeatureStore.today)\n\n\(message)"
-            if let index = sections.firstIndex(where: { $0.heading == "Discussion" }) {
-                sections[index].text += "\n\n" + entry
-            } else {
-                let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
-                sections.insert(("Discussion", entry), at: at)
-            }
+            BugReportLayout.appendDiscussion(&sections, speaker: speaker, date: FeatureStore.today, message: message)
             body = Self.joinBugSections(sections)
         }
     }
 
+    /// A discussion message: it is saved, the report is checked against main (BugValidity), and only then does the assistant reply and
+    /// investigate. An already-fixed report is closed and ends the conversation's investigation.
     func discussBug(_ url: URL, message: String, attachments: [URL] = []) async {
         guard let bug = BugReport.load(url) else { return }
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty || !attachments.isEmpty else { return }
-        guard let names = await saveBugAttachments(attachments, for: url) else { return }
-        let recorded = message.isEmpty ? "Attached: " + names.joined(separator: ", ") : message
-        appendBugDiscussion(url, speaker: store.defaultOwner.isEmpty ? "User" : store.defaultOwner,
-                            message: recorded, ready: false)
-        guard let report = try? String(contentsOf: url, encoding: .utf8) else { return }
+        await BugValidity.Entry.discuss(record: {
+            guard let names = await self.saveBugAttachments(attachments, for: url) else { return false }
+            let recorded = message.isEmpty ? "Attached: " + names.joined(separator: ", ") : message
+            self.appendBugDiscussion(url, speaker: self.store.defaultOwner.isEmpty ? "User" : self.store.defaultOwner,
+                                     message: recorded, ready: false)
+            return true
+        }, gate: validityGate(for: url), reply: { passed in
+            await self.replyToBugDiscussion(url, bug: bug, validity: passed)
+        }, analyze: { passed in
+            await self.analyzeBug(url, validity: passed)
+        })
+    }
+
+    /// The assistant's reply to the latest discussion message. False when the call failed.
+    private func replyToBugDiscussion(_ url: URL, bug: BugReport, validity: BugValidity.Passed) async -> Bool {
+        guard let report = try? String(contentsOf: url, encoding: .utf8) else { return false }
         let prompt = """
         ## Bug report `\(store.relativePath(url))`
 
         \(FrontMatter.split(report).1.prefix(40_000))
+
+        ## Validity check
+
+        \(validity.note)
 
         Task: reply to the user's latest discussion message, rechecking the report against the
         project's code, documents and attached images (read-only). Say what changed in your understanding.
@@ -418,42 +427,53 @@ extension FeatureAssistant {
         let schema: [String: Any] = ["type": "object", "properties": [
             "reply": ["type": "string"], "ready_to_fix": ["type": "boolean"]
         ], "required": ["reply", "ready_to_fix"]]
-        guard let object = await structured("discuss:bug:" + bug.key, prompt: prompt, schema: schema) else { return }
+        guard let object = await structured("discuss:bug:" + bug.key, prompt: prompt, schema: schema) else { return false }
         let reply = object["reply"] as? String ?? ""
         appendBugDiscussion(url, speaker: "AI", message: reply,
                             ready: object["ready_to_fix"] as? Bool == true)
-        await investigateBug(url)
+        return true
     }
 
-    /// Record the user's answer to a bug question (kept even when the AI call fails), then
-    /// investigate again. An empty answer means the user does not know.
+    /// Record the user's answer to a bug question (kept even when the AI call fails), then check the report against
+    /// main and investigate again. An empty answer means the user does not know.
     func answerBug(_ url: URL, question id: String, answer: String, attachments: [URL] = []) async {
         guard let names = await saveBugAttachments(attachments, for: url) else { return }
         let recorded = answer + (names.isEmpty ? "" : "\nAttachments: " + names.joined(separator: ", "))
         let known = !recorded.isEmpty
-        let written = store.updateBug(url) { front, body in
-            var questions = (front["questions"]?.list ?? []).compactMap(BugQuestion.init)
-            guard let index = questions.firstIndex(where: { $0.id == id }) else { return }
-            questions[index].status = known ? "answered" : "skipped"
-            questions[index].answer = known ? recorded : "The user does not know."
-            front["questions"] = .list(questions.map(\.yaml))
-            let entry = "**\(id)** \(questions[index].text)\n→ \(questions[index].answer)"
-            var sections = Self.bugSections(body)
-            if let clarifications = sections.firstIndex(where: { $0.heading == "Clarifications" }) {
-                sections[clarifications].text += "\n\n" + entry
-            } else {
-                let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
-                sections.insert(("Clarifications", entry), at: at)
+        await BugValidity.Entry.answer(record: {
+            self.store.updateBug(url) { front, body in
+                var questions = (front["questions"]?.list ?? []).compactMap(BugQuestion.init)
+                guard let index = questions.firstIndex(where: { $0.id == id }) else { return }
+                questions[index].status = known ? "answered" : "skipped"
+                questions[index].answer = known ? recorded : "The user does not know."
+                front["questions"] = .list(questions.map(\.yaml))
+                let entry = "**\(id)** \(questions[index].text)\n→ \(questions[index].answer)"
+                var sections = Self.bugSections(body)
+                if let clarifications = sections.firstIndex(where: { $0.heading == "Clarifications" }) {
+                    sections[clarifications].text += "\n\n" + entry
+                } else {
+                    let at = sections.firstIndex { $0.heading == "Original description" } ?? sections.count
+                    sections.insert(("Clarifications", entry), at: at)
+                }
+                body = Self.joinBugSections(sections)
             }
-            body = Self.joinBugSections(sections)
-        }
-        if written { await investigateBug(url) }
+        }, gate: validityGate(for: url), analyze: { passed in
+            await self.analyzeBug(url, validity: passed)
+        })
     }
 
-    /// Investigate a bug again with everything answered so far: the report's own sections are
-    /// rewritten, questions the clarifications settle are closed, and the next ones are asked.
-    /// A hand-written report keeps its text as the original description.
+    /// Investigate a bug again with everything answered so far. Before the assistant reads anything for this, the report is checked
+    /// against main: a problem that is already fixed there closes the report and the investigation ends (BugValidity); otherwise
+    /// the analysis starts and is told the outcome.
     func investigateBug(_ url: URL) async {
+        await BugValidity.Entry.investigate(gate: validityGate(for: url)) { passed in
+            await self.analyzeBug(url, validity: passed)
+        }
+    }
+
+    /// The analysis itself: the report's own sections are rewritten, questions the clarifications settle are closed, and the next ones
+    /// are asked. A hand-written report keeps its text as the original description.
+    func analyzeBug(_ url: URL, validity: BugValidity.Passed) async {
         guard let bug = BugReport.load(url), let text = try? String(contentsOf: url, encoding: .utf8) else { return }
         let body = FrontMatter.split(text).1
         let open = bug.openQuestions
@@ -463,6 +483,10 @@ extension FeatureAssistant {
 
         \(body.prefix(40_000))
         \(open.isEmpty ? "" : "\n## Questions already asked and still open (do not ask them again)\n\n" + open.map { "- \($0.id): \($0.text)" }.joined(separator: "\n"))
+
+        ## Validity check
+
+        \(validity.note)
 
         Task: investigate this bug again, taking the clarifications into account. Read the project's code, \
         documentation and attached images (read-only) where it helps. Rewrite the report: summary, steps to reproduce, expected and \
@@ -480,24 +504,7 @@ extension FeatureAssistant {
         }
         guard let object = await structured("bug:" + bug.key, prompt: prompt, schema: schema) else { return }
         store.updateBug(url) { front, body in
-            var sections = Self.bugSections(body)
-            let heading = sections.first { $0.heading.isEmpty }?.text.components(separatedBy: "\n").first { $0.hasPrefix("# ") }
-            // A hand-written report: its text becomes the original description.
-            if !sections.contains(where: { $0.heading == "Original description" }) {
-                let own = sections.filter { !Self.keptBugSections.contains($0.heading) }
-                    .map { section -> (heading: String, text: String) in
-                        section.heading.isEmpty
-                            ? ("", section.text.components(separatedBy: "\n").filter { !$0.hasPrefix("# ") }.joined(separator: "\n"))
-                            : section
-                    }
-                sections.removeAll { !Self.keptBugSections.contains($0.heading) }
-                sections.append(("Original description", Self.joinBugSections(own)))
-            }
-            var rebuilt = Self.bugReportSections(object)
-            for name in Self.keptBugSections {
-                if let kept = sections.first(where: { $0.heading == name }) { rebuilt.append(kept) }
-            }
-            body = (heading ?? "# \(bug.title)") + "\n\n" + Self.joinBugSections(rebuilt)
+            body = BugReportLayout.rewritten(body, generated: Self.bugReportSections(object), fallbackTitle: bug.title)
             // Front matter of a hand-written report.
             if front.string("type").isEmpty { front.set("type", "bug") }
             if front.string("id").isEmpty { front.set("id", bug.key) }
@@ -587,23 +594,13 @@ extension FeatureAssistant {
         }
     }
 
-    /// A report's "## " sections in order; the text before the first one has the heading "".
-    /// "Original description" runs to the end: the user's own text may contain headings.
+    /// A report's "## " sections in order; the text before the first one has the heading "" (BugReportLayout).
     nonisolated static func bugSections(_ body: String) -> [(heading: String, text: String)] {
-        var sections: [(heading: String, text: String)] = [("", "")]
-        for line in body.components(separatedBy: "\n") {
-            if line.hasPrefix("## "), sections.last?.heading != "Original description" {
-                sections.append((line.dropFirst(3).trimmingCharacters(in: .whitespaces), ""))
-            } else {
-                sections[sections.count - 1].text += line + "\n"
-            }
-        }
-        return sections.map { ($0.heading, $0.text.trimmingCharacters(in: .newlines)) }
-            .filter { !$0.heading.isEmpty || !$0.text.isEmpty }
+        BugReportLayout.sections(body)
     }
 
     static func joinBugSections(_ sections: [(heading: String, text: String)]) -> String {
-        sections.map { $0.heading.isEmpty ? $0.text : "## \($0.heading)\n\n\($0.text)" }.joined(separator: "\n\n")
+        BugReportLayout.join(sections)
     }
 
     /// Next "BUG-003" in a folder of such files.
