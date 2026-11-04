@@ -151,10 +151,18 @@ enum CodeArchitecture {
                                   kind: "component", name: component.name, summary: component.purpose, role: component.layer, component: component.id))
         }
         let assignments = fileAssignments(model, paths: modules.nodes.filter { $0.kind == "file" }.compactMap(\.path))
+        let moduleIndex = Dictionary(modules.nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var folders = Set<String>()
         for file in modules.nodes where file.kind == "file" && file.language != "markdown" {
             guard let path = file.path else { continue }
             var copy = file
-            copy.parent = assignments[path].map { "cm:c:" + $0 } ?? "cm:"
+            if let owner = assignments[path] {
+                copy.parent = "cm:c:" + owner
+            } else {
+                // A file no component owns keeps its folders, as in the draft: otherwise every such
+                // file becomes a part of its layer of its own (hundreds of migrations in one band).
+                copy.parent = modelFolder(file.parent, modules: moduleIndex, added: &folders, into: &nodes)
+            }
             nodes.append(copy)
         }
         // Outlines refer to the old file ids; remap parents while retaining all symbol levels.
@@ -167,6 +175,28 @@ enum CodeArchitecture {
             nodes.append(copy)
         }
         return ArchView(id: "code-model", nodes: nodes, edges: modules.edges)
+    }
+
+    /// Where a file the code model does not own hangs: its nearest Modules folder, added once
+    /// together with the folders above it, or the model root for a file at the project's top.
+    private static func modelFolder(_ id: String?, modules: [String: ArchNode], added: inout Set<String>,
+                                    into nodes: inout [ArchNode]) -> String {
+        var chain: [ArchNode] = []
+        var cursor = id, seen = Set<String>()
+        while let current = cursor, seen.insert(current).inserted, let node = modules[current], node.kind != "root" {
+            if node.kind == "dir" || node.kind == "package" { chain.append(node) }
+            cursor = node.parent
+        }
+        var parent = "cm:"
+        for folder in chain.reversed() {
+            if added.insert(folder.id).inserted {
+                var copy = folder
+                copy.parent = parent
+                nodes.append(copy)
+            }
+            parent = folder.id
+        }
+        return parent
     }
 
     /// Shared by drawing and dependency validation: a citation's real owner uses

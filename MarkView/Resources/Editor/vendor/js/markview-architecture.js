@@ -889,15 +889,30 @@
                 tops.forEach(function(n) { if (!known.has(n.id())) bands.push(n); });
                 if (!bands.length) return false;
 
-                const gap = 34;            // room between bands, where the next band's title sits
+                // Room between bands, where the next band's title sits: two lines (name, then
+                // files and lines) of 11.5 px type, its 6 px margin, and air above it.
+                const gap = 50;
                 const pad = 14;            // matches the box padding of the stylesheet
                 const cellGap = 12;
+                // The readable width of a cross-cutting column with one part per row.
                 const colWidth = columns.length > 3 ? 144 : 168;
                 const colGap = 24;
-                const crossWidth = columns.length ? 48 + columns.length * (colWidth + colGap) - colGap : 0;
+                // A column with many parts grows sideways, up to this many parts per row.
+                const columnGridLimit = 4;
 
-                /** Place a container's parts on a grid inside `width`, and return its height. */
-                const fill = function(node, left, top, width, minHeight) {
+                /** Every part of a container is the same size: the tallest label at `cellW` sets it. */
+                const partHeight = function(kids, cellW) {
+                    return kids.reduce(function(m, kid) {
+                        const lines = String(kid.data('label') || '').split('\n').reduce(function(a, line) {
+                            return a + Math.max(1, Math.ceil((line.length * 6.2) / Math.max(40, cellW - 18)));
+                        }, 0);
+                        return Math.max(m, 14 + lines * 13);
+                    }, 40);
+                };
+
+                /** Place a container's parts on a grid inside `width`, and return its height.
+                 *  `gridCols` fixes the parts per row; otherwise as many as fit 180 px each. */
+                const fill = function(node, left, top, width, minHeight, gridCols) {
                     const kids = node.children();
                     if (!kids.length) {
                         const h = Math.max(44, minHeight || 44);
@@ -906,18 +921,12 @@
                         return h;
                     }
                     const inner = width - pad * 2;
-                    const fit = Math.max(1, Math.min(kids.length, Math.floor((inner + cellGap) / 180)));
+                    const fit = Math.max(1, Math.min(kids.length, gridCols || Math.floor((inner + cellGap) / 180)));
                     // Balance the grid: 5 parts over 2 columns are 3 + 2, never 2 + 2 + 1.
                     const rows = Math.ceil(kids.length / fit);
                     const cols = Math.ceil(kids.length / rows);
                     const cellW = (inner - cellGap * (cols - 1)) / cols;
-                    // Every part of a band is the same size; the tallest label sets that size.
-                    const textH = kids.reduce(function(m, kid) {
-                        const lines = String(kid.data('label') || '').split('\n').reduce(function(a, line) {
-                            return a + Math.max(1, Math.ceil((line.length * 6.2) / Math.max(40, cellW - 18)));
-                        }, 0);
-                        return Math.max(m, 14 + lines * 13);
-                    }, 40);
+                    const textH = partHeight(kids, cellW);
                     // A cross-cutting column is as tall as the stack, but its parts keep a readable
                     // size: the spare height goes between them rather than into giant boxes.
                     const spread = minHeight ? (minHeight - pad * 2 - cellGap * (rows - 1)) / rows : 0;
@@ -938,27 +947,47 @@
                     return Math.max(minHeight || 0, pad * 2 + rows * cellH + rowGap * (rows - 1));
                 };
 
-                /** One pass over the stack with the given band width; returns its height. */
+                /** How many parts per row a cross-cutting column needs to stay within the stack's
+                 *  height, and the width that takes: one part per row while they fit, more side by
+                 *  side when they do not, so a long column never runs below the stack. */
+                const columnGrid = function(column, stackHeight) {
+                    const kids = column.children();
+                    const cell = colWidth - pad * 2;
+                    let cols = 1;
+                    for (let fit = 1; fit <= Math.min(columnGridLimit, kids.length); fit++) {
+                        const rows = Math.ceil(kids.length / fit);
+                        cols = Math.ceil(kids.length / rows);
+                        if (pad * 2 + rows * partHeight(kids, cell) + cellGap * (rows - 1) <= stackHeight) break;
+                    }
+                    return { cols: cols, width: pad * 2 + cols * cell + cellGap * (cols - 1) };
+                };
+
+                /** One pass over the stack with the given band width: the stack's height, the
+                 *  diagram's height (a column that still cannot fit may be taller) and the width
+                 *  the cross-cutting columns take beside the stack. */
                 const place = function(bandWidth) {
                     let y = 0;
                     bands.forEach(function(band) { y += fill(band, 0, y, bandWidth, 0) + gap; });
                     const stackHeight = Math.max(1, y - gap);
-                    columns.forEach(function(column, i) {
+                    let x = bandWidth + 48, height = stackHeight;
+                    columns.forEach(function(column) {
                         // A cross-cutting layer spans the whole stack: its parts share that height.
-                        fill(column, bandWidth + 48 + i * (colWidth + colGap), 0, colWidth, stackHeight);
+                        const grid = columnGrid(column, stackHeight);
+                        height = Math.max(height, fill(column, x, 0, grid.width, stackHeight, grid.cols));
+                        x += grid.width + colGap;
                     });
-                    return stackHeight;
+                    return { height: height, cross: columns.length ? x - colGap - bandWidth : 0 };
                 };
 
-                // Lay out once to learn how tall the stack is, then choose a width that fills the
+                // Lay out once to learn how tall the diagram is, then choose a width that fills the
                 // canvas instead of leaving the diagram a wide strip across an empty window.
                 let bandWidth = Math.max(560, Math.min(1120, columns.length ? 860 : 1000));
-                const height = place(bandWidth);
+                const first = place(bandWidth);
                 const ratio = Math.max(0.6, cy.width() / Math.max(1, cy.height()));
-                const wanted = Math.round(Math.max(520, Math.min(1200, ratio * height - crossWidth)));
+                const wanted = Math.round(Math.max(520, Math.min(1200, ratio * first.height - first.cross)));
                 if (Math.abs(wanted - bandWidth) > 40) bandWidth = wanted;
-                const stackHeight = place(bandWidth);
-                const fullWidth = bandWidth + crossWidth;
+                const placed = place(bandWidth);
+                const fullWidth = bandWidth + placed.cross;
 
                 const actors = cy.getElementById('code:actors');
                 if (actors.length) {
@@ -966,8 +995,9 @@
                     actors.position({ x: fullWidth / 2, y: -(gap + 15) });
                 }
                 const external = cy.nodes().orphans().filter(function(n) { return n.data('kind') === 'externalGroup'; });
+                // Below everything above it: the stack and every column.
                 external.forEach(function(group, i) {
-                    fill(group, 0, stackHeight + gap + i * 80, fullWidth, 0);
+                    fill(group, 0, placed.height + gap + i * 80, fullWidth, 0);
                 });
                 if (!keepView) cy.fit(cy.nodes(), 28);
                 return true;
