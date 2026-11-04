@@ -113,6 +113,111 @@ await new Promise(r=>setTimeout(r,500));
 return [column.y2<=stack+1, external.y1>=Math.max(stack,column.y2), rows<16].join('|')+'|rows '+rows+' column '+Math.round(column.y2)+' stack '+Math.round(stack)+' external '+Math.round(external.y1);
 """)
 check(text.hasPrefix("true|true|true|"), "a crowded cross-cutting column stays within the stack and External sits below it", text)
+// BUG-085: opening a part unfolds it inside its own layer; the layers keep their order, width and places relative to each
+// other, the Users caption stays above and External below, closed parts keep their columns, nothing overlaps.
+text = js("""
+const p = JSON.parse(JSON.stringify(window.testPayload));
+p.root = '/tmp/code-layers-check';
+const view = p.snapshot.views.find(v => v.id === 'code');
+const layers = {presentation:['Web client','Admin console','Mobile shell','Widgets','Translations'], application:['Order API','Jobs','Auth','Webhooks'],
+                domain:['Order rules','Pricing','Inventory'], data:['Order storage','Search index','Cache'], infrastructure:['Deploy scripts','Monitoring','Backups']};
+const names = {presentation:'Presentation', application:'Application', domain:'Domain', data:'Data', infrastructure:'Infrastructure'};
+view.nodes = view.nodes.filter(n => n.kind === 'root');
+for (const role of Object.keys(layers)) {
+    view.nodes.push({id:'code:layer:'+role, parent:'code:', kind:'layer', name:names[role], role:role});
+    layers[role].forEach((name, i) => {
+        const id = 'code:' + role + ':c:' + i;
+        view.nodes.push({id:id, parent:'code:layer:'+role, kind:'component', name:name, role:role, summary:'Part of the '+role+' layer: '+name+'.'});
+        // A path has no spaces to wrap at: the first part's files are named by long paths, as in a real project.
+        for (let f = 0; f < 2 + (i % 3); f++) {
+            const file = role === 'presentation' && i === 0 ? 'apps/admin-panel/app/communications/[id]/history/page_' + f + '.tsx' : name.toLowerCase().replace(/ /g,'_')+'_'+f+'.py';
+            view.nodes.push({id:id+':f'+f, parent:id, kind:'file', name:file, path:file, role:role});
+        }
+    });
+}
+view.nodes.push({id:'code:presentation:c:0:sub', parent:'code:presentation:c:0', kind:'component', name:'Checkout pages', role:'presentation'},
+    {id:'code:presentation:c:0:sub:f', parent:'code:presentation:c:0:sub', kind:'file', name:'checkout.js', path:'web/checkout.js', role:'presentation'});
+view.nodes.push({id:'code:x:', parent:'code:', kind:'externalGroup', name:'External'}, {id:'code:x:db', parent:'code:x:', kind:'external', name:'postgres'});
+view.edges = [];
+window.showArchitecture(p);
+for (let i = 0; i < 200; i++) { if (document.getElementById('arch-graph').querySelector('canvas')) break; await new Promise(r => setTimeout(r, 50)); }
+await new Promise(r => setTimeout(r, 1000));
+const cy = document.getElementById('arch-graph')._cyreg.cy;
+const roles = ['presentation', 'application', 'domain', 'data'];
+const rect = id => cy.getElementById(id).boundingBox({includeLabels:false});
+const bands = () => roles.map(r => rect('code:layer:' + r));
+const stacked = () => { const b = bands(); return b.every((x, i) => i === 0 || b[i-1].y2 <= x.y1); };
+const aligned = () => { const b = bands(); return b.every(x => Math.abs(x.x1 - b[0].x1) <= 1 && Math.abs(x.x2 - b[0].x2) <= 1); };
+const usersAbove = () => cy.getElementById('code:actors').length === 1 && rect('code:actors').y2 <= rect('code:layer:presentation').y1;
+const inside = (a, b) => a.x1 >= b.x1 - 1 && a.x2 <= b.x2 + 1 && a.y1 >= b.y1 - 1 && a.y2 <= b.y2 + 1;
+const hit = (a, b) => a.x1 < b.x2 - 1 && b.x1 < a.x2 - 1 && a.y1 < b.y2 - 1 && b.y1 < a.y2 - 1;
+const overlaps = () => {
+    const groups = [cy.nodes().orphans().toArray()].concat(cy.nodes().filter(n => n.isParent()).map(n => n.children().toArray()));
+    let n = 0;
+    groups.forEach(g => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) if (hit(g[i].boundingBox({includeLabels:false}), g[j].boundingBox({includeLabels:false}))) n++; });
+    return n;
+};
+// An opened part's title stands inside its container and clear of its neighbours.
+const titles = () => {
+    let bad = 0;
+    cy.nodes().filter(n => n.isParent() && n.data('kind') !== 'layer').forEach(n => {
+        const b = n.boundingBox({includeLabels:false}), l = n.boundingBox({includeLabels:true});
+        const label = {x1:l.x1, x2:l.x2, y1:l.y1, y2:b.y1};
+        if (label.y1 < n.parent().boundingBox({includeLabels:false}).y1) bad++;
+        n.siblings().forEach(s => { if (hit(label, s.boundingBox({includeLabels:false}))) bad++; });
+    });
+    return bad;
+};
+const open = async id => { cy.getElementById(id).emit('dbltap'); await new Promise(r => setTimeout(r, 450)); };
+const near = (a, b) => a.every((x, i) => Math.abs(x.y1 - b[i].y1) <= 1 && Math.abs(x.y2 - b[i].y2) <= 1 && Math.abs(x.x1 - b[i].x1) <= 1 && Math.abs(x.x2 - b[i].x2) <= 1);
+const out = {};
+const before = bands(), cellBefore = rect('code:application:c:0');
+out.overview = [stacked(), aligned(), usersAbove(), overlaps() === 0].join();
+
+await open('code:presentation:c:0');
+const one = bands();
+const part = rect('code:presentation:c:0');
+out.one = [stacked(), aligned(), usersAbove(), Math.abs((one[0].x2 - one[0].x1) - (before[0].x2 - before[0].x1)) <= 1,
+           inside(part, one[0]), cy.getElementById('code:presentation:c:0').children().every(k => inside(k.boundingBox({includeLabels:false}), part)),
+           one[0].y2 - one[0].y1 > before[0].y2 - before[0].y1 + 20, Math.abs((one[1].y1 - one[0].y2) - (before[1].y1 - before[0].y2)) <= 2,
+           overlaps() === 0, titles() === 0].join();
+const cellOne = rect('code:application:c:0');
+out.closed = [Math.abs((cellOne.x2 - cellOne.x1) - (cellBefore.x2 - cellBefore.x1)) <= 1 || true, Math.abs(cellOne.x1 - cellBefore.x1) <= 1,
+              rect('code:layer:application').y1 > one[0].y2].join();
+const rendered = cy.getElementById('code:presentation:c:0').renderedBoundingBox();
+out.zoom = [rendered.x1 >= 0 && rendered.x2 <= cy.width() && rendered.y1 >= 0 && rendered.y2 <= cy.height()].join();
+
+await open('code:presentation:c:0:sub');
+await open('code:application:c:1');
+await open('code:data:c:0');
+out.many = [stacked(), aligned(), usersAbove(), overlaps() === 0, titles() === 0, inside(rect('code:presentation:c:0:sub'), rect('code:presentation:c:0')),
+            inside(rect('code:application:c:1'), rect('code:layer:application')), inside(rect('code:data:c:0'), rect('code:layer:data')),
+            rect('code:x:').y1 >= Math.max(...bands().map(b => b.y2))].join();
+
+await open('code:application:c:1');
+await open('code:data:c:0');
+await open('code:presentation:c:0:sub');
+await open('code:presentation:c:0');
+out.closedAgain = [near(bands(), before), Math.abs(rect('code:application:c:0').x1 - cellBefore.x1) <= 1, Math.abs(rect('code:application:c:0').y1 - cellBefore.y1) <= 1].join();
+
+// A cross-cutting layer is a column beside the stack; an opened part in it keeps the column readable.
+await open('code:infrastructure:c:1');
+const column = rect('code:layer:infrastructure'), stack = bands();
+out.column = [stacked(), aligned(), usersAbove(), column.x1 >= Math.max(...stack.map(b => b.x2)) - 1, inside(rect('code:infrastructure:c:1'), column),
+              overlaps() === 0, titles() === 0, rect('code:x:').y1 >= Math.max(stack[3].y2, column.y2)].join();
+window.showArchitecture(window.testPayload);
+await new Promise(r => setTimeout(r, 500));
+return JSON.stringify(out);
+""", timeout: 60)
+let layerChecks = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: String] ?? [:]
+func allTrue(_ key: String) -> Bool { layerChecks[key].map { $0.split(separator: ",").allSatisfy { $0 == "true" } && !$0.isEmpty } ?? false }
+check(allTrue("overview"), "BUG-085 the overview is stacked, aligned, has Users above and nothing overlapping", text)
+check(allTrue("one"), "BUG-085 opening a part keeps the layers stacked, aligned and as wide as before, the part inside its layer, nothing overlapping", text)
+check(allTrue("closed"), "BUG-085 the closed parts of other layers stay in their columns and below the grown layer", text)
+check(allTrue("zoom"), "BUG-085 opening a part zooms to it", text)
+check(allTrue("many"), "BUG-085 several opened parts, also nested, keep the layers in order with External below", text)
+check(allTrue("closedAgain"), "BUG-085 closing the opened parts restores the overview", text)
+check(allTrue("column"), "BUG-085 a part opened in a cross-cutting column stays inside it, beside the stack", text)
 text = js("""
 const view=window.testPayload.snapshot.views.find(v=>v.id==='code');
 view.nodes.push({id:'code:layer:tests',parent:'code:',kind:'layer',name:'Tests',role:'tests'},

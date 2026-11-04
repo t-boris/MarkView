@@ -699,8 +699,9 @@
                 return locs.length ? locs[Math.floor(locs.length / 2)] : 1;
             }
 
-            // The Code overview is a layered diagram: the layers of the flow are bands stacked
+            // The Code view is a layered diagram: the layers of the flow are bands stacked
             // top to bottom, the cross-cutting ones stand as columns beside them (REQ-005).
+            // Opening a part unfolds it inside its layer; the layers keep their places (BUG-085).
             const bandRoles = ['presentation', 'application', 'domain', 'data', 'other'];
             const crossRoles = ['integration', 'infrastructure', 'platform', 'tooling', 'tests'];
             // Above this many parts a layer stays a plain band: its contents are read by zooming in.
@@ -763,9 +764,9 @@
                         // Draft layers (REQ-004): guessed from file paths until the code analysis names components.
                         ui.view === 'code' && node.kind === 'layer' && !codeModelOf(ui.payload.snapshot) ? 'draft' : ''].join(' ') });
                 });
-                // The people the system serves: the layered overview opens with them above the
-                // top band, as the classic diagram does. They are a caption, not a part of the model.
-                if (codeOverview() && drawn.some(function(n) { return n.kind === 'layer'; })) {
+                // The people the system serves: the layered diagram has them above the top band, as the
+                // classic diagram does, also while parts are open. They are a caption, not a part of the model.
+                if (ui.view === 'code' && drawn.some(function(n) { return n.kind === 'layer'; })) {
                     elements.push({ group: 'nodes', data: { id: 'code:actors', label: 'Users', kind: 'actors',
                         w: 260, tw: 240, h: 30, fill: '', dimmed: 0, provisional: 0, flag: 0, expandable: 0 }, classes: 'actors leaf' });
                 }
@@ -822,6 +823,9 @@
                         'background-color': 'data(fill)', 'background-opacity': 0.14 } },
                     { selector: 'node.expandable', style: { 'border-style': 'solid', 'border-width': 1.5 } },
                     { selector: 'node.file, node.doc', style: { 'font-size': 10, 'font-family': '"SF Mono", Menlo, monospace' } },
+                    // A path has no spaces to wrap at. In the layered Code view its label breaks inside the word, so it stays in its
+                    // cell: a label wider than the cell widens the container around it (BUG-085).
+                    { selector: 'node.fitLabel', style: { 'text-overflow-wrap': 'anywhere' } },
                     { selector: 'node.section', style: { 'font-size': 10, 'border-style': 'dotted' } },
                     // Contents of a file: collection → type → item.
                     { selector: 'node.collection', style: { 'font-weight': 600, 'border-style': 'double', 'border-width': 3 } },
@@ -876,7 +880,7 @@
              *  flow, stacked in order, with the cross-cutting layers as columns running down
              *  beside them; Users sit above the stack and the external dependencies below it.
              *  Every box is placed by hand so the picture stays the same between redraws. */
-            function layeredBands(keepView) {
+            function layeredBands(keepView, fitTo) {
                 const tops = cy.nodes().orphans().filter(function(n) { return n.data('kind') === 'layer'; });
                 if (!tops.length) return false;
                 const byRole = function(roles) {
@@ -894,6 +898,13 @@
                 const gap = 50;
                 const pad = 14;            // matches the box padding of the stylesheet
                 const cellGap = 12;
+                // An opened part is drawn this much larger than its closed neighbours (the box wraps its parts'
+                // borders), so it is placed this much smaller and the layer's edges stay in line (BUG-085).
+                const nest = 2.5;
+                // While the width of the bands is chosen, opened parts count as closed: opening a part must not
+                // change the columns the closed parts stand in, only make its layer taller.
+                let closedOnly = false;
+                const holdsOpened = function(kids) { return !closedOnly && kids.some(function(kid) { return kid.isParent(); }); };
                 // The readable width of a cross-cutting column with one part per row.
                 const colWidth = columns.length > 3 ? 144 : 168;
                 const colGap = 24;
@@ -916,10 +927,12 @@
                     const kids = node.children();
                     if (!kids.length) {
                         const h = Math.max(44, minHeight || 44);
-                        node.data({ w: width, h: h, tw: width - 24 });
+                        node.data({ w: width, h: h, tw: width - 24 }).addClass('fitLabel');
                         node.position({ x: left + width / 2, y: top + h / 2 });
                         return h;
                     }
+                    // A part that is open holds parts of its own: it is laid out inside its container (BUG-085).
+                    if (holdsOpened(kids)) return fillOpened(node, kids, left, top, width, minHeight, gridCols);
                     const inner = width - pad * 2;
                     const fit = Math.max(1, Math.min(kids.length, gridCols || Math.floor((inner + cellGap) / 180)));
                     // Balance the grid: 5 parts over 2 columns are 3 + 2, never 2 + 2 + 1.
@@ -940,11 +953,67 @@
                         // The last row may be short: its parts share the width, leaving no gap.
                         const inRow = Math.min(cols, kids.length - r * cols);
                         const rowW = (inner - cellGap * (inRow - 1)) / inRow;
-                        kid.data({ w: rowW, tw: Math.max(40, rowW - 16), h: cellH });
+                        kid.data({ w: rowW, tw: Math.max(40, rowW - 16), h: cellH }).addClass('fitLabel');
                         kid.position({ x: left + pad + c * (rowW + cellGap) + rowW / 2,
                                        y: top + pad + r * (cellH + rowGap) + cellH / 2 });
                     });
                     return Math.max(minHeight || 0, pad * 2 + rows * cellH + rowGap * (rows - 1));
+                };
+
+                /** Room above an opened part for its title, which is drawn over the top edge of its box. */
+                const titleRoom = function(node, width) {
+                    const lines = String(node.data('label') || '').split('\n').reduce(function(a, line) {
+                        return a + Math.max(1, Math.ceil((line.length * 6.6) / Math.max(40, width - 24)));
+                    }, 0);
+                    return 2 + lines * 13.5;
+                };
+
+                /** A container that holds opened parts (BUG-085). Its closed parts keep the grid they have in a
+                 *  container with nothing open. Each opened part takes a row of its own, the full width, after the
+                 *  grid row its place falls in, and is laid out inside by these same rules. The layers stay where
+                 *  they are relative to each other: opening a part only makes its own layer taller. */
+                const fillOpened = function(node, kids, left, top, width, minHeight, gridCols) {
+                    const inner = width - pad * 2;
+                    const closed = kids.filter(function(kid) { return !kid.isParent(); }).toArray();
+                    const fit = Math.max(1, Math.min(closed.length || 1, gridCols || Math.floor((inner + cellGap) / 180)));
+                    const gridRows = closed.length ? Math.ceil(closed.length / fit) : 0;
+                    const cols = closed.length ? Math.ceil(closed.length / gridRows) : 1;
+                    const cellW = (inner - cellGap * (cols - 1)) / cols;
+                    const cellH = closed.length ? partHeight(closed, cellW) : 0;
+                    // The opened part goes after the grid row of the closed part before it, or first.
+                    const opened = [];
+                    let seen = 0;
+                    kids.forEach(function(kid) {
+                        if (kid.isParent()) opened.push({ part: kid, after: seen ? Math.floor((seen - 1) / cols) : -1 });
+                        else seen++;
+                    });
+                    const sequence = [];
+                    const push = function(after) {
+                        opened.filter(function(o) { return o.after === after; }).forEach(function(o) { sequence.push({ part: o.part }); });
+                    };
+                    push(-1);
+                    for (let r = 0; r < gridRows; r++) {
+                        sequence.push({ cells: closed.slice(r * cols, (r + 1) * cols) });
+                        push(r);
+                    }
+                    let y = top + pad;
+                    sequence.forEach(function(row) {
+                        if (row.cells) {
+                            const inRow = row.cells.length;
+                            const rowW = (inner - cellGap * (inRow - 1)) / inRow;
+                            row.cells.forEach(function(kid, c) {
+                                kid.data({ w: rowW, tw: Math.max(40, rowW - 16), h: cellH }).addClass('fitLabel');
+                                kid.position({ x: left + pad + c * (rowW + cellGap) + rowW / 2, y: y + cellH / 2 });
+                            });
+                            y += cellH + cellGap;
+                        } else {
+                            y += titleRoom(row.part, inner);
+                            row.part.data({ tw: Math.max(40, inner - 24) });
+                            y += nest;
+                            y += fill(row.part, left + pad + nest, y, inner - nest * 2, 0) + nest + cellGap;
+                        }
+                    });
+                    return Math.max(minHeight || 0, y - cellGap + pad - top);
                 };
 
                 /** How many parts per row a cross-cutting column needs to stay within the stack's
@@ -959,6 +1028,8 @@
                         cols = Math.ceil(kids.length / rows);
                         if (pad * 2 + rows * partHeight(kids, cell) + cellGap * (rows - 1) <= stackHeight) break;
                     }
+                    // An opened part is laid out inside the column: two cells wide, so its parts are readable (BUG-085).
+                    if (holdsOpened(kids)) cols = Math.max(cols, 2);
                     return { cols: cols, width: pad * 2 + cols * cell + cellGap * (cols - 1) };
                 };
 
@@ -982,10 +1053,12 @@
                 // Lay out once to learn how tall the diagram is, then choose a width that fills the
                 // canvas instead of leaving the diagram a wide strip across an empty window.
                 let bandWidth = Math.max(560, Math.min(1120, columns.length ? 860 : 1000));
+                closedOnly = true;
                 const first = place(bandWidth);
                 const ratio = Math.max(0.6, cy.width() / Math.max(1, cy.height()));
                 const wanted = Math.round(Math.max(520, Math.min(1200, ratio * first.height - first.cross)));
                 if (Math.abs(wanted - bandWidth) > 40) bandWidth = wanted;
+                closedOnly = false;
                 const placed = place(bandWidth);
                 const fullWidth = bandWidth + placed.cross;
 
@@ -999,7 +1072,9 @@
                 external.forEach(function(group, i) {
                     fill(group, 0, placed.height + gap + i * 80, fullWidth, 0);
                 });
-                if (!keepView) cy.fit(cy.nodes(), 28);
+                const target = fitTo ? cy.getElementById(fitTo) : null;
+                if (target && target.length) cy.fit(target.union(target.descendants()), 40);
+                else if (!keepView) cy.fit(cy.nodes(), 28);
                 return true;
             }
 
@@ -1007,7 +1082,7 @@
             function layout(fitTo, keepView) {
                 if (!cy) return;
                 const count = cy.nodes().length;
-                if (codeOverview() && count && layeredBands(keepView)) return;
+                if (ui.view === 'code' && count && layeredBands(keepView, fitTo)) return;
                 // Every box is laid out on its own: children with few links between them (a
                 // notes folder, a list of files) are packed into a rectangle instead of one tall
                 // column; linked ones follow the flow of their links. The top level is packed to

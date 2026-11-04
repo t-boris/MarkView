@@ -1,5 +1,36 @@
 # MarkView — Follow-up Tasks
 
+## Code X-Ray keeps its layers when a part is opened — release 5.26.3 (2026-11-04, BUG-085)
+
+Goal (Boris): opening a cube in the Code X-Ray must not break the layered architecture: Presentation on top, Application
+below it, and so on; the cube unfolds inside its own layer and the layers keep their relation to each other.
+
+Cause: `layeredBands` (hand placement of the bands) and the Users caption run only in `codeOverview()`, i.e. while the user
+has opened nothing. The first opened part switches `layout()` to the generic ELK layout, which mosaics the layers.
+Reproduced on a 4-layer sample in WKWebView (`overview ordered: true` -> `ordered: false`, Application right of Presentation).
+
+- [x] `layout()` and the Users caption use the layered placement whenever the Code view has layers, not only in the overview.
+- [x] `fill` lays an opened part out inside its band: closed parts keep the band's grid, an opened part takes a full-width row
+      after the grid row it falls in, its own parts are placed the same way (recursively), room is left for its title.
+- [x] Opening a part zooms to it as before (`fitTo`); collapsing returns to the whole diagram; a cross-cutting column with an
+      opened part is wide enough to hold it.
+- [x] Checks in `CodeArchitectureWebTests.swift` (7 new): layers keep their order and x-range, nothing overlaps, the opened
+      part is inside its layer with its parts inside it, Users above and External below, collapse restores the overview,
+      several and nested parts open, an opened part in a cross-cutting column. They fail on the old JS (5 of 7).
+- [x] Real snapshots (hidden off-screen WKWebView, `CodeArchitecture.view` on the stored `.dde/state.db`): vivaa-platform
+      (3798 nodes, 10 layers) with 18 parts opened one after another across every layer and column, and MarkView
+      (715 nodes): order, width (1207 / 527 px), alignment, Users above, no overlaps all stay.
+- [x] The real data found what the sample did not: a path has no spaces, so Cytoscape did not wrap `apps/admin-panel/app/
+      login/page.tsx` and its label (8.6 px wider than the cell) widened the opened part and its layer by 7.6 px. Cells of
+      the layered layout now use `text-overflow-wrap: anywhere` (class `fitLabel`); a check with long file paths fails
+      without it.
+- [x] `code-architecture-tests.sh`: 142 ok, 0 failures (135 on main + 7 new).
+- [ ] Bump patch (5.26.3), build, commit to main, release, install (with Boris's go-ahead).
+
+Review: the layered diagram now survives opening any part. Design choices: an opened part takes a full-width row inside its
+layer; the band width and the grid of closed parts do not change; the view zooms to the opened part; only that layer grows
+taller. The cross-cutting columns open a part in a two-cell-wide column.
+
 ## UI Studio still refused to fill the option chain — release 5.26.1 (2026-11-04, BUG-084 follow-up)
 
 - [x] The context block shows each fixed answer that answered the page in full; only one over 12,000 characters is

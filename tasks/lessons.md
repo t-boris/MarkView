@@ -1,5 +1,17 @@
 # Lessons
 
+## A layout fixed on a clean sample is checked on the person's real snapshot before it ships (BUG-085, 2026-11-04)
+
+Opening a part in the Code X-Ray broke the layered order. The fix passed seven new checks on a made-up four-layer
+project, but the real vivaa-platform snapshot widened the opened layer by 7.6 px: file labels are paths without spaces,
+Cytoscape wraps only at spaces, and a label wider than its cell widens every container around it (compound sizing
+includes child labels).
+- Rule: a fixture with short names proves the geometry, not the text: take the person's stored snapshot (`.dde/state.db`,
+  `readArchitecture` copied into a probe, `CodeArchitecture.view`, hidden off-screen WKWebView) and open parts in every
+  layer, measuring bounding boxes after each step.
+- Rule: a long unbreakable label gets `text-overflow-wrap: anywhere` where the layout assumes it wraps, and the fixture then
+  carries long paths so a regression fails.
+
 ## A hidden "Script error." is a bug in our own script until proven otherwise (BUG-086, 2026-11-04)
 
 UI Studio's Select showed webpack's "Uncaught runtime errors: Script error." overlay as soon as the pointer moved. The
