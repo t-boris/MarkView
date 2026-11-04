@@ -2,7 +2,7 @@
 type: bug
 id: BUG-085
 title: "Opening a part in the Code X-Ray breaks the layered diagram: layers end up side by side"
-status: fixing
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-04
