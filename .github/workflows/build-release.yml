@@ -34,6 +34,7 @@ jobs:
           xcodebuild -scheme MarkView \
             -destination 'platform=macOS' \
             -configuration Release \
+            -jobs 5 \
             ARCHS=${{ matrix.arch }} \
             SWIFT_COMPILATION_MODE=incremental \
             CODE_SIGN_IDENTITY="-" \
