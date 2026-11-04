@@ -135,6 +135,7 @@ enum StudioConnections {
     /// A JWT stays a signed JWT (BUG-073): libraries reject tokens with an empty signature, and an auth middleware that
     /// rejects its key fails closed and sends every page to the login page.
     static func testValue(for name: String, real: String?) -> String {
+        if let secret = StudioAuthMock.signingSecretTestValue(for: name) { return secret }
         let real = real ?? ""
         let plain = "markview-test-" + name.lowercased().replacingOccurrences(of: "_", with: "-")
         if real.hasPrefix("eyJ"), real.split(separator: ".", omittingEmptySubsequences: false).count == 3 {

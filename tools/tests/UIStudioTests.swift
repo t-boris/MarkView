@@ -1746,6 +1746,7 @@ Task { @MainActor in
     conversationChecks()
     selectionChecks()
     connectionChecks()
+    authMockChecks()
     await processChecks()
     await logChecks()
     trackingChecks()

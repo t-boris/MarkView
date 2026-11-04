@@ -62,6 +62,7 @@ enum StudioPrompts {
         - Set `unsupported` to true (and explain in `reason`) only for what MarkView cannot answer over HTTP: GraphQL, a \
           WebSocket or a streaming protocol.
         - Add rules only for the requests you are asked about and the closely related ones (their lists, details and writes).
+        \(StudioPlaceholders.promptGuide)
         """ + "\n" + dataNotInstructions
 
     static func preparationPrompt(_ context: StudioPreparationContext, spec: StudioEnvironmentSpec, appFolder: String) -> String {

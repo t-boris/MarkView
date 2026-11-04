@@ -186,6 +186,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var serverLines = StudioLogLines()
     /// The address of the main frame's provisional navigation, for the "from" of a server redirect.
     private var navigationURL: URL?
+    /// Navigations that leave the application and are answered by the session (REQ-010).
+    private var simulatedNavigation = StudioSimulatedNavigation()
 
     /// The Node preload that gives the server the scenario's clock, time zone and locale (DEC-006).
     static var nodePreloadURL = Bundle.main.url(forResource: "markview-ui-studio-node", withExtension: "cjs", subdirectory: "Editor/vendor/js")
@@ -302,6 +304,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         appURL = url
         appOrigin = origin
         simulator.appOrigin = origin.text
+        await configureAuthMock(target)
         await installConnectionPolicy()
         set(.starting, "Loading the application")
         await restore()
@@ -457,6 +460,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             session.appURL = url
             session.appOrigin = origin
             session.simulator.appOrigin = origin.text
+            await session.configureAuthMock(target)
             await session.installConnectionPolicy()
             _ = await session.restore()
         }
@@ -752,7 +756,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let scheme = url.scheme?.lowercased() ?? ""
         if ["about", "data", "blob"].contains(scheme) { return decisionHandler(.allow) }
         if navigationAction.targetFrame?.isMainFrame != false {
+            if allowsSimulatedPage(url) { return decisionHandler(.allow) }
             guard let origin = StudioBridge.Origin(url: url), origin.sameServer(appOrigin) else {
+                if simulateNavigation(navigationAction) { return decisionHandler(.cancel) }
                 note(.blocked, "Navigation to \(url.absoluteString) was blocked: it leaves the application.")
                 sessionLog.add(.navigation, problem: true, "Blocked navigation to \(url.absoluteString): it leaves the application")
                 return decisionHandler(.cancel)
@@ -799,6 +805,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let failure = error as NSError
+        if tookOverNavigation(failure) { return }
         if failure.code != NSURLErrorCancelled {
             let address = (failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? navigationURL
             sessionLog.add(.navigation, problem: true, "The page at \(address?.absoluteString ?? "?") did not load: "
@@ -2166,6 +2173,163 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let changed = zip(current, next).filter { $0.0.status != $0.1.status || $0.0.changedSince != $0.1.changedSince }.map(\.1)
         guard !changed.isEmpty else { return }
         io.async { for package in changed { try? StudioStore.savePackage(package, root: root) } }
+    }
+}
+
+// MARK: - Sign-in and pages outside the application (REQ-010)
+
+extension StudioSession {
+    /// The redirects a simulated navigation follows before it shows where it got to.
+    static let simulatedRedirectLimit = 5
+
+    /// The built-in Supabase Auth for a project that uses Supabase (REQ-010), on the server's current connections. What the
+    /// application changed of the test user is kept while the addresses stay the same.
+    private func configureAuthMock(_ target: WebAppTarget) async {
+        let root = root, folder = target.folder
+        let uses = await Task.detached { StudioAuthMock.usesSupabase(appFolder: folder, root: root) }.value
+        guard !closed else { return }
+        let id = StudioAuthMock.dependencyID
+        guard uses else {
+            simulator.authMock = nil
+            if observed.removeValue(forKey: id) != nil { rebuildDependencies() }
+            return
+        }
+        let mock = StudioAuthMock(connections: serverConnections)
+        if !mock.sameConfiguration(simulator.authMock) {
+            simulator.authMock = mock
+            sessionLog.add(.notice, "Supabase Auth is the built-in mock-up. " + mock.note)
+        }
+        noteDependency(StudioDependency(id: id, mode: .simulated, note: mock.note))
+    }
+
+    /// Asked first for every main-frame navigation: the simulated page being shown is allowed once, and any other
+    /// navigation brings back the page runtime that a simulated page went without.
+    private func allowsSimulatedPage(_ url: URL) -> Bool {
+        if let pending = simulatedNavigation.pending {
+            simulatedNavigation.pending = nil
+            if StudioSimulatedNavigation.samePage(pending, url) { return true }
+        }
+        if simulatedNavigation.runtimePaused, !closed {
+            simulatedNavigation.runtimePaused = false
+            _ = installRuntime()
+        }
+        return false
+    }
+
+    /// A main-frame navigation that leaves the application (REQ-010). The address of a simulated service is answered by the
+    /// simulation, with its redirects followed; any other site is shown as a local stand-in page. Nothing is sent. False
+    /// for an address that is not http(s): it stays blocked.
+    private func simulateNavigation(_ action: WKNavigationAction) -> Bool {
+        let request = action.request
+        guard !closed, let url = request.url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return false }
+        simulatedNavigation.serial += 1
+        simulatedNavigation.cancelled = url
+        let serial = simulatedNavigation.serial
+        let method = request.httpMethod ?? "GET", headers = request.allHTTPHeaderFields ?? [:]
+        let body = request.httpBody.map { String(decoding: $0, as: UTF8.self) }
+        Task { [weak self] in await self?.followNavigation(method: method, url: url, headers: headers, body: body, serial: serial) }
+        return true
+    }
+
+    /// Whether a failed provisional navigation is the one the session cancelled to answer itself: a server redirect out of
+    /// the application ends as "frame load interrupted". It is no failure, and the page that replaces it ends the load.
+    private func tookOverNavigation(_ failure: NSError) -> Bool {
+        guard let cancelled = simulatedNavigation.cancelled,
+              let address = (failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? navigationURL,
+              StudioSimulatedNavigation.samePage(cancelled, address) else { return false }
+        simulatedNavigation.cancelled = nil
+        sessionLog.add(.navigation, "The server's redirect to \(shown(address)) is answered by the session instead")
+        return true
+    }
+
+    private func followNavigation(method: String, url start: URL, headers: [String: String], body: String?, serial: Int) async {
+        var method = method, url = start, headers = headers, body = body
+        for hop in 0...Self.simulatedRedirectLimit {
+            guard !closed, serial == simulatedNavigation.serial else { return }
+            if let appOrigin, StudioBridge.Origin(url: url)?.sameServer(appOrigin) == true {
+                sessionLog.add(.navigation, "Simulated redirect back into the application: \(shown(url))")
+                webView.load(URLRequest(url: url))
+                return
+            }
+            guard let logical = simulatedServiceURL(url) else { return showExternalPage(url) }
+            sessionLog.add(.navigation, "Navigation \(method) \(shown(logical)) is answered by the simulation"
+                           + (hop == 0 ? "" : " (redirect \(hop))"))
+            let request = StudioHTTPRequest(method: method, url: logical, headers: headers, body: body, requestId: UUID().uuidString)
+            let answer = await withCheckedContinuation { (done: CheckedContinuation<StudioReply, Never>) in
+                route(request, source: .page) { done.resume(returning: $0) }
+            }
+            guard !closed, serial == simulatedNavigation.serial else { return }
+            switch answer {
+            case .respond(let response):
+                if response.hang {
+                    return sessionLog.add(.navigation, problem: true, "The simulated answer to \(shown(logical)) never comes (the scenario holds it)")
+                }
+                if response.delayMs > 0 { try? await Task.sleep(nanoseconds: UInt64(response.delayMs) * 1_000_000) }
+                guard (300..<400).contains(response.status), let location = response.headers["location"],
+                      let next = URL(string: location, relativeTo: logical)?.absoluteURL else {
+                    return showSimulatedAnswer(response, at: url, logical: logical)
+                }
+                sessionLog.add(.navigation, "Simulated redirect \(response.status) \(shown(logical)) → \(shown(next))")
+                if ![307, 308].contains(response.status) { method = "GET"; body = nil }
+                headers = [:]
+                url = next
+            case .pass:
+                return showExternalPage(url)
+            case .dropped(let reason):
+                return sessionLog.add(.navigation, problem: true, "The simulated answer to \(shown(logical)) was dropped (\(reason))")
+            }
+        }
+        sessionLog.add(.navigation, problem: true, "Navigation stopped after \(Self.simulatedRedirectLimit) simulated redirects at \(shown(url))")
+        let html = StudioExternalPage.page(title: "Too many simulated redirects",
+                                           body: "<p>The simulated services redirected more than \(Self.simulatedRedirectLimit) times. "
+                                               + "The session log lists each step.</p>")
+        showPage(Data(html.utf8), type: "text/html; charset=utf-8", status: 200, at: url)
+    }
+
+    private func showSimulatedAnswer(_ response: StudioSimResponse, at url: URL, logical: URL) {
+        let body = response.body ?? ""
+        var type = response.headers["content-type"] ?? ""
+        if type.isEmpty {
+            type = body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<") ? "text/html; charset=utf-8" : "application/json; charset=utf-8"
+        }
+        sessionLog.add(.navigation, problem: response.status >= 400, "Showing the simulated answer \(response.status) of \(shown(logical))")
+        showPage(Data(body.utf8), type: type, status: response.status, at: url)
+    }
+
+    private func showExternalPage(_ url: URL) {
+        let returnTo = StudioExternalPage.returnURL(for: url, appOrigin: appOrigin?.text)
+        note(.blocked, "Navigation to \(shown(url)) was not sent: a simulated external page stands in for it.")
+        sessionLog.add(.navigation, "Navigation to \(shown(url)) leaves the application: a simulated external page is shown, nothing is sent; "
+                       + (returnTo.map { "Continue as Test User returns to \(shown($0))" } ?? "Continue as Test User goes back"))
+        let html = StudioExternalPage.html(for: url, returnTo: returnTo, user: scenario.role.user)
+        showPage(Data(html.utf8), type: "text/html; charset=utf-8", status: 200, at: url)
+    }
+
+    /// Shows `data` as the page at `url` without a request. The runtime is left out: the page is not the application's,
+    /// and its messages would only be rejected.
+    private func showPage(_ data: Data, type: String, status: Int, at url: URL) {
+        guard !closed, let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": type])
+        else { return }
+        webView.configuration.userContentController.removeAllUserScripts()
+        simulatedNavigation.runtimePaused = true
+        simulatedNavigation.pending = url
+        webView.loadSimulatedRequest(URLRequest(url: url), response: response, responseData: data)
+    }
+
+    /// The service address the simulation answers for `url`: a gateway port, a simulated connection, the built-in Supabase
+    /// Auth or the origin of a rule with a full URL; nil for any other site.
+    private func simulatedServiceURL(_ url: URL) -> URL? {
+        if let logical = logicalURL(for: url) { return logical }
+        guard let origin = StudioBridge.Origin(url: url) else { return nil }
+        func same(_ text: String) -> Bool { URL(string: text).flatMap(StudioBridge.Origin.init(url:)) == origin }
+        if serverConnections.contains(where: { $0.mode == .simulated && same($0.origin) }) { return url }
+        if simulator.authMock?.endpoint(of: url) != nil { return url }
+        if spec.rules.contains(where: { StudioRoute.split($0.path).origin.map(same) ?? false }) { return url }
+        return nil
+    }
+
+    private func shown(_ url: URL) -> String {
+        redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
     }
 }
 

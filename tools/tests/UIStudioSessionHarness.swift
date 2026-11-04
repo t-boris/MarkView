@@ -547,13 +547,18 @@ func run() async {
     check("AC-07 an invalid proposal ends in a controlled error", invalid == "503", invalid ?? "nil")
     check("AC-07 an invalid proposal changes nothing", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "bad" } != true)
 
-    // The page cannot leave the application (AC-16).
+    // The page cannot leave the application (AC-16): another site is a local stand-in page, and nothing is sent (REQ-010).
     watchdog.reached("The page cannot leave the application")
     _ = try? await session.call("location.href = 'https://example.org/elsewhere'; return true;")
-    _ = await waitUntil(5) { session.events.contains { $0.kind == .blocked && $0.detail.contains("example.org") } }
-    let stillHere = await text("return location.origin;")
+    _ = await waitUntil(10) { session.webView.url?.host == "example.org" && !session.webView.isLoading }
+    let standIn = await text("return document.getElementById('continue') ? document.title : '';")
     check("AC-16 the page cannot navigate away from the application",
-          session.events.contains { $0.kind == .blocked && $0.detail.contains("example.org") } && stillHere?.contains("\(port)") == true,
+          session.events.contains { $0.kind == .blocked && $0.detail.contains("example.org") } && standIn?.contains("nothing is sent") == true,
+          standIn ?? "nil")
+    _ = try? await session.call("document.getElementById('continue').click(); return true;")
+    _ = await waitUntil(10) { session.webView.url?.port == port && !session.webView.isLoading }
+    let stillHere = await text("return location.origin;")
+    check("REQ-010 Continue as Test User without a return address goes back to the application", stillHere?.contains("\(port)") == true,
           stillHere ?? "nil")
 
     // Captures and their comparison (AC-19, AC-20).
@@ -1173,6 +1178,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await lateRuleChecks()
             await serverClockChecks()
             await logChecks()
+            await authChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")

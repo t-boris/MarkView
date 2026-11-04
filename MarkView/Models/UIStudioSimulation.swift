@@ -150,6 +150,8 @@ struct StudioSimulator {
     /// Bumped by every Reset; late results of an older generation must not change the state (SIM-10).
     private(set) var generation = 1
     var appOrigin: String?
+    /// The built-in Supabase Auth of a project that uses Supabase (REQ-010); nil for other projects.
+    var authMock: StudioAuthMock?
 
     init(spec: StudioEnvironmentSpec, scenario: StudioScenario, appOrigin: String? = nil) {
         self.spec = spec
@@ -190,6 +192,7 @@ struct StudioSimulator {
 
     /// Answers `request` from the state; a write changes the state once.
     mutating func handle(_ request: StudioHTTPRequest) -> StudioSimOutcome {
+        if let answer = authAnswer(request) { return answer }
         if let reason = Self.unsupportedReason(request) {
             return .unsupported(contract: StudioRoute.contractKey(method: request.method, url: request.url, appOrigin: appOrigin), reason: reason)
         }
@@ -216,6 +219,7 @@ struct StudioSimulator {
                 retiredIDs = retired
             }
         }
+        if rule.operation == .respond || override != nil { response = withPlaceholders(response) }
         if let delay = override?.delayMs { response.delayMs = max(0, delay) }
         if let key, (200..<300).contains(response.status), !response.hang { journal[key] = response }
         return .respond(response, rule: rule.id)
