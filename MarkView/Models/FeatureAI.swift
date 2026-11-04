@@ -165,7 +165,7 @@ final class FeatureAssistant: ObservableObject {
     /// `effort`: "low" for the many small calls; "medium" where the answer shapes the specification
     /// (intake, discovery rounds) — a few slower calls instead of many shallow ones.
     private func run(_ key: String, prompt: String, schema: [String: Any]?, web: Bool = false, effort: String = "low",
-                     timeout: TimeInterval = 400, onDelta: (@Sendable (String) -> Void)? = nil) async -> CLICompletion.Result? {
+                     timeout: TimeInterval = 400, readable: URL? = nil, onDelta: (@Sendable (String) -> Void)? = nil) async -> CLICompletion.Result? {
         guard !running.contains(key) else {
             error = "That is already running — wait for it to finish."
             return nil
@@ -175,8 +175,9 @@ final class FeatureAssistant: ObservableObject {
         // The answer belongs to this folder: dropped if another folder was opened meanwhile.
         let folder = store.root
         let system = projectDiscovery ? Self.system + "\n\n" + Self.projectDiscoveryNote : Self.system
+        // `readable`: a folder the assistant reads in place of the project (the validity check reads an export of main).
         var request = CLICompletion.Request(project: store.root, prompt: prompt, systemPrompt: system,
-                                            jsonSchema: schema, readableFolder: store.root)
+                                            jsonSchema: schema, readableFolder: readable ?? store.root)
         request.allowWeb = web
         request.effort = effort
         request.timeout = timeout
@@ -268,6 +269,7 @@ final class FeatureAssistant: ObservableObject {
         case "research": return "Research feature"
         case "chat": return "Discuss feature"
         case "discuss": return "Discuss bug"
+        case "validity": return "Check bug validity"
         case "decompose": return "Plan implementation"
         case "consolidate": return "Consolidate requirements"
         case "resolveopts": return "Resolve finding"
@@ -277,8 +279,8 @@ final class FeatureAssistant: ObservableObject {
 
     /// A structured answer (the JSON object), or nil when it failed (see `error`).
     func structured(_ key: String, prompt: String, schema: [String: Any], web: Bool = false, effort: String = "low",
-                    timeout: TimeInterval = 400) async -> [String: Any]? {
-        await run(key, prompt: prompt, schema: schema, web: web, effort: effort, timeout: timeout)?.structured as? [String: Any]
+                    timeout: TimeInterval = 400, readable: URL? = nil) async -> [String: Any]? {
+        await run(key, prompt: prompt, schema: schema, web: web, effort: effort, timeout: timeout, readable: readable)?.structured as? [String: Any]
     }
 
     // MARK: - Context (spec §31)

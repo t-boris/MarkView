@@ -1,0 +1,25 @@
+name: Bug Validity Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Models/BugValidity.swift'
+      - 'MarkView/Models/FeatureBugValidity.swift'
+      - 'MarkView/Models/FeatureIntake.swift'
+      - 'MarkView/Models/FeatureAI.swift'
+      - 'MarkView/Models/FeatureModels.swift'
+      - 'MarkView/Views/FeaturePanelView.swift'
+      - 'tools/tests/BugValidity*'
+      - 'tools/tests/bug-validity-tests.sh'
+      - '.github/workflows/bug-validity.yml'
+permissions:
+  contents: read
+jobs:
+  bug-validity:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the main baseline, the evidence rules, the closure record and the three entry points
+        run: bash tools/tests/bug-validity-tests.sh
+      - name: Build application
+        run: xcodebuild -project MarkView.xcodeproj -scheme MarkView -configuration Debug -derivedDataPath /tmp/MarkViewValidityCI CODE_SIGNING_ALLOWED=NO build

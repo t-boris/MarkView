@@ -805,7 +805,8 @@ struct BugPanelView: View {
     let bug: BugReport
     @State private var showAnswered = false
 
-    private var busy: Bool { assistant.isRunning("bug:" + bug.key) }
+    private var checking: Bool { assistant.isRunning("validity:bug:" + bug.key) }
+    private var busy: Bool { assistant.isRunning("bug:" + bug.key) || checking }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -836,7 +837,8 @@ struct BugPanelView: View {
             }
             PanelSection(title: "Investigation") {
                 if busy {
-                    Working(text: "Investigating — reading the code and refining the report…")
+                    Working(text: checking ? "Checking whether the bug still exists on main…"
+                                           : "Investigating — reading the code and refining the report…")
                 }
                 ForEach(bug.openQuestions) { question in
                     BugQuestionCard(bug: bug, question: question, busy: busy)
@@ -858,7 +860,14 @@ struct BugPanelView: View {
                         .help("The report goes to the assistant in the Terminal tab: reproduce, find the root cause, fix, verify. Status becomes Fixing.")
                     SmallButton(title: "Investigate", icon: "magnifyingglass") { Task { await assistant.investigateBug(bug.url) } }
                         .disabled(busy)
-                        .help("The AI reads the code again with the answers so far, rewrites the report and asks what is still missing")
+                        .help("First checks whether the bug still exists on main (an already fixed bug is closed). Otherwise the AI reads the code again with the answers so far, rewrites the report and asks what is still missing")
+                }
+            }
+            if !bug.validity.isEmpty {
+                PanelSection(title: "Validity check") {
+                    Text(markdown(bug.validity)).uiFont(size: 10)
+                        .foregroundColor(VSDark.text).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if !bug.discussion.isEmpty {
@@ -906,7 +915,7 @@ struct BugDiscussionInput: View {
                 Text("Discuss this bug; paste a screenshot with ⌘V")
                     .uiFont(size: 10).foregroundColor(VSDark.textDim)
                 Spacer()
-                if assistant.isRunning("discuss:bug:" + bug.key) {
+                if assistant.isRunning("discuss:bug:" + bug.key) || assistant.isRunning("validity:bug:" + bug.key) {
                     ProgressView().scaleEffect(0.45).frame(width: 14, height: 14)
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up.circle.fill").uiFont(size: 15).foregroundColor(VSDark.blue) }

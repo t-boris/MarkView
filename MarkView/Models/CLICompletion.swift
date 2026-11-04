@@ -118,7 +118,7 @@ enum CLICompletion {
         let tool = request.tool
         let model = request.model ?? AIAssistantPreferences.model(for: tool, project: request.project)
         func log(_ result: Result?, outcome: String) {
-            AICallLog.record(AICallLog.Entry(timestamp: started, project: request.readableFolder?.path ?? "",
+            AICallLog.record(AICallLog.Entry(timestamp: started, project: (request.project ?? request.readableFolder)?.path ?? "",
                                              label: request.label, tool: tool.rawValue, model: model ?? "",
                                              effort: request.effort ?? "", seconds: Date().timeIntervalSince(started),
                                              inputTokens: result?.inputTokens ?? 0, outputTokens: result?.outputTokens ?? 0,

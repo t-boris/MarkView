@@ -586,6 +586,8 @@ struct BugReport: Identifiable, Hashable {
     /// Front matter `feature:` when the report names the feature it belongs to; usually empty.
     var feature = ""
     var discussion = ""
+    /// The "Validity check" section: the latest check of the report against main (BugValidity).
+    var validity = ""
     var readyToFix = false
     /// Front matter `duplicate_of`: the bug this one repeats.
     var duplicateOf = ""
@@ -610,6 +612,7 @@ struct BugReport: Identifiable, Hashable {
                          modified: fileModificationDate(url), hasStatus: !front.string("status").isEmpty,
                          feature: front.string("feature"),
                          discussion: FeatureAssistant.bugSections(body).first { $0.heading == "Discussion" }?.text ?? "",
+                         validity: FeatureAssistant.bugSections(body).first { $0.heading == BugValidity.sectionName }?.text ?? "",
                          readyToFix: front.string("ready_to_fix") == "true", duplicateOf: front.string("duplicate_of"))
     }
 }
