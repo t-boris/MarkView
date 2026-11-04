@@ -348,7 +348,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         buildError = nil
         let target = URL(string: scenario.route, relativeTo: appURL)?.absoluteURL ?? appURL
         route = scenario.route
-        webView.load(URLRequest(url: target))
+        var page = URLRequest(url: target)
+        // A fresh server render: Next.js serves cached server fetches in development unless the request says no-cache.
+        StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
+        webView.load(page)
         return await waitForLoad(timeout: 45)
     }
 
@@ -508,6 +511,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let shown = redactor.redact(text: request.url.absoluteString)
         let contract = StudioRoute.contractKey(method: http.method, url: http.url, appOrigin: appOrigin?.text)
         let sameServer = StudioBridge.Origin(url: request.url).map { appOrigin?.sameServer($0) == true } ?? false
+        if sameServer && StudioConnectionPolicy.isFrameworkRequest(request.url, headers: request.headers) {
+            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil))
+            return reply(StudioBridge.passThrough(adding: StudioConnectionPolicy.frameworkRequestHeaders), nil)
+        }
         if (sameServer && StudioConnectionPolicy.isDevelopmentResource(request.url, appFolder: appFolder))
             || spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: request.url, appOrigin: appOrigin?.text) }) {
             if !sameServer { noteDependency(StudioDependency(id: contract, mode: .allowed, note: "Allowed by the connection policy.")) }

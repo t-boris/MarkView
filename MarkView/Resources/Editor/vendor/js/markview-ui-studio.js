@@ -180,6 +180,14 @@
     return Promise.resolve(String(body));
   }
 
+  // A pass-through may add headers on the way to the server (e.g. no-cache for a framework's data request).
+  function withHeaders(request, headers) {
+    if (!headers || typeof headers !== 'object') return request;
+    var merged = new Headers(request.headers);
+    Object.keys(headers).forEach(function (name) { merged.set(name, String(headers[name])); });
+    return new Request(request, { headers: merged });
+  }
+
   if (realFetch) {
     var studioFetch = function fetch(input, init) {
       var request;
@@ -190,7 +198,7 @@
       return read.then(function (body) {
         return ask({ method: request.method, url: request.url, headers: headersObject(request.headers), body: body, transport: 'fetch' }, signal);
       }).then(function (reply) {
-        if (reply.action === 'pass') return realFetch(request);
+        if (reply.action === 'pass') return realFetch(withHeaders(request, reply.headers));
         return deliver(reply, signal).then(function () { return makeResponse(reply, request.url); });
       });
     };
@@ -344,7 +352,7 @@
         return ask({ method: self._method, url: self._url, headers: self._headers, body: text, transport: 'xhr' }, signal);
       }).then(function (reply) {
         if (!current()) return;
-        if (reply.action === 'pass') return self._pass(body, true);
+        if (reply.action === 'pass') return self._pass(body, true, reply.headers);
         self._mode = 'sim';
         if (!noBody && body != null) self._uploadEvents(body);
         return deliver(reply, signal).then(function () { if (current()) self._simulate(reply); });
@@ -418,13 +426,14 @@
       }
     }
 
-    _pass(body, started) {
+    _pass(body, started, added) {
       var self = this;
       var real = new RealXHR();
       this._real = real;
       this._mode = 'pass';
       real.open(this._method, this._url, this._async, this._user, this._password);
       Object.keys(this._headers).forEach(function (name) { real.setRequestHeader(name, self._headers[name]); });
+      if (added && typeof added === 'object') Object.keys(added).forEach(function (name) { real.setRequestHeader(name, String(added[name])); });
       if (this._responseType && this._async) real.responseType = this._responseType;
       if (this._timeout && this._async) real.timeout = this._timeout;
       real.withCredentials = this._withCredentials;

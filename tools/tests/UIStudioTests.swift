@@ -542,6 +542,24 @@ func selectionChecks() {
     } else { check("PRE-09 cleared", false) }
     if case .cleared = StudioSelectionRevalidation.decide(previous: selected, candidates: []) { check("a vanished element clears the selection", true) } else { check("vanished", false) }
 
+    // BUG-070: a framework's own data requests go to the development server with no-cache, never to the simulation.
+    func framework(_ url: String, _ headers: [String: String] = [:]) -> Bool {
+        StudioConnectionPolicy.isFrameworkRequest(URL(string: url)!, headers: headers)
+    }
+    check("BUG-070 Next.js refresh and navigation payloads are the server's", framework("http://localhost:3000/?_rsc=1x2", ["rsc": "1"])
+          && framework("http://localhost:3000/orders", ["rsc": "1", "next-router-state-tree": "%5B%5D"]))
+    check("BUG-070 Next.js server actions are the server's", framework("http://localhost:3000/", ["next-action": "abc123"]))
+    check("BUG-070 Remix, SvelteKit, Nuxt and Astro data requests are the server's",
+          framework("http://localhost:5173/orders?_data=routes%2Forders") && framework("http://localhost:5173/orders.data")
+          && framework("http://localhost:5173/orders/__data.json?x-sveltekit-invalidated=01") && framework("http://localhost:3000/orders/_payload.json")
+          && framework("http://localhost:3000/__nuxt_island/Card.json") && framework("http://localhost:4321/_server-islands/Cart"))
+    check("BUG-070 the application's own API is not mistaken for a framework request",
+          !framework("http://localhost:3000/api/orders") && !framework("http://localhost:3000/api/data?page=2")
+          && !framework("http://localhost:3000/", ["accept": "text/x-component"]))
+    let pass = StudioBridge.passThrough(adding: StudioConnectionPolicy.frameworkRequestHeaders)
+    check("BUG-070 a framework request passes with no-cache", pass["action"] as? String == "pass"
+          && (pass["headers"] as? [String: String])?["cache-control"] == "no-cache")
+
     // BUG-068: an element without source metadata is found again by what it is, not by where it was.
     func plain(_ tag: String, _ classes: [String], _ text: String, component: String? = nil, node: String? = nil) -> StudioSelectionContext {
         StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": tag, "selector": "body > section:nth-of-type(1) > button",

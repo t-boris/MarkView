@@ -75,6 +75,14 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     func load(_ html: String, seed: Int = 7) async {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
+        // Stands in for the network under the runtime's own fetch, for requests the runtime passes through (BUG-070).
+        controller.addUserScript(WKUserScript(source: """
+            (function () { var real = window.fetch; window.__passed = [];
+              window.fetch = function (input, init) { var r = new Request(input, init);
+                if (r.url.indexOf('/__framework') < 0) return real.apply(this, arguments);
+                window.__passed.push((r.headers.get('cache-control') || '') + '|' + (r.headers.get('rsc') || ''));
+                return Promise.resolve(new Response('payload', { status: 200 })); }; })();
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         let config = "{\"session\":\"\(token)\",\"generation\":\(simulator.generation),\"seed\":\(seed),\"testTime\":1767225600000,"
             + "\"locale\":\"de-DE\",\"timeZone\":\"Europe/Berlin\",\"electron\":false,\"electronGlobals\":[]}"
         controller.addUserScript(WKUserScript(source: source.replacingOccurrences(of: "__MARKVIEW_STUDIO_CONFIG__", with: config),
@@ -127,6 +135,9 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         case .success(.request(let request)):
             let http = StudioHTTPRequest(method: request.method, url: request.url, headers: request.headers, body: request.body,
                                          requestId: request.requestId)
+            if request.url.path == "/__framework" {
+                return replyHandler(StudioBridge.passThrough(adding: ["cache-control": "no-cache"]), nil)
+            }
             if case .respond(let response, _) = simulator.handle(http) {
                 replyHandler(StudioBridge.reply(response), nil)
             } else {
@@ -223,6 +234,12 @@ func run() async {
     let after = await harness.js("const r = await fetch('/api/items'); return (await r.json()).length;") as? NSNumber
     check("a created record appears in the list", after?.intValue == 3, "\(after ?? -1)")
     check("no message was rejected", harness.rejected.isEmpty, harness.rejected.joined(separator: "; "))
+    let passed = await harness.js("""
+        const r = await fetch('/__framework?_rsc=1', { headers: { rsc: '1' } });
+        return (await r.text()) + ' ' + window.__passed.join(',');
+        """) as? String
+    check("BUG-070 a pass-through reaches the server with the headers MarkView adds and the page's own", passed == "payload no-cache|1",
+          passed ?? "nil")
 
     // Reproducible conditions: seeded random numbers, the scenario's clock and locale.
     watchdog.reached("Reproducible conditions")

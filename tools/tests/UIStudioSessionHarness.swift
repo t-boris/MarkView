@@ -218,6 +218,14 @@ func run() async {
     let styled = await text("return getComputedStyle(document.querySelector('#add')).color;")
     check("AC-16 the page's own files load from the development server", styled == "rgb(51, 51, 51)", styled ?? "nil")
 
+    // BUG-070: a framework's refresh/navigation payload request goes to the development server, not to rule preparation.
+    let preparedBefore = CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count
+    let payload = await text("const r = await fetch('/?_rsc=abc', { headers: { rsc: '1' } }); return r.status + ' ' + (await r.text()).includes('<title>Items</title>');")
+    check("BUG-070 a framework data request is answered by the development server", payload == "200 true", payload ?? "nil")
+    check("BUG-070 a framework data request is not prepared as an unknown contract",
+          CLICompletion.requests.filter { $0.label == "ui-studio:prepare" }.count == preparedBefore
+          && session.requests.contains { $0.contract == "GET /" && $0.outcome == "allowed" })
+
     // Shared state across requests, and Reset back to the baseline (AC-03, AC-04).
     watchdog.reached("Shared state across requests, and Reset back to the baseline")
     await clickElement("#add")

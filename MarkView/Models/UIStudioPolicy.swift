@@ -66,6 +66,24 @@ enum StudioConnectionPolicy {
         WKContentRuleListStore.default().removeContentRuleList(forIdentifier: identifier) { _ in }
     }
 
+    /// Data requests a server-rendering framework makes to its own server for navigation, refresh and form actions
+    /// (BUG-070): Next.js server-component payloads and server actions, Remix loaders, SvelteKit data and actions, Nuxt
+    /// payloads and islands, Astro islands and actions. They belong to the development server, never to the simulation.
+    static func isFrameworkRequest(_ url: URL, headers: [String: String]) -> Bool {
+        let names = Set(headers.keys.map { $0.lowercased() })
+        let marked: Set<String> = ["rsc", "next-action", "next-router-state-tree", "next-router-prefetch", "x-sveltekit-action"]
+        if !names.isDisjoint(with: marked) { return true }
+        let query = Set((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map(\.name))
+        if !query.isDisjoint(with: ["_rsc", "_data", "x-sveltekit-invalidated"]) { return true }
+        let path = url.path
+        if ["/__nuxt_island/", "/_server-islands/", "/_actions/"].contains(where: { path.hasPrefix($0) }) { return true }
+        return path.hasSuffix("/__data.json") || path.hasSuffix("/_payload.json") || path.hasSuffix(".data")
+    }
+
+    /// Headers added to a framework request so the development server renders it afresh: Next.js serves cached server
+    /// fetches in development unless the request says `no-cache`.
+    static let frameworkRequestHeaders = ["cache-control": "no-cache"]
+
     /// Requests of the page that may go to their address without asking the simulation: the development server's own
     /// files (modules, styles, pictures, hot reload) and JSON files the app folder serves as they are.
     static func isDevelopmentResource(_ url: URL, appFolder: URL) -> Bool {
