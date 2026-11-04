@@ -1,3 +1,18 @@
+## Research through a mind map — feature mind-map (2026-11-04, issue #293, REQ-001…REQ-005)
+
+Specification: `docs/features/mind-map` (Q-001…Q-004 answered, DEC-001…DEC-005 accepted, F-001…F-003 resolved; DEC-006…DEC-009 and Q-007/Q-008 added while planning). Straight to `main`, no branch or PR (Boris, 2026-11-04). Release 5.29.0 (minor: new feature).
+Architecture (DEC-009): the map is an ordinary editor tab of a `type: research-map` Markdown file. Swift owns the format and every rule; the editor page only draws and sends `researchMap` operations over the existing bridge; no new library, no new tab kind.
+
+- [ ] 1. Specification housekeeping: prototype ZIP verified against v10, overview fixed, decisions DEC-006…DEC-009, questions Q-007/Q-008, spec and prototype committed to `main`
+- [ ] 2. `ResearchMapDocument.swift`: parse and write the format, tolerant of hand edits; operations (add, update, delete with connections, move visually, reparent with cycle check, connect and disconnect, recursive layout, evidence, status, web queries); standalone tests
+- [ ] 3. `ResearchMapPrompt.swift`: prompts for initial research, developing a branch and continuing; `NODE` line parser; limits and evidence verification; standalone tests with recorded and malformed streams
+- [ ] 4. Jobs and bridge: `ResearchJobs.start` creates and opens the map and streams nodes into it; develop, continue, cancel; `researchMap` message in `WebViewBridge`/`EditorView`/`WorkspaceManager`; open-file watcher for map tabs; intake sheet text
+- [ ] 5. Map view `markview-research-map.js` and `markview-research-map-layout.js`: prototype look and interactions, seven layouts, evidence list, status and Continue; layout unit tests (node) and a hidden-WKWebView page test
+- [ ] 6. Register the new files in `project.pbxproj`; Debug build; run every suite that compiles a changed module plus the new ones; CI workflow for the new suites
+- [ ] 7. Bump to 5.29.0, commit, push to `main`, `./release.sh --publish` from a clean worktree, verify version, signature and notarization
+- [ ] 8. Statuses: requirements' criteria, decisions, feature `implemented`, issue #293 commented and closed; wait for the `Build & Release` run of the pushed commit
+- Review: (to be filled in after the release)
+
 ## UI Studio finds every route handler and never holds the page for the assistant — release 5.28.0 (2026-11-04, BUG-088, BUG-089, BUG-090)
 
 - [x] 1. The preparation prompt names the request's route handler and shows its start (`StudioRouteScanner.handler`)
