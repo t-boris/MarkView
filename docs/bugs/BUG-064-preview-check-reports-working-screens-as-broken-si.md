@@ -2,11 +2,12 @@
 type: bug
 id: BUG-064
 title: Preview check reports working screens as broken (sign-in gates, loader check), so the fix round rewrites screens that work
-status: open
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04
 provenance: Created by an AI agent through MarkView
+updated: 2026-11-04
 ---
 
 # Preview check reports working screens as broken (sign-in gates, loader check), so the fix round rewrites screens that work
@@ -33,3 +34,22 @@ Working screens are reported and, in 5.13.1, would be revised one by one at medi
 ## Environment
 
 MarkView 5.12.1 installed, 5.13.1 released (introduced the loader check), main 57cdeff. Project: vivaa-platform, docs/prototypes/client-web-app (40 screens). Related: BUG-062, BUG-063.
+
+## Resolution
+
+Fixed in 5.13.2 (pull request #282, together with BUG-063; release v5.13.2).
+
+- Audit: chunks that no route shows as its own content are the only ones counted as shell, chrome text is left out of the shell count, and a header, nav, aside or footer inside `<main>` is the screen's content.
+- Loader check: `PrototypeAudit.loadProblem` reads only code that runs before the callback returns (function literals and strings are skipped, functions called synchronously are followed to a depth of four) and needs the host cleared and then returned or its child nodes taken. That is what strikedesk's `trade.js` does; the shapes that work are not flagged.
+- The message names what the callback returns.
+
+## Cause
+
+- The audit script counted a text chunk as shell when it appeared on at least 80 percent of the routes, and read the words of a sign-in gate ("Studio", "Sign in", "Orders") as navigation labels, so the whole screen was classified as shell and reported blank. A widget whose root is an `<aside>` was also counted as chrome, though it sits inside `<main>`.
+- The loader check of 5.13.1 (BUG-062, my own change) took any call to a function that clears the host anywhere in the callback's text, an event handler for retry included, and ignored what the callback returns. It was checked on a small corpus, so 7 of 40 vivaa screens were flagged, `gallery.js` among them.
+
+## Verification
+
+`prototype-audit-check.sh` in headless Chrome (the fixture has a sign-in gate and an aside widget, 14 routes checked, 2 skipped; it fails with the old counting and with the old chrome rule), `prototype-fixround-tests.sh` (fails when the host-taking rule or the function-literal rule is removed), every other prototype suite, the Debug build and the three pull request checks. On scratchpad copies of the real prototypes: the old audit reports exactly the four screens of the report on vivaa, the new one none (also none once Tailwind is added); on strikedesk both report workspace (loading), trade (blank) and the placeholder chart; the loader check flags only `trade.js` of 82 real screens. 5.13.1 (Latest until 5.13.2) has the false positives of the loader check; 5.13.2 removes them. Release v5.13.2 is signed and notarized.
+
+Not covered: a live fix round with a real assistant on the vivaa prototype.

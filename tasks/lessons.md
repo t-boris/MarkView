@@ -994,3 +994,18 @@ the answer, with the saved default unchanged because the value was the one alrea
   the code and the report that the threshold was chosen on the same data; and prove the repair on a COPY with the real assistant (here 32% to 92%, 9.4 KB to 42 KB)
   and a headless render next to the real screenshot, not only with synthetic fixtures.
 
+
+## "No longer raw HTML" is not "looks like the real app": compare with the real render
+- BUG-063 shipped in 5.13.2 with a screenshot of a styled vivaa gallery as proof. Boris's next report (StrikeDesk OptionDesk, BUG-065) showed that "styled" was
+  the wrong bar: his requirement is the real result, pixel for pixel. I had never put a prototype screen next to the real application's render.
+- Before saying a visual defect is fixed, render the real application (its own dev server or build, with a stub for what it needs from the host) and the prototype
+  at the same viewport, look at both, and list what differs. A probe took 15 minutes: the real built StrikeDesk renderer in headless Chrome with a stub of
+  `window.strikedesk` already showed the full-height vertical tabs, fonts and colours that the prototype lacked.
+- When a report names one screen, check the cause list in the project's own files first (which stylesheets are linked, which fonts exist), not only the generic
+  mechanism: the OptionDesk stylesheets were copied but linked from no page.
+
+## A narrow rule needs a broad real corpus, and a text lint must read what the defect needs
+- BUG-064: my loader lint of 5.13.1 flagged 7 of 40 vivaa screens because it read a retry handler (code that runs later) and ignored what the callback returns.
+  A defect that has two halves (clear the host, then return it or its children) is found only by reading both halves, and only in code that runs before the
+  callback returns. Tested on 12 screens it looked clean; the 40-screen prototype of the next report broke it.
+- Run a new check over every real unit available (all prototypes on disk) before shipping it, and say which corpus it was checked on.
