@@ -43,17 +43,19 @@ check(hit?.hasPrefix("screens/trade.js:") == true && hit?.contains("root.replace
       "the message names the file, the call and the function: \(hit ?? "nil")")
 check(PrototypeAudit.files(in: hit ?? "") == ["screens/trade.js"], "the lint message points to the screen file for the fix round")
 
-// Directly in the callback, with innerHTML, with an arrow function, and through two levels of calls.
-check(PrototypeAudit.loadProblem(id: "a", content: "host.append(App.load(() => { host.innerHTML = ''; return build(); }));") != nil, "innerHTML in the callback")
-check(PrototypeAudit.loadProblem(id: "a", content: "const el = h('div'); el.appendChild(App.load(function () { el.textContent = ''; return x; }));") != nil, "textContent in the callback")
+// The host is cleared before the callback returns and the callback takes the host or its children: directly, with innerHTML or
+// textContent, with an arrow function, and through two levels of calls.
+check(PrototypeAudit.loadProblem(id: "a", content: "host.append(App.load(() => { host.innerHTML = ''; return host; }));") != nil, "innerHTML, then the host is returned")
+check(PrototypeAudit.loadProblem(id: "a", content: "const el = h('div'); el.appendChild(App.load(function () { el.textContent = ''; const kids = [...el.children]; return wrap(kids); }));") != nil,
+      "textContent, then the children are taken")
 let deep = """
 const draw = () => { paint(); };
 function paint() { box.replaceChildren(a, b); }
-box.append(App.load(() => { draw(); return box; }));
+box.append(App.load(() => { draw(); const out = h('div'); out.append(box.firstChild); return out; }));
 """
 check(PrototypeAudit.loadProblem(id: "a", content: deep) != nil, "a call two levels down")
 
-// What is fine: the shapes the other screens of that prototype use.
+// What is fine: the shapes the other screens of strikedesk use.
 let activity = """
 function draw() { root.replaceChildren(toolbar, rows); }
 return App.load(function () { draw(); return root; });
@@ -69,9 +71,45 @@ host.append(App.load(() => {
 check(PrototypeAudit.loadProblem(id: "roll", content: roll) == nil, "the callback clears its own content, not the host")
 check(PrototypeAudit.loadProblem(id: "x", content: "root.append(App.load(() => build()));\nfunction later() { root.replaceChildren(); }") == nil,
       "a function the callback never calls may clear the host")
-check(PrototypeAudit.loadProblem(id: "x", content: "// root.append(App.load(() => { root.innerHTML = ''; }))\nconst a = 1;") == nil, "a comment is not code")
+check(PrototypeAudit.loadProblem(id: "x", content: "// root.append(App.load(() => { root.innerHTML = ''; return root; }))\nconst a = 1;") == nil, "a comment is not code")
 check(PrototypeAudit.loadProblem(id: "x", content: "root.append(App.load(() => build()));\nroot.innerHTML == '';") == nil, "a comparison is not an assignment")
 check(PrototypeAudit.loadProblem(id: "x", content: "App.register({id: 'x', render() { return h('div'); }});") == nil, "no loader, no finding")
 
+// BUG-064: shapes of the vivaa client-web-app that 5.13.1 flagged although the screens work.
+let retry = """
+let slot = h('div');
+function loadAnswer() {
+  slot.replaceChildren(App.load(async () => {
+    try { return await fetchRows(); }
+    catch (_) { return h('div', {}, h('button', { onClick: () => loadAnswer() }, 'Try again')); }
+  }));
+}
+"""
+check(PrototypeAudit.loadProblem(id: "gallery", content: retry) == nil, "a retry handler inside the callback runs later, not before the callback returns")
+let nested = """
+tab.replaceChildren(App.load(async () => {
+  const orders = await DB.list('Order');
+  const draw = () => tab.replaceChildren(table(orders));
+  return h('div', {}, orders.map(o => cover(o)), h('button', { onClick: function () { draw(); } }, 'Refresh'));
+}));
+function cover(o) { return h('img', {}); }
+"""
+check(PrototypeAudit.loadProblem(id: "orders", content: nested) == nil, "function literals inside the callback are not read")
+// The host's children are taken, and the host is cleared only by a click handler, which runs long after the callback returned.
+let handler = """
+box.append(App.load(() => {
+  const reset = h('button', { onClick: () => box.replaceChildren(rows) }, 'Reset');
+  return [...box.children].length ? reset : h('div', {}, reset);
+}));
+"""
+check(PrototypeAudit.loadProblem(id: "handler", content: handler) == nil, "clearing inside a click handler is not clearing before the callback returns")
+let drawsIn = """
+root.append(App.load(() => { paint(); }));
+function paint() { root.replaceChildren(a, b); }
+"""
+check(PrototypeAudit.loadProblem(id: "drawsin", content: drawsIn) == nil, "a callback that draws into the host and takes nothing from it leaves a working screen")
+let quoted = "root.append(App.load(() => { const s = 'x => { root.replaceChildren(); return root }'; return h('p', {}, s); }));"
+check(PrototypeAudit.loadProblem(id: "q", content: quoted) == nil, "text inside a string is not code")
+
 if failures > 0 { print("\(failures) check(s) failed"); exit(1) }
-print("Prototype fix round: problems name their files, the loader pattern of BUG-062 is found and the neighbouring shapes are not.")
+print("Prototype fix round: problems name their files; the loader defect of BUG-062 (host cleared, then returned or taken) is found and the shapes that work are not (BUG-064).")

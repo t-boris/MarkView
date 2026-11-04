@@ -699,14 +699,29 @@ final class PrototypeSession: ObservableObject, Identifiable {
     }
 
     /// A prototype from code made before MarkView owned the page structure (BUG-060) has a page as tall as its content, so a widget that
-    /// fills its box shows only its toolbar. Opening it links the structure and saves that as a version of its own. No assistant run, and
-    /// nothing at all for a prototype that has it.
-    func ensurePageStructure() {
-        guard manifest.mode == .code, manifest.version > 0, !isBusy, hasSite, PrototypeShellStructure.needsApplying(site: siteFolder) else { return }
+    /// fills its box shows only its toolbar; one made from a Tailwind app before MarkView carried Tailwind (BUG-063) has utility classes
+    /// without a rule, so it opens as raw HTML. Opening it adds what is missing and saves that as a version of its own. No assistant
+    /// run, and nothing at all for a prototype that has them.
+    func ensurePageStructure() async {
+        guard manifest.mode == .code, manifest.version > 0, !isBusy, hasSite else { return }
+        let site = siteFolder
+        let (structure, tailwind) = await Task.detached {
+            (PrototypeShellStructure.needsApplying(site: site), PrototypeTailwind.needsApplying(site: site))
+        }.value
+        guard (structure || tailwind), !isBusy else { return }
+        var summary: [String] = [], found: [String] = []
+        if structure {
+            summary.append("MarkView linked the page structure (markview/structure.css): the page and #app have a definite height, so widgets that fill their box show their content.")
+            found.append("The page had no fixed height, so a widget that fills its box showed only its toolbar.")
+        }
+        if tailwind {
+            summary.append("MarkView added Tailwind (markview/tailwind.js): the source stylesheet is Tailwind v4, so the utility classes of the screens had no rules and the prototype showed raw HTML.")
+            found.append("The prototype is made from a Tailwind app and its utility classes had no styles, so it showed plain HTML.")
+        }
         do {
-            try accept(instruction: "", summary: "MarkView linked the page structure (markview/structure.css): the page and #app have a definite height, so widgets that fill their box show their content.")
-            messages.append(Message(role: .assistant, text: "This prototype's page had no fixed height, so a widget that fills its box showed only its toolbar. "
-                + "MarkView added the page structure as v\(manifest.version); no assistant run. Every earlier version is still under Versions."))
+            try accept(instruction: "", summary: summary.joined(separator: " "))
+            messages.append(Message(role: .assistant, text: "This prototype lacked what MarkView adds itself. " + found.joined(separator: " ")
+                + " MarkView fixed it as v\(manifest.version); no assistant run. Every earlier version is still under Versions."))
         } catch {
             messages.append(Message(role: .error, text: error.localizedDescription))
         }
@@ -725,6 +740,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
         manifest.version += 1
         // The page structure is MarkView's: a version restored from before it, or a revision that dropped the link, gets it back (BUG-060).
         if manifest.mode == .code { try PrototypeShellStructure.ensure(site: siteFolder) }
+        // So is Tailwind, for a site whose stylesheet imports it: the utility classes of the source need it to have any rule (BUG-063).
+        if manifest.mode == .code { try PrototypeTailwind.ensure(site: siteFolder) }
         // A review edit leaves the sources as they were at the sync: the new version has the baseline of the one before it (REQ-009).
         if manifest.mode == .code { PrototypeBaseline.carryForward(folder: folder, from: baselineFrom ?? manifest.version - 1, to: manifest.version) }
         manifest.approved = false

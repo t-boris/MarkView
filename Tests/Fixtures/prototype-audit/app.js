@@ -13,6 +13,8 @@ window.App = (function () {
     { id: 'chain', name: 'Chain', route: '/chain' },
     { id: 'scroller', name: 'Scroller', route: '/scroller' },
     { id: 'folded', name: 'Folded', route: '/folded' },
+    { id: 'gate', name: 'Gate', route: '/gate' },
+    { id: 'rail', name: 'Rail', route: '/rail' },
     { id: 'order', name: 'Order', route: '/orders/:id' },
     { id: 'confirm', name: 'Confirm', route: '/modals/confirm' }
   ];
@@ -47,7 +49,8 @@ window.App = (function () {
     var nav = h('nav');
     plan.filter(function (s) { return s.route.indexOf(':') < 0 && s.route.indexOf('/modals/') !== 0; })
       .forEach(function (s) { nav.append(h('a', { href: '#' + s.route }, s.name), ' '); });
-    app.append(h('header', {}, h('strong', {}, 'Fixture Desk'), nav), h('main', { id: 'outlet' }));
+    // The header carries a sign-in link, as the real shells do, so the gate screen's button repeats a chrome label (BUG-064).
+    app.append(h('header', {}, h('strong', {}, 'Fixture Desk'), nav, h('a', { href: '#/gate' }, 'Sign in')), h('main', { id: 'outlet' }));
     window.addEventListener('hashchange', render);
     render();
   }
