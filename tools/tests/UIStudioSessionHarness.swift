@@ -318,7 +318,8 @@ func run() async {
           questionRequest?.readableFolder?.standardizedFileURL.path == root.standardizedFileURL.path && questionRequest?.allowWeb == false
           && questionRequest?.jsonSchema == nil, "\(questionRequest?.readableFolder?.path ?? "nil") \(questionRequest?.allowWeb ?? true)")
     check("the first question has no earlier conversation", questionRequest?.prompt.contains("previous_conversation") == false)
-    check("a turn of an earlier session stays in the thread but is not sent", session.history.first?.id == "op-earlier"
+    check("BUG-075 a turn of an earlier session stays in History, not in the new conversation, and is not sent",
+          session.history.first?.id == "op-earlier" && !session.conversation.contains { $0.id == "op-earlier" }
           && CLICompletion.requests.allSatisfy { !$0.prompt.contains("consent banner") })
 
     // The conversation is a thread with memory: the request being answered stays visible until its turn is in the
@@ -350,6 +351,17 @@ func run() async {
           "\(String(describing: session.pendingTurn)) \(session.history.count)")
     CLICompletion.answer = { request in assistant.respond(request) }
 
+    // Clear starts a new conversation: the thread empties, the assistant forgets it, History keeps every turn (BUG-075).
+    check("BUG-075 the conversation holds this session's turns", session.conversation.map(\.request) == ["What does this button do?", "And why is it here?"],
+          session.conversation.map(\.request).joined(separator: " | "))
+    session.clearConversation()
+    check("BUG-075 Clear empties the conversation and keeps History", session.conversation.isEmpty && session.history.count == answered)
+    session.ask("Where does it post?")
+    _ = await idle()
+    let fresh = CLICompletion.requests.last { $0.label == "ui-studio:question" }?.prompt ?? ""
+    check("BUG-075 after Clear the assistant gets no earlier turns", !fresh.contains("previous_conversation")
+          && !fresh.contains("What does this button do?") && session.conversation.map(\.request) == ["Where does it post?"], String(fresh.suffix(400)))
+
     // A change is applied, the app reloads, the scenario is restored and verified (AC-12, AC-13).
     watchdog.reached("A change is applied, the app reloads, the scenario is restored and verified")
     assistant.lock.withLock { assistant.edits = [edit("title", "<h1 class=\"title\">Items</h1>", "<h1 class=\"title\">All items</h1>")] }
@@ -369,8 +381,8 @@ func run() async {
     check("AC-15 the preview shows the change", heading == "All items", heading ?? "nil")
     check("AC-19 before and after captures are linked to the change", first.beforeCapture != nil && first.afterCapture != nil)
     let changePrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
-    check("a change request carries the earlier questions", changePrompt.contains("What does this button do?")
-          && changePrompt.contains("And why is it here?"), String(changePrompt.suffix(900)))
+    check("a change request carries this conversation's question, not those before Clear", changePrompt.contains("Where does it post?")
+          && !changePrompt.contains("What does this button do?"), String(changePrompt.suffix(900)))
 
     // An independent later edit stays when the change is undone (AC-14).
     watchdog.reached("An independent later edit stays when the change is undone")
@@ -824,6 +836,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             check("AC-18 closing the session stops the server it started", answering == nil && session.state == .stopped)
             await externalServerCheck()
             await serverRequestChecks()
+            await lateRuleChecks()
             await serverClockChecks()
         }
         targetChecks()
@@ -881,7 +894,7 @@ class Handler(BaseHTTPRequestHandler):
         base = os.environ.get('API_URL', '')
         try:
             request = urllib.request.Request(base + '/rates', headers={'Authorization': 'Bearer ' + os.environ.get('API_SECRET', '')})
-            with urllib.request.urlopen(request, timeout=8) as answer:
+            with urllib.request.urlopen(request, timeout=3) as answer:
                 rate = str(json.loads(answer.read()).get('rate'))
         except Exception:
             rate = 'error'
@@ -914,7 +927,12 @@ func serverRequestChecks() async {
                                      "responseStatus": 200, "responseBody": #"{"rate":1.23}"#,
                                      "evidence": [["kind": "observation", "detail": "Requested by the server"]]]],
                           "assumptions": ["The rates service returns a rate."]]
-    CLICompletion.answer = { request in assistant.respond(request) }
+    // The agent needs longer than the server gives its call (3 s): a rule prepared when the request arrives comes too late
+    // for that render, so the page must be prepared ahead (BUG-074).
+    CLICompletion.answer = { request in
+        try await Task.sleep(nanoseconds: 4_000_000_000)
+        return assistant.respond(request)
+    }
     let promptsBefore = CLICompletion.requests.count
     let port = freePort()
     let session = StudioSession(root: root)
@@ -928,11 +946,19 @@ func serverRequestChecks() async {
     check("REQ-007 the service address is found in the env file", session.serverConnections.map(\.variable) == ["API_URL"]
           && session.serverConnections.first?.origin == "http://rates.example.test" && session.serverConnections.first?.basePath == "/v2",
           "\(session.serverConnections)")
-    // The first render prepares the unknown contract; Reset renders again with the registered rule.
-    session.reset()
-    _ = await waitUntil(60) { session.busy == nil }
+    // The page's services were prepared before it loaded, so its first render is already simulated (BUG-074).
     let rate = await text("return document.getElementById('rate') ? document.getElementById('rate').textContent : '';")
-    check("REQ-007 the server's request is answered by the simulation", rate == "1.23", rate ?? "nil")
+    check("BUG-074 the first render is simulated although the agent is slower than the server's own deadline", rate == "1.23", rate ?? "nil")
+    let ahead = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
+    check("BUG-074 the page is prepared ahead, with the service's address and variable", ahead.first?.prompt.contains("before it loads") == true
+          && ahead.first?.prompt.contains("API_URL → http://rates.example.test/v2") == true, ahead.first.map { String($0.prompt.prefix(400)) } ?? "no prompt")
+    check("BUG-074 the prepared route is saved, so later sessions do not ask again",
+          StudioStore.loadEnvironment(root)?.preparedRoutes == ["/"], "\(String(describing: StudioStore.loadEnvironment(root)?.preparedRoutes))")
+    let callsAfterStart = CLICompletion.requests.count
+    session.reset()
+    _ = await waitUntil(60) { session.busy == nil && [.ready, .degraded, .failed].contains(session.state) }
+    check("BUG-074 a Reset does not prepare the page again", CLICompletion.requests.count == callsAfterStart,
+          "\(CLICompletion.requests.count - callsAfterStart) more calls")
     let view = seen()
     check("REQ-007 the server ran with the gateway address, a test secret, no proxy and the clock file",
           view["simulated"] == true && view["testSecret"] == true && view["noProxy"] == true && view["clock"] == true, "\(view)")
@@ -940,7 +966,7 @@ func serverRequestChecks() async {
           session.requests.contains { $0.transport == "server" && $0.contract == "GET http://rates.example.test/v2/rates" },
           session.requests.map { "\($0.transport) \($0.contract)" }.joined(separator: " | "))
     let prompts = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
-    check("REQ-007 the assistant is told the server made the request", prompts.contains { $0.prompt.contains("Made by the development server")
+    check("REQ-007 the assistant is told the server makes the requests", prompts.contains { $0.prompt.contains("The development server renders this page")
           && $0.prompt.contains("API_URL") }, prompts.last.map { String($0.prompt.prefix(300)) } ?? "no prompt")
     let environment = (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? ""
     let everything = CLICompletion.requests.map(\.prompt).joined() + session.requests.map(\.url).joined() + session.serverLog + environment
@@ -966,6 +992,50 @@ func serverRequestChecks() async {
           && kill(oldPid, 0) != 0, "\(oldPid) → \(newPid)")
     check("REQ-007 a real address is not redirected", seen()["simulated"] == false && session.state != .failed, "\(seen()) \(session.state)")
     check("REQ-007 the choice is kept in the environment", StudioStore.loadEnvironment(root)?.serverConnections?.first?.mode == .real)
+    await session.close()
+}
+
+/// BUG-074: a server request the page ahead did not cover gets its rule after its page rendered without it (the server
+/// gave up after 3 s); the rule is kept and the page reloads once by itself, so it shows the simulation without a Reset.
+@MainActor
+func lateRuleChecks() async {
+    watchdog.reached("Rules that arrive after the server gave up reload the page")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-late-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? ratesServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    try? "API_URL=http://rates.example.test/v2\nAPI_SECRET=late-secret-4712\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    let rates: [String: Any] = ["rules": [["id": "rates", "method": "GET", "path": "http://rates.example.test/v2/rates", "operation": "respond",
+                                           "responseStatus": 200, "responseBody": #"{"rate":4.56}"#,
+                                           "evidence": [["kind": "observation", "detail": "Requested by the server"]]]], "assumptions": []]
+    // The page ahead finds nothing; the request itself is prepared, slower than the server waits.
+    CLICompletion.answer = { request in
+        if request.prompt.contains("before it loads") {
+            return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+        }
+        try await Task.sleep(nanoseconds: 4_000_000_000)
+        return CLICompletion.Result(text: "", structured: rates, inputTokens: 1, outputTokens: 1, costUSD: 0)
+    }
+    let promptsBefore = CLICompletion.requests.count
+    let port = freePort()
+    let session = StudioSession(root: root)
+    func text(_ script: String) async -> String? { (try? await session.call(script)) as? String }
+    session.start(WebAppTarget(folder: root, label: "rates", command: "python3 server.py \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    var rate = ""
+    let deadline = Date().addingTimeInterval(30)
+    while Date() < deadline {
+        rate = await text("return document.getElementById('rate') ? document.getElementById('rate').textContent : '';") ?? ""
+        if rate == "4.56" { break }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+    }
+    check("BUG-074 a rule that arrives after the server gave up reloads the page, which then shows the simulation", rate == "4.56"
+          && !session.rulesArrivedLate, "\(rate) \(session.state) \(session.stateDetail)")
+    let prompts = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
+    check("REQ-007 the assistant is told the server made the request", prompts.contains { $0.prompt.contains("Made by the development server")
+          && $0.prompt.contains("API_URL") }, prompts.map { String($0.prompt.prefix(120)) }.joined(separator: " | "))
+    check("BUG-074 the late rule is kept for later sessions", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "rates" } == true)
     await session.close()
 }
 

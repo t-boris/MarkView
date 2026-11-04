@@ -132,15 +132,16 @@ enum StudioConnections {
     }
 
     /// The value a secret gets while the server is simulated: shaped like the real one where a library checks the shape.
+    /// A JWT stays a signed JWT (BUG-073): libraries reject tokens with an empty signature, and an auth middleware that
+    /// rejects its key fails closed and sends every page to the login page.
     static func testValue(for name: String, real: String?) -> String {
         let real = real ?? ""
         let plain = "markview-test-" + name.lowercased().replacingOccurrences(of: "_", with: "-")
-        if real.hasPrefix("eyJ"), real.split(separator: ".").count == 3 {
-            func encode(_ json: String) -> String {
-                Data(json.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-                    .replacingOccurrences(of: "=", with: "")
-            }
-            return encode(#"{"alg":"none","typ":"JWT"}"#) + "." + encode(#"{"iss":"markview-test","sub":"markview-test","role":"anon"}"#) + "."
+        if real.hasPrefix("eyJ"), real.split(separator: ".", omittingEmptySubsequences: false).count == 3 {
+            // Only the role claim is copied (anon and service-role keys behave differently); a project ref or any other
+            // claim of the real key never reaches the test value.
+            return StudioTestJWT.make(["iss": .string("markview-test"), "role": .string(StudioTestJWT.role(of: real) ?? "anon"),
+                                       "iat": .number(StudioTestJWT.issuedAt), "exp": .number(StudioTestJWT.expires)])
         }
         for kind in ["sk", "pk", "rk"] where real.hasPrefix(kind + "_live_") || real.hasPrefix(kind + "_test_") {
             return "\(kind)_test_markview_" + name.lowercased()
@@ -376,5 +377,44 @@ enum StudioConnections {
                 if !scan.disclosures.contains(note) { scan.disclosures.append(note) }
             }
         }
+    }
+}
+
+/// Test JWTs (BUG-073, REQ-010): HS256-signed with a fixed key that is published here, so libraries that check a token's
+/// shape (three non-empty segments, a known algorithm) accept it while no real service does. Their dates are fixed and far
+/// apart, so they are valid at any scenario test time and the same on every start.
+enum StudioTestJWT {
+    static let key = "markview-ui-studio-test-key"
+    /// 2023-11-14T22:13:20Z.
+    static let issuedAt: Double = 1_700_000_000
+    /// 2100-01-01T00:00:00Z.
+    static let expires: Double = 4_102_444_800
+    static let roles: Set<String> = ["anon", "authenticated", "service_role"]
+
+    static func make(_ claims: [String: StudioJSON]) -> String {
+        let header = base64URL(Data(StudioJSON.object(["alg": .string("HS256"), "typ": .string("JWT")]).text.utf8))
+        let payload = base64URL(Data(StudioJSON.object(claims).text.utf8))
+        let signature = HMAC<SHA256>.authenticationCode(for: Data("\(header).\(payload)".utf8), using: SymmetricKey(data: Data(key.utf8)))
+        return "\(header).\(payload).\(base64URL(Data(signature)))"
+    }
+
+    /// The claims of a token, without checking its signature; nil when it is not a JWT.
+    static func claims(of token: String) -> [String: StudioJSON]? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return nil }
+        var text = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        text += String(repeating: "=", count: (4 - text.count % 4) % 4)
+        guard let data = Data(base64Encoded: text), let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return StudioJSON(any: object).objectValue
+    }
+
+    /// The role of a real Supabase-style key, when it is one of the known roles: the only claim a test value copies.
+    static func role(of token: String) -> String? {
+        claims(of: token)?["role"]?.stringValue.flatMap { roles.contains($0) ? $0 : nil }
+    }
+
+    static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }

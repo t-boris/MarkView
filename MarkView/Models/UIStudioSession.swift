@@ -101,12 +101,20 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var history: [StudioOperation] = []
     /// The turn the assistant is answering; nil once it is in `history`, and after a failure or Stop.
     @Published private(set) var pendingTurn: PendingTurn?
-    /// The turns of this session: the assistant's memory. The thread shows the whole saved history, but turns of earlier
-    /// sessions are not sent, so yesterday's request about another element cannot steer today's change (BUG-068).
-    private var conversationIds: Set<String> = []
+    /// The turns of the current conversation: the thread shows them and the assistant remembers them. A UI Studio session
+    /// starts with an empty conversation and Clear starts a new one (BUG-075), so yesterday's request about another element
+    /// neither fills the thread nor steers today's change (BUG-068). Every operation stays in History, with undo.
+    @Published private(set) var conversationIds: Set<String> = []
 
-    /// What the assistant remembers of this conversation, oldest first.
-    private var conversation: [StudioOperation] { history.filter { conversationIds.contains($0.id) } }
+    /// The conversation, oldest first.
+    var conversation: [StudioOperation] { history.filter { conversationIds.contains($0.id) } }
+
+    /// Starts a new conversation (BUG-075): the thread is empty and the assistant forgets its turns. History, undo and
+    /// versions are not touched.
+    func clearConversation() {
+        guard busy == nil else { return }
+        conversationIds = []
+    }
     @Published private(set) var busy: String?
     @Published private(set) var busyDetail = ""
     @Published private(set) var captures: [StudioCapture] = []
@@ -152,6 +160,15 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var clockFile: URL?
     /// Whether the server MarkView started was given the clock file (not a webpack server).
     private var serverFollowsClock = false
+    /// Preparations ahead of a page by route (BUG-074): started while the server starts, awaited before the page loads.
+    private var aheadTasks: [String: Task<Void, Never>] = [:]
+    /// Routes prepared ahead in this session, whatever came of it, so a failure is not asked again on every Reset.
+    private var aheadTried: Set<String> = []
+    /// The generation that already reloaded for rules that arrived late (at most once per generation).
+    private var reloadedForRules: Int?
+    /// Rules arrived for a server request after its page had rendered, and the page was not reloaded by itself because the
+    /// person had typed into it: the banner offers Reload (BUG-074).
+    @Published private(set) var rulesArrivedLate = false
 
     /// The Node preload that gives the server the scenario's clock, time zone and locale (DEC-006).
     static var nodePreloadURL = Bundle.main.url(forResource: "markview-ui-studio-node", withExtension: "cjs", subdirectory: "Editor/vendor/js")
@@ -291,6 +308,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         self.server = server
         ownsServer = true
         StudioDevServer.track(server)
+        // The agent reads the project while the server starts; the page waits for it before it loads (BUG-074).
+        beginAhead(scenario.route)
         let deadline = Date().addingTimeInterval(180)
         var round = 0
         while Date() < deadline, !closed {
@@ -458,7 +477,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         pickTask?.cancel()
         workTask?.cancel()
         startTask?.cancel()
-        preparation.cancelAll()
+        preparation.cancelEverything()
         resumeLoadWaiters(false)
         webView.stopLoading()
         let controller = webView.configuration.userContentController
@@ -600,6 +619,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         await restoreKeptCookies()
+        rulesArrivedLate = false
+        if let ahead = beginAhead(scenario.route) {
+            set(.preparing, "Preparing the services the page at \(scenario.route) calls from the server")
+            await ahead.value
+            guard !closed else { return "The session is closed." }
+        }
         guard await loadPage() else {
             if state != .failed { set(.degraded, "The page did not finish loading.") }
             return "The page did not finish loading."
@@ -844,17 +869,27 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         var body = http.body.map { redactor.redact(body: StudioConnections.redact($0, hashes: hashes)) }
         if let text = body, text.count > 4_000 { body = String(text.prefix(4_000)) }
         let headers = redactor.redact(headers: http.headers).mapValues { StudioConnections.redact($0, hashes: hashes) }
-        let context = StudioPreparationContext(contract: contract, method: http.method,
-                                               url: redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes)),
-                                               headers: headers, body: body, attempt: 1, problems: [], serverVariable: source.variable)
-        let relative = appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let usage = recordUsage
-        let preparer = StudioCLIPreparer(project: root, appFolder: relative, spec: simulator.spec) { input, output, cost in
-            Task { @MainActor in usage(input, output, cost) }
-        }
+        let shown = redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes))
+        let group = StudioBridge.Origin(url: http.url)?.text
+        let context = StudioPreparationContext(contract: contract, method: http.method, url: shown, headers: headers, body: body,
+                                               attempt: 1, problems: [], serverVariable: source.variable, group: group)
+        let preparer = makePreparer()
+        let asked = Date()
         updateReadiness()
         Task { [weak self] in
             guard let self else { return reply(.dropped("closed")) }
+            // A request to a service that is being prepared waits for it: that preparation often registers this rule too.
+            if let group {
+                await self.preparation.waitForGroup(group)
+                guard !self.closed else { return reply(.dropped("closed")) }
+                if self.simulator.generation == generation, case .respond(let response, _) = self.simulator.handle(http) {
+                    self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
+                                           transport: source.transport))
+                    reply(.respond(response))
+                    self.noteLateRules(source: source, asked: asked)
+                    return self.updateReadiness()
+                }
+            }
             let outcome = await self.preparation.resolve(context, generation: generation, preparer: preparer,
                                                          currentGeneration: { [weak self] in self?.simulator.generation ?? -1 },
                                                          commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
@@ -862,12 +897,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             switch outcome {
             case .registered:
                 if self.simulator.generation == generation, case .respond(let response, _) = self.simulator.handle(http) {
-                    self.log(RequestRecord(method: http.method, url: self.redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes)),
-                                           contract: contract, outcome: "simulated", status: response.status, transport: source.transport))
+                    self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
+                                           transport: source.transport))
                     reply(.respond(response))
                 } else {
                     reply(.respond(.unresolved(contract, reason: "the rules registered for it do not answer this request.")))
                 }
+                self.noteLateRules(source: source, asked: asked)
             case .unsupported(let reason):
                 self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason))
                 reply(.respond(.unsupported(contract, reason: reason)))
@@ -880,6 +916,91 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             }
             self.updateReadiness()
         }
+    }
+
+    /// The project's assistant, read-only, preparing rules against the environment as it is now.
+    private func makePreparer() -> StudioCLIPreparer {
+        let relative = appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let usage = recordUsage
+        return StudioCLIPreparer(project: root, appFolder: relative, spec: simulator.spec) { input, output, cost in
+            Task { @MainActor in usage(input, output, cost) }
+        }
+    }
+
+    /// Starts preparing the requests the page at `route` makes through the server's simulated connections (BUG-074), unless
+    /// the route was prepared before (saved in the environment) or tried in this session. Returns the preparation to wait
+    /// for before the page loads; nil when there is nothing to prepare.
+    @discardableResult
+    private func beginAhead(_ route: String) -> Task<Void, Never>? {
+        if let task = aheadTasks[route] { return task }
+        let simulated = serverConnections.filter { $0.mode == .simulated && gatewayPorts[$0.variable] != nil }
+        guard !closed, !simulated.isEmpty, !(spec.preparedRoutes ?? []).contains(route), !aheadTried.contains(route) else { return nil }
+        aheadTried.insert(route)
+        let lines = simulated.map { connection in
+            "\(connection.variable) → \(connection.origin)\(connection.basePath)" + (connection.foundIn.isEmpty ? "" : " (read at \(connection.foundIn))")
+        }
+        let context = StudioPreparationContext(contract: "Page \(route): server requests", method: "GET", url: route, headers: [:], body: nil,
+                                               attempt: 1, problems: [], ahead: StudioRouteAhead(route: route, connections: lines))
+        let services = Set(simulated.map(\.origin))
+        let preparer = makePreparer()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let outcome = await self.preparation.prepareAhead(context, services: services, preparer: preparer,
+                                                              commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
+            self.aheadTasks[route] = nil
+            switch outcome {
+            case .registered: self.markPrepared(route)
+            case .cancelled: self.aheadTried.remove(route)
+            default: break
+            }
+            self.updateReadiness()
+        }
+        aheadTasks[route] = task
+        return task
+    }
+
+    /// Remembers that the page at `route` is prepared, so later sessions do not ask the agent again.
+    private func markPrepared(_ route: String) {
+        var next = simulator.spec
+        var routes = next.preparedRoutes ?? []
+        guard !routes.contains(route) else { return }
+        routes.append(route)
+        next.preparedRoutes = routes
+        simulator.replaceSpec(next)
+        spec = simulator.spec
+        persistEnvironment()
+    }
+
+    /// How long a server request may wait for its rules before its page has most likely rendered without them: an
+    /// application gives its own calls a deadline of a few seconds (vivaa: 5 s).
+    static let lateRules: TimeInterval = 3
+
+    /// A server request whose rules arrived after its page rendered without them (BUG-074): the page reloads once so it
+    /// renders with the simulation, unless the person typed into it; then the banner offers Reload.
+    private func noteLateRules(source: StudioRequestSource, asked: Date) {
+        guard source.variable != nil, Date().timeIntervalSince(asked) > Self.lateRules, !closed, appURL != nil else { return }
+        let generation = simulator.generation
+        guard reloadedForRules != generation else { return }
+        reloadedForRules = generation
+        Task { [weak self] in
+            guard let self else { return }
+            let typed = (try? await self.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
+            guard !self.closed, self.simulator.generation == generation else { return }
+            if typed {
+                self.rulesArrivedLate = true
+            } else {
+                self.reloadPage()
+            }
+        }
+    }
+
+    /// Loads the current address again, as a fresh server render, keeping the scenario's state (the banner's Reload).
+    func reloadPage() {
+        rulesArrivedLate = false
+        guard let url = webView.url ?? appURL else { return }
+        var page = URLRequest(url: url)
+        StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
+        webView.load(page)
     }
 
     /// Registers a proposal atomically and keeps it for later sessions (rules are reusable: SIM-05).
@@ -1385,7 +1506,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     func cancelWork() {
         workTask?.cancel()
-        preparation.cancelAll()
+        preparation.cancelEverything()
     }
 
     private func progress(_ activity: CLICompletion.Activity) {
@@ -1554,7 +1675,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     /// Answers the assistant's question and runs the change with it.
     func answerClarification(_ operation: StudioOperation, choice: String) {
-        // The question being answered belongs to the conversation, even when an earlier session asked it.
+        // The question being answered belongs to the conversation.
         conversationIds.insert(operation.id)
         change(operation.request, clarification: choice, replacing: operation)
     }

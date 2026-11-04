@@ -2,7 +2,7 @@
 type: feature
 id: markview-ui-studio
 title: MarkView UI Studio
-status: implemented
+status: implementing
 owner: Boris Tsekinovsky
 created: 2026-11-04
 provenance: Created from the feature intake

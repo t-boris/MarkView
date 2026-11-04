@@ -1041,6 +1041,11 @@
   window.addEventListener('popstate', function () { noteActivity(); notify('route', location.pathname + location.search + location.hash); });
   window.addEventListener('hashchange', function () { noteActivity(); notify('route', location.pathname + location.search + location.hash); });
 
+  // The address the person last typed into the page at (BUG-074): an automatic reload for simulation rules that arrived
+  // late would lose that text, so MarkView asks before reloading.
+  var typedOn = null;
+  document.addEventListener('input', function (event) { if (event.isTrusted) typedOn = location.pathname + location.search; }, true);
+
   // MARK: Electron renderer stand-ins
 
   if (config.electron) {
@@ -1690,6 +1695,7 @@
     setRecording: function (on) { recording = !!on; return recording; },
     replay: replay,
     whenIdle: whenIdle,
+    typedSinceRoute: function () { return typedOn === location.pathname + location.search; },
     prepareCapture: prepareCapture,
     finishCapture: finishCapture,
     rendering: rendering,

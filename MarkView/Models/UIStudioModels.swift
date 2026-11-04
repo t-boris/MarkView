@@ -131,6 +131,9 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     var serverConnections: [StudioServerConnection]? = nil
     /// Secret variables the person keeps real when MarkView starts the server; the others get test values (REQ-007).
     var keptSecrets: [String]? = nil
+    /// Routes whose server requests were prepared ahead of the page (BUG-074), so that happens once per project, not once
+    /// per session. Optional, so files written before it still decode.
+    var preparedRoutes: [String]? = nil
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
 }

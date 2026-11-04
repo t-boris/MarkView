@@ -447,6 +447,11 @@ struct ContentView: View {
                                  selected: { if case .discussions? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDiscussions()
                     }
+                    // REQ-011: UI Studio one click away, not only in the AI tools menu.
+                    headerButton("macwindow.and.cursorarrow", help: "UI Studio (⌘7): the project's real interface with simulated data — select, ask, change", width: controlWidth,
+                                 selected: { if case .uiStudio? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
+                        workspaceManager.openUIStudio()
+                    }
                 }
                 browserMenu.frame(width: controlWidth, height: controlWidth)
                 headerButton("magnifyingglass", help: "Search project (⌘⇧K)", width: controlWidth) {

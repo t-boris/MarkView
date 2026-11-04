@@ -1,9 +1,13 @@
 import Foundation
 
-/// The bounds of automatic preparation (§12): one deadline per contract, at most two attempts, a few at a time, and a budget
+/// The bounds of automatic preparation (§12): a deadline per attempt, at most two attempts, a few at a time, and a budget
 /// per session, after which the problem is shown instead of asking the model again.
 struct StudioPreparationLimits: Equatable {
-    var deadline: TimeInterval = 30
+    /// One attempt's time, counted from when it gets a slot: waiting in the queue does not use it up (BUG-074). An agent
+    /// that reads a large project needs well over 30 s.
+    var deadline: TimeInterval = 90
+    /// How long a preparation waits for a free slot before it ends as timed out.
+    var queueWait: TimeInterval = 120
     var maxAttempts = 2
     var maxConcurrent = 2
     var maxContracts = 40
@@ -21,6 +25,20 @@ struct StudioPreparationContext: Sendable, Equatable {
     var problems: [String]
     /// The environment variable through which the development server made the request; nil for the page's requests (REQ-007).
     var serverVariable: String? = nil
+    /// The service the request goes to (its origin). A request to a service that is being prepared waits for that
+    /// preparation, which often registers its rule too (BUG-074).
+    var group: String? = nil
+    /// Set for a preparation ahead of the page instead of one unknown request.
+    var ahead: StudioRouteAhead? = nil
+}
+
+/// The requests a page makes through the development server's simulated connections, prepared before the page loads
+/// (BUG-074): an application gives its own server calls a deadline of a few seconds, far less than an agent needs, so a
+/// rule prepared when the request arrives always comes too late for that render.
+struct StudioRouteAhead: Sendable, Equatable {
+    var route: String
+    /// One line per simulated connection: `VARIABLE → address (first read at file:line)`.
+    var connections: [String]
 }
 
 /// Prepares rules for unknown requests (the environment agent). The app's implementation asks the project's assistant
@@ -41,8 +59,8 @@ enum StudioPreparationOutcome: Equatable {
 }
 
 /// Unknown requests and their preparation (SIM-07, SIM-08, SIM-10; plan I-4). One task per contract however many requests
-/// wait for it; a result is registered only while its session generation is current, before its deadline and when it passes
-/// validation, all at once (no partial state).
+/// wait for it; a result is registered only while its session generation is current and when it passes validation, all at
+/// once (no partial state). An agent that is still working at its attempt's deadline is cancelled.
 @MainActor
 final class StudioPreparationQueue: ObservableObject {
     struct Record: Identifiable, Equatable {
@@ -61,6 +79,11 @@ final class StudioPreparationQueue: ObservableObject {
     let limits: StudioPreparationLimits
     @Published private(set) var records: [String: Record] = [:]
     private var running: [String: Task<StudioPreparationOutcome, Never>] = [:]
+    /// Preparations ahead of a page: they belong to the environment, not to a scenario's generation, so Reset and another
+    /// scenario do not cancel them (rules are reusable, SIM-05); closing the session does.
+    private var ahead: [String: Task<StudioPreparationOutcome, Never>] = [:]
+    /// The service of each running preparation, request or ahead (`group`).
+    private var groups: [String: Set<String>] = [:]
     private var active = 0
     private var slotWaiters: [CheckedContinuation<Void, Never>] = []
     /// Model calls made, for the "0 calls for registered rules" check (§12).
@@ -71,11 +94,14 @@ final class StudioPreparationQueue: ObservableObject {
     }
 
     var ordered: [Record] { records.values.sorted { $0.started > $1.started } }
-    var isBusy: Bool { !running.isEmpty }
+    var isBusy: Bool { !running.isEmpty || !ahead.isEmpty }
+
+    /// The generation of preparations ahead of a page, which no scenario change makes stale.
+    static let environmentGeneration = -1
 
     /// Waits for the rule of `context.contract`. `commit` validates and registers a proposal and returns its problems (empty
-    /// = registered); it is called on the main actor only while `currentGeneration()` still equals `generation` and before
-    /// the deadline. A contract that failed is not prepared again until `retry` (bounded attempts).
+    /// = registered); it is called on the main actor only while `currentGeneration()` still equals `generation`. A contract
+    /// that failed is not prepared again until `retry` (bounded attempts).
     func resolve(_ context: StudioPreparationContext, generation: Int, preparer: StudioRulePreparing,
                  currentGeneration: @escaping @MainActor () -> Int,
                  commit: @escaping @MainActor (StudioProposal) -> [String]) async -> StudioPreparationOutcome {
@@ -100,24 +126,65 @@ final class StudioPreparationQueue: ObservableObject {
             return .limitReached
         }
         records[contract] = Record(contract: contract, generation: generation, status: .waiting)
-        let deadline = Date().addingTimeInterval(limits.deadline)
         let task = Task { @MainActor [weak self] () -> StudioPreparationOutcome in
             guard let self else { return .cancelled }
-            return await self.run(context, generation: generation, deadline: deadline, preparer: preparer,
-                                  currentGeneration: currentGeneration, commit: commit)
+            return await self.run(context, generation: generation, preparer: preparer, currentGeneration: currentGeneration, commit: commit)
         }
         running[contract] = task
+        if let group = context.group { groups[contract] = [group] }
         let outcome = await task.value
         running[contract] = nil
+        groups[contract] = nil
         finish(contract, generation: generation, outcome: outcome)
         return outcome
     }
 
-    /// Ends every preparation (Reset, another scenario, Stop): late answers are dropped (SIM-10, AC-07).
+    /// Prepares the requests of a page before it loads (BUG-074). One preparation per contract however many callers wait;
+    /// its result is registered whatever the scenario's generation is by then, because rules belong to the environment.
+    func prepareAhead(_ context: StudioPreparationContext, services: Set<String>, preparer: StudioRulePreparing,
+                      commit: @escaping @MainActor (StudioProposal) -> [String]) async -> StudioPreparationOutcome {
+        let contract = context.contract
+        if let task = ahead[contract] {
+            records[contract]?.requests += 1
+            return await task.value
+        }
+        let generation = Self.environmentGeneration
+        records[contract] = Record(contract: contract, generation: generation, status: .waiting)
+        let task = Task { @MainActor [weak self] () -> StudioPreparationOutcome in
+            guard let self else { return .cancelled }
+            return await self.run(context, generation: generation, preparer: preparer, currentGeneration: { generation }, commit: commit)
+        }
+        ahead[contract] = task
+        groups[contract] = services
+        let outcome = await task.value
+        ahead[contract] = nil
+        groups[contract] = nil
+        finish(contract, generation: generation, outcome: outcome)
+        return outcome
+    }
+
+    /// Waits until no preparation for `group` (a service's origin) is running, so a request to a service that is being
+    /// prepared does not start a second model call for rules that are about to be registered.
+    func waitForGroup(_ group: String) async {
+        while let task = groups.first(where: { $0.value.contains(group) }).flatMap({ running[$0.key] ?? ahead[$0.key] }) {
+            _ = await task.value
+            // The task's own caller clears its entry after this resumes; give it the turn.
+            await Task.yield()
+        }
+    }
+
+    /// Ends every preparation of the scenario's requests (Reset, another scenario, Stop): late answers are dropped (SIM-10,
+    /// AC-07). Preparations ahead of a page go on: their rules do not depend on the scenario.
     func cancelAll() {
         for task in running.values { task.cancel() }
         for waiter in slotWaiters { waiter.resume() }
         slotWaiters = []
+    }
+
+    /// Ends every preparation, those ahead of a page too (the session closes, or its connections change).
+    func cancelEverything() {
+        for task in ahead.values { task.cancel() }
+        cancelAll()
     }
 
     /// Forgets a failed contract so the next request prepares it again (the user's "Retry").
@@ -127,16 +194,16 @@ final class StudioPreparationQueue: ObservableObject {
     }
 
     func clear() {
-        cancelAll()
+        cancelEverything()
         records = [:]
     }
 
     // MARK: Running
 
-    private func run(_ context: StudioPreparationContext, generation: Int, deadline: Date, preparer: StudioRulePreparing,
+    private func run(_ context: StudioPreparationContext, generation: Int, preparer: StudioRulePreparing,
                      currentGeneration: @escaping @MainActor () -> Int,
                      commit: @escaping @MainActor (StudioProposal) -> [String]) async -> StudioPreparationOutcome {
-        guard await acquireSlot(until: deadline) else {
+        guard await acquireSlot(until: Date().addingTimeInterval(limits.queueWait)) else {
             return Task.isCancelled ? .cancelled : .timedOut
         }
         defer { releaseSlot() }
@@ -151,7 +218,7 @@ final class StudioPreparationQueue: ObservableObject {
             attemptContext.problems = problems
             let request = attemptContext
             modelCalls += 1
-            let answer = await Self.withDeadline(deadline) { try await preparer.prepare(request) }
+            let answer = await Self.withDeadline(Date().addingTimeInterval(limits.deadline)) { try await preparer.prepare(request) }
             // Every check happens here, on the main actor, right before the state could change.
             if Task.isCancelled { return .cancelled }
             if currentGeneration() != generation { return .stale }
@@ -162,7 +229,8 @@ final class StudioPreparationQueue: ObservableObject {
                 problems = [message]
                 if attempt == limits.maxAttempts { return .failed(message) }
             case .value(let proposal):
-                if Date() >= deadline { return .timedOut }
+                // An answer that arrived is used even when the request that asked for it has given up: its rules serve
+                // the next request (BUG-074). The deadline is enforced by cancelling the agent, not by dropping answers.
                 if proposal.unsupported { return .unsupported(proposal.reason.isEmpty ? "a dependency outside the first release" : proposal.reason) }
                 let refused = commit(proposal)
                 if refused.isEmpty { return .registered(rules: proposal.rules.map(\.id)) }

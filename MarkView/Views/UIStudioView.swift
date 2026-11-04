@@ -213,6 +213,29 @@ struct UIStudioView: View {
                 panel = .environment
             }
         }
+        if session.state == .preparing, session.busy == nil {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(session.stateDetail).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Spacer()
+                Button("Cancel") { session.cancelWork() }.controlSize(.small)
+                    .help("Stop preparing; requests without a rule then end in a controlled error")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(VSDark.bgBanner)
+        }
+        if session.rulesArrivedLate {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.clockwise.circle").uiFont(size: 10).foregroundColor(VSDark.blue)
+                Text("New simulation rules are ready for requests this page made before they existed. Reload to render it with them.")
+                    .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Reload") { session.reloadPage() }.controlSize(.small)
+                    .help("Load this address again: the scenario's data stays, text typed on this page is lost")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(VSDark.bgBanner)
+        }
         if let busy = session.busy {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -385,17 +408,18 @@ struct UIStudioView: View {
 
     private static let threadEnd = "thread-end"
 
-    /// The conversation: every question and change of the session, oldest at the top, then the request being answered.
-    /// It follows the newest turn.
+    /// The conversation: the questions and changes since the session opened or was cleared, oldest at the top, then the
+    /// request being answered (BUG-075). It follows the newest turn.
     private var thread: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    if session.history.isEmpty, session.pendingTurn == nil {
-                        Text("Questions and changes appear here as a conversation. The assistant remembers the last turns, so a follow-up can refer to them.")
+                    if session.conversation.isEmpty, session.pendingTurn == nil {
+                        Text("A new conversation. Questions and changes appear here, and the assistant remembers the last turns, so a "
+                             + "follow-up can refer to them. Earlier changes are in History, where they can be undone.")
                             .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     }
-                    ForEach(session.history) { operation in
+                    ForEach(session.conversation) { operation in
                         turn(operation)
                     }
                     if let pending = session.pendingTurn {
@@ -412,8 +436,8 @@ struct UIStudioView: View {
 
     /// Changes when a request is sent, and when a turn is added, answered or replaced.
     private var threadPosition: String {
-        let last = session.history.last
-        return "\(session.history.count)|\(last?.id ?? "")|\(last?.status.rawValue ?? "")|\(session.pendingTurn?.started.timeIntervalSince1970 ?? 0)"
+        let last = session.conversation.last
+        return "\(session.conversation.count)|\(last?.id ?? "")|\(last?.status.rawValue ?? "")|\(session.pendingTurn?.started.timeIntervalSince1970 ?? 0)"
     }
 
     private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool) {
@@ -518,7 +542,7 @@ struct UIStudioView: View {
                 Button(option) { session.answerClarification(operation, choice: option) }
                     .controlSize(.small).disabled(session.busy != nil)
             }
-            if session.history.last(where: { $0.status == .clarification })?.id == operation.id {
+            if session.conversation.last(where: { $0.status == .clarification })?.id == operation.id {
                 Text("Or type the answer below and press Change.").uiFont(size: 10).foregroundColor(VSDark.textDim)
             }
         }
@@ -532,6 +556,9 @@ struct UIStudioView: View {
                 .focused($draftFocused)
             DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
             HStack {
+                Button("Clear") { session.clearConversation() }
+                    .disabled(session.conversation.isEmpty || session.busy != nil)
+                    .help("Start a new conversation: the thread empties and the assistant forgets it. Every change stays in History, where it can be undone")
                 Text(session.selection == nil ? "Select an element first." : "Ask reads only. Change edits the project's source files.")
                     .uiFont(size: 9).foregroundColor(VSDark.textDim)
                 Spacer()
@@ -544,7 +571,8 @@ struct UIStudioView: View {
                 }
                 .disabled(!canSend).help("A question about the selected element; nothing in the project changes")
                 Button("Change") {
-                    if let pending = session.history.last(where: { $0.status == .clarification }) {
+                    // Only a question of this conversation is answered; one from before Clear is not.
+                    if let pending = session.conversation.last(where: { $0.status == .clarification }) {
                         session.answerClarification(pending, choice: draft)
                     } else {
                         session.change(draft)

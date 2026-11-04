@@ -259,6 +259,45 @@ func preparationChecks() async {
     if case .unsupported = rx, case .unsupported = ry { check("an unsupported dependency is reported, not registered", true) } else { check("unsupported reported", false) }
     let over = await bounded.resolve(context("GET /c"), generation: 1, preparer: counter, currentGeneration: { 1 }, commit: { _ in [] })
     check("the preparation budget is bounded", over == .limitReached)
+
+    // BUG-074: the deadline is per attempt and starts when the attempt gets a slot, so queued preparations still finish.
+    let queued = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 0.5, queueWait: 5, maxAttempts: 1, maxConcurrent: 1, maxContracts: 40))
+    let steady = StubPreparer(delay: 300_000_000) { _ in StudioProposal() }
+    async let q1 = queued.resolve(context("GET /q1"), generation: 1, preparer: steady, currentGeneration: { 1 }, commit: { _ in [] })
+    async let q2 = queued.resolve(context("GET /q2"), generation: 1, preparer: steady, currentGeneration: { 1 }, commit: { _ in [] })
+    async let q3 = queued.resolve(context("GET /q3"), generation: 1, preparer: steady, currentGeneration: { 1 }, commit: { _ in [] })
+    let (o1, o2, o3) = await (q1, q2, q3)
+    check("BUG-074 waiting for a slot does not use up a preparation's deadline",
+          [o1, o2, o3].allSatisfy { $0 == .registered(rules: []) }, "\(o1) \(o2) \(o3)")
+
+    // BUG-074: a preparation ahead of a page belongs to the environment: Reset (cancelAll) does not drop it; closing does.
+    let aheadQueue = StudioPreparationQueue()
+    var aheadSimulator = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
+    var aheadContext = context("Page /: server requests")
+    aheadContext.ahead = StudioRouteAhead(route: "/", connections: ["API_URL → http://api.example.test"])
+    let aheadTask = Task { @MainActor in
+        await aheadQueue.prepareAhead(aheadContext, services: ["http://api.example.test"], preparer: StubPreparer(delay: 300_000_000, make: labels),
+                                      commit: { aheadSimulator.register($0) })
+    }
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    aheadSimulator.activate(emptyScenario)
+    aheadQueue.cancelAll()
+    // A request to the same service waits for the preparation ahead instead of asking the model a second time.
+    let waitStarted = Date()
+    await aheadQueue.waitForGroup("http://api.example.test")
+    let aheadOutcome = await aheadTask.value
+    check("BUG-074 a request to a service that is being prepared waits for it", Date().timeIntervalSince(waitStarted) >= 0.2,
+          "\(Date().timeIntervalSince(waitStarted))")
+    check("BUG-074 a preparation ahead survives Reset and registers its rules", aheadOutcome == .registered(rules: ["list-labels"])
+          && aheadSimulator.spec.rules.contains { $0.id == "list-labels" }, "\(aheadOutcome)")
+    let closingQueue = StudioPreparationQueue()
+    let closing = Task { @MainActor in
+        await closingQueue.prepareAhead(aheadContext, services: [], preparer: StubPreparer(delay: 400_000_000, make: labels), commit: { _ in [] })
+    }
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    closingQueue.cancelEverything()
+    let closedOutcome = await closing.value
+    check("BUG-074 closing the session cancels a preparation ahead", closedOutcome == .cancelled, "\(closedOutcome)")
 }
 
 // MARK: - Redaction and environment (REQ-006)
@@ -1009,8 +1048,28 @@ func connectionChecks() {
           byName["TEST_ONLY_URL"] == nil && byName["E2E_ONLY_URL"] == nil && byName["OTHER_URL"] == nil && byName["NODE_MODULE_URL"] == nil)
     check("REQ-007 secrets get test values shaped like the real ones",
           found.testValues["API_SECRET"] == "markview-test-api-secret" && found.testValues["STRIPE_SECRET_KEY"] == "sk_test_markview_stripe_secret_key"
-          && found.testValues["SUPABASE_ANON_KEY"]?.hasPrefix("eyJ") == true && found.testValues["SUPABASE_ANON_KEY"]?.hasSuffix(".") == true
+          && found.testValues["SUPABASE_ANON_KEY"]?.hasPrefix("eyJ") == true
           && found.testValues["DATABASE_URL"] == nil, found.secrets.joined(separator: ","))
+    // vivaa's @vivaa/auth isSupportedAnonKey: an auth middleware that rejects its key fails closed and sends every page to
+    // the login page (BUG-073).
+    func supportedAnonKey(_ value: String) -> Bool {
+        let segments = value.split(separator: ".", omittingEmptySubsequences: false)
+        return (segments.count == 3 && segments.allSatisfy { !$0.isEmpty })
+            || (value.hasPrefix("sb_publishable_") && value.count > "sb_publishable_".count)
+    }
+    let anon = found.testValues["SUPABASE_ANON_KEY"] ?? ""
+    check("BUG-073 a JWT secret's test value is a signed JWT that shape checks accept", supportedAnonKey(anon)
+          && StudioTestJWT.claims(of: anon)?["role"] == .string("anon") && StudioTestJWT.claims(of: anon)?["exp"] == .number(StudioTestJWT.expires)
+          && anon.hasPrefix(StudioTestJWT.base64URL(Data(#"{"alg":"HS256","typ":"JWT"}"#.utf8))), anon)
+    let serviceRole = StudioConnections.testValue(for: "SUPABASE_SERVICE_ROLE_KEY", real: StudioTestJWT.make(
+        ["role": .string("service_role"), "ref": .string("real-project-ref"), "iss": .string("supabase")]))
+    let oddRole = StudioConnections.testValue(for: "SOME_TOKEN", real: StudioTestJWT.make(["role": .string("admin-of-everything")]))
+    check("BUG-073 only a known role claim is copied from the real key", StudioTestJWT.claims(of: serviceRole)?["role"] == .string("service_role")
+          && !"\(StudioTestJWT.claims(of: serviceRole) ?? [:])".contains("real-project-ref")
+          && StudioTestJWT.claims(of: serviceRole)?["iss"] == .string("markview-test")
+          && StudioTestJWT.claims(of: oddRole)?["role"] == .string("anon") && supportedAnonKey(serviceRole), serviceRole)
+    check("BUG-073 the test value is the same on every start", StudioConnections.testValue(for: "SUPABASE_ANON_KEY", real: "eyJa.eyJb.c")
+          == StudioConnections.testValue(for: "SUPABASE_ANON_KEY", real: "eyJa.eyJb.c"))
     check("REQ-007 no real secret value is kept, only its hash",
           found.secretHashes[StudioConnections.hash("real-secret-value-123")] == "API_SECRET"
           && !"\(found.connections)\(found.testValues)\(found.notRedirected)".contains("real-secret-value-123")

@@ -25,9 +25,9 @@ enum StudioPrompts {
 
     static let preparationSystem = """
         You prepare the simulated backend of MarkView UI Studio. The application runs for real in a browser; its JSON REST \
-        requests are answered by declarative rules over one shared state of entities, never by code. For one unknown request \
-        you return the rules, entity definitions and seed records it needs, so that lists, details and writes of the same \
-        entity stay consistent.
+        requests are answered by declarative rules over one shared state of entities, never by code. For one unknown request, \
+        or for the requests one page makes when you are asked to prepare a page ahead, you return the rules, entity \
+        definitions and seed records they need, so that lists, details and writes of the same entity stay consistent.
 
         Rules:
         - Read the project's code (read-only) to find what the request expects: the call site, TypeScript types, API \
@@ -41,10 +41,11 @@ enum StudioPrompts {
           never real credentials.
         - When the request needs GraphQL, a WebSocket, a database or a third-party SDK, set \
           `unsupported` to true and explain in `reason`.
-        - Add rules only for the request's resource and the closely related ones (its list, detail and writes).
+        - Add rules only for the requests you are asked about and the closely related ones (their lists, details and writes).
         """ + "\n" + dataNotInstructions
 
     static func preparationPrompt(_ context: StudioPreparationContext, spec: StudioEnvironmentSpec, appFolder: String) -> String {
+        if let ahead = context.ahead { return aheadPrompt(ahead, context: context, spec: spec, appFolder: appFolder) }
         var lines = ["Unknown request seen by MarkView UI Studio: \(context.method) \(context.url)", "Contract: \(context.contract)",
                      context.serverVariable.map { "Made by the development server (server-side code), through the environment variable \($0): "
                          + "search the server code that reads it, not the browser code." } ?? "Made by the page in the browser.",
@@ -63,6 +64,34 @@ enum StudioPrompts {
             lines.append("Your previous answer was refused for these reasons; fix them:\n" + context.problems.map { "- " + $0 }.joined(separator: "\n"))
         }
         lines.append("Return the rules, entities and records for this request.")
+        return lines.joined(separator: "\n\n")
+    }
+
+    /// The requests the page at a route makes through the server's simulated connections, prepared before it loads
+    /// (BUG-074): the application gives each of those calls a few seconds, far less than a preparation takes.
+    static func aheadPrompt(_ ahead: StudioRouteAhead, context: StudioPreparationContext, spec: StudioEnvironmentSpec, appFolder: String) -> String {
+        var lines = ["Prepare MarkView UI Studio's simulation for the page at route `\(ahead.route)` before it loads.",
+                     "The development server renders this page and, while it does, calls the services below through environment variables "
+                         + "that UI Studio points at its simulation. The application gives each call only a few seconds, so every rule must "
+                         + "exist before the page loads.",
+                     "Simulated services (variable → the address the server calls; where the code reads it):\n"
+                         + ahead.connections.map { "- " + $0 }.joined(separator: "\n"),
+                     "Application folder (relative to the project): \(appFolder.isEmpty ? "." : appFolder)",
+                     "Find the server-side code that runs for this route: its layouts, its page, and the components and data functions they "
+                         + "call. Follow each call to one of these services through the code that builds it, and return a rule for every such "
+                         + "request. A rule's path is the full URL: the service's address, then the request's path (`:id` style parameters "
+                         + "for parts that vary). Include the entities and seed records the answers need. Requests the page makes later in "
+                         + "the browser are prepared when they happen."]
+        let entities = spec.entities.map { entity in
+            "- \(entity.name) (id \(entity.idField)): " + entity.fields.map { "\($0.name):\($0.type)\($0.required ? "!" : "")" }.joined(separator: ", ")
+        }
+        lines.append("Entities already registered:\n" + (entities.isEmpty ? "(none)" : entities.joined(separator: "\n")))
+        let rules = spec.rules.map { "- \($0.id): \($0.method) \($0.path) → \($0.operation.rawValue) \($0.entity ?? "")" }
+        lines.append("Rules already registered (do not repeat them):\n" + (rules.isEmpty ? "(none)" : rules.joined(separator: "\n")))
+        if !context.problems.isEmpty {
+            lines.append("Your previous answer was refused for these reasons; fix them:\n" + context.problems.map { "- " + $0 }.joined(separator: "\n"))
+        }
+        lines.append("Return the rules, entities and records for these requests.")
         return lines.joined(separator: "\n\n")
     }
 
