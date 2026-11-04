@@ -2,35 +2,35 @@
 type: feature
 id: bug-validity-check-before-analysis
 title: Bug Validity Check Before Analysis
-status: exploring
+status: implementing
 owner: Boris Tsekinovsky
 created: 2026-11-02
 provenance: Created from the feature intake
 understanding:
   Problem: known
   Target Users: known
-  Primary Workflow: partial
-  Permissions: partial
-  Failure Scenarios: partial
+  Primary Workflow: known
+  Permissions: known
+  Failure Scenarios: known
   Data Model: known
   Notifications: n/a
   Security: known
   Analytics: n/a
   Dependencies: known
-  Acceptance Criteria: partial
+  Acceptance Criteria: known
 understanding_notes:
-  Problem: Нужно исключить повторный анализ и исправление уже устранённых багов.
-  Target Users: Пользователи MarkView, запускающие анализ багов в проекте.
-  Primary Workflow: Проверка перед каждым анализом и автозакрытие заданы; нужно выбрать состояние проекта для проверки.
-  Permissions: Локальное автозакрытие разрешено запросом; автоматическое закрытие GitHub issue не определено.
-  Failure Scenarios: Поведение при недостатке доказательств требует проработки при review; неопределённость сама по себе не подтверждает исправление.
-  Data Model: Уже есть Markdown-отчёты, статусы багов и ссылки на GitHub issues.
-  Notifications: Отдельные уведомления не запрошены.
-  Security: Анализ сейчас читает проект без изменения кода; новых требований безопасности запрос не задаёт.
-  Analytics: Метрики и аналитика не входят в запрос.
-  Dependencies: Известны существующие процессы анализа, хранения статусов и ручной синхронизации GitHub.
-  Acceptance Criteria: Основные переходы заданы; критерий доказанности исправления остаётся открытым.
-questions_left: 3
+  Problem: Открытые отчёты могут описывать уже исправленные проблемы и запускать ненужное расследование.
+  Target Users: Пользователи, запускающие анализ существующих багов в MarkView.
+  Primary Workflow: Перед каждым анализом существующего отчёта выполняется проверка относительно main; доказанное исправление закрывает отчёт, остальные исходы ведут к анализу.
+  Permissions: Разрешено автоматическое локальное закрытие; обновление GitHub остаётся ручным через Sync.
+  Failure Scenarios: Неопределённость сохраняет статус; ошибка сохранения закрытия показывается пользователю и не выдаётся за успех.
+  Data Model: Используются существующие lifecycle-статусы; основание закрытия и проверенная ревизия сохраняются в отчёте. Исход проверки не является новым lifecycle-статусом.
+  Notifications: Отдельные уведомления не нужны; результат и причина закрытия отображаются в текущем анализе.
+  Security: Новые внешние полномочия не добавляются; проверка не реализует исправления и не изменяет GitHub.
+  Analytics: Дополнительная аналитика не требуется для этой функции.
+  Dependencies: Нужны доступ к проверяемой ревизии main и существующее сохранение отчётов; GitHub Sync остаётся отдельным процессом.
+  Acceptance Criteria: Определены обязательные точки проверки, доказательства закрытия, базовая ревизия, обработка неопределённости и остановка расследования.
+questions_left: 0
 issue: "#235"
 ---
 
@@ -46,7 +46,7 @@ A bug report can remain open after its underlying problem has been fixed. The cu
 
 ## Scope
 
-IN: a mandatory validity check before each bug analysis; automatic closure when the problem is established as already fixed; stopping unnecessary investigation; continuing analysis for existing bugs. OUT: implementing bug fixes as part of this feature, bulk cleanup of unselected reports, and changing feature-analysis workflows. OPEN: the evidence required for closure, the project state used for verification, and whether closure also updates GitHub.
+IN: a mandatory validity check before each bug analysis; automatic closure when the problem is established as already fixed; stopping unnecessary investigation; continuing analysis for existing bugs. OUT: implementing bug fixes as part of this feature, bulk cleanup of unselected reports, and changing feature-analysis workflows. Verification uses an identifiable revision of the project's main branch; uncommitted changes and fixes present only on another branch cannot establish resolution. Automatic closure requires concrete evidence that the reported scenario has already been fixed and needs no further correction; inability to reproduce alone is insufficient. Outcomes are still-present, already-fixed, or inconclusive; if main cannot be identified or inspected, the outcome is inconclusive. Investigation continues for still-present and inconclusive outcomes, preserving uncertainty. For already-fixed outcomes, investigation stops only after local closure is saved successfully; save failures must be surfaced without reporting successful closure. Automatic closure updates only the local report; linked GitHub issues remain subject to manually initiated status sync.
 
 ## Existing behaviour
 
