@@ -1376,7 +1376,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             let feature = StudioBridge.browserFeature(of: detail) ?? "browser"
             noteDependency(StudioDependency(id: "browser:" + feature, mode: .simulated,
                                             note: "Answered by the scenario's browser settings. Last use: " + String(detail.prefix(300))))
-        case .runtimeError:
+        case .runtimeError, .logged:
             break
         }
         logPageEvent(event.kind, detail)
@@ -1401,7 +1401,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private func logPageEvent(_ kind: StudioBridge.Event.Kind, _ detail: String) {
         let problem: Bool
         switch kind {
-        case .runtimeError, .buildError, .blocked, .unsupported, .electron: problem = true
+        case .runtimeError, .logged, .buildError, .blocked, .unsupported, .electron: problem = true
         case .browser, .route, .idle, .recorded: problem = false
         }
         sessionLog.add(.page, problem: problem, "\(kind.rawValue): \(detail)")

@@ -1099,6 +1099,9 @@ func processChecks() async {
     func resource(_ path: String) -> Bool { StudioConnectionPolicy.isDevelopmentResource(URL(string: "http://localhost:5173" + path)!, appFolder: folder) }
     check("the development server's own files pass", resource("/src/main.tsx") && resource("/@vite/client") && resource("/assets/logo.svg"))
     check("a JSON file the app folder serves passes", resource("/locales/en.json"))
+    check("BUG-079 the dev server's lazy compilation and own routes pass, never simulated",
+          resource("/lazy-compilation-using-") && resource("/lazy-compilation-using-abc") && resource("/webpack-dev-server/invalidate")
+            && resource("/__parcel_hmr") && resource("/rsbuild-hmr"))
     check("AC-16 application data is never passed through", !resource("/api/projects") && !resource("/api/projects.json") && !resource("/../secret.json"))
 }
 

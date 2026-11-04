@@ -1325,7 +1325,7 @@ struct UIStudioEnvironmentPanel: View {
     private func eventRow(_ group: StudioEventGrouping.Group) -> some View {
         let expanded = expandedEvents.contains(group.id)
         let long = group.detail.count > 200 || group.detail.contains("\n")
-        let color = group.kind == .runtimeError || group.kind == .buildError ? VSDark.red : VSDark.textDim
+        let color = group.kind == .runtimeError || group.kind == .logged || group.kind == .buildError ? VSDark.red : VSDark.textDim
         return HStack(alignment: .top, spacing: 4) {
             if long {
                 Button {

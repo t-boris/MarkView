@@ -270,6 +270,36 @@ func run() async {
     check("BUG-070 a pass-through reaches the server with the headers MarkView adds and the page's own", passed == "payload no-cache|1",
           passed ?? "nil")
 
+    // BUG-079: an Error the application logs is reported with its message and stack. An error of the page's handler that a
+    // simulated XHR calls is surfaced with reportError: rethrown from the runtime, WebKit showed only "Script error.".
+    watchdog.reached("Logged and hidden errors")
+    var errorMark = harness.events.count
+    _ = await harness.js("console.error('plain text only'); console.error('Failed:', new TypeError('settings is undefined')); return 1;")
+    await harness.settle()
+    let logged = harness.events.dropFirst(errorMark).filter { $0.kind == .logged }.map(\.detail)
+    check("BUG-079 an Error passed to console.error is reported with its message",
+          logged.contains { $0.hasPrefix("console.error: TypeError: settings is undefined") }, logged.joined(separator: " | "))
+    check("BUG-079 console.error without an Error object is not reported", !logged.contains { $0.contains("plain text only") })
+    errorMark = harness.events.count
+    _ = await harness.js("""
+        setTimeout(() => eval("console.error(new Error('render failed')); window.strikedeskMissing.settings.get();\\n//# sourceURL=webpack://shell/./src/renderer/App.tsx"), 0);
+        return 1;
+        """)
+    await harness.settle(1.2)
+    let thrown = harness.events.dropFirst(errorMark).filter { $0.kind == .runtimeError }.map(\.detail)
+    check("BUG-079 an error of eval'd webpack:// code is reported with its message",
+          thrown.contains { $0.contains("strikedeskMissing") }, thrown.joined(separator: " | "))
+
+    errorMark = harness.events.count
+    _ = await harness.js("""
+        const x = new XMLHttpRequest(); x.open('GET', '/api/items');
+        x.onload = () => { window.strikedeskMissing.backend.connect(); }; x.send(); return 1;
+        """)
+    await harness.settle(1.2)
+    let fromHandler = harness.events.dropFirst(errorMark).filter { $0.kind == .runtimeError }.map(\.detail)
+    check("BUG-079 an error of the page's handler of a simulated XHR keeps its message (it was \"Script error.\")",
+          fromHandler.contains { $0.contains("strikedeskMissing.backend") }, fromHandler.joined(separator: " | "))
+
     // Reproducible conditions: seeded random numbers, the scenario's clock and locale.
     watchdog.reached("Reproducible conditions")
     let first = await harness.js("return [Math.random(), Math.random()].join(',');") as? String

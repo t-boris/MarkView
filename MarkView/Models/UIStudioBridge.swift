@@ -85,8 +85,12 @@ enum StudioBridge {
 
     struct Event: Equatable {
         enum Kind: String, CaseIterable {
-            /// An uncaught error or rejection, or console.error.
+            /// An uncaught error or rejection.
             case runtimeError
+            /// An Error the application passed to console.error or reportError, with its message and stack (BUG-079). WebKit
+            /// hides both from the error event ("Script error.") when the code runs through eval with a `webpack://` source
+            /// URL, so this is often the only readable account of a crash. Logged; it does not degrade the session itself.
+            case logged
             /// The dev server's build error overlay (Vite, webpack, Next) appeared on the page; an empty
             /// detail says it is gone again (the build works).
             case buildError

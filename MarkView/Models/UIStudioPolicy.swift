@@ -88,8 +88,12 @@ enum StudioConnectionPolicy {
     /// files (modules, styles, pictures, hot reload) and JSON files the app folder serves as they are.
     static func isDevelopmentResource(_ url: URL, appFolder: URL) -> Bool {
         let path = url.path
+        // BUG-079: webpack's and Rspack's lazy compilation (`POST /lazy-compilation-using-…` tells the server which modules
+        // to build), webpack-dev-server's own routes, Rsbuild's and Parcel's, and the stack-frame lookups of the overlays.
         let prefixes = ["/@vite/", "/@fs/", "/@id/", "/@react-refresh", "/node_modules/", "/__vite_ping", "/_next/", "/__nextjs",
-                        "/sockjs-node", "/__webpack_hmr", "/__webpack_dev_server__", "/__open-in-editor", "/@vite-plugin"]
+                        "/sockjs-node", "/__webpack_hmr", "/__webpack_dev_server__", "/__open-in-editor", "/@vite-plugin",
+                        "/lazy-compilation-using-", "/webpack-dev-server", "/__rspack", "/rsbuild-hmr", "/__rsbuild", "/__parcel",
+                        "/__open-stack-frame-in-editor", "/__get-internal-source", "/__original-stack-frame"]
         if prefixes.contains(where: { path.hasPrefix($0) }) || path.contains(".hot-update.") { return true }
         let ext = (path as NSString).pathExtension.lowercased()
         let files: Set<String> = ["js", "mjs", "cjs", "jsx", "ts", "tsx", "vue", "svelte", "css", "scss", "sass", "less", "svg", "png",

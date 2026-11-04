@@ -37,6 +37,16 @@
   var realSetTimeout = window.setTimeout.bind(window);
   var realClearTimeout = window.clearTimeout.bind(window);
   var realRAF = window.requestAnimationFrame ? window.requestAnimationFrame.bind(window) : function (f) { return realSetTimeout(f, 16); };
+  var realReportError = typeof window.reportError === 'function' ? window.reportError : null;
+  // A handler of the page threw while a simulated object (XHR, WebSocket, EventSource, Notification) called it. Rethrowing
+  // from here made WebKit hide its message: the throw was in this script, which has no URL, so the page and its error overlay
+  // only saw "Script error." (BUG-079). reportError hands the page the error itself, as an uncaught error of its own.
+  function surface(error) {
+    if (realReportError) {
+      try { realReportError.call(window, error); return; } catch (ignored) {}
+    }
+    realSetTimeout(function () { throw error; }, 0);
+  }
 
   // MARK: Bridge
 
@@ -224,7 +234,7 @@
     }
     var handler = target['on' + type];
     if (typeof handler === 'function') {
-      try { handler.call(target, event); } catch (error) { realSetTimeout(function () { throw error; }); }
+      try { handler.call(target, event); } catch (error) { surface(error); }
     }
     target.dispatchEvent(event);
   }
@@ -504,7 +514,7 @@
   function fire(target, event) {
     var handler = target['on' + event.type];
     if (typeof handler === 'function') {
-      try { handler.call(target, event); } catch (error) { realSetTimeout(function () { throw error; }, 0); }
+      try { handler.call(target, event); } catch (error) { surface(error); }
     }
     EventTarget.prototype.dispatchEvent.call(target, event);
   }
@@ -1075,7 +1085,7 @@
   function fireNotification(notification, type) {
     var event = new Event(type);
     var handler = notification['on' + type];
-    if (typeof handler === 'function') { try { handler.call(notification, event); } catch (error) { realSetTimeout(function () { throw error; }); } }
+    if (typeof handler === 'function') { try { handler.call(notification, event); } catch (error) { surface(error); } }
     notification.dispatchEvent(event);
   }
   class StudioNotification extends EventTarget {
@@ -1150,6 +1160,43 @@
 
   // MARK: Errors, build overlays, blocked resources, routes
 
+  // Errors the application hands to console.error or reportError (BUG-079). React and most frameworks pass the Error
+  // object itself. WebKit hides the message and stack of an uncaught error thrown by a script of another origin or by a
+  // script without an address: the error event only says "Script error.". What the application logged is then the
+  // readable account of the crash.
+  var lastLogged = null;
+  function errorText(value) {
+    if (!value || typeof value !== 'object') return null;
+    var message = value.message, stack = value.stack;
+    if (typeof message !== 'string' || typeof stack !== 'string') return null;
+    var name = typeof value.name === 'string' && value.name ? value.name : 'Error';
+    var head = name + ': ' + message;
+    return (stack.indexOf(head) === 0 ? stack : head + '\n' + stack).slice(0, 4000);
+  }
+  function noteLogged(value, how) {
+    var text = errorText(value);
+    if (!text) return;
+    lastLogged = { at: performance.now(), text: text };
+    report('logged', how + ': ' + text);
+  }
+  if (window.console && typeof console.error === 'function') {
+    var realConsoleError = console.error;
+    console.error = function () {
+      try {
+        for (var i = 0; i < arguments.length; i++) {
+          if (errorText(arguments[i])) { noteLogged(arguments[i], 'console.error'); break; }
+        }
+      } catch (error) {}
+      return realConsoleError.apply(this, arguments);
+    };
+  }
+  if (realReportError) {
+    window.reportError = function (error) {
+      try { noteLogged(error, 'reportError'); } catch (ignored) {}
+      return realReportError.apply(this, arguments);
+    };
+  }
+
   window.addEventListener('error', function (event) {
     var target = event.target;
     if (target && target !== window && target.tagName) {
@@ -1159,7 +1206,16 @@
     }
     var where = event.filename ? ' (' + event.filename + ':' + event.lineno + ':' + event.colno + ')' : '';
     var stack = event.error && event.error.stack ? '\n' + String(event.error.stack).slice(0, 4000) : '';
-    report('runtimeError', (event.message || 'Error') + where + stack);
+    var hidden = /^Script error\.?$/.test(String(event.message || '')) && !event.filename && !event.error;
+    if (!hidden) return report('runtimeError', (event.message || 'Error') + where + stack);
+    // React and others log the Error just before or just after it is thrown: wait a moment and attach what was logged.
+    var thrownAt = performance.now();
+    realSetTimeout(function () {
+      var logged = lastLogged && Math.abs(lastLogged.at - thrownAt) < 3000 ? lastLogged.text : '';
+      report('runtimeError', 'Script error. WebKit hides the message and stack of this error: it was thrown by a script of '
+        + 'another origin or one without an address.' + (logged ? '\nThe application logged just then:\n' + logged
+        : ' The application logged no Error object with it.'));
+    }, 400);
   }, true);
 
   window.addEventListener('unhandledrejection', function (event) {
