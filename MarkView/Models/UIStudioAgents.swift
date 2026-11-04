@@ -18,7 +18,7 @@ struct StudioCLIPreparer: StudioRulePreparing {
                                             systemPrompt: StudioPrompts.preparationSystem,
                                             jsonSchema: StudioPrompts.preparationSchema,
                                             readableFolder: project)
-        request.timeout = StudioPreparationLimits().deadline + 5
+        request.timeout = StudioPreparationLimits().cliTimeout(for: context)
         request.effort = "low"
         request.allowWeb = false
         request.label = "ui-studio:prepare"

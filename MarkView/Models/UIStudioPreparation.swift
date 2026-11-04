@@ -14,6 +14,13 @@ struct StudioPreparationLimits: Equatable {
     var maxAttempts = 2
     var maxConcurrent = 2
     var maxContracts = 40
+
+    /// One attempt's time for `context`: longer for a page's requests prepared ahead.
+    func deadline(for context: StudioPreparationContext) -> TimeInterval { context.ahead == nil ? deadline : aheadDeadline }
+
+    /// The agent CLI's own limit: a little after the attempt's deadline, so the queue ends the attempt as timed out (no
+    /// retry). A fixed 95 s cut every preparation ahead of a page at 95 s, as a failure, and so twice (BUG-077).
+    func cliTimeout(for context: StudioPreparationContext) -> TimeInterval { deadline(for: context) + 5 }
 }
 
 /// What the agent is given for one unknown request. Bodies and headers are already redacted.
@@ -228,7 +235,7 @@ final class StudioPreparationQueue: ObservableObject {
             attemptContext.problems = problems
             let request = attemptContext
             modelCalls += 1
-            let answer = await Self.withDeadline(Date().addingTimeInterval(deadline(for: context))) { try await preparer.prepare(request) }
+            let answer = await Self.withDeadline(Date().addingTimeInterval(limits.deadline(for: context))) { try await preparer.prepare(request) }
             // Every check happens here, on the main actor, right before the state could change.
             if Task.isCancelled { return .cancelled }
             if currentGeneration() != generation { return .stale }
@@ -251,11 +258,6 @@ final class StudioPreparationQueue: ObservableObject {
             }
         }
         return .failed(problems.first ?? "No rule was prepared.")
-    }
-
-    /// One attempt's time: longer for a page's requests prepared ahead (BUG-076).
-    private func deadline(for context: StudioPreparationContext) -> TimeInterval {
-        context.ahead == nil ? limits.deadline : limits.aheadDeadline
     }
 
     private func finish(_ contract: String, generation: Int, outcome: StudioPreparationOutcome) {

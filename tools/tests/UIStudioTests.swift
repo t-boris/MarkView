@@ -177,6 +177,14 @@ let labels: @Sendable (StudioPreparationContext) -> StudioProposal = { _ in
 
 @MainActor
 func preparationChecks() async {
+    // BUG-077: the agent CLI's own limit follows the attempt's deadline, so a page's preparation ahead gets its 240 s and a
+    // timeout ends the attempt in the queue (no retry), instead of a fixed 95 s that failed it twice.
+    let limits = StudioPreparationLimits()
+    var cliAhead = context("Page /: server requests")
+    cliAhead.ahead = StudioRouteAhead(route: "/", connections: ["API_URL"])
+    check("BUG-077 a request's CLI limit is a little after its 90 s deadline", limits.cliTimeout(for: context("GET /api/labels")) == 95)
+    check("BUG-077 a page's preparation ahead gets 240 s, and the CLI a little longer",
+          limits.deadline(for: cliAhead) == 240 && limits.cliTimeout(for: cliAhead) == 245)
     var simulator = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
     // AC-05: concurrent identical unknown requests share one preparation; the rule is registered; a repeat calls no model.
     let queue = StudioPreparationQueue()
