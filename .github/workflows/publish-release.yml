@@ -24,14 +24,15 @@ permissions:
 
 jobs:
   publish:
-    runs-on: macos-15
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+      # The image's default Xcode, as in the pull request checks; the log records which one built the app.
+      - name: Show Xcode
+        run: xcodebuild -version
 
       - name: Read version
         id: meta
