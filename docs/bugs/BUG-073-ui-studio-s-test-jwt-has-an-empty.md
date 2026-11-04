@@ -2,7 +2,7 @@
 type: bug
 id: BUG-073
 title: UI Studio's test JWT has an empty signature, so vivaa sends every page to login
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

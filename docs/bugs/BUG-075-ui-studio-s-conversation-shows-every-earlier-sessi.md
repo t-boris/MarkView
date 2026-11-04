@@ -2,7 +2,7 @@
 type: bug
 id: BUG-075
 title: UI Studio's conversation shows every earlier session's turns and cannot be cleared
-status: fixing
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-04
