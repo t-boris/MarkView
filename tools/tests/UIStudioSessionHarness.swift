@@ -267,6 +267,29 @@ func run() async {
     let retryPrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
     check("EDIT-03 the retry tells the assistant what failed", retryPrompt.contains("<p>Five</p>") || retryPrompt.lowercased().contains("not found"))
 
+    // A materially ambiguous request is clarified before anything is edited (REQ-004, EDIT-02).
+    assistant.lock.withLock {
+        assistant.edits = [["scope": "shared", "scopeNote": "The paragraphs share one style.", "needsClarification": true,
+                            "question": "Only this paragraph, or every paragraph of the section?",
+                            "options": ["Only this paragraph", "Every paragraph"], "summary": "", "edits": []],
+                           edit("bold", "<p>One</p>", "<p><strong>One</strong></p>")]
+    }
+    let beforeClarification = file()
+    session.change("Make the paragraph bold")
+    _ = await idle()
+    let asking = session.history.last
+    check("REQ-004 an ambiguous request asks before editing", asking?.status == .clarification && asking?.options.count == 2
+          && file() == beforeClarification, "\(asking?.status.rawValue ?? "nil")")
+    if let asking {
+        session.answerClarification(asking, choice: "Only this paragraph")
+        _ = await idle()
+        let clarified = session.history.last
+        let clarifiedPrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+        check("REQ-004 the answer goes to the assistant and the change is applied", clarifiedPrompt.contains("Only this paragraph")
+              && clarified?.status == .applied && file().contains("<p><strong>One</strong></p>"), "\(clarified?.status.rawValue ?? "nil")")
+        check("REQ-004 the answered question is not left open", !session.history.contains { $0.status == .clarification })
+    }
+
     // A change that breaks the build: the failure is visible and the previous preview is stale (AC-15).
     assistant.lock.withLock {
         assistant.edits = [edit("broken", "<ul id=\"list\"></ul>", "<ul id=\"list\"></ul><vite-error-overlay>Failed to compile app.js</vite-error-overlay>")]
@@ -366,6 +389,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             check("AC-18 closing the session stops the server it started", answering == nil && session.state == .stopped)
             await externalServerCheck()
         }
+        targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
         exit(failures == 0 ? 0 : 1)
     }
@@ -402,6 +426,59 @@ func externalServerCheck() async {
     let still = await WebAppPreview.firstAnswering([port], timeout: 1)
     check("AC-18 closing the session leaves an external server running", still != nil)
     external.terminate()
+}
+
+/// Which projects UI Studio opens and what it says it cannot simulate (REQ-001).
+func targetChecks() {
+    let fm = FileManager.default
+    let base = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-targets-\(UUID().uuidString)").resolvingSymlinksInPath()
+    defer { try? fm.removeItem(at: base) }
+    func project(_ name: String, _ package: [String: Any], files: [String: String] = [:]) -> URL {
+        let folder = base.appendingPathComponent(name)
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        if let data = try? JSONSerialization.data(withJSONObject: package) { try? data.write(to: folder.appendingPathComponent("package.json")) }
+        for (path, text) in files {
+            let url = folder.appendingPathComponent(path)
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        return folder
+    }
+
+    let svelte = project("svelte-webpack", ["scripts": ["dev": "webpack serve --port 8085"],
+                                            "dependencies": ["svelte": "^4.0.0"], "devDependencies": ["webpack": "^5.0.0"]])
+    let svelteTarget = WebAppPreview.targets(root: svelte).first
+    check("REQ-001 a project without React or Vite is opened (Svelte with webpack)",
+          svelteTarget != nil && svelteTarget?.ports.first == 8085 && svelteTarget?.isElectron == false,
+          "\(String(describing: svelteTarget))")
+    check("REQ-001 a client-rendered target has nothing to disclose", svelteTarget.map(StudioTargetLimits.disclosures(for:))?.isEmpty == true)
+
+    let next = project("next-app", ["scripts": ["dev": "next dev"], "dependencies": ["next": "15.0.0", "react": "19.0.0"]])
+    let nextTarget = WebAppPreview.targets(root: next).first
+    let nextNotes = nextTarget.map(StudioTargetLimits.disclosures(for:)) ?? []
+    check("REQ-001 a framework that renders on the server is still opened", nextTarget != nil)
+    check("REQ-001 server rendering is disclosed as not simulated", nextNotes.contains { $0.contains("renders on the server") && $0.contains("not simulated") },
+          nextNotes.joined(separator: " | "))
+
+    let electron = project("electron-app", ["main": "main.js", "scripts": ["dev": "electron .", "dev:web": "vite --port 5199"],
+                                            "devDependencies": ["electron": "^33.0.0", "vite": "^6.0.0"]],
+                           files: ["src/preload.ts": "import { contextBridge } from 'electron'\ncontextBridge.exposeInMainWorld('desktop', { open: () => 1 })\n"])
+    let electronTarget = WebAppPreview.targets(root: electron).first
+    let electronNotes = electronTarget.map(StudioTargetLimits.disclosures(for:)) ?? []
+    check("REQ-001 an Electron app runs its renderer as a web page, without Electron",
+          electronTarget?.isElectron == true && electronTarget?.command.contains("dev:web") == true
+            && electronTarget?.command.contains("electron .") == false, "\(String(describing: electronTarget))")
+    check("REQ-001 the main process, preload, IPC and native modules are disclosed as not running",
+          electronNotes.contains { $0.contains("main process, preload scripts, IPC and native modules do not run") && $0.contains("not simulated") },
+          electronNotes.joined(separator: " | "))
+    check("REQ-001 the preload's globals get stand-ins under their real names", StudioTargetLimits.electronGlobals(in: electron) == ["desktop"])
+
+    let django = base.appendingPathComponent("django")
+    try? fm.createDirectory(at: django, withIntermediateDirectories: true)
+    try? "".write(to: django.appendingPathComponent("manage.py"), atomically: true, encoding: .utf8)
+    let djangoNotes = WebAppPreview.targets(root: django).first.map(StudioTargetLimits.disclosures(for:)) ?? []
+    check("REQ-001 server-rendered pages disclose that the server's requests and database are not simulated",
+          djangoNotes.contains { $0.contains("database are not simulated") })
 }
 
 let application = NSApplication.shared

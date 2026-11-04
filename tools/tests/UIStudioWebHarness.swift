@@ -153,9 +153,12 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
 let page = """
 <!doctype html><html><head><meta charset="utf-8"><title>Harness</title>
 <style>body{margin:0;font:14px sans-serif} #buy{position:absolute;left:100px;top:100px;width:200px;height:50px}
-#name{position:absolute;left:100px;top:200px;width:200px} .row{height:20px}</style></head>
+#name{position:absolute;left:100px;top:200px;width:200px} .row{height:20px}
+#far{position:absolute;left:100px;top:900px;width:200px;height:50px} #chart{position:absolute;left:400px;top:100px;width:100px;height:50px}
+#spacer{position:absolute;left:0;top:0;width:1px;height:3000px}</style></head>
 <body><button id="buy" data-testid="buy" onclick="window.bought=(window.bought||0)+1">Buy</button>
 <input id="name" data-testid="name"><ul id="list"></ul>
+<div id="spacer"></div><button id="far" onclick="window.farClicked=true">Far</button><canvas id="chart"></canvas>
 <script>
 window.loadedItems = fetch('/api/items').then(function (r) { return r.json(); });
 </script></body></html>
@@ -228,7 +231,36 @@ func run() async {
     }
     let parent = await harness.js("return window.__markviewStudio.parent();") as? [String: Any]
     check("parent navigation selects the enclosing element", (parent?["tag"] as? String)?.hasPrefix("body") == true, "\(parent?["tag"] ?? "nil")")
-    _ = await harness.js("return window.__markviewStudio.setSelecting(false);")
+    check("an element without development source metadata says so", (picked?["boundary"] as? String)?.contains("No development source metadata") == true,
+          "\(picked?["boundary"] ?? "nil")")
+
+    // A canvas has nothing inside it to select: the boundary is disclosed (PRE-07).
+    let pickingCanvas = Task { @MainActor in await harness.js("return await window.__markviewStudio.pick();") }
+    await harness.settle(0.3)
+    harness.move(cssX: 450, y: 125)
+    harness.click(cssX: 450, y: 125)
+    let canvas = await pickingCanvas.value as? [String: Any]
+    check("a canvas discloses that what it draws cannot be selected", (canvas?["boundary"] as? String)?.contains("canvas") == true,
+          "\(canvas?["tag"] ?? "nil") \(canvas?["boundary"] ?? "nil")")
+
+    // Scrolled page, still at 50 % zoom: the element under the pointer is selected and its geometry follows the scroll (PRE-02).
+    _ = await harness.js("window.scrollTo(0, 700); return scrollY;")
+    await harness.settle(0.3)
+    let pickingFar = Task { @MainActor in await harness.js("return await window.__markviewStudio.pick();") }
+    await harness.settle(0.3)
+    harness.move(cssX: 200, y: 225)
+    harness.click(cssX: 200, y: 225)
+    let far = await pickingFar.value as? [String: Any]
+    let farRect = far?["rect"] as? [String: Any]
+    check("a scrolled page selects the element under the pointer", (far?["tag"] as? String)?.hasPrefix("button#far") == true
+          && (farRect?["y"] as? NSNumber)?.intValue == 200, "\(far?["tag"] ?? "nil") \(farRect ?? [:])")
+    let farClicked = await harness.js("return window.farClicked === true;") as? Bool
+    check("selecting on a scrolled page does not run the action", farClicked == false)
+    _ = await harness.js("window.scrollTo(0, 800); return scrollY;")
+    await harness.settle(0.3)
+    let moved = (await harness.js("return window.__markviewStudio.selected();") as? [String: Any])?["rect"] as? [String: Any]
+    check("the selection's geometry follows a later scroll", (moved?["y"] as? NSNumber)?.intValue == 100, "\(moved ?? [:])")
+    _ = await harness.js("window.scrollTo(0, 0); return window.__markviewStudio.setSelecting(false);")
 
     // Restoration steps replay (SCN-02).
     let replay = await harness.js("return await window.__markviewStudio.replay(steps);",
