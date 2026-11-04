@@ -80,6 +80,9 @@ enum StudioBridge {
             case idle
             /// A step recorded while recording restoration steps.
             case recorded
+            /// The page used a browser feature the scenario answers (REQ-008): `geolocation: place "Chicago"`,
+            /// `clipboard: write (12 chars)`. Clipboard contents are never part of it.
+            case browser
         }
         var kind: Kind
         var detail: String
@@ -150,7 +153,18 @@ enum StudioBridge {
         guard detail.utf8.count <= maxDetail else { return .failure(.malformed("event detail")) }
         let url = object["url"] as? String
         if let url, url.utf8.count > maxURL { return .failure(.malformed("event url")) }
+        if kind == .browser, browserFeature(of: detail) == nil { return .failure(.malformed("browser feature")) }
         return .success(Event(kind: kind, detail: detail, url: url))
+    }
+
+    /// The browser features the page runtime answers from the scenario (REQ-008).
+    static let browserFeatures: Set<String> = ["geolocation", "permissions", "clipboard", "media", "notifications"]
+
+    /// The feature a `browser` event's detail names (`clipboard: write (12 chars)` → clipboard), or nil when it names none.
+    static func browserFeature(of detail: String) -> String? {
+        guard let colon = detail.firstIndex(of: ":"), detail.index(after: colon) < detail.endIndex else { return nil }
+        let feature = String(detail[..<colon])
+        return browserFeatures.contains(feature) ? feature : nil
     }
 
     /// The answer the page runtime turns into a Response / an XMLHttpRequest result.

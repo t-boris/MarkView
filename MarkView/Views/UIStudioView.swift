@@ -792,6 +792,8 @@ struct UIStudioScenariosPanel: View {
                 }
                 .controlSize(.small)
 
+                UIStudioBrowserSettings(session: session)
+
                 section("Record restoration steps")
                 Text("Recording starts from the scenario's baseline. Use the application; clicks, typing and Enter become steps that "
                      + "rebuild this state after every Reset. Typed passwords are replaced by a test value.")
@@ -865,6 +867,181 @@ struct UIStudioScenariosPanel: View {
                     .help("Writes a new revision of the scenario that fits the current entities; what changed is reported")
             }
         }
+    }
+}
+
+// MARK: - Browser settings and kept browser data (REQ-008)
+
+/// The scenario's answers for location, the clipboard, camera and microphone, and notifications, and the cookies and
+/// storage kept across restores.
+struct UIStudioBrowserSettings: View {
+    @ObservedObject var session: StudioSession
+    @State private var placeLabel = ""
+    @State private var latitude = ""
+    @State private var longitude = ""
+    @State private var accuracy = ""
+    @State private var clipboard = ""
+
+    private enum LocationChoice: Hashable { case denied, unavailable, place }
+
+    private var profile: StudioBrowserProfile { session.scenario.browserProfile }
+    private var idle: Bool { session.busy == nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            section("Browser")
+            Text("Location, the clipboard, camera and microphone, and notifications answer from these settings; the Mac's own "
+                 + "are never used. A change resets the page.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            Picker("Location", selection: locationChoice) {
+                Text("Denied").tag(LocationChoice.denied)
+                Text("Unavailable").tag(LocationChoice.unavailable)
+                Text("A place").tag(LocationChoice.place)
+            }
+            .uiFont(size: 11).disabled(!idle)
+            if case .place = profile.location { placeForm }
+            HStack {
+                TextField("Clipboard text the page reads", text: $clipboard).textFieldStyle(.roundedBorder).uiFont(size: 11)
+                Button("Apply") { update { $0.clipboardText = String(clipboard.prefix(StudioBrowserProfile.maxClipboard)) } }
+                    .disabled(!idle || clipboard == profile.clipboardText)
+            }
+            .controlSize(.small)
+            Picker("Camera and microphone", selection: binding(\.media)) {
+                Text("Denied").tag(StudioBrowserProfile.Media.denied)
+                Text("Test stream").tag(StudioBrowserProfile.Media.testStream)
+            }
+            .uiFont(size: 11).disabled(!idle)
+            Picker("Notifications", selection: binding(\.notifications)) {
+                Text("Not asked yet").tag(StudioBrowserProfile.NotificationPermission.default)
+                Text("Granted").tag(StudioBrowserProfile.NotificationPermission.granted)
+                Text("Denied").tag(StudioBrowserProfile.NotificationPermission.denied)
+            }
+            .uiFont(size: 11).disabled(!idle)
+            let uses = session.events.filter { $0.kind == .browser }.suffix(8).reversed()
+            if !uses.isEmpty {
+                Text("Used by the page").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.text)
+                ForEach(Array(uses)) { event in
+                    Text(event.detail).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(2)
+                }
+            }
+
+            section("Kept cookies and storage")
+            Text("Every restore empties cookies and storage, so the application asks again (cookie consent, onboarding). Kept "
+                 + "cookies and localStorage entries are set again before the page loads. Entries that look like sessions or "
+                 + "credentials are not kept; the rest is saved in .markview/studio/environment.json.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            Button("Keep this page's cookies and storage") { session.keepBrowserData() }
+                .controlSize(.small).disabled(session.appURL == nil || !idle)
+            ForEach(session.keptSkipped, id: \.self) { skipped in
+                Text("Not kept: " + skipped).uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            if let kept = session.spec.keptBrowserData {
+                ForEach(kept.cookies) { cookie in
+                    keptRow("cookie", cookie.name, cookie.value, note: cookie.httpOnly ? "httpOnly" : "") { session.forgetKeptCookie(cookie.id) }
+                }
+                ForEach(kept.localStorage, id: \.key) { entry in
+                    keptRow("localStorage", entry.key, entry.value, note: "") { session.forgetKeptStorage(entry.key) }
+                }
+                Button("Forget all") { session.forgetKeptBrowserData() }.controlSize(.small)
+                    .help("The next restore starts from empty cookies and storage again")
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: session.scenario.id) { _ in load() }
+    }
+
+    private var placeForm: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("Label", text: $placeLabel).textFieldStyle(.roundedBorder)
+                Menu("Presets") {
+                    ForEach(StudioBrowserProfile.Place.presets, id: \.label) { preset in
+                        Button(preset.label) { fill(preset) }
+                    }
+                }
+                .fixedSize()
+            }
+            HStack {
+                TextField("Latitude", text: $latitude).textFieldStyle(.roundedBorder)
+                TextField("Longitude", text: $longitude).textFieldStyle(.roundedBorder)
+                TextField("Accuracy, m", text: $accuracy).textFieldStyle(.roundedBorder).frame(width: 80)
+                Button("Apply") {
+                    if let place = formPlace { update { $0.location = .place(place) } }
+                }
+                .disabled(!idle || formPlace == nil)
+            }
+            if formPlace == nil {
+                Text("Latitude −90…90, longitude −180…180 and an accuracy above 0 meters.").uiFont(size: 9).foregroundColor(VSDark.orange)
+            }
+        }
+        .uiFont(size: 11).controlSize(.small).padding(.leading, 8)
+    }
+
+    private var formPlace: StudioBrowserProfile.Place? {
+        func number(_ text: String) -> Double? { Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")) }
+        guard let latitude = number(latitude), let longitude = number(longitude) else { return nil }
+        let place = StudioBrowserProfile.Place(latitude: latitude, longitude: longitude, accuracy: number(accuracy) ?? 25,
+                                               label: String(placeLabel.trimmingCharacters(in: .whitespaces).prefix(200)))
+        return place.isValid ? place : nil
+    }
+
+    private var locationChoice: Binding<LocationChoice> {
+        Binding(get: {
+            switch profile.location {
+            case .denied: return .denied
+            case .unavailable: return .unavailable
+            case .place: return .place
+            }
+        }, set: { choice in
+            switch choice {
+            case .denied: update { $0.location = .denied }
+            case .unavailable: update { $0.location = .unavailable }
+            case .place:
+                let place = formPlace ?? StudioBrowserProfile.Place.presets[0]
+                fill(place)
+                update { $0.location = .place(place) }
+            }
+        })
+    }
+
+    private func binding<Value: Equatable>(_ path: WritableKeyPath<StudioBrowserProfile, Value>) -> Binding<Value> {
+        Binding(get: { profile[keyPath: path] }, set: { value in update { $0[keyPath: path] = value } })
+    }
+
+    private func update(_ change: (inout StudioBrowserProfile) -> Void) {
+        var next = profile
+        change(&next)
+        guard next != profile else { return }
+        session.setBrowserProfile(next)
+    }
+
+    private func fill(_ place: StudioBrowserProfile.Place) {
+        placeLabel = place.label
+        latitude = String(place.latitude)
+        longitude = String(place.longitude)
+        accuracy = String(place.accuracy)
+    }
+
+    private func load() {
+        clipboard = profile.clipboardText
+        if case .place(let place) = profile.location { fill(place) } else if latitude.isEmpty { fill(StudioBrowserProfile.Place.presets[0]) }
+    }
+
+    private func keptRow(_ kind: String, _ name: String, _ value: String, note: String, forget: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Text(kind).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).frame(width: 70, alignment: .leading)
+            Text(name).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+            Text(value.count > 40 ? String(value.prefix(40)) + "…" : value).uiFont(size: 9, design: .monospaced)
+                .foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.tail)
+            if !note.isEmpty { Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim) }
+            Spacer()
+            Button(action: forget) { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                .help("Forget this entry: it is no longer set again after a restore")
+        }
+    }
+
+    private func section(_ title: String) -> some View {
+        Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
     }
 }
 

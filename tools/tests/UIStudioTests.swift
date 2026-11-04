@@ -442,6 +442,129 @@ func scenarioChecks() {
     check("environment round trip", StudioStore.loadEnvironment(root)?.rules == spec.rules && StudioStore.loadEnvironment(root)?.seed == spec.seed)
 }
 
+// MARK: - Browser features and kept browser data (REQ-008)
+
+func browserChecks() {
+    // Files saved before REQ-008 have neither `browser` nor `keptBrowserData`: they still load, with the default profile.
+    let oldScenario = #"""
+    {"contractFingerprint":"","id":"checkout","kind":"custom","locale":"en-US","name":"Checkout","overrides":[],"revision":3,
+     "role":{"name":"tester","token":"markview-test-token","user":{"id":"user-1","name":"Test User"}},"route":"/checkout",
+     "seed":1,"steps":[{"action":"click","selector":"#buy"}],"testTime":"2026-01-01T00:00:00Z","theme":"light",
+     "updated":"2026-11-01T10:00:00Z","viewport":{"height":800,"width":1280}}
+    """#
+    let decoded = try? StudioStore.decoder.decode(StudioScenario.self, from: Data(oldScenario.utf8))
+    check("REQ-008 a scenario saved before browser settings still loads", decoded?.name == "Checkout" && decoded?.steps.count == 1
+          && decoded?.browser == nil && decoded?.browserProfile == StudioBrowserProfile())
+    let oldEnvironment = #"""
+    {"allowedRequests":["/locales/*"],"confidentialFields":["password","token"],"dependencies":[],"entities":[],
+     "rules":[{"evidence":[],"id":"me","method":"GET","operation":"session","origin":"project","path":"/api/me","version":1}],
+     "schemaVersion":1,"seed":{}}
+    """#
+    let environment = try? StudioStore.decoder.decode(StudioEnvironmentSpec.self, from: Data(oldEnvironment.utf8))
+    check("REQ-008 an environment saved before kept browser data still loads", environment?.rules.first?.id == "me"
+          && environment?.allowedRequests == ["/locales/*"] && environment?.keptBrowserData == nil)
+
+    // The profile is saved with the scenario and read back; a file edited by hand keeps the defaults of what it leaves out.
+    let root = tmp.appendingPathComponent("browser")
+    var scenario = StudioScenario(id: "nearest-city", name: "Nearest city")
+    scenario.updated = Date(timeIntervalSince1970: 1_780_000_000)
+    scenario.browser = StudioBrowserProfile(location: .place(.init(latitude: 41.8781, longitude: -87.6298, accuracy: 30, label: "Chicago")),
+                                            clipboardText: "SAVE20", media: .testStream, notifications: .granted)
+    try? StudioStore.saveScenario(scenario, root: root)
+    check("REQ-008 a scenario's browser settings are saved and loaded", StudioStore.loadScenarios(root).first == scenario)
+    let partial = try? StudioStore.decoder.decode(StudioBrowserProfile.self, from: Data(#"{"location":{"kind":"unavailable"},"media":"x"}"#.utf8))
+    check("REQ-008 browser settings edited by hand keep the defaults of what they leave out",
+          partial == StudioBrowserProfile(location: .unavailable))
+    let config = StudioBrowserProfile(location: .place(.init(latitude: .nan, longitude: 1, label: "Nowhere")), clipboardText: "x").runtimeConfig
+    check("REQ-008 a place that is not valid reaches the page as unavailable and the configuration always serializes",
+          (config["location"] as? [String: Any])?["kind"] as? String == "unavailable" && JSONSerialization.isValidJSONObject(config))
+
+    // Keeping: cookies of the application's host only; entries whose name or value look confidential are skipped and
+    // named, never with their values.
+    let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    let hexID = "4f9a1c2e8b7d6a5f3e2d1c0b9a8f7e6d"
+    let base64ID = "Qm9yaXNTZWNyZXRWYWx1ZTEyMzQ1Njc4OTA="
+    let now = Date(timeIntervalSince1970: 1_780_000_000)
+    let cookies = [
+        StudioKeptCookie(name: "cookie_consent", value: "accepted", domain: "localhost"),
+        StudioKeptCookie(name: "theme", value: "dark", domain: "127.0.0.1", httpOnly: true, sameSite: "lax"),
+        StudioKeptCookie(name: "next-auth.session-token", value: "short", domain: "localhost"),
+        StudioKeptCookie(name: "connect.sid", value: "s%3Aabc", domain: "localhost"),
+        StudioKeptCookie(name: "prefs", value: jwt, domain: "localhost"),
+        StudioKeptCookie(name: "device", value: hexID, domain: ".localhost"),
+        StudioKeptCookie(name: "sidebar-collapsed", value: "true", domain: "localhost"),
+        StudioKeptCookie(name: "old", value: "1", domain: "localhost", expires: now.addingTimeInterval(-60)),
+        StudioKeptCookie(name: "elsewhere", value: "1", domain: "example.org"),
+    ]
+    let storage = [
+        StudioKeptStorageEntry(key: "consent", value: "yes"),
+        StudioKeptStorageEntry(key: "city", value: #"{"name":"Chicago","updatedAt":"2026-11-01"}"#),
+        StudioKeptStorageEntry(key: "sb-project-auth-token", value: #"{"user":"ann"}"#),
+        StudioKeptStorageEntry(key: "settings", value: #"{"theme":"dark","api":{"accessToken":"abc"}}"#),
+        StudioKeptStorageEntry(key: "draft", value: "Order " + base64ID),
+        StudioKeptStorageEntry(key: "big", value: String(repeating: "x", count: StudioKeptBrowserData.maxValue + 1)),
+    ]
+    let outcome = StudioKeptBrowserData.collect(cookies: cookies, storage: storage, appHost: "localhost", origin: "http://localhost:3000",
+                                                redactor: StudioRedactor(), now: now)
+    check("REQ-008 ordinary cookies of the application's host are kept, httpOnly ones too",
+          outcome.kept.cookies.map(\.name).sorted() == ["cookie_consent", "sidebar-collapsed", "theme"]
+          && outcome.kept.cookies.first { $0.name == "theme" }?.httpOnly == true, outcome.kept.cookies.map(\.name).joined(separator: ","))
+    check("REQ-008 ordinary localStorage entries are kept", outcome.kept.localStorage.map(\.key) == ["city", "consent"],
+          outcome.kept.localStorage.map(\.key).joined(separator: ","))
+    let skippedNames = ["next-auth.session-token", "connect.sid", "prefs", "device", "sb-project-auth-token", "settings", "draft", "big"]
+    check("REQ-008 confidential cookies and storage entries are skipped and listed",
+          skippedNames.allSatisfy { name in outcome.skipped.contains { $0.contains(" \(name) (") } } && outcome.skipped.count == skippedNames.count,
+          outcome.skipped.joined(separator: " | "))
+    let listing = outcome.skipped.joined(separator: "\n")
+    check("REQ-008 the list of skipped entries never holds their values",
+          ![jwt, hexID, base64ID, "s%3Aabc", "accessToken", "abc\""].contains { listing.contains($0) }, listing)
+    check("REQ-008 expired cookies and other hosts' cookies are left out silently",
+          !listing.contains("old") && !listing.contains("elsewhere") && !outcome.kept.cookies.contains { $0.name == "old" || $0.name == "elsewhere" })
+    check("REQ-008 random-looking values are told from words", StudioRedactor.looksRandom(hexID) && StudioRedactor.looksRandom("Qm9yaXNTZWNyZXRWYWx1ZTEy")
+          && !StudioRedactor.looksRandom("dark-theme-preference-enabled-v2") && !StudioRedactor.looksRandom("someLongPreferenceNameForTheme12")
+          && !StudioRedactor.looksRandom("GA1.2.1234567890.1700000000"))
+
+    // Kept data round trip in the environment, and the cookies set again (loopback names are one server).
+    var spec = StudioEnvironmentSpec()
+    spec.keptBrowserData = outcome.kept
+    try? StudioStore.saveEnvironment(spec, root: root)
+    let saved = (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? ""
+    check("REQ-008 kept browser data is saved in the environment", StudioStore.loadEnvironment(root)?.keptBrowserData == outcome.kept
+          && saved.contains("cookie_consent") && !saved.contains(jwt))
+    let lenient = #"{"cookies":[{"name":"a","value":"1","domain":"localhost"},{"value":"no name"}],"localStorage":[{"key":"k","value":"v"}]}"#
+    let loose = try? StudioStore.decoder.decode(StudioKeptBrowserData.self, from: Data(lenient.utf8))
+    check("REQ-008 a kept entry that does not decode is dropped, not the environment", loose?.cookies.map(\.name) == ["a"]
+          && loose?.cookies.first?.path == "/" && loose?.localStorage.count == 1)
+    let theme = outcome.kept.cookies.first { $0.name == "theme" }?.httpCookie(appHost: "localhost", now: now)
+    check("REQ-008 a kept cookie is set again with its flags, on the loopback name the server uses now",
+          theme?.domain == "localhost" && theme?.isHTTPOnly == true && theme?.sameSitePolicy == .sameSiteLax && theme?.value == "dark",
+          "\(theme?.domain ?? "nil") \(theme?.isHTTPOnly ?? false)")
+    check("REQ-008 an expired kept cookie is not set again",
+          StudioKeptCookie(name: "x", value: "1", domain: "localhost", expires: now).httpCookie(appHost: "localhost", now: now) == nil)
+    let fromHTTP = HTTPCookie(properties: [.name: "sid2", .value: "v", .domain: "localhost", .path: "/app", .secure: "TRUE",
+                                           HTTPCookiePropertyKey("HttpOnly"): "TRUE"]).map(StudioKeptCookie.init)
+    check("REQ-008 a WebKit cookie is read with its path and flags", fromHTTP?.path == "/app" && fromHTTP?.secure == true && fromHTTP?.httpOnly == true)
+
+    // The page's storage report is checked at the boundary.
+    let reported = StudioKeptBrowserData.storageEntries([["key": "a", "value": "1"], ["key": 2, "value": "x"], "junk", ["key": "b"]])
+    check("REQ-008 the page's storage report keeps string entries only", reported == [StudioKeptStorageEntry(key: "a", value: "1")])
+
+    // Browser events: a known feature is accepted; anything else is malformed.
+    let origin = StudioBridge.Origin(url: URL(string: app)!)!
+    let expectation = StudioBridge.Expectation(session: "s-1", generation: 3, origin: origin)
+    func event(_ detail: String) -> [String: Any] { ["kind": "event", "session": "s-1", "generation": 3, "type": "browser", "detail": detail] }
+    if case .success(.event(let parsed)) = StudioBridge.validate(event("geolocation: place \"Chicago\""), isMainFrame: true, origin: origin,
+                                                                expecting: expectation) {
+        check("REQ-008 a browser event is accepted", parsed.kind == .browser && StudioBridge.browserFeature(of: parsed.detail) == "geolocation")
+    } else {
+        check("REQ-008 a browser event is accepted", false)
+    }
+    let unknown = StudioBridge.validate(event("bluetooth: paired"), isMainFrame: true, origin: origin, expecting: expectation)
+    let empty = StudioBridge.validate(event("clipboard:"), isMainFrame: true, origin: origin, expecting: expectation)
+    check("REQ-008 a browser event of an unknown feature or without detail is malformed",
+          unknown == .failure(.malformed("browser feature")) && empty == .failure(.malformed("browser feature")))
+}
+
 // MARK: - Evidence (CAP-01…CAP-06)
 
 func image(_ width: Int, _ height: Int, mark: Bool) -> CGImage {
@@ -778,6 +901,7 @@ Task { @MainActor in
     await preparationChecks()
     await changeChecks()
     scenarioChecks()
+    browserChecks()
     evidenceChecks()
     promptChecks()
     conversationChecks()

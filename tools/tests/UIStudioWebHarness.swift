@@ -72,19 +72,32 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
         window.orderFrontRegardless()
     }
 
-    func load(_ html: String, seed: Int = 7) async {
+    func load(_ html: String, seed: Int = 7, browser: StudioBrowserProfile = StudioBrowserProfile(),
+              keptStorage: [[String: String]] = []) async {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         // Stands in for the network under the runtime's own fetch, for requests the runtime passes through (BUG-070).
+        // A check never reaches the Mac's location, camera, microphone or clipboard: these guards answer in their place
+        // unless the runtime replaces them (REQ-008).
         controller.addUserScript(WKUserScript(source: """
             (function () { var real = window.fetch; window.__passed = [];
               window.fetch = function (input, init) { var r = new Request(input, init);
                 if (r.url.indexOf('/__framework') < 0) return real.apply(this, arguments);
                 window.__passed.push((r.headers.get('cache-control') || '') + '|' + (r.headers.get('rsc') || ''));
                 return Promise.resolve(new Response('payload', { status: 200 })); }; })();
+            (function () {
+              var reached = function () { return Promise.reject(new DOMException('a real device API was reached', 'HarnessGuard')); };
+              var geo = { getCurrentPosition: function (s, f) { if (f) f({ code: 99 }); }, watchPosition: function (s, f) { if (f) f({ code: 99 }); return 0; },
+                clearWatch: function () {} };
+              Object.defineProperty(Navigator.prototype, 'geolocation', { get: function () { return geo; }, configurable: true });
+              if (navigator.mediaDevices) { navigator.mediaDevices.getUserMedia = reached; navigator.mediaDevices.enumerateDevices = reached; }
+              if (navigator.clipboard) { navigator.clipboard.writeText = reached; navigator.clipboard.readText = reached; }
+            })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        let config = "{\"session\":\"\(token)\",\"generation\":\(simulator.generation),\"seed\":\(seed),\"testTime\":1767225600000,"
-            + "\"locale\":\"de-DE\",\"timeZone\":\"Europe/Berlin\",\"electron\":false,\"electronGlobals\":[]}"
+        let settings: [String: Any] = ["session": token, "generation": simulator.generation, "seed": seed, "testTime": 1_767_225_600_000,
+                                       "locale": "de-DE", "timeZone": "Europe/Berlin", "electron": false, "electronGlobals": [String](),
+                                       "browser": browser.runtimeConfig, "keptStorage": keptStorage]
+        let config = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
         controller.addUserScript(WKUserScript(source: source.replacingOccurrences(of: "__MARKVIEW_STUDIO_CONFIG__", with: config),
                                               injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -371,6 +384,8 @@ func run() async {
     _ = await harness.js("document.querySelector('nextjs-portal').remove(); return true;")
     await harness.settle(1)
 
+    await browserChecks(harness)
+
     // Messages of an earlier generation are rejected after Reset (SIM-10).
     watchdog.reached("Messages of an earlier generation are rejected after Reset")
     harness.simulator.reset()
@@ -407,6 +422,168 @@ func run() async {
 
     print(failures == 0 ? "All UI Studio page checks passed." : "\(failures) UI Studio page check(s) failed.")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// Location, permissions, clipboard, camera and microphone, and notifications answer from the scenario's browser settings
+/// and are reported to Studio; the kept localStorage is written once per generation (REQ-008).
+@MainActor
+func browserChecks(_ harness: Harness) async {
+    let browserPage = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Browser</title></head><body><p id="t">Browser</p>
+    <script>window.consentAtStart = localStorage.getItem('consent');</script></body></html>
+    """
+    func browserEvents(since mark: Int) -> [String] { harness.events.dropFirst(mark).filter { $0.kind == .browser }.map(\.detail) }
+    func text(_ script: String) async -> String { (await harness.js(script) as? String) ?? "nil" }
+    let permissions = """
+        const names = ['geolocation', 'notifications', 'camera', 'microphone', 'clipboard-read', 'clipboard-write'];
+        const states = [];
+        for (const name of names) { const status = await navigator.permissions.query({ name }); states.push(name + '=' + status.state); }
+        return states.join(',');
+        """
+
+    // The default settings: everything denied, notifications not asked yet.
+    watchdog.reached("REQ-008 browser features under the default settings")
+    var mark = harness.events.count
+    await harness.load(browserPage)
+    await harness.settle(0.2)
+    let denied = await text("""
+        let calledNow = false;
+        const answer = new Promise(resolve => navigator.geolocation.getCurrentPosition(() => { calledNow = true; resolve('position'); },
+          e => { calledNow = true; resolve(e.code + ' ' + (e.code === e.PERMISSION_DENIED) + ' ' + (e instanceof GeolocationPositionError)); }));
+        const synchronous = calledNow;
+        return (await answer) + ' ' + synchronous;
+        """)
+    check("REQ-008 location denied answers PERMISSION_DENIED asynchronously", denied == "1 true true false", denied)
+    let deniedStates = await text(permissions)
+    let otherPermission = await text("try { await navigator.permissions.query({ name: 'no-such-permission' }); return 'resolved'; } catch (e) { return e.name; }")
+    check("REQ-008 permissions.query answers the default settings and asks the browser about other names",
+          deniedStates == "geolocation=denied,notifications=prompt,camera=denied,microphone=denied,clipboard-read=granted,clipboard-write=granted"
+          && otherPermission == "TypeError", deniedStates + " " + otherPermission)
+    let refused = await text("""
+        try { await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); return 'stream'; }
+        catch (e) { return e.name + ' ' + (e instanceof DOMException); }
+        """)
+    check("REQ-008 camera and microphone denied answer NotAllowedError", refused == "NotAllowedError true", refused)
+    let unlabelled = await text("const list = await navigator.mediaDevices.enumerateDevices(); return list.map(d => d.kind + ':' + d.label).join(',');")
+    check("REQ-008 without permission the devices are listed without labels", unlabelled == "audioinput:,videoinput:,audiooutput:", unlabelled)
+    let notAsked = await text("""
+        const notification = new Notification('Hi', { body: 'There' });
+        const event = await new Promise(resolve => { notification.onshow = () => resolve('show'); notification.onerror = () => resolve('error'); });
+        const promised = await Notification.requestPermission();
+        const called = await new Promise(resolve => Notification.requestPermission(resolve));
+        return [Notification.permission, promised, called, event].join(',');
+        """)
+    check("REQ-008 notifications not asked yet: the permission is default and nothing is shown", notAsked == "default,default,default,error", notAsked)
+    let deniedUses = browserEvents(since: mark)
+    check("REQ-008 each use under the default settings is reported to Studio",
+          ["geolocation: denied", "permissions: camera is denied", "media: camera and microphone denied", "media: devices listed",
+           "notifications: not shown (permission default) \"Hi\" — There", "notifications: permission requested, answered default"]
+            .allSatisfy(deniedUses.contains), deniedUses.joined(separator: " | "))
+
+    // The clipboard is the page's own: reads give the scenario's text, writes are reported by size and never reach the Mac.
+    watchdog.reached("REQ-008 the clipboard of the page")
+    mark = harness.events.count
+    let pasteboard = NSPasteboard.general.changeCount
+    await harness.load(browserPage, browser: StudioBrowserProfile(clipboardText: "SAVE20"))
+    await harness.settle(0.2)
+    let clipboard = await text("""
+        const first = await navigator.clipboard.readText();
+        const written = await navigator.clipboard.writeText('hello there!').then(() => 'resolved', e => 'rejected ' + e.name);
+        const again = await navigator.clipboard.readText();
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob(['abc'], { type: 'text/plain' }) })]);
+        const range = document.createRange(); range.selectNodeContents(document.getElementById('t'));
+        getSelection().removeAllRanges(); getSelection().addRange(range);
+        const copied = document.execCommand('copy');
+        const items = await navigator.clipboard.read();
+        const pasted = await (await items[0].getType('text/plain')).text();
+        return [first, written, again, copied, pasted].join('|');
+        """)
+    check("REQ-008 clipboard reads give the scenario's text, then what the page wrote; writes never throw",
+          clipboard == "SAVE20|resolved|hello there!|true|Browser", clipboard)
+    let clipboardUses = browserEvents(since: mark)
+    check("REQ-008 clipboard writes are reported by size, never with their contents, and never reach the Mac's clipboard",
+          ["clipboard: write (12 chars)", "clipboard: write (3 chars)", "clipboard: write (7 chars)", "clipboard: read (6 chars)"].allSatisfy(clipboardUses.contains)
+          && !clipboardUses.contains { $0.contains("hello") || $0.contains("SAVE20") || $0.contains("abc") || $0.contains("Browser") }
+          && NSPasteboard.general.changeCount == pasteboard, clipboardUses.joined(separator: " | "))
+
+    // A place, a test stream and granted notifications.
+    watchdog.reached("REQ-008 a place, a test stream and granted notifications")
+    mark = harness.events.count
+    let chicago = StudioBrowserProfile.Place(latitude: 41.8781, longitude: -87.6298, accuracy: 30, label: "Chicago")
+    await harness.load(browserPage, browser: StudioBrowserProfile(location: .place(chicago), media: .testStream, notifications: .granted))
+    await harness.settle(0.2)
+    let position = await text("""
+        const p = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject));
+        const inClock = p.timestamp >= 1767225600000 && p.timestamp < 1767225600000 + 600000;
+        return [p.coords.latitude, p.coords.longitude, p.coords.accuracy, inClock, p instanceof GeolocationPosition,
+                JSON.stringify(p.toJSON().coords.latitude)].join(',');
+        """)
+    check("REQ-008 a place answers its coordinates at the session's test time", position == "41.8781,-87.6298,30,true,true,41.8781", position)
+    let watched = await text("""
+        let count = 0, cleared = 0;
+        const id = navigator.geolocation.watchPosition(() => count++);
+        const other = navigator.geolocation.watchPosition(() => cleared++);
+        navigator.geolocation.clearWatch(other);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        navigator.geolocation.clearWatch(id);
+        return [id > 0, other !== id, count, cleared].join(',');
+        """)
+    check("REQ-008 watchPosition answers once and clearWatch stops a watch", watched == "true,true,1,0", watched)
+    let grantedStates = await text(permissions)
+    check("REQ-008 permissions.query answers the scenario's settings",
+          grantedStates == "geolocation=granted,notifications=granted,camera=granted,microphone=granted,clipboard-read=granted,clipboard-write=granted",
+          grantedStates)
+    let stream = await text("""
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: true });
+          const v = s.getVideoTracks(), a = s.getAudioTracks();
+          return [v.length, a.length, v[0].readyState, a[0].readyState, v[0].label, a[0].label, s instanceof MediaStream].join(',');
+        } catch (e) { return 'error ' + e.name + ' ' + e.message; }
+        """)
+    check("REQ-008 a test stream has a live video track and a live audio track",
+          stream == "1,1,live,live,MarkView Test Camera,MarkView Test Microphone,true", stream)
+    let devices = await text("const list = await navigator.mediaDevices.enumerateDevices(); return list.map(d => d.kind + ':' + d.label).join(',');")
+    check("REQ-008 the devices listed are test devices",
+          devices == "audioinput:MarkView Test Microphone,videoinput:MarkView Test Camera,audiooutput:MarkView Test Speakers", devices)
+    let granted = await text("""
+        const notification = new Notification('Order shipped', { body: 'Your order is on its way', tag: 'order' });
+        const event = await new Promise(resolve => { notification.onshow = () => resolve('show'); notification.onerror = () => resolve('error'); });
+        return [Notification.permission, await Notification.requestPermission(), event, notification.title, notification.tag].join(',');
+        """)
+    check("REQ-008 granted notifications are captured instead of shown", granted == "granted,granted,show,Order shipped,order", granted)
+    let grantedUses = browserEvents(since: mark)
+    check("REQ-008 the place, the stream and the notification are reported to Studio",
+          ["geolocation: place \"Chicago\"", "media: test stream for the camera and microphone",
+           "notifications: shown \"Order shipped\" — Your order is on its way"].allSatisfy(grantedUses.contains), grantedUses.joined(separator: " | "))
+
+    // A location that cannot be found, and notifications the person denied.
+    watchdog.reached("REQ-008 location unavailable and notifications denied")
+    await harness.load(browserPage, browser: StudioBrowserProfile(location: .unavailable, notifications: .denied))
+    await harness.settle(0.2)
+    let unavailable = await text("""
+        const code = await new Promise(resolve => navigator.geolocation.getCurrentPosition(() => resolve('position'), e => resolve(e.code)));
+        const state = (await navigator.permissions.query({ name: 'geolocation' })).state;
+        return [code, state, Notification.permission, await Notification.requestPermission()].join(',');
+        """)
+    check("REQ-008 location unavailable answers POSITION_UNAVAILABLE; denied notifications stay denied", unavailable == "2,granted,denied,denied", unavailable)
+
+    // Kept localStorage is written before the application's scripts, once per generation.
+    watchdog.reached("REQ-008 kept localStorage")
+    let kept = [["key": "consent", "value": "yes"]]
+    await harness.load(browserPage, keptStorage: kept)
+    let atStart = await text("return String(window.consentAtStart);")
+    check("REQ-008 a kept localStorage entry is there before the application's scripts run", atStart == "yes", atStart)
+    _ = await harness.js("localStorage.setItem('consent', 'changed'); return true;")
+    await harness.load(browserPage, keptStorage: kept)
+    let sameGeneration = await text("return String(window.consentAtStart);")
+    check("REQ-008 a later page of the same generation keeps what the application changed", atStart == "yes" && sameGeneration == "changed",
+          sameGeneration)
+    harness.simulator.reset()
+    await harness.load(browserPage, keptStorage: kept)
+    let nextGeneration = await text("return String(window.consentAtStart);")
+    check("REQ-008 a new generation writes the kept entry again", nextGeneration == "yes", nextGeneration)
+    check("REQ-008 browser events pass the bridge's validation", harness.rejected.isEmpty && harness.events.contains { $0.kind == .browser },
+          harness.rejected.joined(separator: "; "))
 }
 
 let application = NSApplication.shared

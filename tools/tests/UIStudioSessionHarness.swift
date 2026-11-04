@@ -678,8 +678,140 @@ func run() async {
     check("BUG-071 Reset replays the steps across the page load", replayed == "/rec-next.html milk", replayed ?? "nil")
     check("BUG-071 the replay reports no failed step", !(session.notice ?? "").contains("restoration step failed"), session.notice ?? "")
 
+    await browserChecks(session, web: web, root: root, text: text, idle: idle, clickElement: clickElement)
     finish(session, port: port)
 }
+
+/// REQ-008 in a real session: the scenario's browser settings reach the page and its uses are listed; kept cookies
+/// (httpOnly included) and localStorage survive Reset, the kept localStorage is written once per generation, and
+/// confidential entries are not kept.
+@MainActor
+func browserChecks(_ session: StudioSession, web: URL, root: URL, text: (String) async -> String?, idle: () async -> Bool,
+                   clickElement: (String) async -> Void) async {
+    watchdog.reached("REQ-008 browser settings in a session")
+    let selector = #selector(WKUIDelegate.webView(_:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:))
+    check("REQ-008 the session answers WebKit's camera and microphone requests (with a denial)", session.responds(to: selector))
+    try? keepHTML.write(to: web.appendingPathComponent("keep.html"), atomically: true, encoding: .utf8)
+    var keepScenario = session.scenario
+    keepScenario.id = "keep"
+    keepScenario.name = "Keep"
+    keepScenario.route = "/keep.html"
+    keepScenario.steps = []
+    session.activate(keepScenario)
+    _ = await idle()
+    let chicago = StudioBrowserProfile.Place(latitude: 41.8781, longitude: -87.6298, accuracy: 30, label: "Chicago")
+    session.setBrowserProfile(StudioBrowserProfile(location: .place(chicago), clipboardText: "SAVE20"))
+    _ = await idle()
+    let located = await text("""
+        const p = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject));
+        await navigator.clipboard.writeText('private text');
+        return p.coords.latitude + ',' + p.coords.longitude + ' ' + await navigator.clipboard.readText();
+        """)
+    check("REQ-008 the scenario's place and clipboard reach the page", located == "41.8781,-87.6298 private text", located ?? "nil")
+    _ = await waitUntil(5) { session.dependencies.contains { $0.id == "browser:clipboard" } }
+    check("REQ-008 the page's uses are listed as browser dependencies of the session",
+          session.dependencies.contains { $0.id == "browser:geolocation" && $0.mode == .simulated && $0.note.contains("Chicago") }
+          && session.dependencies.contains { $0.id == "browser:clipboard" }, session.dependencies.map(\.id).joined(separator: ", "))
+    check("REQ-008 a clipboard write is shown in Studio without its contents",
+          session.events.contains { $0.kind == .browser && $0.detail == "clipboard: write (12 chars)" }
+          && !session.events.contains { $0.detail.contains("private text") })
+    check("REQ-008 the browser settings stay with the scenario", session.scenario.browser?.location == .place(chicago))
+
+    // The consent banner comes back after every restore until its answer is kept.
+    watchdog.reached("REQ-008 kept cookies and storage survive Reset")
+    let bannerShown = await text("return String(document.querySelector('.consent') !== null);")
+    await clickElement(".accept")
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    let host = session.appURL?.host ?? "127.0.0.1"
+    let store = session.webView.configuration.websiteDataStore.httpCookieStore
+    if let serverCookie = HTTPCookie(properties: [.name: "prefs", .value: "compact", .domain: host, .path: "/",
+                                                  .expires: Date().addingTimeInterval(86_400), HTTPCookiePropertyKey("HttpOnly"): "TRUE"]) {
+        await store.setCookie(serverCookie)
+    }
+    session.keepBrowserData()
+    _ = await idle()
+    let kept = session.spec.keptBrowserData
+    check("REQ-008 the page's cookies, httpOnly ones too, and its localStorage are kept",
+          kept?.cookies.map(\.name).sorted() == ["cookie_consent", "prefs"] && kept?.cookies.first { $0.name == "prefs" }?.httpOnly == true
+          && kept?.localStorage.map(\.key) == ["consent"], "\(kept?.cookies.map(\.name) ?? []) \(kept?.localStorage.map(\.key) ?? [])")
+    check("REQ-008 confidential entries are not kept and are listed",
+          session.keptSkipped.contains { $0.hasPrefix("cookie session_id ") } && session.keptSkipped.contains { $0.hasPrefix("localStorage auth-token ") },
+          session.keptSkipped.joined(separator: " | "))
+    func environmentFile() -> String { (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? "" }
+    _ = await waitUntil(3) { environmentFile().contains("cookie_consent") }
+    let file = environmentFile()
+    check("REQ-008 the kept data is in environment.json, without the confidential values",
+          file.contains("cookie_consent") && file.contains("\"consent\"") && !file.contains(keepSessionID) && !file.contains("eyJhbGciOiJIUzI1NiJ9"))
+    session.reset()
+    _ = await idle()
+    // Cookie names and one comparison only: test output never holds cookie values.
+    let afterReset = await text("""
+        const names = document.cookie.split('; ').map(c => c.split('=')[0]).filter(Boolean).sort().join(',');
+        return [String(document.querySelector('.consent') === null), String(window.consentAtStart),
+                String(document.cookie.split('; ').includes('cookie_consent=accepted')), names].join(' ');
+        """)
+    check("REQ-008 the banner shown while nothing was kept is gone after Reset: the kept answer is there before the page's scripts",
+          bannerShown == "true" && afterReset == "true yes true cookie_consent", afterReset ?? "nil")
+    let restored = await store.allCookies()
+    check("REQ-008 a kept httpOnly cookie is set again", restored.contains { $0.name == "prefs" && $0.isHTTPOnly && $0.value == "compact" },
+          restored.map(\.name).joined(separator: ","))
+
+    // Once per generation: a reload of the same generation keeps what the application changed; Reset writes it again.
+    watchdog.reached("REQ-008 kept localStorage is written once per generation")
+    _ = await text("localStorage.setItem('consent', 'later'); return 'ok';")
+    session.reload()
+    _ = await idle()
+    let reloaded = await text("return String(window.consentAtStart);")
+    session.reset()
+    _ = await idle()
+    let again = await text("return String(window.consentAtStart);")
+    check("REQ-008 a reload in the same generation keeps what the application changed; Reset writes the kept entry again",
+          reloaded == "later" && again == "yes", "\(reloaded ?? "nil") \(again ?? "nil")")
+
+    // A scenario switch keeps them too; forgetting brings the question back.
+    var other = session.scenario
+    other.id = "keep-other"
+    other.name = "Keep other"
+    session.activate(other)
+    _ = await idle()
+    let switched = await text("return String(document.querySelector('.consent') === null);")
+    check("REQ-008 kept data survives a scenario switch", switched == "true", switched ?? "nil")
+    session.forgetKeptStorage("consent")
+    session.reset()
+    _ = await idle()
+    let forgotten = await text("return String(document.querySelector('.consent') !== null);")
+    check("REQ-008 a forgotten entry is no longer set again", switched == "true" && forgotten == "true"
+          && session.spec.keptBrowserData?.localStorage.isEmpty != false
+          && session.spec.keptBrowserData?.cookies.isEmpty == false, forgotten ?? "nil")
+    session.forgetKeptBrowserData()
+    let removed = await waitUntil(3) { !environmentFile().contains("cookie_consent") }
+    check("REQ-008 forgetting everything removes the kept data", session.spec.keptBrowserData == nil && removed
+          && StudioStore.loadEnvironment(root)?.keptBrowserData == nil)
+}
+
+let keepSessionID = "4f9a1c2e8b7d6a5f3e2d1c0b9a8f7e6d"
+/// REQ-008: a consent banner shown until the answer is stored; accepting also stores a session cookie and a token, which
+/// must not be kept.
+let keepHTML = """
+<!doctype html><html><head><meta charset="utf-8"><title>Keep</title></head><body>
+<p class="content">Content</p>
+<script>
+window.consentAtStart = localStorage.getItem('consent');
+if (!localStorage.getItem('consent')) {
+  const banner = document.createElement('section');
+  banner.className = 'consent';
+  banner.innerHTML = '<button class="accept">Accept all</button>';
+  document.body.insertBefore(banner, document.body.firstChild);
+  banner.querySelector('.accept').addEventListener('click', () => {
+    localStorage.setItem('consent', 'yes');
+    localStorage.setItem('auth-token', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJlLXZhbHVlLWhlcmU');
+    document.cookie = 'cookie_consent=accepted; path=/; max-age=31536000';
+    document.cookie = 'session_id=\(keepSessionID); path=/';
+    banner.remove();
+  });
+}
+</script></body></html>
+"""
 
 @MainActor
 func finish(_ session: StudioSession, port: Int? = nil) {

@@ -123,6 +123,9 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     var confidentialFields: [String] = StudioRedactor.defaultConfidentialFields
     var dependencies: [StudioDependency] = []
     var updated: Date? = nil
+    /// Cookies and localStorage entries set again after every restore (REQ-008). Optional, so that environments saved
+    /// before it still load.
+    var keptBrowserData: StudioKeptBrowserData? = nil
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
 }
@@ -199,6 +202,286 @@ struct StudioScenario: Codable, Hashable, Identifiable, Sendable {
     /// The contracts this scenario was saved against (`StudioScenarioCompatibility.fingerprint`).
     var contractFingerprint = ""
     var updated = Date()
+    /// What the page gets for location, clipboard, camera and microphone, and notifications (REQ-008). Optional, so that
+    /// scenarios saved before it still load; nil is the default profile.
+    var browser: StudioBrowserProfile? = nil
+
+    var browserProfile: StudioBrowserProfile { browser ?? StudioBrowserProfile() }
+}
+
+/// The browser features a scenario answers in place of the Mac (REQ-008). The page runtime gives the page the scenario's
+/// place, a clipboard of its own, a test stream and notifications that are listed in Studio; the Mac's location,
+/// clipboard, camera, microphone and notification center are never used.
+struct StudioBrowserProfile: Codable, Hashable, Sendable {
+    struct Place: Hashable, Sendable {
+        var latitude: Double
+        var longitude: Double
+        /// Meters.
+        var accuracy: Double = 25
+        var label = ""
+
+        var isValid: Bool {
+            latitude.isFinite && longitude.isFinite && accuracy.isFinite
+                && (-90...90).contains(latitude) && (-180...180).contains(longitude) && accuracy > 0
+        }
+
+        static let presets = [
+            Place(latitude: 41.8781, longitude: -87.6298, label: "Chicago"),
+            Place(latitude: 40.7128, longitude: -74.0060, label: "New York"),
+            Place(latitude: 51.5074, longitude: -0.1278, label: "London"),
+            Place(latitude: 52.5200, longitude: 13.4050, label: "Berlin"),
+            Place(latitude: 35.6762, longitude: 139.6503, label: "Tokyo"),
+        ]
+    }
+
+    enum Location: Hashable, Sendable {
+        /// The person declined (PERMISSION_DENIED).
+        case denied
+        /// Allowed, but no position can be found (POSITION_UNAVAILABLE).
+        case unavailable
+        case place(Place)
+    }
+
+    /// Camera and microphone.
+    enum Media: String, Codable, CaseIterable, Sendable {
+        case denied
+        /// A blank video track and a silent audio track; no device is opened.
+        case testStream
+    }
+
+    enum NotificationPermission: String, Codable, CaseIterable, Sendable {
+        /// Not asked yet: a request is answered `default`, as when the prompt is dismissed.
+        case `default`
+        case granted, denied
+    }
+
+    var location: Location = .denied
+    /// What the page's clipboard holds when the page loads; the page's own writes replace it until the next load.
+    var clipboardText = ""
+    var media: Media = .denied
+    var notifications: NotificationPermission = .default
+
+    static let maxClipboard = 20_000
+
+    private enum CodingKeys: String, CodingKey { case location, clipboardText, media, notifications }
+
+    /// The settings as the page runtime reads them (`config.browser`). Numbers are always finite, so the runtime
+    /// configuration always serializes; a place that is not valid is unavailable.
+    var runtimeConfig: [String: Any] {
+        var position: [String: Any] = ["kind": "denied"]
+        switch location {
+        case .denied: break
+        case .place(let place) where place.isValid:
+            position = ["kind": "place", "latitude": place.latitude, "longitude": place.longitude, "accuracy": place.accuracy,
+                      "label": String(place.label.prefix(200))]
+        case .unavailable, .place: position = ["kind": "unavailable"]
+        }
+        return ["location": position, "clipboardText": String(clipboardText.prefix(Self.maxClipboard)), "media": media.rawValue,
+                "notifications": notifications.rawValue]
+    }
+}
+
+extension StudioBrowserProfile {
+    /// Lenient: a missing or unknown setting keeps its default, so a scenario file edited by hand still loads.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        location = (try? container.decodeIfPresent(Location.self, forKey: .location)) ?? .denied
+        clipboardText = (try? container.decodeIfPresent(String.self, forKey: .clipboardText)) ?? ""
+        media = (try? container.decodeIfPresent(Media.self, forKey: .media)) ?? .denied
+        notifications = (try? container.decodeIfPresent(NotificationPermission.self, forKey: .notifications)) ?? .default
+    }
+}
+
+/// Written as `{"kind": "place", "latitude": …, "longitude": …, "accuracy": …, "label": …}`, `{"kind": "denied"}` or
+/// `{"kind": "unavailable"}`.
+extension StudioBrowserProfile.Location: Codable {
+    private enum Keys: String, CodingKey { case kind, latitude, longitude, accuracy, label }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        switch try container.decode(String.self, forKey: .kind) {
+        case "unavailable": self = .unavailable
+        case "place":
+            self = .place(StudioBrowserProfile.Place(latitude: try container.decode(Double.self, forKey: .latitude),
+                                                     longitude: try container.decode(Double.self, forKey: .longitude),
+                                                     accuracy: (try? container.decodeIfPresent(Double.self, forKey: .accuracy)) ?? 25,
+                                                     label: (try? container.decodeIfPresent(String.self, forKey: .label)) ?? ""))
+        default: self = .denied
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        switch self {
+        case .denied: try container.encode("denied", forKey: .kind)
+        case .unavailable: try container.encode("unavailable", forKey: .kind)
+        case .place(let place):
+            try container.encode("place", forKey: .kind)
+            try container.encode(place.latitude, forKey: .latitude)
+            try container.encode(place.longitude, forKey: .longitude)
+            try container.encode(place.accuracy, forKey: .accuracy)
+            try container.encode(place.label, forKey: .label)
+        }
+    }
+}
+
+/// A cookie kept across restores (REQ-008); it passed the confidentiality check before it was kept.
+struct StudioKeptCookie: Codable, Hashable, Identifiable, Sendable {
+    var name: String
+    var value: String
+    var domain: String
+    var path = "/"
+    /// nil: a session cookie.
+    var expires: Date? = nil
+    var secure = false
+    var httpOnly = false
+    /// `lax`, `strict`, or nil (none or not set).
+    var sameSite: String? = nil
+
+    var id: String { domain + "\n" + path + "\n" + name }
+
+    private enum CodingKeys: String, CodingKey { case name, value, domain, path, expires, secure, httpOnly, sameSite }
+
+    static let loopback: Set<String> = ["localhost", "127.0.0.1", "::1", "[::1]"]
+
+    /// Whether the cookie is sent to `host`: its domain is the host or a parent domain of it; loopback names are one server.
+    func belongs(to host: String) -> Bool {
+        let domain = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let host = host.lowercased()
+        if domain.isEmpty { return false }
+        if domain == host || (Self.loopback.contains(domain) && Self.loopback.contains(host)) { return true }
+        return host.hasSuffix("." + domain)
+    }
+}
+
+extension StudioKeptCookie {
+    /// Lenient: only the name, value and domain are required.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        value = try container.decode(String.self, forKey: .value)
+        domain = try container.decode(String.self, forKey: .domain)
+        path = (try? container.decodeIfPresent(String.self, forKey: .path)) ?? "/"
+        expires = try? container.decodeIfPresent(Date.self, forKey: .expires)
+        secure = (try? container.decodeIfPresent(Bool.self, forKey: .secure)) ?? false
+        httpOnly = (try? container.decodeIfPresent(Bool.self, forKey: .httpOnly)) ?? false
+        sameSite = try? container.decodeIfPresent(String.self, forKey: .sameSite)
+    }
+
+    init(_ cookie: HTTPCookie) {
+        self.init(name: cookie.name, value: cookie.value, domain: cookie.domain, path: cookie.path.isEmpty ? "/" : cookie.path,
+                  expires: cookie.expiresDate, secure: cookie.isSecure, httpOnly: cookie.isHTTPOnly,
+                  sameSite: cookie.sameSitePolicy.map { $0.rawValue.lowercased() })
+    }
+
+    /// The cookie to set for an application served from `host`, or nil when it has expired. A cookie kept on one loopback
+    /// name (`localhost`) is set on the one the development server uses now (`127.0.0.1`).
+    func httpCookie(appHost host: String, now: Date = Date()) -> HTTPCookie? {
+        if let expires, expires <= now { return nil }
+        let bare = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let target = Self.loopback.contains(bare) && Self.loopback.contains(host.lowercased()) ? host : domain
+        var properties: [HTTPCookiePropertyKey: Any] = [.name: name, .value: value, .domain: target, .path: path.isEmpty ? "/" : path]
+        if let expires { properties[.expires] = expires }
+        if secure { properties[.secure] = "TRUE" }
+        if httpOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
+        switch sameSite {
+        case "lax": properties[.sameSitePolicy] = HTTPCookieStringPolicy.sameSiteLax.rawValue
+        case "strict": properties[.sameSitePolicy] = HTTPCookieStringPolicy.sameSiteStrict.rawValue
+        default: break
+        }
+        return HTTPCookie(properties: properties)
+    }
+}
+
+/// A localStorage entry kept across restores (REQ-008).
+struct StudioKeptStorageEntry: Codable, Hashable, Sendable {
+    var key: String
+    var value: String
+}
+
+/// The page's cookies and localStorage the person chose to keep (REQ-008): a restore empties the browser storage, so
+/// without them the application asks again (cookie consent, onboarding). They live in `environment.json`, which may be
+/// committed, so only entries that do not look confidential are kept.
+struct StudioKeptBrowserData: Codable, Hashable, Sendable {
+    var cookies: [StudioKeptCookie] = []
+    var localStorage: [StudioKeptStorageEntry] = []
+    /// The application origin the entries were kept from.
+    var origin: String? = nil
+    var kept: Date? = nil
+
+    var isEmpty: Bool { cookies.isEmpty && localStorage.isEmpty }
+
+    static let maxCookies = 100
+    static let maxEntries = 200
+    static let maxName = 256
+    static let maxValue = 8_192
+
+    private enum CodingKeys: String, CodingKey { case cookies, localStorage, origin, kept }
+
+    /// The kept localStorage as the page runtime reads it (`config.keptStorage`).
+    var runtimeStorage: [[String: String]] { localStorage.map { ["key": $0.key, "value": $0.value] } }
+
+    struct Outcome: Equatable {
+        var kept: StudioKeptBrowserData
+        /// What was left out and why, by name; never a value.
+        var skipped: [String]
+    }
+
+    /// What may be kept of a page's cookies and localStorage: cookies sent to the application's host only, and no entry
+    /// whose name or value looks confidential (`StudioRedactor.confidentialEntryProblem`) — those are named in `skipped`.
+    static func collect(cookies: [StudioKeptCookie], storage: [StudioKeptStorageEntry], appHost: String, origin: String?,
+                        redactor: StudioRedactor, now: Date = Date()) -> Outcome {
+        var kept = StudioKeptBrowserData(origin: origin, kept: now)
+        var skipped: [String] = []
+        func shown(_ name: String) -> String { name.count > 80 ? String(name.prefix(80)) + "…" : name }
+        for cookie in cookies.sorted(by: { $0.id < $1.id }) where cookie.belongs(to: appHost) {
+            if let expires = cookie.expires, expires <= now { continue }
+            if let problem = redactor.confidentialEntryProblem(name: cookie.name, value: cookie.value) {
+                skipped.append("cookie \(shown(cookie.name)) (\(problem))")
+            } else if kept.cookies.count >= maxCookies {
+                skipped.append("cookie \(shown(cookie.name)) (more than \(maxCookies) cookies)")
+            } else {
+                kept.cookies.append(cookie)
+            }
+        }
+        var seen = Set<String>()
+        for entry in storage.sorted(by: { $0.key < $1.key }) where seen.insert(entry.key).inserted {
+            if let problem = redactor.confidentialEntryProblem(name: entry.key, value: entry.value) {
+                skipped.append("localStorage \(shown(entry.key)) (\(problem))")
+            } else if kept.localStorage.count >= maxEntries {
+                skipped.append("localStorage \(shown(entry.key)) (more than \(maxEntries) entries)")
+            } else {
+                kept.localStorage.append(entry)
+            }
+        }
+        return Outcome(kept: kept, skipped: skipped)
+    }
+
+    /// The page's localStorage as the runtime's `storage()` reports it, checked at the boundary: string keys and values
+    /// only, at most 500 entries. Sizes are judged by `collect`.
+    static func storageEntries(_ raw: Any?) -> [StudioKeptStorageEntry] {
+        guard let list = raw as? [Any] else { return [] }
+        return list.prefix(500).compactMap { item in
+            guard let object = item as? [String: Any], let key = object["key"] as? String, let value = object["value"] as? String else { return nil }
+            return StudioKeptStorageEntry(key: key, value: value)
+        }
+    }
+}
+
+extension StudioKeptBrowserData {
+    /// Lenient: an entry that does not decode is dropped instead of failing the whole environment.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cookies = ((try? container.decodeIfPresent([Lossy<StudioKeptCookie>].self, forKey: .cookies)) ?? []).compactMap(\.value)
+        localStorage = ((try? container.decodeIfPresent([Lossy<StudioKeptStorageEntry>].self, forKey: .localStorage)) ?? []).compactMap(\.value)
+        origin = try? container.decodeIfPresent(String.self, forKey: .origin)
+        kept = try? container.decodeIfPresent(Date.self, forKey: .kept)
+    }
+
+    private struct Lossy<Value: Decodable>: Decodable {
+        var value: Value?
+        init(from decoder: Decoder) throws { value = try? Value(from: decoder) }
+    }
 }
 
 /// The identity of the code a preview or capture was built from: the commit, the uncommitted changes and the unsaved

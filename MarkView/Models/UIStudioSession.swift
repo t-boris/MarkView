@@ -115,6 +115,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published var comparison: Comparison?
     /// Undo conflicts by operation: the merged text with conflict markers per file.
     @Published private(set) var undoConflicts: [String: [(path: String, merged: String)]] = [:]
+    /// What the last "Keep" left out of the kept cookies and storage, and why (names only, never values).
+    @Published private(set) var keptSkipped: [String] = []
 
     /// Unsaved editor buffers of files in the project (path relative to the root → text).
     var editorBuffers: () -> [String: String] = { [:] }
@@ -350,7 +352,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             "session": token, "generation": simulator.generation, "seed": Int(scenario.seed),
             "testTime": scenario.testTime.timeIntervalSince1970 * 1000, "locale": scenario.locale,
             "timeZone": scenario.timeZone ?? NSNull(), "electron": target?.isElectron ?? false, "electronGlobals": electronGlobals,
-            "recording": mode == .record,
+            "recording": mode == .record, "browser": scenario.browserProfile.runtimeConfig,
+            "keptStorage": spec.keptBrowserData?.runtimeStorage ?? [],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: config),
               let json = String(data: data, encoding: .utf8) else { return nil }
@@ -415,7 +418,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     /// Back to the scenario's baseline (SIM-04, AC-04): a new generation (late answers of the old one are dropped), empty
-    /// browser storage, a fresh page and the scenario's restoration steps. Returns why the restore is incomplete, if it is.
+    /// browser storage with only the kept cookies set again (REQ-008; the runtime writes the kept localStorage), a fresh
+    /// page and the scenario's restoration steps. Returns why the restore is incomplete, if it is.
     @discardableResult
     func restore() async -> String? {
         guard !closed, appURL != nil else { return "The application is not running." }
@@ -425,6 +429,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         preparation.cancelAll()
         selection = nil
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        await restoreKeptCookies()
         guard await loadPage() else {
             if state != .failed { set(.degraded, "The page did not finish loading.") }
             return "The page did not finish loading."
@@ -542,6 +547,20 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             webView.load(navigationAction.request)
         }
         return nil
+    }
+
+    /// The Mac's camera and microphone are never opened (REQ-008): the page runtime answers getUserMedia from the scenario,
+    /// and a request that reaches WebKit anyway is denied.
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
+                 type: WKMediaCaptureType, decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
+        decisionHandler(.deny)
+    }
+
+    /// The Mac's location is never given to the page (REQ-008); the runtime answers navigator.geolocation from the scenario.
+    @available(macOS 27.0, *)
+    func webView(_ webView: WKWebView, requestGeolocationPermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
+                 decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
+        decisionHandler(.deny)
     }
 
     // MARK: - Bridge
@@ -694,6 +713,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         case .blocked:
             noteDependency(StudioDependency(id: "blocked:" + String(detail.prefix(120)), mode: .unsupported,
                                             note: detail + " (blocked by the application connection policy)"))
+        case .browser:
+            // Answered by the scenario's browser settings; listed with the latest use (REQ-008).
+            let feature = StudioBridge.browserFeature(of: detail) ?? "browser"
+            noteDependency(StudioDependency(id: "browser:" + feature, mode: .simulated,
+                                            note: "Answered by the scenario's browser settings. Last use: " + String(detail.prefix(300))))
         case .runtimeError:
             break
         }
@@ -816,6 +840,84 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         scenario.locale = locale
         simulator.activate(scenario)
         reset()
+    }
+
+    /// What the page gets for location, clipboard, camera and microphone, and notifications (REQ-008); the page is reset so
+    /// that it starts under them. The default profile is stored as none, so scenario files stay as they were.
+    func setBrowserProfile(_ profile: StudioBrowserProfile) {
+        guard busy == nil else {
+            notice = "Wait for \(busy ?? "the current work") to finish."
+            return
+        }
+        scenario.browser = profile == StudioBrowserProfile() ? nil : profile
+        simulator.activate(scenario)
+        reset()
+    }
+
+    // MARK: - Kept cookies and storage
+
+    /// Keeps the page's cookies (httpOnly ones included) and localStorage for later restores (REQ-008): a restore empties
+    /// the browser storage, so the application would ask again (cookie consent). Cookies of the application's host only;
+    /// entries that look confidential are left out and named, because environment.json may be committed. Replaces what
+    /// was kept before.
+    func keepBrowserData() {
+        runWork("Keeping the page's cookies and storage") { session in
+            guard let host = session.appURL?.host else { return }
+            let cookies = await session.webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+            guard let page = (try? await session.call("return window.__markviewStudio ? window.__markviewStudio.storage() : null;")) as? [String: Any]
+            else {
+                session.notice = "The page did not report its storage; nothing was kept. Wait until it has loaded and try again."
+                return
+            }
+            let storage = StudioKeptBrowserData.storageEntries(page["entries"])
+            let outcome = StudioKeptBrowserData.collect(cookies: cookies.map(StudioKeptCookie.init), storage: storage, appHost: host,
+                                                        origin: session.appOrigin?.text, redactor: session.redactor)
+            session.keptSkipped = outcome.skipped
+            session.replaceKept(outcome.kept.isEmpty ? nil : outcome.kept)
+            let kept = outcome.kept
+            session.notice = "Kept \(kept.cookies.count) cookie\(kept.cookies.count == 1 ? "" : "s") and \(kept.localStorage.count) "
+                + "localStorage entr\(kept.localStorage.count == 1 ? "y" : "ies") in .markview/studio/environment.json; they are set again after every restore."
+                + (outcome.skipped.isEmpty ? "" : " Not kept because they look confidential: \(outcome.skipped.count).")
+        }
+    }
+
+    func forgetKeptCookie(_ id: String) {
+        updateKept { $0.cookies.removeAll { $0.id == id } }
+    }
+
+    func forgetKeptStorage(_ key: String) {
+        updateKept { $0.localStorage.removeAll { $0.key == key } }
+    }
+
+    /// Forgets every kept cookie and storage entry; the next restore starts from empty browser storage again.
+    func forgetKeptBrowserData() {
+        keptSkipped = []
+        replaceKept(nil)
+    }
+
+    private func updateKept(_ change: (inout StudioKeptBrowserData) -> Void) {
+        guard var kept = spec.keptBrowserData else { return }
+        change(&kept)
+        replaceKept(kept.isEmpty ? nil : kept)
+    }
+
+    private func replaceKept(_ kept: StudioKeptBrowserData?) {
+        var next = simulator.spec
+        next.keptBrowserData = kept
+        simulator.replaceSpec(next)
+        spec = next
+        persistEnvironment()
+    }
+
+    /// The kept cookies go back into the emptied store before the page loads (REQ-008).
+    private func restoreKeptCookies() async {
+        guard let cookies = spec.keptBrowserData?.cookies, !cookies.isEmpty, let host = appURL?.host else { return }
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        let now = Date()
+        for cookie in cookies {
+            guard let http = cookie.httpCookie(appHost: host, now: now) else { continue }
+            await store.setCookie(http)
+        }
     }
 
     func problems(of scenario: StudioScenario) -> [String] {
