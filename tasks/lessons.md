@@ -1111,3 +1111,32 @@ the answer, with the saved default unchanged because the value was the one alrea
 ## `gh release create` can fail with HTTP 500 while release.sh still exits 0
 - After notarization the publish step printed `HTTP 500` and no release existed. Check `gh release view v<version>` after every
   publish; rerun only the `gh release create` line from the same clean worktree (the DMGs are already stapled).
+
+## A test clock in the past breaks file watchers (DEC-006)
+- webpack's watchpack compares file times with `Date.now()` at the start of a watch. Under a test time in the past every recent
+  file looks changed, so the server rebuilds without end. Replacing `Date` in a whole Node process is too wide: the preload now
+  moves the clock only inside the async context of a server `request` event (AsyncLocalStorage), so builds, watchers and tools
+  keep the real clock. webpack still compiles from inside the page's request, so a webpack dev server keeps the real clock and
+  the UI says so. Turbopack and Vite do not compare file times with the clock.
+
+## Assistant memory must not reach across sessions (BUG-068, REQ-009)
+- Sending the last turns of the saved history would send yesterday's request about another element (the consent banner) with
+  today's change, which is how the wrong component got edited in the first place. Show the whole history in the thread, but send
+  only the turns of the current session (plus a clarification being answered).
+
+## GitHub can reject a push with "Internal Server Error"
+- `git push` printed `! [remote rejected] main -> main (Internal Server Error)` and nothing reached GitHub. Retry, then compare
+  `git ls-remote … refs/heads/main` with the local HEAD; do not trust the exit status alone.
+
+## Conflict-resolution scripts and conflict markers in code
+- `UIStudioSession.swift` builds undo conflicts with `<<<<<<<` markers in its own source, so "no `<<<<<<<` left" is a false
+  failure. Match markers only at the start of a line together with the branch or commit name.
+
+## Fake credentials in test fixtures
+- A literal `sk_live_…` (or another provider prefix) in a test file can trip GitHub's push protection. Assemble fake keys at run
+  time (`"sk_" + "live_" + …`) so the shape is tested without a key-shaped literal in the repository.
+
+## New optional fields on a synthesized Codable type
+- A synthesized decoder fails the whole file when one element of an optional array is malformed, and UI Studio then replaces
+  environment.json. Give stored entries a lenient `init(from:)` (unknown enum values fall back, missing fields are empty) and
+  check that a file written before the field, and a damaged entry, both still load.

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-072
 title: UI Studio conversation disappears while the assistant thinks
-status: open
+status: fixed
 severity: medium
 reporter: Boris Tsekinovsky
 created: 2026-11-04
