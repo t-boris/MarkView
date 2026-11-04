@@ -37,10 +37,19 @@ enum StudioPrompts {
         - Use operations list, get, create, update, delete (on an entity), respond (a fixed answer) or session (the test user). \
           Paths use `:id` style parameters; a request to another origin uses the full URL as the path.
         - Prefer one entity per resource with a stable `id`; related resources point at each other with `<entity>Id` fields \
-          and `references`. Give seed records realistic, varied values (6-12 records for a list), never real people's data, \
-          never real credentials.
-        - When the request needs GraphQL, a WebSocket, a database or a third-party SDK, set \
-          `unsupported` to true and explain in `reason`.
+          and `references`. Give seed records realistic, varied values, never real people's data, never real credentials.
+        - The seed must make the page show something everywhere it can (DEC-007, BUG-078): records of a related entity \
+          point at records that exist, and every value the page groups or filters by (each category, city, status or tab it \
+          shows) gets 2-4 records, so no carousel, tab or list is empty unless the scenario asks for empty. A list has \
+          6-12 records in all.
+        - `filters` name fields of the entity's records only. Paging and sorting parameters (limit, offset, page, per_page, \
+          cursor, sort, order) are not filters: MarkView pages lists itself.
+        - UI Studio is a mock-up (DEC-007): nothing is checked for real. A write, a sign-in, a consent, a payment or a form \
+          submission succeeds with the answer the application expects, whatever was typed. That the real server needs \
+          authentication, an admin or third-party SDK, a database or another service is never a reason to refuse: answer \
+          as that server would after it succeeded.
+        - Set `unsupported` to true (and explain in `reason`) only for what MarkView cannot answer over HTTP: GraphQL, a \
+          WebSocket or a streaming protocol.
         - Add rules only for the requests you are asked about and the closely related ones (their lists, details and writes).
         """ + "\n" + dataNotInstructions
 

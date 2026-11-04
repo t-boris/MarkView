@@ -273,10 +273,13 @@ struct StudioSimulator {
         case .list:
             let query = request.query
             var list = records
-            for name in rule.filters ?? [] {
+            // A filter is a field of the records. Paging parameters named as filters (`limit`, `offset`) matched no record and
+            // emptied every list (BUG-078): they page the list instead.
+            for name in rule.filters ?? [] where !StudioPaging.parameters.contains(name.lowercased()) && hasField(name, entity, records) {
                 guard let wanted = query[name] else { continue }
                 list = list.filter { $0[name]?.identityKey == wanted }
             }
+            list = StudioPaging.page(list, query: query)
             list = list.map { attach(rule.include, to: $0, idField: idField, state: state, spec: spec) }
             return .json(rule.status ?? 200, rule.envelope.map { .object([$0: .array(list)]) } ?? .array(list))
         case .get:
@@ -321,6 +324,11 @@ struct StudioSimulator {
     }
 
     /// Related records read from the same state, so a detail and its list never disagree (AC-02).
+    /// Whether `name` is a field of the entity's records: declared, or present in one of them (BUG-078).
+    private static func hasField(_ name: String, _ entity: StudioEntity, _ records: [StudioJSON]) -> Bool {
+        entity.fields.contains { $0.name == name } || records.contains { $0[name] != nil }
+    }
+
     private static func attach(_ includes: [StudioInclude]?, to record: StudioJSON, idField: String,
                                state: [String: [StudioJSON]], spec: StudioEnvironmentSpec) -> StudioJSON {
         guard let includes, !includes.isEmpty, var fields = record.objectValue, let id = record[idField]?.identityKey else { return record }
@@ -509,5 +517,25 @@ enum StudioValidator {
             }
         }
         return problems
+    }
+}
+
+/// Paging of a simulated list (BUG-078): the common query names for a page size and an offset, applied after filtering.
+enum StudioPaging {
+    static let sizes = ["limit", "per_page", "perpage", "page_size", "pagesize", "size", "take", "first"]
+    static let offsets = ["offset", "skip", "start"]
+    static let pages = ["page", "page_number", "pagenumber"]
+    static let parameters = Set(sizes + offsets + pages + ["cursor", "after", "before", "sort", "order", "order_by", "orderby", "sort_by"])
+
+    static func page(_ list: [StudioJSON], query: [String: String]) -> [StudioJSON] {
+        let lowered = Dictionary(query.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
+        func number(_ names: [String]) -> Int? { names.lazy.compactMap { lowered[$0].flatMap { Int($0) } }.first }
+        let size = number(sizes).map { max(0, $0) }
+        var offset = number(offsets).map { max(0, $0) } ?? 0
+        if number(offsets) == nil, let page = number(pages), let size, page > 0 { offset = (page - 1) * size }
+        guard offset > 0 || size != nil else { return list }
+        let start = min(offset, list.count)
+        let end = size.map { min(list.count, start + $0) } ?? list.count
+        return Array(list[start..<end])
     }
 }

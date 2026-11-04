@@ -2,7 +2,7 @@
 type: bug
 id: BUG-077
 title: UI Studio's preparation ahead of a page is cut at 95 s by the agent CLI's fixed timeout, and retried
-status: open
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

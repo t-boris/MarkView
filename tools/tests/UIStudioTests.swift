@@ -68,6 +68,24 @@ check("AC-02 detail includes related records from the same state", detail.1?["ta
 check("list filters by query", answer(sim.handle(request("GET", "/api/projects?status=archived"))).1?.arrayValue?.count == 1)
 check("literal route beats parameter", StudioRoute.specificity("/api/projects/archived") > StudioRoute.specificity("/api/projects/:id"))
 
+// BUG-078: paging parameters named as filters (vivaa's bundles/search had `filters: [category_id, limit, offset]`) page the
+// list instead of emptying it, and a filter on a field no record has is ignored.
+do {
+    var paged = spec
+    paged.rules = [StudioRule(id: "search", method: "GET", path: "/api/projects/search", operation: .list, entity: "projects",
+                              filters: ["status", "limit", "offset", "noSuchField"])]
+    var pagedSim = StudioSimulator(spec: paged, scenario: base, appOrigin: app)
+    let all = answer(pagedSim.handle(request("GET", "/api/projects/search?limit=10&offset=0"))).1?.arrayValue?.count
+    check("BUG-078 limit and offset named as filters do not empty the list", all == 3, "\(all ?? -1)")
+    let active = answer(pagedSim.handle(request("GET", "/api/projects/search?status=active&limit=10&offset=0&noSuchField=x"))).1?.arrayValue
+    check("BUG-078 a real field still filters, a field no record has is ignored", active?.count == 2, "\(active?.count ?? -1)")
+    let second = answer(pagedSim.handle(request("GET", "/api/projects/search?limit=2&offset=1"))).1?.arrayValue
+    check("BUG-078 limit and offset page the list", second?.map { $0["name"]?.stringValue ?? "" } == ["Gemini", "Mercury"],
+          "\(second ?? [])")
+    let page2 = answer(pagedSim.handle(request("GET", "/api/projects/search?page=2&per_page=2"))).1?.arrayValue
+    check("BUG-078 a 1-based page with per_page pages the list", page2?.map { $0["name"]?.stringValue ?? "" } == ["Mercury"], "\(page2 ?? [])")
+}
+
 let renamed = answer(sim.handle(request("PATCH", "/api/projects/2", body: #"{"name":"Gemini II"}"#)))
 check("AC-03 rename answers the record", renamed.0 == 200 && renamed.1?["name"]?.stringValue == "Gemini II" && renamed.1?["status"]?.stringValue == "active")
 check("AC-03 later list reads the rename", answer(sim.handle(request("GET", "/api/projects"))).1?.arrayValue?.contains { $0["name"]?.stringValue == "Gemini II" } == true)
@@ -666,6 +684,13 @@ func evidenceChecks() {
 // MARK: - Prompts and answers
 
 func promptChecks() {
+    // DEC-007, BUG-078: the preparation prompt says that everything succeeds in the mock-up, that the seed fills every group
+    // the page shows, and that paging parameters are not filters.
+    let system = StudioPrompts.preparationSystem
+    check("DEC-007 the preparation prompt never refuses a write for needing real auth or an SDK",
+          system.contains("never a reason to refuse") && system.contains("mock-up"))
+    check("BUG-078 the preparation prompt fills every group the page shows and keeps paging out of filters",
+          system.contains("2-4 records") && system.contains("are not filters"))
     let structured: [String: Any] = [
         "unsupported": false, "reason": "", "assumptions": ["labels have only names"],
         "entities": [["name": "labels", "idField": "id", "fields": [["name": "name", "type": "string", "required": true, "enumValues": [], "references": ""]]]],
