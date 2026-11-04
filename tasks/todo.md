@@ -8,7 +8,8 @@
       change summary lists only what was added or removed
 - [x] Prompt rule 7 and the plan schema updated; 10 model checks and 2 session checks added
 - [x] Model 613 ok, web 96 ok, session 227 ok; Debug build succeeds
-- [ ] Release 5.27.1 and install with go-ahead
+- [x] Release 5.27.1 published (v5.27.1 Latest, signed and notarized, DMG in build/)
+- [ ] Install 5.27.1 with Boris's go-ahead
 - Review: the model still has to write a 27 KB chain the first time; a generator for long lists is proposed to Boris.
 
 # MarkView — Follow-up Tasks
