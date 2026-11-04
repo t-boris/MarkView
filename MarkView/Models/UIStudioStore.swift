@@ -16,6 +16,7 @@ enum StudioStore {
     static func capturesURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("captures.json") }
     static func selectionFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("selection", isDirectory: true) }
     static func logURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("session.log") }
+    static func activeScenarioURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("active-scenario.json") }
 
     static var encoder: JSONEncoder {
         let encoder = JSONEncoder()
@@ -48,6 +49,15 @@ enum StudioStore {
     static func save<T: Encodable>(_ value: T, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(value).write(to: url, options: .atomic)
+    }
+
+    /// The scenario a session ended on, so that the next one opens on it and the data asked for is still there (BUG-087). It is the
+    /// person's own state, kept with the session data (never committed), not with the team's scenarios.
+    private struct ActiveScenario: Codable { var id: String }
+    static func loadActiveScenarioID(_ root: URL) -> String? { load(ActiveScenario.self, from: activeScenarioURL(root))?.id }
+    static func saveActiveScenarioID(_ id: String, root: URL) {
+        prepareLocalFolder(root)
+        try? save(ActiveScenario(id: id), to: activeScenarioURL(root))
     }
 
     static func loadEnvironment(_ root: URL) -> StudioEnvironmentSpec? { load(StudioEnvironmentSpec.self, from: environmentURL(root)) }

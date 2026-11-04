@@ -68,6 +68,17 @@ check("viewport presets have unique names and the default desktop first",
 check("viewport presets offer Full HD and QHD desktops",
       StudioViewport.presets.contains { $0.viewport == StudioViewport(width: 1920, height: 1080) }
       && StudioViewport.presets.contains { $0.viewport == StudioViewport(width: 2560, height: 1440) })
+// BUG-087: the scenario a session ended on is remembered per project, in the session data that stays out of Git.
+let activeRoot = FileManager.default.temporaryDirectory.appendingPathComponent("markview-active-scenario-\(UUID().uuidString)")
+check("BUG-087 no scenario is remembered in a new project", StudioStore.loadActiveScenarioID(activeRoot) == nil)
+StudioStore.saveActiveScenarioID("33-strikes", root: activeRoot)
+check("BUG-087 the active scenario is remembered with the session data, kept out of Git",
+      StudioStore.loadActiveScenarioID(activeRoot) == "33-strikes"
+      && StudioStore.activeScenarioURL(activeRoot).path.contains("/.dde/studio/")
+      && ((try? String(contentsOf: StudioStore.localFolder(activeRoot).appendingPathComponent(".gitignore"), encoding: .utf8)) ?? "").contains("*"))
+try? "not json".write(to: StudioStore.activeScenarioURL(activeRoot), atomically: true, encoding: .utf8)
+check("BUG-087 an unreadable record is no scenario", StudioStore.loadActiveScenarioID(activeRoot) == nil)
+try? FileManager.default.removeItem(at: activeRoot)
 check("AC-01 list answers prepared data without a backend", list.0 == 200 && list.1?.arrayValue?.count == 3)
 let detail = answer(sim.handle(request("GET", "/api/projects/1")))
 check("AC-02 detail matches the list", detail.1?["name"] == list.1?.arrayValue?.first?["name"])
@@ -861,6 +872,34 @@ func contextChecks() {
           && addedScenario.data?["projects"]?.last?["name"]?.stringValue == "Orion" && addedScenario.name == "Add a project")
     let nothing = StudioContextValidator.scenario(StudioContextPlan(structured: contextObject()), from: base, spec: spec, request: "Leave it", taken: taken)
     check("REQ-013 a plan that changes nothing makes no change", !StudioContextValidator.change(from: base, to: nothing, spec: spec, unsupported: []).changesAnything)
+    // BUG-087: the current scenario's overrides stay in the derived one; the assistant never has to copy a long body.
+    var chain = base
+    chain.overrides = [StudioOverride(ruleId: "list-projects", status: 200, body: .array([.object(["id": .number(1)])])),
+                       StudioOverride(method: "GET", path: "/api/me", status: 200, body: .object(["name": .string("Ann")]))]
+    let slow = StudioContextPlan(structured: contextObject(overrides: [overrideObject(ruleId: "list-projects", delayMs: 900)]))
+    let afterSlow = StudioContextValidator.scenario(slow, from: chain, spec: spec, request: "Slow list", taken: taken)
+    check("BUG-087 an override the plan does not name stays, one it names is replaced whole",
+          afterSlow.overrides.count == 2 && afterSlow.overrides.first?.path == "/api/me"
+          && afterSlow.overrides.last == StudioOverride(ruleId: "list-projects", delayMs: 900), "\(afterSlow.overrides)")
+    let unrelated = StudioContextPlan(structured: contextObject(addData: #"{"projects":[{"id":7,"name":"Orion","status":"active"}]}"#))
+    let afterUnrelated = StudioContextValidator.scenario(unrelated, from: chain, spec: spec, request: "Add a project", taken: taken)
+    check("BUG-087 a plan with no overrides keeps every current one", afterUnrelated.overrides == chain.overrides)
+    let sameRule = StudioContextPlan(structured: contextObject(overrides: [overrideObject(ruleId: "me", status: 200, body: #"{"name":"Bob"}"#)]))
+    check("BUG-087 a method and path override and a rule id override of one rule are one override",
+          StudioContextValidator.scenario(sameRule, from: chain, spec: spec, request: "Bob", taken: taken).overrides.count == 2)
+    var dropPlan = StudioContextPlan(structured: contextObject())
+    dropPlan.dropOverrides = ["list-projects", "me"]
+    let withoutOverrides = StudioContextValidator.scenario(dropPlan, from: chain, spec: spec, request: "Back to normal", taken: taken)
+    check("BUG-087 an override named in dropOverrides is removed, by rule id or by method and path", withoutOverrides.overrides.isEmpty,
+          "\(withoutOverrides.overrides)")
+    let droppedChange = StudioContextValidator.change(from: chain, to: afterSlow, spec: spec, unsupported: [])
+    check("BUG-087 the change lists what was added or replaced, not what stayed", droppedChange.overrides == ["list-projects: after 900 ms"]
+          && droppedChange.other.isEmpty, "\(String(describing: droppedChange.overrides)) \(droppedChange.other)")
+    check("BUG-087 the change says which overrides were removed", StudioContextValidator.change(from: chain, to: withoutOverrides, spec: spec, unsupported: [])
+          .other == ["Override removed: list-projects", "Override removed: me"])
+    let parsedDrop = StudioContextPlan(structured: contextObject().merging(["dropOverrides": ["list-projects", ""]]) { $1 })
+    check("BUG-087 dropOverrides is read, and is optional", parsedDrop.dropOverrides == ["list-projects"]
+          && StudioContextPlan(structured: contextObject()).dropOverrides.isEmpty && parsedDrop.parseProblems.isEmpty)
     check("REQ-013 a new scenario never takes a built-in id", StudioContextValidator.uniqueName("builtin-populated", taken: []).id.hasPrefix("scenario-")
           && StudioContextValidator.uniqueName("", taken: []).name == "Scenario")
     var unserved = spec

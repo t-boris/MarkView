@@ -1,3 +1,16 @@
+## UI Studio keeps the person's data between sessions and changes — release 5.27.1 (2026-11-04, BUG-087)
+
+- [x] Evidence: broker-fabric history (9 context requests, 5 refused, two saved 33-strike scenarios); derived scenarios
+      ("Review & Send", "Working-order check repaired") lost the chain override; every session started on Populated
+- [x] A new session opens on the scenario the last one ended on (`.dde/studio/active-scenario.json`); a deleted scenario or
+      one that needs an update falls back to Populated with a notice
+- [x] A context change keeps the current overrides unless it replaces (same rule) or drops (`dropOverrides`) them; the
+      change summary lists only what was added or removed
+- [x] Prompt rule 7 and the plan schema updated; 10 model checks and 2 session checks added
+- [x] Model 613 ok, web 96 ok, session 227 ok; Debug build succeeds
+- [ ] Release 5.27.1 and install with go-ahead
+- Review: the model still has to write a 27 KB chain the first time; a generator for long lists is proposed to Boris.
+
 # MarkView — Follow-up Tasks
 
 ## UI Studio offers larger desktop viewports — release 5.27.0 (2026-11-04)

@@ -91,7 +91,18 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var limitations: [String] = []
     @Published private(set) var spec: StudioEnvironmentSpec
     @Published private(set) var savedScenarios: [StudioScenario] = []
-    @Published private(set) var scenario: StudioScenario
+    @Published private(set) var scenario: StudioScenario {
+        didSet { rememberActiveScenario() }
+    }
+    /// The scenario id last written to the project's session data (BUG-087).
+    private var rememberedScenarioID: String?
+
+    private func rememberActiveScenario() {
+        guard scenario.id != rememberedScenarioID else { return }
+        rememberedScenarioID = scenario.id
+        let root = root, id = scenario.id
+        io.async { StudioStore.saveActiveScenarioID(id, root: root) }
+    }
     /// Service addresses of the development server (REQ-007): simulated through the gateway, or real.
     @Published private(set) var serverConnections: [StudioServerConnection] = []
     /// Secret variables the server reads; each gets a test value unless kept real.
@@ -220,8 +231,22 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         spec = loaded
         redactor = StudioRedactor(fields: loaded.confidentialFields)
         sessionLog = StudioLog(root: self.root, redactor: redactor, queue: io)
-        var first = StudioScenarioCompatibility.presets(spec: loaded, base: StudioScenario(id: "builtin-populated", name: "Populated", kind: .populated))[0]
-        first.role = .tester(role: loaded.testUserRole)
+        var base = StudioScenario(id: "builtin-populated", name: "Populated", kind: .populated)
+        base.role = .tester(role: loaded.testUserRole)
+        let builtin = StudioScenarioCompatibility.presets(spec: loaded, base: base)
+        var first = builtin[0]
+        // Open on the scenario the last session ended on, so the data the person asked for is still there (BUG-087). One that was
+        // deleted, or whose contracts changed since (it needs an update), is not opened silently: the built-in one is, with a notice.
+        var needsUpdate: String?
+        if let id = StudioStore.loadActiveScenarioID(self.root), id != first.id,
+           let remembered = (builtin + StudioStore.loadScenarios(self.root)).first(where: { $0.id == id }) {
+            if remembered.id.hasPrefix("builtin-") || StudioScenarioCompatibility.problems(remembered, spec: loaded).isEmpty {
+                first = remembered
+            } else {
+                needsUpdate = remembered.name
+            }
+        }
+        rememberedScenarioID = first.id
         scenario = first
         simulator = StudioSimulator(spec: loaded, scenario: first)
 
@@ -248,6 +273,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         savedScenarios = StudioStore.loadScenarios(root)
         rebuildDependencies()
         Self.registerTermination()
+        if let needsUpdate { notice = "The scenario \(needsUpdate) needs an update, so UI Studio opened on Populated. Update it in the Scenario menu." }
     }
 
     var title: String { "UI Studio" + (target.map { " — \($0.label)" } ?? "") }

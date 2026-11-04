@@ -285,10 +285,12 @@ enum StudioPrompts {
         6. Random or "as you see fit" data is plausible for the application and its domain, varied and valid: realistic \
            names, amounts, dates and statuses, and records for every group the page shows (each category, tab or status). \
            A list gets 6-12 records unless the request says otherwise. Never real people's data, never real credentials.
-        7. `overrides` and `steps` are complete: the new scenario has exactly these, so copy the current ones that stay \
-           (the prompt lists them in this same form). An override names a rule by `ruleId` (or `method` and `path`) and sets \
-           a `status` with an optional `body` (JSON text), `empty` (an empty list; a detail answers 404), `hang` (it never \
-           answers: the loading state) or `delayMs`. Data that a rule answers with a fixed body (operation `respond`; the \
+        7. `steps` are complete: the new scenario has exactly these, so copy the current ones that stay (the prompt lists \
+           them in this same form). `overrides` are only the ones you add or change: every current override stays in the new \
+           scenario as it is, so never copy one. An override of a rule that already has one replaces it whole; to take a \
+           current override away, name its rule in `dropOverrides` (only when the request asks for it). An override names a \
+           rule by `ruleId` (or `method` and `path`) and sets a `status` with an optional `body` (JSON text), `empty` (an \
+           empty list; a detail answers 404), `hang` (it never answers: the loading state) or `delayMs`. Data that a rule answers with a fixed body (operation `respond`; the \
            prompt shows the current answer of each such rule that answered the page) is changed by an override of that \
            rule: `status` 200 and the whole new `body`, in the same shape. Keep every key, change the values, and write \
            every list in full with as many items as the request asks for. You write the new lists yourself, so you never \
@@ -326,12 +328,13 @@ enum StudioPrompts {
             "addData": ["type": "string", "description": "JSON text of {\"<entity>\": [records]} added to those entities' records, or empty"],
             "userJSON": ["type": "string", "description": "JSON text of the test user object, or empty"],
             "overrides": ["type": "array", "items": override],
+            "dropOverrides": ["type": "array", "items": ["type": "string"], "description": "ids of rules whose current override is removed"],
             "steps": ["type": "array", "items": step],
             "testTime": ["type": "string", "description": "ISO 8601, or empty"],
             "locale": ["type": "string"], "timeZone": ["type": "string"],
             "theme": ["type": "string", "enum": ["", "light", "dark"]],
             "unsupported": ["type": "array", "items": ["type": "string"]]],
-            "required": ["name", "description", "route", "data", "addData", "userJSON", "overrides", "steps", "testTime", "locale",
+            "required": ["name", "description", "route", "data", "addData", "userJSON", "overrides", "dropOverrides", "steps", "testTime", "locale",
                          "timeZone", "theme", "unsupported"]]
         return ["type": "object", "properties": [
             "kind": ["type": "string", "enum": StudioEditPlan.Kind.allCases.map(\.rawValue)],
@@ -497,7 +500,7 @@ enum StudioPrompts {
         var user = redactor.redact(scenario.role.user).text
         if user.count > 1_000 { user = String(user.prefix(999)) + "…" }
         lines.append("- Role \(scenario.role.name), test user: \(user)")
-        lines.append("- Overrides (the new scenario has exactly the ones you return):"
+        lines.append("- Overrides (all of them stay in the new scenario; return only the ones you add or change):"
                      + (scenario.overrides.isEmpty ? " none" : ""))
         for override in scenario.overrides { lines.append("  " + redactor.redact(text: StudioContextPlan.jsonLine(StudioContextPlan.planObject(override)))) }
         lines.append("- Steps (the new scenario has exactly the ones you return):" + (scenario.steps.isEmpty ? " none" : ""))

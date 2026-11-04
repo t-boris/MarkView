@@ -1,5 +1,20 @@
 # Lessons
 
+## Data the person asked for must outlive the next reopen and the next change (BUG-087, 2026-11-04)
+
+Boris asked the Studio assistant for 16 strikes above and below SPX several times in broker-fabric and thought nothing was
+saved. The files were: two identical 33-strike scenarios. Two separate faults made the data look lost.
+- UI Studio always opened on the built-in "Populated" scenario, so a saved scenario waited in a menu nobody looked in.
+  Rule: whatever state the person built, the next session opens on it (kept per project in `.dde/studio/`, never committed).
+- A context change told the assistant "the new scenario has exactly the overrides you return", so a 27 KB option chain
+  had to be copied back every time; the next change ("click Review & Send") dropped it and the page fell back to five
+  strikes. Rule: the app carries what does not change; the model returns only what it adds or replaces
+  (`dropOverrides` removes one). Never make a model copy bulky data to keep it.
+- When a person says "it is not saved", read the stored files and the history first (the saved scenarios were there),
+  then the state a new session starts in; the answer is rarely "the file is missing".
+- A test window must stay on screen-less alpha only if the harness still renders: `alphaValue = 0` or 0.01 broke
+  rendering-dependent session checks (select, edit flows); the plain window, closed at the end, is what passes.
+
 ## A layout fixed on a clean sample is checked on the person's real snapshot before it ships (BUG-085, 2026-11-04)
 
 Opening a part in the Code X-Ray broke the layered order. The fix passed seven new checks on a made-up four-layer

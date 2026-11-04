@@ -16,8 +16,11 @@ struct StudioContextPlan: Equatable {
     var addedData: [String: [StudioJSON]]? = nil
     /// The role's test user; nil keeps it.
     var user: StudioJSON? = nil
-    /// The new scenario's overrides, all of them.
+    /// The overrides the plan adds or changes. Those of the current scenario that it does not name stay in the new one, so a
+    /// long body (a whole option chain) survives every later change without the assistant copying it (BUG-087).
     var overrides: [StudioOverride] = []
+    /// Rules, by id, whose current override the new scenario no longer has; only when the request asks for it.
+    var dropOverrides: [String] = []
     /// The new scenario's restoration steps, all of them, in order.
     var steps: [StudioStep] = []
     var testTime: Date? = nil
@@ -47,6 +50,7 @@ extension StudioContextPlan {
         locale = text(object["locale"])
         timeZone = text(object["timeZone"])
         unsupported = ((object["unsupported"] as? [Any]) ?? []).map(text).filter { !$0.isEmpty }
+        dropOverrides = ((object["dropOverrides"] as? [Any]) ?? []).map(text).filter { !$0.isEmpty }
 
         data = records(text(object["data"]), field: "data")
         addedData = records(text(object["addData"]), field: "addData")
@@ -155,7 +159,26 @@ extension StudioContextPlan {
         return nil
     }
 
-    /// An override in the plan's own form, for the prompt, so the assistant can copy the overrides that stay.
+    /// The id of the rule an override changes: its `ruleId`, else the rule that serves its method and path.
+    static func ruleKey(_ override: StudioOverride, spec: StudioEnvironmentSpec) -> String {
+        if let id = override.ruleId { return id }
+        if let method = override.method, let path = override.path,
+           let rule = spec.rules.first(where: { $0.method.uppercased() == method.uppercased() && $0.path == path }) { return rule.id }
+        return (override.method ?? "") + " " + (override.path ?? "")
+    }
+
+    /// The overrides of the new scenario: the current ones that stay (not replaced by an override of the same rule, not
+    /// dropped), then the plan's own.
+    func overrides(keeping current: [StudioOverride], spec: StudioEnvironmentSpec) -> [StudioOverride] {
+        let replaced = Set(overrides.map { Self.ruleKey($0, spec: spec) }), dropped = Set(dropOverrides)
+        let stay = current.filter {
+            let key = Self.ruleKey($0, spec: spec)
+            return !replaced.contains(key) && !dropped.contains(key)
+        }
+        return stay + overrides
+    }
+
+    /// An override in the plan's own form, for the prompt.
     static func planObject(_ override: StudioOverride) -> [String: Any] {
         ["ruleId": override.ruleId ?? "", "method": override.method ?? "", "path": override.path ?? "", "status": override.status ?? 0,
          "body": override.body?.text ?? "", "empty": override.empty ?? false, "hang": override.hang ?? false, "delayMs": override.delayMs ?? 0]
@@ -365,7 +388,7 @@ enum StudioContextValidator {
         next.updated = now
         if plan.changesRecords { next.data = plan.baseline(from: current.data ?? spec.seed) }
         if let user = plan.user { next.role.user = user }
-        next.overrides = plan.overrides
+        next.overrides = plan.overrides(keeping: current.overrides, spec: spec)
         if !plan.route.isEmpty { next.route = plan.route }
         next.steps = plan.steps
         if let time = plan.testTime { next.testTime = time }
@@ -409,7 +432,15 @@ enum StudioContextValidator {
             change.records[name] = after[name]?.count ?? 0
             change.recordsBefore[name] = before[name]?.count ?? 0
         }
-        if next.overrides != previous.overrides { change.overrides = next.overrides.map(describe) }
+        // Only what the change added or replaced; the overrides that stayed are not news.
+        let kept = Set(previous.overrides)
+        if next.overrides != previous.overrides {
+            change.overrides = next.overrides.filter { !kept.contains($0) }.map(describe)
+            let stillThere = Set(next.overrides.map { StudioContextPlan.ruleKey($0, spec: spec) })
+            for old in previous.overrides where !stillThere.contains(StudioContextPlan.ruleKey(old, spec: spec)) {
+                change.other.append("Override removed: " + StudioContextPlan.ruleKey(old, spec: spec))
+            }
+        }
         if next.route != previous.route { change.route = next.route }
         if next.steps != previous.steps { change.steps = next.steps.map(describe) }
         if next.role.user != previous.role.user {

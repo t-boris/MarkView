@@ -834,6 +834,18 @@ func contextChecks(_ session: StudioSession, web: URL, root: URL, assistant: Ass
           && session.savedScenarios.contains { $0.id == made } && filled?.context?.previousScenarioId == base.id
           && filled?.selection == "page /context.html", "\(made) \(session.scenario.id)")
     check("REQ-013 the page shows the new scenario's records", numbers == "417,92,3051", numbers ?? "nil")
+    // BUG-087: a new session for the project opens on the scenario this one ended on, with the data the person asked for.
+    try? await Task.sleep(nanoseconds: 400_000_000)
+    let reopened = StudioSession(root: root)
+    check("BUG-087 a new session opens on the scenario the last one ended on", reopened.scenario.id == made
+          && reopened.scenario.name == "Random numbers" && reopened.scenario.description == "Fill it with random numbers",
+          "\(reopened.scenario.id) \(reopened.scenario.name)")
+    await reopened.close()
+    StudioStore.saveActiveScenarioID("deleted-scenario", root: root)
+    let fallback = StudioSession(root: root)
+    check("BUG-087 a scenario that no longer exists opens the built-in one", fallback.scenario.id == "builtin-populated", fallback.scenario.id)
+    await fallback.close()
+    StudioStore.saveActiveScenarioID(made, root: root)
     // Besides the scenario, only the turn's tracking records (REQ-012) are written; no source file.
     check("REQ-013 only the new scenario's file is written", changed.contains(".markview/studio/scenarios/")
           && changed.split(separator: "\n").allSatisfy { $0.contains(".markview/studio/scenarios/") || $0.contains("docs/features/") },
