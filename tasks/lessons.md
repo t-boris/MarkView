@@ -1,5 +1,21 @@
 # Lessons
 
+## A hidden "Script error." is a bug in our own script until proven otherwise (BUG-086, 2026-11-04)
+
+UI Studio's Select showed webpack's "Uncaught runtime errors: Script error." overlay as soon as the pointer moved. The
+cause was in the injected runtime, not in the application: `var place` (the scenario's browser location, REQ-008) and
+`function place(div, el)` (the selection boxes) shared one scope, the assignment at start replaced the function with
+`null`, and the first redraw threw. The message was hidden because the throwing script has no address, and the
+harness's select checks passed because they read only the pick result, never the redraw that runs a frame later.
+- Rule: when WebKit reports a bare "Script error." with no file, line or error object, suspect our own injected script first,
+  wrap its handlers in try/catch that records `String(e) + e.stack`, and reproduce against the real page.
+- Rule: scan a big IIFE for one name declared as both variable and function (`^  var X` against `^  function X`); function
+  hoisting makes the later assignment win silently.
+- Rule: a check for UI that draws after an event must wait a frame and assert that no `error` event and no reported
+  `runtimeError` arrived, not only that the call returned.
+- Rule: a probe that opens a window on the person's screen, above all one that loads their own application, runs a few
+  times and hidden, never in loops of dozens (Boris: "прекрати создавать strike desk").
+
 ## A layout bug is reproduced on the person's own data, measured, then fixed at the data and the layout (BUG-066, 2026-11-04)
 
 The Code X-Ray overview of vivaa-platform had a column running through External and empty bands. The layout code alone

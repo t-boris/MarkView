@@ -338,6 +338,8 @@ func run() async {
 
     // Select mode: the click selects and does not run the action (PRE-01, PRE-02).
     watchdog.reached("Select mode")
+    let selectMark = harness.events.count
+    _ = await harness.js("window.__drawErrors = []; addEventListener('error', e => window.__drawErrors.push(e.message), true); return 1;")
     let picking = Task { @MainActor in await harness.js("return await Promise.race([window.__markviewStudio.pick(), new Promise(r => setTimeout(() => r(null), 8000))]);") }
     await harness.settle(0.3)
     harness.move(cssX: 200, y: 125)
@@ -355,6 +357,14 @@ func run() async {
     } else {
         check("the selection is described for the assistant", false)
     }
+    // BUG-086: drawing the hover and selection boxes must not throw. A name clash once replaced the drawing function with
+    // the scenario's location, so every redraw reported "Script error." and the dev server's overlay covered the page.
+    _ = await harness.js("return window.__markviewStudio.selectMatching('#buy', 0) ? 1 : 0;")
+    await harness.settle(0.9)
+    let drawErrors = await harness.js("return window.__drawErrors.join(' | ');") as? String
+    let reportedErrors = harness.events.dropFirst(selectMark).filter { $0.kind == .runtimeError }.map(\.detail)
+    check("BUG-086 hovering and selecting draws the boxes without a page error", drawErrors == "" && reportedErrors.isEmpty,
+          "\(drawErrors ?? "nil") \(reportedErrors.joined(separator: " | "))")
     let parent = await harness.js("return window.__markviewStudio.parent();") as? [String: Any]
     check("parent navigation selects the enclosing element", (parent?["tag"] as? String)?.hasPrefix("body") == true, "\(parent?["tag"] ?? "nil")")
     check("an element without development source metadata says so", (picked?["boundary"] as? String)?.contains("No development source metadata") == true,

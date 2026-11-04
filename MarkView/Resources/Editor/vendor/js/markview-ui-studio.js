@@ -1806,7 +1806,9 @@
     document.documentElement.appendChild(host);
   }
 
-  function place(div, el) {
+  // Named apart from `place`, the scenario's browser location above: both lived in this scope, the variable replaced this
+  // function at start, and every redraw threw "place is not a function" (BUG-086).
+  function placeBox(div, el) {
     if (!el || !el.isConnected) { div.style.display = 'none'; return; }
     var r = el.getBoundingClientRect();
     div.style.display = captureHidden ? 'none' : 'block';
@@ -1824,9 +1826,9 @@
     realRAF(function () {
       scheduled = false;
       if (!host) return;
-      place(hoverBox, selecting ? hovered : null);
-      place(selectedBox, selected);
-      instanceBoxes.forEach(function (div, i) { place(div, siblings[i]); });
+      placeBox(hoverBox, selecting ? hovered : null);
+      placeBox(selectedBox, selected);
+      instanceBoxes.forEach(function (div, i) { placeBox(div, siblings[i]); });
     });
   }
   window.addEventListener('scroll', redraw, { capture: true, passive: true });
