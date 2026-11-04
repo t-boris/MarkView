@@ -1,5 +1,15 @@
 # MarkView — Follow-up Tasks
 
+## UI Studio offers larger desktop viewports — release 5.27.0 (2026-11-04)
+
+Boris: "in UI Studio add bigger resolution for a desktop". The viewport menu had Desktop 1280×800, Laptop, Tablet, Phone.
+
+- [x] Presets added after the default Desktop: Desktop HD 1440×900, Desktop Full HD 1920×1080, Desktop QHD 2560×1440. A viewport
+      is stored by size, so saved scenarios are unaffected; Zoom "Fit" scales a large viewport down to the window.
+- [x] `UIStudioTests.swift`: preset names are unique (the menu is keyed by name), the default stays first, Full HD and QHD are offered
+      (603 ok).
+- [ ] Bump minor (5.27.0), build, commit to main, release; install with Boris's go-ahead.
+
 ## Code X-Ray keeps its layers when a part is opened — release 5.26.3 (2026-11-04, BUG-085)
 
 Goal (Boris): opening a cube in the Code X-Ray must not break the layered architecture: Presentation on top, Application

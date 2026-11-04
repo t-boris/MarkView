@@ -61,6 +61,13 @@ var sim = StudioSimulator(spec: spec, scenario: base, appOrigin: app)
 // MARK: Simulation (SIM-01…SIM-04, AC-01…AC-04)
 
 let list = answer(sim.handle(request("GET", "/api/projects")))
+// The viewport menu lists presets by name: names are unique, the default desktop stays first, and larger desktops are offered.
+let presetNames = StudioViewport.presets.map(\.name)
+check("viewport presets have unique names and the default desktop first",
+      Set(presetNames).count == presetNames.count && StudioViewport.presets.first?.viewport == StudioScenario(id: "x", name: "x").viewport)
+check("viewport presets offer Full HD and QHD desktops",
+      StudioViewport.presets.contains { $0.viewport == StudioViewport(width: 1920, height: 1080) }
+      && StudioViewport.presets.contains { $0.viewport == StudioViewport(width: 2560, height: 1440) })
 check("AC-01 list answers prepared data without a backend", list.0 == 200 && list.1?.arrayValue?.count == 3)
 let detail = answer(sim.handle(request("GET", "/api/projects/1")))
 check("AC-02 detail matches the list", detail.1?["name"] == list.1?.arrayValue?.first?["name"])

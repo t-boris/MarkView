@@ -189,6 +189,9 @@ struct StudioViewport: Codable, Hashable, Sendable {
 
     static let presets: [(name: String, viewport: StudioViewport)] = [
         ("Desktop", StudioViewport(width: 1280, height: 800)),
+        ("Desktop HD", StudioViewport(width: 1440, height: 900)),
+        ("Desktop Full HD", StudioViewport(width: 1920, height: 1080)),
+        ("Desktop QHD", StudioViewport(width: 2560, height: 1440)),
         ("Laptop", StudioViewport(width: 1024, height: 700)),
         ("Tablet", StudioViewport(width: 768, height: 1024)),
         ("Phone", StudioViewport(width: 390, height: 844)),
