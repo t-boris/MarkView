@@ -27,3 +27,13 @@ A. В MVP запускать только доверенные локальны�
 ### AI updated the requirements · 2026-11-04
 
 DEC-001, DEC-002, DEC-003, DEC-004 written into the overview.
+
+### Answer to Q-005 · 2026-11-04
+
+Что делать с «Sync from code» и «Hand off to code» у ранее сохранённых реконструкций из кода?
+
+A. «Sync from code» ведёт в UI Studio; «Hand off to code» остаётся; прототип помечен как историческая реконструкция.
+
+### AI updated the requirements · 2026-11-04
+
+DEC-005 written; REQ-001 links Q-005 and DEC-005.

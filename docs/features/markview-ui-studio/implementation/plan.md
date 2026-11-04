@@ -7,7 +7,7 @@ issues:
     title: Launch and manage real application sessions
     summary: Introduce managed sessions for actual client-rendered project interfaces inside native MarkView, reusing existing launch discovery where applicable. Report preparation progress, prepared and unsupported dependencies, and scenario readiness limitations; support browser-executable Electron renderers without claiming preload, IPC, native adapters or SSR support. Replace existing-code reconstruction entry points with UI Studio while preserving requirements-based prototyping and clearly identified historical reconstructions. Verify lifecycle behavior, framework-independent launch eligibility and cleanup of session-owned processes.
     requirements: [REQ-001, REQ-006]
-    decisions: [DEC-001, DEC-002, DEC-003, DEC-004]
+    decisions: [DEC-001, DEC-002, DEC-003, DEC-004, DEC-005]
   - id: I-2
     title: Enforce session, bridge and agent access boundaries
     summary: Establish explicit boundaries for trusted project execution, application connections, simulation traffic and agent access. Disclose execution with user permissions, separate application and model network policies, use test credentials, filter confidential model context and prevent secrets from entering logs or evidence. Validate bridge origin, session identity and payloads, reject obsolete messages after cancellation or Reset, and enforce read-only agent access for questions. Verify rejected bridge messages, secret filtering and permission separation without claiming operating-system isolation.
@@ -53,7 +53,7 @@ updated: 2026-11-04
 Introduce managed sessions for actual client-rendered project interfaces inside native MarkView, reusing existing launch discovery where applicable. Report preparation progress, prepared and unsupported dependencies, and scenario readiness limitations; support browser-executable Electron renderers without claiming preload, IPC, native adapters or SSR support. Replace existing-code reconstruction entry points with UI Studio while preserving requirements-based prototyping and clearly identified historical reconstructions. Verify lifecycle behavior, framework-independent launch eligibility and cleanup of session-owned processes.
 
 Requirements: REQ-001, REQ-006
-Decisions: DEC-001, DEC-002, DEC-003, DEC-004
+Decisions: DEC-001, DEC-002, DEC-003, DEC-004, DEC-005
 
 ## I-2: Enforce session, bridge and agent access boundaries
 
