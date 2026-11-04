@@ -71,6 +71,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     let root: URL
     let webView: WKWebView
     let preparation = StudioPreparationQueue(limits: StudioSession.preparationLimits)
+    /// The application's map (REQ-014): its API surface, prepared in the background once per application.
+    let mapping = StudioEnvironmentMapper()
     /// What the session did and saw, redacted (REQ-011): the log drawer and `.dde/studio/session.log`.
     let sessionLog: StudioLog
 
@@ -211,7 +213,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         spec = loaded
         redactor = StudioRedactor(fields: loaded.confidentialFields)
         sessionLog = StudioLog(root: self.root, redactor: redactor, queue: io)
-        let first = StudioScenarioCompatibility.presets(spec: loaded, base: StudioScenario(id: "builtin-populated", name: "Populated", kind: .populated))[0]
+        var first = StudioScenarioCompatibility.presets(spec: loaded, base: StudioScenario(id: "builtin-populated", name: "Populated", kind: .populated))[0]
+        first.role = .tester(role: loaded.testUserRole)
         scenario = first
         simulator = StudioSimulator(spec: loaded, scenario: first)
 
@@ -222,6 +225,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height), configuration: configuration)
         super.init()
         preparation.onRecord = { [weak self] record in self?.logPreparation(record) }
+        wireMapping()
         handler.session = self
         configuration.userContentController.addScriptMessageHandler(handler, contentWorld: .page, name: StudioBridge.handlerName)
         webView.navigationDelegate = self
@@ -306,6 +310,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         simulator.appOrigin = origin.text
         await configureAuthMock(target)
         await installConnectionPolicy()
+        beginMapping()
         set(.starting, "Loading the application")
         await restore()
     }
@@ -515,6 +520,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         workTask?.cancel()
         startTask?.cancel()
         preparation.cancelEverything()
+        mapping.close()
         resumeLoadWaiters(false)
         webView.stopLoading()
         let controller = webView.configuration.userContentController
@@ -963,6 +969,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         updateReadiness()
         Task { [weak self] in
             guard let self else { return reply(.dropped("closed")) }
+            // A request whose endpoint a group of the application's map is preparing waits for that group (REQ-014).
+            await self.mapping.waitForEndpoint(http.method, url: http.url)
             // A request to a service that is being prepared waits for it: that preparation often registers this rule too.
             if let group {
                 await self.preparation.waitForGroup(group)
@@ -1019,7 +1027,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private func beginAhead(_ route: String) -> Task<Void, Never>? {
         if let task = aheadTasks[route] { return task }
         let simulated = serverConnections.filter { $0.mode == .simulated && gatewayPorts[$0.variable] != nil }
-        guard !closed, !simulated.isEmpty, !(spec.preparedRoutes ?? []).contains(route), !aheadTried.contains(route) else { return nil }
+        guard !closed, !simulated.isEmpty, !(spec.preparedRoutes ?? []).contains(route), !aheadTried.contains(route),
+              !(spec.map?.coversEveryGroup ?? false) else { return nil }
         aheadTried.insert(route)
         let lines = simulated.map { connection in
             "\(connection.variable) → \(connection.origin)\(connection.basePath)" + (connection.foundIn.isEmpty ? "" : " (read at \(connection.foundIn))")
@@ -2330,6 +2339,148 @@ extension StudioSession {
 
     private func shown(_ url: URL) -> String {
         redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
+    }
+}
+
+// MARK: - Application map (REQ-014)
+
+/// The session's side of the application's map: the mapper registers through the same commit as every preparation, saves
+/// the map in the environment, and reports each step in the session log.
+extension StudioSession {
+    func wireMapping() {
+        mapping.queue = preparation
+        mapping.load(spec.map)
+        mapping.hooks = StudioEnvironmentMapper.Hooks(
+            spec: { [weak self] in self?.simulator.spec ?? StudioEnvironmentSpec() },
+            state: { [weak self] in self?.simulator.state ?? [:] },
+            save: { [weak self] map in self?.saveMap(map) },
+            commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] },
+            replaceSeed: { [weak self] seed in self?.replaceSeed(seed) },
+            userRoles: { [weak self] roles, ordinary in self?.applyUserRoles(roles, ordinary: ordinary) },
+            log: { [weak self] problem, text in self?.sessionLog.add(.preparation, problem: problem, text) },
+            finished: { [weak self] summary, refilled, requested in
+                self?.mappingFinished(summary, refilled: refilled, requested: requested)
+            })
+    }
+
+    /// What the map is made for: the application folder, its origin and the server's simulated connections.
+    private var mapContext: StudioMapContext {
+        let relative = appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return StudioMapContext(appFolder: relative, appOrigin: appOrigin?.text, connections: serverConnections.filter { $0.mode == .simulated })
+    }
+
+    /// Maps the application in the background when its environment has no completed map for this folder, or resumes the map
+    /// a closed session left. The page loads meanwhile; its requests are prepared as before until their group is ready.
+    func beginMapping() {
+        let context = mapContext
+        guard !closed, StudioEnvironmentMapper.needsMapping(spec.map, appFolder: context.appFolder) else { return }
+        startMapping(context)
+    }
+
+    /// The banner's Cancel: the groups being prepared end, and the map waits for Resume.
+    func cancelMapping() {
+        mapping.cancel()
+    }
+
+    /// Resume in the Environment panel: a cancelled, failed or interrupted map goes on, and groups that failed are tried again.
+    func resumeMapping() {
+        guard !closed, !mapping.isRunning else { return }
+        startMapping(mapContext, retryFailed: true)
+    }
+
+    /// Map again: the rules and data the assistant prepared are removed (the project's and the person's stay), and the
+    /// application is mapped from the start.
+    func mapAgain() {
+        guard !closed, !mapping.isRunning, busy == nil else { return }
+        let before = simulator.spec
+        let next = StudioMapPlanner.withoutPrepared(before)
+        simulator.replaceSpec(next)
+        spec = simulator.spec
+        persistEnvironment()
+        rebuildDependencies()
+        aheadTried = []
+        sessionLog.add(.preparation, "Mapping the application again: \(before.rules.count - next.rules.count) prepared rule(s) and "
+                       + "\(before.entities.count - next.entities.count) entit(ies) were removed")
+        mapping.load(nil)
+        startMapping(mapContext, fresh: true)
+        reset()
+    }
+
+    /// Refill data: new seed records for every entity, coherent with each other; the rules stay.
+    func refillData() {
+        guard !closed, !mapping.isRunning, busy == nil else { return }
+        mapping.assistant = makeMapAssistant()
+        mapping.refillAll(mapContext)
+    }
+
+    private func startMapping(_ context: StudioMapContext, fresh: Bool = false, retryFailed: Bool = false) {
+        mapping.assistant = makeMapAssistant()
+        mapping.start(context, fresh: fresh, retryFailed: retryFailed)
+    }
+
+    private func makeMapAssistant() -> StudioCLIMapAssistant {
+        let usage = recordUsage
+        return StudioCLIMapAssistant(project: root) { input, output, cost in
+            Task { @MainActor in usage(input, output, cost) }
+        }
+    }
+
+    private func saveMap(_ map: StudioEnvironmentMap?) {
+        guard !closed else { return }
+        var next = simulator.spec
+        next.map = map
+        simulator.replaceSpec(next)
+        spec = simulator.spec
+        persistEnvironment()
+    }
+
+    /// New seed records for these entities. The current records change at the next Reset; a scenario with its own records
+    /// keeps them.
+    private func replaceSeed(_ seed: [String: [StudioJSON]]) {
+        guard !closed else { return }
+        var next = simulator.spec
+        for (name, records) in seed { next.seed[name] = records }
+        next.updated = Date()
+        simulator.replaceSpec(next)
+        spec = simulator.spec
+        persistEnvironment()
+    }
+
+    /// The application checks its own user roles: when the built-in test user's role is not one of them, it gets the
+    /// ordinary role, saved in the environment, so a server that accepts only those roles does not refuse it (vivaa's
+    /// backend for frontend accepts customer, master, fairy, support and admin, not member).
+    private func applyUserRoles(_ roles: [String], ordinary: String) {
+        guard !closed else { return }
+        let current = spec.testUserRole ?? StudioRole.tester.roleName ?? ""
+        guard let next = StudioMapPlanner.testUserRole(current: current, roles: roles, ordinary: ordinary) else { return }
+        var updated = simulator.spec
+        updated.testUserRole = next
+        simulator.replaceSpec(updated)
+        spec = simulator.spec
+        persistEnvironment()
+        sessionLog.add(.preparation, "The test user's role \(current) is not one the application checks (\(roles.joined(separator: ", "))): "
+                       + "the built-in scenarios' test user now has the role \(next)")
+        // A built-in scenario with that user signs in with the new role from the next answer on; its records stay.
+        guard scenario.id.hasPrefix("builtin-"), scenario.role.name == StudioRole.tester.name, scenario.role.roleName == current else { return }
+        let role = scenario.role.withRole(next)
+        scenario.role = role
+        simulator.replaceRole(role)
+        if appURL != nil, [.ready, .degraded].contains(state) {
+            notice = "The test user now has the role \(next), one the application checks; Reset signs in with it."
+        }
+    }
+
+    private func mappingFinished(_ summary: String, refilled: Bool, requested: Bool) {
+        guard !closed else { return }
+        if requested, refilled, busy == nil {
+            sessionLog.add(.preparation, "The scenario is reset to show the refilled data")
+            return reset()
+        }
+        if refilled {
+            notice = summary + " The simulated data was refilled; Reset shows it."
+        } else if requested {
+            notice = summary
+        }
     }
 }
 

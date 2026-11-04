@@ -134,6 +134,13 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     /// Routes whose server requests were prepared ahead of the page (BUG-074), so that happens once per project, not once
     /// per session. Optional, so files written before it still decode.
     var preparedRoutes: [String]? = nil
+    /// The application's map (REQ-014): its services, endpoint groups and how far their preparation got, so a completed map
+    /// is not redone and an interrupted one resumes. Optional, so files written before it still decode; a damaged map reads
+    /// as none (UIStudioEnvironmentMap.swift).
+    var map: StudioEnvironmentMap? = nil
+    /// The application role of the built-in scenarios' test user (REQ-014), when the application does not know the default
+    /// `member`: the ordinary role the map found in the code. Optional, so files written before it still decode.
+    var testUserRole: String? = nil
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
 }

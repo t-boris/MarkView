@@ -37,11 +37,26 @@ enum CLICompletion {
         Result(text: "", structured: nil, inputTokens: 0, outputTokens: 0, costUSD: nil)
     }
 
-    /// Every request the session made, in order.
+    /// Every request the session made, in order, except the application map's.
     static var requests: [Request] { lock.withLock { log } }
+
+    /// The application map's requests (REQ-014: `ui-studio:map`, `ui-studio:map-group`, `ui-studio:map-refill`), apart from
+    /// `requests`, so the checks that count the other calls are not changed by the map every new session makes. Without
+    /// `mapAnswer` the inventory finds no endpoint.
+    nonisolated(unsafe) private static var mapLog: [Request] = []
+    nonisolated(unsafe) static var mapAnswer: (@Sendable (Request) async throws -> Result)? = nil
+    static var mapRequests: [Request] { lock.withLock { mapLog } }
 
     static func run(_ request: Request, onDelta: (@Sendable (String) -> Void)? = nil,
                     onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
+        if request.label.hasPrefix("ui-studio:map") {
+            let answer = lock.withLock { () -> (@Sendable (Request) async throws -> Result)? in
+                mapLog.append(request)
+                return mapAnswer
+            }
+            if let answer { return try await answer(request) }
+            return Result(text: "", structured: ["services": [], "endpoints": [], "notes": []], inputTokens: 0, outputTokens: 0, costUSD: nil)
+        }
         lock.withLock { log.append(request) }
         onActivity?(.thinking)
         return try await answer(request)

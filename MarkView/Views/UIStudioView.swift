@@ -254,6 +254,7 @@ struct UIStudioView: View {
             .padding(.horizontal, 10).padding(.vertical, 4)
             .background(VSDark.bgBanner)
         }
+        UIStudioMapBanner(mapper: session.mapping) { session.cancelMapping() }
     }
 
     private func banner(_ text: String, symbol: String, color: Color, action: @escaping () -> Void) -> some View {
@@ -1224,6 +1225,8 @@ struct UIStudioEnvironmentPanel: View {
 
                 serverConnectionsSection
 
+                UIStudioMapSection(session: session, mapper: session.mapping)
+
                 section("Model connections")
                 Text(StudioModelPolicy.description).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
 
@@ -1353,6 +1356,148 @@ struct UIStudioEnvironmentPanel: View {
         case .allowed: return VSDark.blue
         case .unsupported: return VSDark.orange
         case .unresolved: return VSDark.red
+        }
+    }
+}
+
+// MARK: - Application map (REQ-014)
+
+/// The progress of the application's map while it is made, with Cancel; nothing otherwise.
+struct UIStudioMapBanner: View {
+    @ObservedObject var mapper: StudioEnvironmentMapper
+    let cancel: () -> Void
+
+    var body: some View {
+        if mapper.isRunning, mapper.phase != .idle {
+            HStack(spacing: 8) {
+                if [.groups, .refilling].contains(mapper.phase), mapper.total > 0 {
+                    ProgressView(value: Double(min(mapper.done, mapper.total)), total: Double(mapper.total))
+                        .progressViewStyle(.linear).frame(width: 90)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(mapper.progressText).uiFont(size: 10).foregroundColor(VSDark.text).lineLimit(1)
+                Spacer()
+                Button("Cancel") { cancel() }.controlSize(.small)
+                    .help("Stop mapping: what is prepared stays, the other groups wait for Resume in the Environment panel")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(VSDark.bgBanner)
+        }
+    }
+}
+
+/// The application's map in the Environment panel: its services and groups and how far they got, the data check, and the
+/// actions Map Again, Refill Data and Resume.
+struct UIStudioMapSection: View {
+    @ObservedObject var session: StudioSession
+    @ObservedObject var mapper: StudioEnvironmentMapper
+    @State private var confirmMapAgain = false
+    @State private var confirmRefill = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) { content }
+    }
+
+    @ViewBuilder private var content: some View {
+        Text("APPLICATION MAP").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+        Text("UI Studio lists the API the application's code calls, from the page and from the server, and prepares the simulation "
+             + "for it in the background, group by group, with data that fits together. Requests are prepared one by one until their group is ready.")
+            .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+        if let map = mapper.map {
+            FactRows(rows: rows(map))
+            if !map.message.isEmpty {
+                Text(map.message).uiFont(size: 10).foregroundColor(map.status == .failed ? VSDark.red : VSDark.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(map.services, id: \.name) { service in
+                HStack(spacing: 4) {
+                    Text(service.name).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).frame(width: 130, alignment: .leading)
+                        .lineLimit(1)
+                    Text(address(service)).uiFont(size: 9).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            ForEach(map.groups) { group in
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(group.status.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(color(group.status))
+                            .frame(width: 70, alignment: .leading)
+                        Text(group.id).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text).lineLimit(1)
+                        Spacer()
+                        Text("\(group.endpoints.count) endpoint\(group.endpoints.count == 1 ? "" : "s")"
+                             + (group.rules.isEmpty ? "" : " · \(group.rules.count) rule\(group.rules.count == 1 ? "" : "s")"))
+                            .uiFont(size: 9).foregroundColor(VSDark.textDim)
+                    }
+                    .help(group.endpoints.map { "\($0.method) \($0.path)" + ($0.callSite.isEmpty ? "" : " — \($0.callSite)") }.joined(separator: "\n"))
+                    if !group.message.isEmpty, group.status != .done {
+                        Text(group.message).uiFont(size: 9).foregroundColor(VSDark.textDim).padding(.leading, 74).lineLimit(3)
+                    }
+                }
+            }
+            ForEach(map.notes, id: \.self) { note in
+                Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            }
+            if !map.gaps.isEmpty {
+                Text("Data gaps").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.orange)
+                ForEach(map.gaps, id: \.self) { gap in
+                    Text(gap).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } else {
+            Text(mapper.isRunning ? "Listing the API…" : "Not mapped yet: mapping starts when the application opens.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim)
+        }
+        HStack(spacing: 6) {
+            if mapper.canResume {
+                Button("Resume") { session.resumeMapping() }
+                    .help("Go on with the groups that are not prepared, and try the failed ones again")
+            }
+            Button("Map Again…") { confirmMapAgain = true }
+                .help("Remove the rules and data the assistant prepared, and map the application from the start")
+            Button("Refill Data…") { confirmRefill = true }
+                .help("New simulated records for every entity, coherent with each other; the rules stay")
+                .disabled(session.spec.entities.isEmpty)
+        }
+        .controlSize(.small)
+        .disabled(mapper.isRunning || session.busy != nil || session.appURL == nil)
+        .confirmationDialog("Map the application again?", isPresented: $confirmMapAgain) {
+            Button("Remove the prepared rules and map again", role: .destructive) { session.mapAgain() }
+        } message: {
+            Text("The \(session.spec.rules.filter { $0.origin == .agent }.count) rules the assistant prepared and the data only they use are "
+                 + "removed; the project's rules and yours stay. Requests are prepared one by one again until the new map is ready.")
+        }
+        .confirmationDialog("Refill the simulated data?", isPresented: $confirmRefill) {
+            Button("Refill the data of \(session.spec.entities.count) entities") { session.refillData() }
+        } message: {
+            Text("The assistant writes new records for every entity, so references point at records that exist and every value a list "
+                 + "filters by has records. The rules stay. The scenario is reset when the records are ready; scenarios with their own "
+                 + "records keep them.")
+        }
+    }
+
+    private func rows(_ map: StudioEnvironmentMap) -> [(String, String)] {
+        var rows: [(String, String)] = [("Status", map.status.rawValue + (mapper.isRunning ? " (running)" : "")),
+                                        ("Groups", "\(map.finishedGroups) of \(map.groups.count) finished, \(map.endpointCount) endpoints"),
+                                        ("Services", "\(map.services.count)")]
+        if !map.appFolder.isEmpty { rows.append(("Folder", map.appFolder)) }
+        if let finished = map.finished { rows.append(("Finished", finished.formatted(date: .abbreviated, time: .shortened))) }
+        return rows
+    }
+
+    private func address(_ service: StudioMapService) -> String {
+        let side = service.side.rawValue
+        if service.isApplication { return "the application's server · \(side)" }
+        let address = service.address.flatMap { $0.isEmpty ? nil : $0 } ?? "address unknown"
+        return address + (service.variable.isEmpty ? "" : " · \(service.variable)") + " · \(side)"
+    }
+
+    private func color(_ status: StudioMapGroup.Status) -> Color {
+        switch status {
+        case .done: return VSDark.green
+        case .preparing: return VSDark.blue
+        case .pending: return VSDark.textDim
+        case .failed: return VSDark.red
+        case .unsupported: return VSDark.orange
         }
     }
 }

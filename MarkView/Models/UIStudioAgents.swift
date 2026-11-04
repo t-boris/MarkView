@@ -78,3 +78,40 @@ enum StudioTargetLimits {
         return names
     }
 }
+
+/// The application map's assistant (REQ-014): the project's CLI, read-only, without the web. The inventory, each group and
+/// each refill is one call with a strict schema; its answer is parsed here and validated by the mapper.
+struct StudioCLIMapAssistant: StudioMapAssistant {
+    let project: URL
+    let usage: @Sendable (Int, Int, Double) -> Void
+
+    func inventory(_ request: StudioMapRequest) async throws -> StudioMapInventory {
+        let structured = try await run(request, system: StudioMapPrompts.inventorySystem, schema: StudioMapPrompts.inventorySchema)
+        guard let inventory = StudioMapParsing.inventory(from: structured) else { throw StudioMapUnreadable(what: "a list of services and endpoints") }
+        return inventory
+    }
+
+    func prepareGroup(_ request: StudioMapRequest) async throws -> StudioProposal {
+        let structured = try await run(request, system: StudioPrompts.preparationSystem, schema: StudioPrompts.preparationSchema)
+        guard let proposal = StudioPrompts.proposal(from: structured) else { throw StudioMapUnreadable(what: "a set of rules") }
+        return proposal
+    }
+
+    func refill(_ request: StudioMapRequest) async throws -> StudioMapRefill {
+        let structured = try await run(request, system: StudioMapPrompts.refillSystem, schema: StudioMapPrompts.refillSchema)
+        guard let refill = StudioMapPrompts.refill(from: structured) else { throw StudioMapUnreadable(what: "a list of records") }
+        return refill
+    }
+
+    private func run(_ request: StudioMapRequest, system: String, schema: [String: Any]) async throws -> Any? {
+        var completion = CLICompletion.Request(project: project, prompt: request.prompt, systemPrompt: system, jsonSchema: schema,
+                                               readableFolder: project)
+        completion.timeout = request.timeout
+        completion.effort = "low"
+        completion.allowWeb = false
+        completion.label = request.label
+        let result = try await CLICompletion.run(completion)
+        usage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
+        return result.structured
+    }
+}

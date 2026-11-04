@@ -15,8 +15,10 @@ struct StudioPreparationLimits: Equatable {
     var maxConcurrent = 2
     var maxContracts = 40
 
-    /// One attempt's time for `context`: longer for a page's requests prepared ahead.
-    func deadline(for context: StudioPreparationContext) -> TimeInterval { context.ahead == nil ? deadline : aheadDeadline }
+    /// One attempt's time for `context`: longer for a page's requests prepared ahead and for a group of the application's map.
+    func deadline(for context: StudioPreparationContext) -> TimeInterval {
+        context.ahead == nil && context.mapGroup == nil ? deadline : aheadDeadline
+    }
 
     /// The agent CLI's own limit: a little after the attempt's deadline, so the queue ends the attempt as timed out (no
     /// retry). A fixed 95 s cut every preparation ahead of a page at 95 s, as a failure, and so twice (BUG-077).
@@ -40,6 +42,8 @@ struct StudioPreparationContext: Sendable, Equatable {
     var group: String? = nil
     /// Set for a preparation ahead of the page instead of one unknown request.
     var ahead: StudioRouteAhead? = nil
+    /// Set for a group of the application's map (REQ-014): its endpoints, prepared before any page asks for them.
+    var mapGroup: String? = nil
 }
 
 /// The requests a page makes through the development server's simulated connections, prepared before the page loads
@@ -94,6 +98,9 @@ final class StudioPreparationQueue: ObservableObject {
     private var ahead: [String: Task<StudioPreparationOutcome, Never>] = [:]
     /// The service of each running preparation, request or ahead (`group`).
     private var groups: [String: Set<String>] = [:]
+    /// Groups of the application's map being prepared (REQ-014). Apart from `ahead`, so Stop of the current work does not
+    /// end them; the map's Cancel and closing the session do.
+    private var mapTasks: [String: Task<StudioPreparationOutcome, Never>] = [:]
     private var active = 0
     private var slotWaiters: [CheckedContinuation<Void, Never>] = []
     /// Model calls made, for the "0 calls for registered rules" check (§12).
@@ -204,6 +211,32 @@ final class StudioPreparationQueue: ObservableObject {
         cancelAll()
     }
 
+    /// Prepares one group of the application's map (REQ-014). Like a preparation ahead of a page, it belongs to the
+    /// environment: neither Reset nor Stop cancels it, the map's Cancel and closing the session do. It takes none of the slots the page's own
+    /// preparations use and makes no record: the map shows its own progress, and the session is not "Preparing" for as long
+    /// as the application is mapped. It lists no service for `waitForGroup`, because a map prepares many groups of one
+    /// service in turn: a request waits only for the group that has its endpoint (`StudioEnvironmentMapper.waitForEndpoint`).
+    func prepareMapGroup(_ context: StudioPreparationContext, preparer: StudioRulePreparing,
+                         commit: @escaping @MainActor (StudioProposal) -> [String]) async -> StudioPreparationOutcome {
+        let contract = context.contract
+        if let task = mapTasks[contract] { return await task.value }
+        let generation = Self.environmentGeneration
+        let task = Task { @MainActor [weak self] () -> StudioPreparationOutcome in
+            guard let self else { return .cancelled }
+            return await self.run(context, generation: generation, preparer: preparer, currentGeneration: { generation },
+                                  commit: commit, usesSlot: false)
+        }
+        mapTasks[contract] = task
+        let outcome = await task.value
+        mapTasks[contract] = nil
+        return outcome
+    }
+
+    /// Ends the map's group preparations of `contracts` (the person cancelled mapping, or the session closes).
+    func cancelMapGroups(_ contracts: Set<String>) {
+        for contract in contracts { mapTasks[contract]?.cancel() }
+    }
+
     /// Forgets a failed contract so the next request prepares it again (the user's "Retry").
     func retry(_ contract: String) {
         guard running[contract] == nil else { return }
@@ -219,11 +252,12 @@ final class StudioPreparationQueue: ObservableObject {
 
     private func run(_ context: StudioPreparationContext, generation: Int, preparer: StudioRulePreparing,
                      currentGeneration: @escaping @MainActor () -> Int,
-                     commit: @escaping @MainActor (StudioProposal) -> [String]) async -> StudioPreparationOutcome {
-        guard await acquireSlot(until: Date().addingTimeInterval(limits.queueWait)) else {
+                     commit: @escaping @MainActor (StudioProposal) -> [String],
+                     usesSlot: Bool = true) async -> StudioPreparationOutcome {
+        if usesSlot, !(await acquireSlot(until: Date().addingTimeInterval(limits.queueWait))) {
             return Task.isCancelled ? .cancelled : .timedOut
         }
-        defer { releaseSlot() }
+        defer { if usesSlot { releaseSlot() } }
         records[context.contract]?.status = .preparing
         var problems: [String] = []
         for attempt in 1...max(1, limits.maxAttempts) {

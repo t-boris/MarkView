@@ -396,6 +396,9 @@ struct StudioSimulator {
     /// Replaces the environment (a saved spec was edited); the state is not touched until the next Reset.
     mutating func replaceSpec(_ spec: StudioEnvironmentSpec) { self.spec = spec }
 
+    /// The scenario's test user got another role (REQ-014): the records stay, the next answers use the new user.
+    mutating func replaceRole(_ role: StudioRole) { scenario.role = role }
+
     /// The current records as a scenario's baseline (Save snapshot, SIM-04); explicit, never automatic (CAP-01).
     func snapshot() -> [String: [StudioJSON]] { state }
 }

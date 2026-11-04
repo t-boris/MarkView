@@ -233,6 +233,8 @@ func run() async {
     spec.seed = ["items": [.object(["id": .number(1), "name": .string("Alpha")]), .object(["id": .number(2), "name": .string("Beta")])]]
     spec.rules = [StudioRule(id: "list-items", method: "GET", path: "/api/items", operation: .list, entity: "items"),
                   StudioRule(id: "create-item", method: "POST", path: "/api/items", operation: .create, entity: "items")]
+    // Mapped before (REQ-014): this session does not map the application, so the environment file stays as committed.
+    spec.map = StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true)
     try? StudioStore.saveEnvironment(spec, root: root)
     _ = shell("git init -q && git add -A && git -c user.email=t@example.com -c user.name=Test commit -qm init", in: root)
 
@@ -1173,6 +1175,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
         if let port {
             let answering = await WebAppPreview.firstAnswering([port], timeout: 1)
             check("AC-18 closing the session stops the server it started", answering == nil && session.state == .stopped)
+            await environmentMapChecks()
             await externalServerCheck()
             await serverRequestChecks()
             await lateRuleChecks()
@@ -1184,6 +1187,368 @@ func finish(_ session: StudioSession, port: Int? = nil) {
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
         exit(failures == 0 ? 0 : 1)
     }
+}
+
+// MARK: - Application map (REQ-014)
+
+/// The map fixture's page: the application's own session at once, the catalog's categories a moment later (while their
+/// group is being prepared), and the catalog's bundles on demand.
+let mapPage = """
+<!doctype html><html><head><meta charset="utf-8"><title>Map</title></head><body>
+<p id="user"></p><p id="categories"></p>
+<script src="app.js"></script>
+</body></html>
+
+"""
+let mapAppJS = """
+fetch('/api/session').then(r => r.json()).then(s => { document.getElementById('user').textContent = s.user; });
+setTimeout(() => fetch('http://catalog.example.test/v1/categories').then(r => r.json()).then(list => {
+  document.getElementById('categories').textContent = list.map(c => c.name).join(',');
+}), 1500);
+function bundles(category) { return fetch('http://catalog.example.test/v1/bundles/search?categoryId=' + category).then(r => r.json()); }
+function bundle(id) { return fetch('http://catalog.example.test/v1/bundles/' + id).then(r => r.json()); }
+function orders() { return fetch('http://catalog.example.test/v1/orders').then(r => r.json()); }
+
+"""
+/// Server code of the fixture: read by the inventory, not run by the static server.
+let mapServerJS = """
+export async function cities() {
+  const response = await fetch(`${process.env.CATALOG_URL}/cities`);
+  return response.json();
+}
+
+"""
+
+/// A project with browser and server call sites; returns its application folder.
+func mapFixture(_ root: URL) -> URL {
+    let web = root.appendingPathComponent("web")
+    try? FileManager.default.createDirectory(at: web.appendingPathComponent("server"), withIntermediateDirectories: true)
+    try? mapPage.write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    try? mapAppJS.write(to: web.appendingPathComponent("app.js"), atomically: true, encoding: .utf8)
+    try? mapServerJS.write(to: web.appendingPathComponent("server/catalog.js"), atomically: true, encoding: .utf8)
+    return web
+}
+
+/// The inventory of the fixture: groups of two give catalog/bundles, catalog/categories+cities, catalog/orders and app/session.
+let mapInventory: [String: Any] = [
+    "services": [["name": "catalog", "baseURL": "http://catalog.example.test/v1", "variable": "CATALOG_URL", "side": "both"],
+                 ["name": "app", "baseURL": "", "variable": "", "side": "browser"]],
+    "endpoints": [
+        ["service": "catalog", "resource": "categories", "method": "GET", "path": "/categories", "callSite": "web/app.js:2", "side": "browser"],
+        ["service": "catalog", "resource": "cities", "method": "GET", "path": "${process.env.CATALOG_URL}/cities", "callSite": "web/server/catalog.js:2",
+         "side": "server"],
+        ["service": "catalog", "resource": "bundles", "method": "GET", "path": "/bundles/search?categoryId=${category}", "callSite": "web/app.js:5",
+         "side": "browser"],
+        ["service": "catalog", "resource": "bundles", "method": "GET", "path": "/bundles/${id}", "callSite": "web/app.js:6", "side": "browser"],
+        ["service": "catalog", "resource": "orders", "method": "GET", "path": "/orders", "callSite": "web/app.js:7", "side": "browser"],
+        ["service": "app", "resource": "session", "method": "GET", "path": "/api/session", "callSite": "web/app.js:1", "side": "browser"]],
+    "notes": ["The server reads CATALOG_URL from the environment."],
+    // Like vivaa's backend for frontend, which accepts only its own roles, not the default test user's `member`.
+    "userRoles": ["names": ["customer", "master", "admin"], "ordinary": "customer"]]
+
+/// A group's answer in the preparation schema. The bundles all fall in one category and one is in a city that does not
+/// exist, like vivaa's first seed: the coherence check finds both.
+func mapGroupAnswer(_ id: String) -> [String: Any] {
+    let base = "http://catalog.example.test/v1"
+    func entity(_ name: String, _ fields: [[String: Any]]) -> [String: Any] { ["name": name, "idField": "id", "fields": fields] }
+    func field(_ name: String, references: String = "") -> [String: Any] {
+        ["name": name, "type": "string", "required": false, "enumValues": [], "references": references]
+    }
+    func rule(_ id: String, _ path: String, _ operation: String, entity: String = "", filters: [String] = [], body: String = "") -> [String: Any] {
+        ["id": id, "method": "GET", "path": path, "operation": operation, "entity": entity, "envelope": "", "filters": filters, "include": [],
+         "responseStatus": 200, "responseBody": body, "evidence": [["kind": "observation", "detail": "Called by the fixture"]]]
+    }
+    switch id {
+    case "catalog/categories+cities":
+        return ["entities": [entity("categories", [field("name")]), entity("cities", [field("name")])],
+                "records": [["entity": "categories", "json": #"[{"id":"c1","name":"Spa"},{"id":"c2","name":"Food"},{"id":"c3","name":"Tours"}]"#],
+                            ["entity": "cities", "json": #"[{"id":"tlv","name":"Tel Aviv"},{"id":"jlm","name":"Jerusalem"}]"#]],
+                "rules": [rule("list-categories", base + "/categories", "list", entity: "categories"),
+                          rule("list-cities", base + "/cities", "list", entity: "cities")],
+                "unsupported": false, "reason": "", "assumptions": []]
+    case "catalog/bundles":
+        let bundles = (1...4).map { #"{"id":"b\#($0)","name":"Bundle \#($0)","categoryId":"c1","cityId":"\#($0 == 4 ? "haifa" : "tlv")"}"# }
+        return ["entities": [entity("bundles", [field("name"), field("categoryId", references: "categories"), field("cityId")]),
+                             entity("categories", [field("name")])],
+                "records": [["entity": "categories", "json": #"[{"id":"c1","name":"Spa"}]"#],
+                            ["entity": "bundles", "json": "[" + bundles.joined(separator: ",") + "]"]],
+                "rules": [rule("search-bundles", base + "/bundles/search", "list", entity: "bundles", filters: ["categoryId", "limit"]),
+                          rule("get-bundle", base + "/bundles/:id", "get", entity: "bundles")],
+                "unsupported": false, "reason": "", "assumptions": []]
+    case "catalog/orders":
+        return ["entities": [entity("orders", [field("cityId", references: "cities")])],
+                "records": [["entity": "orders", "json": #"[{"id":"o1","cityId":"tlv"},{"id":"o2","cityId":"jlm"}]"#]],
+                "rules": [rule("list-orders", base + "/orders", "list", entity: "orders")],
+                "unsupported": false, "reason": "", "assumptions": []]
+    default:
+        return ["entities": [], "records": [], "rules": [rule("session", "/api/session", "respond", body: #"{"user":"Dana"}"#)],
+                "unsupported": false, "reason": "", "assumptions": []]
+    }
+}
+
+/// New records of the entity a refill asks for: the bundles spread over every category and existing cities.
+func mapRefillAnswer(_ prompt: String) -> [String: Any] {
+    var json = "[]"
+    if prompt.contains("entity `bundles`") {
+        json = "[" + ["c1", "c1", "c2", "c2", "c3", "c3"].enumerated().map { index, category in
+            #"{"id":"b\#(index + 1)","name":"Bundle \#(index + 1)","categoryId":"\#(category)","cityId":"\#(index % 2 == 0 ? "tlv" : "jlm")"}"#
+        }.joined(separator: ",") + "]"
+    } else if prompt.contains("entity `categories`") {
+        json = #"[{"id":"c1","name":"Spa days"},{"id":"c2","name":"Food tours"},{"id":"c3","name":"City tours"}]"#
+    } else if prompt.contains("entity `cities`") {
+        json = #"[{"id":"tlv","name":"Tel Aviv"},{"id":"jlm","name":"Jerusalem"}]"#
+    } else if prompt.contains("entity `orders`") {
+        json = #"[{"id":"o1","cityId":"tlv"},{"id":"o2","cityId":"jlm"},{"id":"o3","cityId":"tlv"}]"#
+    }
+    return ["json": json, "assumptions": ["Realistic catalog data."]]
+}
+
+/// The application map's stand-in assistant: the inventory, each group by the id its prompt names, and refills.
+final class MapAssistant: @unchecked Sendable {
+    let lock = NSLock()
+    /// Seconds a group takes, by id; others take `groupDelay`.
+    var delays: [String: Double] = [:]
+    var groupDelay = 0.2
+    private(set) var groupCalls: [String] = []
+    private(set) var groupPrompts: [String: String] = [:]
+
+    static func groupID(_ prompt: String) -> String {
+        prompt.components(separatedBy: "\n").first { $0.hasPrefix("Group: ") }.map { String($0.dropFirst(7)) } ?? ""
+    }
+
+    func respond(_ request: CLICompletion.Request) async throws -> CLICompletion.Result {
+        var structured: [String: Any]
+        switch request.label {
+        case "ui-studio:map":
+            structured = mapInventory
+        case "ui-studio:map-group":
+            let id = Self.groupID(request.prompt)
+            let delay = lock.withLock { () -> Double in
+                groupCalls.append(id)
+                groupPrompts[id] = request.prompt
+                return delays[id] ?? groupDelay
+            }
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            structured = mapGroupAnswer(id)
+        default:
+            structured = mapRefillAnswer(request.prompt)
+        }
+        return CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
+    }
+
+    func calls() -> [String] { lock.withLock { groupCalls } }
+    func prompt(_ id: String) -> String { lock.withLock { groupPrompts[id] ?? "" } }
+    func set(_ delays: [String: Double], other: Double = 0.2) { lock.withLock { self.delays = delays; groupDelay = other } }
+}
+
+/// REQ-014 in real sessions: the application is mapped once, in the background, from one inventory call; every group is
+/// prepared and registered, with progress; the page works meanwhile; the coherence check's gaps are logged and refilled;
+/// the map is saved and not redone; a closed session's map resumes; Cancel stops it; Map Again and Refill Data work.
+@MainActor
+func environmentMapChecks() async {
+    watchdog.reached("REQ-014 the application is mapped in the background")
+    let fm = FileManager.default
+    let previousAnswer = CLICompletion.answer
+    defer {
+        CLICompletion.mapAnswer = nil
+        CLICompletion.answer = previousAnswer
+    }
+    let assistant = MapAssistant()
+    CLICompletion.mapAnswer = { request in try await assistant.respond(request) }
+    // The page's own requests are prepared one by one: /api/session comes before its group's turn.
+    CLICompletion.answer = { _ in
+        try await Task.sleep(nanoseconds: 300_000_000)
+        return CLICompletion.Result(text: "", structured: mapGroupAnswer("app/session"), inputTokens: 10, outputTokens: 5, costUSD: 0)
+    }
+    func mapCalls(since start: Int, _ label: String) -> [CLICompletion.Request] {
+        CLICompletion.mapRequests.dropFirst(start).filter { $0.label == label }
+    }
+    func open(_ root: URL, web: URL) -> StudioSession {
+        let session = StudioSession(root: root)
+        session.mapping.limits.groupSize = 2
+        let port = freePort()
+        session.start(WebAppTarget(folder: web, label: "map", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+        return session
+    }
+    func logText(_ session: StudioSession) -> [String] { session.sessionLog.entries.filter { $0.kind == .preparation }.map(\.text) }
+    func done(_ session: StudioSession) -> Bool { session.mapping.map?.status == .complete && !session.mapping.isRunning }
+
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-map-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    let web = mapFixture(root)
+    assistant.set(["catalog/bundles": 4, "catalog/categories+cities": 2, "catalog/orders": 0.5])
+    let mapsBefore = CLICompletion.mapRequests.count
+    let preparesBefore = CLICompletion.requests.count
+    let session = open(root, web: web)
+    func text(_ id: String) async -> String {
+        ((try? await session.call("return document.getElementById('\(id)').textContent;")) as? String) ?? ""
+    }
+    var progress: [String] = []
+    _ = await waitUntil(60) {
+        if session.mapping.phase == .groups, progress.last != session.mapping.progressText { progress.append(session.mapping.progressText) }
+        return [.ready, .degraded, .failed].contains(session.state) && session.busy == nil
+    }
+    let mappingWhileReady = session.mapping.isRunning
+    var user = ""
+    for _ in 0..<30 where user != "Dana" {
+        user = await text("user")
+        if user != "Dana" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("REQ-014 the page works while the application is mapped: it is ready and its first request is prepared one by one",
+          mappingWhileReady && user == "Dana", "mapping=\(mappingWhileReady) user=\(user) \(session.state) \(session.stateDetail)")
+    _ = await waitUntil(40) {
+        if session.mapping.phase == .groups, progress.last != session.mapping.progressText { progress.append(session.mapping.progressText) }
+        return done(session)
+    }
+    let categories = await text("categories")
+    let prepares = CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }
+    check("REQ-014 a request whose group is being prepared waits for it and is answered by its rule, with no call of its own",
+          categories == "Spa,Food,Tours"
+          && !prepares.contains { $0.prompt.contains("Unknown request seen by MarkView UI Studio: GET http://catalog.example.test/v1/categories") }
+          && prepares.contains { $0.prompt.contains("/api/session") },
+          "categories=\(categories) prepares=\(prepares.map { String($0.prompt.prefix(90)) })")
+    let inventories = mapCalls(since: mapsBefore, "ui-studio:map")
+    check("REQ-014 one inventory call, read-only and structured, for browser and server code and the project's own clients",
+          inventories.count == 1 && inventories.first?.jsonSchema != nil && inventories.first?.allowWeb == false
+          && inventories.first?.prompt.contains("`web`") == true && inventories.first?.systemPrompt?.contains("serviceFetch") == true
+          && inventories.first?.systemPrompt?.contains("route handlers") == true, "\(inventories.count) calls")
+    let environment = StudioStore.loadEnvironment(root)
+    check("REQ-014 the test user gets the ordinary role the code checks, saved in the environment and logged",
+          session.spec.testUserRole == "customer" && environment?.testUserRole == "customer" && session.scenario.role.roleName == "customer"
+          && session.mapping.map?.userRoles == ["customer", "master", "admin"]
+          && logText(session).contains { $0.hasPrefix("The test user's role member is not one the application checks (customer, master, admin)") }
+          && assistant.prompt("catalog/orders").contains("User roles the code checks: customer, master, admin. The scenario's test user has the role customer"),
+          "role=\(String(describing: session.spec.testUserRole)) scenario=\(session.scenario.role.roleName ?? "nil")")
+    let map = session.mapping.map
+    check("REQ-014 the inventory is split into groups that are all prepared",
+          map?.groups.map(\.id) == ["catalog/bundles", "catalog/categories+cities", "catalog/orders", "app/session"]
+          && map?.groups.allSatisfy { $0.status == .done } == true && map?.status == .complete,
+          "\(map?.groups.map { "\($0.id) \($0.status) \($0.message)" } ?? [])")
+    let uncovered = (map?.groups ?? []).flatMap { group in
+        group.endpoints.filter { !StudioMapPlanner.isCovered($0, service: map?.service(group.service), rules: session.spec.rules) }
+            .map { "\($0.method) \($0.path)" }
+    }
+    check("REQ-014 every endpoint of the map has a registered rule", uncovered.isEmpty
+          && ["search-bundles", "get-bundle", "list-categories", "list-cities", "list-orders", "session"].allSatisfy { id in
+              session.spec.rules.contains { $0.id == id } },
+          "uncovered: \(uncovered) rules: \(session.spec.rules.map(\.id))")
+    check("REQ-014 a group whose endpoints got their rules meanwhile asks nothing",
+          assistant.calls() == ["catalog/bundles", "catalog/categories+cities", "catalog/orders"], "\(assistant.calls())")
+    let ordersPrompt = assistant.prompt("catalog/orders")
+    check("REQ-014 a group's prompt lists the entities other groups registered, with their records' ids",
+          ordersPrompt.contains("categories (id id)") && ordersPrompt.contains("c2 \"Food\"") && ordersPrompt.contains("tlv \"Tel Aviv\"")
+          && ordersPrompt.contains("rule path `http://catalog.example.test/v1/orders`") && ordersPrompt.contains("2-4 records"),
+          String(ordersPrompt.prefix(600)))
+    let log = logText(session)
+    check("REQ-014 the progress is shown and logged group by group",
+          progress.contains { $0.hasPrefix("Mapping the application's APIs: ") && $0.hasSuffix(" of 4 groups") }
+          && log.contains { $0.hasPrefix("Inventory after") && $0.contains("2 services, 6 endpoints in 4 groups") }
+          && log.contains { $0.hasPrefix("Map group catalog/categories+cities: 2 rules after") && $0.hasSuffix("of 4 groups") }
+          && log.contains { $0.hasPrefix("Map group app/session: every endpoint already had a rule") },
+          "progress=\(progress) log=\(log)")
+    check("REQ-014 the coherence check's gaps are logged",
+          log.contains { $0.hasPrefix("Coherence check: 2 gaps") } && log.contains { $0.contains("bundles.cityId points at cities that do not exist: haifa") }
+          && log.contains { $0.contains("No bundles with categoryId c2 (Food), c3 (Tours)") }, log.joined(separator: "\n"))
+    let bundles = session.spec.seed["bundles"] ?? []
+    check("REQ-014 the entity with gaps is refilled once and the check is clean after it",
+          mapCalls(since: mapsBefore, "ui-studio:map-refill").count == 1 && log.contains { $0.hasPrefix("Refilled bundles: 6 records") }
+          && log.contains { $0.hasPrefix("Coherence check after the refill: no gaps") }
+          && Set(bundles.compactMap { $0["categoryId"]?.stringValue }) == ["c1", "c2", "c3"] && session.notice?.contains("Reset shows it") == true,
+          "\(log.suffix(6)) notice=\(session.notice ?? "nil")")
+    _ = await waitUntil(5) { StudioStore.loadEnvironment(root)?.map?.status == .complete }
+    let saved = StudioStore.loadEnvironment(root)?.map
+    check("REQ-014 the map is saved in the environment", saved?.status == .complete && saved?.groups.count == 4 && saved?.gaps.isEmpty == true
+          && saved?.inventoryAttempts == 1 && saved?.services.first { $0.name == "catalog" }?.address == "http://catalog.example.test/v1",
+          "\(String(describing: saved))")
+
+    watchdog.reached("REQ-014 Map Again and Refill Data")
+    let againStart = CLICompletion.mapRequests.count
+    assistant.set([:], other: 0.3)
+    session.mapAgain()
+    let removed = !session.spec.rules.contains { $0.id == "search-bundles" } && session.spec.map == nil
+    _ = await waitUntil(40) { done(session) && session.busy == nil }
+    check("REQ-014 Map Again removes the prepared rules and maps from the start", removed
+          && mapCalls(since: againStart, "ui-studio:map").count == 1 && session.mapping.map?.groups.allSatisfy { $0.status == .done } == true
+          && session.spec.rules.contains { $0.id == "search-bundles" } && logText(session).contains { $0.hasPrefix("Mapping the application again:") },
+          "removed=\(removed) \(session.mapping.map?.groups.map { "\($0.id) \($0.status)" } ?? [])")
+    let refillStart = CLICompletion.mapRequests.count
+    session.refillData()
+    _ = await waitUntil(40) { !session.mapping.isRunning && session.busy == nil }
+    let refills = mapCalls(since: refillStart, "ui-studio:map-refill")
+    let names = (session.spec.seed["categories"] ?? []).compactMap { $0["name"]?.stringValue }
+    check("REQ-014 Refill Data writes new records for every entity, keeps the rules and resets the scenario",
+          refills.count == 4 && names == ["Spa days", "Food tours", "City tours"] && session.spec.rules.contains { $0.id == "search-bundles" }
+          && logText(session).contains { $0.contains("The scenario is reset to show the refilled data") },
+          "\(refills.count) calls, categories \(names), log \(logText(session).suffix(5))")
+    await session.close()
+
+    watchdog.reached("REQ-014 a completed map is not redone")
+    let secondStart = CLICompletion.mapRequests.count
+    let second = open(root, web: web)
+    _ = await waitUntil(60) { [.ready, .degraded, .failed].contains(second.state) && second.busy == nil }
+    try? await Task.sleep(nanoseconds: 500_000_000)
+    check("REQ-014 a second session does not map the application again, and its test user starts with the saved role",
+          CLICompletion.mapRequests.count == secondStart && !second.mapping.isRunning && second.mapping.map?.status == .complete
+          && second.scenario.role.roleName == "customer",
+          "\(CLICompletion.mapRequests.count - secondStart) map calls, \(String(describing: second.mapping.map?.status))")
+    await second.close()
+
+    watchdog.reached("REQ-014 a restart resumes the unfinished groups")
+    let resumeRoot = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-map-resume-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: resumeRoot, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: resumeRoot) }
+    let resumeWeb = mapFixture(resumeRoot)
+    assistant.set(["catalog/bundles": 60], other: 0.3)
+    let interrupted = open(resumeRoot, web: resumeWeb)
+    _ = await waitUntil(40) {
+        let groups = interrupted.mapping.map?.groups ?? []
+        return groups.count == 4 && groups.filter { $0.status == .done }.count == 3 && groups.first?.status == .preparing
+    }
+    _ = await waitUntil(5) { StudioStore.loadEnvironment(resumeRoot)?.map?.groups.filter { $0.status == .done }.count == 3 }
+    await interrupted.close()
+    let left = StudioStore.loadEnvironment(resumeRoot)?.map
+    check("REQ-014 a session that closes while mapping leaves the map to resume",
+          left?.status == .mapping && left?.inventoried == true && left?.groups.first?.status == .preparing
+          && left?.groups.dropFirst().allSatisfy { $0.status == .done } == true, "\(left?.groups.map { "\($0.id) \($0.status)" } ?? [])")
+    let resumeStart = CLICompletion.mapRequests.count
+    let callsBefore = assistant.calls().count
+    assistant.set([:], other: 0.3)
+    let resumed = open(resumeRoot, web: resumeWeb)
+    _ = await waitUntil(40) { done(resumed) }
+    check("REQ-014 a restart resumes only the unfinished groups, without a new inventory",
+          mapCalls(since: resumeStart, "ui-studio:map").isEmpty && Array(assistant.calls().dropFirst(callsBefore)) == ["catalog/bundles"]
+          && resumed.mapping.map?.groups.allSatisfy { $0.status == .done } == true
+          && logText(resumed).contains { $0.hasPrefix("Resuming the application's map of web: 1 of 4 groups left") },
+          "\(Array(assistant.calls().dropFirst(callsBefore))) \(logText(resumed).prefix(3))")
+    await resumed.close()
+
+    watchdog.reached("REQ-014 Cancel stops mapping")
+    let cancelRoot = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-map-cancel-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: cancelRoot, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: cancelRoot) }
+    let cancelWeb = mapFixture(cancelRoot)
+    assistant.set(["catalog/bundles": 60, "catalog/categories+cities": 60], other: 0.3)
+    let cancelled = open(cancelRoot, web: cancelWeb)
+    _ = await waitUntil(40) { (cancelled.mapping.map?.groups ?? []).filter { $0.status == .preparing }.count == 2 }
+    let banner = cancelled.mapping.progressText
+    let callsAtCancel = assistant.calls().count
+    cancelled.cancelMapping()
+    _ = await waitUntil(10) { !cancelled.mapping.isRunning }
+    try? await Task.sleep(nanoseconds: 1_000_000_000)
+    let stopped = StudioStore.loadEnvironment(cancelRoot)?.map
+    check("REQ-014 Cancel stops mapping: no group is prepared after it, and the map waits for Resume",
+          banner == "Mapping the application's APIs: 0 of 4 groups" && !cancelled.mapping.isRunning && assistant.calls().count == callsAtCancel
+          && stopped?.status == .cancelled && stopped?.groups.allSatisfy { $0.status == .pending } == true && cancelled.mapping.canResume
+          && logText(cancelled).contains { $0.hasPrefix("Mapping cancelled: 0 of 4 groups are prepared") },
+          "banner=\(banner) calls=\(assistant.calls().count - callsAtCancel) \(stopped?.groups.map { "\($0.id) \($0.status)" } ?? [])")
+    assistant.set([:], other: 0.2)
+    cancelled.resumeMapping()
+    _ = await waitUntil(40) { done(cancelled) }
+    _ = await waitUntil(5) { StudioStore.loadEnvironment(cancelRoot)?.map?.status == .complete }
+    check("REQ-014 Resume prepares the groups that were left", cancelled.mapping.map?.groups.allSatisfy { $0.status == .done } == true
+          && StudioStore.loadEnvironment(cancelRoot)?.map?.status == .complete, "\(cancelled.mapping.map?.groups.map { "\($0.id) \($0.status)" } ?? [])")
+    await cancelled.close()
 }
 
 /// A server that was already running is used and left running (AC-18).
