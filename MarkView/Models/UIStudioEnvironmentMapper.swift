@@ -308,6 +308,9 @@ final class StudioEnvironmentMapper: ObservableObject {
 
     var limits = StudioMapLimits()
     var hooks: Hooks?
+    /// Reads the application's own route handlers from its folders (BUG-090): the list the assistant's inventory is completed with,
+    /// and the whole inventory when the assistant does not finish in time.
+    var routeScanner: (@MainActor () async -> [StudioRouteHandler])?
     weak var queue: StudioPreparationQueue?
     var assistant: StudioMapAssistant?
 
@@ -548,10 +551,29 @@ final class StudioEnvironmentMapper: ObservableObject {
         update { $0.inventoryAttempts += 1 }
         let begun = Date()
         let request = StudioMapRequest(prompt: StudioMapPrompts.inventoryPrompt(context), timeout: limits.inventoryDeadline + 5, label: "ui-studio:map")
-        let answer = await StudioPreparationQueue.withDeadline(Date().addingTimeInterval(limits.inventoryDeadline)) {
+        var scanned: StudioMapInventory?
+        if let scan = routeScanner { scanned = StudioMapParsing.inventory(routes: await scan()) }
+        if let scanned {
+            log("Read the application's own route handlers from its code: \(scanned.entries.count) endpoint(s) in \(scanned.entries.count == 0 ? 0 : Set(scanned.entries.map(\.endpoint.callSite)).count) file(s)")
+        }
+        var answer = await StudioPreparationQueue.withDeadline(Date().addingTimeInterval(limits.inventoryDeadline)) {
             try await assistant.inventory(request)
         }
         if stopped { return false }
+        // What the code shows is always part of the map: it completes the assistant's list, and it is the list when the assistant
+        // fails or runs out of time, which used to leave the map empty (BUG-090).
+        if let scanned {
+            switch answer {
+            case .value(let inventory):
+                let (merged, added) = StudioMapParsing.merged(inventory, with: scanned)
+                if added > 0 { log("The code has \(added) endpoint(s) of the application's server that the assistant's list misses; they are added") }
+                answer = .value(merged)
+            case .failed, .timedOut:
+                log("The assistant's list is not available; the map is made of the \(scanned.entries.count) endpoints read from the code", problem: true)
+                answer = .value(scanned)
+            case .cancelled: break
+            }
+        }
         let message: String
         switch answer {
         case .value(let inventory) where extending:

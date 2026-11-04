@@ -719,12 +719,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// browser storage with only the kept cookies set again (REQ-008; the runtime writes the kept localStorage), a fresh
     /// page and the scenario's restoration steps. Returns why the restore is incomplete, if it is.
     @discardableResult
-    func restore() async -> String? {
+    func restore(keepingSignIn: Bool = false) async -> String? {
         guard !closed, appURL != nil else { return "The application is not running." }
         mode = mode == .record ? .interact : mode
         pickTask?.cancel()
         simulator.reset()
-        preparation.cancelAll()
+        // A preparation in flight is not cancelled: its rules belong to the environment, not to the scenario, and the minute the
+        // assistant has spent on them is not thrown away by switching scenarios (BUG-089).
         selection = nil
         clockAnchor = Date()
         gateway?.releaseHeld()
@@ -736,8 +737,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             // The preload rereads the clock file within 250 ms; the page's first server render must see the new clock.
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
+        let signedIn = keepingSignIn ? await signInCookiesToCarry() : []
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         await restoreKeptCookies()
+        for cookie in signedIn { await webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) }
+        restoredUser = scenario.role.user
         rulesArrivedLate = false
         // Until the page is loaded and restored, a preparation that ends must not report the session ready (BUG-076).
         restoringPage = true
@@ -1233,53 +1237,128 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let headers = redactor.redact(headers: http.headers).mapValues { StudioConnections.redact($0, hashes: hashes) }
         let shown = redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes))
         let group = StudioBridge.Origin(url: http.url)?.text
-        let context = StudioPreparationContext(contract: contract, method: http.method, url: shown, headers: headers, body: body,
-                                               attempt: 1, problems: [], serverVariable: source.variable, group: group)
+        let baseContext = StudioPreparationContext(contract: contract, method: http.method, url: shown, headers: headers, body: body,
+                                                   attempt: 1, problems: [], serverVariable: source.variable, group: group)
         let preparer = makePreparer()
         let asked = Date()
         updateReadiness()
         Task { [weak self] in
             guard let self else { return reply(.dropped("closed")) }
+            var context = baseContext
+            // A page's request answers within `provisionalAfter` seconds, whatever the preparation needs (BUG-089); the rule that
+            // arrives later loads the page again once. Requests of the development server keep waiting: it renders from them.
+            let answer = StudioReplyOnce(reply)
+            let provisionalTimer: Task<Void, Never>? = source.variable == nil ? Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(Self.provisionalAfter * 1_000_000_000))
+                guard !Task.isCancelled, let self, !self.closed, self.simulator.generation == generation, answer.reply(.respond(.preparing(contract))) else { return }
+                self.provisional[generation, default: []].insert(contract)
+                self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: 503, transport: source.transport))
+                self.sessionLog.add(.notice, "\(contract) has no rule yet: the page got a 503 \"preparing\" after \(Int(Self.provisionalAfter)) s and is loaded again when the rule is ready")
+            } : nil
+            defer { provisionalTimer?.cancel() }
+            if source.variable == nil, let hint = await self.handlerHint(for: http) {
+                context.handlerFile = hint.file
+                context.handlerText = hint.text
+            }
             // A request whose endpoint a group of the application's map is preparing waits for that group (REQ-014).
             await self.mapping.waitForEndpoint(http.method, url: http.url)
             // A request to a service that is being prepared waits for it: that preparation often registers this rule too.
             if let group {
                 await self.preparation.waitForGroup(group)
-                guard !self.closed else { return reply(.dropped("closed")) }
+                guard !self.closed else { return answer(.dropped("closed")) }
                 if self.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
                     self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
                                            transport: source.transport))
-                    reply(.respond(response))
+                    answer(.respond(response))
                     self.noteLateRules(source: source, asked: asked)
                     return self.updateReadiness()
                 }
             }
+            // A rule belongs to the environment: it is registered even when the scenario changed while it was prepared (BUG-089).
             let outcome = await self.preparation.resolve(context, generation: generation, preparer: preparer,
-                                                         currentGeneration: { [weak self] in self?.simulator.generation ?? -1 },
+                                                         currentGeneration: { generation },
                                                          commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
-            guard !self.closed else { return reply(.dropped("closed")) }
+            guard !self.closed else { return answer(.dropped("closed")) }
+            var registered = false
             switch outcome {
             case .registered:
-                if self.simulator.generation == generation, case .respond(let response, _) = self.simulate(http) {
+                registered = true
+                if answer.delivered {
+                    // The page was answered "preparing": it is loaded again below and then served from this rule.
+                } else if self.simulator.generation != generation {
+                    answer(.dropped("stale"))
+                } else if case .respond(let response, _) = self.simulate(http) {
                     self.log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status,
                                            transport: source.transport))
-                    reply(.respond(response))
+                    answer(.respond(response))
                 } else {
-                    reply(.respond(.unresolved(contract, reason: "the rules registered for it do not answer this request.")))
+                    answer(.respond(.unresolved(contract, reason: "the rules registered for it do not answer this request.")))
                 }
                 self.noteLateRules(source: source, asked: asked)
             case .unsupported(let reason):
                 self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason))
-                reply(.respond(.unsupported(contract, reason: reason)))
+                answer(.respond(.unsupported(contract, reason: reason)))
             case .stale:
-                reply(.dropped("stale"))
+                answer(.dropped("stale"))
             default:
                 let reason = self.preparation.records[contract]?.message ?? "it could not be prepared."
                 self.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
-                reply(.respond(.unresolved(contract, reason: reason)))
+                answer(.respond(.unresolved(contract, reason: reason)))
+            }
+            if self.provisional[generation]?.contains(contract) == true {
+                self.provisionalEnded(contract, generation: generation, registered: registered)
             }
             self.updateReadiness()
         }
+    }
+
+    /// A request that was answered "preparing" has its rule (or has none): once every such request of the generation has ended and
+    /// one of them has a rule, the page is loaded again so that it renders with the real answers (BUG-089). Text typed into the
+    /// page since its route is never thrown away: the banner offers the reload instead.
+    private func provisionalEnded(_ contract: String, generation: Int, registered: Bool) {
+        provisional[generation]?.remove(contract)
+        if registered { provisionalReady.insert(generation) }
+        guard provisional[generation]?.isEmpty ?? true, provisionalReady.contains(generation), simulator.generation == generation,
+              !closed, appURL != nil else { return }
+        provisionalReady.remove(generation)
+        Task { [weak self] in
+            guard let self else { return }
+            let typed = (try? await self.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
+            guard !self.closed, self.simulator.generation == generation else { return }
+            if typed {
+                self.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
+                self.rulesArrivedLate = true
+            } else {
+                self.sessionLog.add(.notice, "Rules arrived for requests the page was answered \"preparing\"; the page is loaded again once to render with them")
+                self.reloadPage()
+            }
+        }
+    }
+
+    /// The route handlers of the application's own server, read from its folders once per session (BUG-089, BUG-090).
+    private var routeIndex: [StudioRouteHandler]?
+
+    func routeHandlers() async -> [StudioRouteHandler] {
+        if let routeIndex { return routeIndex }
+        let root = root, folder = appFolder
+        let found = await Task.detached(priority: .utility) { StudioRouteScanner.scan(project: root, appFolder: folder) }.value
+        routeIndex = found
+        return found
+    }
+
+    /// The handler that serves a page request to the application's own origin, with the start of its text (redacted): the
+    /// agent is told where to look instead of searching the project, which took it a minute or more (BUG-089).
+    private func handlerHint(for http: StudioHTTPRequest) async -> (file: String, text: String)? {
+        guard let app = appURL, let host = http.url.host, host == app.host, http.url.port == app.port else { return nil }
+        let handlers = await routeHandlers()
+        guard let handler = StudioRouteScanner.handler(for: http.method, path: http.url.path, in: handlers) else { return nil }
+        let file = root.appendingPathComponent(handler.file)
+        let text = await Task.detached(priority: .utility) { () -> String in
+            guard let handle = try? FileHandle(forReadingFrom: file) else { return "" }
+            defer { try? handle.close() }
+            return String(decoding: (try? handle.read(upToCount: 6_000)) ?? Data(), as: UTF8.self)
+        }.value
+        return (handler.file, redactor.redact(text: text))
     }
 
     /// The project's assistant, read-only, preparing rules against the environment as it is now.
@@ -1339,6 +1418,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// How long a server request may wait for its rules before its page has most likely rendered without them: an
     /// application gives its own calls a deadline of a few seconds (vivaa: 5 s).
     static let lateRules: TimeInterval = 3
+    /// How long a page's request waits for its rule to be prepared before it gets the "preparing" answer (BUG-089); a variable
+    /// so that a test can shorten it.
+    static var provisionalAfter: TimeInterval = 8
+    /// Contracts a page's request was answered "preparing" for, by generation, and whether one of them has a rule by now.
+    private var provisional: [Int: Set<String>] = [:]
+    private var provisionalReady: Set<Int> = []
 
     /// A server request whose rules arrived after its page rendered without them (BUG-074): the page reloads once so it
     /// renders with the simulation, unless the person typed into it; then the banner offers Reload.
@@ -1586,7 +1671,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         scenario = next
         simulator.activate(next)
         recordedSteps = []
-        reset()
+        // Another scenario keeps the application signed in as the same test user (BUG-088); Reset starts signed out, as before.
+        runWork("Resetting the scenario") { session in _ = await session.restore(keepingSignIn: true) }
     }
 
     func setViewport(_ viewport: StudioViewport) {
@@ -1673,6 +1759,22 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     /// The kept cookies go back into the emptied store before the page loads (REQ-008).
+    /// The test user the browser data was last restored for: its sign-in cookies are carried over to the next restore only for the
+    /// same user, so a scenario of another role starts signed out.
+    private var restoredUser: StudioJSON?
+
+    /// The cookies that keep the application signed in, when the page is signed in as the test user the new scenario also has
+    /// (BUG-088). A page on its sign-in page has nothing to carry. They live in memory for the restore only, never on disk.
+    private func signInCookiesToCarry() async -> [HTTPCookie] {
+        guard restoredUser == scenario.role.user, let host = appURL?.host,
+              let path = webView.url?.path, !StudioLogFormat.isSignInPath(path) else { return [] }
+        let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
+        return cookies.filter { cookie in
+            let domain = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : cookie.domain
+            return (host == domain || host.hasSuffix("." + domain)) && StudioSignInCookies.isSignIn(name: cookie.name)
+        }
+    }
+
     private func restoreKeptCookies() async {
         guard let cookies = spec.keptBrowserData?.cookies, !cookies.isEmpty, let host = appURL?.host else { return }
         let store = webView.configuration.websiteDataStore.httpCookieStore
@@ -2640,6 +2742,7 @@ extension StudioSession {
     func wireMapping() {
         mapping.queue = preparation
         mapping.load(spec.map)
+        mapping.routeScanner = { [weak self] in await self?.routeHandlers() ?? [] }
         mapping.hooks = StudioEnvironmentMapper.Hooks(
             spec: { [weak self] in self?.simulator.spec ?? StudioEnvironmentSpec() },
             state: { [weak self] in self?.simulator.state ?? [:] },
@@ -2955,4 +3058,25 @@ enum StudioReply {
     case pass(adding: [String: String])
     /// No answer any more: the session closed or the scenario was reset meanwhile.
     case dropped(String)
+}
+
+
+/// Delivers one reply of a request, once: the "preparing" answer and the real one race, and the first wins (BUG-089).
+@MainActor
+final class StudioReplyOnce {
+    private let deliver: (StudioReply) -> Void
+    private(set) var delivered = false
+
+    init(_ deliver: @escaping (StudioReply) -> Void) { self.deliver = deliver }
+
+    /// True when this call delivered the reply.
+    @discardableResult
+    func reply(_ value: StudioReply) -> Bool {
+        guard !delivered else { return false }
+        delivered = true
+        deliver(value)
+        return true
+    }
+
+    func callAsFunction(_ value: StudioReply) { reply(value) }
 }

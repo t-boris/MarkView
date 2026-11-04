@@ -44,6 +44,10 @@ struct StudioPreparationContext: Sendable, Equatable {
     var ahead: StudioRouteAhead? = nil
     /// Set for a group of the application's map (REQ-014): its endpoints, prepared before any page asks for them.
     var mapGroup: String? = nil
+    /// The route handler of the application's own server that serves the request, and the start of its text, found by
+    /// reading the code's folders (BUG-089): the agent starts there instead of searching the project for it.
+    var handlerFile: String? = nil
+    var handlerText: String? = nil
 }
 
 /// The requests a page makes through the development server's simulated connections, prepared before the page loads

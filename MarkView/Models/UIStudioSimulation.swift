@@ -47,6 +47,20 @@ struct StudioSimResponse: Equatable, Codable {
         return response
     }
 
+    /// The answer of a page's request whose rule is still being prepared (BUG-089): the page gets it at once instead of
+    /// waiting a minute or more, and is loaded again when the rule is ready. It is not a simulated answer of the application.
+    static func preparing(_ contract: String) -> StudioSimResponse {
+        var response = json(503, .object([
+            "error": .string("markview_simulation_preparing"),
+            "contract": .string(contract),
+            "message": .string("MarkView UI Studio is still preparing the simulation rule for \(contract); the page is loaded again when it is ready. "
+                               + "The request did not reach any real service.")
+        ]))
+        response.headers["x-markview-simulation"] = "preparing"
+        response.headers["retry-after"] = "2"
+        return response
+    }
+
     /// SDKs and other dependencies the simulation cannot serve (DEC-004), named in `reason`.
     static func unsupported(_ contract: String, reason: String) -> StudioSimResponse {
         var response = json(501, .object([

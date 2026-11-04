@@ -1,3 +1,14 @@
+## UI Studio finds every route handler and never holds the page for the assistant — release 5.28.0 (2026-11-04, BUG-088, BUG-089, BUG-090)
+
+- [x] 1. The preparation prompt names the request's route handler and shows its start (`StudioRouteScanner.handler`)
+- [x] 2. A page's request gets 503 "preparing" after 8 s; the page is loaded again once when its rule is ready
+- [x] 3. The application's route handlers are read from the code and join the map; they are the map when the inventory fails
+- [x] 4. A scenario switch keeps the sign-in cookies for the same test user and no longer cancels a preparation
+- [x] Real project: vivaa-platform admin-panel, 52 route files, 63 method and path pairs, 0.07 s, work/queue and sign-out resolve
+- [x] Model 624, session 237, web 96, gateway 59, node 89 ok; Debug build succeeds
+- [ ] Release 5.28.0 and install with go-ahead
+- Review: how much the handler hint shortens a real preparation is not measured (it needs a run with the real agent).
+
 ## UI Studio keeps the person's data between sessions and changes — release 5.27.1 (2026-11-04, BUG-087)
 
 - [x] Evidence: broker-fabric history (9 context requests, 5 refused, two saved 33-strike scenarios); derived scenarios

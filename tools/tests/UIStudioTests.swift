@@ -2795,6 +2795,7 @@ Task { @MainActor in
     realtimeModelChecks()
     await ipcChecks()
     documentChecks()
+    routeScannerChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
@@ -2891,4 +2892,82 @@ func documentChecks() {
     noEntity.rules = [StudioRule(id: "orphan", method: "GET", path: "/api/prefs", operation: .document)]
     check("DOC a document rule needs a defined entity",
           StudioValidator.problems(proposal: noEntity, spec: StudioEnvironmentSpec(), state: [:]).contains { $0.contains("needs a defined entity") })
+}
+
+
+// MARK: - Route handlers found in the code (BUG-089, BUG-090)
+
+func routeScannerChecks() {
+    let fm = FileManager.default
+    let project = fm.temporaryDirectory.appendingPathComponent("markview-routes-\(UUID().uuidString)").resolvingSymlinksInPath()
+    defer { try? fm.removeItem(at: project) }
+    func write(_ path: String, _ text: String) {
+        let url = project.appendingPathComponent(path)
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+    let app = "apps/admin-panel"
+    write("\(app)/app/api/admin/work/queue/route.ts", "import x from 'y'\nexport async function GET(req: Request) { return Response.json([]) }\n")
+    write("\(app)/app/api/admin/users/[id]/route.ts", "export const PATCH = async () => new Response()\nexport async function DELETE() {}\n")
+    write("\(app)/app/api/v1/[...path]/route.ts", "async function handler() {}\nexport { handler as GET, handler as POST }\n")
+    write("\(app)/app/(dashboard)/api/health/route.ts", "export function GET() { return new Response('ok') }\n")
+    write("\(app)/app/@modal/api/slot/route.ts", "export function GET() {}\n")
+    write("\(app)/app/work/page.tsx", "export default function Page() { return null }\n")
+    write("\(app)/app/api/admin/node_modules/x/route.ts", "export function GET() {}\n")
+    write("\(app)/src/app/api/hello/route.js", "export function POST() {}\n")
+    write("\(app)/pages/api/legacy/[id].ts", "export default function handler() {}\n")
+    write("\(app)/pages/api/index.ts", "export default function handler() {}\n")
+    write("\(app)/pages/api/legacy/[id].test.ts", "test()\n")
+    let found = StudioRouteScanner.scan(project: project, appFolder: project.appendingPathComponent(app))
+    func entry(_ path: String) -> StudioRouteHandler? { found.first { $0.path == path } }
+    check("BUG-090 every route file of the application is found, none that is not a route",
+          Set(found.map(\.path)) == ["/api/admin/work/queue", "/api/admin/users/:id", "/api/v1/:path*", "/api/health", "/api/hello", "/api/legacy/:id", "/api"],
+          found.map(\.path).joined(separator: ", "))
+    check("BUG-090 the exported methods are read: functions, constants and re-exports",
+          entry("/api/admin/work/queue")?.methods == ["GET"] && entry("/api/admin/users/:id")?.methods == ["PATCH", "DELETE"]
+          && entry("/api/v1/:path*")?.methods == ["GET", "POST"] && entry("/api/hello")?.methods == ["POST"])
+    check("BUG-090 a pages-router API route takes any method, and the file is given from the project folder",
+          entry("/api/legacy/:id")?.methods == [] && entry("/api")?.file == "\(app)/pages/api/index.ts"
+          && entry("/api/admin/work/queue")?.file == "\(app)/app/api/admin/work/queue/route.ts")
+    func serves(_ method: String, _ path: String) -> String? { StudioRouteScanner.handler(for: method, path: path, in: found)?.path }
+    check("BUG-088 sign-in cookies are told from consent and preference cookies",
+          ["sb-abc-auth-token", "session", "__Secure-next-auth.session-token", "access_token", "XSRF-TOKEN", "JSESSIONID"].allSatisfy(StudioSignInCookies.isSignIn(name:))
+          && ["cookie_consent", "_ga", "NEXT_LOCALE", "theme", "gdpr-accepted", "analytics_id"].allSatisfy { !StudioSignInCookies.isSignIn(name: $0) })
+    check("BUG-089 the handler of a request is found from its method and path",
+          serves("GET", "/api/admin/work/queue") == "/api/admin/work/queue" && serves("PATCH", "/api/admin/users/42") == "/api/admin/users/:id"
+          && serves("GET", "/api/health") == "/api/health")
+    check("BUG-089 a static route beats a catch-all, and a method the file does not export is not served by it",
+          serves("GET", "/api/v1/core/orders/7") == "/api/v1/:path*" && serves("GET", "/api/admin/users/42") == nil
+          && serves("POST", "/api/admin/work/queue") == nil && serves("GET", "/nothing/here") == nil)
+    // The inventory the code gives, and how it joins the assistant's.
+    let fromCode = StudioMapParsing.inventory(routes: found)
+    let codeEntries = (fromCode?.entries ?? []).map { $0.endpoint.method + " " + $0.endpoint.path }
+    check("BUG-090 the routes become endpoints of the application's server, one per method; a catch-all proxy is none",
+          Set(codeEntries) == ["GET /api/admin/work/queue", "PATCH /api/admin/users/:id", "DELETE /api/admin/users/:id", "GET /api/health", "POST /api/hello",
+                               "GET /api/legacy/:id", "GET /api"]
+          && fromCode?.services.map(\.name) == [StudioMapService.application]
+          && fromCode?.entries.first { $0.endpoint.path == "/api/admin/work/queue" }?.endpoint.callSite == "\(app)/app/api/admin/work/queue/route.ts",
+          codeEntries.joined(separator: ", "))
+    check("BUG-090 an endpoint's group is named from its first plain path segments",
+          StudioMapParsing.resource(of: "/api/admin/work/queue") == "admin-work" && StudioMapParsing.resource(of: "/api/v1/core/orders/:id") == "core-orders"
+          && StudioMapParsing.resource(of: "/api/:id") == "")
+    var assistantInventory = StudioMapInventory()
+    assistantInventory.services = [StudioMapService(name: StudioMapService.application, side: .browser)]
+    assistantInventory.entries = [.init(service: StudioMapService.application,
+                                        endpoint: StudioMapEndpoint(method: "PATCH", path: "/api/admin/users/:userId", resource: "users"))]
+    let combined = StudioMapParsing.merged(assistantInventory, with: fromCode ?? StudioMapInventory())
+    check("BUG-090 the code's endpoints complete the assistant's list without repeating one it has",
+          combined.added == codeEntries.count - 1 && combined.inventory.entries.count == codeEntries.count
+          && combined.inventory.entries.first?.endpoint.path == "/api/admin/users/:userId" && combined.inventory.notes.count == 1)
+    check("BUG-090 a project with no route handler adds nothing", StudioMapParsing.inventory(routes: []) == nil
+          && StudioMapParsing.merged(assistantInventory, with: StudioMapInventory()).added == 0)
+    var context = StudioPreparationContext(contract: "GET /api/admin/work/queue", method: "GET", url: "http://localhost:3301/api/admin/work/queue?limit=5",
+                                           headers: [:], body: nil, attempt: 1, problems: [])
+    let plain = StudioPrompts.preparationPrompt(context, spec: StudioEnvironmentSpec(), appFolder: app)
+    context.handlerFile = "\(app)/app/api/admin/work/queue/route.ts"
+    context.handlerText = "export async function GET() {}"
+    let hinted = StudioPrompts.preparationPrompt(context, spec: StudioEnvironmentSpec(), appFolder: app)
+    check("BUG-089 the preparation prompt names the handler and shows its start, so the agent does not search for it",
+          !plain.contains("handles this request in") && hinted.contains("handles this request in `\(app)/app/api/admin/work/queue/route.ts`")
+          && hinted.contains("export async function GET() {}") && hinted.contains("do not search the project"))
 }

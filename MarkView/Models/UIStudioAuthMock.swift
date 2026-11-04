@@ -296,6 +296,16 @@ struct StudioAuthMock: Equatable, Sendable {
 ///   as Unix seconds.
 /// A JSON string that is only a placeholder becomes the value itself (a number, an object); inside other text it is written
 /// as text. An unknown placeholder is left as it is.
+/// Which cookies keep an application signed in (BUG-088): a restore for the same test user carries these over, so that a scenario
+/// switch does not send the page back to its sign-in page. Consent, preferences and analytics are cleared as before (REQ-008).
+enum StudioSignInCookies {
+    static func isSignIn(name: String) -> Bool {
+        let lower = name.lowercased()
+        if ["consent", "gdpr", "cookiebanner", "analytics", "_ga", "_gid", "locale", "lang", "theme", "tracking"].contains(where: lower.contains) { return false }
+        return ["auth", "session", "sess", "token", "jwt", "sb-", "sid", "login", "access", "refresh", "csrf", "xsrf"].contains { lower.contains($0) }
+    }
+}
+
 enum StudioPlaceholders {
     struct Values {
         var token: String

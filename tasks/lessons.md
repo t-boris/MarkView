@@ -1,5 +1,21 @@
 # Lessons
 
+## Do not make a model find what the code already says, and never make the page wait for it (BUG-088, BUG-089, BUG-090, 2026-11-04)
+
+In vivaa-platform's Studio log the admin-panel had 63 route handlers and 56 of them had no rule: the list of the API was one
+assistant call with a 420 s limit, it timed out, and the map stayed empty. Each unknown request then held the page for up
+to 90 s while an agent searched the project for the handler, and every scenario switch cancelled that work and signed the
+application out.
+- Rule: what folder names and exports tell (Next.js `app/**/route.ts`, `pages/api`) is read by code, in milliseconds and
+  completely; the model only gives that list meaning (the shape of an answer). A model's list is completed by the scan, and
+  is replaced by it when the model fails.
+- Rule: a request that waits for a model gets an answer within a few seconds (503 "preparing"), and the page is loaded
+  again when the real rule is ready. A wait bounded by the model's own deadline is longer than any application's.
+- Rule: hand the model the file it would otherwise search for (the handler of the request); the minute is the search.
+- Rule: cancel only what depends on what changed. Rules belong to the environment, not to the scenario, so a scenario switch
+  must not cancel a preparation; and a switch to the same test user keeps its sign-in cookies (in memory, not on disk).
+- A test that switches scenarios puts the original one back, or a later check reads the wrong one (AC-19 did).
+
 ## Data the person asked for must outlive the next reopen and the next change (BUG-087, 2026-11-04)
 
 Boris asked the Studio assistant for 16 strikes above and below SPX several times in broker-fabric and thought nothing was

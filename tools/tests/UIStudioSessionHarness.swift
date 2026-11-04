@@ -550,6 +550,88 @@ func run() async {
     check("AC-07 an invalid proposal ends in a controlled error", invalid == "503", invalid ?? "nil")
     check("AC-07 an invalid proposal changes nothing", StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "bad" } != true)
 
+    // BUG-089: a page's request whose rule takes long is answered "preparing" at once; the page is loaded again when the rule is ready.
+    watchdog.reached("BUG-089 a slow rule is answered preparing, then the page is loaded again")
+    let scenarioBeforeBug089 = session.scenario
+    let provisionalBefore = StudioSession.provisionalAfter
+    StudioSession.provisionalAfter = 0.6
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:prepare" { try await Task.sleep(nanoseconds: 2_500_000_000) }
+        return assistant.respond(request)
+    }
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [["id": "slow-stats", "method": "GET", "path": "/api/slow-stats", "operation": "respond",
+                                         "responseStatus": 200, "responseBody": #"{"open":7}"#,
+                                         "evidence": [["kind": "observation", "detail": "Requested by the page"]]]],
+                              "assumptions": []]
+    }
+    let slowAsked = Date()
+    let slow = await text("const r = await fetch('/api/slow-stats'); return r.status + ' ' + r.headers.get('x-markview-simulation');")
+    let slowElapsed = Date().timeIntervalSince(slowAsked)
+    check("BUG-089 the page's request is answered preparing long before its rule is ready", slow == "503 preparing" && slowElapsed < 2.0,
+          "\(slow ?? "nil") after \(slowElapsed) s")
+    let slowRegistered = await waitUntil(10) { StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "slow-stats" } == true }
+    check("BUG-089 the rule is still prepared and kept after the page was answered", slowRegistered)
+    let reloaded = await waitUntil(10) { session.sessionLog.entries.contains { $0.text.contains("answered \"preparing\"; the page is loaded again once") } }
+    _ = await waitUntil(10) { session.state == .ready || session.state == .degraded }
+    let served = await text("const r = await fetch('/api/slow-stats'); return r.status + ' ' + await r.text();")
+    check("BUG-089 the page is loaded again once the rule is ready, and then served from it", reloaded && served == "200 {\"open\":7}",
+          "\(reloaded) \(served ?? "nil")")
+    StudioSession.provisionalAfter = provisionalBefore
+    CLICompletion.answer = { request in assistant.respond(request) }
+
+    // BUG-089: switching the scenario does not throw away a rule that is being prepared.
+    watchdog.reached("BUG-089 a rule in preparation survives a scenario switch")
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:prepare" { try await Task.sleep(nanoseconds: 2_000_000_000) }
+        return assistant.respond(request)
+    }
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [["id": "survives", "method": "GET", "path": "/api/survives", "operation": "respond",
+                                         "responseStatus": 200, "responseBody": #"{"kept":true}"#,
+                                         "evidence": [["kind": "observation", "detail": "Requested by the page"]]]],
+                              "assumptions": []]
+    }
+    Task { _ = await text("const r = await fetch('/api/survives'); return String(r.status);") }
+    _ = await waitUntil(5) { session.preparation.records["GET /api/survives"]?.status == .preparing }
+    var other = session.scenario
+    other.id = "survive-switch"
+    other.name = "Survive switch"
+    session.activate(other)
+    _ = await idle()
+    let survived = await waitUntil(10) { StudioStore.loadEnvironment(root)?.rules.contains { $0.id == "survives" } == true }
+    check("BUG-089 the rule prepared while the scenario changed is registered, not cancelled", survived
+          && session.preparation.records["GET /api/survives"]?.status == .registered,
+          "\(session.preparation.records["GET /api/survives"]?.status.rawValue ?? "nil") \(session.preparation.records["GET /api/survives"]?.message ?? "")")
+    CLICompletion.answer = { request in assistant.respond(request) }
+
+    // BUG-088: a restore for the same test user keeps the sign-in cookies; consent and the like are cleared; another user starts signed out.
+    watchdog.reached("BUG-088 sign-in cookies survive a restore for the same test user")
+    _ = await text("document.cookie = 'sb-demo-auth-token=abc123; path=/'; document.cookie = 'cookie_consent=yes; path=/'; return document.cookie;")
+    var sameUser = session.scenario
+    sameUser.id = "same-user"
+    sameUser.name = "Same user"
+    session.activate(sameUser)
+    _ = await idle()
+    let cookiesAfterSwitch = await text("return document.cookie;") ?? ""
+    check("BUG-088 the sign-in cookie stays after a switch to a scenario of the same user, the consent cookie does not",
+          cookiesAfterSwitch.contains("sb-demo-auth-token=abc123") && !cookiesAfterSwitch.contains("cookie_consent"), cookiesAfterSwitch)
+    session.reset()
+    _ = await idle()
+    let cookiesAfterReset089 = await text("return document.cookie;") ?? ""
+    check("BUG-088 Reset starts signed out, as before", !cookiesAfterReset089.contains("sb-demo-auth-token"), cookiesAfterReset089)
+    _ = await text("document.cookie = 'sb-demo-auth-token=abc123; path=/'; return document.cookie;")
+    var stranger = session.scenario
+    stranger.id = "another-user"
+    stranger.name = "Another user"
+    stranger.role.user = .object(["id": .string("someone-else")])
+    session.activate(stranger)
+    _ = await idle()
+    let afterOther = await text("return document.cookie;") ?? ""
+    check("BUG-088 a scenario of another test user starts signed out", !afterOther.contains("sb-demo-auth-token"), afterOther)
+    session.activate(scenarioBeforeBug089)
+    _ = await idle()
+
     // A WebSocket and a GraphQL field nothing answers yet are prepared like a request, then simulated (REQ-015).
     watchdog.reached("REQ-015 an unknown WebSocket and GraphQL field are prepared, then simulated")
     assistant.lock.withLock {
@@ -1219,6 +1301,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             let answering = await WebAppPreview.firstAnswering([port], timeout: 1)
             check("AC-18 closing the session stops the server it started", answering == nil && session.state == .stopped)
             await environmentMapChecks()
+            await routeMapChecks()
             await externalServerCheck()
             await serverRequestChecks()
             await lateRuleChecks()
@@ -1355,6 +1438,8 @@ final class MapAssistant: @unchecked Sendable {
     var groupDelay = 0.2
     private(set) var groupCalls: [String] = []
     private(set) var groupPrompts: [String: String] = [:]
+    /// The inventory call fails, as when the assistant does not finish within its deadline.
+    var inventoryFails = false
 
     static func groupID(_ prompt: String) -> String {
         prompt.components(separatedBy: "\n").first { $0.hasPrefix("Group: ") }.map { String($0.dropFirst(7)) } ?? ""
@@ -1364,6 +1449,7 @@ final class MapAssistant: @unchecked Sendable {
         var structured: [String: Any]
         switch request.label {
         case "ui-studio:map":
+            if lock.withLock({ inventoryFails }) { throw NSError(domain: "map", code: 1, userInfo: [NSLocalizedDescriptionKey: "no inventory"]) }
             structured = mapInventory
         case "ui-studio:map-group":
             let id = Self.groupID(request.prompt)
@@ -2134,5 +2220,51 @@ func ipcSessionChecks() async {
           StudioIPC.summary(session.spec, globals: session.electronGlobals) == "simulated (4 methods) · window.desk"
           && session.disclosures.contains { $0.contains("simulated like any other API") },
           StudioIPC.summary(session.spec, globals: session.electronGlobals))
+    await session.close()
+}
+
+
+/// BUG-090: the application's own route handlers are read from its code, so the map has them when the assistant's inventory fails.
+@MainActor
+func routeMapChecks() async {
+    watchdog.reached("BUG-090 the map is made of the route handlers read from the code when the assistant's inventory fails")
+    let fm = FileManager.default
+    let previousAnswer = CLICompletion.answer
+    defer {
+        CLICompletion.mapAnswer = nil
+        CLICompletion.answer = previousAnswer
+    }
+    let assistant = MapAssistant()
+    assistant.lock.withLock { assistant.inventoryFails = true }
+    assistant.set([:], other: 0.1)
+    CLICompletion.mapAnswer = { request in try await assistant.respond(request) }
+    CLICompletion.answer = { _ in
+        try await Task.sleep(nanoseconds: 100_000_000)
+        return CLICompletion.Result(text: "", structured: mapGroupAnswer("app/session"), inputTokens: 10, outputTokens: 5, costUSD: 0)
+    }
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-routes-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    let web = mapFixture(root)
+    func write(_ path: String, _ text: String) {
+        let url = web.appendingPathComponent(path)
+        try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+    write("app/api/admin/work/queue/route.ts", "export async function GET() { return Response.json([]) }\n")
+    write("app/api/admin/users/[id]/route.ts", "export async function PATCH() {}\nexport async function DELETE() {}\n")
+    write("app/api/v1/[...path]/route.ts", "export async function GET() {}\n")
+    let session = StudioSession(root: root)
+    session.mapping.limits.groupSize = 2
+    let port = freePort()
+    session.start(WebAppTarget(folder: web, label: "routes", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    let finished = await waitUntil(90) { session.mapping.map?.status == .complete && !session.mapping.isRunning }
+    let endpoints = (session.mapping.map?.groups ?? []).flatMap(\.endpoints).map { $0.method + " " + $0.path }
+    check("BUG-090 the map is complete although the assistant's inventory failed", finished && session.mapping.map?.inventoried == true,
+          "\(session.mapping.map?.status.rawValue ?? "nil") \(session.mapping.map?.message ?? "")")
+    check("BUG-090 every route handler of the code is an endpoint of the map, the catch-all proxy is not",
+          Set(endpoints) == ["GET /api/admin/work/queue", "PATCH /api/admin/users/:id", "DELETE /api/admin/users/:id"], endpoints.joined(separator: ", "))
+    check("BUG-090 the log says the list was read from the code", session.sessionLog.entries.contains { $0.text.contains("route handlers from its code") }
+          && session.sessionLog.entries.contains { $0.text.contains("endpoints read from the code") })
     await session.close()
 }

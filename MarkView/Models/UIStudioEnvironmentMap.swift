@@ -242,6 +242,49 @@ struct StudioMapInventory: Equatable, Sendable {
 enum StudioMapParsing {
     static let methods = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
+    /// The application's own route handlers, found by reading its folders, as an inventory of the application's server
+    /// (BUG-090). A catch-all proxy is no endpoint of its own, so it is left out; a file that names no method is a GET.
+    static func inventory(routes: [StudioRouteHandler]) -> StudioMapInventory? {
+        var inventory = StudioMapInventory()
+        let own = routes.filter { !$0.path.contains("*") }
+        for route in own {
+            for method in route.methods.isEmpty ? ["GET"] : route.methods.filter(methods.contains) {
+                inventory.entries.append(.init(service: StudioMapService.application,
+                                               endpoint: StudioMapEndpoint(method: method, path: route.path, callSite: route.file, side: .browser,
+                                                                           resource: resource(of: route.path))))
+            }
+        }
+        guard !inventory.entries.isEmpty else { return nil }
+        inventory.services = [StudioMapService(name: StudioMapService.application, side: .browser)]
+        inventory.notes = ["The application's own route handlers (\(own.count) files) were read from its folders, not listed by the assistant."]
+        return inventory
+    }
+
+    /// A name for the group an endpoint is prepared in: the first two plain segments after `api`, `/api/admin/work/queue` → `admin-work`.
+    static func resource(of path: String) -> String {
+        let plain = path.split(separator: "/").map(String.init).filter { !$0.hasPrefix(":") && $0 != "api" && !($0.hasPrefix("v") && Int($0.dropFirst()) != nil) }
+        return plain.prefix(2).joined(separator: "-")
+    }
+
+    /// `path` with every parameter name replaced by `:`, so `/users/:id` and `/users/:userId` are one endpoint.
+    static func shape(_ path: String) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: false).map { $0.hasPrefix(":") ? ":" : String($0) }.joined(separator: "/")
+    }
+
+    /// The assistant's inventory plus the endpoints of the application's server it did not list.
+    static func merged(_ inventory: StudioMapInventory, with found: StudioMapInventory) -> (inventory: StudioMapInventory, added: Int) {
+        var merged = inventory
+        var known = Set(inventory.entries.filter { $0.service == StudioMapService.application }.map { $0.endpoint.method + " " + shape($0.endpoint.path) })
+        var added = 0
+        for entry in found.entries where known.insert(entry.endpoint.method + " " + shape(entry.endpoint.path)).inserted {
+            merged.entries.append(entry)
+            added += 1
+        }
+        if added > 0, !merged.services.contains(where: { $0.name == StudioMapService.application }) { merged.services += found.services }
+        if added > 0 { merged.notes += found.notes.map { "\($0) \(added) of them were not in the assistant's list." } }
+        return (merged, added)
+    }
+
     /// The inventory in an answer of `StudioMapPrompts.inventorySchema`; nil when it is not one. Entries that do not fit are
     /// left out, names and paths are normalized, and an endpoint of a service the answer did not list gets that service.
     static func inventory(from structured: Any?, limits: StudioMapLimits = StudioMapLimits()) -> StudioMapInventory? {
@@ -777,5 +820,129 @@ enum StudioCoherence {
             rest.removeAll { placed.contains($0) }
         }
         return levels
+    }
+}
+
+// MARK: - Route handlers found in the code (BUG-089, BUG-090)
+
+/// A route handler of the application's own server, found by reading folder names and exported functions: no assistant is
+/// involved, so the list is complete and instant.
+struct StudioRouteHandler: Codable, Equatable, Hashable, Sendable {
+    /// Upper-case HTTP methods the file exports; empty when the file does not name them (a pages-router API route takes any).
+    var methods: [String]
+    /// The request path with `:name` for a dynamic segment and `:name*` for a catch-all, e.g. `/api/admin/users/:id`.
+    var path: String
+    /// Relative to the project folder.
+    var file: String
+}
+
+/// Next.js route handlers (`app/**/route.ts` and `pages/api/**`), the commonest BFF layer of the applications UI Studio shows.
+enum StudioRouteScanner {
+    static let appRoutes: Set<String> = ["route.ts", "route.tsx", "route.js", "route.jsx", "route.mjs"]
+    static let pageExtensions: Set<String> = ["ts", "tsx", "js", "jsx", "mjs"]
+    static let methodNames = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+    static let maxFiles = 3_000, maxFileBytes = 400_000
+
+    /// Every route handler under `appFolder` (relative to `project`), sorted by path then file.
+    static func scan(project: URL, appFolder: URL) -> [StudioRouteHandler] {
+        let fm = FileManager.default
+        let projectPath = project.standardizedFileURL.path
+        var found: [StudioRouteHandler] = []
+        var visited = 0
+        func relative(_ url: URL) -> String {
+            let path = url.standardizedFileURL.path
+            return path.hasPrefix(projectPath + "/") ? String(path.dropFirst(projectPath.count + 1)) : path
+        }
+        for (folder, isApp) in [("app", true), ("src/app", true), ("pages/api", false), ("src/pages/api", false)] {
+            let base = appFolder.appendingPathComponent(folder, isDirectory: true)
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: base.path, isDirectory: &isDirectory), isDirectory.boolValue,
+                  let walker = fm.enumerator(at: base, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) else { continue }
+            for case let url as URL in walker {
+                if url.lastPathComponent == "node_modules" { walker.skipDescendants(); continue }
+                visited += 1
+                if visited > maxFiles { break }
+                let name = url.lastPathComponent
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+                let parts = relativeParts(of: url, under: base)
+                if isApp {
+                    guard appRoutes.contains(name), let segments = appSegments(Array(parts.dropLast())) else { continue }
+                    found.append(StudioRouteHandler(methods: exportedMethods(url), path: "/" + segments.joined(separator: "/"), file: relative(url)))
+                } else {
+                    let ext = url.pathExtension
+                    guard pageExtensions.contains(ext), !name.hasSuffix(".d.ts"), !name.contains(".test."), !name.contains(".spec.") else { continue }
+                    var segments = Array(parts.dropLast()) + [String(name.dropLast(ext.count + 1))]
+                    if segments.last == "index" { segments.removeLast() }
+                    found.append(StudioRouteHandler(methods: [], path: "/api" + (segments.isEmpty ? "" : "/" + segments.map(pageSegment).joined(separator: "/")),
+                                                    file: relative(url)))
+                }
+            }
+        }
+        return found.sorted { ($0.path, $0.file) < ($1.path, $1.file) }
+    }
+
+    private static func relativeParts(of url: URL, under base: URL) -> [String] {
+        let full = url.standardizedFileURL.pathComponents, root = base.standardizedFileURL.pathComponents
+        return Array(full.dropFirst(root.count))
+    }
+
+    /// The path segments of an app-router folder: a route group `(name)` is no segment, a parallel-route slot `@name` has no
+    /// route of its own (nil), `[id]` is `:id`, `[...path]` is `:path*` and `[[...path]]` is `:path*` too.
+    static func appSegments(_ folders: [String]) -> [String]? {
+        var segments: [String] = []
+        for folder in folders {
+            if folder.hasPrefix("@") { return nil }
+            if folder.hasPrefix("("), folder.hasSuffix(")") { continue }
+            segments.append(pageSegment(folder))
+        }
+        return segments
+    }
+
+    private static func pageSegment(_ folder: String) -> String {
+        if folder.hasPrefix("[["), folder.hasSuffix("]]"), folder.count > 6 { return ":" + folder.dropFirst(5).dropLast(2) + "*" }
+        if folder.hasPrefix("[..."), folder.hasSuffix("]") { return ":" + folder.dropFirst(4).dropLast() + "*" }
+        if folder.hasPrefix("["), folder.hasSuffix("]"), folder.count > 2 { return ":" + folder.dropFirst().dropLast() }
+        return folder
+    }
+
+    /// The HTTP methods a route file exports (`export async function GET`, `export const POST =`, `export { handler as PUT }`).
+    static func exportedMethods(_ file: URL) -> [String] {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return [] }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: maxFileBytes)) ?? Data()
+        let text = String(decoding: data, as: UTF8.self)
+        var methods = Set<String>()
+        for method in methodNames {
+            let direct = "export\\s+(?:async\\s+)?(?:function|const|let|var)\\s+\(method)\\b"
+            let listed = "export\\s*\\{[^}]*\\b(?:as\\s+)?\(method)\\b[^}]*\\}"
+            if text.range(of: direct, options: .regularExpression) != nil || text.range(of: listed, options: .regularExpression) != nil {
+                methods.insert(method)
+            }
+        }
+        return methodNames.filter(methods.contains)
+    }
+
+    /// The handler that serves a request to `path` with `method`: static segments beat `:param`, and a catch-all comes last.
+    static func handler(for method: String, path: String, in handlers: [StudioRouteHandler]) -> StudioRouteHandler? {
+        let wanted = path.split(separator: "/").map(String.init)
+        var best: (handler: StudioRouteHandler, score: Int)?
+        for handler in handlers where handler.methods.isEmpty || handler.methods.contains(method.uppercased()) {
+            let pattern = handler.path.split(separator: "/").map(String.init)
+            guard let score = match(pattern, wanted) else { continue }
+            let adjusted = score + (handler.methods.isEmpty ? 0 : 1)
+            if best == nil || adjusted > best!.score { best = (handler, adjusted) }
+        }
+        return best?.handler
+    }
+
+    /// nil when `pattern` does not serve `wanted`; else a score that grows with the static segments matched.
+    private static func match(_ pattern: [String], _ wanted: [String]) -> Int? {
+        var score = 0
+        for (index, segment) in pattern.enumerated() {
+            if segment.hasPrefix(":"), segment.hasSuffix("*") { return wanted.count > index ? score : nil }
+            guard index < wanted.count else { return nil }
+            if segment.hasPrefix(":") { score += 1 } else if segment == wanted[index] { score += 10 } else { return nil }
+        }
+        return pattern.count == wanted.count ? score + 5 : nil
     }
 }

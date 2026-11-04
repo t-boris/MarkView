@@ -2,7 +2,7 @@
 type: bug
 id: BUG-089
 title: UI Studio holds the page for minutes while the assistant prepares one unknown request
-status: open
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04
