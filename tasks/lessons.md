@@ -1079,3 +1079,35 @@ the answer, with the saved default unchanged because the value was the one alrea
 - A windowed test harness on a runner must print unbuffered (`setvbuf(stdout, nil, _IONBF, 0)`), name its steps and stop itself
   with the last step after a time limit; a cancelled step otherwise leaves an empty log.
 
+
+## A selection is identified by what it is, never by where it was (BUG-068)
+- A positional `tag:nth-of-type(n)` selector survives no layout change: when a restore brings back a consent banner, the old path
+  leads to the banner's button. Revalidating "the only element on that path" then edits the wrong component. Keep a fingerprint
+  (tag, classes, component, source node, own text) and accept a candidate only when it matches; when nothing matches, keep the
+  element as it was selected and say so instead of substituting another one.
+
+## Framework data requests belong to the development server (BUG-070)
+- Next.js `router.refresh()` and `<Link>` fetch `/?_rsc=…` with an `rsc` header; server actions post with `next-action`. Sent to
+  the simulator, they waited for rule preparation and failed, and Next.js then reloads the whole page. Next 16 also serves cached
+  server fetches in development unless the request says `cache-control: no-cache`.
+
+## React 19 + Turbopack: map the debug stack through the chunk's source map (BUG-069)
+- React 19 dropped `_debugSource`; `_debugStack` points at a bundled chunk under `/_next/static/chunks/`, which is not a project
+  file. Turbopack serves `<chunk>.map` as an indexed map (`sections`) whose sources are `file://` URLs. Decode only up to the
+  wanted line; a 400 KB app chunk maps in a few milliseconds. A static server that serves a build from the app folder makes the
+  chunk look like a project file: treat scripts in bundler output folders as generated.
+
+## A page loaded during recording gets a fresh runtime (BUG-071)
+- Any switch the session flips in the current page (recording, selecting) is lost when the application loads another page. Put
+  it in the runtime configuration and reinstall the user script when it changes. Replays that may cross a page load must run
+  step by step from Swift; count `didCommit` to tell "the step loaded a page" from "the step failed". WebKit has no public error
+  code for "the page that ran this script was replaced".
+
+## Next.js 16 refuses a second `next dev` in the same folder
+- `next dev` takes `.next/dev/lock`; a second server for the same app exits with "Another next dev server is already running in
+  this directory". UI Studio cannot start its own server (with simulated service URLs and the test clock) while the person's own
+  server runs; it can only use that server as it is, and must say so.
+
+## `gh release create` can fail with HTTP 500 while release.sh still exits 0
+- After notarization the publish step printed `HTTP 500` and no release existed. Check `gh release view v<version>` after every
+  publish; rerun only the `gh release create` line from the same clean worktree (the DMGs are already stapled).

@@ -2,7 +2,7 @@
 type: bug
 id: BUG-070
 title: UI Studio sends Next.js refresh and navigation data requests to the simulator
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04
