@@ -1,5 +1,25 @@
 # MarkView — Follow-up Tasks
 
+## MarkView UI Studio (2026-11-04, feat/markview-ui-studio, issue #287)
+
+Specification: `docs/features/markview-ui-studio` (REQ-001…REQ-006, DEC-001…DEC-005, plan I-1…I-8). Q-005 asked and answered
+during implementation ("Sync from code" opens UI Studio, "Hand off to code" stays, saved reconstructions are historical).
+
+Plan
+- [x] 1. Pure modules with standalone checks (`tools/tests/ui-studio-tests.sh`): JSON values, models, simulation engine (shared entity state, atomic CRUD, overrides,
+      idempotency journal, Reset), rule validation, bounded and deduplicated preparation with deadline and generations, redaction and
+      environment sanitising, bridge message validation, change manager (scoped edits, conflict detection, selective undo with 3-way
+      merge), code revision identity, scenario store and compatibility, image comparison, feature package and revalidation.
+- [ ] 2. Page runtime `markview-ui-studio.js` (fetch/XHR interception, WebSocket/EventSource/beacon policy, seed/time/locale, runtime
+      and build errors, Electron stand-ins that report, selection mode with parent navigation, framework source mapping, step replay and
+      recording, capture preparation), checked in a real WKWebView.
+- [ ] 3. Session runtime: owned dev-server process group with sanitised environment, readiness states, content-rule connection
+      policy, bridge handler, zoom that keeps the viewport, captures, AI questions and edits through the read-only CLI completion.
+- [ ] 4. UI Studio tab (toolbar, viewport/zoom, Interact/Select, inspector, history with undo, scenarios, environment and policies,
+      evidence with compare and export) and menu entry points; "New Prototype from Code" and "Sync from code" open UI Studio;
+      saved code-mode prototypes are labelled historical.
+- [ ] 5. Specification statuses, README, lessons; version bump (minor); build; all standalone checks; PR; CI; merge; signed release.
+
 ## BUG-062: the preview fix round declines a request that spans more than three files, so blank screens stay blank (2026-11-03, 5.13.0, fix/bug-062-prototype-fix-round)
 
 Boris approved all three options on 2026-11-03 ("Делай все 3"). Reproduced outside the studio on the real strikedesk prototype: after
