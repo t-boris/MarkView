@@ -15,7 +15,7 @@ Plan (approved by Boris: one release 5.26.0, straight to main)
 - [x] BUG-084: the context block lists the rules the page reached first and shows the shape of their fixed answers; the prompt
       says a fixed answer is changed by an override with status 200 and a body of the same shape; the validator refuses a body
       that drops keys of the current answer; harness cases.
-- [ ] Bump minor (5.26.0), Debug build, Studio and new standalone checks, commit and push to main, `./release.sh --publish`,
+- [x] Bump minor (5.26.0), Debug build, Studio and new standalone checks, commit and push to main, `./release.sh --publish`,
       bug statuses fixed, lessons. Install only when Boris says so.
 
 Review
@@ -30,6 +30,8 @@ Review
   with 33 strikes (5820…5980 around 5900) and 66 contracts in the first expiry. The app's validator found no problems.
 - Checks: ui-studio, ui-studio-session (225), ui-studio-web, ui-studio-gateway, ui-studio-node, project-change,
   project-search: all pass. Debug build 5.26.0 succeeds.
+- Released: commit d4f1116 on main, signed and notarized DMG published as https://github.com/t-boris/MarkView/releases/tag/v5.26.0
+  (Latest), copy in `build/MarkView-5.26.0.dmg`. Not installed: Boris installs it when he is ready.
 
 ## MarkView UI Studio (2026-11-04, feat/markview-ui-studio, issue #287)
 

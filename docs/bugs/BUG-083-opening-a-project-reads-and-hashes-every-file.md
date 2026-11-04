@@ -2,7 +2,7 @@
 type: bug
 id: BUG-083
 title: Opening a project reads and hashes every file, so MarkView peaks at about 25 GB of memory
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

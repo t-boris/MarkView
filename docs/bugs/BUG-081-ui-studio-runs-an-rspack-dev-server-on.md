@@ -2,7 +2,7 @@
 type: bug
 id: BUG-081
 title: UI Studio runs an Rspack dev server on the test clock and it rebuilds without end
-status: fixing
+status: fixed
 severity: critical
 reporter: Boris Tsekinovsky
 created: 2026-11-04

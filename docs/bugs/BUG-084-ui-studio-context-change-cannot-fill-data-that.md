@@ -2,7 +2,7 @@
 type: bug
 id: BUG-084
 title: UI Studio context change cannot fill data that a rule answers with a fixed body
-status: fixing
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04
