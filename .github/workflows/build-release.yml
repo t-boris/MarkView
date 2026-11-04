@@ -5,6 +5,9 @@ name: Build & Release
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - '.github/workflows/build-release.yml'
 
 permissions:
   contents: read
@@ -12,6 +15,10 @@ permissions:
 jobs:
   build:
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
     steps:
       - uses: actions/checkout@v4
 
@@ -19,11 +26,16 @@ jobs:
       - name: Show Xcode
         run: xcodebuild -version
 
-      - name: Build Release
+      # Build each architecture on its own runner. Incremental compilation retains
+      # Release optimization while allowing Swift to compile files in parallel.
+      # The published installer still uses the project's whole-module settings.
+      - name: Build Release (${{ matrix.arch }})
         run: |
           xcodebuild -scheme MarkView \
             -destination 'platform=macOS' \
             -configuration Release \
+            ARCHS=${{ matrix.arch }} \
+            SWIFT_COMPILATION_MODE=incremental \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
             build
