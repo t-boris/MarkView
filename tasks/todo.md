@@ -6,7 +6,8 @@
 - [x] 4. A scenario switch keeps the sign-in cookies for the same test user and no longer cancels a preparation
 - [x] Real project: vivaa-platform admin-panel, 52 route files, 63 method and path pairs, 0.07 s, work/queue and sign-out resolve
 - [x] Model 624, session 237, web 96, gateway 59, node 89 ok; Debug build succeeds
-- [ ] Release 5.28.0 and install with go-ahead
+- [x] Release 5.28.0 published (v5.28.0 Latest, signed and notarized, DMG in build/)
+- [ ] Install 5.28.0 with Boris's go-ahead
 - Review: how much the handler hint shortens a real preparation is not measured (it needs a run with the real agent).
 
 ## UI Studio keeps the person's data between sessions and changes — release 5.27.1 (2026-11-04, BUG-087)
