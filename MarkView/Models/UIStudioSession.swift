@@ -880,10 +880,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             notice = "That element has no size to select."
             return
         }
-        let root = root, appFolder = appFolder
+        let root = root, appFolder = appFolder, origin = appOrigin
         let tagName = String(context.tag.prefix { $0.isLetter || $0.isNumber || $0 == "-" })
+        let reported = context
         let resolved = await Task.detached { () -> StudioSourceResolution in
-            StudioSourceResolution.resolve(context, root: root, appFolder: appFolder, tagName: tagName)
+            // A bundled chunk (Turbopack, Next.js 16) is mapped to its source file through its source map (BUG-069).
+            let mapped = await StudioSourceMap.mapped(reported, appOrigin: origin, root: root, appFolder: appFolder)
+            return StudioSourceResolution.resolve(mapped, root: root, appFolder: appFolder, tagName: tagName)
         }.value
         context.sourcePath = resolved.path
         context.line = resolved.line
@@ -1411,18 +1414,21 @@ struct StudioSourceResolution: Sendable {
     var note: String?
 
     static func resolve(_ context: StudioSelectionContext, root: URL, appFolder: URL, tagName: String) -> StudioSourceResolution {
+        var outside: String?
         if let reported = context.sourcePath {
-            guard let path = StudioSelectionContext.projectPath(reported, root: root, appFolder: appFolder) else {
-                return StudioSourceResolution(path: nil, line: nil, mapping: .none, note: "The framework named a source file outside the project.")
+            if let path = StudioSelectionContext.projectPath(reported, root: root, appFolder: appFolder), !StudioSourceMap.isGenerated(path) {
+                let text = (try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)) ?? ""
+                var line = context.line
+                if let given = line { line = refine(text, line: given, tagName: tagName) }
+                else if let found = locate(text, tagName: tagName, context: context) { line = found }
+                let snippet = line.map { StudioSelectionContext.snippet(of: text, line: $0) }
+                return StudioSourceResolution(path: path, line: line, mapping: context.mapping, snippet: snippet,
+                                              lineHash: line.flatMap { StudioSelectionContext.lineHash(of: text, line: $0) })
             }
-            let text = (try? String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)) ?? ""
-            var line = context.line
-            if let given = line { line = refine(text, line: given, tagName: tagName) }
-            else if let found = locate(text, tagName: tagName, context: context) { line = found }
-            let snippet = line.map { StudioSelectionContext.snippet(of: text, line: $0) }
-            return StudioSourceResolution(path: path, line: line, mapping: context.mapping, snippet: snippet,
-                                          lineHash: line.flatMap { StudioSelectionContext.lineHash(of: text, line: $0) })
+            // A bundled chunk without a usable source map, or a file outside the project: never read; search instead.
+            outside = "The framework named a bundled or outside file, not a project source."
         }
+        // No usable location: search the sources for the component and the element, and say it is a candidate.
         let candidates = search(context, root: root, appFolder: appFolder)
         if candidates.count == 1, let first = candidates.first {
             let text = (try? String(contentsOf: root.appendingPathComponent(first.path), encoding: .utf8)) ?? ""
@@ -1435,7 +1441,7 @@ struct StudioSourceResolution: Sendable {
             return StudioSourceResolution(path: nil, line: nil, mapping: .candidate,
                                           note: "\(candidates.count) candidate files: " + candidates.prefix(5).map { "\($0.path):\($0.line)" }.joined(separator: ", ") + ".")
         }
-        return StudioSourceResolution(path: nil, line: nil, mapping: .none, note: nil)
+        return StudioSourceResolution(path: nil, line: nil, mapping: .none, note: outside)
     }
 
     /// A framework's line can be off by one (0- or 1-based); the line that opens the element's tag wins.
@@ -1462,7 +1468,13 @@ struct StudioSourceResolution: Sendable {
     /// Source files that contain the element's id, an Angular component's class, its first class name or its short text.
     static func search(_ context: StudioSelectionContext, root: URL, appFolder: URL) -> [(path: String, line: Int)] {
         var needles: [String] = []
-        if let component = context.component, !component.isEmpty { needles.append("class \(component)") }
+        if let component = context.component, !component.isEmpty, component.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "$" }) {
+            needles.append("class \(component)")
+            // A function component's definition (React, Solid, Preact).
+            if context.framework == "react" || context.framework.isEmpty {
+                needles += ["function \(component)(", "function \(component)<", "const \(component) =", "const \(component): "]
+            }
+        }
         let parts = context.tag.split(separator: "#", maxSplits: 1)
         if parts.count == 2 { needles.append("id=\"\(parts[1].split(separator: ".").first ?? "")\"") }
         if let firstClass = context.tag.split(separator: ".").dropFirst().first, firstClass.count >= 3 { needles.append(String(firstClass)) }
@@ -1471,7 +1483,7 @@ struct StudioSourceResolution: Sendable {
         guard !needles.isEmpty, let enumerator = FileManager.default.enumerator(at: appFolder, includingPropertiesForKeys: [.isRegularFileKey],
                                                                               options: [.skipsHiddenFiles]) else { return [] }
         let extensions: Set<String> = ["tsx", "jsx", "ts", "js", "vue", "svelte", "html", "astro", "hbs", "erb", "njk"]
-        let skipped: Set<String> = ["node_modules", "dist", "build", "out", ".next", ".nuxt", ".svelte-kit", "coverage", "vendor"]
+        let skipped = StudioSourceMap.generatedFolders.union(["node_modules", "coverage", "vendor"])
         let base = root.standardizedFileURL.path
         var files: [URL] = []
         for case let url as URL in enumerator {

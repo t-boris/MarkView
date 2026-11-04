@@ -2,7 +2,7 @@
 type: bug
 id: BUG-069
 title: UI Studio finds no source file for Next.js 16 elements
-status: open
+status: fixing
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

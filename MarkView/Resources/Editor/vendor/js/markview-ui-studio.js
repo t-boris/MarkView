@@ -721,15 +721,17 @@
     return '';
   }
 
+  // The first frame of the application's own code: its URL and position. A bundled chunk's position is mapped back to
+  // the source file by MarkView through the chunk's source map (BUG-069).
   function frameOf(stack) {
     var lines = String(stack || '').split('\n');
     for (var i = 0; i < lines.length; i++) {
       var match = /(https?:\/\/[^\s()]+?):(\d+):(\d+)/.exec(lines[i]);
       if (!match) continue;
-      if (/node_modules|\/@vite\/|\/@react-refresh|react-dom|jsx-dev-runtime|\.vite\/deps|chunk-[A-Z0-9]+\.js/.test(match[1])) continue;
-      return match[1].replace(/\?.*$/, '');
+      if (/node_modules|\/@vite\/|\/@react-refresh|react-dom|jsx-dev-runtime|\.vite\/deps|chunk-[A-Z0-9]+\.js|%5Bturbopack%5D|\[turbopack\]/.test(match[1])) continue;
+      return { url: match[1].replace(/\?.*$/, ''), line: +match[2], column: +match[3] };
     }
-    return '';
+    return null;
   }
 
   function reactSource(el) {
@@ -744,7 +746,10 @@
         component: name, nodeId: source.fileName + ':' + source.lineNumber + ':' + (source.columnNumber || 0) };
     }
     // React 19: no element locations; the component's file comes from the stack captured when the element was made.
-    var file = frameOf(fiber._debugStack && fiber._debugStack.stack) || (owner && frameOf(owner._debugStack && owner._debugStack.stack));
+    // The element's own stack points at its JSX; the owner's at where the component itself was used.
+    var own = frameOf(fiber._debugStack && fiber._debugStack.stack);
+    var frame = own || (owner && frameOf(owner._debugStack && owner._debugStack.stack));
+    var file = frame ? frame.url : '';
     var rootEl = el;
     for (var node = el.parentElement; node; node = node.parentElement) {
       var f = expando(node, ['__reactFiber$']);
@@ -754,6 +759,7 @@
       rootEl = node;
     }
     return { framework: 'react', mapping: file ? 'component' : 'none', file: file, component: name,
+      generatedLine: frame ? frame.line : 0, generatedColumn: frame ? frame.column : 0, generatedOwn: !!own,
       nodeId: (file || 'react') + '|' + name + '|' + pathFrom(rootEl.parentElement, el) };
   }
 

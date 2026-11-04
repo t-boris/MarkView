@@ -521,6 +521,34 @@ func selectionChecks() {
     check("relative path of the app folder", StudioSelectionContext.projectPath("src/Card.jsx", root: root, appFolder: appFolder) == "src/Card.jsx")
     check("a path outside the project is refused", StudioSelectionContext.projectPath("/etc/hosts", root: root, appFolder: appFolder) == nil)
     check("a missing file is refused", StudioSelectionContext.projectPath("src/Nope.jsx", root: root, appFolder: appFolder) == nil)
+    // BUG-069: Turbopack (Next.js 16) names sources as file URLs in its maps and as [project]/… module ids.
+    check("BUG-069 a source map's file URL inside the project", StudioSelectionContext.projectPath(repo.appendingPathComponent("src/Card.jsx").absoluteString,
+                                                                                               root: root, appFolder: appFolder) == "src/Card.jsx")
+    check("BUG-069 a Turbopack module id", StudioSelectionContext.projectPath("[project]/src/Card.jsx [app-client] (ecmascript)",
+                                                                       root: root, appFolder: appFolder) == "src/Card.jsx")
+    check("BUG-069 a file URL outside the project is refused", StudioSelectionContext.projectPath("file:///etc/hosts", root: root, appFolder: appFolder) == nil)
+    // An indexed map like Turbopack's: chunk lines 10… belong to Card.jsx, lines 20… to List.jsx. Line 11 has two segments:
+    // columns 0… map to Card.jsx line 2, columns 5… to line 3 column 3.
+    let indexed = """
+        {"version":3,"sources":[],"sections":[
+          {"offset":{"line":10,"column":0},"map":{"version":3,"sources":["file:///p/src/Card.jsx"],"names":[],"mappings":"AAAA;AACA,KACE;AAIF"}},
+          {"offset":{"line":20,"column":0},"map":{"version":3,"sources":["file:///p/src/List.jsx"],"names":[],"mappings":"AAAA;AAEA"}}]}
+        """.data(using: .utf8)!
+    let p1 = StudioSourceMap.original(in: indexed, line: 11, column: 1)
+    let p2 = StudioSourceMap.original(in: indexed, line: 12, column: 3)
+    let p3 = StudioSourceMap.original(in: indexed, line: 12, column: 9)
+    let p4 = StudioSourceMap.original(in: indexed, line: 22, column: 1)
+    check("BUG-069 a chunk position maps to its section's source and line",
+          p1 == StudioSourceMap.Position(source: "file:///p/src/Card.jsx", line: 1, column: 1)
+          && p2 == StudioSourceMap.Position(source: "file:///p/src/Card.jsx", line: 2, column: 1)
+          && p3 == StudioSourceMap.Position(source: "file:///p/src/Card.jsx", line: 3, column: 3)
+          && p4 == StudioSourceMap.Position(source: "file:///p/src/List.jsx", line: 3, column: 1),
+          "\(String(describing: p1)) \(String(describing: p2)) \(String(describing: p3)) \(String(describing: p4))")
+    check("BUG-069 a position before every section or beyond a map maps to nothing",
+          StudioSourceMap.original(in: indexed, line: 5, column: 1) == nil && StudioSourceMap.original(in: Data("{}".utf8), line: 1, column: 1) == nil)
+    let plainMap = Data(#"{"version":3,"sourceRoot":"/p/","sources":["src/App.jsx"],"names":[],"mappings":";;AAEA"}"#.utf8)
+    check("BUG-069 a plain map with a source root", StudioSourceMap.original(in: plainMap, line: 3, column: 7)
+          == StudioSourceMap.Position(source: "/p/src/App.jsx", line: 3, column: 1))
     let snippet = StudioSelectionContext.snippet(of: card, line: 3, radius: 1)
     check("the snippet marks the mapped line", snippet.contains("    3> ") && snippet.split(separator: "\n").count == 3, snippet)
 

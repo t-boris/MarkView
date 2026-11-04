@@ -35,6 +35,11 @@ struct StudioSelectionContext: Equatable {
     var instanceId: String?
     var instanceIndex: Int
     var instanceCount: Int
+    /// Where a bundled chunk created the element (`sourcePath` is then the chunk's URL), mapped to the source through the
+    /// chunk's source map (BUG-069). `generatedOwn`: the position is the element's own JSX, not where its component is used.
+    var generatedLine: Int? = nil
+    var generatedColumn: Int? = nil
+    var generatedOwn = false
     /// What identifies the element when its position on the page changes (BUG-068).
     var classes: [String] = []
     var role: String? = nil
@@ -96,6 +101,9 @@ struct StudioSelectionContext: Equatable {
         instanceId = (source["instanceId"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(500)) }
         instanceIndex = max(0, (source["instanceIndex"] as? NSNumber)?.intValue ?? 0)
         instanceCount = max(1, (source["instanceCount"] as? NSNumber)?.intValue ?? 1)
+        generatedLine = (source["generatedLine"] as? NSNumber).map(\.intValue).flatMap { $0 > 0 ? $0 : nil }
+        generatedColumn = (source["generatedColumn"] as? NSNumber).map(\.intValue).flatMap { $0 > 0 ? $0 : nil }
+        generatedOwn = source["generatedOwn"] as? Bool ?? false
         classes = (object["classes"] as? [Any] ?? []).prefix(40).compactMap { ($0 as? String).map { String($0.prefix(200)) } }
         role = (object["role"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(100)) }
         label = (object["label"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(200)) }
@@ -123,8 +131,14 @@ struct StudioSelectionContext: Equatable {
         if let url = URL(string: text), let scheme = url.scheme, ["http", "https"].contains(scheme) {
             text = url.path
             if text.hasPrefix("/@fs/") { text = String(text.dropFirst(4)) }
+        } else if text.hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+            text = url.path
         } else if text.hasPrefix("webpack://") {
             text = String(text.dropFirst("webpack://".count)).drop { $0 != "/" }.description
+        } else if text.hasPrefix("[project]/") {
+            // Turbopack names a module from its project root (the monorepo root or the app folder).
+            text = String(text.dropFirst("[project]/".count))
+            if let space = text.firstIndex(of: " ") { text = String(text[..<space]) }
         }
         if let query = text.firstIndex(of: "?") { text = String(text[..<query]) }
         text = text.removingPercentEncoding ?? text
@@ -217,4 +231,136 @@ enum StudioSelectionRevalidation: Equatable {
         }
         return sameClasses && (sameText || previous.component != nil)
     }
+}
+
+/// A bundler's source map (version 3, plain or indexed with sections, as Turbopack writes them): maps a position in a
+/// served chunk back to its source file and line (BUG-069). Only the mappings up to the asked line are decoded.
+enum StudioSourceMap {
+    struct Position: Equatable {
+        var source: String
+        /// 1-based, like an editor's line and column.
+        var line: Int
+        var column: Int
+    }
+
+    /// The selection with a bundled chunk's position replaced by its source file and line, when the chunk was served by the
+    /// application's own development server and its source map names a file in the project. Anything else is returned as
+    /// it is.
+    static func mapped(_ context: StudioSelectionContext, appOrigin: StudioBridge.Origin?, root: URL, appFolder: URL) async
+        -> StudioSelectionContext {
+        guard let line = context.generatedLine, let column = context.generatedColumn, let reported = context.sourcePath,
+              let chunk = URL(string: reported), ["http", "https"].contains(chunk.scheme ?? ""), let appOrigin,
+              StudioBridge.Origin(url: chunk).map(appOrigin.sameServer) == true,
+              ["js", "mjs", "cjs"].contains(chunk.pathExtension.lowercased()),
+              StudioSelectionContext.projectPath(reported, root: root, appFolder: appFolder).map(isGenerated) ?? true,
+              var components = URLComponents(url: chunk, resolvingAgainstBaseURL: false) else { return context }
+        components.query = nil
+        components.fragment = nil
+        components.path += ".map"
+        guard let mapURL = components.url, let data = await download(mapURL),
+              let position = original(in: data, line: line, column: column),
+              StudioSelectionContext.projectPath(position.source, root: root, appFolder: appFolder) != nil else { return context }
+        var result = context
+        result.sourcePath = position.source
+        // The element's own stack frame is its JSX; the owner's is where the component was used, so only the file counts.
+        result.line = context.generatedOwn ? position.line : nil
+        result.column = context.generatedOwn ? position.column : nil
+        result.mapping = context.generatedOwn ? .exact : .component
+        return result
+    }
+
+    /// Folders that hold a bundler's output rather than sources.
+    static let generatedFolders: Set<String> = ["_next", ".next", "dist", "build", "out", ".output", ".nuxt", ".svelte-kit", ".vite",
+                                                ".turbo", ".parcel-cache"]
+
+    /// A bundled script inside a bundler's output folder (a static preview serving a build, for example).
+    static func isGenerated(_ path: String) -> Bool {
+        ["js", "mjs", "cjs"].contains((path as NSString).pathExtension.lowercased())
+            && path.split(separator: "/").dropLast().contains { generatedFolders.contains(String($0)) }
+    }
+
+    /// A source map from the development server: 200, JSON, at most 64 MB, within 10 seconds, never through a proxy.
+    private static func download(_ url: URL) async -> Data? {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 10
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let (data, response) = try? await session.data(for: request), let http = response as? HTTPURLResponse,
+              http.statusCode == 200, data.count <= 64 * 1024 * 1024 else { return nil }
+        return data
+    }
+
+    /// The source position of `line`:`column` in the chunk (1-based, as a JavaScript stack reports them).
+    static func original(in data: Data, line: Int, column: Int) -> Position? {
+        guard line >= 1, let map = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return original(in: map, line: line - 1, column: max(0, column - 1), depth: 0)
+    }
+
+    private static func original(in map: [String: Any], line: Int, column: Int, depth: Int) -> Position? {
+        if let sections = map["sections"] as? [[String: Any]] {
+            guard depth < 2 else { return nil }
+            var chosen: (map: [String: Any], line: Int, column: Int)?
+            for section in sections {
+                guard let offset = section["offset"] as? [String: Any], let sub = section["map"] as? [String: Any],
+                      let start = (offset["line"] as? NSNumber)?.intValue, let startColumn = (offset["column"] as? NSNumber)?.intValue
+                else { continue }
+                if start < line || (start == line && startColumn <= column) { chosen = (sub, start, startColumn) } else { break }
+            }
+            guard let chosen else { return nil }
+            let relative = line - chosen.line
+            return original(in: chosen.map, line: relative, column: relative == 0 ? column - chosen.column : column, depth: depth + 1)
+        }
+        guard let mappings = map["mappings"] as? String, let sources = map["sources"] as? [String] else { return nil }
+        let sourceRoot = map["sourceRoot"] as? String ?? ""
+        var generatedLine = 0, generatedColumn = 0, source = 0, sourceLine = 0, sourceColumn = 0
+        var segment: [Int] = [], value = 0, shift = 0
+        var best: (source: Int, line: Int, column: Int)?, first: (source: Int, line: Int, column: Int)?
+        func endSegment() {
+            defer { segment = [] }
+            guard !segment.isEmpty else { return }
+            generatedColumn += segment[0]
+            guard segment.count >= 4 else { return }
+            source += segment[1]
+            sourceLine += segment[2]
+            sourceColumn += segment[3]
+            guard generatedLine == line else { return }
+            if first == nil { first = (source, sourceLine, sourceColumn) }
+            if generatedColumn <= column { best = (source, sourceLine, sourceColumn) }
+        }
+        for byte in mappings.utf8 {
+            switch byte {
+            case UInt8(ascii: ";"):
+                endSegment()
+                if generatedLine == line { break }
+                generatedLine += 1
+                generatedColumn = 0
+                continue
+            case UInt8(ascii: ","):
+                endSegment()
+                continue
+            default:
+                guard let digit = base64[byte] else { return nil }
+                value |= (digit & 31) << shift
+                if digit & 32 != 0 { shift += 5; continue }
+                segment.append(value & 1 == 1 ? -(value >> 1) : value >> 1)
+                value = 0
+                shift = 0
+                continue
+            }
+            break
+        }
+        if generatedLine == line { endSegment() }
+        guard let found = best ?? first, sources.indices.contains(found.source) else { return nil }
+        return Position(source: sourceRoot + sources[found.source], line: found.line + 1, column: found.column + 1)
+    }
+
+    private static let base64: [UInt8: Int] = {
+        var table: [UInt8: Int] = [:]
+        for (index, byte) in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8.enumerated() { table[byte] = index }
+        return table
+    }()
 }

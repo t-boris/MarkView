@@ -108,6 +108,39 @@ let indexHTML = """
 </html>
 
 """
+/// BUG-069: a page built like Next.js 16 with Turbopack: the element is made by a bundled chunk under /_next/, its React
+/// fiber carries only the stack captured where its JSX ran (line 3 of the chunk), and the chunk's indexed source map leads
+/// that line to web/src/Card.tsx line 6.
+let chunkHTML = """
+<!doctype html><html><head><title>Chunk</title></head><body><div id="root"></div>
+<script src="/_next/static/chunks/app_0abc._.js"></script></body></html>
+"""
+let chunkJS = """
+(function () {
+  function Card() {
+    var stack = new Error('react-stack-top-frame');
+    var el = document.createElement('div');
+    el.className = 'card';
+    el.textContent = 'Plan';
+    el['__reactFiber$test'] = { type: 'div', _debugStack: stack, return: { type: Card } };
+    return el;
+  }
+  document.getElementById('root').appendChild(Card());
+})();
+"""
+let cardTSX = """
+import React from 'react';
+
+export function Card() {
+  const title = 'Plan';
+  return (
+    <div className="card">
+      {title}
+    </div>
+  );
+}
+"""
+
 /// BUG-068: a page whose consent banner (kept in localStorage) is inserted before the content until it is accepted, so a
 /// positional path to the card's button points at the banner's button once storage is cleared.
 let consentHTML = """
@@ -512,6 +545,43 @@ func run() async {
           editPrompt.contains("button.cta") && !editPrompt.contains("button.accept"), String(editPrompt.prefix(300)))
     check("BUG-068 the change records the selected element", session.history.last?.selection.hasPrefix("button.cta") == true,
           session.history.last?.selection ?? "nil")
+
+    // BUG-069: an element made by a bundled chunk is traced to its source file through the chunk's source map; a chunk
+    // without a map falls back to searching for the component, offered as a candidate.
+    watchdog.reached("A bundled chunk's element is traced to its source file")
+    let chunks = web.appendingPathComponent("_next/static/chunks")
+    try? fm.createDirectory(at: chunks, withIntermediateDirectories: true)
+    try? fm.createDirectory(at: web.appendingPathComponent("src"), withIntermediateDirectories: true)
+    try? chunkHTML.write(to: web.appendingPathComponent("chunk.html"), atomically: true, encoding: .utf8)
+    try? chunkJS.write(to: chunks.appendingPathComponent("app_0abc._.js"), atomically: true, encoding: .utf8)
+    try? cardTSX.write(to: web.appendingPathComponent("src/Card.tsx"), atomically: true, encoding: .utf8)
+    let cardURL = web.appendingPathComponent("src/Card.tsx").absoluteString
+    try? #"{"version":3,"sources":[],"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["\#(cardURL)"],"names":[],"mappings":"AAAA;AACA;AAIA;AACA"}}]}"#
+        .write(to: chunks.appendingPathComponent("app_0abc._.js.map"), atomically: true, encoding: .utf8)
+    var chunkScenario = session.scenario
+    chunkScenario.id = "chunk"
+    chunkScenario.name = "Chunk"
+    chunkScenario.route = "/chunk.html"
+    chunkScenario.steps = []
+    session.activate(chunkScenario)
+    _ = await idle()
+    session.setMode(.select)
+    try? await Task.sleep(nanoseconds: 600_000_000)
+    await clickElement(".card")
+    _ = await waitUntil(10) { session.selection?.tag.hasPrefix("div.card") == true }
+    let traced = session.selection
+    check("BUG-069 the element's source file and line come from the chunk's source map",
+          traced?.sourcePath == "web/src/Card.tsx" && traced?.line == 6 && traced?.mapping == .exact,
+          "\(traced?.sourcePath ?? "nil"):\(traced?.line ?? -1) \(traced.map { "\($0.mapping)" } ?? "nil")")
+    session.setMode(.interact)
+    let unmapped = StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": "div.card", "selector": "div.card",
+                                           "source": ["framework": "react", "mapping": "component", "component": "Card",
+                                                      "file": "http://127.0.0.1:\(port)/_next/static/chunks/missing_0x._.js",
+                                                      "generatedLine": 3, "generatedColumn": 20, "generatedOwn": true]])!
+    let fallback = StudioSourceResolution.resolve(unmapped, root: root, appFolder: web, tagName: "div")
+    check("BUG-069 a chunk without a usable map falls back to the component's file as a candidate",
+          fallback.path == "web/src/Card.tsx" && fallback.mapping == .candidate && fallback.line == 3,
+          "\(fallback.path ?? "nil"):\(fallback.line ?? -1) \(fallback.mapping)")
 
     finish(session, port: port)
 }
