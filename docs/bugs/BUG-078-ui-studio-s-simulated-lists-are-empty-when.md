@@ -2,7 +2,7 @@
 type: bug
 id: BUG-078
 title: UI Studio's simulated lists are empty when a rule names paging parameters as filters, and the seed fills one group only
-status: open
+status: fixed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04

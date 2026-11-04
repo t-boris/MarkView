@@ -1169,3 +1169,16 @@ the answer, with the saved default unchanged because the value was the one alrea
 - WebKit asks `decidePolicyFor` about a redirect's target before `didReceiveServerRedirect`, so the "from" address of a
   redirect has to be taken in `didStartProvisionalNavigation`.
 - `busy` is nil while a session launches, so "state is degraded and busy is nil" does not mean the page has finished loading.
+
+## A model-written rule is checked against the data it serves (BUG-078)
+- The agent named `limit` and `offset` as list filters. The simulator applied every named filter by equality, so every list
+  came back empty, and nothing told anyone why. The simulator now treats paging names as paging and ignores a filter on a
+  field no record has. When a page is empty, read `.markview/studio/environment.json`: compare the rule's filters with
+  the request's query, and the seed's foreign keys with the group the page shows.
+- A seed of six records was all in one of six categories. Prompts state coverage ("2-4 records for every value the page
+  groups by"). A Swift check after preparation is the real guard (REQ-014).
+- A preparation prompt that allowed "unsupported" for "a third-party SDK" made the agent refuse a consent write because
+  the real route used the Supabase admin SDK. The mock-up policy (DEC-007) has to be stated in every prompt that can
+  refuse.
+- Never `curl` a dev server that a UI Studio session is using. Each request renders a page, starts preparations and fills
+  the log with failures of your own making.
