@@ -1227,6 +1227,126 @@ func gatewayParserChecks() {
           String(decoding: headOnly, as: UTF8.self).contains("content-length: 3\r\n") && String(decoding: headOnly, as: UTF8.self).hasSuffix("\r\n\r\n"))
 }
 
+// MARK: - Session log (REQ-011)
+
+@MainActor
+func logChecks() async {
+    let ioQueue = DispatchQueue(label: "markview.ui-studio.log-tests")
+
+    // The ring keeps the newest 2,000 entries and counts the problems among them.
+    check("REQ-011 the log keeps 2,000 entries", StudioLogRing.capacity == 2_000)
+    let memory = StudioLog(root: nil, redactor: StudioRedactor(), queue: ioQueue)
+    for index in 1...2_500 { memory.add(index % 10 == 0 ? .server : .request, problem: index % 10 == 0, "entry \(index)") }
+    check("REQ-011 the ring drops the oldest entries beyond 2,000", memory.entries.count == 2_000
+          && memory.entries.first?.text == "entry 501" && memory.entries.last?.text == "entry 2500",
+          "\(memory.entries.count) \(memory.entries.first?.text ?? "") … \(memory.entries.last?.text ?? "")")
+    check("REQ-011 the problem count follows the entries kept", memory.problems == 200, "\(memory.problems)")
+    memory.clear()
+    check("REQ-011 Clear empties the view", memory.entries.isEmpty && memory.problems == 0)
+    memory.add(.notice, "after clear")
+    check("REQ-011 entry numbers go on after Clear", memory.entries.first?.id == 2_501, "\(memory.entries.first?.id ?? 0)")
+
+    // Secrets never reach a line: a known secret (by hash, alone or glued to its name), a bearer value and a JWT.
+    let secret = "s3cret-" + "value-" + "4711-known"
+    let opaque = "opaqueToken" + "9f8e7d6c5b4a"
+    let jwt = "eyJ" + "hbGciOiJIUzI1NiJ9" + "." + "eyJzdWIiOiIxMjM0NTY3ODkwIn0" + "." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    let logRoot = tmp.appendingPathComponent("log-project")
+    let fileLog = StudioLog(root: logRoot, redactor: StudioRedactor(), queue: ioQueue)
+    fileLog.secretHashes = [StudioConnections.hash(secret): "API_SECRET"]
+    fileLog.add(.server, "loaded the key \(secret) from .env.local")
+    fileLog.add(.server, "calling http://rates.example.test/v2/rates?key=\(secret)&page=2")
+    fileLog.add(.request, "Authorization: Bearer \(opaque)")
+    fileLog.add(.server, "retrying rates.example.test with bearer \(opaque)")
+    fileLog.add(.page, problem: true, "runtimeError: token \(jwt) was rejected\n    at verify (auth.ts:12)")
+    ioQueue.sync {}
+    let logText = (try? String(contentsOf: StudioStore.logURL(logRoot), encoding: .utf8)) ?? ""
+    let kept = fileLog.entries.map(\.text).joined(separator: "\n")
+    for (name, value) in [("a known secret", secret), ("a Bearer value", opaque), ("a JWT", jwt), ("a JWT's header", "eyJhbGci")] {
+        check("REQ-011 \(name) never reaches the log file or the view", !logText.contains(value) && !kept.contains(value))
+    }
+    check("REQ-011 a known secret is named, not shown", logText.contains("[redacted:API_SECRET] from .env.local")
+          && logText.contains("?key=[redacted:API_SECRET]&page=2"), logText)
+    check("REQ-011 the bearer scheme stays readable", fileLog.entries[3].text.hasSuffix("with bearer [redacted]")
+          && fileLog.entries[2].text.hasPrefix("Authorization: [redacted]"), "\(fileLog.entries[2].text) | \(fileLog.entries[3].text)")
+    let lines = logText.split(separator: "\n", omittingEmptySubsequences: false).dropLast()
+    check("REQ-011 one line per entry, line breaks written as \\n", lines.count == 5 && lines[4].contains("rejected\\n    at verify"),
+          "\(lines.count): \(lines.last ?? "")")
+    check("REQ-011 a line has its time, kind and problem mark", lines[4].contains(StudioLogFormat.tag(.page, problem: true) + "runtimeError:")
+          && lines[0].contains(StudioLogFormat.tag(.server, problem: false) + "loaded")
+          && lines[0].range(of: #"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}(Z|[+-]\d{4}) "#, options: .regularExpression) != nil,
+          "\(lines[0]) | \(lines[4])")
+    check("REQ-011 the kind column always ends before the mark", StudioLogFormat.tag(.preparation, problem: true) == "preparation ! "
+          && StudioLogFormat.tag(.page, problem: false) == "page        - ")
+    check("REQ-011 the log file stays out of Git", fm.fileExists(atPath: StudioStore.localFolder(logRoot).appendingPathComponent(".gitignore").path))
+    let attributes = try? fm.attributesOfItem(atPath: StudioStore.logURL(logRoot).path)
+    check("REQ-011 the log file is readable by its owner only", (attributes?[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+
+    // The file rotates at 2 MB into one `.1` file.
+    check("REQ-011 the file rotates at 2 MB", StudioLogFile.rotationSize == 2 * 1024 * 1024)
+    check("REQ-011 rotation: a line that fits is appended", !StudioLogFile.shouldRotate(size: 2 * 1024 * 1024 - 10, adding: 10, limit: 2 * 1024 * 1024))
+    check("REQ-011 rotation: a line that does not fit rotates first", StudioLogFile.shouldRotate(size: 2 * 1024 * 1024 - 10, adding: 11, limit: 2 * 1024 * 1024))
+    check("REQ-011 rotation: an empty file takes any line", !StudioLogFile.shouldRotate(size: 0, adding: 3 * 1024 * 1024, limit: 2 * 1024 * 1024))
+    let rotationRoot = tmp.appendingPathComponent("log-rotation")
+    let file = StudioLogFile(root: rotationRoot)
+    let filler = String(repeating: "x", count: 1_000)
+    var written = 0
+    var index = 0
+    while written <= 2 * 1024 * 1024 + 4_000 {
+        let line = String(format: "%06d ", index) + filler + "\n"
+        file.append(line)
+        written += line.utf8.count
+        index += 1
+    }
+    func size(_ url: URL) -> Int { (try? fm.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? -1 }
+    let rotated = size(file.rotatedURL), current = size(file.url)
+    check("REQ-011 the full file becomes session.log.1, at most 2 MB", rotated > 2 * 1024 * 1024 - 1_008 && rotated <= 2 * 1024 * 1024
+          && file.rotatedURL.lastPathComponent == "session.log.1", "\(rotated)")
+    check("REQ-011 writing goes on in a new session.log", current > 0 && current < 8_100 && rotated + current == written, "\(current)")
+    let firstRotated = (try? String(contentsOf: file.rotatedURL, encoding: .utf8))?.prefix(6) ?? ""
+    while written <= 4 * 1024 * 1024 + 8_000 {
+        let line = String(format: "%06d ", index) + filler + "\n"
+        file.append(line)
+        written += line.utf8.count
+        index += 1
+    }
+    let secondRotated = (try? String(contentsOf: file.rotatedURL, encoding: .utf8))?.prefix(6) ?? ""
+    let names = ((try? fm.contentsOfDirectory(atPath: StudioStore.localFolder(rotationRoot).path)) ?? []).filter { $0.hasPrefix("session.log") }.sorted()
+    check("REQ-011 a second rotation replaces the one .1 file", firstRotated == "000000" && secondRotated != firstRotated
+          && names == ["session.log", "session.log.1"], "\(firstRotated) \(secondRotated) \(names)")
+
+    // Server output arrives in pieces; lines that read like errors are problems.
+    var splitter = StudioLogLines()
+    let first = splitter.feed("ready - started\nerr")
+    let second = splitter.feed("or: boom\r\n\n\u{1B}[31mred\u{1B}[0m\n")
+    check("REQ-011 server output is split into whole lines", first == ["ready - started"] && second == ["error: boom", "red"],
+          "\(first) \(second)")
+    _ = splitter.feed("no newline at the end")
+    check("REQ-011 the last piece is kept until the server ends", splitter.flush() == ["no newline at the end"] && splitter.flush().isEmpty)
+    let errorLines = ["Error: Cannot find module 'x'", " ⨯ unhandledRejection: boom", "npm ERR! code ELIFECYCLE", " GET /dashboard 500 in 31ms",
+                      #"127.0.0.1 - - [04/Nov/2026 10:00:00] "GET / HTTP/1.1" 502 -"#, "connect ECONNREFUSED 127.0.0.1:5432"]
+    let calmLines = ["✓ Ready in 1.2s", "Found 0 errors. Watching for file changes.", " GET /dashboard 307 in 12ms", "  ➜  Local:   http://localhost:5173/"]
+    check("REQ-011 error lines are problems", errorLines.allSatisfy(StudioLogFormat.looksLikeError), "\(errorLines.filter { !StudioLogFormat.looksLikeError($0) })")
+    check("REQ-011 ordinary lines are not", !calmLines.contains(where: StudioLogFormat.looksLikeError), "\(calmLines.filter(StudioLogFormat.looksLikeError))")
+    check("REQ-011 a redirect to a sign-in page is recognised", ["/auth/login", "/login", "/sign-in", "/api/auth/signin?x=1"].allSatisfy(StudioLogFormat.isSignInPath)
+          && !["/authors", "/dashboard", "/"].contains(where: StudioLogFormat.isSignInPath))
+
+    // The preparation queue reports the start and the end of each preparation, without being polled.
+    let reported = StudioPreparationQueue(limits: StudioPreparationLimits(deadline: 0.2, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40))
+    var records: [StudioPreparationQueue.Record] = []
+    reported.onRecord = { records.append($0) }
+    let outcome = await reported.resolve(context("GET /api/slow-log"), generation: 1, preparer: StubPreparer(delay: 1_000_000_000, make: labels),
+                                         currentGeneration: { 1 }, commit: { _ in [] })
+    check("REQ-011 a preparation reports its start and its end", outcome == .timedOut && records.count == 2
+          && records[0].finished == nil && records[1].status == .timedOut && records[1].finished != nil
+          && records[1].message.contains("did not finish"), "\(records.map { "\($0.status) \($0.finished != nil)" })")
+    records = []
+    var aheadLogContext = context("Page /log: server requests")
+    aheadLogContext.ahead = StudioRouteAhead(route: "/log", connections: [])
+    _ = await reported.prepareAhead(aheadLogContext, services: [], preparer: StubPreparer(make: labels), commit: { _ in [] })
+    check("REQ-011 a preparation ahead of a page is reported too", records.map(\.contract) == ["Page /log: server requests", "Page /log: server requests"]
+          && records.last?.status == .registered, "\(records.map { "\($0.contract) \($0.status)" })")
+}
+
 // MARK: - Run
 
 gatewayParserChecks()
@@ -1242,6 +1362,7 @@ Task { @MainActor in
     selectionChecks()
     connectionChecks()
     await processChecks()
+    await logChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }

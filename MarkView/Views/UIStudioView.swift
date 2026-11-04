@@ -18,6 +18,7 @@ struct UIStudioView: View {
     @State private var showingTrust = false
     @State private var effectiveScale = 1.0
     @State private var showLivePage = false
+    @State private var showingLog = false
 
     enum Panel: String, CaseIterable, Identifiable {
         case element = "Element", history = "History", scenarios = "Scenarios", environment = "Environment", evidence = "Evidence"
@@ -41,7 +42,13 @@ struct UIStudioView: View {
             Divider().background(VSDark.border)
             banners
             HStack(spacing: 0) {
-                preview.frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    preview.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if showingLog {
+                        Divider().background(VSDark.border)
+                        UIStudioLogDrawer(log: session.sessionLog) { showingLog = false }
+                    }
+                }
                 resizeHandle
                 inspector.frame(width: inspectorWidth)
             }
@@ -120,6 +127,7 @@ struct UIStudioView: View {
             Button { session.reset() } label: { Label("Reset", systemImage: "arrow.counterclockwise") }
                 .controlSize(.small).fixedSize().disabled(session.appURL == nil || session.busy != nil)
                 .help("Back to the scenario's baseline: its data, an empty browser storage, a fresh page and its restoration steps")
+            UIStudioLogButton(log: session.sessionLog, shown: $showingLog)
             Button { session.captureNow() } label: { Image(systemName: "camera") }
                 .buttonStyle(.plain).foregroundColor(VSDark.textDim).disabled(session.appURL == nil || session.busy != nil)
                 .help("Capture the preview, linked to the code revision, the scenario and the rendering conditions")
@@ -1453,6 +1461,121 @@ struct UIStudioContentsPanel: View {
                             ("Route", session.route), ("Changes", String(session.history.filter { $0.kind == .edit }.count)),
                             ("Captures", String(session.captures.count))])
                 .padding(10)
+        }
+    }
+}
+
+// MARK: - Log
+
+/// The toolbar's Log button (REQ-011): opens the log drawer under the preview and counts the problems in the log.
+struct UIStudioLogButton: View {
+    @ObservedObject var log: StudioLog
+    @Binding var shown: Bool
+
+    var body: some View {
+        Button { shown.toggle() } label: {
+            Label(log.problems > 0 ? "Log \(log.problems)" : "Log", systemImage: shown ? "list.bullet.rectangle.fill" : "list.bullet.rectangle")
+        }
+        .controlSize(.small).fixedSize()
+        .help((shown ? "Hide" : "Show") + " the log: navigations and redirects, requests, rule preparations, page events, server output "
+              + "and notices" + (log.problems > 0 ? " (\(log.problems) problem\(log.problems == 1 ? "" : "s"))" : ""))
+    }
+}
+
+/// The log drawer under the preview (REQ-011): the session's entries, newest first, filtered, redacted, selectable.
+struct UIStudioLogDrawer: View {
+    @ObservedObject var log: StudioLog
+    let close: () -> Void
+    @State private var filter: Filter = .all
+
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All", problems = "Problems", requests = "Requests", server = "Server"
+        var id: String { rawValue }
+
+        func includes(_ entry: StudioLogEntry) -> Bool {
+            switch self {
+            case .all: return true
+            case .problems: return entry.problem
+            case .requests: return entry.kind == .request || entry.kind == .preparation
+            case .server: return entry.kind == .server
+            }
+        }
+    }
+
+    private static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter
+    }()
+
+    var body: some View {
+        let shown = log.entries.filter(filter.includes)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Text("LOG").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
+                    .help("Every entry is also written to .dde/studio/session.log")
+                Picker("", selection: $filter) {
+                    ForEach(Filter.allCases) { item in
+                        Text(item == .problems && log.problems > 0 ? "Problems \(log.problems)" : item.rawValue).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
+                .help("Requests include rule preparations; Problems are errors, failures and requests nothing could answer")
+                Text("\(shown.count) of \(log.entries.count)").uiFont(size: 9).foregroundColor(VSDark.textDim)
+                Spacer()
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(StudioLog.text(shown), forType: .string)
+                }
+                .controlSize(.small).disabled(shown.isEmpty)
+                .help("Copy the entries shown, oldest first, as lines of the log file")
+                Button("Clear") { log.clear() }
+                    .controlSize(.small).disabled(log.entries.isEmpty)
+                    .help("Empty this view; .dde/studio/session.log keeps every line")
+                Button(action: close) { Image(systemName: "xmark").uiFont(size: 9) }
+                    .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                    .help("Hide the log")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(VSDark.bgSidebar)
+            Divider().background(VSDark.border)
+            if shown.isEmpty {
+                Text(log.entries.isEmpty ? "Nothing logged yet." : "No entries match this filter.")
+                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(shown.reversed()) { entry in row(entry) }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                }
+            }
+        }
+        .frame(height: 220)
+        .background(VSDark.bg)
+    }
+
+    private func row(_ entry: StudioLogEntry) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(Self.time.string(from: entry.date)).foregroundColor(VSDark.textDim)
+            Text(entry.kind.rawValue).foregroundColor(color(entry.kind)).frame(width: 72, alignment: .leading)
+            Text(entry.text).foregroundColor(entry.problem ? VSDark.red : VSDark.text)
+                .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+        }
+        .uiFont(size: 9, design: .monospaced)
+        .textSelection(.enabled)
+    }
+
+    private func color(_ kind: StudioLogEntry.Kind) -> Color {
+        switch kind {
+        case .navigation: return VSDark.blue
+        case .request: return VSDark.green
+        case .preparation: return VSDark.purple
+        case .page: return VSDark.yellow
+        case .server: return VSDark.orange
+        case .notice: return VSDark.cyan
         }
     }
 }

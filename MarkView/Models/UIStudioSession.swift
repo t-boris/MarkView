@@ -70,7 +70,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     let token = UUID().uuidString
     let root: URL
     let webView: WKWebView
-    let preparation = StudioPreparationQueue()
+    let preparation = StudioPreparationQueue(limits: StudioSession.preparationLimits)
+    /// What the session did and saw, redacted (REQ-011): the log drawer and `.dde/studio/session.log`.
+    let sessionLog: StudioLog
+
+    /// The bounds of rule preparation for new sessions (overridable for tests outside the app).
+    static var preparationLimits = StudioPreparationLimits()
 
     @Published var targets: [WebAppTarget] = []
     @Published private(set) var target: WebAppTarget?
@@ -97,7 +102,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
     @Published var zoom: Double? = nil
     @Published private(set) var selection: StudioSelectionContext?
-    @Published var notice: String?
+    @Published var notice: String? {
+        didSet { if let notice, notice != oldValue { sessionLog.add(.notice, problem: StudioLogFormat.looksLikeError(notice), notice) } }
+    }
     @Published private(set) var history: [StudioOperation] = []
     /// The turn the assistant is answering; nil once it is in `history`, and after a failure or Stop.
     @Published private(set) var pendingTurn: PendingTurn?
@@ -155,7 +162,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var gateway: StudioGateway?
     private var gatewayPorts: [String: UInt16] = [:]
     /// Hashes of the project's secret values (from its env files), to redact them from requests; never the values.
-    private var secretHashes: [String: String] = [:]
+    private var secretHashes: [String: String] = [:] {
+        didSet { sessionLog.secretHashes = secretHashes }
+    }
     /// The clock file the server's Node processes follow (DEC-006), in a folder of this session.
     private var clockFile: URL?
     /// Whether the server MarkView started was given the clock file (not a webpack server).
@@ -169,6 +178,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// Rules arrived for a server request after its page had rendered, and the page was not reloaded by itself because the
     /// person had typed into it: the banner offers Reload (BUG-074).
     @Published private(set) var rulesArrivedLate = false
+    /// The development server's output as whole lines for the log.
+    private var serverLines = StudioLogLines()
+    /// The address of the main frame's provisional navigation, for the "from" of a server redirect.
+    private var navigationURL: URL?
 
     /// The Node preload that gives the server the scenario's clock, time zone and locale (DEC-006).
     static var nodePreloadURL = Bundle.main.url(forResource: "markview-ui-studio-node", withExtension: "cjs", subdirectory: "Editor/vendor/js")
@@ -191,6 +204,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let loaded = StudioStore.loadEnvironment(root) ?? StudioEnvironmentSpec()
         spec = loaded
         redactor = StudioRedactor(fields: loaded.confidentialFields)
+        sessionLog = StudioLog(root: self.root, redactor: redactor, queue: io)
         let first = StudioScenarioCompatibility.presets(spec: loaded, base: StudioScenario(id: "builtin-populated", name: "Populated", kind: .populated))[0]
         scenario = first
         simulator = StudioSimulator(spec: loaded, scenario: first)
@@ -201,6 +215,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         configuration.applicationNameForUserAgent = "Version/17.0 Safari/605.1.15 MarkViewUIStudio"
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: first.viewport.width, height: first.viewport.height), configuration: configuration)
         super.init()
+        preparation.onRecord = { [weak self] record in self?.logPreparation(record) }
         handler.session = self
         configuration.userContentController.addScriptMessageHandler(handler, contentWorld: .page, name: StudioBridge.handlerName)
         webView.navigationDelegate = self
@@ -260,6 +275,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         // A server this session started for another target never outlives the switch.
         await stopOwnedServer()
         self.target = target
+        sessionLog.add(.notice, "Opening \(target.label): `\(target.command)`")
         disclosures = StudioTargetLimits.disclosures(for: target)
         if target.isElectron {
             let folder = target.folder
@@ -291,7 +307,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let launch = await StudioLaunchEnvironment.make(overrides: overrides, nodePreload: Self.nodePreloadURL?.path)
         removedEnvironment = launch.removed
         let server = StudioDevServer(command: target.command, folder: target.folder)
-        server.onOutput = { [weak self] _ in Task { @MainActor in self?.refreshServerLog() } }
+        serverLines = StudioLogLines()
+        server.onOutput = { [weak self] text in
+            Task { @MainActor in
+                self?.refreshServerLog()
+                self?.logServerOutput(text)
+            }
+        }
         // Only the session's current server reports its end: one it stopped or replaced on purpose does not.
         server.onExit = { [weak self, weak server] code in
             Task { @MainActor in
@@ -465,6 +487,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     private func serverEnded(_ code: Int32) {
         refreshServerLog()
+        serverLines.flush().forEach { sessionLog.add(.server, problem: StudioLogFormat.looksLikeError($0), $0) }
         guard !closed, ownsServer else { return }
         set(.failed, "The development server stopped (exit \(code)).")
     }
@@ -507,6 +530,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     private func set(_ state: StudioSessionState, _ detail: String) {
+        // The log gets a failure each time it is different, a degradation when it begins, and the way back to ready.
+        if (state == .failed && (self.state != .failed || detail != stateDetail)) || (state == .degraded && self.state != .degraded) {
+            sessionLog.add(.notice, problem: true, "\(state.title): \(detail)")
+        } else if state == .ready, [.failed, .degraded].contains(self.state) {
+            sessionLog.add(.notice, "\(state.title): \(detail)")
+        }
         self.state = state
         stateDetail = detail
     }
@@ -563,6 +592,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         buildError = nil
         let target = URL(string: scenario.route, relativeTo: appURL)?.absoluteURL ?? appURL
         route = scenario.route
+        sessionLog.add(.navigation, "Loading \(target.absoluteString) (scenario \(scenario.name), generation \(simulator.generation))")
         var page = URLRequest(url: target)
         // A fresh server render: Next.js serves cached server fetches in development unless the request says no-cache.
         StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
@@ -707,10 +737,35 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         if navigationAction.targetFrame?.isMainFrame != false {
             guard let origin = StudioBridge.Origin(url: url), origin.sameServer(appOrigin) else {
                 note(.blocked, "Navigation to \(url.absoluteString) was blocked: it leaves the application.")
+                sessionLog.add(.navigation, problem: true, "Blocked navigation to \(url.absoluteString): it leaves the application")
                 return decisionHandler(.cancel)
             }
+            // The page's own navigations; MarkView's loads are logged where they start, redirects when they arrive.
+            let made: String?
+            switch navigationAction.navigationType {
+            case .linkActivated: made = "Link"
+            case .formSubmitted, .formResubmitted: made = "Form \(navigationAction.request.httpMethod ?? "GET")"
+            case .backForward: made = "Back or forward"
+            case .reload: made = "Reload"
+            default: made = nil
+            }
+            if let made { sessionLog.add(.navigation, "\(made) to \(url.absoluteString)") }
         }
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        navigationURL = webView.url
+    }
+
+    /// A server redirect of the main frame (REQ-011), such as an application sending every page to its sign-in page:
+    /// `webView.url` is the new address.
+    func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        let from = navigationURL, to = webView.url
+        navigationURL = to
+        let signIn = to.map { StudioLogFormat.isSignInPath($0.path) } ?? false
+        sessionLog.add(.navigation, problem: signIn, "Server redirect \(from?.absoluteString ?? "?") → \(to?.absoluteString ?? "?")"
+                       + (signIn ? " (a sign-in page)" : ""))
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -726,7 +781,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { notice = "The page did not load: \(error.localizedDescription)" }
+        let failure = error as NSError
+        if failure.code != NSURLErrorCancelled {
+            let address = (failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? navigationURL
+            sessionLog.add(.navigation, problem: true, "The page at \(address?.absoluteString ?? "?") did not load: "
+                           + "\(failure.localizedDescription) (\(failure.domain) \(failure.code))")
+            notice = "The page did not load: \(error.localizedDescription)"
+        }
         resumeLoadWaiters(false)
     }
 
@@ -986,9 +1047,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             guard let self else { return }
             let typed = (try? await self.call("return !!(window.__markviewStudio && window.__markviewStudio.typedSinceRoute && window.__markviewStudio.typedSinceRoute());")) as? Bool ?? false
             guard !self.closed, self.simulator.generation == generation else { return }
+            let late = "Rules for a request of the server arrived after its page had rendered without them"
             if typed {
+                self.sessionLog.add(.notice, late + "; text was typed into the page, so it is not reloaded by itself (Reload in the banner)")
                 self.rulesArrivedLate = true
             } else {
+                self.sessionLog.add(.notice, late + "; the page is loaded again once to render with them")
                 self.reloadPage()
             }
         }
@@ -998,6 +1062,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func reloadPage() {
         rulesArrivedLate = false
         guard let url = webView.url ?? appURL else { return }
+        sessionLog.add(.navigation, "Loading \(url.absoluteString) again")
         var page = URLRequest(url: url)
         StudioConnectionPolicy.frameworkRequestHeaders.forEach { page.setValue($0.value, forHTTPHeaderField: $0.key) }
         webView.load(page)
@@ -1032,6 +1097,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let detail = redactor.redact(text: event.detail)
         switch event.kind {
         case .route:
+            if detail != route { sessionLog.add(.navigation, "Route \(route) → \(detail)") }
             route = detail
             return
         case .idle:
@@ -1044,6 +1110,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             return
         case .buildError where detail.isEmpty:
             // The overlay is gone: the application builds again, so the preview is live, not stale.
+            sessionLog.add(.page, "The build error overlay is gone: the application builds again")
             buildError = nil
             stalePreview = nil
             updateReadiness()
@@ -1067,6 +1134,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         case .runtimeError:
             break
         }
+        logPageEvent(event.kind, detail)
         note(event.kind, detail)
         updateReadiness()
     }
@@ -1079,6 +1147,37 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private func log(_ record: RequestRecord) {
         requests.append(record)
         if requests.count > 400 { requests.removeFirst(requests.count - 400) }
+        let answer = record.outcome + (record.status.map { " \($0)" } ?? "")
+        sessionLog.add(.request, problem: record.outcome == "unsupported" || (record.status ?? 0) >= 500,
+                       "\(record.method) \(record.url) · \(record.transport) · \(answer)")
+    }
+
+    /// A page event in the log (REQ-011): errors, build error overlays, blocked resources and stand-ins are problems.
+    private func logPageEvent(_ kind: StudioBridge.Event.Kind, _ detail: String) {
+        let problem: Bool
+        switch kind {
+        case .runtimeError, .buildError, .blocked, .unsupported, .electron: problem = true
+        case .browser, .route, .idle, .recorded: problem = false
+        }
+        sessionLog.add(.page, problem: problem, "\(kind.rawValue): \(detail)")
+    }
+
+    /// The development server's output, one entry per line (REQ-011); a line that reads like an error is a problem.
+    private func logServerOutput(_ text: String) {
+        for line in serverLines.feed(text) {
+            sessionLog.add(.server, problem: StudioLogFormat.looksLikeError(line), line)
+        }
+    }
+
+    /// The start and the end of a rule preparation (REQ-011), those ahead of a page included.
+    private func logPreparation(_ record: StudioPreparationQueue.Record) {
+        guard let finished = record.finished else {
+            return sessionLog.add(.preparation, "Preparing \(record.contract)")
+        }
+        let seconds = String(format: "%.1f s", finished.timeIntervalSince(record.started))
+        let problem = [.failed, .timedOut, .unsupported, .limit].contains(record.status)
+        sessionLog.add(.preparation, problem: problem, "\(record.contract): \(record.status.rawValue) after \(seconds)"
+                       + (record.message.isEmpty ? "" : " — \(record.message)"))
     }
 
     private var observed: [String: StudioDependency] = [:]

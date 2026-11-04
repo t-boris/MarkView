@@ -838,6 +838,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await serverRequestChecks()
             await lateRuleChecks()
             await serverClockChecks()
+            await logChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
@@ -880,17 +881,38 @@ func externalServerCheck() async {
 
 /// REQ-007, DEC-006: a server-rendered target whose server calls another service itself. The server loads `.env.local` like
 /// dotenv (the environment wins), calls `API_URL/rates` with `Bearer $API_SECRET` and renders the rate; it writes only booleans
-/// about what it saw to `seen.json`.
+/// about what it saw to `seen.json`. REQ-011: `/account` answers 307 to the sign-in page `/auth/login`, and with `verbose` the
+/// server prints the file's real secret in the shapes a log line takes (alone, as a bearer value, in a query).
 let ratesServer = #"""
 import json, os, sys, urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from_file = {}
 for line in open('.env.local'):
     line = line.strip()
     if line and not line.startswith('#') and '=' in line:
         key, value = line.split('=', 1)
+        from_file[key.strip()] = value.strip()
         os.environ.setdefault(key.strip(), value.strip())
+if sys.argv[2:] == ['verbose']:
+    real = from_file.get('API_SECRET', '')
+    print('loaded the key ' + real + ' from .env.local', flush=True)
+    print('Authorization: Bearer ' + real, flush=True)
+    print('calling ' + from_file.get('API_URL', '') + '/rates?key=' + real, flush=True)
+    print('Error: the rates service is not configured for ' + real, flush=True)
 class Handler(BaseHTTPRequestHandler):
+    def page(self, status, body, location=None):
+        self.send_response(status)
+        if location:
+            self.send_header('Location', location)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
     def do_GET(self):
+        if self.path.startswith('/account'):
+            return self.page(307, b'', '/auth/login')
+        if self.path.startswith('/auth/login'):
+            return self.page(200, b'<!doctype html><html><head><title>Sign in</title></head><body><p id="login">Sign in</p></body></html>')
         base = os.environ.get('API_URL', '')
         try:
             request = urllib.request.Request(base + '/rates', headers={'Authorization': 'Bearer ' + os.environ.get('API_SECRET', '')})
@@ -912,6 +934,9 @@ class Handler(BaseHTTPRequestHandler):
 HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
 """#
 
+/// The real value of the rates server's `API_SECRET` in its `.env.local`; it must reach no prompt, log or saved file.
+let fakeServerSecret = "real-secret-do-not-leak-4711"
+
 @MainActor
 func serverRequestChecks() async {
     watchdog.reached("The development server's own requests are simulated")
@@ -919,7 +944,7 @@ func serverRequestChecks() async {
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-server-\(UUID().uuidString)").resolvingSymlinksInPath()
     try? fm.createDirectory(at: root, withIntermediateDirectories: true)
     defer { try? fm.removeItem(at: root) }
-    let secret = "real-secret-do-not-leak-4711"
+    let secret = fakeServerSecret
     try? ratesServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
     try? "API_URL=http://rates.example.test/v2\nAPI_SECRET=\(secret)\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
     let assistant = Assistant()
@@ -1140,3 +1165,71 @@ let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
 Task { @MainActor in await run() }
 application.run()
+
+/// REQ-011: the session log shows what could not be seen before: a server redirect to the sign-in page, rule preparations that
+/// ran out of time and the server's output, in the drawer and in `.dde/studio/session.log`, and never the project's real
+/// secret, which the server prints.
+@MainActor
+func logChecks() async {
+    watchdog.reached("The session log keeps redirects, preparations and server output, without the secret")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-log-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? ratesServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    try? "API_URL=http://rates.example.test/v2\nAPI_SECRET=\(fakeServerSecret)\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    // The agent takes longer than the session's preparation deadline: the preparation ahead of the page and the one for the
+    // server's request both time out.
+    CLICompletion.answer = { _ in
+        try await Task.sleep(nanoseconds: 4_000_000_000)
+        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+    }
+    let limits = StudioSession.preparationLimits
+    StudioSession.preparationLimits = StudioPreparationLimits(deadline: 1, queueWait: 10, maxAttempts: 1, maxConcurrent: 2, maxContracts: 40)
+    let port = freePort()
+    let session = StudioSession(root: root)
+    StudioSession.preparationLimits = limits
+    func logFile() -> String { (try? String(contentsOf: StudioStore.logURL(root), encoding: .utf8)) ?? "" }
+    session.start(WebAppTarget(folder: root, label: "rates", command: "python3 server.py \(port) verbose", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-011 the session with a slow agent opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    // The first render ends when the server's request was answered without a rule.
+    var rate = ""
+    for _ in 0..<150 where rate.isEmpty {
+        rate = ((try? await session.call("return document.getElementById('rate') ? document.getElementById('rate').textContent : '';")) as? String) ?? ""
+        if rate.isEmpty { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("REQ-011 the page renders without the rule that timed out", rate == "error", rate)
+
+    // The server sends the page elsewhere; the person sees only the sign-in page.
+    let account = URL(string: "/account", relativeTo: session.appURL)?.absoluteString ?? ""
+    _ = try? await session.call("location.href = target; return true;", ["target": account])
+    let redirected = await waitUntil(30) { logFile().contains("Server redirect") }
+    let redirect = logFile().split(separator: "\n").first { $0.contains("Server redirect") }.map(String.init) ?? ""
+    check("REQ-011 the log file has the server redirect from the page to the sign-in page", redirected
+          && redirect.contains("/account → ") && redirect.contains("/auth/login") && redirect.contains(StudioLogFormat.tag(.navigation, problem: true)), redirect)
+    check("REQ-011 the drawer has the redirect, counted as a problem", session.sessionLog.entries.contains {
+        $0.kind == .navigation && $0.problem && $0.text.contains("/auth/login") } && session.sessionLog.problems > 0)
+
+    _ = await waitUntil(30) { logFile().contains("GET http://rates.example.test/v2/rates: timedOut") }
+    let lines = logFile().split(separator: "\n").map(String.init)
+    func tagged(_ kind: StudioLogEntry.Kind, _ problem: Bool, _ text: String) -> Bool {
+        lines.contains { $0.contains(StudioLogFormat.tag(kind, problem: problem) + text) }
+    }
+    let ahead = lines.first { $0.contains("Page /: server requests: timedOut after") } ?? ""
+    check("REQ-011 the log has the preparation ahead of the page timing out, with its message", ahead.contains(StudioLogFormat.tag(.preparation, problem: true))
+          && ahead.contains("did not finish within 1 s"), lines.filter { $0.contains("preparation") }.joined(separator: "\n"))
+    check("REQ-011 the log has the start of a preparation", tagged(.preparation, false, "Preparing Page /: server requests"))
+    check("REQ-011 the log has the server request's preparation timing out",
+          tagged(.preparation, true, "GET http://rates.example.test/v2/rates: timedOut after"))
+    check("REQ-011 the log has the server's own request and how it was answered",
+          tagged(.request, false, "GET http://rates.example.test/v2/rates · server · preparing"))
+    check("REQ-011 the log has the page loads", tagged(.navigation, false, "Loading http://"))
+    check("REQ-011 the log has the server's output, an error line as a problem", tagged(.server, false, "loaded the key ")
+          && tagged(.server, true, "Error: the rates service is not configured"), lines.filter { $0.contains(" server ") }.joined(separator: "\n"))
+    let everything = logFile() + session.sessionLog.entries.map(\.text).joined(separator: "\n")
+    check("REQ-011 the real secret the server printed reaches neither the log file nor the drawer", !everything.contains(fakeServerSecret)
+          && lines.contains { $0.contains("loaded the key [redacted:API_SECRET] from .env.local") }
+          && lines.contains { $0.contains("/rates?key=[redacted:API_SECRET]") }, lines.filter { $0.contains("key") }.joined(separator: "\n"))
+    await session.close()
+}

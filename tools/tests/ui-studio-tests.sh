@@ -12,7 +12,7 @@ trap 'rm -rf "$out"' EXIT
 cp tools/tests/UIStudioTests.swift "$out/main.swift"
 swiftc -o "$out/ui-studio-tests" \
   MarkView/Models/UIStudioJSON.swift MarkView/Models/UIStudioModels.swift MarkView/Models/UIStudioSimulation.swift \
-  MarkView/Models/UIStudioRedaction.swift MarkView/Models/UIStudioPreparation.swift MarkView/Models/UIStudioBridge.swift \
+  MarkView/Models/UIStudioRedaction.swift MarkView/Models/UIStudioLog.swift MarkView/Models/UIStudioPreparation.swift MarkView/Models/UIStudioBridge.swift \
   MarkView/Models/UIStudioChanges.swift MarkView/Models/UIStudioStore.swift MarkView/Models/UIStudioEvidence.swift \
   MarkView/Models/UIStudioPrompts.swift MarkView/Models/UIStudioSelection.swift MarkView/Models/BrowserElementPick.swift \
   MarkView/Models/UIStudioPolicy.swift MarkView/Models/UIStudioGateway.swift MarkView/Models/UIStudioServer.swift MarkView/Models/UIStudioConnections.swift \

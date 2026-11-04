@@ -88,6 +88,9 @@ final class StudioPreparationQueue: ObservableObject {
     private var slotWaiters: [CheckedContinuation<Void, Never>] = []
     /// Model calls made, for the "0 calls for registered rules" check (§12).
     private(set) var modelCalls = 0
+    /// Called when a preparation starts (a new record, `finished` nil) and when it ends (`finished` set), for the session's
+    /// log (REQ-011).
+    var onRecord: (@MainActor (Record) -> Void)?
 
     init(limits: StudioPreparationLimits = StudioPreparationLimits()) {
         self.limits = limits
@@ -123,9 +126,12 @@ final class StudioPreparationQueue: ObservableObject {
         if prepared >= limits.maxContracts {
             records[contract] = Record(contract: contract, generation: generation, status: .limit,
                                        message: "The preparation budget of this session is used up (\(limits.maxContracts) contracts).")
+            records[contract]?.finished = Date()
+            report(contract)
             return .limitReached
         }
         records[contract] = Record(contract: contract, generation: generation, status: .waiting)
+        report(contract)
         let task = Task { @MainActor [weak self] () -> StudioPreparationOutcome in
             guard let self else { return .cancelled }
             return await self.run(context, generation: generation, preparer: preparer, currentGeneration: currentGeneration, commit: commit)
@@ -150,6 +156,7 @@ final class StudioPreparationQueue: ObservableObject {
         }
         let generation = Self.environmentGeneration
         records[contract] = Record(contract: contract, generation: generation, status: .waiting)
+        report(contract)
         let task = Task { @MainActor [weak self] () -> StudioPreparationOutcome in
             guard let self else { return .cancelled }
             return await self.run(context, generation: generation, preparer: preparer, currentGeneration: { generation }, commit: commit)
@@ -256,6 +263,11 @@ final class StudioPreparationQueue: ObservableObject {
         case .limitReached: record.status = .limit; record.message = "The preparation budget is used up."
         }
         records[contract] = record
+        report(contract)
+    }
+
+    private func report(_ contract: String) {
+        if let record = records[contract] { onRecord?(record) }
     }
 
     // MARK: Concurrency and deadline
