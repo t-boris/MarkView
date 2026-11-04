@@ -83,13 +83,36 @@ if let snapshotPath = ProcessInfo.processInfo.environment["CODE_ARCHITECTURE_SNA
     }
     spin(10) { finished }
 }
-check(!text.contains("null") && text.contains("\"opaque\":true") && text.contains("\"nodes\":4"), "layer canvas has finite rendered geometry", text)
+// The layered overview opens every layer: 4 layers, the one part each shows, and the Users caption.
+check(!text.contains("null") && text.contains("\"opaque\":true") && text.contains("\"nodes\":9"), "layer canvas has finite rendered geometry", text)
 text=js("""
 const cy=document.getElementById('arch-graph')._cyreg.cy;
 const order=['presentation','application','domain','data'].map(role=>cy.getElementById('code:layer:'+role).position('y'));
 return String(order.every((y,i)=>i===0 || order[i-1]<y))+'|'+String(cy.edges().every(e=>Number(e.style('opacity'))===0));
 """)
 check(text == "true|true", "overview layers stay in semantic order with dependencies revealed on selection", text)
+// BUG-066: a cross-cutting layer with many parts grows sideways instead of running below the
+// stack, and External sits below every band and column.
+text = js("""
+const p=JSON.parse(JSON.stringify(window.testPayload));
+const view=p.snapshot.views.find(v=>v.id==='code');
+view.nodes.push({id:'code:layer:infrastructure',parent:'code:',kind:'layer',name:'Infrastructure',role:'infrastructure'});
+for (let i=0;i<16;i++) view.nodes.push({id:'code:infra:'+i,parent:'code:layer:infrastructure',kind:'component',role:'infrastructure',
+    name:'Deploy script '+i,summary:'Provisions the servers, rotates certificates and restores the nightly database backups.'});
+view.nodes.push({id:'code:x:',parent:'code:',kind:'externalGroup',name:'External'},{id:'code:x:db',parent:'code:x:',kind:'external',name:'postgres'});
+window.showArchitecture(p);
+await new Promise(r=>setTimeout(r,800));
+const cy=document.getElementById('arch-graph')._cyreg.cy;
+const box=id=>cy.getElementById(id).boundingBox({includeLabels:false});
+const stack=Math.max(...['presentation','application','domain','data'].map(role=>box('code:layer:'+role).y2));
+const column=box('code:layer:infrastructure');
+const external=cy.getElementById('code:x:').boundingBox();
+const rows=new Set(cy.getElementById('code:layer:infrastructure').children().map(n=>Math.round(n.position('y')))).size;
+window.showArchitecture(window.testPayload);
+await new Promise(r=>setTimeout(r,500));
+return [column.y2<=stack+1, external.y1>=Math.max(stack,column.y2), rows<16].join('|')+'|rows '+rows+' column '+Math.round(column.y2)+' stack '+Math.round(stack)+' external '+Math.round(external.y1);
+""")
+check(text.hasPrefix("true|true|true|"), "a crowded cross-cutting column stays within the stack and External sits below it", text)
 text = js("""
 const view=window.testPayload.snapshot.views.find(v=>v.id==='code');
 view.nodes.push({id:'code:layer:tests',parent:'code:',kind:'layer',name:'Tests',role:'tests'},

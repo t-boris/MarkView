@@ -53,6 +53,27 @@ check(modelView.nodes.filter { $0.kind == "file" }.count == 5, "AI projection do
 let serviceFile = modelView.nodes.first { $0.path == "service.py" && $0.kind == "file" }!
 check(serviceFile.role == "domain" && serviceFile.parent!.contains("service"), "most specific, deepest component wins over subsystem ownership")
 check(modelView.nodes.first { $0.id == "code:layer:data" }?.files == 2, "layer metrics count source files once")
+// BUG-066: a file no component owns keeps its folders, so a layer shows one folder box instead of
+// one box per loose file (hundreds of migrations collapsed every band of a real project).
+var looseModules = modules
+looseModules.nodes += [ArchNode(id: "m:scripts", parent: "m:", kind: "dir", name: "scripts", path: "scripts"),
+                       ArchNode(id: "m:scripts/migrations", parent: "m:scripts", kind: "dir", name: "migrations", path: "scripts/migrations")]
+looseModules.nodes += ["001.sql", "002.sql"].map { name in
+    ArchNode(id: "m:scripts/migrations/" + name, parent: "m:scripts/migrations", kind: "file", name: name,
+             path: "scripts/migrations/" + name, language: "sql", loc: 10, files: 1)
+}
+var looseSnapshot = snapshot
+looseSnapshot.views = [looseModules]
+let looseView = CodeArchitecture.view(looseSnapshot)
+let looseParents = Dictionary(looseView.nodes.map { ($0.id, $0.parent) }, uniquingKeysWith: { a, _ in a })
+check(looseParents["code:f:scripts/migrations/001.sql"] == "code:data:m:scripts/migrations"
+      && looseParents["code:data:m:scripts/migrations"] == "code:data:m:scripts"
+      && looseParents["code:data:m:scripts"] == "code:layer:data",
+      "an unowned file stays in its folders inside its layer")
+check(treeIsValid(looseView) && looseView.nodes.filter { $0.kind == "file" }.count == 7
+      && looseView.nodes.filter { $0.parent == "code:layer:data" }.count == 2
+      && looseView.nodes.first { $0.id == "code:data:m:scripts" }?.files == 2,
+      "unowned files are neither duplicated nor dropped; the layer holds the component and one folder")
 let badCycle = CodeArchitectureModel(name: "Bad", purpose: "", components: [
     .init(id: "a", name: "A", purpose: "", parent: "b", layer: "data", paths: ["api.py"], evidence: "api.py:1"),
     .init(id: "b", name: "B", purpose: "", parent: "a", layer: "data", paths: ["api.py"], evidence: "api.py:1")])
