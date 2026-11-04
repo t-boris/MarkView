@@ -160,7 +160,8 @@ enum ProjectToolRunner {
         let rows = slugs.compactMap { slug -> String? in
             guard let m = PrototypeFiles.loadManifest(PrototypeFiles.folder(root: root, slug: slug)) else { return nil }
             let approved = m.approved ? " (approved)" : ""
-            var row = "\(slug) — \(m.title) v\(m.version)\(approved) · \(m.screens.count) screens: \(m.screens.joined(separator: ", "))"
+            let historical = m.mode == .code ? " · historical reconstruction of existing code (the current interface opens in UI Studio)" : ""
+            var row = "\(slug) — \(m.title) v\(m.version)\(approved)\(historical) · \(m.screens.count) screens: \(m.screens.joined(separator: ", "))"
             row += " · \(PrototypeReference.string(slug: slug))"
             return row
         }
@@ -214,7 +215,8 @@ enum ProjectToolRunner {
         if let asked = reference.version {
             out += "Note: references always resolve to the latest version (v\(m.version)); the versions/v\(asked) folder in the reference was ignored.\n"
         }
-        out += "Mode: \(m.mode.rawValue)\n"
+        out += "Mode: \(m.mode.rawValue)"
+            + (m.mode == .code ? " (historical reconstruction saved before UI Studio; it is not the current application)" : "") + "\n"
         if !m.brief.isEmpty { out += "\nBrief: \(m.brief)\n" }
         // The sources are requirement documents, or in code mode the implementation that was reconstructed.
         let sourcesLabel = m.mode == .code ? "Reconstruction sources" : "Requirement sources"

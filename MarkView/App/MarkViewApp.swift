@@ -376,6 +376,12 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("6", modifiers: [.command])
                 .disabled(activeWorkspaceHasFolder != true)
+
+                Button("UI Studio") {
+                    activeWorkspace?.openUIStudio()
+                }
+                .keyboardShortcut("7", modifiers: [.command])
+                .disabled(activeWorkspaceHasFolder != true)
             }
 
             CommandGroup(after: .appSettings) {

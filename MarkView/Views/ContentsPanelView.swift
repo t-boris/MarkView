@@ -34,6 +34,8 @@ struct ContentsPanelView<Headings: View>: View {
                 BrowserContentsPanel(session: session).id(session.id)
             case .prototype(let session):
                 PrototypeContentsPanel(session: session).id(session.id)
+            case .uiStudio(let session):
+                UIStudioContentsPanel(session: session).id(session.id)
             default:
                 TabFactsPanel(tab: tab)
             }
@@ -231,7 +233,7 @@ struct StructureOutlineList: View {
 }
 
 /// A label and a value, in the style of the file facts.
-private struct FactRows: View {
+struct FactRows: View {
     let rows: [(String, String)]
 
     var body: some View {

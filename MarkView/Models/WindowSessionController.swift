@@ -124,7 +124,11 @@ final class WindowSessionController {
         }
         NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)
             .filter { ($0.object as? NSWindow) === window }
-            .sink { [weak self] _ in self?.remove(id) }
+            .sink { [weak self, weak workspace] _ in
+                // UI Studio sessions stop the development servers they started (REQ-006).
+                workspace?.closeUIStudioSessions()
+                self?.remove(id)
+            }
             .store(in: &entry.subscriptions)
 
         // Value-based WindowGroup opens each saved identity at most once.

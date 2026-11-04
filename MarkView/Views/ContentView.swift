@@ -230,7 +230,7 @@ struct ContentView: View {
             guard workspaceManager.openTabs.indices.contains(index) else { return }
             let tab = workspaceManager.openTabs[index]
             switch tab.kind {
-            case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .data, .prototype:
+            case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .data, .prototype, .uiStudio:
                 lastFilesTab = tab.id
                 workspaceManager.layout.workspaceArea = .files
                 if case .file = tab.kind,
@@ -636,6 +636,10 @@ struct ContentView: View {
                         PrototypeStudioView(session: session)
                             .environmentObject(workspaceManager)
                             .id(activeTab.id)
+                    } else if case .uiStudio(let session) = activeTab.kind {
+                        UIStudioView(session: session)
+                            .environmentObject(workspaceManager)
+                            .id(activeTab.id)
                     } else if case .github(let item) = activeTab.kind {
                         GitHubTabView(item: item)
                             .environmentObject(workspaceManager)
@@ -663,7 +667,7 @@ struct ContentView: View {
                 workspaceManager.activeTabIndex = index
             } else if let index = workspaceManager.openTabs.firstIndex(where: { tab in
                 switch tab.kind {
-                case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .prototype: return true
+                case .file, .image, .pdf, .archive, .deployments, .discussions, .terminal, .browser, .prototype, .uiStudio: return true
                 default: return false
                 }
             }) {
@@ -1094,7 +1098,8 @@ struct AIToolsMenu: View {
             Section("Prototype") {
                 Button("New Prototype…") { workspaceManager.openPrototypeCreator(mode: .requirements) }
                     .disabled(workspaceManager.rootNode == nil)
-                Button("New Prototype from Code…") { workspaceManager.openPrototypeCreator(mode: .code) }
+                // Existing code opens as the real application in UI Studio, not as a reconstruction (DEC-002, DEC-005).
+                Button("UI Studio (Existing Code)") { workspaceManager.openUIStudio() }
                     .disabled(workspaceManager.rootNode == nil)
                 let saved = workspaceManager.savedPrototypes()
                 Menu("Open Prototype (\(saved.count))") {

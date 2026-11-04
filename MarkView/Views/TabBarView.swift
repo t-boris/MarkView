@@ -76,6 +76,7 @@ struct TabBarView: View {
         case .discussions: return "bubble.left.and.text.bubble.right"
         case .browser: return "globe"
         case .prototype: return "rectangle.on.rectangle.angled"
+        case .uiStudio: return "macwindow.and.cursorarrow"
         case .data:
             switch tab.fileType {
             case .log: return "list.bullet.rectangle"
