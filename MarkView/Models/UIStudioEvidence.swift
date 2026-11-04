@@ -45,15 +45,17 @@ enum StudioImageDiff {
         for y in 0..<height {
             for x in 0..<width {
                 let i = (y * width + x) * 4
-                let delta = max(abs(Int(a[i]) - Int(b[i])), abs(Int(a[i + 1]) - Int(b[i + 1])), abs(Int(a[i + 2]) - Int(b[i + 2])),
-                                abs(Int(a[i + 3]) - Int(b[i + 3])))
-                if delta > threshold {
+                // Typed steps: one long expression of mixed integer conversions is too slow for some compilers to type-check.
+                let red: Int = Int(b[i]), green: Int = Int(b[i + 1]), blue: Int = Int(b[i + 2])
+                let deltaColor: Int = max(abs(Int(a[i]) - red), abs(Int(a[i + 1]) - green), abs(Int(a[i + 2]) - blue))
+                let deltaAlpha: Int = abs(Int(a[i + 3]) - Int(b[i + 3]))
+                if max(deltaColor, deltaAlpha) > threshold {
                     changed += 1
                     minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
                     output[i] = 255; output[i + 1] = 0; output[i + 2] = 200; output[i + 3] = 255
                 } else {
-                    let gray = UInt8((Int(b[i]) * 30 + Int(b[i + 1]) * 59 + Int(b[i + 2]) * 11) / 100)
-                    let faded = UInt8(200 + Int(gray) / 5)
+                    let luminance: Int = (red * 30 + green * 59 + blue * 11) / 100
+                    let faded = UInt8(200 + luminance / 5)
                     output[i] = faded; output[i + 1] = faded; output[i + 2] = faded; output[i + 3] = 255
                 }
             }
