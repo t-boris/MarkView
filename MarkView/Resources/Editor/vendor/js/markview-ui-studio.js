@@ -602,21 +602,40 @@
     }
     var next = document.querySelector('nextjs-portal');
     if (next && next.shadowRoot) {
-      var dialog = next.shadowRoot.querySelector('[data-nextjs-dialog], [data-nextjs-error-overlay], #nextjs__container_errors_desc');
-      if (dialog) return 'Next.js: ' + (dialog.textContent || 'build error').trim();
+      // Next.js shows every issue in the same dialog and names its kind in the label: "Build Error"
+      // ("Failed to compile" before Next 15) is a build failure; "Console Error", "Runtime Error",
+      // "Recoverable Error", "Blocking Route"… are issues of a page that built.
+      var label = next.shadowRoot.querySelector('#nextjs__container_errors_label, #nextjs__container_build_error_label');
+      if (label && /^\s*(build error|failed to compile)/i.test(label.textContent || '')) {
+        var dialog = next.shadowRoot.querySelector('[data-nextjs-dialog], [data-nextjs-error-overlay]');
+        return 'Next.js: ' + ((dialog || label).textContent || 'build error').trim();
+      }
     }
     return '';
   }
+  // Sent on every change, not deduplicated: an empty detail tells the app the build error is gone,
+  // and the same error coming back must be reported again.
   function checkOverlay() {
     var text = overlayText().slice(0, 8000);
-    if (text && text !== buildError) { buildError = text; report('buildError', text); }
-    if (!text) buildError = '';
+    if (text === buildError) return;
+    buildError = text;
+    notify('buildError', text);
   }
+  var watchedPortal = null;
   function watchOverlays() {
-    var observer = new MutationObserver(checkOverlay);
+    var observer = new MutationObserver(check);
+    function check() {
+      // Next.js opens and closes its dialog inside the shadow root of a portal that stays on the page.
+      var portal = document.querySelector('nextjs-portal');
+      if (portal && portal.shadowRoot && portal !== watchedPortal) {
+        watchedPortal = portal;
+        observer.observe(portal.shadowRoot, { childList: true, subtree: true });
+      }
+      checkOverlay();
+    }
     if (document.body) observer.observe(document.body, { childList: true });
     observer.observe(document.documentElement, { childList: true });
-    checkOverlay();
+    check();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchOverlays); else watchOverlays();
 

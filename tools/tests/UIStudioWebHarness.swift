@@ -319,6 +319,41 @@ func run() async {
     check("the dev server's build error overlay is reported", harness.events.contains { $0.kind == .buildError },
           harness.events.map(\.kind.rawValue).joined(separator: ","))
 
+    // BUG-067: the overlay going away is reported (empty detail); Next.js shows every issue in one dialog
+    // and only its "Build Error" is a build failure; the same build error coming back is reported again.
+    watchdog.reached("Next.js issues are told apart from build errors")
+    func buildEvents(since mark: Int) -> [String] { harness.events.dropFirst(mark).filter { $0.kind == .buildError }.map(\.detail) }
+    var mark = harness.events.count
+    _ = await harness.js("document.querySelector('vite-error-overlay').remove(); return true;")
+    await harness.settle(1)
+    check("a build error overlay going away is reported as cleared", buildEvents(since: mark) == [""], buildEvents(since: mark).joined(separator: "|"))
+    mark = harness.events.count
+    _ = await harness.js("""
+        const portal = document.body.appendChild(document.createElement('nextjs-portal'));
+        portal.attachShadow({ mode: 'open' });
+        window.nextDialog = function (label) {
+          portal.shadowRoot.innerHTML = label ? '<div data-nextjs-dialog><span id="nextjs__container_errors_label">' + label
+            + '</span><p>[fx] rates unavailable in client-web-app: marketplace unreachable</p></div>' : '';
+        };
+        window.nextDialog('Console Error');
+        return true;
+        """)
+    await harness.settle(1)
+    _ = await harness.js("window.nextDialog('Runtime TypeError'); return true;")
+    await harness.settle(1)
+    check("a Next.js console or runtime error is not a build error", buildEvents(since: mark).isEmpty, buildEvents(since: mark).joined(separator: "|"))
+    _ = await harness.js("window.nextDialog('Build Error'); return true;")
+    await harness.settle(1)
+    _ = await harness.js("window.nextDialog(''); return true;")
+    await harness.settle(1)
+    _ = await harness.js("window.nextDialog('Build Error'); return true;")
+    await harness.settle(1)
+    let next = buildEvents(since: mark)
+    check("a Next.js build error is reported, cleared when its dialog closes, and reported again when it returns",
+          next.count == 3 && next[0].hasPrefix("Next.js: Build Error") && next[1].isEmpty && next[2] == next[0], next.joined(separator: "|"))
+    _ = await harness.js("document.querySelector('nextjs-portal').remove(); return true;")
+    await harness.settle(1)
+
     // Messages of an earlier generation are rejected after Reset (SIM-10).
     watchdog.reached("Messages of an earlier generation are rejected after Reset")
     harness.simulator.reset()

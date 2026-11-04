@@ -611,6 +611,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 recordedSteps.append(step)
             }
             return
+        case .buildError where detail.isEmpty:
+            // The overlay is gone: the application builds again, so the preview is live, not stale.
+            buildError = nil
+            stalePreview = nil
+            updateReadiness()
+            return
         case .buildError:
             buildError = detail
             if stalePreview == nil { stalePreview = captures.last { $0.scenarioId == scenario.id } }
@@ -1144,10 +1150,22 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     private func serverErrors(since mark: Int) -> String? {
         guard let output = server?.output, output.count > mark else { return nil }
-        let added = String(output.suffix(output.count - mark))
-        let pattern = #"(?im)^.*(failed to compile|\berror\b[: ]|✘ \[error\]|syntaxerror|module not found|cannot find module).*$"#
-        guard let range = added.range(of: pattern, options: .regularExpression) else { return nil }
-        return redactor.redact(text: String(added[range]).trimmingCharacters(in: .whitespaces))
+        return Self.buildFailure(in: String(output.suffix(output.count - mark))).map { redactor.redact(text: $0) }
+    }
+
+    /// The first line of a dev server's log that reports a failed build, or nil. Only compile and bundle
+    /// failures count: an application that built also logs errors (a handled `console.error`, a failed
+    /// request, a runtime exception), and those are not a reason to call the preview stale.
+    nonisolated static func buildFailure(in log: String) -> String? {
+        let markers = [
+            #"failed to compile"#, #"module not found"#, #"cannot find module"#, #"failed to resolve import"#,
+            #"module build failed"#, #"(?-i:^\s*ERROR in )"#, #"✘ \[ERROR\]"#, #"\berror TS\d+"#,
+            #"\[vite\] internal server error"#, #"\[plugin:[^\]]+\]"#, #"parsing \S+ source code failed"#,
+            #"SyntaxError: \S+\.(?:[cm]?[jt]sx?|vue|svelte|astro)\b"#, #"^\s*syntax error\s*$"#,
+        ]
+        let pattern = "(?im)^.*(?:" + markers.joined(separator: "|") + ").*$"
+        guard let range = log.range(of: pattern, options: .regularExpression) else { return nil }
+        return String(log[range]).trimmingCharacters(in: .whitespaces)
     }
 
     /// Keeps a change (it stays in the history and can still be undone).
@@ -1274,7 +1292,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func captureNow() {
         runWork("Capturing") { session in
             if let capture = await session.capture(label: "Capture of \(session.scenario.name)") {
-                session.notice = "Captured \(capture.label)."
+                session.notice = "Saved a capture of \(session.scenario.name)."
             }
         }
     }

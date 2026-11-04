@@ -335,6 +335,45 @@ func run() async {
               session.buildError ?? "")
     }
 
+    // BUG-067: a build error overlay that goes away without a reload (fast refresh fixed it, the dialog was
+    // closed) clears the build error and the stale preview.
+    watchdog.reached("A build error overlay that goes away clears the stale preview")
+    _ = try? await session.call("document.body.appendChild(document.createElement('vite-error-overlay')).textContent = 'Failed to compile app.js'; return true;")
+    let overlayShown = await waitUntil(5) { session.buildError != nil && session.stalePreview != nil }
+    _ = try? await session.call("document.querySelector('vite-error-overlay').remove(); return true;")
+    let overlayCleared = await waitUntil(5) { session.buildError == nil && session.stalePreview == nil }
+    check("BUG-067 the stale preview clears when the build error overlay goes away", overlayShown && overlayCleared,
+          "\(overlayShown) \(session.buildError ?? "nil")")
+    check("BUG-067 the clearing signal is not listed as an empty event", !session.events.contains { $0.kind == .buildError && $0.detail.isEmpty })
+
+    // BUG-067: only compile and bundle failures in the dev server's log fail a change's rebuild check.
+    let handled = """
+        [fx] rates unavailable in client-web-app: Error: marketplace unreachable
+            at fetchRates (lib/fx/server.ts:20:11)
+         ⨯ Error: boom
+            at Page (app/page.tsx:4:9)
+        SyntaxError: Unexpected token < in JSON at position 0
+        Error: connect ECONNREFUSED 127.0.0.1:5432
+         GET /studio 200 in 1043ms
+        """
+    check("BUG-067 errors of an application that built are not build failures", StudioSession.buildFailure(in: handled) == nil,
+          StudioSession.buildFailure(in: handled) ?? "")
+    let failures = [
+        " ⨯ ./app/page.tsx\nModule not found: Can't resolve './missing'",
+        "Failed to compile.",
+        " ⨯ ./app/page.tsx:3:7\nParsing ecmascript source code failed",
+        "[vite] Internal server error: Transform failed with 1 error:",
+        "[plugin:vite:react-babel] /src/App.tsx: Unexpected token (3:4)",
+        "[vite] Pre-transform error: Failed to resolve import \"./x\" from \"src/App.tsx\". Does the file exist?",
+        "✘ [ERROR] Expected \";\" but found \"x\"",
+        "src/app.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+        "ERROR in ./src/index.js 3:7",
+        "SyntaxError: /app/src/App.js: Unexpected token (3:4)",
+        "Error: \n  x Expected ';', got 'foo'\nCaused by:\n    Syntax Error",
+    ]
+    let missed = failures.filter { StudioSession.buildFailure(in: handled + "\n" + $0) == nil }
+    check("BUG-067 compile and bundle failures of common dev servers are build failures", missed.isEmpty, missed.joined(separator: " || "))
+
     // An unknown request is prepared once, validated, registered and then served without the model (AC-05, AC-06).
     watchdog.reached("An unknown request is prepared once, validated, registered and then served without the model")
     assistant.lock.withLock {
@@ -385,6 +424,10 @@ func run() async {
     } else {
         check("AC-20 a change with captures exists", false)
     }
+    session.captureNow()
+    _ = await idle()
+    check("BUG-067 the capture notice names the scenario once", session.notice == "Saved a capture of \(session.scenario.name).",
+          session.notice ?? "nil")
 
     // Feature export and revalidation (AC-21, AC-22).
     watchdog.reached("Feature export and revalidation")
