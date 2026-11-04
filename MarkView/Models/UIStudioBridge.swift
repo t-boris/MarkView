@@ -65,7 +65,8 @@ enum StudioBridge {
         enum Kind: String, CaseIterable {
             /// An uncaught error or rejection, or console.error.
             case runtimeError
-            /// The dev server's error overlay (Vite, webpack, Next) is on the page.
+            /// The dev server's build error overlay (Vite, webpack, Next) appeared on the page; an empty
+            /// detail says it is gone again (the build works).
             case buildError
             /// A dependency the first release does not simulate was used (WebSocket, EventSource, sendBeacon).
             case unsupported
