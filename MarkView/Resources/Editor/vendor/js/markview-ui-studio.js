@@ -1085,7 +1085,8 @@
 
   // MARK: Steps
 
-  var recording = false;
+  // A page loaded while recording records from its start (BUG-071).
+  var recording = !!config.recording;
   var PASSWORD_PLACEHOLDER = 'markview-test-password';
 
   function recordStep(step) { notify('recorded', JSON.stringify(step)); }

@@ -141,6 +141,19 @@ export function Card() {
 }
 """
 
+/// BUG-071: two pages joined by a plain link, so recording and replaying have to follow a full page load.
+let recordHTML = """
+<!doctype html><html><head><title>Start</title></head><body>
+<button id="go" onclick="document.body.dataset.went = 'yes'">Go</button>
+<a id="next" href="/rec-next.html">Next page</a>
+</body></html>
+"""
+let recordNextHTML = """
+<!doctype html><html><head><title>Next</title></head><body>
+<input id="q"><button id="done" onclick="document.body.dataset.done = document.getElementById('q').value">Done</button>
+</body></html>
+"""
+
 /// BUG-068: a page whose consent banner (kept in localStorage) is inserted before the content until it is accepted, so a
 /// positional path to the card's button points at the banner's button once storage is cleared.
 let consentHTML = """
@@ -582,6 +595,44 @@ func run() async {
     check("BUG-069 a chunk without a usable map falls back to the component's file as a candidate",
           fallback.path == "web/src/Card.tsx" && fallback.mapping == .candidate && fallback.line == 3,
           "\(fallback.path ?? "nil"):\(fallback.line ?? -1) \(fallback.mapping)")
+
+    // BUG-071: recording keeps writing steps after the application loads another page, and Reset replays them across it.
+    watchdog.reached("Recording follows the application to another page")
+    try? recordHTML.write(to: web.appendingPathComponent("rec.html"), atomically: true, encoding: .utf8)
+    try? recordNextHTML.write(to: web.appendingPathComponent("rec-next.html"), atomically: true, encoding: .utf8)
+    var recordScenario = session.scenario
+    recordScenario.id = "record"
+    recordScenario.name = "Record"
+    recordScenario.route = "/rec.html"
+    recordScenario.steps = []
+    session.activate(recordScenario)
+    _ = await idle()
+    session.setMode(.record)
+    _ = await idle()
+    check("BUG-071 recording starts", session.mode == .record, "\(session.mode)")
+    await clickElement("#go")
+    _ = await waitUntil(5) { session.recordedSteps.count == 1 }
+    await clickElement("#next")
+    var nextPath: String?
+    for _ in 0..<100 {
+        nextPath = await text("return document.getElementById('q') ? location.pathname : '';")
+        if nextPath == "/rec-next.html" { break }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+    }
+    check("BUG-071 the link loads the next page", nextPath == "/rec-next.html", nextPath ?? "nil")
+    _ = try? await session.call("const q = document.getElementById('q'); q.value = 'milk'; q.dispatchEvent(new Event('change', { bubbles: true })); return true;")
+    await clickElement("#done")
+    _ = await waitUntil(5) { session.recordedSteps.count >= 4 }
+    let recorded = session.recordedSteps.map { "\($0.action.rawValue) \($0.selector ?? "") \($0.text ?? "")".trimmingCharacters(in: .whitespaces) }
+    check("BUG-071 the steps on the page the link loaded are recorded too",
+          recorded == ["click #go", "click #next", "type #q milk", "click #done"], recorded.joined(separator: " | "))
+    session.setMode(.interact)
+    session.saveScenario(name: "Record trip", kind: .custom)
+    session.reset()
+    _ = await idle()
+    let replayed = await text("return location.pathname + ' ' + (document.body.dataset.done || '');")
+    check("BUG-071 Reset replays the steps across the page load", replayed == "/rec-next.html milk", replayed ?? "nil")
+    check("BUG-071 the replay reports no failed step", !(session.notice ?? "").contains("restoration step failed"), session.notice ?? "")
 
     finish(session, port: port)
 }

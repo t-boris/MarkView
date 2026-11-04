@@ -93,6 +93,19 @@ struct UIStudioView: View {
             .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
             .disabled(session.appURL == nil || session.busy != nil)
             .help("Interact uses the application. Select picks an element without running its action. Record writes the steps that rebuild the current state.")
+            if session.mode == .record {
+                // What recording has written so far, so it is visible without opening the Scenarios panel (BUG-071).
+                HStack(spacing: 4) {
+                    Circle().fill(VSDark.red).frame(width: 6, height: 6)
+                    Text("\(session.recordedSteps.count) step\(session.recordedSteps.count == 1 ? "" : "s")")
+                    if let last = session.recordedSteps.last {
+                        Text("· \(last.action.rawValue) \(last.selector ?? "")").foregroundColor(VSDark.textDim)
+                            .lineLimit(1).truncationMode(.middle).frame(maxWidth: 160, alignment: .leading)
+                    }
+                }
+                .uiFont(size: 10)
+                .help("Recording: clicks, typing and Enter become steps. Stop with Interact, then save the scenario in the Scenarios panel.")
+            }
             scenarioMenu
             viewportMenu
             zoomMenu

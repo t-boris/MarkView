@@ -73,7 +73,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var spec: StudioEnvironmentSpec
     @Published private(set) var savedScenarios: [StudioScenario] = []
     @Published private(set) var scenario: StudioScenario
-    @Published private(set) var mode: Mode = .interact
+    @Published private(set) var mode: Mode = .interact {
+        // A page the application loads while recording (a link, a form, a reload) records too (BUG-071).
+        didSet { if (oldValue == .record) != (mode == .record) { _ = installRuntime() } }
+    }
     @Published var zoom: Double? = nil
     @Published private(set) var selection: StudioSelectionContext?
     @Published var notice: String?
@@ -107,6 +110,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var server: StudioDevServer?
     private var ruleListID: String?
     private var appOrigin: StudioBridge.Origin?
+    /// Main-frame page loads committed so far: tells a replay step that loaded another page from one that failed.
+    private var pageCommits = 0
     private var electronGlobals: [String] = []
     private var pickTask: Task<Void, Never>?
     private var workTask: Task<Void, Never>?
@@ -327,6 +332,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             "session": token, "generation": simulator.generation, "seed": Int(scenario.seed),
             "testTime": scenario.testTime.timeIntervalSince1970 * 1000, "locale": scenario.locale,
             "timeZone": scenario.timeZone ?? NSNull(), "electron": target?.isElectron ?? false, "electronGlobals": electronGlobals,
+            "recording": mode == .record,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: config),
               let json = String(data: data, encoding: .utf8) else { return nil }
@@ -334,15 +340,21 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                             injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
     }
 
-    /// Loads the scenario's route in a fresh page of the current generation and waits for it to load.
-    private func loadPage() async -> Bool {
-        guard let appURL, let script = runtimeScript() else {
-            if Self.runtimeSource == nil { set(.failed, "The UI Studio page runtime is missing from the app bundle.") }
-            return false
-        }
+    /// The page runtime with the current configuration, for every page loaded from now on.
+    private func installRuntime() -> Bool {
+        guard let script = runtimeScript() else { return false }
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         controller.addUserScript(script)
+        return true
+    }
+
+    /// Loads the scenario's route in a fresh page of the current generation and waits for it to load.
+    private func loadPage() async -> Bool {
+        guard let appURL, installRuntime() else {
+            if Self.runtimeSource == nil { set(.failed, "The UI Studio page runtime is missing from the app bundle.") }
+            return false
+        }
         applyTheme()
         resizeWebView()
         buildError = nil
@@ -400,25 +412,50 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             return "The page did not finish loading."
         }
         _ = try? await call("return await window.__markviewStudio.whenIdle(40000, 400);")
-        var problem: String?
-        if !scenario.steps.isEmpty {
-            let steps = scenario.steps.map { step -> [String: Any] in
-                var object: [String: Any] = ["action": step.action.rawValue]
-                if let selector = step.selector { object["selector"] = selector }
-                if let text = step.text { object["text"] = text }
-                if let ms = step.ms { object["ms"] = ms }
-                return object
-            }
-            let result = try? await call("return await window.__markviewStudio.replay(steps);", ["steps": steps]) as? [String: Any]
-            if result?["ok"] as? Bool != true {
-                problem = "A restoration step failed: " + (result?["reason"] as? String ?? "the page did not answer.")
-                notice = problem
-            }
-        }
+        let problem = await replay(scenario.steps)
+        if let problem { notice = problem }
         await refreshPageState()
         updateReadiness()
         if mode == .select { startPicking() }
         return problem
+    }
+
+    /// Replays restoration steps one at a time, so that a step which loads another page (a link, a form) is followed by the
+    /// rest of the steps in that page (BUG-071). Returns why the replay stopped, if it did.
+    private func replay(_ steps: [StudioStep]) async -> String? {
+        for (index, step) in steps.enumerated() {
+            var object: [String: Any] = ["action": step.action.rawValue]
+            if let selector = step.selector { object["selector"] = selector }
+            if let text = step.text { object["text"] = text }
+            if let ms = step.ms { object["ms"] = ms }
+            let commits = pageCommits
+            do {
+                let result = try await call("return await window.__markviewStudio.replay([step]);", ["step": object]) as? [String: Any]
+                if result?["ok"] as? Bool != true, !webView.isLoading, pageCommits == commits {
+                    return "Restoration step \(index + 1) failed: " + (result?["reason"] as? String ?? "the page did not answer.")
+                }
+            } catch {
+                // The page the step loaded replaced the one that ran it; anything else is a failure.
+                guard webView.isLoading || pageCommits != commits else {
+                    return "Restoration step \(index + 1) failed: the page did not answer."
+                }
+            }
+            guard await settleAfterStep() else { return "Restoration step \(index + 1) loaded a page that did not finish loading." }
+        }
+        return nil
+    }
+
+    /// Waits for a page load a step started, if any, and for the page to settle.
+    private func settleAfterStep() async -> Bool {
+        // A click on a link starts the load just after the click.
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        let deadline = Date().addingTimeInterval(45)
+        while webView.isLoading {
+            guard Date() < deadline, !Task.isCancelled else { return false }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        _ = try? await call("return window.__markviewStudio ? await window.__markviewStudio.whenIdle(4000, 200) : null;")
+        return true
     }
 
     /// Reset (the toolbar): the scenario's baseline data and UI state again.
@@ -456,6 +493,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             }
         }
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        pageCommits += 1
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -809,6 +850,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     func setMode(_ next: Mode) {
         guard next != mode else { return }
+        if next == .record, let busy {
+            // Recording starts from a restored baseline, which waits for the current work.
+            notice = "Wait for \(busy) to finish before recording."
+            return
+        }
         let previous = mode
         mode = next
         if previous == .record { Task { _ = try? await call("return window.__markviewStudio.setRecording(false);") } }
