@@ -1020,3 +1020,27 @@ the answer, with the saved default unchanged because the value was the one alrea
 - The validity check was tested with fake answers (evidence rules, order of steps) and then once with the real `claude` CLI on an export of main: two fixed bugs were
   closed with evidence that exists, an open one stayed open, and a report about a feature that does not exist came back inconclusive ("not found" is not proof).
   A throwaway harness that compiles the model file with a small `main.swift` is enough; keep it in the scratchpad, not in the repository.
+
+## `exec` in front of a shell command line changes what the exit status means
+- UI Studio started the dev server as `/bin/sh -c "exec <command>"` to make the server the group leader. For a compound command
+  (`npm run build && npm run dev`, `cd web; vite`) `exec` replaces the shell with the first part only, so a server that failed in a
+  later part was reported with the status of the first (exit 3 read as 0). The standalone check caught it; the app build could not.
+- Start a user's command line with `/bin/sh -c <command>` as it is and put the process group on the shell (`POSIX_SPAWN_SETPGROUP`);
+  signal the group with `killpg`. Pass the working folder as `$1` (`cd -- "$1"`), never by building it into the script.
+
+## A main-frame load blocked by a content rule list fails with WebKitErrorDomain 104
+- Navigating the UI Studio preview to an address the connection policy blocks does not reach `decidePolicyFor` as a normal load: it
+  fails in `didFailProvisionalNavigation` with WebKitErrorDomain code 104 ("blocked by a content blocker"). Treat 104 as "blocked by
+  the policy" and report it, not as a network error. Test the compiled rule list in a real `WKWebView` with a look-alike host and
+  another local port, because only WebKit decides what a `url-filter` matches.
+
+## Zoom a WKWebView by scaling its bounds, not with pageZoom or magnification
+- `pageZoom` is browser zoom: it changes the CSS viewport (`innerWidth`), so a zoomed-out preview lays the page out differently,
+  which PRE-03 forbids. A container whose bounds stay at the page's viewport and whose frame is viewport × zoom keeps `innerWidth`
+  and maps clicks correctly; check it with real `NSEvent` clicks in a window at two zoom levels.
+
+## Harness clicks through `window.sendEvent` depend on which window has the focus
+- The session harness first clicked the preview with synthetic `NSEvent`s sent to its window; one run passed and the next, with no
+  code change, failed because select mode never got the click (probably another window had the focus). A check that is about the session (select without action, then ask and change) dispatches a DOM click; the
+  native-click path under zoom is covered once, in the page harness, where the window is ordered front and key.
+

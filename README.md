@@ -119,20 +119,24 @@ or a quick page clip from the built-in browser saved as Markdown.
 plain Markdown files in your repository.
 → [From idea to merged code](#from-idea-to-merged-code)
 
-**8. Prototype before you build: Prototype Studio.** Give it a requirements file or folder, or point
-it at an existing web app; it builds a deep, fully clickable HTML prototype you review in a studio tab
-until you approve it, and keeps it in step with the code.
+**8. Prototype before you build: Prototype Studio.** Give it a requirements file or folder; it builds a
+deep, fully clickable HTML prototype you review in a studio tab until you approve it.
 → [Prototype Studio](#prototype-studio-click-through-before-you-build)
 
-**9. Build with an AI agent.** Hand the approved specification to Claude Code, Codex, Cline,
+**9. Change the real interface: UI Studio.** Run your own web app (or an Electron renderer) in a tab
+with simulated, resettable test data, select an element, ask about it or have the assistant change its
+source, then keep or undo the change with before and after pictures.
+→ [UI Studio](#ui-studio-the-real-app-with-test-data)
+
+**10. Build with an AI agent.** Hand the approved specification to Claude Code, Codex, Cline,
 Copilot or Antigravity in a real terminal beside your files; track issues, pull requests and CI.
 → [AI agents and terminals](#ai-agents-and-terminals)
 
-**10. Let agents use your browser tabs.** Agents drive pages you are logged in to, in a window
+**11. Let agents use your browser tabs.** Agents drive pages you are logged in to, in a window
 you watch, without your password.
 → [AI agents and terminals](#ai-agents-and-terminals)
 
-**11. Start, run and ship a project.** *New Project…* from an idea, preview the web app, see where
+**12. Start, run and ship a project.** *New Project…* from an idea, preview the web app, see where
 it runs and look inside its servers and databases, run deploy and install commands with
 confirmation, publish to GitHub.
 → [Deployments](#deployments-see-where-it-runs), [Workspace](#workspace)
@@ -395,7 +399,8 @@ Build a clickable HTML prototype you can review like a real product, then pack i
 implementation. Start from **AI Tools → Prototype**:
 
 - **New Prototype…** builds it from a requirements file or folder.
-- **New Prototype from Code…** rebuilds the web interface of an app you already have.
+- **New Prototype from Code…** opens [UI Studio](#ui-studio-the-real-app-with-test-data) on the app
+  itself instead of rebuilding its interface as a copy.
 
 Everything lives in `docs/prototypes/<name>/` in your project (the prototype, its versions, the
 conversation and attachments, `SPEC.md`), so a prototype can be committed and shared through the
@@ -441,46 +446,13 @@ flowchart LR
     CH --> V["Version, then<br/>review in the studio"]
 ```
 
-### From existing code
+### Prototypes saved from existing code
 
-**New Prototype from Code…** takes files or folders of an existing web app (or an Electron renderer),
-shows what it detected, and rebuilds the interface as a prototype you can click through. It refuses to
-start when it finds no web interface.
-
-- **A faithful look.** The app's own stylesheets, fonts and images are copied into the prototype as
-  they are, so screens use the real class names. A **Theme** menu switches between the app's own
-  themes (found in its CSS), or back to *Original look*.
-- **One screen per widget.** Up to 40 screens: a window made of docked panels gets one screen per
-  widget or modal, and a host screen that composes them. Labels keep the language of your source.
-- **Honest about its limits.** A *From code* badge, and an **Assumptions & gaps** list that says what was
-  not reproduced, including how many of your UI source files were read.
-- **A fidelity check.** After a build or a sync MarkView compares each screen's visible labels with its
-  source and rewrites up to three thin screens.
-- **Components.** A **Components** list outlines a component's instances in the preview and offers
-  *Open source* and *View alone*. Aim a request at the whole prototype, one screen or one component with
-  the **About** menu.
-- **Stay in step.** A status chip says whether the prototype *matches the code*, *N changed in code*, or
-  that the prototype was edited; the check runs locally, with no assistant. **Sync from code** rewrites
-  only the screens whose source changed and keeps the previous version.
-- **Hand off to code.** An editable brief goes to an agent (**Send to Claude Code**…) or to the
-  clipboard. It lists changed screens and components and the review requests; the agent makes the
-  branch and the pull request. The studio never writes to your source. Agents see the same
-  *changes since the last sync* through `markview_get_prototype`.
-
-```mermaid
-flowchart LR
-    S["Your code<br/>files or folders"] --> P["1. Plan from the code<br/>≤ 40 screens, themes,<br/>sources per screen"]
-    P --> C["Copy the app's CSS,<br/>fonts, images as they are<br/>(no assistant)"]
-    C --> F["2. Shell, styles<br/>and data"]
-    F --> W["3. Screens, four at a time<br/>one per widget or modal"]
-    W --> K["4. An isolated view<br/>per component"]
-    K --> B["Version + baseline<br/>(source fingerprints)"]
-    B --> A["Preview check, then<br/>fidelity check"]
-    A --> R["Review in the studio"]
-    R -- "code changed" --> Y["Sync from code:<br/>only what changed"]
-    Y --> B
-    R -- "prototype changed" --> H["Hand off to code:<br/>a brief for an agent"]
-```
+Earlier versions could rebuild an existing app's interface as an HTML prototype. Those prototypes stay
+in `docs/prototypes/` and open as before, labelled **Historical reconstruction** (agents see the same
+label through `markview_list_prototypes` and `markview_get_prototype`): they are a copy made at one
+moment, not the current application. **Sync from code** on one opens UI Studio on the real app;
+**Hand off to code** still writes a brief for an agent from the review requests.
 
 ### How a prototype is reviewed and handed off
 
@@ -499,6 +471,50 @@ sequenceDiagram
     Studio->>AI: Write SPEC.md from the prototype and history
     Studio->>Disk: SPEC.md and a ZIP (prototype, SPEC.md, CHANGES.md, README) in .dde/exports
 ```
+
+## UI Studio: the real app with test data
+
+**View → UI Studio (⌘7)**, **AI Tools → UI Studio (Existing Code)**, or **New Prototype from Code…**
+opens the project's own web interface in a tab: the same launch discovery as *Preview Web App*
+(Vite, webpack, Next, Angular, Svelte, Astro, Django, Rails, a static `index.html`…; an Electron app
+runs its renderer as a web page). One session per window. A dev server that is already running is
+used and left running; one UI Studio starts runs in its own process group and stops with the tab,
+the folder or the window.
+
+- **Test data, not your backend.** `fetch` and `XMLHttpRequest` calls that ask for JSON are answered by
+  a simulation with shared records: a rename shows in the list and the detail, a delete is gone
+  everywhere, a repeated write with the same key happens once. A request the simulation does not know
+  is prepared once by the assistant (read-only, no web), checked, and then served without it; anything
+  that fails gives the page a clear error and never reaches a real service. **Reset** goes back to the
+  scenario's data. GraphQL, WebSockets, server-sent events and anything a server renders are reported as
+  not simulated.
+- **Scenarios.** Populated, empty, loading and error come built in; save your own with the route, data,
+  role, viewport, theme, locale, time zone, a fixed clock, a seed for random numbers and the clicks that
+  lead to a detail or an editing state (**Record**). Scenarios live in `.markview/studio/` and can be
+  committed; one whose data no longer fits a changed contract says so and needs an explicit update.
+- **Select, don't click.** **Interact** uses the app; **Select** highlights the element under the pointer
+  and selects it without running its action. Move to the parent or a child, see the other instances of
+  a repeated component, and zoom the preview without changing the page's own viewport. Where the dev
+  build carries source locations (React, Vue, Svelte, Angular or inspector attributes) the selection
+  names its file and line; otherwise it says why it cannot.
+- **Ask or change.** **Ask** answers a question about the element and changes nothing. **Change** has the
+  assistant edit the real source in your project's own conventions: it names the scope first and asks
+  when the request is ambiguous. MarkView applies the edits itself, refuses them when a file changed
+  under it (including unsaved editor tabs), waits for the rebuild, restores the scenario, checks for
+  build and runtime errors and takes before and after pictures. A broken build is shown with the old
+  preview marked stale.
+- **Keep or undo.** The history lists every request with its diff and checks. **Undo** removes one change
+  and keeps everything done since; an undo that overlaps a later edit shows the conflict instead of
+  writing.
+- **Evidence for a feature.** Compare two pictures side by side or as a difference, then **Export
+  feature**: a feature with the description, one requirement per change with its diff, the baseline and
+  final revisions, the scenario, the rendering conditions, the pictures and the checks. When the files
+  change later the package is marked for revalidation and keeps its pictures. Pictures and history stay
+  in `.dde/studio/`, which ignores itself in Git.
+- **Trust.** The project's own processes run with your permissions: open only projects you trust. The
+  page may reach only its dev server and the addresses you allow; this is a connection policy, not
+  operating-system isolation. Secrets are removed from the environment the dev server gets and from
+  everything sent to the model or exported.
 
 ---
 
@@ -755,6 +771,7 @@ flowchart LR
 | ⌘4 | X-Ray |
 | ⌘5 | Browser |
 | ⌘6 | Preview Web App |
+| ⌘7 | UI Studio |
 | ⌃⌘D | Deployments |
 | ⌃⌘I | Discussions |
 | ⌘⇧P | WYSIWYG ↔ source |

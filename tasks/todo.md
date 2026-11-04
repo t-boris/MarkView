@@ -10,15 +10,30 @@ Plan
       idempotency journal, Reset), rule validation, bounded and deduplicated preparation with deadline and generations, redaction and
       environment sanitising, bridge message validation, change manager (scoped edits, conflict detection, selective undo with 3-way
       merge), code revision identity, scenario store and compatibility, image comparison, feature package and revalidation.
-- [ ] 2. Page runtime `markview-ui-studio.js` (fetch/XHR interception, WebSocket/EventSource/beacon policy, seed/time/locale, runtime
+- [x] 2. Page runtime `markview-ui-studio.js` (fetch/XHR interception, WebSocket/EventSource/beacon policy, seed/time/locale, runtime
       and build errors, Electron stand-ins that report, selection mode with parent navigation, framework source mapping, step replay and
-      recording, capture preparation), checked in a real WKWebView.
-- [ ] 3. Session runtime: owned dev-server process group with sanitised environment, readiness states, content-rule connection
-      policy, bridge handler, zoom that keeps the viewport, captures, AI questions and edits through the read-only CLI completion.
-- [ ] 4. UI Studio tab (toolbar, viewport/zoom, Interact/Select, inspector, history with undo, scenarios, environment and policies,
+      recording, capture preparation), checked in a real WKWebView (`tools/tests/ui-studio-web-tests.sh`).
+- [x] 3. Session runtime: owned dev-server process group with sanitised environment, readiness states, content-rule connection
+      policy, bridge handler, zoom that keeps the viewport, captures, AI questions and edits through the read-only CLI completion
+      (`tools/tests/ui-studio-session-tests.sh` against a real dev server).
+- [x] 4. UI Studio tab (toolbar, viewport/zoom, Interact/Select, inspector, history with undo, scenarios, environment and policies,
       evidence with compare and export) and menu entry points; "New Prototype from Code" and "Sync from code" open UI Studio;
       saved code-mode prototypes are labelled historical.
 - [ ] 5. Specification statuses, README, lessons; version bump (minor); build; all standalone checks; PR; CI; merge; signed release.
+
+Review (before merge)
+- Checked: `ui-studio-tests.sh` (151 checks: simulation, preparation, redaction, bridge, changes and undo with real git, scenarios,
+  evidence, selection revalidation, process group, launch environment, policy filters), `ui-studio-web-tests.sh` (31 checks in WebKit,
+  including selection on a scrolled page at 50 % zoom and the compiled content rule list blocking other origins and ports) and
+  `ui-studio-session-tests.sh` (60 checks: a real StudioSession against a running dev server, from launch through select, ask, change,
+  verify, undo, conflict, clarification, broken build, preparation, captures, export, revalidation and closing; plus target discovery
+  and disclosures for Svelte/webpack, Next, Django and Electron). All acceptance criteria of REQ-001…REQ-006 are ticked against these.
+- The edit, question and preparation prompts ran once against the real Claude CLI on a throwaway project (scratchpad harness, not in
+  the repository): all three answers were usable as they came.
+- Fixed on the way: `exec` in front of the dev-server command made a compound command report the status of its first part (an exit 3
+  read as 0); the shell stays the group leader now.
+- Not checked: a session on one of Boris's real projects, and the tab clicked by hand (both are outside this goal; the UI was built
+  and compiled, and the session behind it is what the harness drives).
 
 ## BUG-062: the preview fix round declines a request that spans more than three files, so blank screens stay blank (2026-11-03, 5.13.0, fix/bug-062-prototype-fix-round)
 
