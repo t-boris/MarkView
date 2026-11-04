@@ -9,7 +9,8 @@
 - [x] Checks: ui-studio (new cases), session, web, gateway, node. Replayed Boris's request with the app's real prompt and
       history: gpt-6.1-terra ×3 and gpt-6.1-sol ×1 all returned the override (33 strikes, 66 contracts), validator clean;
       his actual refusal note is sent back by the new guard.
-- [ ] Release 5.26.1, install (Boris: "ставь как сможешь").
+- [x] Release 5.26.1 (commit 3f659e6, https://github.com/t-boris/MarkView/releases/tag/v5.26.1, notarized, Latest), install
+      (Boris: "ставь как сможешь").
 
 ## MarkView eats all resources — release 5.26.0 (2026-11-04, BUG-081…BUG-084)
 
