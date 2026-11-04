@@ -2667,8 +2667,101 @@ Task { @MainActor in
     await channelChecks()
     realtimeModelChecks()
     await ipcChecks()
+    documentChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
 print(failures == 0 ? "All UI Studio checks passed." : "\(failures) UI Studio check(s) failed.")
 exit(failures == 0 ? 0 : 1)
+
+// MARK: - Documents (the `document` operation: one stored JSON document, saved and read as a whole)
+
+func documentChecks() {
+    var dspec = StudioEnvironmentSpec()
+    dspec.entities = [StudioEntity(name: "settings"), StudioEntity(name: "profiles")]
+    dspec.seed = [
+        "settings": [.object(["id": .string("default"), "value": StudioJSON(text: #"{"theme":"dark","layout":{"cols":2,"dense":true},"lang":"en"}"#)!])],
+        // A seed record without `value` is the document itself.
+        "profiles": [.object(["id": .string("ann"), "name": .string("Ann"), "plan": .string("pro")])],
+    ]
+    let ipc = "http://electron.ipc/desk/settings"
+    dspec.rules = [
+        StudioRule(id: "get-doc", method: "GET", path: ipc + "/getDocument", operation: .document, entity: "settings"),
+        // The expected revision is a path parameter, not the document's key.
+        StudioRule(id: "save-doc", method: "PUT", path: ipc + "/saveDocument/:expectedRevision", operation: .document, entity: "settings"),
+        StudioRule(id: "patch-doc", method: "PATCH", path: ipc + "/patchDocument/:expectedRevision", operation: .document, entity: "settings"),
+        StudioRule(id: "reset-doc", method: "PUT", path: ipc + "/resetDocument/:expectedRevision", operation: .document, entity: "settings",
+                   documentAction: .reset),
+        StudioRule(id: "reload-doc", method: "POST", path: ipc + "/reloadDocument", operation: .document, entity: "settings",
+                   response: StudioFixedResponse(status: 200, body: StudioJSON(text: #"{"document":"{{studio.document}}","revision":"{{studio.revision}}","note":"r{{studio.revision}}"}"#)),
+                   documentAction: .read),
+        StudioRule(id: "clear-doc", method: "DELETE", path: ipc + "/clearDocument", operation: .document, entity: "settings"),
+        StudioRule(id: "get-profile", method: "GET", path: "/api/profiles/:id", operation: .document, entity: "profiles"),
+        StudioRule(id: "put-profile", method: "PUT", path: "/api/profiles/:id", operation: .document, entity: "profiles"),
+    ]
+    var whole = StudioProposal()
+    whole.entities = dspec.entities
+    whole.records = dspec.seed
+    whole.rules = dspec.rules
+    let wholeProblems = StudioValidator.problems(proposal: whole, spec: StudioEnvironmentSpec(), state: [:])
+    check("DOC a document rule set is a valid proposal", wholeProblems.isEmpty, wholeProblems.joined(separator: "; "))
+    var dsim = StudioSimulator(spec: dspec, scenario: StudioScenario(id: "populated", name: "Populated", kind: .populated), appOrigin: app)
+    func call(_ method: String, _ url: String, _ body: String? = nil) -> (Int, StudioJSON?) {
+        requestCounter += 1
+        let request = StudioHTTPRequest(method: method, url: URL(string: url.hasPrefix("/") ? app + url : url)!, headers: [:], body: body,
+                                        requestId: "d\(requestCounter)")
+        return answer(dsim.handle(request))
+    }
+    let first = call("GET", ipc + "/getDocument")
+    check("DOC a read answers the seeded document itself", first.0 == 200 && first.1?["theme"]?.stringValue == "dark" && first.1?["id"] == nil,
+          "\(first)")
+    let saved = call("PUT", ipc + "/saveDocument/rev-7", #"{"theme":"light","layout":{"cols":3},"lang":"en"}"#)
+    check("DOC a save replaces the document and answers it", saved.0 == 200 && saved.1?["theme"]?.stringValue == "light", "\(saved)")
+    let afterSave = call("GET", ipc + "/getDocument").1
+    check("DOC the next read returns what was saved (the revision segment is not a key)",
+          afterSave?["theme"]?.stringValue == "light" && afterSave?["layout"]?["dense"] == nil, "\(afterSave?.text ?? "nil")")
+    _ = call("PATCH", ipc + "/patchDocument/rev-8", #"{"layout":{"dense":false},"lang":null,"accent":"teal"}"#)
+    let patched = call("GET", ipc + "/getDocument").1
+    check("DOC a patch merges nested keys, and null removes a key",
+          patched?["layout"]?["cols"]?.numberValue == 3 && patched?["layout"]?["dense"] == .bool(false) && patched?["lang"] == nil
+            && patched?["accent"]?.stringValue == "teal", "\(patched?.text ?? "nil")")
+    _ = call("PUT", ipc + "/resetDocument/rev-9", #"["theme","lang"]"#)
+    let partly = call("GET", ipc + "/getDocument").1
+    check("DOC a reset of named keys restores only them from the seed",
+          partly?["theme"]?.stringValue == "dark" && partly?["lang"]?.stringValue == "en" && partly?["accent"]?.stringValue == "teal",
+          "\(partly?.text ?? "nil")")
+    let wrapped = call("POST", ipc + "/reloadDocument").1
+    check("DOC a template answer carries the document and its revision",
+          wrapped?["document"]?["accent"]?.stringValue == "teal" && wrapped?["revision"]?.stringValue == "3" && wrapped?["note"]?.stringValue == "r3",
+          "\(wrapped?.text ?? "nil")")
+    _ = call("DELETE", ipc + "/clearDocument")
+    let cleared = call("GET", ipc + "/getDocument").1
+    check("DOC a delete resets the whole document to the seed", cleared?["accent"] == nil && cleared?["layout"]?["dense"] == .bool(true),
+          "\(cleared?.text ?? "nil")")
+    let ann = call("GET", "/api/profiles/ann")
+    check("DOC a seed record without value is the document, keyed by the path parameter",
+          ann.0 == 200 && ann.1?["plan"]?.stringValue == "pro" && ann.1?["id"] == nil, "\(ann)")
+    _ = call("PUT", "/api/profiles/bob", #"{"name":"Bob"}"#)
+    check("DOC documents of different keys are separate",
+          call("GET", "/api/profiles/bob").1?["name"]?.stringValue == "Bob" && call("GET", "/api/profiles/ann").1?["name"]?.stringValue == "Ann")
+    check("DOC an unknown key is not found", call("GET", "/api/profiles/zoe").0 == 404)
+    _ = call("PUT", ipc + "/saveDocument/r", #"{"theme":"solar"}"#)
+    dsim.reset()
+    check("DOC Reset returns to the seeded document", call("GET", ipc + "/getDocument").1?["theme"]?.stringValue == "dark")
+
+    let parsed = StudioPrompts.proposal(from: [
+        "unsupported": false, "reason": "", "assumptions": [], "entities": [["name": "settings", "idField": "id", "fields": []]],
+        "records": [["entity": "settings", "json": #"[{"id":"default","value":{"theme":"dark"}}]"#]],
+        "rules": [["id": "reset", "method": "PUT", "path": "/api/settings/reset", "operation": "document", "entity": "settings",
+                   "envelope": "", "documentAction": "reset", "filters": [], "include": [], "responseStatus": 0,
+                   "responseBody": #"{"ok":true,"document":"{{studio.document}}"}"#, "evidence": []]]])
+    let rule = parsed?.rules.first
+    check("DOC a prepared document rule keeps its action and its template",
+          rule?.operation == .document && rule?.documentAction == .reset && rule?.response?.status == 200
+            && rule?.response?.body?["document"]?.stringValue == "{{studio.document}}", "\(String(describing: rule))")
+    check("DOC the preparation prompt explains documents", StudioPrompts.preparationSystem.contains("Use `document` for one JSON document"))
+    var noEntity = StudioProposal()
+    noEntity.rules = [StudioRule(id: "orphan", method: "GET", path: "/api/prefs", operation: .document)]
+    check("DOC a document rule needs a defined entity",
+          StudioValidator.problems(proposal: noEntity, spec: StudioEnvironmentSpec(), state: [:]).contains { $0.contains("needs a defined entity") })
+}

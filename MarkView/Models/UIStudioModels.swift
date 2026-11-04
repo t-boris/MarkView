@@ -86,7 +86,14 @@ struct StudioRule: Codable, Hashable, Identifiable, Sendable {
         case list, get, create, update, delete, respond
         /// The test user of the scenario's role (ENV-05): `/api/me`, `/auth/session`.
         case session
+        /// One stored JSON document the application reads and saves as a whole, such as settings, preferences or a profile.
+        /// GET reads it, PUT and POST replace it, PATCH merges into it (JSON merge patch), DELETE resets it to the seed.
+        /// `documentAction` overrides what the method means. The key is the path parameter `idParam` (default `id`), or
+        /// `default` without one.
+        case document
     }
+    /// What a `document` rule does when its method alone does not say it: `resetDocument(keys)` is a PUT that resets.
+    enum DocumentAction: String, Codable, CaseIterable, Sendable { case read, replace, merge, reset }
     enum Origin: String, Codable, Sendable { case project, agent, user }
 
     var id: String
@@ -105,6 +112,8 @@ struct StudioRule: Codable, Hashable, Identifiable, Sendable {
     var response: StudioFixedResponse? = nil
     /// The success status when it is not the operation's usual one.
     var status: Int? = nil
+    /// A `document` rule's action when it is not the method's usual one.
+    var documentAction: DocumentAction? = nil
     var evidence: [StudioEvidence] = []
     var origin: Origin = .agent
     var version: Int = 1

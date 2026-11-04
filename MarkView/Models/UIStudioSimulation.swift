@@ -219,13 +219,14 @@ struct StudioSimulator {
         } else {
             var next = state
             var retired = retiredIDs
-            response = Self.apply(rule, parameters: parameters, request: request, state: &next, retired: &retired, spec: spec, role: scenario.role)
+            response = Self.apply(rule, parameters: parameters, request: request, state: &next, retired: &retired, spec: spec, role: scenario.role,
+                                  baseline: baseline)
             if (200..<300).contains(response.status) {
                 state = next
                 retiredIDs = retired
             }
         }
-        if rule.operation == .respond || override != nil { response = withPlaceholders(response) }
+        if rule.operation == .respond || rule.operation == .document || override != nil { response = withPlaceholders(response) }
         if let delay = override?.delayMs { response.delayMs = max(0, delay) }
         if let key, (200..<300).contains(response.status), !response.hang { journal[key] = response }
         return .respond(response, rule: rule.id)
@@ -270,7 +271,7 @@ struct StudioSimulator {
 
     static func apply(_ rule: StudioRule, parameters: [String: String], request: StudioHTTPRequest,
                       state: inout [String: [StudioJSON]], retired: inout [String: Set<String>],
-                      spec: StudioEnvironmentSpec, role: StudioRole) -> StudioSimResponse {
+                      spec: StudioEnvironmentSpec, role: StudioRole, baseline: [String: [StudioJSON]]? = nil) -> StudioSimResponse {
         let entityName = rule.entity ?? ""
         let entity = spec.entity(entityName) ?? StudioEntity(name: entityName)
         let idField = entity.idField
@@ -284,6 +285,9 @@ struct StudioSimulator {
             var response = StudioSimResponse.json(fixed.status, fixed.body)
             for (name, value) in fixed.headers ?? [:] { response.headers[name.lowercased()] = value }
             return response
+        case .document:
+            return StudioDocument.apply(rule, parameters: parameters, request: request, idField: idField, records: &records,
+                                        seed: (baseline ?? spec.seed)[entityName] ?? [], state: &state, entity: entityName)
         case .session:
             var user = role.user.objectValue ?? [:]
             user["token"] = .string(role.token)
@@ -568,5 +572,110 @@ enum StudioPaging {
         let start = min(offset, list.count)
         let end = size.map { min(list.count, start + $0) } ?? list.count
         return Array(list[start..<end])
+    }
+}
+
+/// The `document` operation: one stored JSON document per key, which the application reads and saves as a whole (settings,
+/// preferences, a profile). A record holds it as `{ "<idField>": key, "value": document, "revision": n }`; a seed record
+/// without `value` is the document itself (its id field aside). Saves change what later reads return.
+enum StudioDocument {
+    static let defaultKey = "default"
+
+    static func action(_ rule: StudioRule, method: String) -> StudioRule.DocumentAction {
+        if let action = rule.documentAction { return action }
+        switch method.uppercased() {
+        case "GET", "HEAD": return .read
+        case "PATCH": return .merge
+        case "DELETE": return .reset
+        default: return .replace
+        }
+    }
+
+    /// The document a record holds, and its revision.
+    static func value(of record: StudioJSON, idField: String) -> (StudioJSON, Int) {
+        guard var fields = record.objectValue else { return (record, 0) }
+        let revision = fields["revision"]?.numberValue.map { Int($0) } ?? 0
+        if let value = fields["value"], Set(fields.keys).isSubset(of: [idField, "value", "revision"]) { return (value, revision) }
+        fields[idField] = nil
+        return (.object(fields), 0)
+    }
+
+    /// RFC 7386 JSON merge patch: objects merge key by key, `null` removes a key, anything else replaces.
+    static func merge(_ target: StudioJSON, _ patch: StudioJSON) -> StudioJSON {
+        guard let changes = patch.objectValue else { return patch }
+        var fields = target.objectValue ?? [:]
+        for (name, value) in changes {
+            if value.isNull { fields[name] = nil } else { fields[name] = merge(fields[name] ?? .null, value) }
+        }
+        return .object(fields)
+    }
+
+    static func apply(_ rule: StudioRule, parameters: [String: String], request: StudioHTTPRequest, idField: String,
+                      records: inout [StudioJSON], seed: [StudioJSON], state: inout [String: [StudioJSON]], entity: String) -> StudioSimResponse {
+        // Only a named key parameter selects the document: other path parameters (an expected revision) are not keys.
+        let key = parameters[rule.idParam ?? "id"] ?? defaultKey
+        let index = records.firstIndex { $0[idField]?.identityKey == key }
+        let current = index.map { value(of: records[$0], idField: idField) }
+        let seeded = seed.first { $0[idField]?.identityKey == key }.map { value(of: $0, idField: idField).0 }
+        var next: StudioJSON?
+        switch action(rule, method: request.method) {
+        case .read:
+            guard let current else {
+                if rule.response != nil { return answer(rule, document: .null, revision: 0) }
+                return .json(404, .object(["error": .string("\(entity) \(key) was not found")]))
+            }
+            return answer(rule, document: current.0, revision: current.1)
+        case .replace:
+            guard let body = request.jsonBody else {
+                return .json(400, .object(["error": .string("The request body must be the document as JSON")]))
+            }
+            next = body
+        case .merge:
+            guard let body = request.jsonBody else {
+                return .json(400, .object(["error": .string("The request body must be a JSON merge patch")]))
+            }
+            next = merge(current?.0 ?? .object([:]), body)
+        case .reset:
+            // A list of names resets those keys of the document to the seed; otherwise the whole document is.
+            if let names = request.jsonBody?.arrayValue?.compactMap(\.stringValue), !names.isEmpty, var fields = current?.0.objectValue {
+                for name in names { fields[name] = seeded?[name] }
+                next = .object(fields)
+            } else {
+                next = seeded
+            }
+        }
+        let revision = (current?.1 ?? 0) + 1
+        if let next {
+            let record = StudioJSON.object([idField: .string(key), "value": next, "revision": .number(Double(revision))])
+            if let index { records[index] = record } else { records.append(record) }
+        } else if let index {
+            records.remove(at: index)
+        }
+        state[entity] = records
+        return answer(rule, document: next ?? .null, revision: revision)
+    }
+
+    /// The document itself (in `envelope` when set), or the rule's template with `{{studio.document}}` and
+    /// `{{studio.revision}}` filled in.
+    static func answer(_ rule: StudioRule, document: StudioJSON, revision: Int) -> StudioSimResponse {
+        guard let template = rule.response else {
+            return .json(rule.status ?? 200, rule.envelope.map { .object([$0: document]) } ?? document)
+        }
+        var response = StudioSimResponse.json(rule.status ?? template.status, fill(template.body ?? .null, document: document, revision: revision))
+        for (name, value) in template.headers ?? [:] { response.headers[name.lowercased()] = value }
+        return response
+    }
+
+    static func fill(_ json: StudioJSON, document: StudioJSON, revision: Int) -> StudioJSON {
+        switch json {
+        case .string(let text):
+            let trimmed = text.trimmingCharacters(in: .whitespaces)
+            if trimmed.range(of: #"^\{\{\s*studio\.document\s*\}\}$"#, options: .regularExpression) != nil { return document }
+            if trimmed.range(of: #"^\{\{\s*studio\.revision\s*\}\}$"#, options: .regularExpression) != nil { return .string(String(revision)) }
+            return .string(text.replacingOccurrences(of: #"\{\{\s*studio\.revision\s*\}\}"#, with: String(revision), options: .regularExpression))
+        case .array(let items): return .array(items.map { fill($0, document: document, revision: revision) })
+        case .object(let fields): return .object(fields.mapValues { fill($0, document: document, revision: revision) })
+        default: return json
+        }
     }
 }

@@ -47,6 +47,15 @@ enum StudioPrompts {
           a field's meaning is a guess.
         - Use operations list, get, create, update, delete (on an entity), respond (a fixed answer) or session (the test user). \
           Paths use `:id` style parameters; a request to another origin uses the full URL as the path.
+        - Use `document` for one JSON document the application reads and saves as a whole (settings, preferences, a profile, \
+          a draft), so a save changes what the next read returns. GET reads it, PUT and POST replace it, PATCH merges into it \
+          (JSON merge patch), and DELETE resets it to the seed. `documentAction` (read, replace, merge, reset) says what a rule \
+          does when its method does not: a reset that is a PUT, or a read that is a POST. A reset whose body lists names resets \
+          only those keys. Seed it as one record `{"id": "default", "value": <the document>}`; with a `:id` path parameter, \
+          the parameter is the key. The answer is the document itself. When the application expects it wrapped (`{document, \
+          revision}`), `responseBody` is a template in which `"{{studio.document}}"` is the stored document and \
+          `"{{studio.revision}}"` its revision. Every rule of the same document names the same entity; declare that entity \
+          without fields.
         - Prefer one entity per resource with a stable `id`; related resources point at each other with `<entity>Id` fields \
           and `references`. Give seed records realistic, varied values, never real people's data, never real credentials.
         - The seed must make the page show something everywhere it can (DEC-007, BUG-078): records of a related entity \
@@ -70,7 +79,7 @@ enum StudioPrompts {
           channel and their types for the answer: the JSON body is what the call resolves to (no body: undefined), and a \
           status of 400 or more makes it reject. Keep what the main process stores as entities, so saves and deletes change \
           what later gets return: a getter of a list is `list`, a getter, update or delete by id is `get`, `update` or \
-          `delete` with `:id`, saving a new record is `create`, and a single document without an id (settings) is `respond`. \
+          `delete` with `:id`, saving a new record is `create`, and a single document without an id (settings) is `document`. \
           A connection test or another check (`testConnection`) succeeds (DEC-007). A method that takes a callback \
           (`onDocumentApplied(cb)`) is a `raw` channel at its own address (`\(StudioIPC.origin)/<global>/<path>/<method>`): \
           link it to the entity whose writes it reports, with the record as the message's data.
@@ -144,6 +153,8 @@ enum StudioPrompts {
             "id": ["type": "string"], "method": ["type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]],
             "path": ["type": "string"], "operation": ["type": "string", "enum": StudioRule.Operation.allCases.map(\.rawValue)],
             "entity": ["type": "string"], "envelope": ["type": "string"],
+            "documentAction": ["type": "string", "enum": [""] + StudioRule.DocumentAction.allCases.map(\.rawValue),
+                               "description": "A document rule's action when its method does not say it; empty otherwise"],
             "filters": ["type": "array", "items": ["type": "string"]],
             "include": ["type": "array", "items": ["type": "object", "properties": [
                 "field": ["type": "string"], "entity": ["type": "string"], "foreignKey": ["type": "string"]],
@@ -204,6 +215,14 @@ enum StudioPrompts {
             if operation == .respond {
                 parsed.response = StudioFixedResponse(status: (rule["responseStatus"] as? NSNumber)?.intValue ?? 200,
                                                       body: nonEmpty("responseBody").flatMap { StudioJSON(text: $0) } ?? .object([:]))
+            }
+            if operation == .document {
+                // A document answers with the document itself unless a template wraps it.
+                parsed.documentAction = nonEmpty("documentAction").flatMap(StudioRule.DocumentAction.init(rawValue:))
+                if let body = nonEmpty("responseBody").flatMap({ StudioJSON(text: $0) }) {
+                    parsed.response = StudioFixedResponse(status: (rule["responseStatus"] as? NSNumber).map(\.intValue).flatMap { $0 > 0 ? $0 : nil } ?? 200,
+                                                          body: body)
+                }
             }
             parsed.evidence = (rule["evidence"] as? [[String: Any]] ?? []).compactMap { item in
                 guard let kind = (item["kind"] as? String).flatMap(StudioEvidence.Kind.init(rawValue:)),
