@@ -19,7 +19,7 @@ Plan
 - [x] 4. UI Studio tab (toolbar, viewport/zoom, Interact/Select, inspector, history with undo, scenarios, environment and policies,
       evidence with compare and export) and menu entry points; "New Prototype from Code" and "Sync from code" open UI Studio;
       saved code-mode prototypes are labelled historical.
-- [ ] 5. Specification statuses, README, lessons; version bump (minor); build; all standalone checks; PR; CI; merge; signed release.
+- [x] 5. Specification statuses, README, lessons; version bump (minor); build; all standalone checks; PR #288; CI; merge; signed release v5.15.0.
 
 Review (before merge)
 - Checked: `ui-studio-tests.sh` (151 checks: simulation, preparation, redaction, bridge, changes and undo with real git, scenarios,
@@ -34,6 +34,21 @@ Review (before merge)
   read as 0); the shell stays the group leader now.
 - Not checked: a session on one of Boris's real projects, and the tab clicked by hand (both are outside this goal; the UI was built
   and compiled, and the session behind it is what the harness drives).
+
+Review (after merge)
+- All 103 `tools/tests/*-tests.sh`: 95 pass on the branch. The other 8 fail identically on a clean `origin/main` (a50149e), so they
+  predate UI Studio and are left for separate fixes: bug-validity (a leftover `markview-validity-*` folder in the shared temp
+  directory), code-architecture (expects 4 layer nodes, gets 9), database-explorer and deployment-store (`CloudServices.swift`
+  missing from their compile list since 4.35.0), project-operation-discovery (`print: command not found`), prototype-runtime (the
+  two known role-switch checks), terminal-link (`archive.iso` default app), workspace-redesign (`Archive` missing from its compile
+  list). pdf-reader-tests did break because of this change (DocumentState gained the `uiStudio` case) and was fixed in the PR.
+- CI found three problems the local runs could not: a pixel-difference expression that Xcode 26.6 could not type-check in time,
+  page-harness clicks that `NSWindow.sendEvent` dropped on the runner, and a harness hang with no output (stdout buffered). All
+  fixed in #288; UI Studio Checks, PDF Reader Checks and PDF Book Checks passed on cec97c1 before the merge.
+- PR #288 merged as 8fbc810; Build & Release of 8fbc810 succeeded on Xcode 16 in 26 minutes (12 before). At Boris's request the
+  release workflows moved to `macos-latest` and its default Xcode (822a9d2, pushed straight to main, #289).
+- Release: `./release.sh --publish` in a clean worktree of 8fbc810 published v5.15.0 (Latest), notarized, stapled, `spctl`
+  accepted; a copy of `MarkView-5.15.0.dmg` is in `build/`.
 
 ## BUG-062: the preview fix round declines a request that spans more than three files, so blank screens stay blank (2026-11-03, 5.13.0, fix/bug-062-prototype-fix-round)
 

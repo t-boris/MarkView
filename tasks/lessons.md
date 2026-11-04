@@ -1041,6 +1041,16 @@ the answer, with the saved default unchanged because the value was the one alrea
 
 ## Harness clicks through `window.sendEvent` depend on which window has the focus
 - The session harness first clicked the preview with synthetic `NSEvent`s sent to its window; one run passed and the next, with no
-  code change, failed because select mode never got the click (probably another window had the focus). A check that is about the session (select without action, then ask and change) dispatches a DOM click; the
+  code change, failed because select mode never got the click. On the CI runner `NSWindow.sendEvent` dropped every click in the
+  page harness too (the test window never becomes key): hit test the point in the window and call `mouseDown`/`mouseUp` on the view
+  that was hit, which still checks the zoom mapping. A check that is about the session (select without action, then ask and change) dispatches a DOM click; the
   native-click path under zoom is covered once, in the page harness, where the window is ordered front and key.
+
+## The CI compiler is not the local one: a clean local build does not prove the CI build
+- UI Studio built in a few minutes locally (Xcode 27.2) and with `-warn-long-expression-type-checking=15` showed nothing, but Xcode
+  26.6 in CI stopped on one per-pixel expression ("unable to type-check this expression in reasonable time"), and Build & Release,
+  then pinned to Xcode 16, needed 26 minutes instead of 12. Keep mixed integer conversions in typed steps in hot loops, push early
+  so CI compiles the branch, and do not read a long CI step as a hang before comparing it with earlier runs of the same step.
+- A windowed test harness on a runner must print unbuffered (`setvbuf(stdout, nil, _IONBF, 0)`), name its steps and stop itself
+  with the last step after a time limit; a cancelled step otherwise leaves an empty log.
 
