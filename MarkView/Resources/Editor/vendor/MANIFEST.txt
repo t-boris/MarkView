@@ -51,6 +51,7 @@ markdown-it-footnote            | 3.0.3   | e80946f20fd80645e8e066b47559b232e3c4
 markdown-it-task-lists          | 2.1.1   | 4f3b23f41bb3787957da2602fbccc4df0d017928c1fce62583159e096b832a81 | https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/markdown-it-task-lists.min.js       | 2026-04-30 | clean
 markdown-it-container           | 4.0.0   | 5bda29f8cc0e613e04c4eb077a363cc86ab8a238f487b7792f2bdeb7a7b27ff4 | https://cdn.jsdelivr.net/npm/markdown-it-container@4.0.0/dist/markdown-it-container.min.js         | 2026-04-30 | clean
 js-yaml                         | 4.1.0   | 45dc3dd03dc07a06705a2c2989b8c7f709013f04bd5386e3279d4e447f07ebd7 | https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js                                     | 2026-04-30 | clean
+tailwindcss-browser             | 4.3.3   | a60c785630a06196808cbe79e6f7bdb4abcc8f4421a47b56f29338fc84805e3b | https://registry.npmjs.org/@tailwindcss/browser/-/browser-4.3.3.tgz (dist/index.global.js)         | 2026-11-03 | clean
 
 # === Stylesheets (vendor/css/) ===
 katex-css                       | 0.16.9  | 505d5f829022bb7b4f24dfee0aa1141cd7bba67afe411d1240335f820960b5c3 | https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css                                       | 2026-04-30 | tracks katex 0.16.9

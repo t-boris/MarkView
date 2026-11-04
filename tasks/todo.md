@@ -2578,11 +2578,11 @@ Bug report: "I can't open folder /Users/boris/github.com/vivaa-platform/docs/cod
 - [ ] 2. AppDelegate `application:open:`: if any visible window exists, post
       `.openInActiveWindow` (same payload shape) instead of relying on the
       onAppear race; keep `pendingOpenURL` **only** for cold launch (no windows yet).
-- [ ] 3. ContentView: replace the 0.5 s-delayed `pendingOpenURL` check with a
+- [x] 3. ContentView: replace the 0.5 s-delayed `pendingOpenURL` check with a
       `NSWindow.didBecomeKeyNotification`-driven consume (own window became key +
       `rootNode == nil` + URL pending → open). Keeps cold-launch working without
       the multi-instance race.
-- [ ] 4. Verify: rebuild; test (a) cold launch via Finder "Open With" on the
+- [x] 4. Verify: rebuild; test (a) cold launch via Finder "Open With" on the
       vivaa docs folder, (b) same while app is running showing a welcome window,
       (c) Finder Quick Action file path, (d) Cmd+Shift+O panel unchanged.
 
@@ -3985,10 +3985,25 @@ Plan:
   writes `markview/tailwind-source.js` (the entry without `@source`, `@plugin`, `@config` and local `@import`, as a style of type
   `text/tailwindcss`) and `markview/tailwind.js`, and links both from `index.html` and every `components/*.html`. `authored` strips the lines, so
   the sync baseline does not read them as an edit. Idempotent; nothing for a site without a Tailwind entry.
-- [ ] 5. Wiring: `accept()` ensures it for every version (build, sync, revision, restore); opening an existing prototype from code that lacks it saves
+- [x] 5. Wiring: `accept()` ensures it for every version (build, sync, revision, restore); opening an existing prototype from code that lacks it saves
   a version of its own with no assistant run (as BUG-060 did for the page structure).
-- [ ] 6. Tests: `prototype-tailwind-tests.sh` (logic, idempotence, components, baseline fingerprint unchanged) and a WKWebView check through the
+- [x] 6. Tests: `prototype-tailwind-tests.sh` (logic, idempotence, components, baseline fingerprint unchanged) and a WKWebView check through the
   prototype scheme handler (utility classes get rules); the existing suites; a Debug build.
-- [ ] 7. On a scratchpad copy of the vivaa prototype: apply, render in headless Chrome and WKWebView, run the audit (Studio and Orders not blank);
+- [x] 7. On a scratchpad copy of the vivaa prototype: apply, render in headless Chrome and WKWebView, run the audit (Studio and Orders not blank);
   on a copy of strikedesk the audit still reports trade as blank.
 - [ ] 8. Version 5.13.2, PR, checks, merge, signed DMG, both bugs to fixed (with Cause, Resolution, Verification), worktree removed.
+
+Review (before merge)
+- Checked: `prototype-audit-check.sh` (headless Chrome; fixture now has a sign-in gate and an aside widget, 14 routes; fails with the old counting and
+  with the old chrome rule), `prototype-fixround-tests.sh` (the narrowed loader rule; fails when the host-taking gate or the function-literal rule is
+  removed), the new `prototype-tailwind-tests.sh` (fails without the baseline subtraction and without page linking) and
+  `prototype-tailwind-render-tests.sh` (WKWebView through the preview's scheme handler: no rule before, theme rules after, a class added later too),
+  and every other prototype suite. `prototype-runtime-tests.sh` passes once `~/Library/WebKit/prototype-runtime-tests` (the harness's own profile)
+  is cleared: the two "role switch" failures seen on main were stale harness state, not code. Debug build.
+- On scratchpad copies of Boris's prototypes (originals untouched): the old audit reports exactly the four screens of his report on vivaa
+  (studio-list, poster-document, poster-comments, orders), the new one none, and also none after Tailwind was added; on strikedesk both report
+  workspace (loading), trade (blank) and placeholder-chart (unbuilt). The loader check flags only trade.js of 82 screens. `PrototypeTailwind.ensure`
+  on a vivaa copy linked 118 pages; screenshots show the gallery, login and component pages like the real app instead of raw HTML.
+- Not covered: the shell's header (a `<details>` "Menu" and a `.toolbar` without a rule, written by the assistant) still looks plain; the
+  real preview window and the open-time migration were built but not clicked; Tailwind v3 (`tailwind.config.js`) is not covered; a site that
+  stops importing Tailwind keeps its old `markview/tailwind*.js`.

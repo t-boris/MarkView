@@ -163,6 +163,7 @@
 		6911ACE95B84B9D4BBAF0078 /* SpecificationHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5D5E66F0FE79CAC3D471AB /* SpecificationHandoff.swift */; };
 		694B7765ECEC80DC6F6629A5 /* ControlAgentTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CCAA205551E193AF528A43D /* ControlAgentTools.swift */; };
 		6A4E6CB37477F35960D86B92 /* IssueSyncViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64EBEB12B8498F7BDC5D0ADD /* IssueSyncViews.swift */; };
+		6A827D0F26910541874D078C /* tailwind-browser.js in Resources */ = {isa = PBXBuildFile; fileRef = 1F60ECCDB3C2E43001DA9567 /* tailwind-browser.js */; };
 		6ADDB1842B093A3BB70A4DB4 /* AgentActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11C21E5BBAD478CDEDD9BEC6 /* AgentActivityMonitor.swift */; };
 		6CC857BDBF6BE8DAAF2CECD2 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26726FF62649B52BE2384159 /* FileTreeView.swift */; };
 		6DE4C29D60E2575CF5D4CCD9 /* OutputLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DDC0BA825074D867C9D7697 /* OutputLanguage.swift */; };
@@ -338,6 +339,7 @@
 		F5E36DB6F4BA9C780508F211 /* DDESettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E41CD9CB6F1AB0F0EE1E1A77 /* DDESettingsView.swift */; };
 		F69C7136BBCF2382FC423260 /* BookPDFExportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58204F3C068030E1598BED42 /* BookPDFExportModel.swift */; };
 		F71AD30EA5690CB0BA397664 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = B22463A74DBAA149985AFD0B /* README.md */; };
+		F90E29074E472035B10C3421 /* PrototypeTailwind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */; };
 		F9DB0D1D862F55F68889E54F /* SemanticDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */; };
 		FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 392E7835EA61B16C2B0E7E47 /* PrototypeStudioView.swift */; };
 		FAB93630CB9184D60154A8D0 /* FeatureNavigatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDFB9B4AC589ED10AEE08BC /* FeatureNavigatorView.swift */; };
@@ -393,6 +395,7 @@
 		1DE19769D8B8D41DD4BFC68A /* ControlToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlToolRunner.swift; sourceTree = "<group>"; };
 		1E4DF51D68638A97BBFD2C28 /* BrowserAgentTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAgentTools.swift; sourceTree = "<group>"; };
 		1EBD8CA222E37B957D752DD0 /* ControlToolRunner+Agents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlToolRunner+Agents.swift"; sourceTree = "<group>"; };
+		1F60ECCDB3C2E43001DA9567 /* tailwind-browser.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "tailwind-browser.js"; sourceTree = "<group>"; };
 		208F3A1A41768480AD365DC2 /* BugBasket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BugBasket.swift; sourceTree = "<group>"; };
 		221F39018C2CA8AA7FA32473 /* CloudServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudServices.swift; sourceTree = "<group>"; };
 		223D8243369C4F080D0ECC84 /* markdown-it-container.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markdown-it-container.min.js"; sourceTree = "<group>"; };
@@ -499,6 +502,7 @@
 		672BEDAD7EC9263CEB5A94A1 /* FILES_CREATED.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = FILES_CREATED.txt; sourceTree = "<group>"; };
 		6779BE82AF1FEBCC63597CDC /* prism-css.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-css.min.js"; sourceTree = "<group>"; };
 		6816210E785FAC871633C655 /* DatabaseCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseCardView.swift; sourceTree = "<group>"; };
+		6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeTailwind.swift; sourceTree = "<group>"; };
 		6B9EFCB313A4B742B3C5A1D0 /* prism-cpp.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-cpp.min.js"; sourceTree = "<group>"; };
 		6C1ED1471F59C8FDD227A510 /* RemoteChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteChannel.swift; sourceTree = "<group>"; };
 		6CB25CF391C44897DD4AF564 /* ProjectBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectBootstrap.swift; sourceTree = "<group>"; };
@@ -896,6 +900,7 @@
 				CBCBDE4DDD0932A3FC8963D1 /* PrototypeSession.swift */,
 				EC27A7ECE02BDB6EE3D62893 /* PrototypeShellStructure.swift */,
 				3CC5F8104938A95CFB4F2BC7 /* PrototypeStyles.swift */,
+				6B6BEBAADD6CD8BA0A85088E /* PrototypeTailwind.swift */,
 				7B32B9655FF8C1B4211E6028 /* PrototypeThemes.swift */,
 				3C5186158816AE816A500A12 /* ProviderHints.swift */,
 				C0E8670B2DD2EE667B3BDF94 /* PTYWriter.swift */,
@@ -1121,6 +1126,7 @@
 				9E66DDC9C3E486A4C1201D62 /* prism-typescript.min.js */,
 				F58E38B38401EBC2C62DEA97 /* prism-yaml.min.js */,
 				75EAFF59D525BADEE5D10341 /* prism.min.js */,
+				1F60ECCDB3C2E43001DA9567 /* tailwind-browser.js */,
 				66E0D277415C2D86CE21A125 /* xterm.bundle.js */,
 			);
 			path = js;
@@ -1313,6 +1319,7 @@
 				3D61655E00D985F83F3745AB /* prism-typescript.min.js in Resources */,
 				BA33CA169FFA17EBC8CD2BE3 /* prism-yaml.min.js in Resources */,
 				DC1AFFCE9EA17F235032DE55 /* prism.min.js in Resources */,
+				6A827D0F26910541874D078C /* tailwind-browser.js in Resources */,
 				F02CFF15FB77E319202C89F0 /* terminal.html in Resources */,
 				BAC0B21B067959AEAA6CA07D /* xterm.bundle.js in Resources */,
 				157DDC41421A035DDCC9B022 /* xterm.css in Resources */,
@@ -1539,6 +1546,7 @@
 				07AA9E8BD7921C0FE49408F8 /* PrototypeShellStructure.swift in Sources */,
 				FA014B5C6A09EBB585D56DFE /* PrototypeStudioView.swift in Sources */,
 				DFCD6D9893D2369DF5D972BF /* PrototypeStyles.swift in Sources */,
+				F90E29074E472035B10C3421 /* PrototypeTailwind.swift in Sources */,
 				7D2B4968C8583F5E067B1DBD /* PrototypeThemes.swift in Sources */,
 				CB8A7A969D11FF1E22842A89 /* ProviderHints.swift in Sources */,
 				403752237A1578BBC18C4654 /* PullRequestHistory.swift in Sources */,
