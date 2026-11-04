@@ -99,6 +99,21 @@ enum StudioJSON: Codable, Hashable, Sendable {
 
     subscript(key: String) -> StudioJSON? { objectValue?[key] }
 
+    /// The value with every list cut to its first `items` elements plus a note of how many more there are, so the shape
+    /// of a long answer fits a prompt (BUG-084).
+    func abbreviated(items: Int) -> StudioJSON {
+        switch self {
+        case .array(let list):
+            var kept = list.prefix(items).map { $0.abbreviated(items: items) }
+            if list.count > items { kept.append(.string("… \(list.count - items) more like these")) }
+            return .array(kept)
+        case .object(let object):
+            return .object(object.mapValues { $0.abbreviated(items: items) })
+        default:
+            return self
+        }
+    }
+
     /// The value as a key for comparing ids: `7`, `"7"` and `7.0` are the same record.
     var identityKey: String? {
         switch self {

@@ -26,7 +26,13 @@ actor ProjectChangeScanner {
     private var baseline: [String: FileState] = [:]
     private var current: [String: FileState] = [:]
     private static let excludedDirectories = ProjectSearchIndex.excludedDirectories
+    /// Folders skipped by their path in the project: hand-off packages, and the agents' git worktrees, which are whole
+    /// copies of the project (BUG-083).
+    static let excludedPaths = ["docs/handoffs", ".claude/worktrees"]
     private static let maximumReviewBytes = 524_288
+    /// Larger files, and binary ones of any size, are not read (BUG-083): their size, date and file identity stand for
+    /// their content, so opening a project costs what its text files cost, not every byte on disk.
+    static let maximumHashBytes = 8 << 20
 
     func open(_ project: URL?) throws {
         root = project
@@ -61,6 +67,7 @@ actor ProjectChangeScanner {
             .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
             .contentModificationDateKey, .fileResourceIdentifierKey
         ]) else { return [:] }
+        let skippedPaths = Set(Self.excludedPaths.map { project.standardizedFileURL.appendingPathComponent($0).path })
         var result: [String: FileState] = [:]
         while let url = enumerator.nextObject() as? URL {
             try Task<Never, Never>.checkCancellation()
@@ -69,7 +76,7 @@ actor ProjectChangeScanner {
                                                                    .contentModificationDateKey, .fileResourceIdentifierKey]) else { continue }
             if values.isDirectory == true {
                 if Self.excludedDirectories.contains(url.lastPathComponent.lowercased()) ||
-                    url.standardizedFileURL.path == project.standardizedFileURL.appendingPathComponent("docs/handoffs").path {
+                    skippedPaths.contains(url.standardizedFileURL.path) {
                     enumerator.skipDescendants()
                 }
                 continue
@@ -88,23 +95,38 @@ actor ProjectChangeScanner {
                 result[path] = previous
                 continue
             }
-            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
-            defer { try? handle.close() }
-            var hasher = SHA256()
-            var captured = Data()
-            let readable = ProjectSearchIndex.textExtensions.contains(url.pathExtension.lowercased()) ||
-                ProjectSearchIndex.textNames.contains(name)
-            let capture = readable && fileSize <= Self.maximumReviewBytes
-            while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
-                hasher.update(data: chunk)
-                if capture { captured.append(chunk) }
+            // The chunks a read returns are autoreleased: without a pool per file they lived until the whole walk ended,
+            // which held every byte of the project at once (BUG-083).
+            let state = try autoreleasepool {
+                try Self.state(of: url, name: name, size: fileSize, modified: values.contentModificationDate, identifier: identifier)
             }
-            result[path] = FileState(hash: hasher.finalize().map { String(format: "%02x", $0) }.joined(),
-                                     text: capture ? String(data: captured, encoding: .utf8) : nil,
-                                     size: fileSize, modified: values.contentModificationDate,
-                                     identifier: identifier)
+            if let state { result[path] = state }
         }
         return result
+    }
+
+    /// The state of one file: a SHA-256 of its content, and its text when it is small and readable; for a binary or a
+    /// large file only its size, date and file identity, which change whenever its content does. Nil when it can't be read.
+    private static func state(of url: URL, name: String, size: Int, modified: Date?, identifier: String?) throws -> FileState? {
+        let ext = url.pathExtension.lowercased()
+        if ProjectSearchIndex.binaryExtensions.contains(ext) || size > maximumHashBytes {
+            let date = modified.map { String($0.timeIntervalSince1970) } ?? "-"
+            return FileState(hash: "file:\(size):\(date):\(identifier ?? "-")", text: nil, size: size, modified: modified,
+                             identifier: identifier)
+        }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var captured = Data()
+        let readable = ProjectSearchIndex.textExtensions.contains(ext) || ProjectSearchIndex.textNames.contains(name)
+        let capture = readable && size <= maximumReviewBytes
+        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
+            hasher.update(data: chunk)
+            if capture { captured.append(chunk) }
+        }
+        return FileState(hash: hasher.finalize().map { String(format: "%02x", $0) }.joined(),
+                         text: capture ? String(data: captured, encoding: .utf8) : nil,
+                         size: size, modified: modified, identifier: identifier)
     }
 }
 

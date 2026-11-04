@@ -861,6 +861,53 @@ func contextChecks() {
     let notes = StudioContextValidator.notes(StudioContextPlan(structured: contextObject(data: #"{"notes":[{"id":1}]}"#)), spec: unserved)
     check("REQ-013 records no rule serves are reported as not shown", notes.count == 1 && notes[0].contains("no simulation rule serves"), notes.joined())
 
+    // BUG-084: data a rule answers with a fixed body. The page's chain comes from a rule registered late, after many others.
+    let chainBody: StudioJSON = .object([
+        "underlying": .string("SPX"), "strikes": .array([5890, 5895, 5900, 5905, 5910].map { .number($0) }),
+        "contracts": .array([5890, 5895, 5900].map { .object(["strike": .number($0), "type": .string("call"), "bid": .number(1), "apiKey": .string("k-123")]) })])
+    var chainSpec = spec
+    chainSpec.rules += (1...65).map { StudioRule(id: "filler-\($0)", method: "GET", path: "/api/filler/\($0)", operation: .respond,
+                                                 response: StudioFixedResponse(status: 200, body: .object([:]))) }
+    chainSpec.rules.append(StudioRule(id: "fetch-chain", method: "GET", path: "/api/chain", operation: .respond,
+                                      response: StudioFixedResponse(status: 200, body: chainBody)))
+    let chainBlock = StudioPrompts.contextBlock(spec: chainSpec, scenario: base, redactor: StudioRedactor(), reached: ["fetch-chain", "list-projects", "gone"])
+    let chainLines = chainBlock.components(separatedBy: "\n")
+    let firstRule = chainLines.firstIndex { $0.hasPrefix("- ") && $0.contains(": GET /api/") }
+    check("BUG-084 the rules that answered the page come first, also beyond the listed limit",
+          firstRule.map { chainLines[$0].hasPrefix("- fetch-chain: GET /api/chain → respond (answered the page)") } == true
+          && firstRule.map { chainLines[$0 + 2].hasPrefix("- list-projects:") } == true && !chainBlock.contains("- gone"), chainBlock)
+    check("BUG-084 a fixed answer that answered the page is shown with its lists shortened and its secrets redacted",
+          chainBlock.contains("Fixed answer 200 (lists shortened):") && chainBlock.contains("… 3 more like these")
+          && chainBlock.contains("… 1 more like these") && chainBlock.contains("SPX") && !chainBlock.contains("k-123")
+          && !chainBlock.contains("filler-1: GET /api/filler/1 → respond (answered"), chainBlock)
+    let crowded = StudioPrompts.contextBlock(spec: chainSpec, scenario: base, redactor: StudioRedactor(),
+                                             reached: (1...40).map { "filler-\($0)" } + ["fetch-chain"])
+    check("BUG-084 many small answers before it do not crowd out the page's data", crowded.contains("SPX") && crowded.contains("… 3 more like these"))
+    var chainScenario = base
+    chainScenario.overrides = [StudioOverride(ruleId: "fetch-chain", status: 200, body: .object(["underlying": .string("NDX")]))]
+    check("BUG-084 the shown answer is the scenario's current one",
+          StudioPrompts.contextBlock(spec: chainSpec, scenario: chainScenario, redactor: StudioRedactor(), reached: ["fetch-chain"]).contains("NDX"))
+    let system084 = StudioPrompts.editSystem.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+    check("BUG-084 the prompt says how fixed-answer data is filled", system084.contains("Data that a rule answers with a fixed body")
+          && system084.contains("`status` 200 and the whole new `body`, in the same shape") && system084.contains("not a fake"))
+    func chainProblems(_ body: String, status: Int = 200) -> [String] {
+        StudioContextValidator.problems(StudioContextPlan(structured: contextObject(overrides: [overrideObject(ruleId: "fetch-chain", status: status, body: body)])),
+                                        current: base, spec: chainSpec)
+    }
+    let fuller = #"{"underlying":"SPX","strikes":[5800,5805],"contracts":[{"strike":5800,"type":"put","bid":2}],"extra":true}"#
+    check("BUG-084 a new body of the same shape passes, with other values and list lengths", chainProblems(fuller).isEmpty,
+          chainProblems(fuller).joined(separator: " | "))
+    let dropped = chainProblems(#"{"contracts":[]}"#)
+    check("BUG-084 a new body that leaves out keys of the current answer is refused, naming them",
+          dropped.count == 1 && dropped[0].contains("fetch-chain") && dropped[0].contains("strikes, underlying"), dropped.joined(separator: " | "))
+    check("BUG-084 a new body of another kind is refused", chainProblems("[1,2]").first?.contains("must be a JSON object") == true)
+    check("BUG-084 an error override keeps any body", chainProblems(#"{"error":"down"}"#, status: 503).isEmpty)
+    check("BUG-084 the change names a new answer",
+          StudioContextValidator.describe(StudioOverride(ruleId: "fetch-chain", status: 200, body: .object([:]))) == "fetch-chain: status 200, a new answer")
+    check("BUG-084 lists are shortened to their first items, nested too",
+          StudioJSON.array([.number(1), .array([.number(1), .number(2), .number(3)]), .number(3)]).abbreviated(items: 2)
+          == .array([.number(1), .array([.number(1), .number(2), .string("… 1 more like these")]), .string("… 1 more like these")]))
+
     // Stored history and scenarios: new fields are optional, old files load, an unknown kind does not lose the history.
     func reencode<T: Codable>(_ value: T, _ edit: (inout [String: Any]) -> Void) -> T? {
         guard let data = try? StudioStore.encoder.encode(value),
@@ -1223,6 +1270,17 @@ func connectionChecks() {
     check("DEC-006 Create React App and webpack serve keep the real clock",
           clockReason(["react-scripts": "5.0.1"], ["start": "react-scripts start"], command: "npm start") != nil
           && clockReason(["webpack": "^5.0.0"], ["serve": "webpack serve --port 8085"], command: "pnpm run serve") != nil)
+    // BUG-081: Rspack bundles watchpack and compiles lazy chunks inside the page's request, so it rebuilt without end.
+    check("BUG-081 an Rspack dev server behind a named script keeps the real clock",
+          clockReason(["@rspack/cli": "^1.7.6"], ["dev:renderer": "rspack serve -c rspack.renderer.config.ts"],
+                      command: "pnpm run dev:renderer") != nil
+          && clockReason(["@rspack/cli": "^1.7.6"], ["dev": "rspack dev"]) != nil)
+    check("BUG-081 Rsbuild, Rspress and Modern.js dev servers keep the real clock",
+          clockReason(["@rsbuild/core": "^1.0.0"], ["dev": "rsbuild dev --open"]) != nil
+          && clockReason(["rspress": "^1.0.0"], ["dev": "rspress dev"]) != nil
+          && clockReason(["@modern-js/app-tools": "^2.0.0"], ["dev": "modern dev"]) != nil)
+    check("BUG-081 an Rspack production build script does not count as a dev server",
+          clockReason(["@rspack/cli": "^1.7.6"], ["dev": "rspack build && node server.js"]) == nil)
     check("DEC-006 Vite and a Python server follow the scenario's clock (where they can)",
           clockReason(["vite": "^5.0.0"], ["dev": "vite"]) == nil && clockReason([:], [:], command: "python3 server.py 8000") == nil)
     // REQ-007: environments saved before the server connections, and a damaged entry, still load. A spec without the new

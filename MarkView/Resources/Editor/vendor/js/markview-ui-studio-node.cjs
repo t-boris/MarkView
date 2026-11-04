@@ -36,7 +36,8 @@
 // Limits of the request scope: work a request starts keeps its context for good (a timer, a watcher or an on-demand
 // compilation that a request triggers sees the test clock, so a watch started from a request can still report
 // unchanged files), and a value made outside a request (a formatter or a date cached at startup) keeps the real clock
-// and locale when a request uses it later.
+// and locale when a request uses it later. Requests to the development server's own endpoints (lazy compilation, hot
+// updates, hot-reload channels) never enter the scope, since the compilations they start would rebuild without end.
 //
 // It never throws and never keeps a process alive: a missing, half-written or invalid file keeps the last good
 // configuration, and without MARKVIEW_STUDIO_CLOCK (or a file that never parses) it changes nothing at all.
@@ -67,6 +68,23 @@ function inRequest() {
   return requestContext !== null && requestContext.getStore() === true;
 }
 
+// The development server's own endpoints (BUG-081): a bundler's lazy compilation, hot updates and hot-reload channels. A
+// compilation they start must keep the real clock, or its file watcher sees every file as changed and rebuilds without end;
+// they never render the application, so the test clock has nothing to do there.
+const DEV_SERVER_PREFIXES = ['/lazy-compilation-using-', '/__webpack_hmr', '/__webpack_dev_server__', '/webpack-dev-server',
+  '/sockjs-node', '/__rspack', '/rsbuild-hmr', '/__rsbuild', '/_next/webpack-hmr', '/__parcel', '/@vite/'];
+function isDevServerRequest(request) {
+  try {
+    const url = request && typeof request.url === 'string' ? request.url : '';
+    const path = url.split('?')[0];
+    if (path.indexOf('.hot-update.') >= 0) return true;
+    for (let i = 0; i < DEV_SERVER_PREFIXES.length; i++) {
+      if (path.indexOf(DEV_SERVER_PREFIXES[i]) === 0) return true;
+    }
+  } catch (error) {}
+  return false;
+}
+
 let contextInstalled = false;
 function installRequestContext() {
   if (contextInstalled) return;
@@ -77,7 +95,7 @@ function installRequestContext() {
     // http.Server, https.Server (through tls.Server) and the http2 servers all inherit emit from net.Server.
     replaceMethod(require('net').Server.prototype, 'emit', function (real) {
       return function (event) {
-        if (event !== 'request') return real.apply(this, arguments);
+        if (event !== 'request' || isDevServerRequest(arguments[1])) return real.apply(this, arguments);
         const self = this;
         const args = arguments;
         return context.run(true, function () { return real.apply(self, args); });

@@ -68,7 +68,9 @@ actor ProjectSearchIndex {
     ]
     static let excludedDirectories: Set<String> = [
         ".git", ".dde", ".build", ".next", ".venv", ".markview-insight",
-        "node_modules", "build", "dist", "coverage", "deriveddata", "venv"
+        "node_modules", "build", "dist", "coverage", "deriveddata", "venv",
+        // Build tool caches (BUG-083): Turborepo's `.turbo` held 8.9 GB of task outputs in one project.
+        ".turbo", ".cache", ".parcel-cache", ".svelte-kit", ".nuxt", ".angular"
     ]
     /// Files that are never read as text (their content is binary); their names are still searched.
     static let binaryExtensions: Set<String> = [

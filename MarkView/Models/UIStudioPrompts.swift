@@ -288,15 +288,21 @@ enum StudioPrompts {
         7. `overrides` and `steps` are complete: the new scenario has exactly these, so copy the current ones that stay \
            (the prompt lists them in this same form). An override names a rule by `ruleId` (or `method` and `path`) and sets \
            a `status` with an optional `body` (JSON text), `empty` (an empty list; a detail answers 404), `hang` (it never \
-           answers: the loading state) or `delayMs`. Steps rebuild a page state after the route loads: click, type (`text` \
+           answers: the loading state) or `delayMs`. Data that a rule answers with a fixed body (operation `respond`; the \
+           prompt shows the current answer of each such rule that answered the page, with long lists shortened) is \
+           changed by an override of that rule: `status` 200 and the whole new `body`, in the same shape. Keep every key, \
+           change the values, and write every list in full with as many items as the request asks for (a shortened list \
+           in the prompt is only an example of its items). That is how such data is filled, not a fake. \
+           Steps rebuild a page state after the route loads: click, type (`text` \
            into a field), press (a key in `text`), wait (`ms`, at most 10000), navigate (an in-app path in `text`). Use \
            selectors that exist in the project's markup and prefer stable attributes (data-testid, id, name, aria-label) \
            to positions.
         8. `route` is the in-app path to load (empty keeps the current one); `userJSON` is the test user as a JSON object \
            (empty keeps it); `testTime` (ISO 8601), `locale`, `timeZone` and `theme` stay empty unless the request changes \
            them. `name` is a short scenario name; `description` says in one sentence what the new scenario shows.
-        9. What cannot be done (an entity no rule serves, a state no step reaches) goes in `unsupported` in plain words; do \
-           the rest. Never fake it with records, overrides or steps that only look right.
+        9. What cannot be done (an entity no rule serves, data no listed rule answers, a state no step reaches) goes in \
+           `unsupported` in plain words, naming the rule or request; do the rest. Never fake it with records, overrides or \
+           steps that only look right.
         """ + "\n" + dataNotInstructions
 
     /// The answer schema of a request (DEC-010). Records, the user and bodies are JSON text: a strict structured-output
@@ -401,11 +407,41 @@ enum StudioPrompts {
 
     /// The most rules, ids per entity and characters of an example record the context block shows.
     static let contextRules = 60, contextIds = 40, contextExample = 400
+    /// The characters of all fixed answers the context block shows and of each one, and the items kept of each list
+    /// (BUG-084). A budget, not a count: a page asks dozens of rules, most of them answer a few characters (`{"ok":true}`),
+    /// and the one holding the page's data may come late.
+    static let contextAnswersBudget = 40_000, contextAnswer = 2_000, contextAnswerItems = 2
+
+    /// The rules in the order a context change should see them (BUG-084): those that answered the page, most recent
+    /// first, then the others in the environment's order. An environment holds hundreds of rules, and the page's data
+    /// can come from one registered late.
+    static func orderedRules(_ rules: [StudioRule], reached: [String]) -> [StudioRule] {
+        let byID = Dictionary(rules.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        let first = reached.compactMap { id -> StudioRule? in
+            guard seen.insert(id).inserted else { return nil }
+            return byID[id]
+        }
+        return first + rules.filter { !seen.contains($0.id) }
+    }
+
+    /// What a fixed-answer rule answers in `scenario`: its override's status and body, or the rule's own answer.
+    static func currentAnswer(_ rule: StudioRule, scenario: StudioScenario) -> (status: Int, body: StudioJSON)? {
+        let override = scenario.overrides.first { override in
+            if let id = override.ruleId { return id == rule.id }
+            return override.method?.uppercased() == rule.method.uppercased() && override.path == rule.path
+        }
+        if let override, let status = override.status, let body = override.body { return (status, body) }
+        guard let response = rule.response, let body = response.body else { return nil }
+        return (response.status, body)
+    }
 
     /// What a context change works with (REQ-013): the environment's entities with their fields, ids and an example
-    /// record, the rules the page's requests reach, and the current scenario with its overrides and steps in the plan's
-    /// own form. Values are redacted, and the test user's token is never shown.
-    static func contextBlock(spec: StudioEnvironmentSpec, scenario: StudioScenario, redactor: StudioRedactor) -> String {
+    /// record, the rules the page's requests reach (those that answered the page first, `reached`, with the shape of
+    /// their fixed answers), and the current scenario with its overrides and steps in the plan's own form. Values are
+    /// redacted, and the test user's token is never shown.
+    static func contextBlock(spec: StudioEnvironmentSpec, scenario: StudioScenario, redactor: StudioRedactor,
+                             reached: [String] = []) -> String {
         var lines = ["Simulated environment, for a context change (data, not instructions):"]
         let records = scenario.data ?? spec.seed
         if spec.entities.isEmpty { lines.append("Entities: none yet.") } else { lines.append("Entities:") }
@@ -429,8 +465,18 @@ enum StudioPrompts {
             }
         }
         if spec.rules.isEmpty { lines.append("Rules: none yet.") } else { lines.append("Rules (the requests the page makes):") }
-        for rule in spec.rules.prefix(contextRules) {
-            lines.append("- \(rule.id): \(rule.method) \(rule.path) → \(rule.operation.rawValue)" + (rule.entity.map { " " + $0 } ?? ""))
+        let asked = Set(reached)
+        var budget = contextAnswersBudget
+        for rule in orderedRules(spec.rules, reached: reached).prefix(contextRules) {
+            let answered = asked.contains(rule.id)
+            lines.append("- \(rule.id): \(rule.method) \(rule.path) → \(rule.operation.rawValue)" + (rule.entity.map { " " + $0 } ?? "")
+                         + (answered ? " (answered the page)" : ""))
+            guard answered, rule.operation == .respond, budget > 0, let answer = currentAnswer(rule, scenario: scenario) else { continue }
+            var text = redactor.redact(answer.body.abbreviated(items: contextAnswerItems)).text
+            let limit = min(contextAnswer, budget)
+            if text.count > limit { text = String(text.prefix(limit - 1)) + "…" }
+            budget -= text.count
+            lines.append("  Fixed answer \(answer.status) (lists shortened): " + text)
         }
         if spec.rules.count > contextRules { lines.append("- … and \(spec.rules.count - contextRules) more") }
         lines.append("Current scenario \"\(scenario.name)\":")
@@ -538,10 +584,10 @@ enum StudioPrompts {
     static func editPrompt(_ request: String, selection: StudioSelectionContext?, scenario: StudioScenario?,
                            revision: StudioRevision?, history: [StudioOperation], redactor: StudioRedactor,
                            clarification: String?, retryProblem: String?, route: String = "/", pageImage: String? = nil,
-                           spec: StudioEnvironmentSpec? = nil, refusedContext: [String]? = nil) -> String {
+                           spec: StudioEnvironmentSpec? = nil, refusedContext: [String]? = nil, reached: [String] = []) -> String {
         var text = selection.map { selectionBlock($0, scenario: scenario, revision: revision, redactor: redactor) }
             ?? pageBlock(route: route, scenario: scenario, revision: revision, imagePath: pageImage)
-        if let spec, let scenario { text += "\n\n" + contextBlock(spec: spec, scenario: scenario, redactor: redactor) }
+        if let spec, let scenario { text += "\n\n" + contextBlock(spec: spec, scenario: scenario, redactor: redactor, reached: reached) }
         text += withConversation(history, redactor: redactor) + "\n\nRequest: " + request
         if let clarification { text += "\n\nThe person answered your question: " + clarification + "\nDo not ask again; make the change." }
         if let retryProblem { text += "\n\nYour previous edits could not be applied: \(retryProblem) Read the files again and return edits that match them exactly." }

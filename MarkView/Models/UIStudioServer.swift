@@ -200,11 +200,12 @@ final class StudioDevServer: @unchecked Sendable {
 /// Whether the development server may run on the scenario's clock (DEC-006). The Node preload moves the clock only while
 /// a request is handled, but a webpack dev server compiles from inside the page's request and its file watcher compares
 /// file times with the clock: a test time in the past makes every recent file look changed, so it would rebuild without
-/// end. Such a server keeps the real clock; its time zone and language still follow the scenario. Turbopack, Vite and
-/// the other bundlers do not compare file times with the clock.
+/// end. Such a server keeps the real clock; its time zone and language still follow the scenario. Rspack and Rsbuild
+/// bundle the same watcher (watchpack) and compile a lazy chunk inside the page's `POST /lazy-compilation-using-`, so they
+/// count as webpack (BUG-081). Turbopack, Vite and the other bundlers do not compare file times with the clock.
 enum StudioServerClock {
-    static let webpackNote = "This server builds with webpack, whose file watcher compares file times with the clock, so it keeps the "
-        + "real clock; its time zone and language follow the scenario. A date it renders can differ from the page's."
+    static let webpackNote = "This server builds with webpack or Rspack, whose file watcher compares file times with the clock, so it "
+        + "keeps the real clock; its time zone and language follow the scenario. A date it renders can differ from the page's."
 
     /// Why the server keeps the real clock, or nil when it follows the scenario's.
     static func realClockReason(command: String, folder: URL) -> String? {
@@ -227,6 +228,11 @@ enum StudioServerClock {
         let script = " " + script + " "
         if script.contains("--webpack") || script.contains("webpack serve") || script.contains("webpack-dev-server")
             || script.contains("vue-cli-service serve") || script.contains("react-scripts start") || script.contains("gatsby develop") {
+            return true
+        }
+        // `rspack serve` and its alias `rspack dev`, Rsbuild's `rsbuild dev` and the Rspack-based Rspress and Modern.js.
+        if script.contains(" rspack serve") || script.contains(" rspack dev") || script.contains("rspack-dev-server")
+            || script.contains(" rsbuild dev") || script.contains(" rspress dev") || script.contains(" modern dev") {
             return true
         }
         guard script.contains("next dev") || script.contains("next-dev") || script.contains(" next ") else { return false }

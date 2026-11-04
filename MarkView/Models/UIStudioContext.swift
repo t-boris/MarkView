@@ -258,6 +258,9 @@ enum StudioContextValidator {
             if let rule, !seen.insert(rule.id).inserted { problems.append("\(label): the rule \(rule.id) has two overrides.") }
             if let status = override.status, !(100...599).contains(status) { problems.append("\(label): \(status) is not an HTTP status.") }
             if override.body != nil, override.status == nil { problems.append("\(label): a body needs a status.") }
+            if let rule, let body = override.body, let status = override.status, (200..<300).contains(status) {
+                problems += shapeProblems(body, rule: rule, label: label)
+            }
             if let delay = override.delayMs, !(0...maxDelayMs).contains(delay) {
                 problems.append("\(label): delayMs must be between 0 and \(maxDelayMs).")
             }
@@ -266,6 +269,28 @@ enum StudioContextValidator {
             }
         }
         return problems
+    }
+
+    /// A new successful body of a fixed-answer rule keeps the shape of the rule's answer (BUG-084): the same kind of value,
+    /// and for an object every key the answer has, so the page finds what it reads. Values and list lengths may change.
+    static func shapeProblems(_ body: StudioJSON, rule: StudioRule, label: String) -> [String] {
+        guard rule.operation == .respond, let current = rule.response?.body,
+              (200..<300).contains(rule.response?.status ?? 200) else { return [] }
+        switch (current, body) {
+        case (.object(let answer), .object(let new)):
+            let missing = answer.keys.filter { new[$0] == nil }.sorted()
+            guard !missing.isEmpty else { return [] }
+            return ["\(label): the body of \(rule.id) leaves out keys of its current answer (\(missing.joined(separator: ", "))). "
+                    + "Keep every key and change the values."]
+        case (.object, _):
+            return ["\(label): the body of \(rule.id) must be a JSON object, like its current answer."]
+        case (.array, .array):
+            return []
+        case (.array, _):
+            return ["\(label): the body of \(rule.id) must be a JSON list, like its current answer."]
+        default:
+            return []
+        }
     }
 
     /// A step that acts on an element names it; a wait is bounded; a navigation stays in the application.
@@ -385,6 +410,7 @@ enum StudioContextValidator {
         var parts: [String] = []
         if override.hang == true { parts.append("never answers (loading)") }
         if let status = override.status { parts.append("status \(status)") }
+        if override.body != nil { parts.append("a new answer") }
         if override.empty == true { parts.append("empty") }
         if let delay = override.delayMs, delay > 0 { parts.append("after \(delay) ms") }
         return rule + ": " + parts.joined(separator: ", ")

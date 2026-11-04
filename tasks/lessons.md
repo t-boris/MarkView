@@ -1195,3 +1195,24 @@ the answer, with the saved default unchanged because the value was the one alrea
   its loading screen.
 - An Electron renderer run as a web page needs its preload bridge simulated (REQ-016). A no-op stand-in hands the app
   proxies instead of data, and it crashes far from the cause.
+
+## "MarkView eats all resources": measure each process before blaming one (BUG-081…BUG-084, 5.26.0)
+- Start with `footprint <pid>` and `vmmap --summary` (the physical footprint peak), `/usr/bin/sample <pid> 3`, `top -o cpu`
+  for child processes, and `~/Library/Logs/DiagnosticReports/*cpu_resource*.diag`. Here there were three separate causes:
+  a 25 GB launch peak in MarkView, an Rspack child at ~700% CPU, and MarkView's main thread busy redacting its log.
+- A test clock in the past must never reach a dev server's file watcher (DEC-006). Rspack and Rsbuild bundle watchpack.
+  Detect them by their scripts (`rspack serve|dev`, `rsbuild dev`) and keep their real clock. The Node preload also keeps
+  dev-server endpoints (`/lazy-compilation-using-`, `*.hot-update.*`, HMR sockets) out of the request clock scope: a server
+  can compile inside a page's request.
+- A synchronous walk that reads files with `FileHandle.read(upToCount:)` keeps every chunk until its autorelease pool
+  drains. In an actor function, that is the end of the walk. Wrap per-file work in `autoreleasepool`. Do not hash large or
+  binary files; size, date and file identity are enough to notice a change. Skip build caches and agent worktrees.
+- Work that runs on every line of a child's output (redaction, parsing) belongs off the main actor and coalesced to a few
+  updates per second.
+- A context change can only fill data the prompt shows where it comes from. A page's data often comes from a fixed-answer
+  rule (`respond`) registered late among hundreds. The prompt therefore lists the rules that answered the page first, with
+  the shape of their current answers. A new body of such a rule is a real change, not a fake, and it must keep every key
+  of the current answer. Show answers within a character budget, not a count, so dozens of `{"ok":true}` answers cannot
+  push out the one that matters.
+- Verify a prompt change against the real project: rebuild the prompt from its `environment.json` and session log, run the
+  assistant on it once, and check the answer with the app's own validator.

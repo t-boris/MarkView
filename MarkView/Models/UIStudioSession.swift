@@ -514,10 +514,28 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         restartServer()
     }
 
+    private var serverLogRefreshPending = false
+
+    /// The visible tail of the server's output (BUG-082). Redacting it runs every credential pattern over 12,000
+    /// characters, so it is done at most once per `serverLogInterval`, however fast the server prints, and off the main
+    /// actor; output that arrives meanwhile is picked up by that refresh.
     private func refreshServerLog() {
-        guard let server else { return }
-        serverLog = redactor.redact(text: String(server.output.suffix(12_000)))
+        guard !serverLogRefreshPending else { return }
+        serverLogRefreshPending = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.serverLogInterval)
+            guard let self else { return }
+            self.serverLogRefreshPending = false
+            guard let server = self.server else { return }
+            let tail = String(server.output.suffix(12_000)), redactor = self.redactor
+            let text = await Task.detached(priority: .utility) { redactor.redact(text: tail) }.value
+            // A server stopped or replaced meanwhile keeps its log out of the current one.
+            guard !self.closed, self.server === server else { return }
+            self.serverLog = text
+        }
     }
+
+    static let serverLogInterval: UInt64 = 250_000_000
 
     private func serverEnded(_ code: Int32) {
         refreshServerLog()
@@ -950,8 +968,22 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let before = http.isWrite ? simulator.state : nil
         let outcome = simulator.handle(http)
         if let before { channels.entitiesChanged(StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)) }
+        if case .respond(_, let rule) = outcome { noteServed(rule) }
         return outcome
     }
+
+    /// The rules that answered the page, the most recent first (BUG-084): a context change sees them, and the shape of
+    /// their fixed answers, before the environment's other rules.
+    private(set) var servedRules: [String] = []
+
+    private func noteServed(_ rule: String) {
+        guard servedRules.first != rule else { return }
+        servedRules.removeAll { $0 == rule }
+        servedRules.insert(rule, at: 0)
+        if servedRules.count > Self.servedRulesKept { servedRules.removeLast() }
+    }
+
+    static let servedRulesKept = 100
 
     // MARK: - Channels (REQ-015)
 
@@ -1921,7 +1953,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                                                                                   redactor: session.redactor, clarification: clarification,
                                                                                   retryProblem: retryProblem, route: pageRoute,
                                                                                   pageImage: pageImage, spec: session.spec,
-                                                                                  refusedContext: refusedContext),
+                                                                                  refusedContext: refusedContext,
+                                                                                  reached: session.servedRules),
                                                  systemPrompt: StudioPrompts.editSystem, jsonSchema: StudioPrompts.editSchema,
                                                  readableFolder: session.root)
                 call.images = (selection?.imagePath ?? pageImage).map { [URL(fileURLWithPath: $0)] } ?? []

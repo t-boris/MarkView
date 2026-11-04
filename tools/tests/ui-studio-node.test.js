@@ -283,6 +283,33 @@ function liveScenario() {
   });
 }
 
+// BUG-081: the development server's own endpoints, and work they start, keep the real clock; a page request does not.
+function devEndpointScenario() {
+  const http = require('http');
+  const server = http.createServer(function (req, res) {
+    const now = Date.now();
+    // What a compilation started by this request reads a moment later (a file watcher's start time).
+    setTimeout(function () { res.end(JSON.stringify({ now: now, later: Date.now() })); }, 20);
+  });
+  server.listen(0, '127.0.0.1', function () {
+    const paths = ['/', '/lazy-compilation-using-abc%2Fdef', '/main.0a1b.hot-update.json', '/__webpack_hmr', '/rsbuild-hmr?x=1',
+      '/orders?view=lazy-compilation-using-'];
+    const result = {};
+    const next = function (index) {
+      if (index === paths.length) {
+        server.close();
+        return console.log(JSON.stringify(result));
+      }
+      http.get({ host: '127.0.0.1', port: server.address().port, path: paths[index] }, function (response) {
+        let body = '';
+        response.on('data', function (chunk) { body += chunk; });
+        response.on('end', function () { result[paths[index]] = JSON.parse(body); next(index + 1); });
+      });
+    };
+    next(0);
+  });
+}
+
 function workerScenario() {
   const { Worker } = require('worker_threads');
   const code = [
@@ -680,9 +707,31 @@ async function checkFork() {
   }
 }
 
+function checkDevEndpoints() {
+  startClock({});
+  const t0 = Date.now();
+  const result = runSync(devEndpointScenario, studioEnv(preload));
+  const t1 = Date.now();
+  const onTest = function (answer) {
+    return answer && within(answer.now, testRange(t0, t1)) && within(answer.later, testRange(t0, t1));
+  };
+  const onReal = function (answer) {
+    return answer && within(answer.now, realRange(t0, t1)) && within(answer.later, realRange(t0, t1));
+  };
+  check('BUG-081 a page request, and work it starts, follow the test clock', onTest(result['/']), result['/'] || result.error);
+  check('BUG-081 lazy compilation and hot updates keep the real clock, also in the work they start',
+    onReal(result['/lazy-compilation-using-abc%2Fdef']) && onReal(result['/main.0a1b.hot-update.json']),
+    [result['/lazy-compilation-using-abc%2Fdef'], result['/main.0a1b.hot-update.json']]);
+  check('BUG-081 hot-reload channels keep the real clock', onReal(result['/__webpack_hmr']) && onReal(result['/rsbuild-hmr?x=1']),
+    [result['/__webpack_hmr'], result['/rsbuild-hmr?x=1']]);
+  check('BUG-081 an endpoint name in the query is still a page request', onTest(result['/orders?view=lazy-compilation-using-']),
+    result['/orders?view=lazy-compilation-using-']);
+}
+
 async function main() {
   checkActive();
   checkInactive();
+  checkDevEndpoints();
   await checkLive();
   checkWorker();
   checkConvert(require(preload).convertSetCookie);

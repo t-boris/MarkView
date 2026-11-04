@@ -1,5 +1,36 @@
 # MarkView — Follow-up Tasks
 
+## MarkView eats all resources — release 5.26.0 (2026-11-04, BUG-081…BUG-084)
+
+Evidence: footprint peak 24.9 GB within 100 s of launch (9 restored windows); a UI Studio Rspack server rebuilding ~30×/s at
+~700% CPU; MarkView's main thread ~90% in `StudioRedactor.redact`; cpu_resource reports at 12:04 and 12:29. Boris also reported
+that a context change could not fill the StrikeDesk option chain.
+
+Plan (approved by Boris: one release 5.26.0, straight to main)
+- [x] BUG-081: `StudioServerClock.usesWebpack` also recognises Rspack and Rsbuild dev servers (`rspack serve|dev`,
+      `rsbuild dev`), so they keep the real clock like webpack (DEC-006); harness case in `UIStudioTests.swift`.
+- [x] BUG-082: the visible server log is refreshed at most every 250 ms and redacted off the main actor.
+- [x] BUG-083: `ProjectChangeScanner` drains an autorelease pool per file, does not read large or binary files (size, date and
+      file identity stand for their content), and skips `.turbo` and `.claude/worktrees`; standalone check.
+- [x] BUG-084: the context block lists the rules the page reached first and shows the shape of their fixed answers; the prompt
+      says a fixed answer is changed by an override with status 200 and a body of the same shape; the validator refuses a body
+      that drops keys of the current answer; harness cases.
+- [ ] Bump minor (5.26.0), Debug build, Studio and new standalone checks, commit and push to main, `./release.sh --publish`,
+      bug statuses fixed, lessons. Install only when Boris says so.
+
+Review
+- BUG-081: Rspack, Rsbuild, Rspress and Modern.js dev scripts keep the real clock. The Node preload never puts dev-server
+  endpoints in the request clock scope. Old preload: 2 of the new Node checks fail; new: all pass.
+- BUG-082: the server log is redacted off the main actor, at most every 250 ms.
+- BUG-083: `project-change-tests.sh` (new) shows the peak growing 12 MB over a walk of 200 MB of files (195 MB before);
+  `.turbo` and `.claude/worktrees` are no longer walked.
+- BUG-084: replayed against broker-fabric's real environment and session log, the prompt now lists
+  `strikedesk-backend-ibkr-data-fetch-structure` as having answered the page, with its current answer (lists shortened).
+  Codex, given that prompt and the app's schema, returned a context change instead of a refusal: one override of that rule
+  with 33 strikes (5820…5980 around 5900) and 66 contracts in the first expiry. The app's validator found no problems.
+- Checks: ui-studio, ui-studio-session (225), ui-studio-web, ui-studio-gateway, ui-studio-node, project-change,
+  project-search: all pass. Debug build 5.26.0 succeeds.
+
 ## MarkView UI Studio (2026-11-04, feat/markview-ui-studio, issue #287)
 
 Specification: `docs/features/markview-ui-studio` (REQ-001…REQ-006, DEC-001…DEC-005, plan I-1…I-8). Q-005 asked and answered
