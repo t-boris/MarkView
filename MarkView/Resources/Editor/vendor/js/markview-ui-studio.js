@@ -535,7 +535,10 @@
   };
 
   if (typeof config.testTime === 'number' && isFinite(config.testTime)) {
-    var startTime = config.testTime;
+    // The clock shows testTime at MarkView's anchor (the real time of the last restore) and runs on across page loads; the
+    // development server's clock shares the anchor (DEC-006). Within a page it advances with the monotonic clock.
+    var anchor = typeof config.clockAnchor === 'number' && isFinite(config.clockAnchor) ? config.clockAnchor : RealDate.now();
+    var startTime = config.testTime + Math.max(0, RealDate.now() - anchor);
     var startPerf = performance.now();
     var studioNow = function () { return Math.floor(startTime + (performance.now() - startPerf)); };
     var StudioDate = function Date() {

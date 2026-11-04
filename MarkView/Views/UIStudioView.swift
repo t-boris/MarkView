@@ -1054,6 +1054,54 @@ struct UIStudioEnvironmentPanel: View {
     /// Page events opened to their whole text, by group.
     @State private var expandedEvents: Set<String> = []
 
+    /// The development server's own requests to other services (REQ-007): each address simulated or real, secrets with
+    /// test values or kept real. A change restarts the server MarkView started.
+    @ViewBuilder private var serverConnectionsSection: some View {
+        section("Server connections")
+        if !session.ownsServer, session.appURL != nil {
+            Text("This development server was started outside MarkView: its requests to other services are real and its clock is the "
+                 + "real clock. Stop it and open UI Studio again to let MarkView start it with simulated connections and the scenario's clock.")
+                .uiFont(size: 10).foregroundColor(VSDark.orange).fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text("The server's requests to these addresses are answered by the simulation, like the page's. Requests to addresses "
+                 + "written in the code itself, databases and other protocols stay real.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+        }
+        if session.serverConnections.isEmpty {
+            Text("No service addresses found in the env files or the code.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+        }
+        ForEach(session.serverConnections) { connection in
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(connection.variable).uiFont(size: 10, design: .monospaced).foregroundColor(VSDark.text)
+                    Text(connection.origin + connection.basePath + "  ·  " + connection.foundIn).uiFont(size: 9).foregroundColor(VSDark.textDim)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Picker("", selection: Binding(get: { connection.mode }, set: { session.setConnectionMode(connection.variable, $0) })) {
+                    Text("Simulated").tag(StudioServerConnection.Mode.simulated)
+                    Text("Real").tag(StudioServerConnection.Mode.real)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.mini)
+                .disabled(session.busy != nil || !session.ownsServer)
+            }
+        }
+        if !session.serverSecrets.isEmpty {
+            Text("Secrets get test values; the real ones never reach the server while it is simulated.")
+                .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+            ForEach(session.serverSecrets, id: \.self) { name in
+                Toggle(isOn: Binding(get: { (session.spec.keptSecrets ?? []).contains(name) },
+                                     set: { session.setSecretKeptReal(name, $0) })) {
+                    Text("Keep \(name) real").uiFont(size: 10, design: .monospaced)
+                }
+                .toggleStyle(.checkbox).controlSize(.small).disabled(session.busy != nil || !session.ownsServer)
+            }
+        }
+        ForEach(session.serverNotes, id: \.self) { note in
+            Text(note).uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
@@ -1088,6 +1136,8 @@ struct UIStudioEnvironmentPanel: View {
                     .disabled(allowed.trimmingCharacters(in: .whitespaces).isEmpty || session.busy != nil)
                 }
                 .controlSize(.small)
+
+                serverConnectionsSection
 
                 section("Model connections")
                 Text(StudioModelPolicy.description).uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
@@ -1140,6 +1190,9 @@ struct UIStudioEnvironmentPanel: View {
                     HStack(spacing: 4) {
                         Text(request.status.map(String.init) ?? "…").uiFont(size: 9, design: .monospaced).frame(width: 28, alignment: .leading)
                         Text(request.outcome).uiFont(size: 9).foregroundColor(VSDark.textDim).frame(width: 62, alignment: .leading)
+                        Text(request.transport).uiFont(size: 9).foregroundColor(request.transport == "server" ? VSDark.orange : VSDark.textDim)
+                            .frame(width: 38, alignment: .leading)
+                            .help(request.transport == "server" ? "Made by the development server through a simulated connection" : "Made by the page")
                         Text("\(request.method) \(request.url)").uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.text)
                             .lineLimit(1).truncationMode(.middle)
                     }

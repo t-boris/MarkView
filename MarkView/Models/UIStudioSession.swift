@@ -40,6 +40,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         /// simulated, allowed, preparing, unresolved, unsupported
         var outcome: String
         var status: Int?
+        /// "page", or "server" for a request the development server made through a simulated connection (REQ-007).
+        var transport = "page"
         var date = Date()
     }
 
@@ -83,6 +85,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var spec: StudioEnvironmentSpec
     @Published private(set) var savedScenarios: [StudioScenario] = []
     @Published private(set) var scenario: StudioScenario
+    /// Service addresses of the development server (REQ-007): simulated through the gateway, or real.
+    @Published private(set) var serverConnections: [StudioServerConnection] = []
+    /// Secret variables the server reads; each gets a test value unless kept real.
+    @Published private(set) var serverSecrets: [String] = []
+    /// What is not simulated on the server side, and why.
+    @Published private(set) var serverNotes: [String] = []
     @Published private(set) var mode: Mode = .interact {
         // A page the application loads while recording (a link, a form, a reload) records too (BUG-071).
         didSet { if (oldValue == .record) != (mode == .record) { _ = installRuntime() } }
@@ -132,6 +140,21 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private var appOrigin: StudioBridge.Origin?
     /// Main-frame page loads committed so far: tells a replay step that loaded another page from one that failed.
     private var pageCommits = 0
+    /// The real time at which the scenario's test clock shows its test time: set by every restore, shared by the page and the
+    /// development server, so the clock runs on across page loads (DEC-006).
+    private var clockAnchor = Date()
+    /// The listeners the simulated connections point at, by variable (REQ-007).
+    private var gateway: StudioGateway?
+    private var gatewayPorts: [String: UInt16] = [:]
+    /// Hashes of the project's secret values (from its env files), to redact them from requests; never the values.
+    private var secretHashes: [String: String] = [:]
+    /// The clock file the server's Node processes follow (DEC-006), in a folder of this session.
+    private var clockFile: URL?
+    /// Whether the server MarkView started was given the clock file (not a webpack server).
+    private var serverFollowsClock = false
+
+    /// The Node preload that gives the server the scenario's clock, time zone and locale (DEC-006).
+    static var nodePreloadURL = Bundle.main.url(forResource: "markview-ui-studio-node", withExtension: "cjs", subdirectory: "Editor/vendor/js")
     private var electronGlobals: [String] = []
     private var pickTask: Task<Void, Never>?
     private var workTask: Task<Void, Never>?
@@ -217,6 +240,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     private func launch(_ target: WebAppTarget) async {
+        // A server this session started for another target never outlives the switch.
+        await stopOwnedServer()
         self.target = target
         disclosures = StudioTargetLimits.disclosures(for: target)
         if target.isElectron {
@@ -245,11 +270,18 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     private func startServer(_ target: WebAppTarget) async -> URL? {
-        let launch = await StudioLaunchEnvironment.make()
+        let overrides = await prepareServerConnections(target)
+        let launch = await StudioLaunchEnvironment.make(overrides: overrides, nodePreload: Self.nodePreloadURL?.path)
         removedEnvironment = launch.removed
         let server = StudioDevServer(command: target.command, folder: target.folder)
         server.onOutput = { [weak self] _ in Task { @MainActor in self?.refreshServerLog() } }
-        server.onExit = { [weak self] code in Task { @MainActor in self?.serverEnded(code) } }
+        // Only the session's current server reports its end: one it stopped or replaced on purpose does not.
+        server.onExit = { [weak self, weak server] code in
+            Task { @MainActor in
+                guard let self, let server, self.server === server else { return }
+                self.serverEnded(code)
+            }
+        }
         do {
             try server.start(environment: launch.environment)
         } catch {
@@ -276,6 +308,135 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
         if !closed { set(.failed, "The development server did not print an address within 3 minutes.") }
         return nil
+    }
+
+    /// Finds the server's service addresses and secrets, opens the gateway for the simulated ones and returns the variables
+    /// to start the server with (REQ-007), with the scenario's clock, time zone and language (DEC-006).
+    private func prepareServerConnections(_ target: WebAppTarget) async -> [String: String] {
+        let root = root, folder = target.folder, saved = spec.serverConnections ?? []
+        let expectedOrigin = target.ports.first.map { "http://localhost:\($0)" }
+        let found = await Task.detached {
+            StudioConnections.discover(root: root, appFolder: folder, appOrigin: expectedOrigin, saved: saved)
+        }.value
+        serverConnections = found.connections
+        serverSecrets = found.secrets
+        serverNotes = found.notRedirected.map { "\($0.variable): \($0.reason)" } + found.disclosures
+        secretHashes = found.secretHashes
+        gateway?.close()
+        gateway = nil
+        gatewayPorts = [:]
+        let simulated = found.connections.filter { $0.mode == .simulated }.map(\.variable)
+        if !simulated.isEmpty {
+            let gateway = StudioGateway { [weak self] request, reply in
+                Task { @MainActor in
+                    guard let self else {
+                        return reply(StudioGatewayResponse(status: 503, headers: [:], body: nil))
+                    }
+                    self.handleServerRequest(request, reply: reply)
+                }
+            }
+            do {
+                gatewayPorts = try await gateway.open(simulated)
+                self.gateway = gateway
+            } catch {
+                gateway.close()
+                serverNotes.insert("The server's connections could not be simulated: \(error.localizedDescription) They stay real.", at: 0)
+            }
+        }
+        var overrides = StudioConnections.launchOverrides(found, ports: gatewayPorts, keptReal: Set(spec.keptSecrets ?? []))
+        if let zone = scenario.timeZone, zone.range(of: #"^[A-Za-z0-9_+\-/]+$"#, options: .regularExpression) != nil { overrides["TZ"] = zone }
+        if scenario.locale.range(of: #"^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$"#, options: .regularExpression) != nil {
+            overrides["LANG"] = scenario.locale.replacingOccurrences(of: "-", with: "_") + ".UTF-8"
+        }
+        let folderURL = target.folder, command = target.command
+        serverFollowsClock = false
+        if let reason = await Task.detached(operation: { StudioServerClock.realClockReason(command: command, folder: folderURL) }).value {
+            serverNotes.append(reason)
+        } else if let file = await writeClockFile() {
+            overrides["MARKVIEW_STUDIO_CLOCK"] = file.path
+            serverFollowsClock = true
+        }
+        return overrides
+    }
+
+    /// The scenario's clock for the server's Node processes (DEC-006): the test time at the session's anchor, the time zone
+    /// and the locale. The preload rereads it when it changes, so every restore moves the server's clock with the page's.
+    @discardableResult
+    private func writeClockFile() async -> URL? {
+        if clockFile == nil {
+            clockFile = FileManager.default.temporaryDirectory.appendingPathComponent("markview-studio-\(token)", isDirectory: true)
+                .appendingPathComponent("clock.json")
+        }
+        guard let file = clockFile else { return nil }
+        let clock: [String: Any] = ["testTime": scenario.testTime.timeIntervalSince1970 * 1000, "anchor": clockAnchor.timeIntervalSince1970 * 1000,
+                                    "timeZone": scenario.timeZone ?? NSNull(), "locale": scenario.locale]
+        guard let data = try? JSONSerialization.data(withJSONObject: clock) else { return nil }
+        let written = await Task.detached { () -> Bool in
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                     attributes: [.posixPermissions: 0o700])
+            return (try? data.write(to: file, options: .atomic)) != nil
+        }.value
+        return written ? file : nil
+    }
+
+    /// Stops the server this session started, without reporting it as a failure.
+    private func stopOwnedServer() async {
+        guard ownsServer, let server else { return }
+        self.server = nil
+        await server.stop()
+        StudioDevServer.untrack(server)
+    }
+
+    /// Starts the development server again with the current connections (REQ-007), after a connection was switched between
+    /// simulated and real or a secret was kept real. Only a server MarkView started can be restarted.
+    func restartServer() {
+        guard let target else { return }
+        guard ownsServer else {
+            notice = "This development server was started outside MarkView, so it keeps its own environment and clock. Stop it, then "
+                + "open UI Studio again: MarkView starts the server itself, with simulated connections and the scenario's clock."
+            return
+        }
+        runWork("Restarting the development server") { session in
+            await session.stopOwnedServer()
+            session.set(.starting, "Starting `\(target.command)` in \(target.label)")
+            guard let url = await session.startServer(target), let origin = StudioBridge.Origin(url: url) else {
+                if session.state != .failed { session.set(.failed, "The development server did not answer.") }
+                return
+            }
+            session.appURL = url
+            session.appOrigin = origin
+            session.simulator.appOrigin = origin.text
+            await session.installConnectionPolicy()
+            _ = await session.restore()
+        }
+    }
+
+    /// Switches one of the server's service addresses between the simulation and the real service (REQ-007).
+    func setConnectionMode(_ variable: String, _ mode: StudioServerConnection.Mode) {
+        guard let index = serverConnections.firstIndex(where: { $0.variable == variable }), serverConnections[index].mode != mode else { return }
+        serverConnections[index].mode = mode
+        var next = simulator.spec
+        var saved = next.serverConnections ?? []
+        saved.removeAll { $0.variable == variable }
+        saved.append(serverConnections[index])
+        next.serverConnections = saved.sorted { $0.variable < $1.variable }
+        simulator.replaceSpec(next)
+        spec = next
+        persistEnvironment()
+        restartServer()
+    }
+
+    /// Keeps a secret's real value for the server instead of its test value, or gives it the test value again (REQ-007).
+    func setSecretKeptReal(_ name: String, _ kept: Bool) {
+        var next = simulator.spec
+        var names = Set(next.keptSecrets ?? [])
+        guard kept != names.contains(name) else { return }
+        if kept { names.insert(name) } else { names.remove(name) }
+        next.keptSecrets = names.isEmpty ? nil : names.sorted()
+        simulator.replaceSpec(next)
+        spec = next
+        persistEnvironment()
+        restartServer()
     }
 
     private func refreshServerLog() {
@@ -307,11 +468,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         if let ruleListID { StudioConnectionPolicy.remove(identifier: ruleListID) }
         webView.loadHTMLString("", baseURL: nil)
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
-        if ownsServer, let server {
-            await server.stop()
-            StudioDevServer.untrack(server)
-        }
+        await stopOwnedServer()
         server = nil
+        gateway?.close()
+        gateway = nil
+        if let folder = clockFile?.deletingLastPathComponent() {
+            await Task.detached { try? FileManager.default.removeItem(at: folder) }.value
+        }
         set(.stopped, ownsServer ? "The development server MarkView started was stopped." : "Closed. The development server was already running and was left running.")
     }
 
@@ -353,7 +516,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             "testTime": scenario.testTime.timeIntervalSince1970 * 1000, "locale": scenario.locale,
             "timeZone": scenario.timeZone ?? NSNull(), "electron": target?.isElectron ?? false, "electronGlobals": electronGlobals,
             "recording": mode == .record, "browser": scenario.browserProfile.runtimeConfig,
-            "keptStorage": spec.keptBrowserData?.runtimeStorage ?? [],
+            "keptStorage": spec.keptBrowserData?.runtimeStorage ?? [], "clockAnchor": clockAnchor.timeIntervalSince1970 * 1000,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: config),
               let json = String(data: data, encoding: .utf8) else { return nil }
@@ -428,6 +591,13 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         simulator.reset()
         preparation.cancelAll()
         selection = nil
+        clockAnchor = Date()
+        gateway?.releaseHeld()
+        if ownsServer, serverFollowsClock {
+            await writeClockFile()
+            // The preload rereads the clock file within 250 ms; the page's first server render must see the new clock.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
         await webView.configuration.websiteDataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         await restoreKeptCookies()
         guard await loadPage() else {
@@ -583,45 +753,100 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
     }
 
+    /// A request of the page. One that goes to a gateway port (a public variable inlined in the page's code) is the
+    /// service's request and keeps the service's address (REQ-007).
     private func handle(_ request: StudioBridge.Request, reply: @escaping (Any?, String?) -> Void) {
-        let http = StudioHTTPRequest(method: request.method, url: request.url, headers: request.headers, body: request.body,
-                                     requestId: request.requestId)
-        let shown = redactor.redact(text: request.url.absoluteString)
-        let contract = StudioRoute.contractKey(method: http.method, url: http.url, appOrigin: appOrigin?.text)
-        let sameServer = StudioBridge.Origin(url: request.url).map { appOrigin?.sameServer($0) == true } ?? false
-        if sameServer && StudioConnectionPolicy.isFrameworkRequest(request.url, headers: request.headers) {
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil))
-            return reply(StudioBridge.passThrough(adding: StudioConnectionPolicy.frameworkRequestHeaders), nil)
+        let http = StudioHTTPRequest(method: request.method, url: logicalURL(for: request.url) ?? request.url, headers: request.headers,
+                                     body: request.body, requestId: request.requestId)
+        route(http, source: .page) { answer in
+            switch answer {
+            case .respond(let response): reply(StudioBridge.reply(response), nil)
+            case .pass(let headers): reply(headers.isEmpty ? StudioBridge.passThrough : StudioBridge.passThrough(adding: headers), nil)
+            case .dropped(let reason): reply(nil, reason)
+            }
         }
-        if (sameServer && StudioConnectionPolicy.isDevelopmentResource(request.url, appFolder: appFolder))
-            || spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: request.url, appOrigin: appOrigin?.text) }) {
+    }
+
+    /// A request the development server made through a simulated connection (REQ-007): answered by the same simulation as
+    /// the page's requests, under the service's own address.
+    private func handleServerRequest(_ request: StudioGatewayRequest, reply: @escaping @Sendable (StudioGatewayResponse) -> Void) {
+        func plain(_ status: Int, _ text: String) -> StudioGatewayResponse {
+            StudioGatewayResponse(status: status, headers: ["content-type": "text/plain; charset=utf-8"], body: Data(text.utf8))
+        }
+        guard !closed, let connection = serverConnections.first(where: { $0.variable == request.variable && $0.mode == .simulated }),
+              let url = URL(string: connection.origin + request.target) else {
+            return reply(plain(503, "MarkView UI Studio has no simulated connection for this address."))
+        }
+        let http = StudioHTTPRequest(method: request.method, url: url, headers: request.headers,
+                                     body: request.body.map { String(decoding: $0, as: UTF8.self) }, requestId: UUID().uuidString)
+        route(http, source: .server(variable: request.variable)) { answer in
+            switch answer {
+            case .respond(let response):
+                reply(StudioGatewayResponse(status: response.status, headers: response.headers, body: response.body.map { Data($0.utf8) },
+                                            delayMs: response.delayMs, hang: response.hang))
+            case .pass:
+                reply(plain(502, "MarkView UI Studio answers simulated connections only; switch \(request.variable) to Real to reach the service."))
+            case .dropped(let reason):
+                reply(plain(503, "The simulated answer was dropped (\(reason))."))
+            }
+        }
+    }
+
+    /// The service address behind a gateway port.
+    private func logicalURL(for url: URL) -> URL? {
+        guard let host = url.host, ["127.0.0.1", "localhost"].contains(host), let port = url.port,
+              let variable = gatewayPorts.first(where: { Int($0.value) == port })?.key,
+              let connection = serverConnections.first(where: { $0.variable == variable }),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let target = (components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath)
+            + (components.percentEncodedQuery.map { "?" + $0 } ?? "")
+        return URL(string: connection.origin + target)
+    }
+
+    /// The session's decision for any request, from the page or from the server: pass it to its address, answer it from
+    /// the simulation, or prepare rules for it.
+    private func route(_ http: StudioHTTPRequest, source: StudioRequestSource, reply: @escaping (StudioReply) -> Void) {
+        let shown = redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: secretHashes))
+        let contract = StudioRoute.contractKey(method: http.method, url: http.url, appOrigin: appOrigin?.text)
+        let transport = source.transport
+        let sameServer = source == .page && (StudioBridge.Origin(url: http.url).map { appOrigin?.sameServer($0) == true } ?? false)
+        if sameServer && StudioConnectionPolicy.isFrameworkRequest(http.url, headers: http.headers) {
+            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
+            return reply(.pass(adding: StudioConnectionPolicy.frameworkRequestHeaders))
+        }
+        // The server's connections are switched by the person (Simulated or Real), not by the page's allowed addresses.
+        if (sameServer && StudioConnectionPolicy.isDevelopmentResource(http.url, appFolder: appFolder))
+            || (source == .page && spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: http.url, appOrigin: appOrigin?.text) })) {
             if !sameServer { noteDependency(StudioDependency(id: contract, mode: .allowed, note: "Allowed by the connection policy.")) }
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil))
-            return reply(StudioBridge.passThrough, nil)
+            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
+            return reply(.pass(adding: [:]))
         }
         switch simulator.handle(http) {
         case .respond(let response, _):
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status))
-            reply(StudioBridge.reply(response), nil)
+            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status, transport: transport))
+            reply(.respond(response))
         case .unsupported(let contract, let reason):
             noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason + " are outside the first release."))
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "unsupported", status: 501))
-            reply(StudioBridge.reply(.unsupported(contract, reason: reason + " are not simulated in the first release.")), nil)
+            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "unsupported", status: 501, transport: transport))
+            reply(.respond(.unsupported(contract, reason: reason + " are not simulated in the first release.")))
             updateReadiness()
         case .unknown(let contract):
-            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: nil))
-            prepare(http, contract: contract, reply: reply)
+            log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "preparing", status: nil, transport: transport))
+            prepare(http, contract: contract, source: source, reply: reply)
         }
     }
 
     /// An unknown request (SIM-07): the assistant prepares rules for it within the session's limits; the request waits for
     /// them or ends in a controlled error. It never goes to a real service.
-    private func prepare(_ http: StudioHTTPRequest, contract: String, reply: @escaping (Any?, String?) -> Void) {
+    private func prepare(_ http: StudioHTTPRequest, contract: String, source: StudioRequestSource, reply: @escaping (StudioReply) -> Void) {
         let generation = simulator.generation
-        var body = http.body.map { redactor.redact(body: $0) }
+        let hashes = secretHashes
+        var body = http.body.map { redactor.redact(body: StudioConnections.redact($0, hashes: hashes)) }
         if let text = body, text.count > 4_000 { body = String(text.prefix(4_000)) }
-        let context = StudioPreparationContext(contract: contract, method: http.method, url: redactor.redact(text: http.url.absoluteString),
-                                               headers: redactor.redact(headers: http.headers), body: body, attempt: 1, problems: [])
+        let headers = redactor.redact(headers: http.headers).mapValues { StudioConnections.redact($0, hashes: hashes) }
+        let context = StudioPreparationContext(contract: contract, method: http.method,
+                                               url: redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes)),
+                                               headers: headers, body: body, attempt: 1, problems: [], serverVariable: source.variable)
         let relative = appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let usage = recordUsage
         let preparer = StudioCLIPreparer(project: root, appFolder: relative, spec: simulator.spec) { input, output, cost in
@@ -629,29 +854,29 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
         updateReadiness()
         Task { [weak self] in
-            guard let self else { return reply(nil, "closed") }
+            guard let self else { return reply(.dropped("closed")) }
             let outcome = await self.preparation.resolve(context, generation: generation, preparer: preparer,
                                                          currentGeneration: { [weak self] in self?.simulator.generation ?? -1 },
                                                          commit: { [weak self] proposal in self?.commit(proposal) ?? ["The session is closed."] })
-            guard !self.closed else { return reply(nil, "closed") }
+            guard !self.closed else { return reply(.dropped("closed")) }
             switch outcome {
             case .registered:
                 if self.simulator.generation == generation, case .respond(let response, _) = self.simulator.handle(http) {
-                    self.log(RequestRecord(method: http.method, url: self.redactor.redact(text: http.url.absoluteString), contract: contract,
-                                           outcome: "simulated", status: response.status))
-                    reply(StudioBridge.reply(response), nil)
+                    self.log(RequestRecord(method: http.method, url: self.redactor.redact(text: StudioConnections.redact(http.url.absoluteString, hashes: hashes)),
+                                           contract: contract, outcome: "simulated", status: response.status, transport: source.transport))
+                    reply(.respond(response))
                 } else {
-                    reply(StudioBridge.reply(.unresolved(contract, reason: "the rules registered for it do not answer this request.")), nil)
+                    reply(.respond(.unresolved(contract, reason: "the rules registered for it do not answer this request.")))
                 }
             case .unsupported(let reason):
                 self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: reason))
-                reply(StudioBridge.reply(.unsupported(contract, reason: reason)), nil)
+                reply(.respond(.unsupported(contract, reason: reason)))
             case .stale:
-                reply(nil, "stale")
+                reply(.dropped("stale"))
             default:
                 let reason = self.preparation.records[contract]?.message ?? "it could not be prepared."
                 self.noteDependency(StudioDependency(id: contract, mode: .unresolved, note: reason))
-                reply(StudioBridge.reply(.unresolved(contract, reason: reason)), nil)
+                reply(.respond(.unresolved(contract, reason: reason)))
             }
             self.updateReadiness()
         }
@@ -1748,4 +1973,23 @@ enum StudioFeatureWriter {
         store.reloadSync(slug)
         return slug
     }
+}
+
+/// Who made a request the session answers: the page in the preview, or the development server through a simulated
+/// connection (REQ-007).
+enum StudioRequestSource: Equatable {
+    case page
+    case server(variable: String)
+
+    var transport: String { self == .page ? "page" : "server" }
+    var variable: String? { if case .server(let variable) = self { return variable } else { return nil } }
+}
+
+/// The session's answer to a request, before it takes the page bridge's or the gateway's form.
+enum StudioReply {
+    case respond(StudioSimResponse)
+    /// To its address, with these headers added (the page only).
+    case pass(adding: [String: String])
+    /// No answer any more: the session closed or the scenario was reset meanwhile.
+    case dropped(String)
 }

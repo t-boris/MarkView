@@ -40,12 +40,13 @@ enum StudioTargetLimits {
         let rendering = ["next", "nuxt", "@sveltejs/kit", "@remix-run/dev", "@remix-run/react", "astro", "gatsby", "@angular/ssr",
                          "solid-start", "@solidjs/start", "@builder.io/qwik-city", "@react-router/dev"]
         if let name = rendering.first(where: dependencies.contains) {
-            notes.append("\(name) renders on the server: requests the development server makes itself (server components, loaders, "
-                         + "server-side data) are not simulated. Requests made in the browser are.")
+            notes.append("\(name) renders on the server. When MarkView starts the development server, the requests it makes to the "
+                         + "service addresses in its env files and code are simulated too, and it runs on the scenario's clock (see Server "
+                         + "connections). Addresses written in the code, databases, and a server started outside MarkView are not simulated.")
         }
         if target.command.contains("manage.py") || target.command.contains("rails") {
-            notes.append("Server-rendered pages: the server's own requests and its database are not simulated; only requests the "
-                         + "browser makes are.")
+            notes.append("Server-rendered pages: when MarkView starts the server, its requests to the service addresses in its "
+                         + "environment are simulated; its database is not, and only Node servers follow the scenario's clock.")
         }
         if target.isElectron {
             notes.append("Electron: the renderer runs as a web page. The main process, preload scripts, IPC and native modules do "

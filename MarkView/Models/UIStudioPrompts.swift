@@ -39,13 +39,15 @@ enum StudioPrompts {
         - Prefer one entity per resource with a stable `id`; related resources point at each other with `<entity>Id` fields \
           and `references`. Give seed records realistic, varied values (6-12 records for a list), never real people's data, \
           never real credentials.
-        - When the request needs GraphQL, a WebSocket, a server-side call, a database or a third-party SDK, set \
+        - When the request needs GraphQL, a WebSocket, a database or a third-party SDK, set \
           `unsupported` to true and explain in `reason`.
         - Add rules only for the request's resource and the closely related ones (its list, detail and writes).
         """ + "\n" + dataNotInstructions
 
     static func preparationPrompt(_ context: StudioPreparationContext, spec: StudioEnvironmentSpec, appFolder: String) -> String {
         var lines = ["Unknown request seen by MarkView UI Studio: \(context.method) \(context.url)", "Contract: \(context.contract)",
+                     context.serverVariable.map { "Made by the development server (server-side code), through the environment variable \($0): "
+                         + "search the server code that reads it, not the browser code." } ?? "Made by the page in the browser.",
                      "Application folder (relative to the project): \(appFolder.isEmpty ? "." : appFolder)"]
         if !context.headers.isEmpty {
             lines.append("Request headers: " + context.headers.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "; "))

@@ -126,6 +126,11 @@ struct StudioEnvironmentSpec: Codable, Equatable, Sendable {
     /// Cookies and localStorage entries set again after every restore (REQ-008). Optional, so that environments saved
     /// before it still load.
     var keptBrowserData: StudioKeptBrowserData? = nil
+    /// Service addresses of the development server and whether each is simulated or real (REQ-007). Optional, so files
+    /// written before it still decode.
+    var serverConnections: [StudioServerConnection]? = nil
+    /// Secret variables the person keeps real when MarkView starts the server; the others get test values (REQ-007).
+    var keptSecrets: [String]? = nil
 
     func entity(_ name: String) -> StudioEntity? { entities.first { $0.name == name } }
 }
@@ -197,7 +202,8 @@ struct StudioScenario: Codable, Hashable, Identifiable, Sendable {
     var locale = "en-US"
     var timeZone: String? = nil
     var seed: UInt32 = 1
-    var testTime = Date(timeIntervalSince1970: 1_767_225_600) // 2026-01-01T00:00:00Z
+    /// Mid-month at noon UTC: the same date and year in every time zone, so a server and a page in different zones agree (DEC-006).
+    var testTime = Date(timeIntervalSince1970: 1_768_478_400) // 2026-01-15T12:00:00Z
     var steps: [StudioStep] = []
     /// The contracts this scenario was saved against (`StudioScenarioCompatibility.fingerprint`).
     var contractFingerprint = ""

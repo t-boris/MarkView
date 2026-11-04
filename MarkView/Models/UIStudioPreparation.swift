@@ -19,6 +19,8 @@ struct StudioPreparationContext: Sendable, Equatable {
     var attempt: Int
     /// Why the previous attempt was refused (validation problems), for the second attempt.
     var problems: [String]
+    /// The environment variable through which the development server made the request; nil for the page's requests (REQ-007).
+    var serverVariable: String? = nil
 }
 
 /// Prepares rules for unknown requests (the environment agent). The app's implementation asks the project's assistant

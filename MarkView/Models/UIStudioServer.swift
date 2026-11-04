@@ -197,11 +197,61 @@ final class StudioDevServer: @unchecked Sendable {
 
 /// The environment of the processes a session starts (§11): MarkView's own environment without production secrets, with
 /// the `PATH` of the user's login shell (version managers such as nvm add to it there) and with browsers kept closed.
+/// Whether the development server may run on the scenario's clock (DEC-006). The Node preload moves the clock only while
+/// a request is handled, but a webpack dev server compiles from inside the page's request and its file watcher compares
+/// file times with the clock: a test time in the past makes every recent file look changed, so it would rebuild without
+/// end. Such a server keeps the real clock; its time zone and language still follow the scenario. Turbopack, Vite and
+/// the other bundlers do not compare file times with the clock.
+enum StudioServerClock {
+    static let webpackNote = "This server builds with webpack, whose file watcher compares file times with the clock, so it keeps the "
+        + "real clock; its time zone and language follow the scenario. A date it renders can differ from the page's."
+
+    /// Why the server keeps the real clock, or nil when it follows the scenario's.
+    static func realClockReason(command: String, folder: URL) -> String? {
+        let package = (try? Data(contentsOf: folder.appendingPathComponent("package.json")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        let scripts = (package["scripts"] as? [String: Any]) ?? [:]
+        let dependencies = ((package["dependencies"] as? [String: Any]) ?? [:])
+            .merging((package["devDependencies"] as? [String: Any]) ?? [:]) { first, _ in first }
+        // `npm run dev`, `pnpm dev`, `yarn run dev`, `bun run dev`: what runs is the script's text.
+        let words = command.split(separator: " ").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "'\"")) }
+        var text = command
+        if let manager = words.first, ["npm", "pnpm", "yarn", "bun"].contains(manager), let name = words.last,
+           let script = scripts[name] as? String {
+            text = script
+        }
+        return usesWebpack(script: text, dependencies: dependencies) ? webpackNote : nil
+    }
+
+    static func usesWebpack(script: String, dependencies: [String: Any]) -> Bool {
+        let script = " " + script + " "
+        if script.contains("--webpack") || script.contains("webpack serve") || script.contains("webpack-dev-server")
+            || script.contains("vue-cli-service serve") || script.contains("react-scripts start") || script.contains("gatsby develop") {
+            return true
+        }
+        guard script.contains("next dev") || script.contains("next-dev") || script.contains(" next ") else { return false }
+        if script.contains("--turbo") { return false }
+        // Next.js 16 builds with Turbopack unless told otherwise; earlier versions, and a version that cannot be read
+        // (a tag or a workspace reference), are taken to use webpack.
+        let version = (dependencies["next"] as? String) ?? ""
+        let major = version.range(of: #"\d+"#, options: .regularExpression).flatMap { Int(version[$0]) } ?? 0
+        return major < 16
+    }
+}
+
 enum StudioLaunchEnvironment {
     private static let cache = NSLock()
     nonisolated(unsafe) private static var cachedPath: String?
 
-    static func make(base: [String: String] = ProcessInfo.processInfo.environment) async -> (environment: [String: String], removed: [String]) {
+    /// Names a session may never set for the server: they decide which programs and files it uses.
+    static let protectedNames: Set<String> = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "NODE_OPTIONS", "DYLD_INSERT_LIBRARIES",
+                                              "DYLD_LIBRARY_PATH", "LD_PRELOAD"]
+
+    /// `overrides` (simulated service addresses, test secrets, the scenario's time zone and language) are applied after the
+    /// rest, and `nodePreload` is added to `NODE_OPTIONS` (REQ-007, DEC-006). The gateway's address never goes through a proxy.
+    /// Env files do not override what is set here: `@next/env`, Vite's `loadEnv` and dotenv keep existing variables.
+    static func make(base: [String: String] = ProcessInfo.processInfo.environment, overrides: [String: String] = [:],
+                     nodePreload: String? = nil) async -> (environment: [String: String], removed: [String], overridden: [String]) {
         var (environment, removed) = StudioRedactor.sanitizedEnvironment(base)
         for name in ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "NO_COLOR", "FORCE_COLOR", "TERM_PROGRAM", "ELECTRON_RUN_AS_NODE"] {
             environment[name] = nil
@@ -211,7 +261,24 @@ enum StudioLaunchEnvironment {
         environment["NO_COLOR"] = "1"
         environment["TERM"] = "dumb"
         environment["NODE_ENV"] = environment["NODE_ENV"] ?? "development"
-        return (environment, removed)
+        var overridden: [String] = []
+        for (name, value) in overrides.sorted(by: { $0.key < $1.key })
+        where StudioConnections.isValidName(name) && !protectedNames.contains(name) && !value.contains("\0") {
+            environment[name] = value
+            overridden.append(name)
+        }
+        if !overrides.isEmpty {
+            for name in ["NO_PROXY", "no_proxy"] {
+                let existing = (environment[name] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                environment[name] = (existing.filter { !$0.isEmpty } + ["127.0.0.1", "localhost"].filter { !existing.contains($0) })
+                    .joined(separator: ",")
+            }
+        }
+        if let nodePreload, !nodePreload.contains("\""), !nodePreload.contains("\0") {
+            let existing = environment["NODE_OPTIONS"].map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+            environment["NODE_OPTIONS"] = (existing.isEmpty ? "" : existing + " ") + "--require \"\(nodePreload)\""
+        }
+        return (environment, removed, overridden)
     }
 
     /// `PATH` as the user's interactive login shell sets it; read once per launch of MarkView.

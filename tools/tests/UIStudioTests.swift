@@ -783,6 +783,22 @@ func processChecks() async {
     check("the project's processes get a usable PATH and no browser", (launch.environment["PATH"] ?? "").contains("/usr/bin")
           && launch.environment["BROWSER"] == "none" && launch.environment["LANG"] == "en_US.UTF-8")
 
+    // REQ-007: simulated addresses and test secrets are set over everything else, never the names that pick programs.
+    let simulated = await StudioLaunchEnvironment.make(base: base.merging(["NO_PROXY": "corp.example", "NODE_OPTIONS": "--max-old-space-size=4096"]) { $1 },
+                                                      overrides: ["CORE_URL": "http://127.0.0.1:5001", "API_SECRET": "markview-test-api-secret",
+                                                                  "PATH": "/tmp/evil", "lower": "x", "TZ": "America/Chicago"],
+                                                      nodePreload: "/Applications/MarkView.app/Contents/Resources/markview-ui-studio-node.cjs")
+    check("REQ-007 the server gets the simulated addresses and test secrets", simulated.environment["CORE_URL"] == "http://127.0.0.1:5001"
+          && simulated.environment["API_SECRET"] == "markview-test-api-secret" && simulated.environment["TZ"] == "America/Chicago"
+          && simulated.overridden == ["API_SECRET", "CORE_URL", "TZ"], simulated.overridden.joined(separator: ","))
+    check("REQ-007 overrides never change PATH or take invalid names", (simulated.environment["PATH"] ?? "") != "/tmp/evil"
+          && simulated.environment["lower"] == nil)
+    check("REQ-007 the gateway is reached without a proxy", simulated.environment["NO_PROXY"] == "corp.example,127.0.0.1,localhost"
+          && simulated.environment["no_proxy"] == "127.0.0.1,localhost", simulated.environment["NO_PROXY"] ?? "nil")
+    check("DEC-006 the clock preload is added to NODE_OPTIONS", simulated.environment["NODE_OPTIONS"]
+          == #"--max-old-space-size=4096 --require "/Applications/MarkView.app/Contents/Resources/markview-ui-studio-node.cjs""#,
+          simulated.environment["NODE_OPTIONS"] ?? "nil")
+
     // Connection policy: allowed patterns become anchored filters; dev-server files pass, application data does not.
     check("AC-16 an allowed address becomes an anchored filter", StudioConnectionPolicy.filter(forAllowed: "https://fonts.googleapis.com/*") == #"^https://fonts\.googleapis\.com/"#,
           StudioConnectionPolicy.filter(forAllowed: "https://fonts.googleapis.com/*") ?? "nil")
@@ -894,8 +910,267 @@ func conversationChecks() {
     check("no page events, no rows", StudioEventGrouping.group([]).isEmpty)
 }
 
+// MARK: - Server connections (REQ-007)
+
+func connectionChecks() {
+    // DEC-006: a webpack dev server keeps the real clock; Turbopack and the others follow the scenario.
+    func clockReason(_ dependencies: [String: String], _ scripts: [String: String], command: String = "npm run dev") -> String? {
+        let folder = tmp.appendingPathComponent("clock-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let package: [String: Any] = ["dependencies": dependencies, "scripts": scripts]
+        try? JSONSerialization.data(withJSONObject: package).write(to: folder.appendingPathComponent("package.json"))
+        return StudioServerClock.realClockReason(command: command, folder: folder)
+    }
+    check("DEC-006 Next.js 16 (Turbopack) follows the scenario's clock", clockReason(["next": "16.2.1"], ["dev": "next dev"]) == nil)
+    check("DEC-006 Next.js 16 told to use webpack keeps the real clock", clockReason(["next": "16.2.1"], ["dev": "next dev --webpack"]) != nil)
+    check("DEC-006 Next.js 15 keeps the real clock unless it runs Turbopack",
+          clockReason(["next": "^15.1.0"], ["dev": "next dev"]) != nil && clockReason(["next": "^15.1.0"], ["dev": "next dev --turbopack"]) == nil)
+    check("DEC-006 an unreadable Next.js version is taken as webpack", clockReason(["next": "workspace:*"], ["dev": "next dev"]) != nil)
+    check("DEC-006 Create React App and webpack serve keep the real clock",
+          clockReason(["react-scripts": "5.0.1"], ["start": "react-scripts start"], command: "npm start") != nil
+          && clockReason(["webpack": "^5.0.0"], ["serve": "webpack serve --port 8085"], command: "pnpm run serve") != nil)
+    check("DEC-006 Vite and a Python server follow the scenario's clock (where they can)",
+          clockReason(["vite": "^5.0.0"], ["dev": "vite"]) == nil && clockReason([:], [:], command: "python3 server.py 8000") == nil)
+    // REQ-007: environments saved before the server connections, and a damaged entry, still load. A spec without the new
+    // fields encodes exactly like a file written before them (nil optionals are left out).
+    let oldFile = (try? JSONEncoder().encode(StudioEnvironmentSpec())) ?? Data()
+    let oldSpec = try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: oldFile)
+    check("REQ-007 an environment saved before server connections loads", !String(decoding: oldFile, as: UTF8.self).contains("serverConnections")
+          && oldSpec != nil && oldSpec?.serverConnections == nil && oldSpec?.keptSecrets == nil)
+    var damagedObject = ((try? JSONSerialization.jsonObject(with: oldFile)) as? [String: Any]) ?? [:]
+    damagedObject["serverConnections"] = [["variable": "API_URL", "mode": "bogus"], 7]
+    let damaged = (try? JSONSerialization.data(withJSONObject: damagedObject)).flatMap { try? JSONDecoder().decode(StudioEnvironmentSpec.self, from: $0) }
+    check("REQ-007 a damaged connection entry does not make the environment unreadable",
+          damaged?.serverConnections?.first?.mode == .simulated && damaged?.serverConnections?.first?.variable == "API_URL"
+          && damaged?.serverConnections?.last?.variable == "", "\(String(describing: damaged?.serverConnections))")
+    let base = tmp.appendingPathComponent("connections")
+    let app = base.appendingPathComponent("apps/web")
+    func write(_ path: String, _ text: String) {
+        let file = base.appendingPathComponent(path)
+        try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: file, atomically: true, encoding: .utf8)
+    }
+    write("package.json", #"{"name":"root","workspaces":["apps/*","packages/*"]}"#)
+    write("apps/web/package.json", #"{"name":"web","dependencies":{"@acme/bff":"*","react":"19.0.0"}}"#)
+    write("apps/web/.env.example", """
+        # Services
+        API_URL=
+        API_SECRET=
+        NEXTAUTH_URL=http://localhost:3000
+        REDIS_URL=redis://localhost:6379
+        NEXT_PUBLIC_SUPABASE_URL=https://abc.supabase.co
+        """)
+    // A fake live-key shape, assembled so that secret scanners do not take the test file for a leaked key.
+    let fakeLiveKey = "sk_" + "live_" + "abcdefgh12345678"
+    write("apps/web/.env.local", """
+        export API_SECRET="real-secret-value-123" # not for tests
+        SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.c2lnbmF0dXJl
+        NEXT_PUBLIC_SUPABASE_URL='https://user:pw@abc.supabase.co/rest/?x=1#top'
+        INTERNAL_API_URL=http://localhost:3000/api
+        STRIPE_SECRET_KEY=\(fakeLiveKey)
+        DATABASE_URL=postgres://u:p@localhost/db
+        """)
+    write("apps/web/app/page.tsx", "const r = await fetch(process.env.REPORTS_URL + '/x');\n")
+    write("apps/web/app/page.test.tsx", "process.env.TEST_ONLY_URL\n")
+    write("apps/web/e2e/seed.ts", "const pg = process.env.E2E_ONLY_URL ?? 'http://localhost:5432';\n")
+    write("packages/bff/package.json", #"{"name":"@acme/bff"}"#)
+    write("packages/bff/src/services.ts", """
+        import dotenv from "dotenv";
+        dotenv.config({ override: true });
+        export const SERVICES = {
+          core: {
+            urlEnv: "CORE_URL",
+            defaultUrl: "http://core:3045",
+            basePath: "/api/v1",
+          },
+        };
+        """)
+    write("packages/other/package.json", #"{"name":"@acme/other"}"#)
+    write("packages/other/index.ts", "fetch(process.env.OTHER_URL)\n")
+    write("apps/web/node_modules/x/index.js", "fetch(process.env.NODE_MODULE_URL)\n")
+
+    let found = StudioConnections.discover(root: base, appFolder: app, appOrigin: "http://localhost:3000")
+    let byName = Dictionary(uniqueKeysWithValues: found.connections.map { ($0.variable, $0) })
+    check("REQ-007 URL variables come from env files, the app's sources and the workspace packages it depends on",
+          Set(byName.keys) == ["CORE_URL", "NEXT_PUBLIC_SUPABASE_URL"], byName.keys.sorted().joined(separator: ","))
+    check("REQ-007 a registry's default address names the service", byName["CORE_URL"]?.origin == "http://core:3045"
+          && byName["CORE_URL"]?.basePath == "" && byName["CORE_URL"]?.foundIn == "packages/bff/src/services.ts:6",
+          "\(String(describing: byName["CORE_URL"]))")
+    check("REQ-007 an env value gives origin and path, without credentials, query or fragment",
+          byName["NEXT_PUBLIC_SUPABASE_URL"]?.origin == "https://abc.supabase.co" && byName["NEXT_PUBLIC_SUPABASE_URL"]?.basePath == "/rest"
+          && byName["NEXT_PUBLIC_SUPABASE_URL"]?.foundIn == "apps/web/.env.local", "\(String(describing: byName["NEXT_PUBLIC_SUPABASE_URL"]))")
+    let skipped = Dictionary(uniqueKeysWithValues: found.notRedirected.map { ($0.variable, $0.reason) })
+    check("REQ-007 a variable without any address is left unset", byName["API_URL"] == nil && byName["REPORTS_URL"] == nil
+          && skipped["API_URL"]?.contains("no address") == true && skipped["REPORTS_URL"] != nil)
+    check("REQ-007 the app's own address, non-HTTP services and databases stay as they are",
+          skipped["NEXTAUTH_URL"] != nil && skipped["REDIS_URL"]?.contains("redis:") == true && skipped["INTERNAL_API_URL"] != nil
+          && skipped["DATABASE_URL"] != nil && byName["DATABASE_URL"] == nil, skipped.keys.sorted().joined(separator: ","))
+    check("REQ-007 tests, other packages and node_modules are not read",
+          byName["TEST_ONLY_URL"] == nil && byName["E2E_ONLY_URL"] == nil && byName["OTHER_URL"] == nil && byName["NODE_MODULE_URL"] == nil)
+    check("REQ-007 secrets get test values shaped like the real ones",
+          found.testValues["API_SECRET"] == "markview-test-api-secret" && found.testValues["STRIPE_SECRET_KEY"] == "sk_test_markview_stripe_secret_key"
+          && found.testValues["SUPABASE_ANON_KEY"]?.hasPrefix("eyJ") == true && found.testValues["SUPABASE_ANON_KEY"]?.hasSuffix(".") == true
+          && found.testValues["DATABASE_URL"] == nil, found.secrets.joined(separator: ","))
+    check("REQ-007 no real secret value is kept, only its hash",
+          found.secretHashes[StudioConnections.hash("real-secret-value-123")] == "API_SECRET"
+          && !"\(found.connections)\(found.testValues)\(found.notRedirected)".contains("real-secret-value-123")
+          && !"\(found.connections)".contains("user:pw"))
+    check("REQ-007 a known secret is redacted from a request", StudioConnections.redact("Bearer real-secret-value-123, x=1", hashes: found.secretHashes)
+          == "Bearer [redacted:API_SECRET], x=1")
+    check("REQ-007 code that loads env files over the environment is disclosed",
+          found.disclosures.contains { $0.hasPrefix("packages/bff/src/services.ts:2") }, found.disclosures.joined(separator: " "))
+    let overrides = StudioConnections.launchOverrides(found, ports: ["CORE_URL": 5001, "NEXT_PUBLIC_SUPABASE_URL": 5002], keptReal: ["STRIPE_SECRET_KEY"])
+    check("REQ-007 the server is started with simulated addresses and test secrets",
+          overrides["CORE_URL"] == "http://127.0.0.1:5001" && overrides["NEXT_PUBLIC_SUPABASE_URL"] == "http://127.0.0.1:5002/rest"
+          && overrides["API_SECRET"] == "markview-test-api-secret" && overrides["STRIPE_SECRET_KEY"] == nil && overrides["API_URL"] == nil,
+          overrides.keys.sorted().joined(separator: ","))
+    let saved = [StudioServerConnection(variable: "CORE_URL", origin: "http://core:3045", basePath: "", mode: .real, foundIn: "x")]
+    let again = StudioConnections.discover(root: base, appFolder: app, appOrigin: "http://localhost:3000", saved: saved)
+    check("REQ-007 a connection the person switched to Real stays real", again.connections.first { $0.variable == "CORE_URL" }?.mode == .real
+          && StudioConnections.launchOverrides(again, ports: ["CORE_URL": 5001], keptReal: [])["CORE_URL"] == nil)
+    let parsed = StudioConnections.parseEnvFile("export A=1\nB = \"two # three\"\nC=four # comment\n#D=5\nlower=6\nE='x'y\n")
+    check("REQ-007 dotenv lines are parsed", parsed.map { "\($0.name)=\($0.value)" } == ["A=1", "B=two # three", "C=four", "E=x"],
+          parsed.map { "\($0.name)=\($0.value)" }.joined(separator: " "))
+}
+
+// MARK: - Gateway parser and serializer (REQ-007: requests the development server makes itself)
+
+func gatewayParserChecks() {
+    func parse(_ text: String, _ limits: StudioHTTPParser.Limits = .standard) -> StudioHTTPParser.Result {
+        StudioHTTPParser.parse(Data(text.utf8), limits: limits)
+    }
+    func failure(_ result: StudioHTTPParser.Result) -> Int? {
+        if case .failure(let status, _) = result { return status }
+        return nil
+    }
+    func message(_ result: StudioHTTPParser.Result) -> (StudioHTTPParser.Message, Int)? {
+        if case .complete(let message, let consumed) = result { return (message, consumed) }
+        return nil
+    }
+
+    // A simple GET: method, origin-form target with query, lowercased names, repeated headers joined, no body.
+    let get = "get /api/v1/core/fx/rates?base=EUR HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nX-Trace: a\r\nx-trace: b\r\nAccept:  */* \r\n\r\n"
+    let simple = message(parse(get))
+    check("gateway parser reads a simple GET", simple?.0.method == "GET" && simple?.0.target == "/api/v1/core/fx/rates?base=EUR"
+          && simple?.0.headers["host"] == "127.0.0.1:4100" && simple?.0.headers["accept"] == "*/*" && simple?.0.body == nil,
+          "\(String(describing: simple))")
+    check("gateway parser joins repeated headers with a comma", simple?.0.headers["x-trace"] == "a, b")
+    check("gateway parser reports the bytes the request used", simple?.1 == get.utf8.count)
+    let bareLF = message(parse("GET / HTTP/1.0\nHost: localhost:1\n\nextra"))
+    check("gateway parser accepts bare LF line endings", bareLF?.0.target == "/" && bareLF?.1 == 34, "\(String(describing: bareLF))")
+    check("gateway parser waits for the end of the head", parse("GET / HTTP/1.1\r\nHost: a\r\n") == .incomplete && parse("") == .incomplete
+          && parse("GE") == .incomplete)
+
+    // A POST whose body arrives in several pieces.
+    let postHead = "POST /api/orders HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nContent-Length: 11\r\nContent-Type: application/json\r\n\r\n"
+    check("gateway parser: a split head is incomplete", parse(String(postHead.prefix(30))) == .incomplete)
+    check("gateway parser: a partial body is incomplete", parse(postHead + "{\"id\":") == .incomplete)
+    let post = message(parse(postHead + "{\"id\":\"42\"}GET /next"))
+    check("gateway parser completes the body from Content-Length", post?.0.body == Data("{\"id\":\"42\"}".utf8)
+          && post?.1 == postHead.utf8.count + 11, "\(String(describing: post))")
+    check("gateway parser: Content-Length 0 is no body", message(parse("POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"))?.0.body == nil)
+    check("gateway parser accepts identical repeated Content-Length values",
+          message(parse("POST / HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\nok"))?.0.body == Data("ok".utf8))
+
+    // Chunked transfer coding with extensions and a trailer.
+    let chunkedHead = "POST /upload HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nTransfer-Encoding: chunked\r\n\r\n"
+    let chunks = "4;name=value\r\nWiki\r\n5 ; ext\r\npedia\r\nE\r\n in\r\n\r\nchunks.\r\n0;last\r\nX-Checksum: abc\r\n\r\n"
+    let chunked = message(parse(chunkedHead + chunks))
+    check("gateway parser decodes chunks, ignoring extensions and trailers", chunked?.0.body == Data("Wikipedia in\r\n\r\nchunks.".utf8)
+          && chunked?.1 == (chunkedHead + chunks).utf8.count, "\(String(describing: chunked))")
+    check("gateway parser: chunks cut anywhere are incomplete", (1..<chunks.utf8.count).allSatisfy {
+        parse(chunkedHead + String(decoding: Array(chunks.utf8.prefix($0)), as: UTF8.self)) == .incomplete
+    })
+    check("gateway parser: a malformed chunk size is refused", failure(parse(chunkedHead + "zz\r\nab\r\n0\r\n\r\n")) == 400)
+    check("gateway parser: chunk data without its line end is refused", failure(parse(chunkedHead + "2\r\nabc\r\n0\r\n\r\n")) == 400)
+
+    // Expect: 100-continue.
+    let expectHead = "PUT /api/doc HTTP/1.1\r\nHost: 127.0.0.1:4100\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"
+    check("gateway parser asks for 100-continue while the body is pending", parse(expectHead) == .expectContinue
+          && parse(expectHead + "he") == .expectContinue)
+    check("gateway parser completes an expect-continue request with its body", message(parse(expectHead + "hello"))?.0.body == Data("hello".utf8))
+    check("gateway parser ignores 100-continue in HTTP/1.0", parse(expectHead.replacingOccurrences(of: "HTTP/1.1", with: "HTTP/1.0")) == .incomplete)
+
+    // Limits.
+    let longTarget = "/" + String(repeating: "a", count: 8 * 1024)
+    check("gateway parser: a target over the limit is 414", failure(parse("GET \(longTarget) HTTP/1.1\r\n\r\n")) == 414)
+    check("gateway parser: a target over the limit is 414 before its line ends", failure(parse("GET \(longTarget)")) == 414)
+    check("gateway parser: a target longer than the whole head limit is still 414",
+          failure(parse("GET /\(String(repeating: "b", count: 70 * 1024)) HTTP/1.1\r\n\r\n")) == 414)
+    check("gateway parser: a target at the limit is accepted",
+          message(parse("GET \(String(longTarget.dropLast())) HTTP/1.1\r\n\r\n")) != nil)
+    let manyHeaders = (0...100).map { "X-H\($0): v\r\n" }.joined()
+    check("gateway parser: more than 100 headers is 431", failure(parse("GET / HTTP/1.1\r\n\(manyHeaders)\r\n")) == 431)
+    check("gateway parser: more than 100 headers is 431 before the head ends", failure(parse("GET / HTTP/1.1\r\n\(manyHeaders)")) == 431)
+    check("gateway parser: 100 headers are accepted",
+          message(parse("GET / HTTP/1.1\r\n\((0..<100).map { "X-H\($0): v\r\n" }.joined())\r\n"))?.0.headers.count == 100)
+    let bigValue = String(repeating: "v", count: 64 * 1024)
+    check("gateway parser: a head over 64 KB is 431", failure(parse("GET / HTTP/1.1\r\nX-Big: \(bigValue)\r\n\r\n")) == 431)
+    check("gateway parser: a head over 64 KB is 431 before it ends", failure(parse("GET / HTTP/1.1\r\nX-Big: \(bigValue)")) == 431)
+    check("gateway parser: a Content-Length over 5 MB is 413 before the body is read",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: \(5 * 1024 * 1024 + 1)\r\n\r\n")) == 413
+          && failure(parse("POST / HTTP/1.1\r\nContent-Length: 99999999999999999999999\r\n\r\n")) == 413)
+    check("gateway parser: a chunk over the body limit is 413 before its data arrives",
+          failure(parse(chunkedHead + String(5 * 1024 * 1024 + 1, radix: 16) + "\r\n")) == 413)
+    var small = StudioHTTPParser.Limits.standard
+    small.body = 8
+    check("gateway parser: chunks that add up over the body limit are 413",
+          failure(parse(chunkedHead + "5\r\nhello\r\n5\r\n", small)) == 413 && message(parse(chunkedHead + "8\r\n12345678\r\n0\r\n\r\n", small)) != nil)
+
+    // Malformed and refused framing.
+    check("gateway parser: Content-Length with Transfer-Encoding is 400",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n")) == 400)
+    check("gateway parser: conflicting Content-Length values are 400",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\nabcd")) == 400
+          && failure(parse("POST / HTTP/1.1\r\nContent-Length: 3, 4\r\n\r\nabcd")) == 400)
+    check("gateway parser: a negative or non-numeric Content-Length is 400",
+          failure(parse("POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n")) == 400 && failure(parse("POST / HTTP/1.1\r\nContent-Length: 1x\r\n\r\n")) == 400)
+    check("gateway parser: other transfer codings are 501", failure(parse("POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n")) == 501)
+    check("gateway parser: an absolute-form target is 400", failure(parse("GET http://127.0.0.1:4100/api HTTP/1.1\r\n\r\n")) == 400)
+    check("gateway parser: asterisk and authority forms are 400", failure(parse("OPTIONS * HTTP/1.1\r\n\r\n")) == 400
+          && failure(parse("CONNECT example.com:443 HTTP/1.1\r\n\r\n")) == 400)
+    check("gateway parser: folded header lines are 400", failure(parse("GET / HTTP/1.1\r\nX-A: a\r\n  continued\r\n\r\n")) == 400)
+    check("gateway parser: malformed lines are 400", failure(parse("GET /\r\n\r\n")) == 400 && failure(parse("GET  / HTTP/1.1\r\n\r\n")) == 400
+          && failure(parse("GET / HTTP/1.1\r\nNoColon\r\n\r\n")) == 400 && failure(parse("GET / HTTP/1.1\r\nX-A : a\r\n\r\n")) == 400
+          && failure(parse("GET / HTTP/1.1\r\nX-A: a\rb\r\n\r\n")) == 400 && failure(parse("GET / FTP/1.1\r\n\r\n")) == 400)
+    check("gateway parser: HTTP/2 in a request line is 505", failure(parse("GET / HTTP/2.0\r\n\r\n")) == 505)
+    check("gateway parser: a TLS handshake is refused at once", failure(StudioHTTPParser.parse(Data([0x16, 0x03, 0x01, 0x02, 0x00]))) == 400)
+
+    // Serializer.
+    let response = StudioGatewayResponse(status: 404, headers: [
+        "Content-Type": "application/json", "Content-Length": "999", "Transfer-Encoding": "chunked", "Connection": "keep-alive",
+        "Keep-Alive": "timeout=5", "Upgrade": "h2c", "Proxy-Authenticate": "Basic", "TE": "trailers", "Trailer": "X-Checksum",
+        "X-Markview-Simulation": "0", "X-Request-Id": "r-1", "X-Injected": "a\r\nSet-Cookie: evil=1", "Bad Name": "x",
+    ], body: Data(#"{"error":"missing"}"#.utf8))
+    let wire = String(decoding: StudioHTTPParser.serialize(response), as: UTF8.self)
+    let lines = wire.components(separatedBy: "\r\n")
+    let lowered = Set(lines.dropFirst().map { $0.lowercased() })
+    check("gateway serializer writes the status line with its reason", lines.first == "HTTP/1.1 404 Not Found", lines.first ?? "")
+    check("gateway serializer keeps the caller's ordinary headers", lowered.contains("content-type: application/json") && lowered.contains("x-request-id: r-1"))
+    check("gateway serializer drops framing and hop-by-hop headers", !wire.lowercased().contains("chunked") && !wire.contains("keep-alive")
+          && !wire.contains("timeout=5") && !wire.contains("h2c") && !wire.contains("Proxy-") && !wire.contains("trailers")
+          && !wire.contains("Trailer") && !lowered.contains("content-length: 999") && !lowered.contains("x-markview-simulation: 0"), wire)
+    check("gateway serializer sets content-length, connection: close and the simulation mark",
+          lowered.contains("content-length: 19") && lowered.contains("connection: close") && lowered.contains("x-markview-simulation: 1")
+          && lines.filter { $0.lowercased().hasPrefix("connection:") }.count == 1, wire)
+    check("gateway serializer never lets a value inject a header", !wire.contains("Set-Cookie") && !wire.contains("Bad Name"), wire)
+    check("gateway serializer appends the body after the head", wire.hasSuffix("\r\n\r\n{\"error\":\"missing\"}"))
+    let noContent = String(decoding: StudioHTTPParser.serialize(StudioGatewayResponse(status: 204, headers: [:], body: Data("x".utf8))), as: UTF8.self)
+    check("gateway serializer: 204 has neither body nor content-length", noContent.hasPrefix("HTTP/1.1 204 No Content\r\n")
+          && !noContent.contains("content-length") && noContent.hasSuffix("\r\n\r\n"), noContent)
+    let invalid = String(decoding: StudioHTTPParser.serialize(StudioGatewayResponse(status: 101, headers: [:], body: nil)), as: UTF8.self)
+    check("gateway serializer: an informational or invalid status is sent as 500", invalid.hasPrefix("HTTP/1.1 500 Internal Server Error\r\n")
+          && invalid.contains("content-length: 0\r\n"), invalid)
+    check("gateway serializer: an unknown status gets its class as the reason",
+          String(decoding: StudioHTTPParser.serialize(StudioGatewayResponse(status: 299, headers: [:])), as: UTF8.self).hasPrefix("HTTP/1.1 299 Success\r\n"))
+    let headOnly = StudioHTTPParser.serialize(StudioGatewayResponse(status: 200, headers: [:], body: Data("abc".utf8)), includeBody: false)
+    check("gateway serializer answers HEAD with the length and no body",
+          String(decoding: headOnly, as: UTF8.self).contains("content-length: 3\r\n") && String(decoding: headOnly, as: UTF8.self).hasSuffix("\r\n\r\n"))
+}
+
 // MARK: - Run
 
+gatewayParserChecks()
 let done = DispatchSemaphore(value: 0)
 Task { @MainActor in
     await preparationChecks()
@@ -906,6 +1181,7 @@ Task { @MainActor in
     promptChecks()
     conversationChecks()
     selectionChecks()
+    connectionChecks()
     await processChecks()
     done.signal()
 }

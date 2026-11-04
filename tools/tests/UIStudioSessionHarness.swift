@@ -205,6 +205,7 @@ func run() async {
         exit(2)
     }
     StudioSession.runtimeURL = URL(fileURLWithPath: runtime)
+    StudioSession.nodePreloadURL = URL(fileURLWithPath: runtime).deletingLastPathComponent().appendingPathComponent("markview-ui-studio-node.cjs")
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-session-\(UUID().uuidString)").resolvingSymlinksInPath()
     let web = root.appendingPathComponent("web")
@@ -822,6 +823,8 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             let answering = await WebAppPreview.firstAnswering([port], timeout: 1)
             check("AC-18 closing the session stops the server it started", answering == nil && session.state == .stopped)
             await externalServerCheck()
+            await serverRequestChecks()
+            await serverClockChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
@@ -862,6 +865,153 @@ func externalServerCheck() async {
     external.terminate()
 }
 
+/// REQ-007, DEC-006: a server-rendered target whose server calls another service itself. The server loads `.env.local` like
+/// dotenv (the environment wins), calls `API_URL/rates` with `Bearer $API_SECRET` and renders the rate; it writes only booleans
+/// about what it saw to `seen.json`.
+let ratesServer = #"""
+import json, os, sys, urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
+for line in open('.env.local'):
+    line = line.strip()
+    if line and not line.startswith('#') and '=' in line:
+        key, value = line.split('=', 1)
+        os.environ.setdefault(key.strip(), value.strip())
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        base = os.environ.get('API_URL', '')
+        try:
+            request = urllib.request.Request(base + '/rates', headers={'Authorization': 'Bearer ' + os.environ.get('API_SECRET', '')})
+            with urllib.request.urlopen(request, timeout=8) as answer:
+                rate = str(json.loads(answer.read()).get('rate'))
+        except Exception:
+            rate = 'error'
+        with open('seen.json', 'w') as seen:
+            json.dump({'simulated': base.startswith('http://127.0.0.1:'), 'testSecret': os.environ.get('API_SECRET', '').startswith('markview-test-'),
+                       'clock': bool(os.environ.get('MARKVIEW_STUDIO_CLOCK')), 'noProxy': '127.0.0.1' in os.environ.get('NO_PROXY', '')}, seen)
+        body = ('<!doctype html><html><head><title>Rates</title></head><body><p id="rate">%s</p><p id="pid">%d</p></body></html>' % (rate, os.getpid())).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        pass
+HTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+"""#
+
+@MainActor
+func serverRequestChecks() async {
+    watchdog.reached("The development server's own requests are simulated")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-server-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    let secret = "real-secret-do-not-leak-4711"
+    try? ratesServer.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    try? "API_URL=http://rates.example.test/v2\nAPI_SECRET=\(secret)\n".write(to: root.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    let assistant = Assistant()
+    assistant.proposal = ["rules": [["id": "rates", "method": "GET", "path": "http://rates.example.test/v2/rates", "operation": "respond",
+                                     "responseStatus": 200, "responseBody": #"{"rate":1.23}"#,
+                                     "evidence": [["kind": "observation", "detail": "Requested by the server"]]]],
+                          "assumptions": ["The rates service returns a rate."]]
+    CLICompletion.answer = { request in assistant.respond(request) }
+    let promptsBefore = CLICompletion.requests.count
+    let port = freePort()
+    let session = StudioSession(root: root)
+    func text(_ script: String) async -> String? { (try? await session.call(script)) as? String }
+    func seen() -> [String: Bool] {
+        (try? Data(contentsOf: root.appendingPathComponent("seen.json"))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Bool] } ?? [:]
+    }
+    session.start(WebAppTarget(folder: root, label: "rates", command: "python3 server.py \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-007 the server MarkView starts is found and opened", session.ownsServer && session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    check("REQ-007 the service address is found in the env file", session.serverConnections.map(\.variable) == ["API_URL"]
+          && session.serverConnections.first?.origin == "http://rates.example.test" && session.serverConnections.first?.basePath == "/v2",
+          "\(session.serverConnections)")
+    // The first render prepares the unknown contract; Reset renders again with the registered rule.
+    session.reset()
+    _ = await waitUntil(60) { session.busy == nil }
+    let rate = await text("return document.getElementById('rate') ? document.getElementById('rate').textContent : '';")
+    check("REQ-007 the server's request is answered by the simulation", rate == "1.23", rate ?? "nil")
+    let view = seen()
+    check("REQ-007 the server ran with the gateway address, a test secret, no proxy and the clock file",
+          view["simulated"] == true && view["testSecret"] == true && view["noProxy"] == true && view["clock"] == true, "\(view)")
+    check("REQ-007 the request keeps the service's address and is shown as the server's",
+          session.requests.contains { $0.transport == "server" && $0.contract == "GET http://rates.example.test/v2/rates" },
+          session.requests.map { "\($0.transport) \($0.contract)" }.joined(separator: " | "))
+    let prompts = CLICompletion.requests.dropFirst(promptsBefore).filter { $0.label == "ui-studio:prepare" }
+    check("REQ-007 the assistant is told the server made the request", prompts.contains { $0.prompt.contains("Made by the development server")
+          && $0.prompt.contains("API_URL") }, prompts.last.map { String($0.prompt.prefix(300)) } ?? "no prompt")
+    let environment = (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? ""
+    let everything = CLICompletion.requests.map(\.prompt).joined() + session.requests.map(\.url).joined() + session.serverLog + environment
+        + session.serverNotes.joined() + "\(session.serverConnections)"
+    check("REQ-007 the real secret appears in no prompt, log or saved file", !everything.contains(secret))
+
+    // An error scenario reaches the server's request too.
+    var failing = session.scenario
+    failing.id = "rates-error"
+    failing.name = "Rates fail"
+    failing.overrides = [StudioOverride(ruleId: "rates", status: 500)]
+    session.activate(failing)
+    _ = await waitUntil(60) { session.busy == nil }
+    let failed = await text("return document.getElementById('rate') ? document.getElementById('rate').textContent : '';")
+    check("REQ-007 a scenario's error answers the server's request", failed == "error", failed ?? "nil")
+
+    // Switching the address to Real restarts the server MarkView started, without the gateway.
+    let oldPid = Int32(await text("return document.getElementById('pid').textContent;") ?? "") ?? 0
+    session.setConnectionMode("API_URL", .real)
+    _ = await waitUntil(90) { session.busy == nil && [.ready, .degraded, .failed].contains(session.state) }
+    let newPid = Int32(await text("return document.getElementById('pid') ? document.getElementById('pid').textContent : '';") ?? "") ?? 0
+    check("REQ-007 switching to Real restarts the server, and the old one is gone", oldPid > 0 && newPid > 0 && newPid != oldPid
+          && kill(oldPid, 0) != 0, "\(oldPid) → \(newPid)")
+    check("REQ-007 a real address is not redirected", seen()["simulated"] == false && session.state != .failed, "\(seen()) \(session.state)")
+    check("REQ-007 the choice is kept in the environment", StudioStore.loadEnvironment(root)?.serverConnections?.first?.mode == .real)
+    await session.close()
+}
+
+/// DEC-006: a Node server MarkView starts renders with the scenario's clock, the same clock the page has, so a date it
+/// renders (a footer's year) matches the page's and hydration does not fail.
+let clockServer = #"""
+const http = require('http');
+http.createServer((req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.end('<!doctype html><title>Clock</title><p id="server">' + Date.now() + '</p><p id="year">' + new Date().getFullYear() + '</p>');
+}).listen(Number(process.argv[2]), '127.0.0.1');
+"""#
+
+@MainActor
+func serverClockChecks() async {
+    let fm = FileManager.default
+    guard shell("command -v node", in: fm.temporaryDirectory).0 == 0 else {
+        print("skip DEC-006 server clock checks: node is not installed")
+        return
+    }
+    watchdog.reached("The development server runs on the scenario's clock")
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-clock-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? clockServer.write(to: root.appendingPathComponent("server.js"), atomically: true, encoding: .utf8)
+    let port = freePort()
+    let session = StudioSession(root: root)
+    func number(_ script: String) async -> Double? { (try? await session.call(script)) as? Double }
+    session.start(WebAppTarget(folder: root, label: "clock", command: "node server.js \(port)", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    let testTime = session.scenario.testTime.timeIntervalSince1970 * 1000
+    let server = await number("return Number(document.getElementById('server').textContent);") ?? 0
+    let page = await number("return Date.now();") ?? 0
+    check("DEC-006 the Node server renders with the scenario's test time", abs(server - testTime) < 120_000,
+          "\(Int(server)) vs test \(Int(testTime)), \(session.state) \(session.stateDetail)")
+    check("DEC-006 the server's clock and the page's clock agree", server > 0 && abs(page - server) < 30_000, "\(Int(page)) vs \(Int(server))")
+    // A restore moves the server's clock back with the page's.
+    try? await Task.sleep(nanoseconds: 2_000_000_000)
+    session.reset()
+    _ = await waitUntil(60) { session.busy == nil }
+    let again = await number("return Number(document.getElementById('server').textContent);") ?? 0
+    check("DEC-006 a restore moves the server's clock back to the test time", again > 0 && again - testTime < server - testTime + 1_500,
+          "\(Int(again - testTime)) after vs \(Int(server - testTime)) before")
+    await session.close()
+}
+
 /// Which projects UI Studio opens and what it says it cannot simulate (REQ-001).
 func targetChecks() {
     let fm = FileManager.default
@@ -891,7 +1041,8 @@ func targetChecks() {
     let nextTarget = WebAppPreview.targets(root: next).first
     let nextNotes = nextTarget.map(StudioTargetLimits.disclosures(for:)) ?? []
     check("REQ-001 a framework that renders on the server is still opened", nextTarget != nil)
-    check("REQ-001 server rendering is disclosed as not simulated", nextNotes.contains { $0.contains("renders on the server") && $0.contains("not simulated") },
+    check("REQ-001 server rendering is disclosed with what is simulated and what is not", nextNotes.contains { $0.contains("renders on the server")
+          && $0.contains("Server connections") && $0.contains("not simulated") },
           nextNotes.joined(separator: " | "))
 
     let electron = project("electron-app", ["main": "main.js", "scripts": ["dev": "electron .", "dev:web": "vite --port 5199"],
@@ -911,8 +1062,8 @@ func targetChecks() {
     try? fm.createDirectory(at: django, withIntermediateDirectories: true)
     try? "".write(to: django.appendingPathComponent("manage.py"), atomically: true, encoding: .utf8)
     let djangoNotes = WebAppPreview.targets(root: django).first.map(StudioTargetLimits.disclosures(for:)) ?? []
-    check("REQ-001 server-rendered pages disclose that the server's requests and database are not simulated",
-          djangoNotes.contains { $0.contains("database are not simulated") })
+    check("REQ-001 server-rendered pages disclose that the database is not simulated and the clock follows only Node servers",
+          djangoNotes.contains { $0.contains("its database is not") && $0.contains("only Node servers") }, djangoNotes.joined(separator: " | "))
 }
 
 let application = NSApplication.shared

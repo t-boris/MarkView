@@ -73,7 +73,7 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     }
 
     func load(_ html: String, seed: Int = 7, browser: StudioBrowserProfile = StudioBrowserProfile(),
-              keptStorage: [[String: String]] = []) async {
+              keptStorage: [[String: String]] = [], clockAnchor: Double? = nil) async {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         // Stands in for the network under the runtime's own fetch, for requests the runtime passes through (BUG-070).
@@ -94,9 +94,10 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
               if (navigator.clipboard) { navigator.clipboard.writeText = reached; navigator.clipboard.readText = reached; }
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        let settings: [String: Any] = ["session": token, "generation": simulator.generation, "seed": seed, "testTime": 1_767_225_600_000,
+        var settings: [String: Any] = ["session": token, "generation": simulator.generation, "seed": seed, "testTime": 1_767_225_600_000,
                                        "locale": "de-DE", "timeZone": "Europe/Berlin", "electron": false, "electronGlobals": [String](),
                                        "browser": browser.runtimeConfig, "keptStorage": keptStorage]
+        if let clockAnchor { settings["clockAnchor"] = clockAnchor }
         let config = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
         controller.addUserScript(WKUserScript(source: source.replacingOccurrences(of: "__MARKVIEW_STUDIO_CONFIG__", with: config),
                                               injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -265,6 +266,12 @@ func run() async {
     await harness.settle()
     let second = await harness.js("return [Math.random(), Math.random()].join(',');") as? String
     check("random numbers repeat for the same seed", first != nil && first == second, "\(first ?? "nil") vs \(second ?? "nil")")
+    // DEC-006: the clock shows the test time at MarkView's anchor and runs on from it, across page loads.
+    await harness.load(page, clockAnchor: Date().timeIntervalSince1970 * 1000 - 3_600_000)
+    await harness.settle()
+    let elapsed = await harness.js("return Date.now() - 1767225600000;") as? NSNumber
+    check("DEC-006 a page loaded an hour after the anchor shows the test time plus an hour",
+          elapsed.map { abs($0.doubleValue - 3_600_000) < 60_000 } == true, "\(elapsed ?? -1)")
 
     // Zoom keeps the application's viewport (PRE-03).
     watchdog.reached("Zoom keeps the application's viewport")
