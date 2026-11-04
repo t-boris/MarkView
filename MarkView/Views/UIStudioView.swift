@@ -12,6 +12,9 @@ struct UIStudioView: View {
     @State private var dragStartWidth: Double?
     @State private var panel: Panel = .element
     @State private var draft = ""
+    @FocusState private var draftFocused: Bool
+    @StateObject private var dictation = DictationController()
+    @AppStorage("uiStudioSelectionExpanded") private var selectionExpanded = true
     @State private var showingTrust = false
     @State private var effectiveScale = 1.0
     @State private var showLivePage = false
@@ -332,35 +335,141 @@ struct UIStudioView: View {
 
     // MARK: Element
 
+    /// The selected element above the conversation about it: the earlier turns oldest first, the turn the assistant is
+    /// answering, and the composer. Nothing of the conversation disappears while the assistant works.
     private var elementPanel: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    if let selection = session.selection {
-                        selectionDetails(selection)
-                    } else {
-                        Text(session.mode == .select
-                             ? "Click an element in the preview. In Select mode a click selects; it does not run the element's action. Escape ends selecting."
-                             : "Choose Select in the toolbar, then click an element to ask about it or change it.")
-                            .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let pending = session.history.last(where: { $0.status == .clarification }) {
-                        clarification(pending)
-                    }
-                    if let last = session.history.last, last.status != .clarification {
-                        UIStudioOperationRow(session: session, operation: last, compact: true) { panel = .evidence }
-                    }
-                }
-                .padding(10)
-            }
+            selectionHeader
+            Divider().background(VSDark.border)
+            thread
             Divider().background(VSDark.border)
             composer
         }
     }
 
+    /// The selection, folded to its tag on request so the conversation keeps the room.
+    @ViewBuilder private var selectionHeader: some View {
+        if let selection = session.selection {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Button { selectionExpanded.toggle() } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: selectionExpanded ? "chevron.down" : "chevron.right").uiFont(size: 9)
+                                .foregroundColor(VSDark.textDim).frame(width: 10)
+                            Text(selection.tag).uiFont(size: 12, weight: .semibold, design: .monospaced).foregroundColor(VSDark.text)
+                                .lineLimit(selectionExpanded ? 2 : 1).truncationMode(.middle)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(selectionExpanded ? "Hide the element's details" : "Show the element's details: source, picture, route, revision")
+                    HStack(spacing: 8) {
+                        Button { session.selectParent() } label: { Image(systemName: "arrow.up.left") }.help("Select the parent element")
+                        Button { session.selectChild() } label: { Image(systemName: "arrow.down.right") }.help("Select a child element")
+                        Button { session.clearSelection() } label: { Image(systemName: "xmark.circle") }.help("Clear the selection")
+                    }
+                    .buttonStyle(.plain).foregroundColor(VSDark.textDim).uiFont(size: 11).disabled(session.busy != nil)
+                }
+                if selectionExpanded { selectionDetails(selection) }
+            }
+            .padding(10)
+        } else {
+            Text(session.mode == .select
+                 ? "Click an element in the preview. In Select mode a click selects; it does not run the element's action. Escape ends selecting."
+                 : "Choose Select in the toolbar, then click an element to ask about it or change it.")
+                .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+        }
+    }
+
+    private static let threadEnd = "thread-end"
+
+    /// The conversation: every question and change of the session, oldest at the top, then the request being answered.
+    /// It follows the newest turn.
+    private var thread: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if session.history.isEmpty, session.pendingTurn == nil {
+                        Text("Questions and changes appear here as a conversation. The assistant remembers the last turns, so a follow-up can refer to them.")
+                            .uiFont(size: 11).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(session.history) { operation in
+                        turn(operation)
+                    }
+                    if let pending = session.pendingTurn {
+                        pendingTurn(pending)
+                    }
+                    Color.clear.frame(height: 1).id(Self.threadEnd)
+                }
+                .padding(10)
+            }
+            .onAppear { scrollToEnd(proxy, animated: false) }
+            .onChange(of: threadPosition) { _ in scrollToEnd(proxy, animated: true) }
+        }
+    }
+
+    /// Changes when a request is sent, and when a turn is added, answered or replaced.
+    private var threadPosition: String {
+        let last = session.history.last
+        return "\(session.history.count)|\(last?.id ?? "")|\(last?.status.rawValue ?? "")|\(session.pendingTurn?.started.timeIntervalSince1970 ?? 0)"
+    }
+
+    private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool) {
+        // After the new rows are laid out.
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.threadEnd, anchor: .bottom) }
+            } else {
+                proxy.scrollTo(Self.threadEnd, anchor: .bottom)
+            }
+        }
+    }
+
+    private func turn(_ operation: StudioOperation) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            UIStudioOperationRow(session: session, operation: operation, compact: true) { panel = .evidence }
+            if operation.status == .clarification { clarification(operation) }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(VSDark.bg).cornerRadius(6)
+    }
+
+    /// The request the assistant is working on: what was asked, about which element, what the assistant is doing, Stop.
+    private func pendingTurn(_ turn: StudioSession.PendingTurn) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: turn.kind == .question ? "questionmark.bubble" : "wand.and.stars").uiFont(size: 10)
+                    .foregroundColor(VSDark.blue)
+                Text(turn.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Spacer(minLength: 0)
+            }
+            if !turn.element.isEmpty {
+                Text(turn.element).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+            }
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
+                TimelineView(.periodic(from: turn.started, by: 1)) { context in
+                    let seconds = max(0, Int(context.date.timeIntervalSince(turn.started)))
+                    Text((session.busyDetail.isEmpty ? (session.busy ?? "Working") : session.busyDetail)
+                         + String(format: " · %d:%02d", seconds / 60, seconds % 60))
+                        .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                Button("Stop") { session.cancelWork() }.controlSize(.small).help("Stop the assistant")
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(VSDark.bg).cornerRadius(6)
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(VSDark.blue.opacity(0.4)))
+    }
+
     private func selectionDetails(_ selection: StudioSelectionContext) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(selection.tag).uiFont(size: 12, weight: .semibold, design: .monospaced).foregroundColor(VSDark.text).lineLimit(2)
             if let image = selection.imagePath {
                 StudioCaptureImage(url: URL(fileURLWithPath: image)).frame(maxHeight: 120)
             }
@@ -384,14 +493,6 @@ struct UIStudioView: View {
                 }
                 .uiFont(size: 10).foregroundColor(VSDark.textDim)
             }
-            HStack {
-                Button { session.selectParent() } label: { Label("Parent", systemImage: "arrow.up.left") }
-                Button { session.selectChild() } label: { Label("Child", systemImage: "arrow.down.right") }
-                Spacer()
-                Button { session.clearSelection() } label: { Image(systemName: "xmark.circle") }.buttonStyle(.plain)
-                    .help("Clear the selection")
-            }
-            .controlSize(.small).disabled(session.busy != nil)
         }
     }
 
@@ -406,19 +507,21 @@ struct UIStudioView: View {
         return rows
     }
 
+    /// The assistant's question in a clarification turn (its scope is on the turn's row), with the options as answers.
     private func clarification(_ operation: StudioOperation) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("The assistant asks before changing anything", systemImage: "questionmark.bubble").uiFont(size: 10, weight: .semibold)
                 .foregroundColor(VSDark.yellow)
             Text(operation.question ?? "").uiFont(size: 11).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true)
-            if operation.scope != .unknown { Text("Scope: " + operation.scope.title).uiFont(size: 10).foregroundColor(VSDark.textDim) }
+                .textSelection(.enabled)
             ForEach(operation.options, id: \.self) { option in
                 Button(option) { session.answerClarification(operation, choice: option) }
                     .controlSize(.small).disabled(session.busy != nil)
             }
-            Text("Or type the answer below and press Change.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+            if session.history.last(where: { $0.status == .clarification })?.id == operation.id {
+                Text("Or type the answer below and press Change.").uiFont(size: 10).foregroundColor(VSDark.textDim)
+            }
         }
-        .padding(8).background(VSDark.bg).cornerRadius(6)
     }
 
     private var composer: some View {
@@ -426,10 +529,15 @@ struct UIStudioView: View {
             TextEditor(text: $draft)
                 .uiFont(size: 12).frame(height: 70)
                 .scrollContentBackground(.hidden).background(VSDark.bgInput).cornerRadius(4)
+                .focused($draftFocused)
+            DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
             HStack {
                 Text(session.selection == nil ? "Select an element first." : "Ask reads only. Change edits the project's source files.")
                     .uiFont(size: 9).foregroundColor(VSDark.textDim)
                 Spacer()
+                DictationButton(dictation: dictation) { transcript, window in
+                    DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
+                }
                 Button("Ask") {
                     session.ask(draft)
                     draft = ""
@@ -450,6 +558,7 @@ struct UIStudioView: View {
             .controlSize(.small)
         }
         .padding(8)
+        .onDisappear { dictation.cancel() }
     }
 
     private var canSend: Bool {
@@ -553,6 +662,8 @@ struct UIStudioHistoryPanel: View {
 struct UIStudioOperationRow: View {
     @ObservedObject var session: StudioSession
     let operation: StudioOperation
+    /// The form of a turn in the element panel's conversation: the whole request and answer, and checks that all passed
+    /// folded into one line.
     let compact: Bool
     var showEvidence: () -> Void
     @EnvironmentObject var workspaceManager: WorkspaceManager
@@ -563,7 +674,8 @@ struct UIStudioOperationRow: View {
             HStack(spacing: 6) {
                 Image(systemName: operation.kind == .question ? "questionmark.bubble" : "wand.and.stars").uiFont(size: 10)
                     .foregroundColor(VSDark.blue)
-                Text(operation.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(compact ? 2 : 4)
+                Text(operation.request).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.text).lineLimit(compact ? nil : 4)
+                    .fixedSize(horizontal: false, vertical: compact)
                 Spacer()
                 Text(operation.status.rawValue).uiFont(size: 9, weight: .semibold).foregroundColor(statusColor)
                     .padding(.horizontal, 4).padding(.vertical, 1)
@@ -578,7 +690,7 @@ struct UIStudioOperationRow: View {
             }
             let text = operation.answer.isEmpty ? operation.summary : operation.answer
             if !text.isEmpty {
-                Text(text).uiFont(size: 11).foregroundColor(VSDark.text).lineLimit(compact ? 8 : nil)
+                Text(text).uiFont(size: 11).foregroundColor(VSDark.text)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             }
             if let conflict = operation.conflict {
@@ -589,7 +701,14 @@ struct UIStudioOperationRow: View {
                         .help("Writes both versions with <<<<<<< markers into the files and opens them, so you resolve the overlap yourself")
                 }
             }
-            if !operation.checks.isEmpty {
+            if compact, !operation.checks.isEmpty, operation.checks.allSatisfy(\.passed) {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(VSDark.green).uiFont(size: 10)
+                    Text(operation.checks.count == 1 ? operation.checks[0].name : "\(operation.checks.count) checks passed")
+                        .uiFont(size: 10).foregroundColor(VSDark.textDim).lineLimit(1)
+                }
+                .help(operation.checks.map(\.name).joined(separator: "\n"))
+            } else if !operation.checks.isEmpty {
                 ForEach(operation.checks, id: \.name) { check in
                     HStack(alignment: .top, spacing: 4) {
                         Image(systemName: check.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -755,6 +874,8 @@ struct UIStudioEnvironmentPanel: View {
     @ObservedObject var session: StudioSession
     @ObservedObject var queue: StudioPreparationQueue
     @State private var allowed = ""
+    /// Page events opened to their whole text, by group.
+    @State private var expandedEvents: Set<String> = []
 
     var body: some View {
         ScrollView {
@@ -852,9 +973,8 @@ struct UIStudioEnvironmentPanel: View {
                     Text("\(session.rejectedMessages) message(s) from the page were rejected (wrong frame, origin, session or generation).")
                         .uiFont(size: 10).foregroundColor(VSDark.orange)
                 }
-                ForEach(session.events.suffix(60).reversed()) { event in
-                    Text("\(event.kind.rawValue): \(event.detail)").uiFont(size: 9, design: .monospaced)
-                        .foregroundColor(event.kind == .runtimeError || event.kind == .buildError ? VSDark.red : VSDark.textDim).lineLimit(4)
+                ForEach(StudioEventGrouping.group(session.events.map { (kind: $0.kind, detail: $0.detail) }).prefix(60)) { group in
+                    eventRow(group)
                 }
 
                 if !session.serverLog.isEmpty {
@@ -881,6 +1001,35 @@ struct UIStudioEnvironmentPanel: View {
 
     private func section(_ title: String) -> some View {
         Text(title.uppercased()).uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim).padding(.top, 4)
+    }
+
+    /// One page event with its repeats counted; a long one (a React hydration diff) opens to its whole text.
+    private func eventRow(_ group: StudioEventGrouping.Group) -> some View {
+        let expanded = expandedEvents.contains(group.id)
+        let long = group.detail.count > 200 || group.detail.contains("\n")
+        let color = group.kind == .runtimeError || group.kind == .buildError ? VSDark.red : VSDark.textDim
+        return HStack(alignment: .top, spacing: 4) {
+            if long {
+                Button {
+                    if expanded { expandedEvents.remove(group.id) } else { expandedEvents.insert(group.id) }
+                } label: {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right").uiFont(size: 8).frame(width: 10, height: 12)
+                }
+                .buttonStyle(.plain).foregroundColor(VSDark.textDim)
+                .help(expanded ? "Show less" : "Show the whole text")
+            } else {
+                Color.clear.frame(width: 10, height: 1)
+            }
+            Text("\(group.kind.rawValue): \(group.detail)").uiFont(size: 9, design: .monospaced).foregroundColor(color)
+                .lineLimit(expanded ? nil : 4).fixedSize(horizontal: false, vertical: expanded).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if group.count > 1 {
+                Text("×\(group.count)").uiFont(size: 9, weight: .semibold).foregroundColor(color)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(color.opacity(0.5)))
+                    .help("The page reported this \(group.count) times")
+            }
+        }
     }
 
     private func color(_ mode: StudioDependency.Mode) -> Color {

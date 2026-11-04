@@ -167,3 +167,34 @@ enum StudioBridge {
         ["action": "pass", "headers": headers]
     }
 }
+
+/// Page events as the Environment panel lists them: every repeat of the same kind and text, consecutive or not, is one
+/// row with a count, so a warning the page logs on every render (a React hydration diff) does not push everything else
+/// out of the list.
+enum StudioEventGrouping {
+    struct Group: Identifiable, Equatable {
+        var kind: StudioBridge.Event.Kind
+        var detail: String
+        /// How many times the page reported it.
+        var count: Int
+
+        /// Kind and text: stable while new repeats arrive, so an expanded row stays expanded.
+        var id: String { kind.rawValue + "\u{1F}" + detail }
+    }
+
+    /// Groups events given oldest first; the group seen most recently comes first.
+    static func group(_ events: [(kind: StudioBridge.Event.Kind, detail: String)]) -> [Group] {
+        var groups: [Group] = []
+        var position: [String: Int] = [:]
+        for event in events.reversed() {
+            let key = event.kind.rawValue + "\u{1F}" + event.detail
+            if let existing = position[key] {
+                groups[existing].count += 1
+            } else {
+                position[key] = groups.count
+                groups.append(Group(kind: event.kind, detail: event.detail, count: 1))
+            }
+        }
+        return groups
+    }
+}

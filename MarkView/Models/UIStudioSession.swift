@@ -43,6 +43,16 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         var date = Date()
     }
 
+    /// A question or change request the assistant is working on: shown at the end of the conversation from the moment
+    /// it is sent until its turn is in the history, or the work fails or is cancelled.
+    struct PendingTurn: Equatable {
+        var kind: StudioOperation.Kind
+        var request: String
+        /// The selected element as the turn will record it (tag and source file).
+        var element: String
+        var started = Date()
+    }
+
     struct Comparison: Identifiable {
         let id = UUID()
         var before: StudioCapture
@@ -81,6 +91,14 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var selection: StudioSelectionContext?
     @Published var notice: String?
     @Published private(set) var history: [StudioOperation] = []
+    /// The turn the assistant is answering; nil once it is in `history`, and after a failure or Stop.
+    @Published private(set) var pendingTurn: PendingTurn?
+    /// The turns of this session: the assistant's memory. The thread shows the whole saved history, but turns of earlier
+    /// sessions are not sent, so yesterday's request about another element cannot steer today's change (BUG-068).
+    private var conversationIds: Set<String> = []
+
+    /// What the assistant remembers of this conversation, oldest first.
+    private var conversation: [StudioOperation] { history.filter { conversationIds.contains($0.id) } }
     @Published private(set) var busy: String?
     @Published private(set) var busyDetail = ""
     @Published private(set) var captures: [StudioCapture] = []
@@ -1014,19 +1032,28 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     // MARK: - Assistant
 
-    private func runWork(_ title: String, _ work: @escaping @MainActor (StudioSession) async -> Void) {
+    /// Runs one piece of work at a time. `pending` is the conversation turn it answers, shown until the work appends it
+    /// to the history; whatever way the work ends (answered, failed, cancelled), no pending turn outlives it.
+    private func runWork(_ title: String, pending: PendingTurn? = nil, _ work: @escaping @MainActor (StudioSession) async -> Void) {
         guard busy == nil, !closed else {
             notice = "Wait for \(busy ?? "the current work") to finish."
             return
         }
         busy = title
         busyDetail = ""
+        pendingTurn = pending
         workTask = Task { [weak self] in
             guard let self else { return }
             await work(self)
             self.busy = nil
             self.busyDetail = ""
+            self.pendingTurn = nil
         }
+    }
+
+    /// The element as a turn records it: its tag and, when known, its source file.
+    private static func turnElement(_ selection: StudioSelectionContext) -> String {
+        selection.tag + (selection.sourcePath.map { " · \($0)" } ?? "")
     }
 
     func cancelWork() {
@@ -1054,15 +1081,17 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func ask(_ question: String) {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let selection else { return }
-        runWork("Asking the assistant") { session in
+        let element = Self.turnElement(selection)
+        runWork("Asking the assistant", pending: PendingTurn(kind: .question, request: text, element: element)) { session in
             var operation = StudioOperation(id: session.newOperationID(), kind: .question, request: text, status: .answered)
-            operation.selection = selection.tag + (selection.sourcePath.map { " · \($0)" } ?? "")
+            operation.selection = element
             operation.scenarioId = session.scenario.id
             let before = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers()).0
             operation.baseRevision = before
             var request = CLICompletion.Request(project: session.root,
                                                 prompt: StudioPrompts.questionPrompt(text, selection: selection, scenario: session.scenario,
-                                                                                     revision: before, redactor: session.redactor),
+                                                                                     revision: before, history: session.conversation,
+                                                                                     redactor: session.redactor),
                                                 systemPrompt: StudioPrompts.questionSystem, readableFolder: session.root)
             request.images = selection.imagePath.map { [URL(fileURLWithPath: $0)] } ?? []
             request.timeout = 600
@@ -1095,7 +1124,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func change(_ text: String, clarification: String? = nil, replacing pending: StudioOperation? = nil) {
         let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !request.isEmpty, var selection else { return }
-        runWork("Changing the interface") { session in
+        // An answer to the assistant's question is what the person just said; the question itself stays in the thread.
+        let turn = PendingTurn(kind: .edit, request: clarification ?? request, element: Self.turnElement(selection))
+        runWork("Changing the interface", pending: turn) { session in
             session.busyDetail = "Restoring the scenario"
             _ = await session.restore()
             if session.selection == nil {
@@ -1108,17 +1139,19 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             operation.status = .applied
             operation.question = nil
             operation.options = []
-            operation.selection = selection.tag + (selection.sourcePath.map { " · \($0)" } ?? "")
+            operation.selection = Self.turnElement(selection)
             operation.scenarioId = session.scenario.id
             operation.baseRevision = revision
             operation.beforeCapture = before?.id
             var retryProblem: String?
             for attempt in 1...2 {
                 session.busyDetail = attempt == 1 ? "The assistant is reading the project" : "The assistant is correcting its edits"
+                // The history includes a clarification being answered: its turn says what the assistant asked.
                 var call = CLICompletion.Request(project: session.root,
                                                  prompt: StudioPrompts.editPrompt(request, selection: selection, scenario: session.scenario,
-                                                                                  revision: revision, redactor: session.redactor,
-                                                                                  clarification: clarification, retryProblem: retryProblem),
+                                                                                  revision: revision, history: session.conversation,
+                                                                                  redactor: session.redactor, clarification: clarification,
+                                                                                  retryProblem: retryProblem),
                                                  systemPrompt: StudioPrompts.editSystem, jsonSchema: StudioPrompts.editSchema,
                                                  readableFolder: session.root)
                 call.images = selection.imagePath.map { [URL(fileURLWithPath: $0)] } ?? []
@@ -1194,6 +1227,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     /// Answers the assistant's question and runs the change with it.
     func answerClarification(_ operation: StudioOperation, choice: String) {
+        // The question being answered belongs to the conversation, even when an earlier session asked it.
+        conversationIds.insert(operation.id)
         change(operation.request, clarification: choice, replacing: operation)
     }
 
@@ -1316,6 +1351,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     private func append(_ operation: StudioOperation) {
         history.removeAll { $0.id == operation.id }
         history.append(operation)
+        conversationIds.insert(operation.id)
+        // The turn is in the thread now (a change may still be verifying, under the busy banner).
+        pendingTurn = nil
         persistHistory()
     }
 

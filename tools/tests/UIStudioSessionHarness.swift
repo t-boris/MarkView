@@ -224,6 +224,10 @@ func run() async {
     let assistant = Assistant()
     CLICompletion.answer = { request in assistant.respond(request) }
     let store = FeatureStore(folder: root.appendingPathComponent("docs/features"))
+    // A turn of an earlier session: shown in the thread, never sent as memory (BUG-068).
+    var earlier = StudioOperation(id: "op-earlier", kind: .edit, request: "Make the consent banner smaller", status: .applied)
+    earlier.selection = "div.consent-banner"
+    try? StudioStore.saveHistory([earlier], root: root)
 
     let session = StudioSession(root: root)
     session.featureStore = { store }
@@ -312,11 +316,46 @@ func run() async {
     check("AC-17 the assistant gets read-only project access without the web",
           questionRequest?.readableFolder?.standardizedFileURL.path == root.standardizedFileURL.path && questionRequest?.allowWeb == false
           && questionRequest?.jsonSchema == nil, "\(questionRequest?.readableFolder?.path ?? "nil") \(questionRequest?.allowWeb ?? true)")
+    check("the first question has no earlier conversation", questionRequest?.prompt.contains("previous_conversation") == false)
+    check("a turn of an earlier session stays in the thread but is not sent", session.history.first?.id == "op-earlier"
+          && CLICompletion.requests.allSatisfy { !$0.prompt.contains("consent banner") })
+
+    // The conversation is a thread with memory: the request being answered stays visible until its turn is in the
+    // history, Stop leaves no pending turn behind, and the next question carries the earlier turns.
+    watchdog.reached("The conversation keeps the pending turn and remembers the earlier turns")
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:question" { try await Task.sleep(nanoseconds: 1_500_000_000) }
+        return assistant.respond(request)
+    }
+    session.ask("And why is it here?")
+    let pendingShown = await waitUntil(5) { session.pendingTurn != nil && CLICompletion.requests.count > 0 && session.busy != nil }
+    let pending = session.pendingTurn
+    check("a question shows as a pending turn while the assistant works", pendingShown && pending?.kind == .question
+          && pending?.request == "And why is it here?" && pending?.element.hasPrefix("button#add") == true
+          && session.history.last?.id == question?.id, "\(String(describing: pending))")
+    _ = await idle()
+    check("the pending turn is gone once the answer is in the history", session.pendingTurn == nil
+          && session.history.last?.request == "And why is it here?" && session.history.last?.status == .answered)
+    let followUp = CLICompletion.requests.last { $0.label == "ui-studio:question" }?.prompt ?? ""
+    check("the next question carries the first turn's question and answer", followUp.contains("What does this button do?")
+          && followUp.contains("This is the Add button; it posts a new item.") && followUp.contains("button#add"), String(followUp.suffix(900)))
+    let answered = session.history.count
+    session.ask("Is it accessible?")
+    _ = await waitUntil(5) { session.pendingTurn != nil }
+    try? await Task.sleep(nanoseconds: 200_000_000)
+    session.cancelWork()
+    _ = await idle()
+    check("Stop leaves no pending turn and adds no turn", session.pendingTurn == nil && session.history.count == answered,
+          "\(String(describing: session.pendingTurn)) \(session.history.count)")
+    CLICompletion.answer = { request in assistant.respond(request) }
 
     // A change is applied, the app reloads, the scenario is restored and verified (AC-12, AC-13).
     watchdog.reached("A change is applied, the app reloads, the scenario is restored and verified")
     assistant.lock.withLock { assistant.edits = [edit("title", "<h1 class=\"title\">Items</h1>", "<h1 class=\"title\">All items</h1>")] }
     session.change("Rename the heading to All items")
+    let verifying = await waitUntil(30) { session.history.last?.request == "Rename the heading to All items" && session.busy != nil }
+    check("a change being verified is a turn of the thread, not a pending turn as well", verifying && session.pendingTurn == nil,
+          "\(verifying) \(String(describing: session.pendingTurn))")
     _ = await idle()
     guard let first = session.history.last else { check("AC-12 a change is recorded", false); return finish(session) }
     check("AC-12 a change edits the source", first.status == .applied && file().contains("All items") && first.files.map(\.path) == ["web/index.html"],
@@ -328,6 +367,9 @@ func run() async {
     let heading = await text("return document.querySelector('h1').textContent;")
     check("AC-15 the preview shows the change", heading == "All items", heading ?? "nil")
     check("AC-19 before and after captures are linked to the change", first.beforeCapture != nil && first.afterCapture != nil)
+    let changePrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
+    check("a change request carries the earlier questions", changePrompt.contains("What does this button do?")
+          && changePrompt.contains("And why is it here?"), String(changePrompt.suffix(900)))
 
     // An independent later edit stays when the change is undone (AC-14).
     watchdog.reached("An independent later edit stays when the change is undone")
@@ -389,6 +431,8 @@ func run() async {
         let clarifiedPrompt = CLICompletion.requests.last { $0.label == "ui-studio:edit" }?.prompt ?? ""
         check("REQ-004 the answer goes to the assistant and the change is applied", clarifiedPrompt.contains("Only this paragraph")
               && clarified?.status == .applied && file().contains("<p><strong>One</strong></p>"), "\(clarified?.status.rawValue ?? "nil")")
+        check("REQ-004 the answer reaches the assistant with the question it asked",
+              clarifiedPrompt.contains("Only this paragraph, or every paragraph of the section?"), String(clarifiedPrompt.suffix(900)))
         check("REQ-004 the answered question is not left open", !session.history.contains { $0.status == .clarification })
     }
 
