@@ -1182,3 +1182,16 @@ the answer, with the saved default unchanged because the value was the one alrea
   refuse.
 - Never `curl` a dev server that a UI Studio session is using. Each request renders a page, starts preparations and fills
   the log with failures of your own making.
+
+## A runtime that calls the page's handlers must never rethrow their errors itself (BUG-079)
+- The UI Studio runtime caught an exception from the page's `onload` of a simulated XHR and rethrew it with
+  `setTimeout(() => { throw error })`. The throw then belonged to the user script, which has no URL, so WebKit gave the
+  page, its error overlay and our log only "Script error.". Use `reportError(error)` (`surface` in the runtime): the error
+  stays the page's own and keeps its message and stack. A harness probe showed that eval'd `webpack://` code keeps its
+  message, so that was not the cause.
+- When a page says "Script error.", first ask which of our own frames was on the stack, before blaming the bundler.
+- The development server's own endpoints must pass, never be simulated. Rspack's lazy compilation is
+  `POST /lazy-compilation-using-`. A prepared rule answered it, the server never built the lazy chunk, and the app stayed on
+  its loading screen.
+- An Electron renderer run as a web page needs its preload bridge simulated (REQ-016). A no-op stand-in hands the app
+  proxies instead of data, and it crashes far from the cause.
