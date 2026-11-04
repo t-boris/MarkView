@@ -44,6 +44,8 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     var channelHub: StudioChannelHub?
     var channelMessages: [StudioBridge.Channel] = []
     var channelLog: [String] = []
+    /// Calls of the Electron preload bridge (REQ-016), as they crossed the bridge.
+    var ipcRequests: [StudioBridge.Request] = []
     var deliveries: Task<Void, Never>?
     var loaded: CheckedContinuation<Void, Never>?
     let window: NSWindow
@@ -78,7 +80,7 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
     }
 
     func load(_ html: String, seed: Int = 7, browser: StudioBrowserProfile = StudioBrowserProfile(),
-              keptStorage: [[String: String]] = [], clockAnchor: Double? = nil) async {
+              keptStorage: [[String: String]] = [], clockAnchor: Double? = nil, electronGlobals: [String]? = nil) async {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         // Stands in for the network under the runtime's own fetch, for requests the runtime passes through (BUG-070).
@@ -101,8 +103,9 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
             })();
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         var settings: [String: Any] = ["session": token, "generation": simulator.generation, "seed": seed, "testTime": 1_767_225_600_000,
-                                       "locale": "de-DE", "timeZone": "Europe/Berlin", "electron": false, "electronGlobals": [String](),
-                                       "browser": browser.runtimeConfig, "keptStorage": keptStorage]
+                                       "locale": "de-DE", "timeZone": "Europe/Berlin", "electron": electronGlobals != nil,
+                                       "electronGlobals": electronGlobals ?? [], "browser": browser.runtimeConfig, "keptStorage": keptStorage,
+                                       "redaction": ["fields": StudioRedactor.defaultConfidentialFields, "patterns": StudioRedactor.secretPatterns]]
         if let clockAnchor { settings["clockAnchor"] = clockAnchor }
         let config = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
         controller.addUserScript(WKUserScript(source: source.replacingOccurrences(of: "__MARKVIEW_STUDIO_CONFIG__", with: config),
@@ -156,6 +159,7 @@ final class Harness: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDele
             channelMessages.append(channel)
             handleChannel(channel, reply: replyHandler)
         case .success(.request(let request)):
+            if request.transport == "ipc" { ipcRequests.append(request) }
             let http = StudioHTTPRequest(method: request.method, url: request.url, headers: request.headers, body: request.body,
                                          requestId: request.requestId)
             if request.url.path == "/__framework" {
@@ -438,6 +442,7 @@ func run() async {
 
     await browserChecks(harness)
     await realtimeChecks(harness)
+    await ipcChecks(harness)
 
     // Messages of an earlier generation are rejected after Reset (SIM-10).
     watchdog.reached("Messages of an earlier generation are rejected after Reset")
@@ -655,9 +660,13 @@ extension Harness {
         case .open:
             guard let url = message.url else { return reply(nil, "No URL.") }
             let pageID = message.id
-            let opening = hub.open(id: id, url: StudioChannelRoute.httpURL(url), protocols: message.protocols,
-                                   transport: message.transport == .eventSource ? .eventSource : .webSocket, source: "page",
-                                   shown: url.absoluteString, sink: { [weak self] frames in self?.deliver(pageID, frames) })
+            let sink: StudioChannelHub.Sink = { [weak self] frames in self?.deliver(pageID, frames) }
+            // A callback of the preload bridge waits for its channel, as in the session (REQ-016).
+            let opening = message.transport == .ipc
+                ? hub.listen(id: id, url: url, transport: .ipc, source: "page", shown: url.absoluteString, sink: sink)
+                : hub.open(id: id, url: StudioChannelRoute.httpURL(url), protocols: message.protocols,
+                           transport: message.transport == .eventSource ? .eventSource : .webSocket, source: "page",
+                           shown: url.absoluteString, sink: sink)
             switch opening {
             case .accepted(let chosen, let frames): reply(["ok": true, "protocol": chosen ?? "", "frames": frames.map(\.bridgeValue)], nil)
             case .unknown(let reason), .refused(let reason): reply(["ok": false, "code": 1006, "reason": reason], nil)
@@ -909,6 +918,190 @@ func realtimeChecks(_ harness: Harness) async {
           harness.rejected.dropFirst(rejectedBefore).joined(separator: "; "))
     check("REQ-015 opens, messages and closes are logged", harness.channelLog.contains { $0.contains("open · raw channel chat") }
           && harness.channelLog.contains { $0.contains("→") } && harness.channelLog.contains { $0.contains("closed") }, harness.channelLog.joined(separator: "\n"))
+
+    harness.channelHub?.closeAll()
+    harness.channelHub = nil
+    harness.simulator = saved
+    await harness.load(page)
+    await harness.settle()
+}
+
+// MARK: - Electron preload bridge (REQ-016)
+
+/// An Electron renderer's preload bridge in a real page: calls are requests to http://electron.ipc answered by the
+/// simulation over the shared state, callbacks listen to simulated channels, and the encoding is the one the map and the
+/// prompts describe.
+@MainActor
+func ipcChecks(_ harness: Harness) async {
+    func text(_ script: String) async -> String { (await harness.js(script) as? String) ?? "nil" }
+    func json(_ text: String) -> StudioJSON { StudioJSON(text: text) ?? .null }
+    let saved = harness.simulator
+    let base = StudioIPC.origin + "/strikedesk/settings/"
+    var spec = StudioEnvironmentSpec()
+    spec.entities = [StudioEntity(name: "brokers", fields: [StudioField(name: "name", type: "string", required: true)])]
+    spec.seed = ["brokers": [json(#"{"id":"b1","name":"Alpaca"}"#)]]
+    func respond(_ id: String, _ method: String, _ path: String, _ status: Int, _ body: StudioJSON?) -> StudioRule {
+        StudioRule(id: id, method: method, path: path, operation: .respond, response: StudioFixedResponse(status: status, body: body ?? .null))
+    }
+    spec.rules = [
+        respond("get-document", "GET", base + "getDocument", 200, json(#"{"theme":"dark","revision":3}"#)),
+        StudioRule(id: "get-brokers", method: "GET", path: base + "getBrokers", operation: .list, entity: "brokers"),
+        StudioRule(id: "save-broker", method: "PUT", path: base + "saveBroker", operation: .create, entity: "brokers"),
+        StudioRule(id: "delete-broker", method: "DELETE", path: base + "deleteBroker/:id", operation: .delete, entity: "brokers"),
+        respond("explode", "POST", base + "explode", 500, json(#"{"error":"internal","message":"The gateway is down"}"#)),
+        respond("test-connection", "POST", base + "testConnection/:id", 200, json(#"{"ok":true}"#)),
+        respond("get-invoked", "GET", StudioIPC.origin + "/electron/ipcRenderer/invoke/settings:get-document", 200, json(#"{"via":"invoke"}"#)),
+    ]
+    spec.channels = [
+        StudioChannel(id: "broker-saved", path: base + "onBrokerSaved", wire: .raw,
+                      links: [StudioChannelLink(entity: "brokers", on: [.create], message: StudioChannelMessage(data: .string("{{record}}")))]),
+        StudioChannel(id: "status", path: StudioIPC.origin + "/electron/ipcRenderer/on/order:status-update", wire: .raw,
+                      onConnect: [StudioChannelMessage(data: json(#"{"status":"filled"}"#))]),
+    ]
+    harness.simulator = StudioSimulator(spec: spec, scenario: StudioScenario(id: "desk", name: "Desk", kind: .populated), appOrigin: harness.origin.text)
+    harness.channelHub = harness.makeChannelHub()
+    harness.ipcRequests = []
+    let rejectedBefore = harness.rejected.count
+    await harness.load("<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body></body></html>",
+                       electronGlobals: ["strikedesk", "electron"])
+    await harness.settle(0.2)
+
+    watchdog.reached("REQ-016 bridge calls are simulated requests")
+    let document = await text("return JSON.stringify(await window.strikedesk.settings.getDocument());")
+    check("REQ-016 a bridge call resolves to the simulated answer's JSON", document == #"{"revision":3,"theme":"dark"}"#, document)
+    let listed = await text("""
+        const saved = await window.strikedesk.settings.saveBroker({ id: 'b2', name: 'Paper' });
+        const list = await window.strikedesk.settings.getBrokers();
+        return saved.name + ' ' + list.map(b => b.name).join(',');
+        """)
+    check("REQ-016 a save writes the shared state, and a later get returns it", listed == "Paper Alpaca,Paper", listed)
+    let deleted = await text("""
+        const answer = await window.strikedesk.settings.deleteBroker('b2');
+        return String(answer) + ' ' + (await window.strikedesk.settings.getBrokers()).length;
+        """)
+    check("REQ-016 a delete with an id argument removes the record; its empty answer is undefined", deleted == "undefined 1", deleted)
+    let failed = await text("""
+        try { await window.strikedesk.settings.explode(); return 'resolved'; }
+        catch (error) { return (error instanceof Error) + ' ' + error.message; }
+        """)
+    check("REQ-016 an answer of 400 or more rejects with an Error that carries its message",
+          failed == "true Error invoking remote method 'strikedesk.settings.explode': Error: The gateway is down", failed)
+    let unknown = await text("""
+        try { await window.strikedesk.brokers.reconnectAll(); return 'resolved'; } catch (error) { return error.message; }
+        """)
+    check("REQ-016 a call nothing answers rejects with the simulation's message", unknown.contains("no simulation rule"), unknown)
+    let invoked = await text("return JSON.stringify(await window.electron.ipcRenderer.invoke('settings:get-document', { scope: 'all' }));")
+    check("REQ-016 ipcRenderer.invoke goes to its channel's address, with the verb its channel gives", invoked == #"{"via":"invoke"}"#, invoked)
+
+    watchdog.reached("REQ-016 the request convention")
+    harness.ipcRequests = []
+    let encoded = await text("""
+        const s = window.strikedesk.settings;
+        const calls = [s.getBroker('b1'), s.testConnection('paper/live'), s.saveDocument({ theme: 'light' }, 4),
+          s.mergeThings({ a: 1 }, [2], 'tag'), s.saveNote('x'.repeat(300)), s.getOptional(undefined, null, '', true, 7),
+          s.fetchAiModels({ provider: 'openai', apiKey: 'plain-key-value', nested: { password: 'hunter2' } })];
+        await Promise.allSettled(calls);
+        return 'done';
+        """)
+    let calls = harness.ipcRequests.map { "\($0.method) \($0.url.absoluteString)" }
+    func request(_ suffix: String) -> StudioBridge.Request? { harness.ipcRequests.first { $0.url.absoluteString.hasSuffix(suffix) } }
+    check("REQ-016 scalar arguments are path segments in order; a slash stays inside its segment",
+          encoded == "done" && calls.contains("GET \(base)getBroker/b1") && calls.contains("POST \(base)testConnection/paper%252Flive")
+          && calls.contains("GET \(base)getOptional/true/7") && request("getBroker/b1")?.body == nil, calls.joined(separator: " | "))
+    check("REQ-016 one object is the JSON body, several are a JSON array, a long string is the body",
+          request("saveDocument/4")?.method == "PUT" && request("saveDocument/4")?.body == #"{"theme":"light"}"#
+          && request("saveDocument/4")?.headers["content-type"] == "application/json"
+          && request("mergeThings/tag")?.body == #"[{"a":1},[2]]"# && request("saveNote")?.body == "\"" + String(repeating: "x", count: 300) + "\"",
+          calls.joined(separator: " | "))
+    let argsHeader = request("fetchAiModels")?.headers[StudioIPC.argumentsHeader] ?? ""
+    check("REQ-016 the arguments header lists every argument, redacted in the page",
+          request("saveDocument/4")?.headers[StudioIPC.argumentsHeader] == #"[{"theme":"light"},4]"#
+          && argsHeader.contains("openai") && !argsHeader.contains("plain-key-value") && !argsHeader.contains("hunter2")
+          && argsHeader.contains("[redacted]") && request("getOptional/true/7")?.headers[StudioIPC.argumentsHeader] == #"[null,null,"",true,7]"#,
+          argsHeader)
+    harness.ipcRequests = []
+    _ = await text("try { await window.strikedesk.settings.saveBlob({ data: 'y'.repeat(9000) }); } catch (e) {} return 'done';")
+    let bounded = harness.ipcRequests.first?.headers[StudioIPC.argumentsHeader] ?? ""
+    check("REQ-016 the arguments header is at most 4 KB", bounded.utf8.count <= 4096 && bounded.hasSuffix("…") && bounded.hasPrefix(#"[{"data":"yyy"#),
+          "\(bounded.utf8.count) bytes")
+    let names = ["getDocument", "listBrokers", "isConnected", "issue", "getter", "deleteBroker", "removeItem", "clearCache", "updateBroker",
+                 "patchOrder", "saveBroker", "setTheme", "resetDocument", "importSettings", "testConnection", "GetAll", "constructor", "_internal"]
+    harness.ipcRequests = []
+    let channelNames = ["settings:get-document", "order:submit", "brokers.delete_broker"]
+    _ = await harness.js("""
+        const v = window.strikedesk.verbs;
+        await Promise.allSettled(names.map(name => v[name]()));
+        await Promise.allSettled(channels.map(channel => window.electron.ipcRenderer.invoke(channel)));
+        return 'done';
+        """, ["names": names, "channels": channelNames])
+    let pageVerbs = Dictionary(harness.ipcRequests.map { ($0.url.lastPathComponent, $0.method) }, uniquingKeysWith: { first, _ in first })
+    let disagree = (names + channelNames).filter { pageVerbs[$0] != StudioIPC.verb(of: $0) }
+    check("REQ-016 the page and the map choose the same verb for every method and channel",
+          disagree.isEmpty && pageVerbs.count == names.count + channelNames.count,
+          disagree.map { "\($0): page \(pageVerbs[$0] ?? "none"), map \(StudioIPC.verb(of: $0))" }.joined(separator: ", ") + " \(pageVerbs.keys.sorted())")
+
+    watchdog.reached("REQ-016 callbacks listen to simulated channels")
+    let subscribed = await text("""
+        window.__brokers = [];
+        const off = window.strikedesk.settings.onBrokerSaved(broker => window.__brokers.push(broker.name));
+        window.__off = off;
+        return typeof off;
+        """)
+    await harness.settle(0.3)
+    let pushed = await text("""
+        await window.strikedesk.settings.saveBroker({ id: 'b3', name: 'Tasty' });
+        await new Promise(r => setTimeout(r, 500));
+        window.__off();
+        await window.strikedesk.settings.saveBroker({ id: 'b4', name: 'Schwab' });
+        await new Promise(r => setTimeout(r, 500));
+        return window.__brokers.join(',');
+        """)
+    check("REQ-016 a callback argument returns its unsubscribe function at once", subscribed == "function", subscribed)
+    check("REQ-016 a callback gets what its channel pushes for a write, and nothing after it unsubscribes", pushed == "Tasty", pushed)
+    let withEvent = await text("""
+        return await new Promise(resolve => {
+          window.electron.ipcRenderer.on('order:status-update', (event, data) => resolve(typeof event + ' ' + ('sender' in event) + ' ' + data.status));
+          setTimeout(() => resolve('timeout'), 3000);
+        });
+        """)
+    check("REQ-016 an ipcRenderer listener gets the event and the data, like Electron's", withEvent == "object true filled", withEvent)
+    let errorMark = harness.events.count
+    _ = await text("""
+        window.electron.ipcRenderer.once('order:status-update', () => { window.strikedeskMissing.handler.run(); });
+        return 'ok';
+        """)
+    await harness.settle(1.0)
+    let thrown = harness.events.dropFirst(errorMark).filter { $0.kind == .runtimeError }.map(\.detail)
+    check("REQ-016 an error a callback throws surfaces with its message", thrown.contains { $0.contains("strikedeskMissing") },
+          thrown.joined(separator: " | "))
+    let ipcOpens = Set(harness.channelMessages.filter { $0.action == .open && $0.transport == .ipc }.map(\.id))
+    let opened = ipcOpens.count
+    let closed = harness.channelMessages.filter { $0.action == .close && ipcOpens.contains($0.id) }.count
+    check("REQ-016 callbacks open and close channels with the ipc transport; once closes itself", opened == 3 && closed == 2,
+          "\(opened) opened, \(closed) closed")
+    let waiting = await text("""
+        const off = window.strikedesk.settings.onDocumentApplied(() => {});
+        return typeof off + ' ' + typeof off();
+        """)
+    await harness.settle(0.3)
+    check("REQ-016 a callback no channel answers waits without an error", waiting == "function undefined"
+          && harness.channelLog.contains { $0.contains("onDocumentApplied · page · listening") }, harness.channelLog.suffix(4).joined(separator: "\n"))
+
+    watchdog.reached("REQ-016 reads of the bridge stay harmless")
+    let reads = await text("""
+        const s = window.strikedesk.settings;
+        const awaited = await s;
+        return [awaited === s, s === window.strikedesk.settings, String(window.strikedesk.platform), typeof s.getDocument,
+          JSON.stringify({ v: window.strikedesk.versions }), [...window.strikedesk.list].length].join(' ');
+        """)
+    check("REQ-016 reading a property gives the bridge below it: awaitable, stable, empty as text", reads == "true true  function {} 0", reads)
+    let eventsMark = harness.events.count
+    let sync = await text("return String(window.electron.ipcRenderer.sendSync('settings:get-sync'));")
+    await harness.settle(0.3)
+    check("REQ-016 sendSync answers undefined at once and is reported", sync == "undefined"
+          && harness.events.dropFirst(eventsMark).contains { $0.kind == .electron && $0.detail.contains("sendSync(\"settings:get-sync\")") }, sync)
+    check("REQ-016 the bridge's messages pass validation", harness.rejected.count == rejectedBefore,
+          harness.rejected.dropFirst(rejectedBefore).joined(separator: "; "))
 
     harness.channelHub?.closeAll()
     harness.channelHub = nil

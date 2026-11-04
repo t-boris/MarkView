@@ -157,10 +157,11 @@ struct StudioRedactor {
         }
     }
 
+    /// A JSON value (the arguments of a preload bridge call, REQ-016) is redacted field by field, anything else as text.
     func redact(headers: [String: String]) -> [String: String] {
         var result: [String: String] = [:]
         for (name, value) in headers {
-            result[name] = Self.confidentialHeaders.contains(name.lowercased()) || isConfidential(name) ? Self.placeholder : redact(text: value)
+            result[name] = Self.confidentialHeaders.contains(name.lowercased()) || isConfidential(name) ? Self.placeholder : redact(body: value)
         }
         return result
     }

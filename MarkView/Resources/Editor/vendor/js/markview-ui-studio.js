@@ -12,8 +12,11 @@
 //   dates) follow the scenario, so captures are reproducible.
 // - Location, permissions, the clipboard, camera and microphone, and notifications answer from the scenario's browser
 //   settings, never from the Mac; the localStorage entries the person kept are written once per generation (REQ-008).
-// - Uncaught errors, the dev server's build error overlay, blocked resources, route changes, Electron stand-in calls and
-//   "the page is idle" are reported.
+// - An Electron renderer's preload bridge (the globals its preload exposes) is simulated like any other API (REQ-016): a
+//   call is a request to the logical address `http://electron.ipc/<global>/<path>`, a callback listens to the simulated
+//   channel there.
+// - Uncaught errors, the dev server's build error overlay, blocked resources, route changes, synchronous IPC and "the page
+//   is idle" are reported.
 // - Select mode: hover highlights, a click selects without running the element's action, parent navigation; the selection
 //   carries what the framework's development metadata says about its source and its repeated instances.
 // - Restoration steps are recorded and replayed; a capture freezes animations and hides the overlay.
@@ -1291,28 +1294,231 @@
   var typedOn = null;
   document.addEventListener('input', function (event) { if (event.isTrusted) typedOn = location.pathname + location.search; }, true);
 
-  // MARK: Electron renderer stand-ins
+  // MARK: Electron preload bridge (REQ-016)
 
+  // An Electron renderer runs here as a web page: its preload never runs, so the globals it exposes with
+  // `contextBridge.exposeInMainWorld` would not exist. Each is a simulated bridge instead, a Proxy of any shape. A call
+  // `window.<global>.<a>.<b>(...args)` is the request `<verb> http://electron.ipc/<global>/<a>/<b>[/<argument>…]` to MarkView,
+  // answered by the simulated environment like any other API, and prepared when nothing answers it yet:
+  // - the verb follows the method's first word: get, list, load, fetch, read, find, query, is, has, can → GET; delete,
+  //   remove, clear → DELETE; update, patch → PATCH; save, set, put, reset, import → PUT; any other → POST. For
+  //   `invoke(channel, …)`, `send` and `sendSync` it follows the channel's last part (`settings:get-document` → GET);
+  // - string (up to 256 characters), number and boolean arguments are path segments, in order; undefined, null and empty
+  //   strings are left out. One object, array or longer string is the JSON body; several are a JSON array;
+  // - the header `x-markview-ipc-args` carries every argument as JSON, redacted and at most 4 KB, for the preparation;
+  // - the call returns the promise of the answer's parsed JSON (undefined when it is empty); a status of 400 or more
+  //   rejects it with the answer's message.
+  // A call with a function argument subscribes: the callback gets what the simulated channel at the same address pushes,
+  // and the call returns its unsubscribe function at once; `on`, `once` and `addListener` with a channel all listen at
+  // `…/on/<channel>`. `off` and `remove…Listener(s)` unsubscribe. Reading a property
+  // gives the bridge below it, never a value (`then` is undefined, so awaiting it does not hang).
   if (config.electron) {
-    var standIn = function (path) {
-      return new Proxy(function () {}, {
-        get: function (_, key) {
-          if (key === 'then') return undefined;
-          if (key === Symbol.iterator) return function* () {};
-          if (key === Symbol.toPrimitive) return function () { return ''; };
-          if (typeof key === 'symbol') return undefined;
-          return standIn(path + '.' + String(key));
-        },
-        apply: function () {
-          // A stand-in does nothing: the scenario that depends on it is not simulated (REQ-001).
-          report('electron', path + '()');
-          return standIn(path + '()');
+    var IPC_ORIGIN = 'http://electron.ipc';
+    var IPC_ARGS_HEADER = 'x-markview-ipc-args';
+    var IPC_MAX_ARGS = 4096;
+    var IPC_MAX_SEGMENT = 256;
+    var IPC_CHANNEL_CALLS = { invoke: 1, send: 1, sendSync: 1, sendTo: 1, sendToHost: 1 };
+    var IPC_UNSUBSCRIBE = /^(off|remove\w*Listeners?)$/;
+    var IPC_UNSUBSCRIBE_CALLBACK = /^(unsubscribe|unlisten|unwatch)/i;
+    // `ipcRenderer.on('chan', cb)` and its once and add… forms listen to the same channel.
+    var IPC_LISTEN = /^(on|once|addListener|addEventListener|prependListener|prependOnceListener)$/;
+    var IPC_NOT_CALLS = { then: 1, toJSON: 1, $$typeof: 1, nodeType: 1, asymmetricMatch: 1, '@@__IMMUTABLE_ITERABLE__@@': 1,
+      '@@__IMMUTABLE_RECORD__@@': 1 };
+    var ipcVerbs = Object.create(null);
+    [['GET', 'get list load fetch read find query is has can'], ['DELETE', 'delete remove clear'], ['PATCH', 'update patch'],
+      ['PUT', 'save set put reset import']].forEach(function (group) {
+      group[1].split(' ').forEach(function (word) { ipcVerbs[word] = group[0]; });
+    });
+    // The same rule as StudioIPC.verb(of:) in Swift, which the application map uses.
+    var ipcVerb = function (name) {
+      var action = String(name).split(/[:/.]/).pop();
+      var word = /^[^A-Za-z0-9]*([A-Za-z][a-z0-9]*)/.exec(action);
+      return (word && ipcVerbs[word[1].toLowerCase()]) || 'POST';
+    };
+    var ipcScalar = function (value) {
+      var type = typeof value;
+      return (type === 'string' && value !== '' && value.length <= IPC_MAX_SEGMENT) || type === 'number' || type === 'boolean'
+        || type === 'bigint';
+    };
+    // Foundation decodes %2F in a path, so a slash inside an argument is encoded twice and stays one segment.
+    var ipcSegment = function (value) {
+      var text = encodeURIComponent(String(value)).replace(/%2F/gi, '%252F');
+      return text === '.' || text === '..' ? text.replace(/\./g, '%2E') : text;
+    };
+    var ipcRedaction = config.redaction || {};
+    var ipcFields = (ipcRedaction.fields || []).map(function (field) { return String(field).toLowerCase().replace(/[_-]/g, ''); })
+      .filter(function (field) { return field; });
+    var ipcPatterns = (ipcRedaction.patterns || []).map(function (pattern) {
+      try { return new RegExp(pattern, 'g'); } catch (error) { return null; }
+    }).filter(function (pattern) { return pattern; });
+    var ipcConfidential = function (name) {
+      var key = String(name).toLowerCase().replace(/[_-]/g, '');
+      return ipcFields.some(function (field) { return key.indexOf(field) >= 0; });
+    };
+    // The arguments as plain JSON values for the header: confidential fields and credential shapes redacted, functions named.
+    var ipcPlain = function (value, depth, seen) {
+      if (typeof value === 'function') return '[function]';
+      if (value === undefined || typeof value === 'symbol') return null;
+      if (typeof value === 'bigint') return String(value);
+      if (typeof value === 'string') {
+        return ipcPatterns.reduce(function (text, pattern) { return text.replace(pattern, '[redacted]'); }, value);
+      }
+      if (value === null || typeof value !== 'object') return value;
+      if (depth > 8 || seen.indexOf(value) >= 0) return '[…]';
+      seen.push(value);
+      var out;
+      try {
+        if (Array.isArray(value)) {
+          out = value.slice(0, 200).map(function (item) { return ipcPlain(item, depth + 1, seen); });
+        } else if (value instanceof Date) {
+          out = isNaN(value.getTime()) ? null : value.toISOString();
+        } else {
+          out = {};
+          Object.keys(value).slice(0, 200).forEach(function (key) {
+            out[key] = ipcConfidential(key) && value[key] != null ? '[redacted]' : ipcPlain(value[key], depth + 1, seen);
+          });
         }
+      } catch (error) { out = '[unreadable]'; }
+      seen.pop();
+      return out;
+    };
+    var ipcEncoder = new TextEncoder();
+    var ipcArgsHeader = function (args) {
+      var text = JSON.stringify(args.map(function (arg) { return ipcPlain(arg, 0, []); }));
+      if (ipcEncoder.encode(text).length <= IPC_MAX_ARGS) return text;
+      var cut = text.slice(0, IPC_MAX_ARGS - 3);
+      while (cut && ipcEncoder.encode(cut).length > IPC_MAX_ARGS - 3) cut = cut.slice(0, Math.floor(cut.length * 0.9));
+      return cut + '…';
+    };
+    var ipcError = function (label, message) {
+      return new Error("Error invoking remote method '" + label + "': Error: " + message);
+    };
+    var ipcAnswer = function (reply, label) {
+      var status = reply.status | 0;
+      var text = reply.body == null ? '' : String(reply.body);
+      var value;
+      if (text !== '' && status !== 204 && status !== 205) {
+        try { value = JSON.parse(text); } catch (error) { value = text; }
+      }
+      if (status < 400) return value;
+      var message = typeof value === 'string' ? value : '';
+      if (value && typeof value === 'object') {
+        if (typeof value.message === 'string') message = value.message;
+        else if (typeof value.error === 'string') message = value.error;
+        else if (value.error && typeof value.error.message === 'string') message = value.error.message;
+      }
+      throw ipcError(label, message || 'the simulated main process answered ' + status);
+    };
+    var ipcAddress = function (path, args) {
+      var segments = path.map(ipcSegment);
+      args.forEach(function (arg) { if (ipcScalar(arg)) segments.push(ipcSegment(arg)); });
+      return IPC_ORIGIN + '/' + segments.join('/');
+    };
+
+    var ipcRequest = function (path, args) {
+      var name = path[path.length - 1];
+      var channel = IPC_CHANNEL_CALLS[name] === 1 && typeof args[0] === 'string' ? args[0] : null;
+      var label = channel || path.join('.');
+      var values = args.filter(function (arg) {
+        return arg !== undefined && arg !== null && arg !== '' && !ipcScalar(arg) && typeof arg !== 'function' && typeof arg !== 'symbol';
       });
+      var body = null;
+      try {
+        if (values.length) body = JSON.stringify(values.length === 1 ? values[0] : values);
+      } catch (error) {
+        return Promise.reject(ipcError(label, 'An object could not be cloned.'));
+      }
+      var headers = {};
+      if (body != null) headers['content-type'] = 'application/json';
+      headers[IPC_ARGS_HEADER] = ipcArgsHeader(args);
+      var url = ipcAddress(path, args);
+      return ask({ method: ipcVerb(channel || name), url: url, headers: headers, body: body, transport: 'ipc' }).then(function (reply) {
+        // The bridge has no real main process to pass a call to.
+        if (reply.action !== 'respond') throw ipcError(label, 'MarkView UI Studio did not simulate ' + url);
+        return deliver(reply).then(function () { return ipcAnswer(reply, label); });
+      }, function (error) {
+        throw ipcError(label, (error && error.message) || String(error));
+      });
+    };
+
+    var ipcSubscriptions = [];
+    var ipcStop = function (entry) {
+      var index = ipcSubscriptions.indexOf(entry);
+      if (index >= 0) ipcSubscriptions.splice(index, 1);
+      var state = entry.state;
+      if (state.readyState === state.closedState) return;
+      var open = state.readyState === 1;
+      state.readyState = state.closedState;
+      delete channels[state.id];
+      if (open) send({ kind: 'channel', action: 'close', id: state.id }).catch(function () {});
+    };
+    // A callback listens to the simulated channel at the call's address. An `ipcRenderer` listener gets the event first,
+    // like Electron's; a bridge method's callback gets the value only. An error the callback throws surfaces as the page's.
+    var ipcSubscribe = function (path, args, callback) {
+      var name = path[path.length - 1];
+      var entry = { parent: path.slice(0, -1).join('.'), scalars: args.filter(ipcScalar).map(String), callback: callback, state: null };
+      var withEvent = path.indexOf('ipcRenderer') >= 0;
+      var once = /^(once|prependOnce)/.test(name);
+      var address = IPC_LISTEN.test(name) && typeof args[0] === 'string' ? path.slice(0, -1).concat('on') : path;
+      var target = new EventTarget();
+      target.onmessage = function (event) {
+        var value = event.data;
+        if (typeof value === 'string') {
+          if (value === '') value = undefined;
+          else try { value = JSON.parse(value); } catch (error) {}
+        }
+        if (once) ipcStop(entry);
+        if (withEvent) callback.call(null, { sender: null, senderId: 0, ports: [] }, value); else callback.call(null, value);
+      };
+      entry.state = connect(target, ipcAddress(address, args), [], 'ipc');
+      ipcSubscriptions.push(entry);
+      return function unsubscribe() { ipcStop(entry); };
+    };
+    var ipcUnsubscribe = function (path, args) {
+      var parent = path.slice(0, -1).join('.');
+      var callback = args.filter(function (arg) { return typeof arg === 'function'; })[0];
+      var scalars = args.filter(ipcScalar).map(String);
+      ipcSubscriptions.slice().forEach(function (entry) {
+        if (entry.parent !== parent || (callback && entry.callback !== callback)) return;
+        if (scalars.some(function (scalar, index) { return entry.scalars[index] !== scalar; })) return;
+        ipcStop(entry);
+      });
+      return undefined;
+    };
+
+    var ipcCall = function (path, args) {
+      var name = path[path.length - 1];
+      var callback = args.filter(function (arg) { return typeof arg === 'function'; })[0];
+      if (IPC_UNSUBSCRIBE.test(name) || (callback && IPC_UNSUBSCRIBE_CALLBACK.test(name))) return ipcUnsubscribe(path, args);
+      if (callback) return ipcSubscribe(path, args, callback);
+      if (name === 'sendSync') {
+        // A synchronous answer cannot wait for MarkView.
+        report('electron', 'window.' + path.join('.') + '(' + (typeof args[0] === 'string' ? JSON.stringify(args[0]) : '') + ')');
+        return undefined;
+      }
+      return ipcRequest(path, args);
+    };
+
+    var ipcBridges = Object.create(null);
+    var ipcBridge = function (path) {
+      var id = path.join('\u0000');
+      if (ipcBridges[id]) return ipcBridges[id];
+      var bridge = new Proxy(function () {}, {
+        get: function (_, key) {
+          if (key === Symbol.toPrimitive) return function () { return ''; };
+          if (key === Symbol.iterator) return function* () {};
+          if (typeof key === 'symbol' || IPC_NOT_CALLS[key] === 1) return undefined;
+          if (key === 'toString' || key === 'valueOf') return function () { return ''; };
+          return ipcBridge(path.concat(String(key)));
+        },
+        apply: function (_, self, args) { return ipcCall(path, Array.prototype.slice.call(args)); }
+      });
+      ipcBridges[id] = bridge;
+      return bridge;
     };
     var names = config.electronGlobals && config.electronGlobals.length ? config.electronGlobals
       : ['electron', 'api', 'ipcRenderer', 'electronAPI', 'bridge', 'desktop'];
-    names.forEach(function (name) { if (/^[A-Za-z_$][\w$]*$/.test(name) && !(name in window)) window[name] = standIn('window.' + name); });
+    names.forEach(function (name) { if (/^[A-Za-z_$][\w$]*$/.test(name) && !(name in window)) window[name] = ipcBridge([name]); });
   }
 
   // MARK: Source metadata of frameworks (development builds)

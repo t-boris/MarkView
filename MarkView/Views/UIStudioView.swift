@@ -1310,6 +1310,9 @@ struct UIStudioEnvironmentPanel: View {
         if let target = session.target {
             rows.append(("Application", target.label))
             rows.append(("Command", target.command))
+            if target.isElectron {
+                rows.append(("Electron preload bridge", StudioIPC.summary(session.spec, globals: session.electronGlobals)))
+            }
         }
         if let url = session.appURL { rows.append(("Address", url.absoluteString)) }
         rows.append(("Server", session.appURL == nil ? "—" : session.ownsServer

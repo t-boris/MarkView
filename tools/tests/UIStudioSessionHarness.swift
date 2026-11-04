@@ -233,7 +233,8 @@ func run() async {
     spec.seed = ["items": [.object(["id": .number(1), "name": .string("Alpha")]), .object(["id": .number(2), "name": .string("Beta")])]]
     spec.rules = [StudioRule(id: "list-items", method: "GET", path: "/api/items", operation: .list, entity: "items"),
                   StudioRule(id: "create-item", method: "POST", path: "/api/items", operation: .create, entity: "items")]
-    // Mapped before (REQ-014): this session does not map the application, so the environment file stays as committed.
+    // Mapped before (REQ-014), at the current version (REQ-016): this session does not map the application, so the
+    // environment file stays as committed.
     spec.map = StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true)
     try? StudioStore.saveEnvironment(spec, root: root)
     _ = shell("git init -q && git add -A && git -c user.email=t@example.com -c user.name=Test commit -qm init", in: root)
@@ -1212,6 +1213,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await serverClockChecks()
             await logChecks()
             await authChecks()
+            await ipcSessionChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
@@ -1889,10 +1891,11 @@ func targetChecks() {
     check("REQ-001 an Electron app runs its renderer as a web page, without Electron",
           electronTarget?.isElectron == true && electronTarget?.command.contains("dev:web") == true
             && electronTarget?.command.contains("electron .") == false, "\(String(describing: electronTarget))")
-    check("REQ-001 the main process, preload, IPC and native modules are disclosed as not running",
-          electronNotes.contains { $0.contains("main process, preload scripts, IPC and native modules do not run") && $0.contains("not simulated") },
+    check("REQ-016 the main process and preload are disclosed as not running, their bridge as simulated, synchronous IPC as not",
+          electronNotes.contains { $0.contains("main process, preload scripts and native modules do not run")
+              && $0.contains("simulated like any other API") && $0.contains("http://electron.ipc/") && $0.contains("(sendSync) and native modules are not simulated") },
           electronNotes.joined(separator: " | "))
-    check("REQ-001 the preload's globals get stand-ins under their real names", StudioTargetLimits.electronGlobals(in: electron) == ["desktop"])
+    check("REQ-016 the preload's globals are simulated under their real names", StudioTargetLimits.electronGlobals(in: electron) == ["desktop"])
 
     let django = base.appendingPathComponent("django")
     try? fm.createDirectory(at: django, withIntermediateDirectories: true)
@@ -1972,5 +1975,152 @@ func logChecks() async {
     check("REQ-011 the real secret the server printed reaches neither the log file nor the drawer", !everything.contains(fakeServerSecret)
           && lines.contains { $0.contains("loaded the key [redacted:API_SECRET] from .env.local") }
           && lines.contains { $0.contains("/rates?key=[redacted:API_SECRET]") }, lines.filter { $0.contains("key") }.joined(separator: "\n"))
+    await session.close()
+}
+
+// MARK: - Electron preload bridge (REQ-016)
+
+/// An Electron renderer in a real session: its completed map of version 1 is extended with the preload bridge (only the
+/// new endpoints are prepared), a bridge call the map did not list is prepared like an unknown request, and a callback the
+/// page registered before its channel existed gets the record a later save writes.
+@MainActor
+func ipcSessionChecks() async {
+    watchdog.reached("REQ-016 an older map of an Electron renderer is extended with its preload bridge")
+    let fm = FileManager.default
+    let previousAnswer = CLICompletion.answer
+    defer {
+        CLICompletion.mapAnswer = nil
+        CLICompletion.answer = previousAnswer
+    }
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-ipc-\(UUID().uuidString)").resolvingSymlinksInPath()
+    let web = root.appendingPathComponent("web")
+    try? fm.createDirectory(at: web.appendingPathComponent("src"), withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? "<!doctype html><html><head><meta charset=\"utf-8\"><title>Desk</title></head><body><p id=\"desk\">Desk</p></body></html>\n"
+        .write(to: web.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    try? """
+        import { contextBridge, ipcRenderer } from 'electron'
+        contextBridge.exposeInMainWorld('desk', {
+          settings: {
+            getDocument: () => ipcRenderer.invoke('settings:get-document'),
+            saveDocument: (doc) => ipcRenderer.invoke('settings:save-document', doc),
+            getBrokers: () => ipcRenderer.invoke('settings:get-brokers'),
+            onDocumentApplied: (cb) => { const h = (_e, d) => cb(d); ipcRenderer.on('settings:document-applied', h); return () => ipcRenderer.removeListener('settings:document-applied', h) },
+          },
+        })
+
+        """.write(to: web.appendingPathComponent("src/preload.js"), atomically: true, encoding: .utf8)
+    // The map made before REQ-016: complete, without a version, its group and rule kept.
+    var spec = StudioEnvironmentSpec()
+    spec.rules = [StudioRule(id: "session", method: "GET", path: "/api/session", operation: .respond,
+                             response: StudioFixedResponse(status: 200, body: .object(["user": .string("Dana")])))]
+    spec.map = StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true, inventoryAttempts: 1,
+                                    services: [StudioMapService(name: "app", address: "")],
+                                    groups: [StudioMapGroup(id: "app/session", service: "app", resource: "session",
+                                                            endpoints: [StudioMapEndpoint(method: "GET", path: "/api/session", resource: "session")],
+                                                            status: .done, rules: ["session"])],
+                                    version: 1)
+    try? StudioStore.saveEnvironment(spec, root: root)
+
+    let brokers = #"[{"id":"b1","name":"Alpaca"},{"id":"b2","name":"Tastytrade"}]"#
+    CLICompletion.mapAnswer = { request in
+        let structured: [String: Any]
+        switch request.label {
+        case "ui-studio:map":
+            structured = ["services": [["name": "app", "baseURL": "", "variable": "", "side": "browser"],
+                                       ["name": "electron-ipc", "baseURL": "http://electron.ipc", "variable": "", "side": "browser"]],
+                          "endpoints": [["service": "app", "resource": "session", "method": "GET", "path": "/api/session", "callSite": "web/app.js:1", "side": "browser"],
+                                        ["service": "electron-ipc", "resource": "brokers", "method": "GET", "path": "/desk/settings/getBrokers",
+                                         "callSite": "web/src/preload.js:6", "side": "browser"]],
+                          "notes": ["onDocumentApplied(cb) is a subscription"], "userRoles": ["names": [], "ordinary": ""]]
+        case "ui-studio:map-group":
+            structured = ["entities": [["name": "brokers", "idField": "id", "fields": [["name": "name", "type": "string", "required": true,
+                                                                                         "enumValues": [], "references": ""]]]],
+                          "records": [["entity": "brokers", "json": brokers]],
+                          "rules": [["id": "get-brokers", "method": "GET", "path": "http://electron.ipc/desk/settings/getBrokers", "operation": "list",
+                                     "entity": "brokers", "envelope": "", "filters": [], "include": [], "responseStatus": 200, "responseBody": "",
+                                     "evidence": [["kind": "contract", "detail": "ipcMain.handle('settings:get-brokers')"]]]],
+                          "unsupported": false, "reason": "", "assumptions": []]
+        default:
+            structured = ["json": "[]", "assumptions": []]
+        }
+        return CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
+    }
+    CLICompletion.answer = { request in
+        var structured: [String: Any] = ["rules": [], "assumptions": [], "channels": "[]", "graphql": "[]"]
+        if request.prompt.contains("seen by MarkView UI Studio: GET http://electron.ipc/desk/settings/getDocument") {
+            structured["rules"] = [["id": "get-document", "method": "GET", "path": "http://electron.ipc/desk/settings/getDocument", "operation": "respond",
+                                    "responseStatus": 200, "responseBody": #"{"theme":"dark"}"#,
+                                    "evidence": [["kind": "contract", "detail": "ipcMain.handle('settings:get-document')"]]]]
+        } else if request.prompt.contains("seen by MarkView UI Studio: PUT http://electron.ipc/desk/settings/saveDocument") {
+            structured["entities"] = [["name": "documents", "idField": "id", "fields": [["name": "theme", "type": "string", "required": false,
+                                                                                          "enumValues": [], "references": ""]]]]
+            structured["rules"] = [["id": "save-document", "method": "PUT", "path": "http://electron.ipc/desk/settings/saveDocument", "operation": "create",
+                                    "entity": "documents", "evidence": [["kind": "contract", "detail": "ipcMain.handle('settings:save-document')"]]]]
+            structured["channels"] = #"[{"id":"document-applied","path":"http://electron.ipc/desk/settings/onDocumentApplied","protocol":"raw","links":[{"entity":"documents","on":["create"],"message":{"data":"{{record}}"}}],"evidence":[{"kind":"contract","detail":"webContents.send('settings:document-applied')"}]}]"#
+        }
+        return CLICompletion.Result(text: "", structured: structured, inputTokens: 10, outputTokens: 5, costUSD: 0)
+    }
+
+    let mapsBefore = CLICompletion.mapRequests.count
+    let preparesBefore = CLICompletion.requests.count
+    let session = StudioSession(root: root)
+    let port = freePort()
+    session.start(WebAppTarget(folder: web, label: "desk (web only)", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port],
+                               isElectron: true))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-016 the Electron renderer's session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    _ = await waitUntil(60) { session.mapping.map?.status == .complete && !session.mapping.isRunning }
+    let maps = CLICompletion.mapRequests.dropFirst(mapsBefore)
+    let inventory = maps.filter { $0.label == "ui-studio:map" }
+    let groupCalls = maps.filter { $0.label == "ui-studio:map-group" }
+    check("REQ-016 a completed map of version 1 is inventoried again, asking for the preload bridge",
+          inventory.count == 1 && inventory.first?.prompt.contains("This is an Electron renderer") == true
+          && inventory.first?.systemPrompt?.contains("`electron-ipc`") == true, "\(inventory.count) inventories")
+    let map = session.mapping.map
+    check("REQ-016 the extended map keeps its old group and prepares only the bridge's new endpoints",
+          map?.version == StudioEnvironmentMap.currentVersion && map?.groups.map(\.id) == ["app/session", "electron-ipc/brokers"]
+          && map?.groups.allSatisfy { $0.status == .done } == true && groupCalls.count == 1
+          && groupCalls.first?.prompt.contains("http://electron.ipc/desk/settings/getBrokers") == true
+          && session.spec.rules.contains { $0.id == "session" } && session.spec.rules.contains { $0.id == "get-brokers" },
+          "\(map?.groups.map { "\($0.id) \($0.status)" } ?? []) \(groupCalls.count) group calls")
+    _ = await waitUntil(5) { StudioStore.loadEnvironment(root)?.map?.version == StudioEnvironmentMap.currentVersion }
+    check("REQ-016 the extended map is saved with the current version", StudioStore.loadEnvironment(root)?.map?.version == StudioEnvironmentMap.currentVersion)
+
+    watchdog.reached("REQ-016 bridge calls in the session")
+    func text(_ script: String) async -> String { ((try? await session.call(script)) as? String) ?? "nil" }
+    let listed = await text("return (await window.desk.settings.getBrokers()).map(b => b.name).join(',');")
+    check("REQ-016 a bridge method the map prepared is answered by its rule without a preparation",
+          listed == "Alpaca,Tastytrade" && CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }.isEmpty, listed)
+    let document = await text("return JSON.stringify(await window.desk.settings.getDocument());")
+    let prepares = CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }
+    check("REQ-016 an unknown bridge call is prepared like an unknown request, then answered", document == #"{"theme":"dark"}"#
+          && prepares.count == 1 && prepares.first?.prompt.contains("Unknown request seen by MarkView UI Studio: GET http://electron.ipc/desk/settings/getDocument") == true
+          && prepares.first?.prompt.contains("A call of the Electron preload bridge") == true
+          && prepares.first?.prompt.contains(StudioIPC.argumentsHeader + ": []") == true
+          && prepares.first?.systemPrompt?.contains("ipcMain.handle") == true, document + " " + (prepares.first.map { String($0.prompt.prefix(400)) } ?? "no prompt"))
+    let again = await text("return JSON.stringify(await window.desk.settings.getDocument());")
+    check("REQ-016 the prepared bridge method serves later calls without the model", again == document
+          && CLICompletion.requests.dropFirst(preparesBefore).filter { $0.label == "ui-studio:prepare" }.count == 1)
+    check("REQ-016 the bridge's calls are in the request log", session.requests.contains { $0.url == "http://electron.ipc/desk/settings/getDocument"
+          && $0.outcome == "simulated" && $0.status == 200 })
+
+    let subscribed = await text("""
+        window.__applied = [];
+        window.__off = window.desk.settings.onDocumentApplied(doc => window.__applied.push(doc.theme));
+        return typeof window.__off;
+        """)
+    _ = await waitUntil(5) { session.sessionLog.entries.contains { $0.text.contains("onDocumentApplied · page · listening") } }
+    let applied = await text("""
+        const saved = await window.desk.settings.saveDocument({ id: 'current', theme: 'light' });
+        for (let i = 0; i < 40 && !window.__applied.length; i++) await new Promise(r => setTimeout(r, 100));
+        return saved.theme + ' ' + window.__applied.join(',');
+        """)
+    check("REQ-016 a callback registered before its channel existed gets the record a later save writes",
+          subscribed == "function" && applied == "light light", "\(subscribed) \(applied)")
+    check("REQ-016 the Environment panel shows the bridge as simulated, with its methods",
+          StudioIPC.summary(session.spec, globals: session.electronGlobals) == "simulated (4 methods) · window.desk"
+          && session.disclosures.contains { $0.contains("simulated like any other API") },
+          StudioIPC.summary(session.spec, globals: session.electronGlobals))
     await session.close()
 }

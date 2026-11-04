@@ -276,9 +276,11 @@ enum StudioChannelRoute {
         return candidates.max { StudioRoute.specificity($0.0.path) < StudioRoute.specificity($1.0.path) }
     }
 
-    /// The contract of a channel nobody answers yet: `WS /socket`, `SSE https://api.example.com/events`.
+    /// The contract of a channel nobody answers yet: `WS /socket`, `SSE https://api.example.com/events`,
+    /// `ON http://electron.ipc/desk/settings/onDocumentApplied`.
     static func contract(_ transport: StudioChannelTransport, url: URL, appOrigin: String?) -> String {
-        StudioRoute.contractKey(method: transport == .eventSource ? "SSE" : "WS", url: httpURL(url), appOrigin: appOrigin)
+        let method = transport == .eventSource ? "SSE" : transport == .ipc ? "ON" : "WS"
+        return StudioRoute.contractKey(method: method, url: httpURL(url), appOrigin: appOrigin)
     }
 }
 
@@ -289,6 +291,17 @@ enum StudioChannelTransport: String, Sendable {
     case eventSource = "sse"
     /// Engine.IO's HTTP long-polling.
     case polling
+    /// A callback the page passed to the Electron preload bridge (REQ-016): it gets every message's data.
+    case ipc
+
+    var label: String {
+        switch self {
+        case .webSocket: return "WebSocket"
+        case .eventSource: return "EventSource"
+        case .polling: return "Socket.IO polling"
+        case .ipc: return "IPC callback"
+        }
+    }
 }
 
 /// A write of the state, as channels and subscriptions see it.
@@ -375,6 +388,8 @@ final class StudioChannelHub {
     typealias Sink = ([StudioChannelFrame]) -> Void
 
     nonisolated static let maxConnections = 64
+    /// IPC callbacks waiting for a channel (REQ-016).
+    nonisolated static let maxListeners = 200
     nonisolated static let maxMessage = 1_000_000
     nonisolated static let maxMessagesPerConnection = 20_000
     nonisolated static let minEveryMs = 250
@@ -407,7 +422,17 @@ final class StudioChannelHub {
     private var sinks: [String: Sink] = [:]
     private var timers: [String: [Task<Void, Never>]] = [:]
     private var waiting: [String: (StudioSimResponse) -> Void] = [:]
+    /// Connections waiting for a channel to answer their address, by id (`listen`).
+    private var listeners: [String: Listener] = [:]
     private var sequence = 0
+
+    private struct Listener {
+        var url: URL
+        var transport: StudioChannelTransport
+        var source: String
+        var shown: String
+        var sink: Sink
+    }
 
     init(environment: Environment) {
         self.environment = environment
@@ -448,8 +473,7 @@ final class StudioChannelHub {
         }
         connections[id] = connection
         sinks[id] = sink
-        let kind = transport == .eventSource ? "EventSource" : transport == .polling ? "Socket.IO polling" : "WebSocket"
-        environment.log("\(kind) \(shown) · \(source) · open · \(channel.wire.rawValue) channel \(channel.id)", false)
+        environment.log("\(transport.label) \(shown) · \(source) · open · \(channel.wire.rawValue) channel \(channel.id)", false)
         var frames: [StudioChannelFrame] = []
         switch channel.wire {
         case .raw:
@@ -462,6 +486,30 @@ final class StudioChannelHub {
         }
         schedule(channel.events, for: id)
         return .accepted(protocol: connection.subprotocol, frames: frames)
+    }
+
+    /// Opens connection `id` like `open`, or keeps it waiting while no channel answers its address. A callback of the
+    /// Electron preload bridge (REQ-016) is the page's own function: it is never refused or prepared, and it gets what a
+    /// channel registered later pushes (`openListeners`).
+    func listen(id: String, url: URL, transport: StudioChannelTransport, source: String, shown: String, sink: @escaping Sink) -> Opening {
+        guard listeners[id] == nil else { return .refused("The connection is already open.") }
+        let opening = open(id: id, url: url, protocols: [], transport: transport, source: source, shown: shown, sink: sink)
+        guard case .unknown = opening else { return opening }
+        guard listeners.count < Self.maxListeners else { return .refused("More than \(Self.maxListeners) callbacks wait for a simulated channel.") }
+        listeners[id] = Listener(url: url, transport: transport, source: source, shown: shown, sink: sink)
+        environment.log("\(transport.label) \(shown) · \(source) · listening: no simulated channel pushes to it yet", false)
+        return .accepted(protocol: nil, frames: [])
+    }
+
+    /// Opens the waiting connections a channel answers now (after rules were registered); what the channel sends when one
+    /// opens goes through its sink.
+    func openListeners() {
+        for (id, listener) in listeners.sorted(by: { $0.key < $1.key }) where channel(for: listener.url) != nil {
+            listeners[id] = nil
+            let opening = open(id: id, url: listener.url, protocols: [], transport: listener.transport, source: listener.source,
+                               shown: listener.shown, sink: listener.sink)
+            if case .accepted(_, let frames) = opening, !frames.isEmpty { listener.sink(frames) }
+        }
     }
 
     /// A text message of the client; returns the frames that answer it on the same connection.
@@ -499,6 +547,10 @@ final class StudioChannelHub {
 
     /// The client closed the connection (or went away).
     func close(id: String, code: Int?) {
+        if let listener = listeners.removeValue(forKey: id) {
+            environment.log("\(listener.shown) · \(listener.source) · closed", false)
+            return
+        }
         guard let connection = connections.removeValue(forKey: id) else { return }
         sinks[id] = nil
         timers.removeValue(forKey: id)?.forEach { $0.cancel() }
@@ -509,6 +561,7 @@ final class StudioChannelHub {
     /// The session closes connections: a new page (no frame is sent, the page is gone) or a Reset (a close frame, so the
     /// client connects again and gets the new baseline).
     func closeAll(source: String? = nil, code: Int? = nil, reason: String = "") {
+        listeners = listeners.filter { source != nil && $0.value.source != source }
         for (id, connection) in connections where source == nil || connection.source == source {
             if let code { sinks[id]?([.close(code: code, reason: reason)]) }
             close(id: id, code: code)

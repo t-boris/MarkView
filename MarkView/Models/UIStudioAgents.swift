@@ -52,13 +52,17 @@ enum StudioTargetLimits {
                          + "environment are simulated; its database is not, and only Node servers follow the scenario's clock.")
         }
         if target.isElectron {
-            notes.append("Electron: the renderer runs as a web page. The main process, preload scripts, IPC and native modules do "
-                         + "not run; their globals are stand-ins that do nothing, so scenarios that need them are not simulated.")
+            notes.append("Electron: the renderer runs as a web page; the main process, preload scripts and native modules do not run. "
+                         + "The preload's bridge (the globals it exposes) is simulated like any other API: each call is a request to "
+                         + "\(StudioIPC.origin)/<global>/<method>, prepared from the preload and the main process's IPC handlers, and a "
+                         + "callback gets what the simulated channel at its address pushes. Synchronous IPC (sendSync) and native "
+                         + "modules are not simulated.")
         }
         return notes
     }
 
-    /// Names an Electron preload exposes (`contextBridge.exposeInMainWorld('api', …)`), so their stand-ins carry the real names.
+    /// Names an Electron preload exposes (`contextBridge.exposeInMainWorld('api', …)`), so the simulated bridge (REQ-016) has
+    /// the real names.
     static func electronGlobals(in folder: URL) -> [String] {
         guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey],
                                                               options: [.skipsHiddenFiles]) else { return [] }

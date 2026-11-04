@@ -99,9 +99,15 @@ struct StudioEnvironmentMap: Codable, Equatable, Sendable {
     /// The user roles the code checks (`app_metadata.role`, a role claim), and the one an ordinary signed-in user has.
     var userRoles: [String] = []
     var ordinaryRole = ""
+    /// The map's format: what its inventory was asked to list. A map saved without one is version 1.
+    var version = StudioEnvironmentMap.currentVersion
+
+    /// 1: REQ-014. 2: the inventory lists an Electron renderer's preload bridge (REQ-016).
+    static let currentVersion = 2
 
     private enum CodingKeys: String, CodingKey {
         case status, appFolder, started, finished, inventoried, inventoryAttempts, services, groups, notes, gaps, message, userRoles, ordinaryRole
+        case version
     }
 
     var endpointCount: Int { groups.reduce(0) { $0 + $1.endpoints.count } }
@@ -110,6 +116,10 @@ struct StudioEnvironmentMap: Codable, Equatable, Sendable {
     var coversEveryGroup: Bool { status == .complete && !groups.isEmpty && groups.allSatisfy { $0.status == .done } }
 
     func service(_ name: String) -> StudioMapService? { services.first { $0.name == name } }
+
+    /// An inventoried map of an older version that misses what the current inventory lists for this application, so it is
+    /// extended (`StudioMapPlanner.extended`): version 2 adds the preload bridge, which only an Electron renderer has.
+    func isOutdated(electron: Bool) -> Bool { inventoried && version < Self.currentVersion && electron }
 }
 
 // MARK: - Lenient decoding
@@ -183,6 +193,7 @@ extension StudioEnvironmentMap {
         message = container.text(.message)
         userRoles = ((try? container.decodeIfPresent([String].self, forKey: .userRoles)) ?? nil) ?? []
         ordinaryRole = container.text(.ordinaryRole)
+        version = ((try? container.decodeIfPresent(Int.self, forKey: .version)) ?? nil) ?? 1
     }
 }
 
@@ -241,6 +252,11 @@ enum StudioMapParsing {
         for case let item as [String: Any] in rawServices {
             guard let name = plainName(item["name"] as? String ?? ""), names.count < limits.maxServices, names.insert(name).inserted else { continue }
             let application = name == StudioMapService.application
+            // The Electron preload bridge has one logical address, whatever the answer wrote (REQ-016).
+            if name == StudioIPC.service {
+                inventory.services.append(StudioMapService(name: name, baseURL: StudioIPC.origin, side: .browser))
+                continue
+            }
             inventory.services.append(StudioMapService(name: name, baseURL: application ? "" : baseAddress(item["baseURL"] as? String ?? ""),
                                                        variable: application ? "" : variableName(item["variable"] as? String ?? ""),
                                                        side: StudioMapService.Side(rawValue: item["side"] as? String ?? "") ?? .browser))
@@ -248,7 +264,7 @@ enum StudioMapParsing {
         var seen = Set<String>()
         var dropped = 0
         for case let item as [String: Any] in rawEndpoints {
-            let method = (item["method"] as? String ?? "").uppercased()
+            var method = (item["method"] as? String ?? "").uppercased()
             let service = plainName(item["service"] as? String ?? "") ?? StudioMapService.application
             // A full URL of the service starts with its base address, which its rules' paths already carry.
             var raw = (item["path"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -256,12 +272,17 @@ enum StudioMapParsing {
                raw.lowercased().hasPrefix(base.lowercased()) {
                 raw = String(raw.dropFirst(base.count))
             }
-            guard methods.contains(method), let path = templatePath(raw) else { continue }
+            guard let path = templatePath(raw) else { continue }
+            // A preload bridge method is called with the verb its name gives (REQ-016), so its rule must have that one.
+            let ipc = service == StudioIPC.service || inventory.services.first { $0.name == service }?.baseURL == StudioIPC.origin
+            if ipc, let verb = StudioIPC.verb(ofPath: path) { method = verb }
+            guard methods.contains(method) else { continue }
             let side = StudioMapService.Side(rawValue: item["side"] as? String ?? "")
             if !names.contains(service) {
                 guard names.count < limits.maxServices else { continue }
                 names.insert(service)
-                inventory.services.append(StudioMapService(name: service, side: side ?? .browser))
+                inventory.services.append(ipc ? StudioMapService(name: service, baseURL: StudioIPC.origin, side: .browser)
+                                          : StudioMapService(name: service, side: side ?? .browser))
             }
             guard seen.insert("\(service) \(method) \(routeKey(path))").inserted else { continue }
             guard inventory.entries.count < limits.maxEndpoints else { dropped += 1; continue }
@@ -481,6 +502,46 @@ enum StudioMapPlanner {
         let (origin, pattern) = StudioRoute.split(path)
         let wanted = origin.flatMap { URL(string: $0) }.flatMap { StudioBridge.Origin(url: $0)?.text } ?? appOrigin
         return wanted == requestOrigin && StudioRoute.match(pattern: pattern, path: url.path.isEmpty ? "/" : url.path) != nil
+    }
+
+    /// An older map extended with a new inventory (REQ-016): its groups, their rules and the data stay as they are; the
+    /// services the inventory adds are added, and its endpoints that no group has and no registered rule answers get new
+    /// groups, prepared like the others. The map gets the current version. Returns the new groups too.
+    static func extended(_ map: StudioEnvironmentMap, with inventory: StudioMapInventory, rules: [StudioRule],
+                         connections: [StudioServerConnection], limits: StudioMapLimits = StudioMapLimits())
+        -> (map: StudioEnvironmentMap, added: [StudioMapGroup]) {
+        var next = map
+        var services = map.services
+        for service in inventory.services where !services.contains(where: { $0.name == service.name }) { services.append(service) }
+        next.services = resolve(services, connections: connections)
+        let known = Set(map.groups.flatMap { group in
+            group.endpoints.map { "\(group.service) \($0.method) \(StudioMapParsing.routeKey($0.path))" }
+        })
+        let entries = inventory.entries.filter { entry in
+            !known.contains("\(entry.service) \(entry.endpoint.method) \(StudioMapParsing.routeKey(entry.endpoint.path))")
+                && !isCovered(entry.endpoint, service: next.service(entry.service), rules: rules)
+        }
+        var room = limits
+        room.maxGroups = max(0, limits.maxGroups - map.groups.count)
+        var ids = Set(map.groups.map(\.id))
+        let added = groups(StudioMapInventory(services: inventory.services, entries: entries), limits: room).map { group -> StudioMapGroup in
+            var unique = group
+            var number = 2
+            while !ids.insert(unique.id).inserted {
+                unique.id = "\(group.id)-\(number)"
+                number += 1
+            }
+            return unique
+        }
+        next.groups = map.groups + added
+        next.notes = Array((map.notes + inventory.notes.filter { !map.notes.contains($0) }).prefix(20))
+        if map.userRoles.isEmpty {
+            next.userRoles = inventory.roles
+            next.ordinaryRole = inventory.ordinaryRole
+        }
+        next.inventoried = true
+        next.version = StudioEnvironmentMap.currentVersion
+        return (next, added)
     }
 
     /// The role the built-in scenarios' test user gets after the inventory: the ordinary role, when the application checks

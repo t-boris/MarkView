@@ -62,6 +62,18 @@ enum StudioPrompts {
         - Set `unsupported` to true (and name it in `reason`) only for what MarkView truly cannot serve: a binary protocol \
           such as gRPC or WebRTC media, or a native SDK's own transport. WebSocket, server-sent events, Socket.IO, Supabase \
           Realtime, GraphQL and graphql-ws are simulated by MarkView and never refused.
+        - A request to `\(StudioIPC.origin)/<global>/<path>/<method>[/<argument>…]` is a call of an Electron renderer's \
+          preload bridge, `window.<global>.<path>.<method>(…)`: UI Studio runs the renderer as a web page, without its \
+          preload and main process. Its string, number and boolean arguments are the path segments after the method, its \
+          objects and arrays the JSON body, and the header `\(StudioIPC.argumentsHeader)` lists every argument. Read the \
+          preload (`contextBridge.exposeInMainWorld`), the main process's `ipcMain.handle` / `ipcMain.on` handler of its \
+          channel and their types for the answer: the JSON body is what the call resolves to (no body: undefined), and a \
+          status of 400 or more makes it reject. Keep what the main process stores as entities, so saves and deletes change \
+          what later gets return: a getter of a list is `list`, a getter, update or delete by id is `get`, `update` or \
+          `delete` with `:id`, saving a new record is `create`, and a single document without an id (settings) is `respond`. \
+          A connection test or another check (`testConnection`) succeeds (DEC-007). A method that takes a callback \
+          (`onDocumentApplied(cb)`) is a `raw` channel at its own address (`\(StudioIPC.origin)/<global>/<path>/<method>`): \
+          link it to the entity whose writes it reports, with the record as the message's data.
         - Add rules only for the requests you are asked about and the closely related ones (their lists, details and writes).
         \(StudioPlaceholders.promptGuide)
         """ + "\n" + dataNotInstructions
@@ -70,7 +82,10 @@ enum StudioPrompts {
         if let ahead = context.ahead { return aheadPrompt(ahead, context: context, spec: spec, appFolder: appFolder) }
         var lines = ["Unknown request seen by MarkView UI Studio: \(context.method) \(context.url)", "Contract: \(context.contract)",
                      context.serverVariable.map { "Made by the development server (server-side code), through the environment variable \($0): "
-                         + "search the server code that reads it, not the browser code." } ?? "Made by the page in the browser.",
+                         + "search the server code that reads it, not the browser code." }
+                         ?? (StudioIPC.isIPC(path: context.url) ? "A call of the Electron preload bridge by the page: find the method in the "
+                             + "preload's `contextBridge.exposeInMainWorld` and its handler in the main process."
+                             : "Made by the page in the browser."),
                      "Application folder (relative to the project): \(appFolder.isEmpty ? "." : appFolder)"]
         if !context.headers.isEmpty {
             lines.append("Request headers: " + context.headers.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "; "))

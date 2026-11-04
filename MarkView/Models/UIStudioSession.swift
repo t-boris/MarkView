@@ -199,7 +199,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
 
     /// The Node preload that gives the server the scenario's clock, time zone and locale (DEC-006).
     static var nodePreloadURL = Bundle.main.url(forResource: "markview-ui-studio-node", withExtension: "cjs", subdirectory: "Editor/vendor/js")
-    private var electronGlobals: [String] = []
+    /// The globals an Electron renderer's preload exposes, simulated as the preload bridge (REQ-016).
+    private(set) var electronGlobals: [String] = []
     private var pickTask: Task<Void, Never>?
     private var workTask: Task<Void, Never>?
     private var startTask: Task<Void, Never>?
@@ -601,6 +602,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             "timeZone": scenario.timeZone ?? NSNull(), "electron": target?.isElectron ?? false, "electronGlobals": electronGlobals,
             "recording": mode == .record, "browser": scenario.browserProfile.runtimeConfig,
             "keptStorage": spec.keptBrowserData?.runtimeStorage ?? [], "clockAnchor": clockAnchor.timeIntervalSince1970 * 1000,
+            // The arguments of a preload bridge call are redacted in the page before they cross the bridge (REQ-016).
+            "redaction": ["fields": spec.confidentialFields, "patterns": StudioRedactor.secretPatterns],
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: config),
               let json = String(data: data, encoding: .utf8) else { return nil }
@@ -1002,10 +1005,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         switch message.action {
         case .open:
             guard let asked = message.url else { return reply(nil, "No URL.") }
-            let http = StudioChannelRoute.httpURL(asked)
-            let transport: StudioChannelTransport = message.transport == .eventSource ? .eventSource : .webSocket
-            openChannel(id: id, url: logicalURL(for: http) ?? http, protocols: message.protocols, transport: transport, source: .page,
-                        sink: pageSink(message.id)) { opening in
+            let answer: (StudioChannelHub.Opening) -> Void = { opening in
                 switch opening {
                 case .accepted(let chosen, let frames):
                     reply(["ok": true, "protocol": chosen ?? "", "frames": frames.map(\.bridgeValue)], nil)
@@ -1013,6 +1013,16 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                     reply(["ok": false, "code": 1006, "reason": String(reason.prefix(120))], nil)
                 }
             }
+            if message.transport == .ipc {
+                // A callback of the Electron preload bridge (REQ-016): it listens until a channel answers its address, and
+                // is never prepared on its own; the bridge's methods are.
+                let shown = redactor.redact(text: StudioConnections.redact(asked.absoluteString, hashes: secretHashes))
+                return answer(channels.listen(id: id, url: asked, transport: .ipc, source: "page", shown: shown, sink: pageSink(message.id)))
+            }
+            let http = StudioChannelRoute.httpURL(asked)
+            let transport: StudioChannelTransport = message.transport == .eventSource ? .eventSource : .webSocket
+            openChannel(id: id, url: logicalURL(for: http) ?? http, protocols: message.protocols, transport: transport, source: .page,
+                        sink: pageSink(message.id), done: answer)
         case .send:
             var frames: [StudioChannelFrame] = []
             if let text = message.text { frames = channels.receive(id: id, text: text) }
@@ -1047,7 +1057,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let shown = redactor.redact(text: StudioConnections.redact(url.absoluteString, hashes: secretHashes))
         let opening = channels.open(id: id, url: url, protocols: protocols, transport: transport, source: source.transport, shown: shown, sink: sink)
         guard case .unknown(let contract) = opening else { return done(opening) }
-        let kind = transport == .eventSource ? "EventSource" : "WebSocket"
+        let kind = transport.label
         sessionLog.add(.request, "\(kind) \(shown) · \(source.transport) · preparing")
         var headers = transport == .eventSource ? ["accept": "text/event-stream"] : ["upgrade": "websocket"]
         if !protocols.isEmpty { headers["sec-websocket-protocol"] = protocols.joined(separator: ", ") }
@@ -1126,18 +1136,20 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let contract = StudioRoute.contractKey(method: http.method, url: http.url, appOrigin: appOrigin?.text)
         let transport = source.transport
         let sameServer = source == .page && (StudioBridge.Origin(url: http.url).map { appOrigin?.sameServer($0) == true } ?? false)
+        // The Electron preload bridge (REQ-016) is a logical address: always simulated, never passed through.
+        let ipc = StudioIPC.isIPC(http.url)
         if sameServer && StudioConnectionPolicy.isFrameworkRequest(http.url, headers: http.headers) {
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
             return reply(.pass(adding: StudioConnectionPolicy.frameworkRequestHeaders))
         }
         // The server's connections are switched by the person (Simulated or Real), not by the page's allowed addresses.
         if (sameServer && StudioConnectionPolicy.isDevelopmentResource(http.url, appFolder: appFolder))
-            || (source == .page && spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: http.url, appOrigin: appOrigin?.text) })) {
+            || (source == .page && !ipc && spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: http.url, appOrigin: appOrigin?.text) })) {
             if !sameServer { noteDependency(StudioDependency(id: contract, mode: .allowed, note: "Allowed by the connection policy.")) }
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
             return reply(.pass(adding: [:]))
         }
-        if channels.poll(http, source: transport, shown: shown, reply: { reply(.respond($0)) }) { return }
+        if !ipc, channels.poll(http, source: transport, shown: shown, reply: { reply(.respond($0)) }) { return }
         switch simulate(http) {
         case .respond(let response, _):
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "simulated", status: response.status, transport: transport))
@@ -1317,7 +1329,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
         let assumptions = proposal.assumptions.map { StudioEvidence(kind: .assumption, detail: $0) }
         let realTime = (proposal.channels ?? []).map {
-            StudioDependency(id: "WS \($0.path)", mode: .simulated, note: "\($0.wire.rawValue) channel", evidence: $0.evidence + assumptions)
+            StudioDependency(id: (StudioIPC.isIPC(path: $0.path) ? "ON " : "WS ") + $0.path, mode: .simulated, note: "\($0.wire.rawValue) channel",
+                             evidence: $0.evidence + assumptions)
         } + (proposal.graphQL ?? []).map {
             StudioDependency(id: "GRAPHQL \($0.path) \($0.kind.rawValue) \($0.field)", mode: .simulated,
                              note: "\($0.action.rawValue)\($0.entity.map { " \($0)" } ?? "")", evidence: $0.evidence + assumptions)
@@ -1330,6 +1343,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         spec = simulator.spec
         persistEnvironment()
         rebuildDependencies()
+        // A preload bridge callback that waited for its channel gets it now (REQ-016).
+        channels.openListeners()
         return []
     }
 
@@ -1367,7 +1382,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             noteDependency(StudioDependency(id: "unsupported:" + String(detail.prefix(80)), mode: .unsupported, note: detail))
         case .electron:
             noteDependency(StudioDependency(id: "electron:" + detail, mode: .unsupported,
-                                            note: "\(detail) is a stand-in that does nothing: what depends on it is not simulated."))
+                                            note: "\(detail) is synchronous IPC: it gets undefined at once, so what depends on its answer is not simulated."))
         case .blocked:
             noteDependency(StudioDependency(id: "blocked:" + String(detail.prefix(120)), mode: .unsupported,
                                             note: detail + " (blocked by the application connection policy)"))
@@ -1397,7 +1412,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                        "\(record.method) \(record.url) · \(record.transport) · \(answer)")
     }
 
-    /// A page event in the log (REQ-011): errors, build error overlays, blocked resources and stand-ins are problems.
+    /// A page event in the log (REQ-011): errors, build error overlays, blocked resources and synchronous IPC are problems.
     private func logPageEvent(_ kind: StudioBridge.Event.Kind, _ detail: String) {
         let problem: Bool
         switch kind {
@@ -2578,14 +2593,16 @@ extension StudioSession {
     /// What the map is made for: the application folder, its origin and the server's simulated connections.
     private var mapContext: StudioMapContext {
         let relative = appFolder.standardizedFileURL.path.dropFirst(root.path.count).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return StudioMapContext(appFolder: relative, appOrigin: appOrigin?.text, connections: serverConnections.filter { $0.mode == .simulated })
+        return StudioMapContext(appFolder: relative, appOrigin: appOrigin?.text, connections: serverConnections.filter { $0.mode == .simulated },
+                                electron: target?.isElectron ?? false)
     }
 
     /// Maps the application in the background when its environment has no completed map for this folder, or resumes the map
-    /// a closed session left. The page loads meanwhile; its requests are prepared as before until their group is ready.
+    /// a closed session left, or extends an older map with what the current inventory lists (REQ-016). The page loads
+    /// meanwhile; its requests are prepared as before until their group is ready.
     func beginMapping() {
         let context = mapContext
-        guard !closed, StudioEnvironmentMapper.needsMapping(spec.map, appFolder: context.appFolder) else { return }
+        guard !closed, StudioEnvironmentMapper.needsMapping(spec.map, appFolder: context.appFolder, electron: context.electron) else { return }
         startMapping(context)
     }
 

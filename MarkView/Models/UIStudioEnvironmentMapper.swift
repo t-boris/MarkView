@@ -12,6 +12,8 @@ struct StudioMapContext: Equatable, Sendable {
     var appOrigin: String?
     /// The development server's simulated connections (REQ-007): their addresses are the services' addresses.
     var connections: [StudioServerConnection]
+    /// An Electron renderer: its preload bridge is part of the API (REQ-016).
+    var electron = false
 
     var connectionLines: [String] {
         connections.map { "\($0.variable) → \($0.origin)\($0.basePath)" + ($0.foundIn.isEmpty ? "" : " (read at \($0.foundIn))") }
@@ -91,6 +93,16 @@ enum StudioMapPrompts {
           relative to the project root, of one place that makes it; `side` is browser or server.
         - Leave out static files, images, fonts, analytics and error reporting, and the framework's own requests (hot \
           reload, RSC payloads, server actions).
+        - An Electron renderer's preload bridge (`contextBridge.exposeInMainWorld('<global>', …)`): UI Studio runs the \
+          renderer as a web page and answers each bridge method like an endpoint of the service `\(StudioIPC.service)`, \
+          baseURL `\(StudioIPC.origin)`, empty variable, side browser. List every method the preload exposes as one endpoint: \
+          its path is `/<global>/<property path>/<method>`, then `/:name` for each string, number or boolean argument in \
+          order (objects and arrays are the JSON body, not the path): `desk.settings.getBroker(id)` is \
+          `/desk/settings/getBroker/:id`. Its method follows the name's first word: get, list, load, fetch, read, find, \
+          query, is, has, can → GET; delete, remove, clear → DELETE; update, patch → PATCH; save, set, put, reset, import → \
+          PUT; any other → POST. `ipcRenderer.invoke('<channel>', …)` called directly is `/electron/ipcRenderer/invoke/<channel>`. \
+          `callSite` is the preload line; `resource` is what the method reads or writes. A method that takes a callback \
+          (`onDocumentApplied(cb)`) is not an endpoint: name it in `notes`.
         - `notes`: what the application talks to that is not a JSON request over HTTP (GraphQL, WebSockets, server-sent \
           events, a database driver or ORM in server code), and what you could not follow.
         - userRoles: the roles the code checks for the signed-in user (a role claim or field such as `app_metadata.role`, \
@@ -105,6 +117,11 @@ enum StudioMapPrompts {
         lines.append("Service addresses UI Studio found in the env files and the code, which its development server reads "
                      + "(variable → address; where it is read):\n"
                      + (context.connectionLines.isEmpty ? "(none)" : context.connectionLines.map { "- " + $0 }.joined(separator: "\n")))
+        if context.electron {
+            lines.append("This is an Electron renderer: list its preload bridge's methods as endpoints of the service "
+                         + "`\(StudioIPC.service)` (read the preload's `contextBridge.exposeInMainWorld` and the main process's "
+                         + "`ipcMain.handle` / `ipcMain.on` handlers).")
+        }
         lines.append("Return every service and every endpoint the application's code can call, from the browser and from the server.")
         return lines.joined(separator: "\n\n")
     }
@@ -328,13 +345,17 @@ final class StudioEnvironmentMapper: ObservableObject {
     }
 
     /// Whether a session opening `appFolder` maps it: no map for it yet, or one a closed session left unfinished, or an
-    /// inventory that failed fewer than `attempts` times. A completed map and one the person cancelled are left as they are.
-    static func needsMapping(_ map: StudioEnvironmentMap?, appFolder: String, attempts: Int = StudioMapLimits().inventoryAttempts) -> Bool {
+    /// inventory that failed fewer than `attempts` times, or a completed map of an older version that misses what this
+    /// application's inventory lists now (REQ-016: an Electron renderer's preload bridge). Another completed map and one
+    /// the person cancelled are left as they are.
+    static func needsMapping(_ map: StudioEnvironmentMap?, appFolder: String, attempts: Int = StudioMapLimits().inventoryAttempts,
+                             electron: Bool = false) -> Bool {
         guard let map, map.appFolder == appFolder else { return true }
         switch map.status {
         case .mapping: return true
         case .failed: return map.inventoryAttempts < attempts
-        case .complete, .cancelled: return false
+        case .complete: return map.isOutdated(electron: electron)
+        case .cancelled: return false
         }
     }
 
@@ -452,6 +473,8 @@ final class StudioEnvironmentMapper: ObservableObject {
         var start = fresh ? StudioEnvironmentMap() : (map ?? StudioEnvironmentMap())
         if start.appFolder != context.appFolder || (!start.inventoried && start.status != .failed) { start = StudioEnvironmentMap() }
         let label = context.appFolder.isEmpty ? "the project" : context.appFolder
+        // An older map is inventoried again and extended (REQ-016); its first try has inventory attempts of its own.
+        let extending = start.isOutdated(electron: context.electron)
         update { map in
             map = start
             map.appFolder = context.appFolder
@@ -459,13 +482,15 @@ final class StudioEnvironmentMapper: ObservableObject {
             map.message = ""
             map.finished = nil
             if !map.inventoried { map.started = Date() }
+            if extending && start.status == .complete { map.inventoryAttempts = 0 }
             if retryFailed {
                 for index in map.groups.indices where map.groups[index].status == .failed { map.groups[index].attempts = 0 }
             }
         }
-        if map?.inventoried != true {
+        let groupsBefore = map?.groups.count ?? 0
+        if map?.inventoried != true || extending {
             phase = .inventory
-            guard await inventory(context, label: label) else { return }
+            guard await inventory(context, label: label, extending: extending) else { return }
         } else {
             update { map in map.services = StudioMapPlanner.resolve(map.services, connections: context.connections) }
             let left = StudioMapPlanner.resumable(map ?? StudioEnvironmentMap(), sessions: limits.groupSessions).count
@@ -483,8 +508,10 @@ final class StudioEnvironmentMapper: ObservableObject {
         await runGroups(todo, context)
         if stopped { return stoppedEarly() }
 
-        // The coherence check is about what the map prepared; an inventory that found nothing leaves the data as it is.
-        let refilled = (map?.groups.isEmpty ?? true) ? false : await checkAndRefill(requested: false)
+        // The coherence check is about what the map prepared; an inventory that found nothing, or an extension that added no
+        // group, leaves the data as it is.
+        let added = extending && (map?.groups.count ?? 0) > groupsBefore
+        let refilled = (map?.groups.isEmpty ?? true) || (extending && !added) ? false : await checkAndRefill(requested: false)
         if stopped { return stoppedEarly() }
         update { map in
             map.status = .complete
@@ -510,10 +537,14 @@ final class StudioEnvironmentMapper: ObservableObject {
         hooks?.finished(summary + ".", refilled, false)
     }
 
-    /// The inventory call; false when the map ends here (failed or stopped).
-    private func inventory(_ context: StudioMapContext, label: String) async -> Bool {
+    /// The inventory call; false when the map ends here (failed or stopped). `extending` keeps what an older map prepared
+    /// and adds what it misses (REQ-016).
+    private func inventory(_ context: StudioMapContext, label: String, extending: Bool = false) async -> Bool {
         guard let assistant else { return false }
-        log("Mapping the application's APIs of \(label): the assistant lists the services and endpoints its code calls")
+        log(extending
+            ? "Extending the application's map of \(label) (version \(map?.version ?? 1)): the assistant lists the services and endpoints "
+              + "its code calls again, its preload bridge included; the rules and data prepared before stay"
+            : "Mapping the application's APIs of \(label): the assistant lists the services and endpoints its code calls")
         update { $0.inventoryAttempts += 1 }
         let begun = Date()
         let request = StudioMapRequest(prompt: StudioMapPrompts.inventoryPrompt(context), timeout: limits.inventoryDeadline + 5, label: "ui-studio:map")
@@ -523,6 +554,17 @@ final class StudioEnvironmentMapper: ObservableObject {
         if stopped { return false }
         let message: String
         switch answer {
+        case .value(let inventory) where extending:
+            let before = map ?? StudioEnvironmentMap()
+            let (next, added) = StudioMapPlanner.extended(before, with: inventory, rules: hooks?.spec().rules ?? [],
+                                                          connections: context.connections, limits: limits)
+            update { $0 = next }
+            log("Inventory after \(Self.seconds(since: begun)): \(inventory.entries.count) endpoints; the map of version \(before.version) is "
+                + "extended to version \(next.version) with \(added.reduce(0) { $0 + $1.endpoints.count }) endpoint(s) without a rule in "
+                + "\(added.count) new group(s)" + (added.isEmpty ? "" : ": " + added.prefix(6).map(\.id).joined(separator: ", ")))
+            for note in inventory.notes.filter({ !before.notes.contains($0) }).prefix(8) { log("Inventory note: " + note) }
+            if before.userRoles.isEmpty, !inventory.roles.isEmpty { hooks?.userRoles(inventory.roles, inventory.ordinaryRole) }
+            return true
         case .value(let inventory):
             let groups = StudioMapPlanner.groups(inventory, limits: limits)
             update { map in

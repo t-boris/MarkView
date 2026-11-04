@@ -50,14 +50,16 @@ enum StudioBridge {
     enum Message: Equatable {
         case request(Request)
         case event(Event)
-        /// A WebSocket or EventSource of the page talking to a simulated channel (REQ-015).
+        /// A WebSocket or EventSource of the page talking to a simulated channel (REQ-015), or a callback of the Electron
+        /// preload bridge listening to one (REQ-016).
         case channel(Channel)
     }
 
     /// A step of a page connection to a simulated channel: open it, send a message on it, close it.
     struct Channel: Equatable {
         enum Action: String { case open, send, close }
-        enum Transport: String { case webSocket = "websocket", eventSource = "eventsource" }
+        /// `ipc`: a callback the page passed to the Electron preload bridge (REQ-016), at an `http://electron.ipc` address.
+        enum Transport: String { case webSocket = "websocket", eventSource = "eventsource", ipc }
 
         var action: Action
         /// The page's id for the connection.
@@ -80,6 +82,7 @@ enum StudioBridge {
         var url: URL
         var headers: [String: String]
         var body: String?
+        /// `fetch`, `xhr`, or `ipc` for a call of the Electron preload bridge (REQ-016).
         var transport: String
     }
 
@@ -96,7 +99,8 @@ enum StudioBridge {
             case buildError
             /// A dependency the simulation does not serve was used (sendBeacon).
             case unsupported
-            /// A no-op Electron stand-in was called (preload, IPC).
+            /// The Electron preload bridge was called in a way the simulation cannot answer (REQ-016): `sendSync` needs its
+            /// answer at once, so it gets undefined.
             case electron
             /// A resource of another origin did not load (blocked by the application connection policy).
             case blocked
@@ -170,7 +174,9 @@ enum StudioBridge {
             body = text
         }
         let transport = object["transport"] as? String ?? "fetch"
-        guard ["fetch", "xhr"].contains(transport) else { return .failure(.malformed("transport")) }
+        guard ["fetch", "xhr", "ipc"].contains(transport) else { return .failure(.malformed("transport")) }
+        // A call of the preload bridge has only its logical address, and that address is only the bridge's.
+        guard transport != "ipc" || StudioIPC.isIPC(url) else { return .failure(.malformed("ipc url")) }
         return .success(Request(requestId: id, method: method, url: url, headers: headers, body: body, transport: transport))
     }
 
@@ -187,6 +193,7 @@ enum StudioBridge {
             }
             channel.url = url
             guard let transport = (object["transport"] as? String).flatMap(Channel.Transport.init) else { return .failure(.malformed("channel transport")) }
+            guard transport != .ipc || StudioIPC.isIPC(url) else { return .failure(.malformed("ipc url")) }
             channel.transport = transport
             if let raw = object["protocols"], !(raw is NSNull) {
                 guard let list = raw as? [String], list.count <= 20,
@@ -281,5 +288,76 @@ enum StudioEventGrouping {
             }
         }
         return groups
+    }
+}
+
+// MARK: - Electron preload bridge (REQ-016)
+
+/// An Electron renderer runs in UI Studio as a web page, without its preload or main process. The globals its preload
+/// exposes (`contextBridge.exposeInMainWorld`) are simulated by the page runtime like any other API: a call
+/// `window.<global>.<a>.<b>(...args)` is the request `<verb> http://electron.ipc/<global>/<a>/<b>[/<argument>…]`, and a
+/// callback argument listens to the simulated channel at that address. The address is logical: nothing is sent to it, the
+/// session never passes it through, and only the simulation answers it.
+enum StudioIPC {
+    static let origin = "http://electron.ipc"
+    static let host = "electron.ipc"
+    /// Every argument of a call as JSON, redacted and at most 4 KB, for the preparation.
+    static let argumentsHeader = "x-markview-ipc-args"
+    /// The bridge's service in the application's map (REQ-014).
+    static let service = "electron-ipc"
+    /// Calls whose first argument is an IPC channel (`ipcRenderer.invoke('settings:get-document')`): their verb follows the
+    /// channel.
+    static let channelCalls: Set<String> = ["invoke", "send", "sendSync", "sendTo", "sendToHost"]
+
+    private static let verbs: [String: String] = {
+        var verbs: [String: String] = [:]
+        for (verb, words) in [("GET", "get list load fetch read find query is has can"), ("DELETE", "delete remove clear"),
+                              ("PATCH", "update patch"), ("PUT", "save set put reset import")] {
+            for word in words.split(separator: " ") { verbs[String(word)] = verb }
+        }
+        return verbs
+    }()
+
+    static func isIPC(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "http" && url.host?.lowercased() == host && url.port == nil
+    }
+
+    /// Whether a rule's or a channel's path is on the bridge.
+    static func isIPC(path: String) -> Bool { path.lowercased().hasPrefix(origin + "/") }
+
+    /// The verb of a bridge method or an IPC channel, by the first word of its last part (after `:`, `/` or `.`): get,
+    /// list, load, fetch, read, find, query, is, has, can → GET; delete, remove, clear → DELETE; update, patch → PATCH; save,
+    /// set, put, reset, import → PUT; any other → POST. The page runtime (`ipcVerb` in markview-ui-studio.js) uses the
+    /// same rule.
+    static func verb(of name: String) -> String {
+        let action = name.split(omittingEmptySubsequences: false, whereSeparator: { ":/.".contains($0) }).last.map(String.init) ?? name
+        guard let regex = try? NSRegularExpression(pattern: #"^[^A-Za-z0-9]*([A-Za-z][a-z0-9]*)"#),
+              let match = regex.firstMatch(in: action, range: NSRange(action.startIndex..., in: action)),
+              let range = Range(match.range(at: 1), in: action) else { return "POST" }
+        return verbs[action[range].lowercased()] ?? "POST"
+    }
+
+    /// The verb a call of the endpoint at `path` (after the bridge's address, `:name` for its arguments) is made with: the
+    /// verb of its method, the last fixed segment, or of the channel after `invoke`, `send` or `sendSync`. nil for a path
+    /// with no method.
+    static func verb(ofPath path: String) -> String? {
+        let fixed = StudioRoute.segments(path).filter { !$0.hasPrefix(":") }
+        guard let last = fixed.last else { return nil }
+        if fixed.count >= 2, channelCalls.contains(fixed[fixed.count - 2]) {
+            return verb(of: last.removingPercentEncoding ?? last)
+        }
+        return verb(of: last)
+    }
+
+    /// The simulated methods of the bridge: rules and channels (callbacks) at its address.
+    static func methodCount(_ spec: StudioEnvironmentSpec) -> Int {
+        spec.rules.filter { isIPC(path: $0.path) }.count + (spec.channels ?? []).filter { isIPC(path: $0.path) }.count
+    }
+
+    /// The Environment panel's line for an Electron renderer: `simulated (12 methods) · window.strikedesk`.
+    static func summary(_ spec: StudioEnvironmentSpec, globals: [String]) -> String {
+        let count = methodCount(spec)
+        return "simulated (\(count) method\(count == 1 ? "" : "s"))"
+            + (globals.isEmpty ? "" : " · " + globals.map { "window.\($0)" }.joined(separator: ", "))
     }
 }

@@ -2433,6 +2433,216 @@ func realtimeModelChecks() {
           && StudioWebSocketCodec.kind(method: "POST", headers: ["accept": "text/event-stream"]) == nil)
 }
 
+// MARK: - Electron preload bridge (REQ-016)
+
+@MainActor
+func ipcChecks() async {
+    // The verb convention, the same as the page runtime's (the web harness compares both).
+    let verbs = ["getDocument": "GET", "listBrokers": "GET", "loadState": "GET", "fetchAiModels": "GET", "readFile": "GET", "findOrder": "GET",
+                 "queryBars": "GET", "isConnected": "GET", "hasKey": "GET", "canTrade": "GET", "deleteBroker": "DELETE", "removeItem": "DELETE",
+                 "clearCache": "DELETE", "updateBroker": "PATCH", "patchOrder": "PATCH", "saveBroker": "PUT", "setTheme": "PUT", "put": "PUT",
+                 "resetDocument": "PUT", "importSettings": "PUT", "testConnection": "POST", "issue": "POST", "getter": "POST",
+                 "settings:get-document": "GET", "order:submit": "POST", "settings:delete_broker": "DELETE", "GetAll": "GET",
+                 "constructor": "POST", "toString": "POST", "": "POST", "settings:": "POST", "_internal.save": "PUT"]
+    let wrong = verbs.filter { StudioIPC.verb(of: $0.key) != $0.value }.map { "\($0.key) → \(StudioIPC.verb(of: $0.key))" }
+    check("REQ-016 a bridge method's verb follows its name's first word, a channel's its last part", wrong.isEmpty, wrong.joined(separator: ", "))
+    check("REQ-016 an endpoint path's verb is its method's, or its channel's after invoke",
+          StudioIPC.verb(ofPath: "/desk/settings/getBroker/:id") == "GET"
+          && StudioIPC.verb(ofPath: "/electron/ipcRenderer/invoke/settings:get-document") == "GET"
+          && StudioIPC.verb(ofPath: "/electron/ipcRenderer/invoke/order%3Asubmit/:id") == "POST"
+          && StudioIPC.verb(ofPath: "/desk/brokers/deleteBroker/:id") == "DELETE" && StudioIPC.verb(ofPath: "/:only") == nil)
+    check("REQ-016 only http://electron.ipc is the bridge's address",
+          StudioIPC.isIPC(URL(string: "http://electron.ipc/desk/settings/getDocument")!) && !StudioIPC.isIPC(URL(string: "https://electron.ipc/x")!)
+          && !StudioIPC.isIPC(URL(string: "http://electron.ipc:8080/x")!) && !StudioIPC.isIPC(URL(string: "http://evil.electron.ipc/x")!)
+          && StudioIPC.isIPC(path: "http://electron.ipc/desk/x") && !StudioIPC.isIPC(path: "/api/x"))
+
+    // The bridge's messages: a call is a request with the ipc transport, a callback a channel with it; both only at the bridge.
+    let ipcOrigin = StudioBridge.Origin(url: URL(string: app)!)!
+    let expected = StudioBridge.Expectation(session: "s-1", generation: 3, origin: ipcOrigin)
+    func message(_ fields: [String: Any]) -> [String: Any] { ["session": "s-1", "generation": 3].merging(fields) { _, new in new } }
+    let call = message(["kind": "request", "requestId": "g3-1-x", "method": "PUT", "url": "http://electron.ipc/desk/settings/saveBroker",
+                        "headers": ["content-type": "application/json", StudioIPC.argumentsHeader: #"[{"id":"b1"}]"#], "body": #"{"id":"b1"}"#,
+                        "transport": "ipc"])
+    var parsedCall: StudioBridge.Request?
+    if case .success(.request(let parsed)) = StudioBridge.validate(call, isMainFrame: true, origin: ipcOrigin, expecting: expected) { parsedCall = parsed }
+    check("REQ-016 a bridge call is a request with the ipc transport", parsedCall?.transport == "ipc" && parsedCall?.method == "PUT")
+    var elsewhere = call
+    elsewhere["url"] = app + "/api/brokers"
+    let elsewhereResult = StudioBridge.validate(elsewhere, isMainFrame: true, origin: ipcOrigin, expecting: expected)
+    check("REQ-016 the ipc transport is refused for another address", elsewhereResult == .failure(.malformed("ipc url")), "\(elsewhereResult)")
+    let listen = message(["kind": "channel", "action": "open", "id": "c3-1-x", "url": "http://electron.ipc/desk/settings/onDocumentApplied",
+                          "protocols": [String](), "transport": "ipc"])
+    var parsedListen: StudioBridge.Channel?
+    if case .success(.channel(let parsed)) = StudioBridge.validate(listen, isMainFrame: true, origin: ipcOrigin, expecting: expected) { parsedListen = parsed }
+    var wrongListen = listen
+    wrongListen["url"] = "ws://localhost:5173/ws"
+    check("REQ-016 a bridge callback is a channel with the ipc transport, only at the bridge's address", parsedListen?.transport == .ipc
+          && StudioBridge.validate(wrongListen, isMainFrame: true, origin: ipcOrigin, expecting: expected) == .failure(.malformed("ipc url")))
+
+    // The arguments header is redacted field by field before it reaches a prompt or the log.
+    let fakeKey = "sk-" + String(repeating: "q7", count: 12)
+    let header = StudioRedactor().redact(headers: [StudioIPC.argumentsHeader: #"[{"name":"Paper","apiKey":"plain-value"},"\#(fakeKey)",3]"#])
+    let redactedArgs = header[StudioIPC.argumentsHeader] ?? ""
+    check("REQ-016 the arguments header is redacted field by field and for credential shapes",
+          !redactedArgs.contains("plain-value") && !redactedArgs.contains(fakeKey) && redactedArgs.contains("Paper") && redactedArgs.contains("[redacted]"),
+          redactedArgs)
+
+    // The map: its version, lenient decoding, and an older map of an Electron renderer extended with the preload bridge.
+    check("REQ-016 a new map has the current version; a completed older map of an Electron renderer is outdated, of a web app not",
+          StudioEnvironmentMap().version == StudioEnvironmentMap.currentVersion
+          && StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true, version: 1).isOutdated(electron: true)
+          && !StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true, version: 1).isOutdated(electron: false)
+          && !StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true).isOutdated(electron: true))
+    let oldMap = StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true, inventoryAttempts: 3, version: 1)
+    check("REQ-016 a session maps again only an outdated completed map of an Electron renderer",
+          StudioEnvironmentMapper.needsMapping(oldMap, appFolder: "web", electron: true)
+          && !StudioEnvironmentMapper.needsMapping(oldMap, appFolder: "web", electron: false)
+          && !StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true), appFolder: "web", electron: true)
+          && !StudioEnvironmentMapper.needsMapping(StudioEnvironmentMap(status: .cancelled, appFolder: "web", inventoried: true, version: 1),
+                                                   appFolder: "web", electron: true))
+    let ipcRoot = tmp.appendingPathComponent("ipc-environment")
+    var stored = StudioEnvironmentSpec()
+    stored.rules = [StudioRule(id: "list-orders", method: "GET", path: "https://api.example.test/orders", operation: .list, entity: "orders")]
+    stored.entities = [StudioEntity(name: "orders")]
+    stored.map = StudioEnvironmentMap(status: .complete, appFolder: "web", inventoried: true, inventoryAttempts: 1,
+                                      services: [StudioMapService(name: "api", baseURL: "https://api.example.test", address: "https://api.example.test")],
+                                      groups: [StudioMapGroup(id: "api/orders", service: "api", resource: "orders",
+                                                              endpoints: [StudioMapEndpoint(method: "GET", path: "/orders", resource: "orders")],
+                                                              status: .done, rules: ["list-orders"])])
+    try? StudioStore.saveEnvironment(stored, root: ipcRoot)
+    let environmentFile = StudioStore.environmentURL(ipcRoot)
+    var written = (try? String(contentsOf: environmentFile, encoding: .utf8)) ?? ""
+    check("REQ-016 the map is saved with its version", written.contains("\"version\" : 2") || written.contains("\"version\":2"), String(written.prefix(200)))
+    // The map's version is its last key (sorted); a rule's own version is 1.
+    written = written.replacingOccurrences(of: #",\s*"version"\s*:\s*2"#, with: "", options: .regularExpression)
+    try? written.write(to: environmentFile, atomically: true, encoding: .utf8)
+    let reloaded = StudioStore.loadEnvironment(ipcRoot)
+    check("REQ-016 an environment saved before map versions loads, its map as version 1 with its groups and rules",
+          !written.contains("\"version\" : 2") && reloaded?.map?.version == 1 && reloaded?.map?.groups.first?.status == .done
+          && reloaded?.rules.first?.id == "list-orders" && reloaded?.map?.isOutdated(electron: true) == true,
+          "\(String(describing: reloaded?.map))")
+
+    let answer: [String: Any] = [
+        "services": [["name": "api", "baseURL": "https://api.example.test", "variable": "", "side": "browser"],
+                     ["name": "electron-ipc", "baseURL": "", "variable": "WRONG", "side": "server"]],
+        "endpoints": [
+            ["service": "api", "resource": "orders", "method": "GET", "path": "/orders", "callSite": "src/api.ts:3", "side": "browser"],
+            ["service": "electron-ipc", "resource": "settings", "method": "POST", "path": "/desk/settings/getDocument", "callSite": "src/preload.ts:60", "side": "browser"],
+            ["service": "electron-ipc", "resource": "settings", "method": "GET", "path": "http://electron.ipc/desk/settings/saveDocument/:expectedRevision",
+             "callSite": "src/preload.ts:62", "side": "browser"],
+            ["service": "electron-ipc", "resource": "brokers", "method": "GET", "path": "/desk/settings/getBrokers", "callSite": "src/preload.ts:70", "side": "browser"],
+            ["service": "electron-ipc", "resource": "brokers", "method": "GET", "path": "/desk/settings/saveBroker", "callSite": "src/preload.ts:71", "side": "browser"],
+            ["service": "electron-ipc", "resource": "brokers", "method": "GET", "path": "/desk/settings/deleteBroker/:id", "callSite": "src/preload.ts:72", "side": "browser"],
+            ["service": "electron-ipc", "resource": "brokers", "method": "GET", "path": "/desk/settings/testConnection/:id", "callSite": "src/preload.ts:73", "side": "browser"],
+        ],
+        "notes": ["onDocumentApplied(cb) is a subscription"], "userRoles": ["names": [], "ordinary": ""]]
+    let inventory = StudioMapParsing.inventory(from: answer)
+    let methods = inventory?.entries.filter { $0.service == StudioIPC.service }.map { "\($0.endpoint.method) \($0.endpoint.path)" } ?? []
+    check("REQ-016 the inventory gives the bridge its logical address and each method the verb the page calls it with",
+          inventory?.services.first { $0.name == StudioIPC.service }?.baseURL == StudioIPC.origin
+          && inventory?.services.first { $0.name == StudioIPC.service }?.variable == ""
+          && methods == ["GET /desk/settings/getDocument", "PUT /desk/settings/saveDocument/:expectedRevision", "GET /desk/settings/getBrokers",
+                         "PUT /desk/settings/saveBroker", "DELETE /desk/settings/deleteBroker/:id", "POST /desk/settings/testConnection/:id"],
+          "\(methods)")
+    let unlisted = StudioMapParsing.inventory(from: ["services": [], "endpoints": [
+        ["service": "electron-ipc", "resource": "x", "method": "GET", "path": "/desk/clearAll", "callSite": "", "side": "browser"]]])
+    check("REQ-016 a bridge endpoint whose service the answer did not list still gets the bridge's address",
+          unlisted?.services.first?.baseURL == StudioIPC.origin && unlisted?.entries.first?.endpoint.method == "DELETE")
+
+    // A page call prepared the document's getter before the map was extended: only what has no rule gets a group.
+    var rules = stored.rules
+    rules.append(StudioRule(id: "get-document", method: "GET", path: "http://electron.ipc/desk/settings/getDocument", operation: .respond,
+                            response: StudioFixedResponse(status: 200, body: .object([:]))))
+    var withIPCGroup = oldMap
+    withIPCGroup.services = stored.map?.services ?? []
+    withIPCGroup.groups = (stored.map?.groups ?? []) + [StudioMapGroup(id: "electron-ipc/settings+brokers", service: "other", resource: "x", endpoints: [])]
+    if let inventory {
+        let (extended, added) = StudioMapPlanner.extended(withIPCGroup, with: inventory, rules: rules, connections: [], limits: StudioMapLimits())
+        let addedEndpoints = added.flatMap { $0.endpoints.map { "\($0.method) \($0.path)" } }
+        check("REQ-016 an extended map keeps its groups and adds groups only for endpoints with no rule and no group",
+              extended.groups.prefix(2).map(\.id) == ["api/orders", "electron-ipc/settings+brokers"] && extended.groups.first?.status == .done
+              && extended.groups.first?.rules == ["list-orders"]
+              && addedEndpoints == ["PUT /desk/settings/saveDocument/:expectedRevision", "GET /desk/settings/getBrokers", "PUT /desk/settings/saveBroker",
+                                    "DELETE /desk/settings/deleteBroker/:id", "POST /desk/settings/testConnection/:id"]
+              && added.allSatisfy { $0.status == .pending && $0.service == StudioIPC.service }, "\(addedEndpoints) \(extended.groups.map(\.id))")
+        check("REQ-016 new group ids do not clash with the old ones; the map has the bridge's service and the current version",
+              Set(extended.groups.map(\.id)).count == extended.groups.count && added.map(\.id) == ["electron-ipc/settings+brokers-2"]
+              && extended.service(StudioIPC.service)?.address == StudioIPC.origin && extended.version == StudioEnvironmentMap.currentVersion
+              && extended.notes == ["onDocumentApplied(cb) is a subscription"], "\(added.map(\.id))")
+        let again = StudioMapPlanner.extended(extended, with: inventory, rules: rules, connections: [], limits: StudioMapLimits())
+        check("REQ-016 extending twice adds nothing more", again.added.isEmpty && again.map.groups.count == extended.groups.count)
+        check("REQ-016 every new endpoint is covered by a rule at the bridge's address once prepared",
+              StudioMapPlanner.rulePath(added[0].endpoints[0], service: extended.service(StudioIPC.service))
+                == "http://electron.ipc/desk/settings/saveDocument/:expectedRevision")
+    } else {
+        check("REQ-016 the inventory with the bridge is readable", false)
+    }
+
+    // What the prompts say about the bridge (DEC-007 included), and what the Environment panel shows.
+    let electronContext = StudioMapContext(appFolder: "app", appOrigin: nil, connections: [], electron: true)
+    let ipcContext = StudioPreparationContext(contract: "GET http://electron.ipc/desk/settings/getDocument", method: "GET",
+                                              url: "http://electron.ipc/desk/settings/getDocument", headers: [StudioIPC.argumentsHeader: "[]"],
+                                              body: nil, attempt: 1, problems: [])
+    let preparation = StudioPrompts.preparationPrompt(ipcContext, spec: StudioEnvironmentSpec(), appFolder: "app")
+    check("REQ-016 the prompts explain the bridge's address, where its answers are found, entities and DEC-007",
+          StudioPrompts.preparationSystem.contains("http://electron.ipc/<global>/<path>/<method>")
+          && StudioPrompts.preparationSystem.contains("ipcMain.handle") && StudioPrompts.preparationSystem.contains("testConnection")
+          && StudioPrompts.preparationSystem.contains("saves and deletes change") && StudioPrompts.preparationSystem.contains(StudioIPC.argumentsHeader)
+          && StudioMapPrompts.inventorySystem.contains("`electron-ipc`") && StudioMapPrompts.inventorySystem.contains("/desk/settings/getBroker/:id")
+          && StudioMapPrompts.inventoryPrompt(electronContext).contains("This is an Electron renderer")
+          && !StudioMapPrompts.inventoryPrompt(StudioMapContext(appFolder: "app", appOrigin: nil, connections: [])).contains("Electron renderer")
+          && preparation.contains("A call of the Electron preload bridge") && preparation.contains(StudioIPC.argumentsHeader))
+    var bridgeSpec = StudioEnvironmentSpec()
+    bridgeSpec.rules = rules
+    bridgeSpec.channels = [StudioChannel(id: "applied", path: "http://electron.ipc/desk/settings/onDocumentApplied")]
+    check("REQ-016 the Environment panel counts the bridge's simulated methods",
+          StudioIPC.summary(bridgeSpec, globals: ["desk"]) == "simulated (2 methods) · window.desk"
+          && StudioIPC.summary(StudioEnvironmentSpec(), globals: []) == "simulated (0 methods)", StudioIPC.summary(bridgeSpec, globals: ["desk"]))
+
+    // A callback waits for its channel and gets what the channel pushes once one is registered.
+    var ispec = StudioEnvironmentSpec()
+    ispec.entities = [StudioEntity(name: "documents")]
+    ispec.seed = ["documents": [json(#"{"id":"current","theme":"dark"}"#)]]
+    let box = SimulatorBox(StudioSimulator(spec: ispec, scenario: StudioScenario(id: "s", name: "S", kind: .populated), appOrigin: app))
+    var logs: [String] = []
+    var pushed: [String: [StudioChannelFrame]] = [:]
+    let hub = StudioChannelHub(environment: StudioChannelHub.Environment(
+        spec: { box.sim.spec }, state: { box.sim.state }, appOrigin: { app },
+        perform: { _, _, _, _ in .json(501, nil) }, graphQL: { _, _ in .null }, redact: { $0 }, log: { text, _ in logs.append(text) }))
+    let address = URL(string: "http://electron.ipc/desk/settings/onDocumentApplied")!
+    let listening = hub.listen(id: "page-c1", url: address, transport: .ipc, source: "page", shown: address.absoluteString,
+                               sink: { pushed["page-c1", default: []] += $0 })
+    check("REQ-016 a callback no channel answers yet is accepted and waits, without a preparation",
+          listening == .accepted(protocol: nil, frames: []) && hub.connections.isEmpty
+          && logs.contains { $0.contains("IPC callback http://electron.ipc/desk/settings/onDocumentApplied · page · listening") }, logs.joined(separator: "\n"))
+    var registered = box.sim.spec
+    registered.channels = [StudioChannel(id: "applied", path: "http://electron.ipc/desk/settings/onDocumentApplied", wire: .raw,
+                                         onConnect: [StudioChannelMessage(data: json(#"{"ready":true}"#))],
+                                         links: [StudioChannelLink(entity: "documents", on: [.update], message: StudioChannelMessage(data: .string("{{record}}")))])]
+    box.sim.replaceSpec(registered)
+    hub.openListeners()
+    check("REQ-016 a waiting callback opens when its channel is registered and gets its first message", hub.connections["page-c1"] != nil
+          && texts(pushed["page-c1"] ?? []) == [#"{"ready":true}"#], "\(pushed)")
+    hub.entitiesChanged([StudioEntityChange(entity: "documents", kind: .update, record: json(#"{"id":"current","theme":"light"}"#),
+                                            old: json(#"{"id":"current","theme":"dark"}"#))])
+    check("REQ-016 a write of the linked entity reaches the callback", texts(pushed["page-c1"] ?? []).last == #"{"id":"current","theme":"light"}"#,
+          "\(texts(pushed["page-c1"] ?? []))")
+    _ = hub.listen(id: "page-c2", url: URL(string: "http://electron.ipc/desk/orders/onOrderUpdate")!, transport: .ipc, source: "page",
+                   shown: "onOrderUpdate", sink: { _ in })
+    hub.close(id: "page-c2", code: nil)
+    var more = box.sim.spec
+    more.channels = (more.channels ?? []) + [StudioChannel(id: "orders", path: "http://electron.ipc/desk/orders/onOrderUpdate")]
+    box.sim.replaceSpec(more)
+    hub.openListeners()
+    check("REQ-016 an unsubscribed callback does not open later", hub.connections["page-c2"] == nil)
+    _ = hub.listen(id: "page-c3", url: URL(string: "http://electron.ipc/desk/x/onLater")!, transport: .ipc, source: "page", shown: "onLater", sink: { _ in })
+    hub.closeAll(source: "page")
+    more.channels = (more.channels ?? []) + [StudioChannel(id: "later", path: "http://electron.ipc/desk/x/onLater")]
+    box.sim.replaceSpec(more)
+    hub.openListeners()
+    check("REQ-016 a new page drops the callbacks of the old one", hub.connections.isEmpty)
+}
+
 // MARK: - Run
 
 gatewayParserChecks()
@@ -2456,6 +2666,7 @@ Task { @MainActor in
     graphQLChecks()
     await channelChecks()
     realtimeModelChecks()
+    await ipcChecks()
     done.signal()
 }
 while done.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
