@@ -913,26 +913,47 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         return image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
     }
 
-    /// After a change the selection is checked again (PRE-09): the same instance is kept, a moved source is remapped, an
-    /// ambiguous one is cleared.
-    private func revalidateSelection(_ previous: StudioSelectionContext) async {
-        guard let list = try? await call("return window.__markviewStudio.candidates(selector);", ["selector": previous.selector]) as? [[String: Any]] else {
-            selection = nil
-            return
+    /// The selection is found again after the page was reloaded (PRE-09, BUG-068): the same instance is kept, a moved source
+    /// is remapped, an element that is not the same one is never taken in its place. The old selector is tried first; when
+    /// it no longer leads to the element (the page is laid out differently), the page is searched for the element itself.
+    /// `afterEdit` is the check after a change, which may have altered the element's classes and text.
+    @discardableResult
+    private func revalidateSelection(_ previous: StudioSelectionContext, afterEdit: Bool) async -> Bool {
+        func candidates(_ script: String, _ arguments: [String: Any]) async -> [StudioSelectionContext] {
+            ((try? await call(script, arguments)) as? [[String: Any]] ?? []).compactMap { StudioSelectionContext($0) }
         }
-        let candidates = list.compactMap { StudioSelectionContext($0) }
-        switch StudioSelectionRevalidation.decide(previous: previous, candidates: candidates) {
+        func position(of chosen: StudioSelectionContext, in list: [StudioSelectionContext]) -> Int {
+            list.firstIndex { $0.rect == chosen.rect && $0.tag == chosen.tag && $0.sourceNodeId == chosen.sourceNodeId } ?? 0
+        }
+        let bySelector = await candidates("return window.__markviewStudio.candidates(selector);", ["selector": previous.selector])
+        var decision = StudioSelectionRevalidation.decide(previous: previous, candidates: bySelector, afterEdit: afterEdit)
+        var select: (script: String, arguments: [String: Any])?
+        switch decision {
         case .kept(let next), .remapped(let next):
-            let index = candidates.firstIndex { $0.instanceIndex == next.instanceIndex && $0.sourceNodeId == next.sourceNodeId } ?? 0
-            if let object = try? await call("return window.__markviewStudio.selectMatching(selector, index);",
-                                            ["selector": previous.selector, "index": index]) as? [String: Any] {
-                await adopt(object)
-                selection?.revalidated = true
+            select = ("return window.__markviewStudio.selectMatching(selector, index);",
+                      ["selector": previous.selector, "index": position(of: next, in: bySelector)])
+        case .cleared:
+            let similar = await candidates("return window.__markviewStudio.similar(fingerprint);", ["fingerprint": previous.fingerprint])
+            decision = StudioSelectionRevalidation.decide(previous: previous, candidates: similar, afterEdit: afterEdit)
+            switch decision {
+            case .kept(let next), .remapped(let next):
+                select = ("return window.__markviewStudio.selectSimilar(fingerprint, index);",
+                          ["fingerprint": previous.fingerprint, "index": position(of: next, in: similar)])
+            case .cleared: break
             }
-        case .cleared(let reason):
-            selection = nil
-            notice = reason
         }
+        if case .cleared(let reason) = decision {
+            selection = nil
+            notice = reason + (afterEdit ? "" : " The change uses the element as it was selected; select it again to see it.")
+            return false
+        }
+        guard let select, let object = try? await call(select.script, select.arguments) as? [String: Any] else {
+            selection = nil
+            return false
+        }
+        await adopt(object)
+        selection?.revalidated = true
+        return true
     }
 
     // MARK: - Assistant
@@ -1022,7 +1043,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             session.busyDetail = "Restoring the scenario"
             _ = await session.restore()
             if session.selection == nil {
-                await session.revalidateSelection(selection)
+                await session.revalidateSelection(selection, afterEdit: false)
                 if let current = session.selection { selection = current }
             }
             let before = await session.capture(label: "Before: " + String(request.prefix(60)))
@@ -1139,7 +1160,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         if buildError == nil && logErrors == nil {
             stalePreview = nil
             if let after = await capture(label: label, operationId: operation.id) { operation.afterCapture = after.id }
-            if let previous { await revalidateSelection(previous) }
+            if let previous { await revalidateSelection(previous, afterEdit: true) }
         } else {
             buildError = buildError ?? logErrors
             if stalePreview == nil, let before = operation.beforeCapture { stalePreview = captures.first { $0.id == before } }

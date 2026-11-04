@@ -541,6 +541,34 @@ func selectionChecks() {
         check("PRE-09 an ambiguous mapping is cleared", true)
     } else { check("PRE-09 cleared", false) }
     if case .cleared = StudioSelectionRevalidation.decide(previous: selected, candidates: []) { check("a vanished element clears the selection", true) } else { check("vanished", false) }
+
+    // BUG-068: an element without source metadata is found again by what it is, not by where it was.
+    func plain(_ tag: String, _ classes: [String], _ text: String, component: String? = nil, node: String? = nil) -> StudioSelectionContext {
+        StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": tag, "selector": "body > section:nth-of-type(1) > button",
+                                "text": text, "classes": classes,
+                                "source": ["framework": component == nil ? "" : "react", "mapping": "none", "component": component ?? "",
+                                           "nodeId": node ?? ""]])!
+    }
+    let cta = plain("button.cta", ["cta"], "Plan with us")
+    if case .cleared = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.accept", ["accept"], "Accept all")]) {
+        check("BUG-068 another element at the old position is not taken for the selected one", true)
+    } else { check("BUG-068 another element at the old position is not taken for the selected one", false) }
+    if case .remapped(let found) = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.accept", ["accept"], "Accept all"),
+                                                                                               plain("button.cta", ["cta"], "Plan with us")]) {
+        check("BUG-068 the same element is found where it is now", found.classes == ["cta"])
+    } else { check("BUG-068 the same element is found where it is now", false) }
+    if case .cleared = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.cta", ["cta"], "Book now")]) {
+        check("BUG-068 before a change, a different text means a different element", true)
+    } else { check("BUG-068 before a change, a different text means a different element", false) }
+    if case .remapped = StudioSelectionRevalidation.decide(previous: cta, candidates: [plain("button.cta", ["cta", "soft"], "Plan it with us")], afterEdit: true) {
+        check("BUG-068 after a change, the edited element is still found", true)
+    } else { check("BUG-068 after a change, the edited element is still found", false) }
+    let card = plain("div.mx-auto", ["mx-auto", "flex"], "Can't find the right package?", component: "PlanningInvitation",
+                     node: "react|PlanningInvitation|div")
+    let bannerButton = plain("div.mx-auto", ["mx-auto", "flex"], "A quick word on cookies", component: "ConsentBanner", node: "react|ConsentBanner|div")
+    if case .cleared = StudioSelectionRevalidation.decide(previous: card, candidates: [bannerButton], afterEdit: true) {
+        check("BUG-068 an element of another component is never taken, even after a change", true)
+    } else { check("BUG-068 an element of another component is never taken, even after a change", false) }
 }
 
 // MARK: - Session processes and connection policy (REQ-006, AC-17, AC-18)

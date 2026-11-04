@@ -108,6 +108,27 @@ let indexHTML = """
 </html>
 
 """
+/// BUG-068: a page whose consent banner (kept in localStorage) is inserted before the content until it is accepted, so a
+/// positional path to the card's button points at the banner's button once storage is cleared.
+let consentHTML = """
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Consent</title></head>
+<body>
+<section class="cards"><div class="card"><button class="cta">Plan with us</button></div></section>
+<script>
+if (!localStorage.getItem('consent')) {
+  const banner = document.createElement('section');
+  banner.className = 'consent';
+  banner.innerHTML = '<div class="note"><button class="accept">Accept all</button></div>';
+  document.body.insertBefore(banner, document.body.firstChild);
+  banner.querySelector('.accept').addEventListener('click', () => { localStorage.setItem('consent', 'yes'); banner.remove(); });
+}
+</script>
+</body>
+</html>
+
+"""
 let appJS = """
 async function render() {
   const items = await (await fetch('/api/items')).json();
@@ -450,6 +471,39 @@ func run() async {
     await session.revalidatePackages()
     check("AC-22 a later change of the files marks the package for revalidation", session.packages.first?.status == .revalidationRequired
           && session.packages.first?.changedSince == ["web/index.html"])
+
+    // BUG-068: a change restores the scenario first, and the restored page can be laid out differently (here a consent
+    // banner comes back because storage is cleared). The change must still go to the element the person selected, never
+    // to whatever now sits at its old position.
+    watchdog.reached("A change goes to the selected element when the restored page is laid out differently")
+    try? consentHTML.write(to: web.appendingPathComponent("consent.html"), atomically: true, encoding: .utf8)
+    var consentScenario = session.scenario
+    consentScenario.id = "consent"
+    consentScenario.name = "Consent"
+    consentScenario.route = "/consent.html"
+    consentScenario.steps = []
+    session.activate(consentScenario)
+    _ = await idle()
+    await clickElement(".accept")
+    _ = await waitUntil(5) { true }
+    let bannerGone = await text("return String(document.querySelector('.consent') === null);")
+    check("BUG-068 accepting removes the banner", bannerGone == "true", bannerGone ?? "nil")
+    session.setMode(.select)
+    try? await Task.sleep(nanoseconds: 600_000_000)
+    await clickElement(".cta")
+    _ = await waitUntil(10) { session.selection?.tag.hasPrefix("button.cta") == true }
+    check("BUG-068 the card's button is selected", session.selection?.tag.hasPrefix("button.cta") == true, session.selection?.tag ?? "nil")
+    session.setMode(.interact)
+    let editsBefore = CLICompletion.requests.filter { $0.label == "ui-studio:edit" }.count
+    assistant.lock.withLock { assistant.edits = [edit("cta", "Plan with us", "Plan it with us", path: "web/consent.html")] }
+    session.change("Make this button friendlier")
+    _ = await idle()
+    let editRequests = CLICompletion.requests.filter { $0.label == "ui-studio:edit" }
+    let editPrompt = editRequests.count > editsBefore ? editRequests.last?.prompt ?? "" : ""
+    check("BUG-068 the assistant is given the selected element, not the banner's button",
+          editPrompt.contains("button.cta") && !editPrompt.contains("button.accept"), String(editPrompt.prefix(300)))
+    check("BUG-068 the change records the selected element", session.history.last?.selection.hasPrefix("button.cta") == true,
+          session.history.last?.selection ?? "nil")
 
     finish(session, port: port)
 }

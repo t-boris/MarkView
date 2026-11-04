@@ -869,6 +869,28 @@
     return '';
   }
 
+  function similarElements(fingerprint) {
+    var tag = String(fingerprint && fingerprint.tag || '').toLowerCase();
+    if (!/^[a-z][a-z0-9-]*$/.test(tag)) return [];
+    var component = String(fingerprint.component || '');
+    var classes = Array.isArray(fingerprint.classes) ? fingerprint.classes.map(String) : [];
+    var text = String(fingerprint.text || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    var list = document.getElementsByTagName(tag), out = [];
+    for (var i = 0; i < list.length && i < 5000 && out.length < 50; i++) {
+      var el = list[i];
+      if (host && (el === host || host.contains(el))) continue;
+      if (component) {
+        if ((sourceOf(el).component || '') !== component) continue;
+      } else if (classes.length || text) {
+        var shares = classes.some(function (name) { return el.classList.contains(name); });
+        var own = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!shares && !(text && own === text)) continue;
+      }
+      out.push(el);
+    }
+    return out;
+  }
+
   function describe(el) {
     var rect = el.getBoundingClientRect();
     var source = sourceOf(el);
@@ -881,6 +903,10 @@
       selector: selectorOf(el),
       html: (el.outerHTML || '').slice(0, 40000),
       text: (el.innerText || el.textContent || '').trim().slice(0, 2000),
+      // What identifies the element when its position changes (BUG-068): its classes, role and label.
+      classes: Array.prototype.slice.call(el.classList || [], 0, 40),
+      role: el.getAttribute('role') || '',
+      label: (el.getAttribute('aria-label') || '').slice(0, 200),
       route: location.pathname + location.search + location.hash,
       url: location.href,
       styles: stylesOf(el),
@@ -1255,6 +1281,13 @@
       var list = [];
       try { list = document.querySelectorAll(selector); } catch (error) { return null; }
       var el = list[index | 0] || list[0];
+      return el ? select(el) : null;
+    },
+    // Elements that may be the selected one wherever they are now (BUG-068): the same tag and, when known, the same
+    // component; otherwise sharing a class or the text. MarkView decides which of them, if any, is the same element.
+    similar: function (fingerprint) { return similarElements(fingerprint).map(describe); },
+    selectSimilar: function (fingerprint, index) {
+      var el = similarElements(fingerprint)[index | 0];
       return el ? select(el) : null;
     },
     setRecording: function (on) { recording = !!on; return recording; },

@@ -35,6 +35,10 @@ struct StudioSelectionContext: Equatable {
     var instanceId: String?
     var instanceIndex: Int
     var instanceCount: Int
+    /// What identifies the element when its position on the page changes (BUG-068).
+    var classes: [String] = []
+    var role: String? = nil
+    var label: String? = nil
     var boundary: String?
     var snippet: String? = nil
     var snippetHash: String? = nil
@@ -92,7 +96,23 @@ struct StudioSelectionContext: Equatable {
         instanceId = (source["instanceId"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(500)) }
         instanceIndex = max(0, (source["instanceIndex"] as? NSNumber)?.intValue ?? 0)
         instanceCount = max(1, (source["instanceCount"] as? NSNumber)?.intValue ?? 1)
+        classes = (object["classes"] as? [Any] ?? []).prefix(40).compactMap { ($0 as? String).map { String($0.prefix(200)) } }
+        role = (object["role"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(100)) }
+        label = (object["label"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(200)) }
         boundary = (object["boundary"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(500)) }
+    }
+
+    /// The element's tag name (`button` of `button.cta`).
+    var tagName: String { String(tag.prefix { $0.isLetter || $0.isNumber || $0 == "-" }).lowercased() }
+
+    /// The start of the element's text with whitespace collapsed, as the page runtime compares it.
+    var textKey: String {
+        String(text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").prefix(120))
+    }
+
+    /// What the page runtime needs to look for the element anywhere on the page (`similar`, `selectSimilar`).
+    var fingerprint: [String: Any] {
+        ["tag": tagName, "component": component ?? "", "classes": classes, "text": textKey]
     }
 
     /// The project-relative file of a path the framework reported: an absolute path inside the project, a path relative to
@@ -150,9 +170,17 @@ enum StudioSelectionRevalidation: Equatable {
     case remapped(StudioSelectionContext)
     case cleared(String)
 
-    /// `candidates` are the elements now matching the old selector, with their source information.
-    static func decide(previous: StudioSelectionContext, candidates: [StudioSelectionContext]) -> StudioSelectionRevalidation {
-        guard !candidates.isEmpty else { return .cleared("The selected element is no longer on the page after the change.") }
+    /// `candidates` are elements that may be the selected one (those matching the old selector, or the page runtime's
+    /// `similar` search), with their source information. Only a candidate that is the same element counts (BUG-068): a
+    /// positional selector finds whatever now sits where the element was, which after a restore can be another element.
+    /// `afterEdit` is the check after a change, when the element's own classes and text may have changed.
+    static func decide(previous: StudioSelectionContext, candidates all: [StudioSelectionContext],
+                       afterEdit: Bool = false) -> StudioSelectionRevalidation {
+        let candidates = all.filter { sameElement($0, as: previous, afterEdit: afterEdit) }
+        guard !candidates.isEmpty else {
+            return .cleared(afterEdit ? "The selected element is no longer on the page after the change."
+                                      : "The selected element is not on the restored page.")
+        }
         if let node = previous.sourceNodeId {
             let same = candidates.filter { $0.sourceNodeId == node }
             if let match = same.first(where: { $0.instanceIndex == previous.instanceIndex }) ?? (same.count == 1 ? same.first : nil) {
@@ -171,5 +199,22 @@ enum StudioSelectionRevalidation: Equatable {
             return .remapped(next)
         }
         return .cleared("The change left \(candidates.count) elements that could be the selected one; select it again.")
+    }
+
+    /// Whether `candidate` is the element `previous` described: the same tag, the same source node or component, and
+    /// (unless a change may have altered them) the same classes and text.
+    static func sameElement(_ candidate: StudioSelectionContext, as previous: StudioSelectionContext, afterEdit: Bool) -> Bool {
+        guard candidate.tagName == previous.tagName else { return false }
+        if let node = previous.sourceNodeId, candidate.sourceNodeId == node { return true }
+        if let component = previous.component, candidate.component != component { return false }
+        let sameClasses = Set(candidate.classes) == Set(previous.classes)
+        let sameText = candidate.textKey == previous.textKey
+        if afterEdit {
+            if previous.component != nil { return true }
+            let union = Set(candidate.classes).union(previous.classes)
+            let shared = Set(candidate.classes).intersection(previous.classes)
+            return sameClasses || sameText || (!union.isEmpty && Double(shared.count) / Double(union.count) >= 0.5)
+        }
+        return sameClasses && (sameText || previous.component != nil)
     }
 }
