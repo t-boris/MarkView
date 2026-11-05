@@ -69,6 +69,15 @@ let site = targets.first { $0.label == "apps/site" }
 check("nested vite app", site?.command == "pnpm run dev" && site?.ports.first == 4100, "\(String(describing: site))")
 let web = targets.first { $0.label == "web" }
 check("next app", web?.command == "npm run dev" && web?.ports.contains(3000) == true, "\(String(describing: web))")
+if let web {
+    let fresh = WebAppPreview.missingDependencies(for: web, root: tmp)
+    check("fresh app without lockfile installs without writing a lockfile", fresh?.folder == web.folder && fresh?.command.contains("--package-lock=false") == true)
+    write("web/package-lock.json", "{}")
+    check("npm lockfile selects npm ci", WebAppPreview.missingDependencies(for: web, root: tmp)?.command == "npm ci --no-audit --no-fund")
+    try! fm.createDirectory(at: web.folder.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+    check("existing dependencies are left alone", WebAppPreview.missingDependencies(for: web, root: tmp) == nil)
+    check("failed install can be retried", WebAppPreview.missingDependencies(for: web, root: tmp, retry: true)?.command == "npm ci --no-audit --no-fund")
+}
 check("django app", targets.contains { $0.label == "server" && $0.command.contains("manage.py runserver") })
 
 // MARK: Electron apps run as web only
@@ -132,6 +141,12 @@ writeWorkspace("\(strike)/node_modules/.pnpm/vite-app/package.json", #"{"scripts
 let workspaceTargets = WebAppPreview.targets(root: tmpWorkspace)
 let labels = workspaceTargets.map(\.label)
 let shell = workspaceTargets.first { $0.label == "\(strike)/packages/shell (web only)" }
+if let shell {
+    // This fixture contains a workspace node_modules directory, so it must not be reinstalled.
+    check("workspace dependencies are shared", WebAppPreview.missingDependencies(for: shell, root: tmpWorkspace) == nil)
+    let retry = WebAppPreview.missingDependencies(for: shell, root: tmpWorkspace, retry: true)
+    check("workspace install uses its lockfile directory", retry?.folder == tmpWorkspace.appendingPathComponent(strike) && retry?.command == "pnpm install --frozen-lockfile")
+}
 check("Electron app in a workspace three levels down is found", shell != nil && shell?.isElectron == true, "\(labels)")
 check("its renderer script is used, with the package manager of the workspace root", shell?.command == "pnpm run dev:renderer", "\(String(describing: shell))")
 check("its port comes from the config file the script names", shell?.ports.first == 3010, "\(String(describing: shell?.ports))")
@@ -143,6 +158,15 @@ check("npm workspaces: an excluded package is not", !labels.contains("tools/cons
 let rsbuildApp = workspaceTargets.first { $0.label == "tools/kit/ui/docs/site" }
 check("workspaces object form with ** and an rsbuild app", rsbuildApp?.ports.first == 3400 && rsbuildApp?.isElectron == false, "\(String(describing: rsbuildApp))")
 check("a workspace declared too deep is not searched", !labels.contains { $0.hasSuffix("/far") }, "\(labels)")
+writeWorkspace("nested/pnpm-lock.yaml", "")
+writeWorkspace("nested/node_modules/placeholder", "")
+writeWorkspace("nested/app/package.json", #"{"scripts":{"dev":"next dev"},"dependencies":{"next":"15"}}"#)
+writeWorkspace("nested/app/package-lock.json", "{}")
+if let nested = WebAppPreview.targets(root: tmpWorkspace).first(where: { $0.label == "nested/app" }) {
+    check("a nested npm lockfile wins over a parent pnpm workspace", nested.command == "npm run dev")
+    let install = WebAppPreview.missingDependencies(for: nested, root: tmpWorkspace)
+    check("a parent's unrelated node_modules does not hide a fresh locked app", install?.folder.standardizedFileURL.path == nested.folder.standardizedFileURL.path && install?.command == "npm ci --no-audit --no-fund")
+} else { check("a nested locked app is discovered", false) }
 check("node_modules never holds an app", !labels.contains { $0.contains("node_modules") }, "\(labels)")
 check("the closest lockfile wins, and none means npm", workspaceTargets.first { $0.label == "apps/bf-signal-worker" }?.command == "npm run dev")
 check("rspack and rsbuild dev servers serve the web only", WebAppPreview.servesWebOnly("rspack serve -c rspack.renderer.config.ts")
