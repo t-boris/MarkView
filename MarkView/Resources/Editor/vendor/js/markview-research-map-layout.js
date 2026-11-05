@@ -38,15 +38,23 @@
         return !!node && typeof node.x === 'number' && isFinite(node.x) && typeof node.y === 'number' && isFinite(node.y);
     }
 
-    /** A size guess for a node when the page cannot measure it: roughly the prototype's node look. */
+    function positive(value) { return typeof value === 'number' && isFinite(value) && value > 0 ? value : 0; }
+
+    /** A size guess for a node when the page cannot measure it: roughly the prototype's node look. A given width is exact
+        and the title wraps inside it, a given height is a floor, and an ellipse or a diamond keeps the title in its
+        inscribed rectangle (the same rules as the page, REQ-009). */
     function estimateSize(node, isRoot) {
         var title = String((node && node.title) || '');
+        var givenW = positive(node && node.width), givenH = positive(node && node.height);
+        var shape = node && node.shape;
+        var fit = shape === 'ellipse' ? Math.SQRT1_2 : (shape === 'diamond' ? 0.5 : 0);   // the title's share of the shape
         var font = isRoot ? 16 : 14;
         var charWidth = font * 0.6;
-        var padX = isRoot ? 52 : 52;      // 17 + 28 padding and the border
+        var padX = fit ? 24 : 52;         // 17 + 28 padding and the border
         var minW = isRoot ? 170 : 110;
         var maxW = 220;
-        var perLine = Math.max(4, Math.floor((maxW - padX) / charWidth));
+        var avail = givenW ? givenW * (fit || 1) : (fit ? (shape === 'diamond' ? 130 : 170) + padX : maxW);
+        var perLine = Math.max(4, Math.floor((avail - padX) / charWidth));
         var words = title.split(/\s+/).filter(Boolean);
         var lines = [], line = '';
         words.forEach(function (word) {
@@ -61,8 +69,16 @@
         });
         if (line || !lines.length) lines.push(line);
         var widest = lines.reduce(function (m, l) { return Math.max(m, l.length); }, 0);
-        var w = Math.min(maxW, Math.max(minW, Math.round(widest * charWidth + padX)));
-        var h = Math.round(lines.length * font * 1.3 + (isRoot ? 40 : 26));
+        var w, h;
+        if (fit) {
+            w = Math.max(shape === 'diamond' ? 112 : 88, Math.round(widest * charWidth / fit) + padX);
+            h = Math.max(shape === 'diamond' ? 68 : 46, Math.round(lines.length * font * 1.3 / fit) + 12);
+        } else {
+            w = Math.min(maxW, Math.max(minW, Math.round(widest * charWidth + padX)));
+            h = Math.round(lines.length * font * 1.3 + (isRoot ? 40 : 26));
+        }
+        if (givenW) w = givenW;
+        if (givenH) h = Math.max(h, givenH);
         return { w: w, h: h };
     }
 

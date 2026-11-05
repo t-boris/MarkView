@@ -5479,6 +5479,13 @@ extension WorkspaceManager {
             guard let value = (payload[key] as? NSNumber)?.doubleValue, value.isFinite, abs(value) < 1e9 else { return nil }
             return Int(value.rounded())
         }
+        /// An integer that may be cleared: absent leaves it alone, null clears it, a number sets it. Anything else
+        /// becomes 0, which the map refuses with its own message.
+        func clearableInteger(_ key: String) -> Int?? {
+            guard let raw = payload[key] else { return nil }
+            if raw is NSNull { return .some(nil) }
+            return .some(integer(key) ?? 0)
+        }
         var created = ""
         var notice = ""
         var change: ResearchMapChange?
@@ -5490,19 +5497,19 @@ extension WorkspaceManager {
         case "addChild":
             change = updateResearchMap(file) { created = try $0.addChild(parent: string("parent"), title: string("title")) }
         case "update":
-            // A number is set with an integer and cleared with null; an absent key leaves it alone.
-            var number: Int?? = nil
-            if let raw = payload["number"] {
-                if raw is NSNull { number = .some(nil) } else if let value = (raw as? NSNumber)?.intValue { number = .some(value) } else { number = .some(0) }
-            }
-            change = updateResearchMap(file) { [number] map in
+            // A number, a width and a height are set with an integer and cleared with null; an absent key leaves it alone.
+            let number = clearableInteger("number"), width = clearableInteger("width"), height = clearableInteger("height")
+            change = updateResearchMap(file) { [number, width, height] map in
                 try map.update(id: string("id"),
                                title: payload["title"] as? String,
                                tags: payload["tags"] as? [String],
                                color: payload["color"] as? String,
                                description: payload["description"] as? String,
                                icon: payload["icon"] as? String,
-                               number: number)
+                               number: number,
+                               shape: payload["shape"] as? String,
+                               width: width,
+                               height: height)
             }
         case "numberChildren":
             let clear = (payload["clear"] as? Bool) ?? false

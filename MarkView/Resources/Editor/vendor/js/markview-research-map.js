@@ -95,6 +95,30 @@
     const NODE_ICON_IDS = Object.keys(NODE_ICONS);
     const MAX_NUMBER = 999;
 
+    // Node shapes and sizes (REQ-009, DEC-012). Swift owns the list of ids and the limits (they arrive in every snapshot);
+    // the page owns the drawings. `rounded` is the default look and is never stored. A check in research-map-web-tests.sh
+    // keeps SHAPE_IDS equal to ResearchMap.shapes.
+    const SHAPE_IDS = ['rounded', 'rectangle', 'pill', 'ellipse', 'diamond'];
+    const SHAPE_PATHS = {
+        rounded: 'M6 7h12a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3z',
+        rectangle: 'M3 7h18v10H3z',
+        pill: 'M9 7h6a5 5 0 0 1 0 10H9A5 5 0 0 1 9 7z',
+        ellipse: 'M3 12a9 6 0 1 0 18 0 9 6 0 1 0-18 0z',
+        diamond: 'M12 4l9 8-9 8-9-8z'
+    };
+    const SHAPE_NAMES = { rounded: 'Rounded', rectangle: 'Rectangle', pill: 'Pill', ellipse: 'Ellipse', diamond: 'Diamond' };
+    // The limits of a given width and height, replaced by the snapshot's `sizeLimits` (Swift's ResearchMap.widthRange/heightRange).
+    const LIMITS = { width: [60, 800], height: [28, 600] };
+    const SIZE_PRESETS = [{ id: 's', label: 'S', w: 140, h: 44 }, { id: 'm', label: 'M', w: 220, h: 64 }, { id: 'l', label: 'L', w: 320, h: 96 }];
+    // Ellipse and diamond keep the title in the rectangle inscribed in the shape: k is its share of the width and of the
+    // height (the corners of the text just touch the outline), the pads are extra room, maxText is where an automatic
+    // node wraps its title, minW/minH keep a short title from making a tiny shape.
+    const SHAPE_FIT = {
+        ellipse: { k: Math.SQRT1_2, padX: 12, padY: 7, maxText: 170, minW: 88, minH: 46 },
+        diamond: { k: 0.5, padX: 8, padY: 5, maxText: 130, minW: 112, minH: 68 }
+    };
+    const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
     // ---- small helpers -----------------------------------------------------------------------------------------------
     function append(parent, child) {
         if (child == null || child === false) return;
@@ -187,6 +211,8 @@
         moves: {},            // moves not yet confirmed by a snapshot: id -> {x, y, sent}
         moveQueue: {},        // keyboard moves waiting to be sent: id -> {doc, x, y, timer}
         drag: null,           // {id, x, y} while a node is being dragged
+        resize: null,         // {id, width, height} while a node is being resized with its handles (null is automatic)
+        boxes: {},            // sizes sent and not yet confirmed by a snapshot: id -> {width, height}
         pending: {},          // property edits waiting to be sent: id -> {doc, fields, timer}
         els: new Map(),
         collapsed: new Set(), // ids of nodes whose children are folded away (view state, DEC-010)
@@ -333,6 +359,46 @@
     .rm-badge { display: inline-grid; place-items: center; min-width: 1.5em; height: 1.5em; padding: 0 .4em; border-radius: .75em; background: var(--branch, var(--b0)); color: var(--badge-ink, var(--rm-badge-ink)); font-size: .85em; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
     .rm-glyph { display: inline-grid; place-items: center; width: 1.25em; height: 1.25em; color: var(--branch, var(--b0)); font-size: 1.05em; line-height: 1; }
     .rm-glyph svg { width: 100%; height: 100%; }
+    .rm-body { position: relative; z-index: 1; display: block; min-width: 0; }
+    /* A given width: the wrap is exactly that wide and the title wraps in it. A given height or a shape: the card is a column that centres its title. */
+    .rm-node-wrap.has-w { max-width: none; }
+    .rm-node-wrap.has-w .rm-node { width: 100%; min-width: 0; max-width: none; }
+    .rm-node.boxed { display: flex; flex-direction: column; justify-content: center; }
+    /* Shapes (REQ-009, DEC-012). The rounded rectangle is the default look and has no class; the rectangle keeps the branch stripe. */
+    .rm-node-wrap.shape-rectangle .rm-node { border-radius: 0; }
+    .rm-node-wrap.shape-pill .rm-node, .rm-node-wrap.shape-ellipse .rm-node { border: 1.5px solid var(--branch, var(--b0)); }
+    .rm-node-wrap.shape-pill .rm-node { border-radius: 999px; padding: 7px 30px 7px 18px; }
+    .rm-node-wrap.shape-pill .rm-node.root { padding: 10px 32px 10px 22px; }
+    .rm-node-wrap.shape-ellipse .rm-node { border-radius: 50%; align-items: center; padding: 0 6px; text-align: center; }
+    .rm-node-wrap.shape-diamond .rm-node { align-items: center; padding: 0 6px; border: 0; background: transparent !important; box-shadow: none !important; text-align: center; }
+    .rm-node-wrap.shape-pill .rm-node[aria-pressed="true"], .rm-node-wrap.shape-ellipse .rm-node[aria-pressed="true"] { border-color: var(--accent-primary); }
+    .rm-shape { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35)); }
+    .rm-shape polygon { fill: var(--rm-bar); stroke: var(--branch, var(--b0)); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+    .rm-node.root .rm-shape polygon { fill: var(--rm-chip); }
+    .rm-node.has-color .rm-shape polygon { fill: var(--tint-dark); }
+    html[data-theme="light"] .rm-node.has-color .rm-shape polygon { fill: var(--tint); }
+    .rm-node[aria-pressed="true"] .rm-shape polygon { stroke: var(--accent-primary); stroke-width: 3; }
+    .rm-node-wrap.shape-pill .rm-tri { top: 50%; right: 8px; transform: translateY(-50%); }
+    .rm-node-wrap.shape-ellipse .rm-tri { top: 11%; right: 13%; }
+    .rm-node-wrap.shape-diamond .rm-tri { top: calc(25% - 9px); right: calc(25% - 10px); }
+    /* Resize handles of the selected node: knobs on the corners, invisible bars along the edges (so the fold toggle keeps the middle of the bottom edge). They keep their size on screen at any zoom. */
+    .rm-handle { position: absolute; z-index: 3; touch-action: none; }
+    .rm-handle[hidden] { display: none; }
+    .rm-handle[data-h="n"], .rm-handle[data-h="s"] { left: calc(10px * var(--rm-inv, 1)); right: calc(10px * var(--rm-inv, 1)); height: calc(8px * var(--rm-inv, 1)); cursor: ns-resize; }
+    .rm-handle[data-h="n"] { top: calc(-4px * var(--rm-inv, 1)); }
+    .rm-handle[data-h="s"] { bottom: calc(-4px * var(--rm-inv, 1)); }
+    .rm-handle[data-h="e"], .rm-handle[data-h="w"] { top: calc(10px * var(--rm-inv, 1)); bottom: calc(10px * var(--rm-inv, 1)); width: calc(8px * var(--rm-inv, 1)); cursor: ew-resize; }
+    .rm-handle[data-h="e"] { right: calc(-4px * var(--rm-inv, 1)); }
+    .rm-handle[data-h="w"] { left: calc(-4px * var(--rm-inv, 1)); }
+    .rm-handle[data-h="nw"], .rm-handle[data-h="ne"], .rm-handle[data-h="se"], .rm-handle[data-h="sw"] { box-sizing: border-box; width: calc(10px * var(--rm-inv, 1)); height: calc(10px * var(--rm-inv, 1)); border: 1.5px solid var(--accent-primary); border-radius: 2px; background: var(--rm-bar); }
+    .rm-handle[data-h="nw"] { top: calc(-5px * var(--rm-inv, 1)); left: calc(-5px * var(--rm-inv, 1)); cursor: nwse-resize; }
+    .rm-handle[data-h="ne"] { top: calc(-5px * var(--rm-inv, 1)); right: calc(-5px * var(--rm-inv, 1)); cursor: nesw-resize; }
+    .rm-handle[data-h="sw"] { bottom: calc(-5px * var(--rm-inv, 1)); left: calc(-5px * var(--rm-inv, 1)); cursor: nesw-resize; }
+    .rm-handle[data-h="se"] { bottom: calc(-5px * var(--rm-inv, 1)); right: calc(-5px * var(--rm-inv, 1)); cursor: nwse-resize; }
+    /* An ellipse and a diamond do not fill their box: a thin frame ties the handles to the selected shape. */
+    .rm-node-wrap.selected.shape-ellipse::before, .rm-node-wrap.selected.shape-diamond::before { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border: 1px dashed var(--accent-primary); opacity: .55; pointer-events: none; }
+    .rm-handle[data-h="n"]:hover::after, .rm-handle[data-h="s"]:hover::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--accent-primary); }
+    .rm-handle[data-h="e"]:hover::after, .rm-handle[data-h="w"]:hover::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; background: var(--accent-primary); }
     .rm-node.has-color { background: var(--tint-dark); }
     html[data-theme="light"] .rm-node.has-color { background: var(--tint); }
     .rm-node[aria-pressed="true"] { border-color: var(--accent-primary); border-left-color: var(--branch, var(--b0)); box-shadow: 0 0 0 1px var(--accent-primary); }
@@ -395,6 +461,18 @@
     .rm-icon-pick .rm-glyph { color: var(--rm-ink); }
     .rm-number-input { width: 64px; height: 26px; padding: 2px 6px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); font: inherit; color: var(--rm-ink); outline: none; }
     .rm-number-input:focus { border-color: var(--rm-focus); }
+    .rm-look-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; color: var(--rm-muted); font-size: .95em; }
+    .rm-look-row > span:first-child { flex: none; min-width: 3.4em; }
+    .rm-seg { display: inline-flex; border: 1px solid var(--rm-line); border-radius: 4px; overflow: hidden; background: var(--rm-field); }
+    .rm-seg button { display: inline-grid; place-items: center; min-width: 30px; height: 26px; padding: 0 8px; border: 0; border-left: 1px solid var(--rm-line); background: transparent; color: var(--rm-ink); font: inherit; cursor: pointer; }
+    .rm-seg button:first-child { border-left: 0; }
+    .rm-seg button:hover { background: var(--rm-hover); }
+    .rm-seg button[aria-pressed="true"] { background: var(--accent-primary); color: #fff; }
+    .rm-seg button svg { width: 16px; height: 16px; }
+    .rm-dim { display: inline-flex; align-items: center; gap: 4px; }
+    .rm-dim input { width: 62px; height: 26px; padding: 2px 6px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); font: inherit; color: var(--rm-ink); outline: none; }
+    .rm-dim input:focus { border-color: var(--rm-focus); }
+    .rm-dim input::placeholder { color: var(--rm-muted); }
     .rm-icongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 4px; }
     .rm-icongrid button { display: grid; place-items: center; height: 34px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--rm-ink); cursor: pointer; }
     .rm-icongrid button:hover { background: var(--rm-hover); }
@@ -539,6 +617,26 @@
         el.iconPick.appendChild(el.iconText);
         el.iconClear = h('button', { class: 'rm-x', type: 'button', 'data-act': 'icon-clear', title: 'Remove the icon', 'aria-label': 'Remove the icon' }, icon('close'));
         el.numberInput = h('input', { class: 'rm-number-input', type: 'number', min: '1', max: String(MAX_NUMBER), step: '1', inputmode: 'numeric', 'aria-label': 'Number badge', title: 'A number shown before the title (1 to ' + MAX_NUMBER + '); leave it empty for none', placeholder: '—' });
+        // Shape and size of the node (REQ-009): a shape picker, Auto/S/M/L and the exact width and height.
+        el.shapeBtns = {};
+        SHAPE_IDS.forEach(function (id) {
+            el.shapeBtns[id] = h('button', { type: 'button', 'data-shape': id, 'aria-pressed': 'false', onClick: function () {
+                if (rm.selected) queueUpdate(rm.selected, { shape: id === 'rounded' ? '' : id }, true);
+            } }, icon(id, SHAPE_PATHS));
+        });
+        el.shapeSeg = h('div', { class: 'rm-seg', role: 'group', 'aria-label': 'Node shape' }, SHAPE_IDS.map(function (id) { return el.shapeBtns[id]; }));
+        el.sizeBtns = {};
+        const sizeButton = function (id, label, title, patch) {
+            el.sizeBtns[id] = h('button', { type: 'button', 'data-size': id, 'aria-pressed': 'false', title: title, onClick: function () {
+                if (rm.selected) queueUpdate(rm.selected, patch, true);
+            } }, label);
+            return el.sizeBtns[id];
+        };
+        el.sizeSeg = h('div', { class: 'rm-seg', role: 'group', 'aria-label': 'Node size' },
+            sizeButton('auto', 'Auto', 'Fit the size to the title', { width: null, height: null }),
+            SIZE_PRESETS.map(function (p) { return sizeButton(p.id, p.label, 'Width ' + p.w + ', height ' + p.h, { width: p.w, height: p.h }); }));
+        el.widthInput = h('input', { type: 'number', step: '1', inputmode: 'numeric', 'data-dim': 'width', 'aria-label': 'Node width', placeholder: 'Auto' });
+        el.heightInput = h('input', { type: 'number', step: '1', inputmode: 'numeric', 'data-dim': 'height', 'aria-label': 'Node height', placeholder: 'Auto' });
         el.desc = h('textarea', { class: 'rm-desc', 'aria-label': 'Markdown description', placeholder: 'Add a Markdown description' });
         const fmt = function (label, text, before, after, placeholder) {
             return h('button', { class: 'rm-icon', type: 'button', title: label, 'aria-label': label, 'data-fmt': label.toLowerCase(), onClick: function () { insertMarkdown(before, after, placeholder); } }, text);
@@ -564,6 +662,11 @@
             h('div', { class: 'rm-badge-row' },
                 h('div', { class: 'rm-field' }, h('span', null, 'Icon'), el.iconPick, el.iconClear),
                 h('div', { class: 'rm-field' }, h('span', null, 'Number'), el.numberInput)),
+            h('div', { class: 'rm-look-row' }, h('span', null, 'Shape'), el.shapeSeg),
+            h('div', { class: 'rm-look-row' }, h('span', null, 'Size'), el.sizeSeg),
+            h('div', { class: 'rm-look-row' }, h('span', null),
+                h('label', { class: 'rm-dim', title: 'Width in pixels; empty is automatic. The title wraps inside it.' }, 'W', el.widthInput),
+                h('label', { class: 'rm-dim', title: 'Height in pixels; empty is automatic. The node never gets lower than its title.' }, 'H', el.heightInput)),
             h('h3', null, 'Description'), el.format, el.desc,
             el.evSection, el.connSection);
         el.panel.appendChild(el.empty);
@@ -588,8 +691,9 @@
             if (!value) { el.titleError.textContent = 'Enter a node name.'; return; }
             el.titleError.textContent = '';
             queueUpdate(id, { title: value });
+            // Only the title text: the badge and the icon of the node card stay.
             const entry = rm.els.get(id);
-            if (entry) entry.btn.textContent = value;
+            if (entry) entry.label.textContent = value;
         });
         el.titleInput.addEventListener('blur', function () {
             const id = rm.selected;
@@ -625,6 +729,21 @@
         };
         el.numberInput.addEventListener('change', sendNumber);
         el.numberInput.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); sendNumber(); el.numberInput.blur(); } });
+        // The width and the height are confirmed the same way; an empty field makes that value automatic.
+        const sendSize = function (key, input) {
+            if (!rm.selected) return;
+            const range = LIMITS[key], raw = input.value.trim();
+            const value = raw === '' ? null : Math.round(Number(raw));
+            if (value !== null && !(value >= range[0] && value <= range[1])) { toast('A ' + key + ' is between ' + range[0] + ' and ' + range[1] + '.'); fillPanel(true); return; }
+            const node = nodeById(rm.selected);
+            if (node && boxOf(node)[key] === value) return;
+            queueUpdate(rm.selected, key === 'width' ? { width: value } : { height: value }, true);
+        };
+        [el.widthInput, el.heightInput].forEach(function (input) {
+            const key = input.getAttribute('data-dim');
+            input.addEventListener('change', function () { sendSize(key, input); });
+            input.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); sendSize(key, input); input.blur(); } });
+        });
         el.desc.addEventListener('input', function () { if (rm.selected) queueUpdate(rm.selected, { description: el.desc.value }); });
         el.desc.addEventListener('blur', function () { if (rm.selected) flushUpdate(rm.selected); });
     }
@@ -652,10 +771,24 @@
         return rm.snap.byId.get(id) || null;
     }
     function text(value) { return typeof value === 'string' ? value : (value == null ? '' : String(value)); }
+    /** An integer inside [low, high], or null (automatic). */
+    function limited(value, range) {
+        return typeof value === 'number' && isFinite(value) && Math.floor(value) === value && value >= range[0] && value <= range[1] ? value : null;
+    }
+    /** Swift's limits for a given width and height replace the page's defaults. */
+    function adoptLimits(raw) {
+        const pair = function (value, fallback) {
+            return Array.isArray(value) && value.length === 2 && value.every(Number.isInteger) && value[0] > 0 && value[0] <= value[1] ? value.slice() : fallback;
+        };
+        const given = raw && typeof raw === 'object' ? raw : {};
+        LIMITS.width = pair(given.width, LIMITS.width);
+        LIMITS.height = pair(given.height, LIMITS.height);
+    }
     function normalise(raw) {
         const snap = { ok: true, problem: '' };
         if (!raw || typeof raw !== 'object') return { ok: false, problem: 'The map data is missing.' };
         if (raw.ok === false) return { ok: false, problem: text(raw.problem) || 'This file cannot be shown as a research map.' };
+        adoptLimits(raw.sizeLimits);
         const nodes = [];
         const seen = new Set();
         (Array.isArray(raw.nodes) ? raw.nodes : []).forEach(function (n) {
@@ -669,6 +802,9 @@
                 color: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color.toLowerCase() : '',
                 icon: text(n.icon),
                 number: typeof n.number === 'number' && isFinite(n.number) && n.number >= 1 && n.number <= MAX_NUMBER && Math.floor(n.number) === n.number ? n.number : null,
+                shape: SHAPE_IDS.indexOf(text(n.shape)) > 0 ? n.shape : '',
+                width: limited(n.width, LIMITS.width),
+                height: limited(n.height, LIMITS.height),
                 description: text(n.description),
                 layout: text(n.layout),
                 x: typeof n.x === 'number' && isFinite(n.x) ? n.x : null,
@@ -689,6 +825,8 @@
         snap.byId = new Map(nodes.map(function (n) { return [n.id, n]; }));
         snap.links = (Array.isArray(raw.links) ? raw.links : []).filter(function (l) { return l && snap.byId.has(l.from) && snap.byId.has(l.to) && l.from !== l.to; }).map(function (l) { return { from: l.from, to: l.to }; });
         snap.layouts = (Array.isArray(raw.layouts) ? raw.layouts : []).filter(function (l) { return l && typeof l.id === 'string'; }).map(function (l) { return { id: l.id, name: text(l.name) || l.id }; });
+        snap.shapeNames = {};
+        (Array.isArray(raw.shapes) ? raw.shapes : []).forEach(function (s) { if (s && SHAPE_IDS.indexOf(s.id) >= 0) snap.shapeNames[s.id] = text(s.name) || SHAPE_NAMES[s.id]; });
         snap.created = text(raw.created);
         snap.notice = text(raw.notice);
         snap.markdown = typeof raw.markdown === 'string' ? raw.markdown : null;
@@ -732,6 +870,8 @@
         Object.keys(rm.moves).forEach(function (id) {
             if (!snap.byId.has(id) || rm.moves[id].sent) delete rm.moves[id];
         });
+        // The same for a size the page has sent (the resize that is still being dragged stays).
+        rm.boxes = {};
         if (rm.selected === null || (rm.selected !== '' && !snap.byId.has(rm.selected))) {
             rm.selected = snap.byId.has(rm.fallbackSelect) ? rm.fallbackSelect : snap.nodes[0].id;
         }
@@ -951,13 +1091,141 @@
             entry.wrap.remove();
             rm.els.delete(id);
         });
-        // Measure after the labels are in: the layout needs the real sizes.
+        // Shapes and given sizes, then measure: the layout needs the real sizes, and the labels are in by now.
         rm.sizes = {};
         rm.els.forEach(function (entry, id) {
             if (hidden.has(id)) return;
+            const node = nodeById(id);
+            if (node) applyBox(entry, node, boxOf(node));
             const w = entry.btn.offsetWidth, hgt = entry.btn.offsetHeight;
             if (w > 0 && hgt > 0) rm.sizes[id] = { w: w, h: hgt };
         });
+    }
+
+    // ---- shape and size of a node (REQ-009, DEC-012) ------------------------------------------------------------------------------
+    /** The width and height that count now: the resize being dragged, else a size sent and not yet confirmed, else the stored one (null is automatic). */
+    function boxOf(node) {
+        const live = rm.resize && rm.resize.id === node.id ? rm.resize : rm.boxes[node.id];
+        return live ? { width: live.width, height: live.height } : { width: node.width, height: node.height };
+    }
+
+    /**
+     * Gives a node card its shape and size. A width is exact (the title wraps inside it); a height is a floor (the card
+     * is never lower than its title). Ellipse and diamond keep the title in the rectangle inscribed in the shape, so their
+     * size is worked out here from the measured title. Sets entry.autoH, the height the card would have with no height given.
+     */
+    function applyBox(entry, node, box) {
+        const wrap = entry.wrap, btn = entry.btn, body = entry.body;
+        const shape = node.shape, fit = SHAPE_FIT[shape];
+        SHAPE_IDS.forEach(function (id) { wrap.classList.toggle('shape-' + id, id !== 'rounded' && id === shape); });
+        if (shape === 'diamond' && !entry.shapeSvg) {
+            const svg = document.createElementNS(NS, 'svg');
+            svg.setAttribute('class', 'rm-shape');
+            svg.setAttribute('viewBox', '0 0 100 100');
+            svg.setAttribute('preserveAspectRatio', 'none');
+            svg.setAttribute('aria-hidden', 'true');
+            const polygon = document.createElementNS(NS, 'polygon');
+            polygon.setAttribute('points', '50,1 99,50 50,99 1,50');
+            svg.appendChild(polygon);
+            btn.insertBefore(svg, btn.firstChild);
+            entry.shapeSvg = svg;
+        } else if (shape !== 'diamond' && entry.shapeSvg) {
+            entry.shapeSvg.remove();
+            entry.shapeSvg = null;
+        }
+        const width = box.width, height = box.height;
+        wrap.style.width = '';
+        btn.style.minHeight = '';
+        body.style.maxWidth = '';
+        wrap.classList.toggle('has-w', width != null || !!fit);
+        btn.classList.toggle('boxed', height != null || !!fit);
+        entry.autoH = 0;
+        if (!fit) {
+            if (width != null) wrap.style.width = width + 'px';
+            if (height != null) {
+                entry.autoH = btn.offsetHeight;
+                btn.style.minHeight = height + 'px';
+            }
+            return;
+        }
+        // Ellipse and diamond: measure the title where it wraps (at its own maximum, or inside the given width), then size the shape around it.
+        const textMax = width != null ? Math.max(24, Math.round(width * fit.k) - 2 * fit.padX) : fit.maxText;
+        wrap.style.width = 'max-content';
+        body.style.maxWidth = textMax + 'px';
+        const tw = body.offsetWidth, th = body.offsetHeight;
+        if (!tw || !th) { wrap.style.width = ''; return; } // not on screen: nothing to measure; the layout estimates
+        const autoW = Math.max(fit.minW, Math.ceil(tw / fit.k) + 2 * fit.padX);
+        entry.autoH = Math.max(fit.minH, Math.ceil(th / fit.k) + 2 * fit.padY);
+        wrap.style.width = (width != null ? width : autoW) + 'px';
+        btn.style.minHeight = Math.max(entry.autoH, height || 0) + 'px';
+    }
+
+    /** Applies a size that is changing (a drag, a double click) to one node, then lays the map out again. */
+    function remeasure(id) {
+        const entry = rm.els.get(id), node = nodeById(id);
+        if (!entry || !node) return;
+        applyBox(entry, node, boxOf(node));
+        const w = entry.btn.offsetWidth, hgt = entry.btn.offsetHeight;
+        if (w > 0 && hgt > 0) rm.sizes[id] = { w: w, h: hgt };
+        relayout();
+    }
+
+    /** Dragging a handle resizes the node around its centre (the layout decides where the centre is). One update is sent on release. */
+    function startResize(event, id, dir) {
+        const entry = rm.els.get(id), node = nodeById(id);
+        if (!entry || !node) return;
+        event.preventDefault();
+        const rect = entry.btn.getBoundingClientRect(), scale = rm.view.scale;
+        const start = { x: event.clientX, y: event.clientY, w: rect.width / scale, h: rect.height / scale };
+        const before = boxOf(node);
+        const horizontal = dir.indexOf('e') >= 0 || dir.indexOf('w') >= 0, vertical = dir.indexOf('n') >= 0 || dir.indexOf('s') >= 0;
+        const sx = dir.indexOf('w') >= 0 ? -1 : 1, sy = dir.indexOf('n') >= 0 ? -1 : 1;
+        let active = false, cancelled = false;
+        try { event.target.setPointerCapture(event.pointerId); } catch (e) { /* a synthetic pointer has no capture */ }
+        const onKey = function (e) {
+            if (e.key !== 'Escape' || !active) return;
+            cancelled = true;
+            e.preventDefault();
+            finish(null);
+        };
+        const stop = listen(function (e) {
+            const dx = e.clientX - start.x, dy = e.clientY - start.y;
+            if (!active) {
+                if (Math.hypot(dx, dy) <= 3) return;
+                active = true;
+                closeMenu();
+            }
+            rm.resize = {
+                id: id,
+                width: horizontal ? clamp(Math.round(start.w + 2 * sx * dx / scale), LIMITS.width[0], LIMITS.width[1]) : before.width,
+                height: vertical ? clamp(Math.round(start.h + 2 * sy * dy / scale), LIMITS.height[0], LIMITS.height[1]) : before.height
+            };
+            remeasure(id);
+            const size = rm.sizes[id];
+            el.readout.hidden = false;
+            el.readout.textContent = size ? 'w ' + Math.round(size.w) + ' · h ' + Math.round(size.h) : '';
+        }, function (e) { finish(e); });
+        window.addEventListener('keydown', onKey, true);
+        function finish(e) {
+            stop();
+            window.removeEventListener('keydown', onKey, true);
+            el.readout.hidden = true;
+            if (!active) return;
+            rm.lastDragEnd = now();
+            const live = rm.resize;
+            rm.resize = null;
+            if (cancelled || !live || (e && e.type === 'pointercancel')) { remeasure(id); return; }
+            const fields = {};
+            if (horizontal) fields.width = live.width;
+            // A height at or below the height of the title is no height at all.
+            if (vertical) fields.height = entry.autoH && live.height <= entry.autoH ? null : live.height;
+            rm.boxes[id] = {
+                width: horizontal ? fields.width : before.width,
+                height: vertical ? fields.height : before.height
+            };
+            remeasure(id);
+            send('update', Object.assign({ id: id }, fields));
+        }
     }
 
     function makeNode(id) {
@@ -965,11 +1233,27 @@
         const glyph = h('span', { class: 'rm-glyph', hidden: true, 'aria-hidden': 'true' });
         const lead = h('span', { class: 'rm-lead', hidden: true }, badge, glyph);
         const label = h('span', { class: 'rm-label' });
-        const btn = h('button', { class: 'rm-node', type: 'button', 'aria-pressed': 'false' }, lead, label);
+        const body = h('span', { class: 'rm-body' }, lead, label);
+        const btn = h('button', { class: 'rm-node', type: 'button', 'aria-pressed': 'false' }, body);
         const tri = h('button', { class: 'rm-tri', type: 'button', title: 'Node menu: AI actions, add, connect, arrange, delete', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, '⋯');
         const fold = h('button', { class: 'rm-fold', type: 'button', hidden: true, 'aria-expanded': 'true' });
-        const wrap = h('div', { class: 'rm-node-wrap', 'data-id': id }, btn, tri, fold);
-        const entry = { wrap: wrap, btn: btn, tri: tri, fold: fold, lead: lead, badge: badge, glyph: glyph, label: label };
+        // Eight resize handles, shown on the selected node only (REQ-009). A double click on any of them makes the size automatic.
+        const handles = HANDLES.map(function (dir) {
+            const handle = h('span', { class: 'rm-handle', 'data-h': dir, 'aria-hidden': 'true', hidden: true });
+            handle.addEventListener('dblclick', function (event) {
+                event.stopPropagation();
+                const node = nodeById(id);
+                if (!node) return;
+                const current = boxOf(node);
+                if (current.width == null && current.height == null) return;
+                rm.boxes[id] = { width: null, height: null };
+                remeasure(id);
+                send('update', { id: id, width: null, height: null });
+            });
+            return handle;
+        });
+        const wrap = h('div', { class: 'rm-node-wrap', 'data-id': id }, btn, tri, fold, handles);
+        const entry = { wrap: wrap, btn: btn, body: body, tri: tri, fold: fold, lead: lead, badge: badge, glyph: glyph, label: label, handles: handles, shapeSvg: null, autoH: 0 };
         fold.addEventListener('click', function (event) {
             event.stopPropagation();
             toggleFold(id);
@@ -1110,6 +1394,8 @@
     function viewSize() { return { w: el.viewport.clientWidth || 800, h: el.viewport.clientHeight || 600 }; }
     function applyView() {
         el.world.style.transform = 'translate(' + rm.view.x + 'px,' + rm.view.y + 'px) scale(' + rm.view.scale + ')';
+        // The resize handles keep their size on the screen at any zoom.
+        el.world.style.setProperty('--rm-inv', String(Math.round(100 / rm.view.scale) / 100));
         el.zoom.textContent = Math.round(rm.view.scale * 100) + '%';
     }
     function initialView() {
@@ -1154,6 +1440,8 @@
 
     el.viewport.addEventListener('pointerdown', function (event) {
         if (event.button !== 0) return;
+        const handle = event.target.closest('.rm-handle');
+        if (handle) { startResize(event, handle.parentNode.getAttribute('data-id'), handle.getAttribute('data-h')); return; }
         if (event.target.closest('.rm-tri, .rm-fold, .rm-actions')) return;
         const nodeEl = event.target.closest('.rm-node');
         if (nodeEl) startNodeDrag(event, nodeEl.parentNode.getAttribute('data-id'));
@@ -1283,7 +1571,12 @@
         saveSoon();
     }
     function syncSelection() {
-        rm.els.forEach(function (entry, id) { entry.btn.setAttribute('aria-pressed', id === rm.selected ? 'true' : 'false'); });
+        rm.els.forEach(function (entry, id) {
+            const chosen = id === rm.selected;
+            entry.btn.setAttribute('aria-pressed', chosen ? 'true' : 'false');
+            entry.wrap.classList.toggle('selected', chosen);
+            entry.handles.forEach(function (handle) { handle.hidden = !chosen; });
+        });
     }
 
     function setField(field, value, id, key) {
@@ -1316,6 +1609,23 @@
         el.iconText.textContent = node.icon ? (NODE_ICONS[node.icon] ? node.icon.charAt(0).toUpperCase() + node.icon.slice(1) : 'Emoji') : 'None';
         el.iconClear.hidden = !node.icon;
         if (forceNumber === true || document.activeElement !== el.numberInput) el.numberInput.value = node.number == null ? '' : String(node.number);
+        // Shape and size: the buttons say what is set; the fields show the stored values (empty is automatic).
+        const look = boxOf(node), shown = node.shape || 'rounded';
+        SHAPE_IDS.forEach(function (id) {
+            const name = (rm.snap.shapeNames && rm.snap.shapeNames[id]) || SHAPE_NAMES[id];
+            const button = el.shapeBtns[id];
+            button.setAttribute('aria-pressed', id === shown ? 'true' : 'false');
+            button.title = name;
+            button.setAttribute('aria-label', name + ' shape');
+        });
+        el.sizeBtns.auto.setAttribute('aria-pressed', look.width == null && look.height == null ? 'true' : 'false');
+        SIZE_PRESETS.forEach(function (p) { el.sizeBtns[p.id].setAttribute('aria-pressed', look.width === p.w && look.height === p.h ? 'true' : 'false'); });
+        [['width', el.widthInput], ['height', el.heightInput]].forEach(function (pair) {
+            const key = pair[0], input = pair[1];
+            input.min = String(LIMITS[key][0]);
+            input.max = String(LIMITS[key][1]);
+            if (forceNumber === true || document.activeElement !== input) input.value = look[key] == null ? '' : String(look[key]);
+        });
         // Tags: chips before the input, which keeps its focus and caret.
         Array.prototype.slice.call(el.tags.querySelectorAll('.rm-tag')).forEach(function (chip) { chip.remove(); });
         node.tags.forEach(function (tag) {
@@ -1632,6 +1942,8 @@
         rm.positions = {};
         rm.moves = {};
         rm.drag = null;
+        rm.resize = null;
+        rm.boxes = {};
         rm.collapsed = new Set();
         rm.viewReady = false;
         el.status.hidden = true;
@@ -1758,6 +2070,8 @@
     window.MVResearchMap = {
         reportHTML: reportHTML,
         iconIDs: function () { return NODE_ICON_IDS.slice(); },
+        shapeIDs: function () { return SHAPE_IDS.slice(); },
+        sizeLimits: function () { return { width: LIMITS.width.slice(), height: LIMITS.height.slice() }; },
         notice: function (message) { toast(String(message)); },
         collapsed: function () { return Array.from(rm.collapsed); },
         isResearchMapText: isResearchMapText,

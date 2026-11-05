@@ -168,6 +168,7 @@ let sNode = try! sm.addChild(parent: "n1", title: "Caching")
 let sKid = try! sm.addChild(parent: sNode, title: "Disk cache")
 try! sm.update(id: sNode, tags: ["perf"], color: "#aa0000", description: "Old text.")
 try! sm.moveVisual(id: sNode, x: 5, y: 6)
+try! sm.update(id: sNode, shape: "diamond", width: .some(240), height: .some(120))
 sm.nodes[sm.index(of: sNode)!].evidence = [M.Evidence(label: .projectFact, text: "Old finding", source: "src/tree.swift:1")]
 
 check("single-node modes have no node budget", Run.limits(for: .describe(node: sNode)) == Run.Limits(nodes: 0, depth: 0, children: 0))
@@ -178,6 +179,7 @@ let (described, dRun) = single(.describe(node: sNode),
 check("describe replaces the description", described.node(sNode)!.description == "New, longer text.")
 check("describe adds new findings and keeps the old ones without repeating them", described.node(sNode)!.evidence.map(\.text) == ["Old finding", "New finding"])
 check("describe keeps title, tags, colour, position and children", { let n = described.node(sNode)!; return n.title == "Caching" && n.tags == ["perf"] && n.color == "#aa0000" && n.x == 5 && n.y == 6 && described.node(sKid)?.parent == sNode }())
+check("describe keeps shape and size (REQ-009)", { let n = described.node(sNode)!; return n.shape == "diamond" && n.width == 240 && n.height == 120 }())
 check("describe adds no node", described.nodes.count == sm.nodes.count && dRun.added == 0 && dRun.updated == 1)
 check("describe ignores a title the agent also wrote", single(.describe(node: sNode), #"UPDATE {"title":"Other","description":"x"}"#, on: sm).0.node(sNode)!.title == "Caching")
 check("describe without a description changes nothing", single(.describe(node: sNode), #"UPDATE {"evidence":[{"label":"Project fact","text":"Only evidence","source":""}]}"#, on: sm).0 == sm)
@@ -187,6 +189,7 @@ let (corrected, cRun) = single(.correct(node: sNode),
 check("correct rewrites title and description", corrected.node(sNode)!.title == "Caching layers" && corrected.node(sNode)!.description == "Fixed.")
 check("correct replaces the findings with the list it was given", corrected.node(sNode)!.evidence.map(\.text) == ["Replaces the old list"])
 check("correct keeps tags, colour, position and children", { let n = corrected.node(sNode)!; return n.tags == ["perf"] && n.color == "#aa0000" && n.x == 5 && corrected.node(sKid) != nil }())
+check("correct keeps shape and size (REQ-009)", { let n = corrected.node(sNode)!; return n.shape == "diamond" && n.width == 240 && n.height == 120 }())
 check("correct counts one update", cRun.updated == 1)
 check("correct keeps the findings when the list is empty or missing", single(.correct(node: sNode), #"UPDATE {"description":"Fixed.","evidence":[]}"#, on: sm).0.node(sNode)!.evidence.count == 1
       && single(.correct(node: sNode), #"UPDATE {"description":"Fixed."}"#, on: sm).0.node(sNode)!.evidence.count == 1)

@@ -1,5 +1,22 @@
 # Lessons
 
+## A node card is built from parts: never replace its children, and test every edit path with all parts present (BUG-095, 5.32.0)
+
+Found while adding shape and size to the research map card: typing in the panel's title field set `btn.textContent`, which wiped
+the badge, the icon and the label that 5.31.0 had put inside the card; they never came back until the map was reloaded.
+- Update the one element that holds the changed value (`entry.label.textContent`), never the container that owns other parts.
+  Grep for `textContent =` and `innerHTML =` on any element that gained children when a feature added parts to it.
+- When a feature adds parts to an existing element, the old edit paths (typing, undo, snapshot echo) must be exercised in a test
+  with every new part present. The 5.31.0 icon and number tests only delivered snapshots; none typed a title.
+- To prove a regression test catches the bug, run the compiled test against the page that ships in the installed app
+  (`research-map-web-tests` takes the editor folder as its argument; `/Applications/MarkView.app/Contents/Resources/Editor`).
+- In the hidden-WebKit tests a field the test typed in keeps focus, and the page rightly refuses to overwrite a focused field
+  with a snapshot: blur it before checking what a snapshot shows. A `deliver()` replaces the whole snapshot, so every node the
+  next step needs must be in it (a helper that builds the look of all the nodes in play avoids half-reset state).
+- Shapes that do not fill their box (ellipse, diamond) need three things the rectangle did not: the title measured and the shape
+  sized around it (inscribed rectangle: x0.71 for an ellipse, x0.5 for a diamond), controls placed on the outline instead of the
+  box corner, and a thin frame so the resize handles on the box corners visibly belong to the shape.
+
 ## A new view uses the app's own design tokens and is looked at in the real app before release (research map, 5.29.0)
 
 Boris's first look at the map (2026-11-04) found five problems: the UI does not follow the application's design, no collapse/expand,

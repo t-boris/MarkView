@@ -312,5 +312,50 @@ check("the snapshot lists the built-in icon ids", (badgeSnap["icons"] as? [Strin
 check("a draft with a number sets it; an invalid one is dropped", { var m = badges; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "A", number: 4)); let b = try! m.addNode(parent: "n1", draft: M.Draft(title: "B", number: 0)); return m.node(a)!.number == 4 && m.node(b)!.number == nil }())
 check("deleting a node takes its icon and number with it", { var m = badges; _ = try! m.delete(id: stepA); return m.node(stepA) == nil && m.nodes.count == badges.nodes.count - 1 }())
 
+// MARK: Shape and size (REQ-009, DEC-012)
+
+var boxes = M.new(id: "s", question: "Q", created: "d", targets: [], attachments: [])
+let boxA = try! boxes.addChild(parent: "n1", title: "Decide")
+let boxB = try! boxes.addChild(parent: "n1", title: "Build")
+check("a new node has the default shape and an automatic size", boxes.node(boxA)!.shape.isEmpty && boxes.node(boxA)!.width == nil && boxes.node(boxA)!.height == nil)
+check("the shape list starts with the default and has five shapes with distinct ids", M.shapes.first?.id == M.defaultShape && M.shapes.count == 5 && Set(M.shapes.map { $0.id }).count == 5)
+try! boxes.update(id: boxA, shape: "diamond", width: .some(240), height: .some(120))
+check("a shape, a width and a height are set", boxes.node(boxA)!.shape == "diamond" && boxes.node(boxA)!.width == 240 && boxes.node(boxA)!.height == 120)
+for id in M.shapes.map({ $0.id }) where id != M.defaultShape {
+    check("\(id) is stored as it is", { var m = boxes; try! m.update(id: boxB, shape: id); return m.node(boxB)!.shape == id }())
+}
+check("the default shape is stored as empty", { var m = boxes; try! m.update(id: boxA, shape: "rounded"); return m.node(boxA)!.shape.isEmpty }())
+check("an empty shape restores the default", { var m = boxes; try! m.update(id: boxA, shape: ""); return m.node(boxA)!.shape.isEmpty }())
+check("a shape is trimmed and case-insensitive", { var m = boxes; try! m.update(id: boxB, shape: "  Ellipse \n"); return m.node(boxB)!.shape == "ellipse" }())
+check("an unknown shape is refused with a message", rejected { try boxes.update(id: boxA, shape: "star") } != nil && boxes.node(boxA)!.shape == "diamond")
+check("a width outside \(M.widthRange) is refused", rejected { try boxes.update(id: boxA, width: .some(59)) } != nil && rejected { try boxes.update(id: boxA, width: .some(801)) } != nil && rejected { try boxes.update(id: boxA, width: .some(0)) } != nil && boxes.node(boxA)!.width == 240)
+check("a height outside \(M.heightRange) is refused", rejected { try boxes.update(id: boxA, height: .some(27)) } != nil && rejected { try boxes.update(id: boxA, height: .some(601)) } != nil && boxes.node(boxA)!.height == 120)
+check("the limits themselves are accepted", { var m = boxes; try! m.update(id: boxB, width: .some(60), height: .some(28)); try! m.update(id: boxB, width: .some(800), height: .some(600)); return m.node(boxB)!.width == 800 && m.node(boxB)!.height == 600 }())
+check("a refused value changes none of shape, width and height", { var m = boxes; _ = rejected { try m.update(id: boxA, shape: "ellipse", width: .some(300), height: .some(5)) }; return m.node(boxA) == boxes.node(boxA) }())
+try! boxes.update(id: boxA, width: .some(nil))
+check("a nil width clears only the width", boxes.node(boxA)!.width == nil && boxes.node(boxA)!.height == 120 && boxes.node(boxA)!.shape == "diamond")
+try! boxes.update(id: boxA, title: "Decide now")
+check("leaving shape and size out changes neither", boxes.node(boxA)!.shape == "diamond" && boxes.node(boxA)!.height == 120)
+try! boxes.update(id: boxA, width: .some(240))
+try! boxes.update(id: boxB, shape: "pill", height: .some(90))
+
+let boxText = boxes.markdown()
+check("the file stores the shape, the width and the height as properties", boxText.contains("- shape: diamond") && boxText.contains("- width: 240") && boxText.contains("- height: 120") && boxText.contains("- shape: pill") && boxText.contains("- height: 90"))
+let boxBack = parsed(boxText)
+check("shape and size survive a rewrite", boxBack?.node(boxA)?.shape == "diamond" && boxBack?.node(boxA)?.width == 240 && boxBack?.node(boxA)?.height == 120 && boxBack?.node(boxB)?.shape == "pill" && boxBack?.node(boxB)?.width == nil && boxBack == boxes)
+check("a node with the default look writes none of the lines", !boxText.components(separatedBy: "\n").contains("- shape: rounded") && { var m = boxes; for i in m.nodes.indices { m.nodes[i].shape = ""; m.nodes[i].width = nil; m.nodes[i].height = nil }; let t = m.markdown(); return !t.contains("- shape:") && !t.contains("- width:") && !t.contains("- height:") && parsed(t) == m }())
+let boxHostile = boxText.replacingOccurrences(of: "- shape: diamond", with: "- shape: <script>").replacingOccurrences(of: "- width: 240", with: "- width: 99999").replacingOccurrences(of: "- height: 90", with: "- height: ten")
+let boxClean = parsed(boxHostile)
+check("a bad shape, width or height in a hand-edited file is dropped on read, the rest is kept", boxClean?.node(boxA)?.shape == "" && boxClean?.node(boxA)?.width == nil && boxClean?.node(boxA)?.height == 120 && boxClean?.node(boxB)?.height == nil && boxClean?.node(boxB)?.shape == "pill")
+check("the default shape written by hand reads as the default", parsed(boxText.replacingOccurrences(of: "- shape: pill", with: "- shape: rounded"))?.node(boxB)?.shape == "")
+let boxSnap = boxes.snapshot()
+let boxNodes = boxSnap["nodes"] as? [[String: Any]] ?? []
+let boxNodeA = boxNodes.first { ($0["id"] as? String) == boxA }
+check("the snapshot carries shape, width and height (null when automatic)", boxNodeA?["shape"] as? String == "diamond" && boxNodeA?["width"] as? Int == 240 && boxNodeA?["height"] as? Int == 120 && boxNodes.first { ($0["id"] as? String) == "n1" }?["width"] is NSNull && boxNodes.first { ($0["id"] as? String) == boxB }?["width"] is NSNull)
+check("the snapshot lists the shapes and the size limits", (boxSnap["shapes"] as? [[String: String]])?.map { $0["id"] ?? "" } == M.shapes.map { $0.id } && ((boxSnap["sizeLimits"] as? [String: Any])?["width"] as? [Int]) == [60, 800] && ((boxSnap["sizeLimits"] as? [String: Any])?["height"] as? [Int]) == [28, 600])
+check("a node the AI adds has the default look", { var m = boxes; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "AI")); return m.node(a)!.shape.isEmpty && m.node(a)!.width == nil && m.node(a)!.height == nil }())
+check("an update that names no shape or size leaves a node's look alone", { var m = boxes; try! m.update(id: boxA, title: "Renamed", tags: ["x"], description: "d"); return m.node(boxA)!.shape == "diamond" && m.node(boxA)!.width == 240 && m.node(boxA)!.height == 120 }())
+check("deleting a node takes its shape and size with it", { var m = boxes; _ = try! m.delete(id: boxA); return m.node(boxA) == nil }())
+
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
 print("all ok")

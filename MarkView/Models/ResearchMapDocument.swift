@@ -38,6 +38,11 @@ struct ResearchMap: Equatable {
         var icon = ""
         /// The badge shown before the title, 1 to `numberLimit`: step order, phase number (REQ-008).
         var number: Int?
+        /// A shape id from `ResearchMap.shapes`, or empty for the default rounded rectangle (REQ-009, DEC-012).
+        var shape = ""
+        /// Minimum width and height in map pixels (`widthRange`, `heightRange`); nil means automatic (REQ-009, DEC-012).
+        var width: Int?
+        var height: Int?
         /// Markdown source of the description.
         var description = ""
         /// The node's own layout preset id, or empty (inherits).
@@ -114,6 +119,17 @@ struct ResearchMap: Equatable {
         "mail", "chat", "money", "chart", "trend", "bolt", "pin", "tag", "bell", "eye", "package",
     ]
 
+    /// Node shapes in picker order (DEC-012). `defaultShape` is the look before shapes existed and is never written to
+    /// the file. The page draws each shape by its id and renders its picker from this list; a check in
+    /// `research-map-web-tests.sh` keeps the page's drawings and this list equal.
+    static let defaultShape = "rounded"
+    static let shapes: [(id: String, name: String)] = [
+        ("rounded", "Rounded"), ("rectangle", "Rectangle"), ("pill", "Pill"), ("ellipse", "Ellipse"), ("diamond", "Diamond"),
+    ]
+    /// A node is at least as large as its text; these are the limits of the minimum that can be set (DEC-012).
+    static let widthRange = 60...800
+    static let heightRange = 28...600
+
     /// Layout presets in menu order (DEC-007). The page renders its menu from this list.
     static let layouts: [(id: String, name: String)] = [
         ("balanced", "Balanced"), ("right", "Right"), ("left", "Left"), ("down", "Top-down"),
@@ -136,6 +152,14 @@ struct ResearchMap: Equatable {
     }
 
     static func isNumber(_ value: Int) -> Bool { (1...numberLimit).contains(value) }
+
+    static func isShape(_ id: String) -> Bool { shapes.contains { $0.id == id } }
+
+    /// The shape as it is stored: a known shape other than the default, or empty (the default).
+    static func clean(shape: String) -> String {
+        let id = shape.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return id != defaultShape && isShape(id) ? id : ""
+    }
 
     // MARK: Detection
 
@@ -232,8 +256,11 @@ struct ResearchMap: Equatable {
 
     /// Changes the given properties of a node. Renaming the root renames the map.
     /// `icon`: "" clears it. `number`: `.some(nil)` clears it, `.some(n)` sets it (1 to `numberLimit`).
+    /// `shape`: "" or the default shape's id restores the default look. `width`/`height`: `.some(nil)` makes it
+    /// automatic, `.some(n)` sets the minimum (`widthRange`, `heightRange`).
     mutating func update(id: String, title: String? = nil, tags: [String]? = nil, color: String? = nil,
-                         description: String? = nil, icon: String? = nil, number: Int?? = nil) throws {
+                         description: String? = nil, icon: String? = nil, number: Int?? = nil,
+                         shape: String? = nil, width: Int?? = nil, height: Int?? = nil) throws {
         guard let i = index(of: id) else { throw Rejection(message: "That node no longer exists.") }
         if let title {
             let cleaned = Self.clean(title: title)
@@ -262,6 +289,22 @@ struct ResearchMap: Equatable {
                 nodes[i].number = nil
             }
         }
+        // Validate the shape-and-size group before applying any of it, so a refused value changes none of the three.
+        let text = shape?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let text { guard text.isEmpty || Self.isShape(text) else { throw Rejection(message: "Choose one of the shapes in the list.") } }
+        if let width, let value = width {
+            guard Self.widthRange.contains(value) else {
+                throw Rejection(message: "A width is between \(Self.widthRange.lowerBound) and \(Self.widthRange.upperBound).")
+            }
+        }
+        if let height, let value = height {
+            guard Self.heightRange.contains(value) else {
+                throw Rejection(message: "A height is between \(Self.heightRange.lowerBound) and \(Self.heightRange.upperBound).")
+            }
+        }
+        if let text { nodes[i].shape = Self.clean(shape: text) }
+        if let width { nodes[i].width = width }
+        if let height { nodes[i].height = height }
     }
 
     /// Numbers the children of a node 1, 2, 3 … in map order (REQ-008), or removes their numbers when `clear` is set.
@@ -635,6 +678,9 @@ extension ResearchMap {
             case "color": node.color = isColor(value) ? value.lowercased() : ""
             case "icon": node.icon = clean(icon: value)
             case "number": node.number = Int(value).flatMap { isNumber($0) ? $0 : nil }
+            case "shape": node.shape = clean(shape: value)
+            case "width": node.width = Int(value).flatMap { widthRange.contains($0) ? $0 : nil }
+            case "height": node.height = Int(value).flatMap { heightRange.contains($0) ? $0 : nil }
             case "layout": node.layout = isLayout(value) ? value : ""
             case "position":
                 let parts = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -674,7 +720,7 @@ extension ResearchMap {
         let rest = line.dropFirst(2)
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let key = rest[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-        guard ["tags", "color", "icon", "number", "layout", "position"].contains(key) else { return nil }
+        guard ["tags", "color", "icon", "number", "shape", "width", "height", "layout", "position"].contains(key) else { return nil }
         return (key, rest[rest.index(after: colon)...].trimmingCharacters(in: .whitespaces))
     }
 
@@ -793,6 +839,9 @@ extension ResearchMap {
             if !node.color.isEmpty { props.append("- color: " + node.color) }
             if !node.icon.isEmpty { props.append("- icon: " + node.icon) }
             if let number = node.number { props.append("- number: \(number)") }
+            if !node.shape.isEmpty { props.append("- shape: " + node.shape) }
+            if let width = node.width { props.append("- width: \(width)") }
+            if let height = node.height { props.append("- height: \(height)") }
             if !node.layout.isEmpty { props.append("- layout: " + node.layout) }
             if let x = node.x, let y = node.y { props.append("- position: \(x), \(y)") }
             if !props.isEmpty {
@@ -874,6 +923,8 @@ extension ResearchMap {
                 [
                     "id": node.id, "parent": node.parent, "title": node.title, "tags": node.tags, "color": node.color,
                     "icon": node.icon, "number": node.number.map { $0 as Any } ?? NSNull(),
+                    "shape": node.shape, "width": node.width.map { $0 as Any } ?? NSNull(),
+                    "height": node.height.map { $0 as Any } ?? NSNull(),
                     "description": node.description, "layout": node.layout,
                     "x": node.x.map { $0 as Any } ?? NSNull(), "y": node.y.map { $0 as Any } ?? NSNull(),
                     "evidence": node.evidence.map { ["label": $0.label.rawValue, "text": $0.text, "source": $0.source] },
@@ -882,6 +933,9 @@ extension ResearchMap {
             "links": links.map { ["from": $0.from, "to": $0.to] },
             "layouts": Self.layouts.map { ["id": $0.id, "name": $0.name] },
             "icons": Self.iconIDs,
+            "shapes": Self.shapes.map { ["id": $0.id, "name": $0.name] },
+            "sizeLimits": ["width": [Self.widthRange.lowerBound, Self.widthRange.upperBound],
+                           "height": [Self.heightRange.lowerBound, Self.heightRange.upperBound]],
             "created": createdID,
             "notice": notice,
         ]

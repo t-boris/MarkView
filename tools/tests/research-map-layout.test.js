@@ -336,6 +336,30 @@ L.PRESETS.forEach(function (preset) {
     check('a second node without a parent hangs from the root', run(two, sizers.estimate).positions.x.x !== run(two, sizers.estimate).positions.r.x);
     const sizes = [L.estimateSize({ title: '' }, false), L.estimateSize({ title: 'x'.repeat(300) }, false), L.estimateSize({ title: 'Root title' }, true)];
     check('estimateSize stays within the node\'s min and max width', sizes[0].w === 110 && sizes[1].w === 220 && sizes[2].w >= 170 && sizes[1].h > sizes[0].h);
+    // Shape and size (REQ-009): the estimate follows a given width and height and the shape's text area.
+    const plain = L.estimateSize({ title: 'A short title' }, false);
+    const wide = L.estimateSize({ title: 'A short title', width: 400 }, false);
+    const narrow = L.estimateSize({ title: 'A fairly long title that wraps when the node is narrow', width: 90 }, false);
+    const tall = L.estimateSize({ title: 'A short title', height: 200 }, false);
+    const flat = L.estimateSize({ title: 'A short title', height: 5 }, false);
+    check('a given width is exact', wide.w === 400 && narrow.w === 90);
+    check('a narrow width makes the title wrap, so the node gets taller', narrow.h > L.estimateSize({ title: 'A fairly long title that wraps when the node is narrow' }, false).h);
+    check('a given height is a floor: it raises a node and never lowers one', tall.h === 200 && flat.h === plain.h);
+    check('a node without shape, width or height is estimated as before (13 characters at 14 px: 161 wide)', plain.w === 161 && plain.h === 44 && L.estimateSize({ title: 'A short title', shape: '', width: null, height: null }, false).w === 161);
+    const ellipse = L.estimateSize({ title: 'A short title', shape: 'ellipse' }, false), diamond = L.estimateSize({ title: 'A short title', shape: 'diamond' }, false);
+    check('an ellipse and a diamond are larger than a rectangle with the same title, a diamond more than an ellipse', ellipse.w >= plain.w && ellipse.h > plain.h && diamond.w >= ellipse.w && diamond.h > ellipse.h);
+    check('a given size wins over the shape for the width', L.estimateSize({ title: 'x', shape: 'diamond', width: 300 }, false).w === 300);
+    check('a bad width or height is ignored', L.estimateSize({ title: 'x', width: -5, height: NaN }, false).w === 110 && L.estimateSize({ title: 'x', width: 'wide' }, false).w === 110);
+
+    // Nodes of different sizes never overlap: the layout takes the measured box of each one.
+    const sizedNodes = fan(6).map(function (n, i) { return i === 0 ? n : Object.assign({}, n, i % 3 === 0 ? { width: 420, height: 160 } : (i % 3 === 1 ? { shape: 'diamond', width: 300 } : { shape: 'ellipse', height: 120 })); });
+    ['right', 'left', 'down', 'up', 'radial', 'outline', 'balanced'].forEach(function (preset) {
+        const result = run(withRootLayout(sizedNodes, preset), sizers.estimate);
+        check('large and shaped nodes do not overlap in the ' + preset + ' layout', tightest(result.positions, sizedNodes, sizers.estimate).gap >= MIN_GAP);
+    });
+    const grown = fan(3).map(function (n, i) { return i === 1 ? Object.assign({}, n, { width: 600, height: 300 }) : n; });
+    const before = run(fan(3), sizers.estimate).positions, after = run(withRootLayout(grown, 'right'), sizers.estimate).positions;
+    check('making one node bigger moves its neighbours away, not onto it', tightest(after, grown, sizers.estimate).gap >= MIN_GAP && after[grown[2].id].y !== before[grown[2].id].y);
     const big = mixed(300, 11);
     const started = Date.now();
     const bigResult = run(withRootLayout(big, 'radial'), sizers.estimate);

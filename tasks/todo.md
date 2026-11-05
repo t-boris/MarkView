@@ -18,14 +18,20 @@ Request (Boris): "in the mind map I want to be able to change the shape and the 
 - The AI never sets shape or size; the report ignores both.
 
 ### Plan
-- [ ] 0. Records: REQ-009, DEC-012 (done through MarkView); this plan.
-- [ ] 1. Swift model: `shape`, `width`, `height` on `Node`; `shapes` list and limits; parse/write; `update(shape:width:height:)` with validation; snapshot fields + `shapes`; bridge `update` payload; make sure no code path rebuilds a node and drops the new fields (AI modes, reparent-free copy paths).
-- [ ] 2. Page: CSS per shape, SVG diamond layer, text-area fit for ellipse/diamond, `applyBox` (width, min-height), tri/fold positions, `estimateSize` with width/height.
-- [ ] 3. Page: panel rows (Shape, Size), S/M/L/Auto, Width/Height fields with refusal messages.
-- [ ] 4. Page: eight resize handles, live drag with optimistic size (`rm.boxes`), release → `update`, double click → Auto, Esc cancels a drag.
-- [ ] 5. Tests: `research-map-document-tests.sh` (round trip, validation, update), `research-map-layout-tests.sh` (estimate with width/height, no overlap with big nodes), `research-map-web-tests.sh` (classes, handles, drag → update payload, presets, min semantics, shape ids equal to Swift's), existing suites stay green; Debug build.
-- [ ] 6. Look at hidden renders: five shapes in dark and light, selected with handles, a long title in a diamond, a big node among small ones.
+- [x] 0. Records: REQ-009, DEC-012 (done through MarkView); this plan.
+- [x] 1. Swift model: `shape`, `width`, `height` on `Node`; `shapes` list and limits; parse/write; `update(shape:width:height:)` with validation; snapshot fields + `shapes`; bridge `update` payload; make sure no code path rebuilds a node and drops the new fields (AI modes, reparent-free copy paths).
+- [x] 2. Page: CSS per shape, SVG diamond layer, text-area fit for ellipse/diamond, `applyBox` (width, min-height), tri/fold positions, `estimateSize` with width/height.
+- [x] 3. Page: panel rows (Shape, Size), S/M/L/Auto, Width/Height fields with refusal messages.
+- [x] 4. Page: eight resize handles, live drag with optimistic size (`rm.boxes`), release → `update`, double click → Auto, Esc cancels a drag.
+- [x] 5. Tests: `research-map-document-tests.sh` (round trip, validation, update), `research-map-layout-tests.sh` (estimate with width/height, no overlap with big nodes), `research-map-web-tests.sh` (classes, handles, drag → update payload, presets, min semantics, shape ids equal to Swift's), existing suites stay green; Debug build.
+- [x] 6. Look at hidden renders: five shapes in dark and light, selected with handles, a long title in a diamond, a big node among small ones.
 - [ ] 7. `./bump-version.sh minor` (5.32.0), straight to `main`, `./release.sh --publish`; REQ-009 criteria ticked; lesson if something non-obvious turns up. Offer the reinstall (not done without Boris's go-ahead).
+
+### Review
+- Verified: `research-map-document-tests.sh` (161 checks, 24 new), `research-map-layout-tests.sh` (200, estimate and no-overlap with sized and shaped nodes), `research-map-web-tests.sh` (332 in real WebKit, ~70 new: panel rows, update payloads, handles, live drag, Esc, double click, limits, shapes' geometry, no overlaps, light theme, shape ids equal to Swift's), `research-map-run-tests.sh` (AI describe/correct keep shape and size), `research-map-export-tests.sh`, Debug build. Looked at hidden renders in both themes (five shapes, selected with handles and frame, long titles in an ellipse and a diamond, zoomed out).
+- Found on the way: **BUG-095** (5.31.0): typing a title in the panel replaced the node card's children and removed its badge and icon. Reproduced by running the new check against the installed 5.31.0 page; fixed (`entry.label.textContent`).
+- Not covered: a click-through in the running app (a real mouse drag of a handle, Swift answering the `update` with width/height through `WorkspaceManager`, the file written to disk): the Swift side is covered by the standalone document suite and the page by hidden WebKit with a stubbed bridge, but nobody has run both together.
+- Open decisions: DEC-006…DEC-012 `proposed`; Q-007/Q-008 `open`.
 
 ## Research map: first-look feedback (2026-11-04, feature mind-map) — release 5.31.0 (BUG-091…BUG-094, REQ-006…REQ-008, DEC-010, DEC-011)
 

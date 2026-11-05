@@ -162,7 +162,7 @@ window.__t = {
   panning: function (dx, dy) { const v = q('.rm-viewport'), r = v.getBoundingClientRect(), x = r.left + 8, y = r.bottom - 8; fire('pointerdown', v, x, y); fire('pointermove', v, x + dx, y + dy); fire('pointerup', v, x + dx, y + dy); },
   deliver: function (snapshot) { window.mvResearchMapSet(window.mvDocumentId, snapshot); },
   snap: function (over) {
-    const node = function (id, parent, title, extra) { return Object.assign({ id: id, parent: parent, title: title, tags: [], color: '', icon: '', number: null, description: '', layout: '', x: null, y: null, evidence: [] }, extra || {}); };
+    const node = function (id, parent, title, extra) { return Object.assign({ id: id, parent: parent, title: title, tags: [], color: '', icon: '', number: null, shape: '', width: null, height: null, description: '', layout: '', x: null, y: null, evidence: [] }, extra || {}); };
     const nodes = [
       node('n1', '', 'Why do builds get slow?', { tags: ['question'], description: 'The central question.' }),
       node('n2', 'n1', 'Dependencies', { tags: ['deps', 'build'], description: 'Notes on the dependency graph.', evidence: [
@@ -176,8 +176,19 @@ window.__t = {
       node('n10', 'n4', 'Static libraries'), node('n11', 'n4', 'Dynamic libraries'), node('n12', 'n5', 'Remote cache')];
     const layouts = ['balanced', 'right', 'left', 'down', 'up', 'radial', 'outline'].map(function (id) { return { id: id, name: id.charAt(0).toUpperCase() + id.slice(1) }; });
     return Object.assign({ ok: true, problem: '', id: '2026-11-04-builds', title: 'Why do builds get slow?', question: 'Why do builds get slow?', status: 'complete', incomplete: '', job: null,
-      webQueries: ['swiftpm resolution time', 'xcode build cache'], nodes: nodes, links: [{ from: 'n6', to: 'n8' }, { from: 'n2', to: 'n5' }], layouts: layouts, created: '', notice: '' }, over || {});
-  }
+      webQueries: ['swiftpm resolution time', 'xcode build cache'], nodes: nodes, links: [{ from: 'n6', to: 'n8' }, { from: 'n2', to: 'n5' }], layouts: layouts, created: '', notice: '',
+      shapes: [['rounded', 'Rounded'], ['rectangle', 'Rectangle'], ['pill', 'Pill'], ['ellipse', 'Ellipse'], ['diamond', 'Diamond']].map(function (s) { return { id: s[0], name: s[1] }; }),
+      sizeLimits: { width: [60, 800], height: [28, 600] } }, over || {});
+  },
+  /** A snapshot where the given nodes carry extra fields: extras maps a node id to an object of fields. */
+  look: function (extras) {
+    const s = this.snap();
+    s.nodes.forEach(function (n) { if (extras[n.id]) Object.assign(n, extras[n.id]); });
+    return s;
+  },
+  handle: function (id, dir) { return q('.rm-node-wrap[data-id="' + id + '"] .rm-handle[data-h="' + dir + '"]'); },
+  resizeStart: function (id, dir) { const hd = this.handle(id, dir), c = centre(hd); window.__drag = { id: id, x: c.x, y: c.y, el: hd }; fire('pointerdown', hd, c.x, c.y); },
+  box: function (id) { const r = this.btn(id).getBoundingClientRect(), s = window.MVResearchMap.viewState().scale; return { w: Math.round(r.width / s), h: Math.round(r.height / s), l: r.left, t: r.top, r: r.right, b: r.bottom, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; }
 };
 return 'installed';
 """#
@@ -497,6 +508,214 @@ _ = js("__t.menu('n6'); __t.act('icon'); return 'ok';")
 check(eval("__t.q('.rm-dialog h2').textContent").hasPrefix("Icon for") && bool("__t.btn('n6').getAttribute('aria-pressed') === 'true'"), "Icon… in the node menu selects the node and opens the dialog")
 _ = js("__t.dialogButton('Cancel'); return 'ok';")
 deliver()
+
+// ---- shape and size of a node (REQ-009, DEC-012) -------------------------------------------------------------------------------------
+// Editing a title in the panel must not rebuild the node card: the badge and the icon stay (a 5.31.0 regression).
+deliver("{ nodes: __t.look({ n3: { number: 3, icon: 'bug' } }).nodes }")
+_ = js("__t.select('n3'); __t.type(__t.q('.rm-title-input'), 'Compiler flags'); return 'ok';")
+check(bool("(function () { const b = __t.btn('n3'); return b.querySelector('.rm-label').textContent === 'Compiler flags' && b.querySelector('.rm-badge').textContent === '3' && !b.querySelector('.rm-glyph').hidden && !b.querySelector('.rm-lead').hidden; })()"), "editing a title keeps the node's number badge and icon (5.31.0 regression)", eval("__t.btn('n3').outerHTML"))
+_ = js("__t.select('n6'); return 'ok';")
+deliver()
+
+let swiftShapes: [String] = {
+    guard let start = swiftSource.range(of: "static let shapes: [(id: String, name: String)] = ["), let end = swiftSource.range(of: "]", range: start.upperBound..<swiftSource.endIndex) else { return [] }
+    return swiftSource[start.upperBound..<end.lowerBound].components(separatedBy: "(\"").dropFirst().map { String($0.prefix(while: { $0 != "\"" })) }
+}()
+let pageShapes = (try? JSONSerialization.jsonObject(with: Data(eval("JSON.stringify(window.MVResearchMap.shapeIDs())").utf8)) as? [String]) ?? []
+check(swiftShapes.count == 5 && pageShapes == swiftShapes, "the page draws exactly the shapes Swift accepts, in the same order", "swift \(swiftShapes) page \(pageShapes)")
+check(swiftSource.contains("widthRange = 60...800") && swiftSource.contains("heightRange = 28...600") && eval("JSON.stringify(window.MVResearchMap.sizeLimits())") == "{\"width\":[60,800],\"height\":[28,600]}", "the page's default limits equal Swift's")
+deliver("{ sizeLimits: { width: [50, 700], height: [20, 500] } }")
+check(eval("JSON.stringify(window.MVResearchMap.sizeLimits())") == "{\"width\":[50,700],\"height\":[20,500]}", "the limits of the snapshot replace the page's defaults")
+deliver()
+check(eval("JSON.stringify(window.MVResearchMap.sizeLimits())") == "{\"width\":[60,800],\"height\":[28,600]}", "…and the next snapshot restores them")
+
+// The panel: five shapes, Auto/S/M/L, Width and Height.
+_ = js("__t.select('n3'); return 'ok';")
+check(eval("__t.qa('.rm-seg [data-shape]').map(function (b) { return b.getAttribute('data-shape'); }).join()") == "rounded,rectangle,pill,ellipse,diamond", "the panel offers the five shapes in order")
+check(eval("__t.qa('.rm-seg [data-shape][aria-pressed=true]').map(function (b) { return b.getAttribute('data-shape'); }).join()") == "rounded" && bool("__t.qa('.rm-seg [data-shape]').every(function (b) { return !!b.querySelector('svg path') && b.title && b.getAttribute('aria-label'); })"), "a plain node shows Rounded as its shape; every shape button has a drawing and a name")
+check(bool("__t.q('[data-size=auto]').getAttribute('aria-pressed') === 'true' && __t.q('[data-dim=width]').value === '' && __t.q('[data-dim=height]').value === '' && __t.q('[data-dim=width]').placeholder === 'Auto'"), "a plain node shows Auto with empty Width and Height fields")
+newMark()
+_ = js("__t.q('[data-shape=ellipse]').click(); return 'ok';")
+expect("choosing a shape sends update with its id", ["action": "update", "id": "n3", "shape": "ellipse"], doc: tabM)
+newMark()
+_ = js("__t.q('[data-shape=rounded]').click(); return 'ok';")
+expect("choosing the rounded rectangle sends an empty shape (the default is never stored)", ["action": "update", "id": "n3", "shape": ""], doc: tabM)
+for (preset, w, h) in [("s", 140, 44), ("m", 220, 64), ("l", 320, 96)] {
+    newMark()
+    _ = js("__t.q('[data-size=\(preset)]').click(); return 'ok';")
+    expect("the \(preset.uppercased()) preset sends its width and height", ["action": "update", "id": "n3", "width": w, "height": h], doc: tabM)
+}
+newMark()
+_ = js("__t.q('[data-size=auto]').click(); return 'ok';")
+expect("Auto clears the width and the height (null)", ["action": "update", "id": "n3", "width": NSNull(), "height": NSNull()], doc: tabM)
+newMark()
+_ = js("__t.type(__t.q('[data-dim=width]'), '300'); __t.q('[data-dim=width]').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expect("typing a width sends only the width", ["action": "update", "id": "n3", "width": 300], doc: tabM)
+newMark()
+_ = js("__t.type(__t.q('[data-dim=height]'), '90'); __t.q('[data-dim=height]').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expect("typing a height sends only the height", ["action": "update", "id": "n3", "height": 90], doc: tabM)
+for (field, value) in [("width", "59"), ("width", "801"), ("width", "0"), ("height", "27"), ("height", "601")] {
+    newMark()
+    _ = js("__t.type(__t.q('[data-dim=\(field)]'), '\(value)'); __t.q('[data-dim=\(field)]').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+    expectNone("a \(field) of \(value) is not sent", action: "update", wait: 0.3)
+}
+check(visible(".rm-toast") && eval("__t.q('.rm-toast').textContent") == "A height is between 28 and 600." && eval("__t.q('[data-dim=height]').value") == "", "…the person is told the limits, and the field shows the stored value again")
+deliver("{ nodes: __t.look({ n3: { width: 300 } }).nodes }")
+newMark()
+_ = js("__t.type(__t.q('[data-dim=width]'), ''); __t.q('[data-dim=width]').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expect("emptying the width field makes the width automatic (null)", ["action": "update", "id": "n3", "width": NSNull()], doc: tabM)
+_ = js("document.activeElement.blur(); return 'ok';")
+deliver("{ nodes: __t.look({ n3: { width: 140, height: 44 }, n4: { width: 220, height: 64 } }).nodes }")
+check(bool("__t.q('[data-size=s]').getAttribute('aria-pressed') === 'true' && __t.q('[data-size=auto]').getAttribute('aria-pressed') === 'false' && __t.q('[data-dim=width]').value === '140' && __t.q('[data-dim=height]').value === '44'"), "a node that has a preset's size shows that preset and the numbers")
+_ = js("__t.select('n4'); return 'ok';")
+check(bool("__t.q('[data-size=m]').getAttribute('aria-pressed') === 'true'"), "…and another node shows its own")
+deliver()
+
+// What the cards look like.
+let longEllipse = "Whole module optimisation of everything in the project"
+let longDiamond = "Incremental builds with a rather long name"
+deliver("{ nodes: __t.look({ n2: { shape: 'diamond' }, n3: { shape: 'ellipse', width: 260 }, n4: { shape: 'pill' }, n5: { shape: 'rectangle', height: 120 }, n6: { width: 300 }, n7: { height: 90 }, n9: { shape: 'ellipse', title: '\(longEllipse)' }, n8: { shape: 'diamond', title: '\(longDiamond)' }, n10: { width: 100, height: 28, title: 'A title that needs several lines' } }).nodes }")
+check(eval("['n1','n2','n3','n4','n5','n6','n7','n8','n9','n10','n11','n12'].map(function (id) { return __t.wrap(id).className.split(' ').filter(function (c) { return c.indexOf('shape-') === 0; }).join('') || '-'; }).join()") == "-,shape-diamond,shape-ellipse,shape-pill,shape-rectangle,-,-,shape-diamond,shape-ellipse,-,-,-", "each node's wrap names its shape; a rounded rectangle has no shape class")
+let shapeLook = json("""
+const radius = function (id) { return getComputedStyle(__t.btn(id)).borderTopLeftRadius; };
+const dia = __t.btn('n2');
+return JSON.stringify({ ellipse: radius('n3'), pill: radius('n4'), rect: radius('n5'), rounded: radius('n11'),
+  polygon: !!dia.querySelector('.rm-shape polygon'), diaBg: getComputedStyle(dia).backgroundColor, diaBorder: getComputedStyle(dia).borderTopWidth, diaShadow: getComputedStyle(dia).boxShadow,
+  stroke: getComputedStyle(dia.querySelector('polygon')).stroke, fill: getComputedStyle(dia.querySelector('polygon')).fill, rectBorder: getComputedStyle(__t.btn('n5')).borderLeftWidth, ellBorder: getComputedStyle(__t.btn('n3')).borderTopWidth, ellColour: getComputedStyle(__t.btn('n3')).borderTopColor,
+  noSvg: !__t.btn('n3').querySelector('.rm-shape') });
+""")
+check((shapeLook["ellipse"] as? String) == "50%" && ((shapeLook["pill"] as? String) ?? "").hasPrefix("999") && (shapeLook["rect"] as? String) == "0px" && (shapeLook["rounded"] as? String) == "6px", "ellipse, pill, rectangle and rounded have their corners", "\(shapeLook)")
+check((shapeLook["polygon"] as? Bool) == true && (shapeLook["diaBg"] as? String) == "rgba(0, 0, 0, 0)" && (shapeLook["diaBorder"] as? String) == "0px" && (shapeLook["noSvg"] as? Bool) == true, "a diamond is an SVG polygon on a transparent card; no other shape has one", "\(shapeLook)")
+check((shapeLook["stroke"] as? String) == "rgb(86, 156, 214)" && (shapeLook["fill"] as? String) == "rgb(37, 37, 38)" && (shapeLook["rectBorder"] as? String) == "3px" && ["1px", "1.5px"].contains((shapeLook["ellBorder"] as? String) ?? "") && (shapeLook["ellColour"] as? String) == "rgb(78, 201, 176)", "the diamond is outlined in its branch colour on the card colour; the rectangle keeps the 3px branch stripe; the ellipse is outlined in its branch colour", "\(shapeLook)")
+check(bool("__t.box('n3').w === 260") && bool("__t.box('n6').w === 300") && bool("__t.box('n5').h === 120") && bool("__t.box('n7').h === 90"), "a given width is exact and a given height is the height of a short title's card", eval("JSON.stringify(['n3','n6','n5','n7'].map(function (id) { return __t.box(id); }))"))
+check(bool("(function () { const b = __t.btn('n10'), body = b.querySelector('.rm-body'); return __t.box('n10').w === 100 && __t.box('n10').h > 28 && body.getBoundingClientRect().height <= b.clientHeight + 1 && b.scrollHeight <= b.clientHeight + 1; })()"), "a height below the title's is a floor: the card grows and nothing is cut", eval("JSON.stringify(__t.box('n10'))"))
+let inscribed = json("""
+const inside = function (id, kind) {
+  const b = __t.btn(id).getBoundingClientRect(), t = __t.btn(id).querySelector('.rm-body').getBoundingClientRect();
+  const a = b.width / 2, c = b.height / 2, cx = b.left + a, cy = b.top + c;
+  return [[t.left, t.top], [t.right, t.top], [t.left, t.bottom], [t.right, t.bottom]].map(function (p) {
+    const dx = Math.abs(p[0] - cx) / a, dy = Math.abs(p[1] - cy) / c;
+    return kind === 'ellipse' ? dx * dx + dy * dy : dx + dy;
+  }).reduce(function (m, v) { return Math.max(m, v); }, 0);
+};
+return JSON.stringify({ ellipse: inside('n9', 'ellipse'), diamond: inside('n8', 'diamond'), shortEllipse: inside('n3', 'ellipse'), shortDiamond: inside('n2', 'diamond') });
+""")
+check(((inscribed["ellipse"] as? Double) ?? 9) <= 1.03 && ((inscribed["diamond"] as? Double) ?? 9) <= 1.03 && ((inscribed["shortEllipse"] as? Double) ?? 9) <= 1.03 && ((inscribed["shortDiamond"] as? Double) ?? 9) <= 1.03, "in an ellipse and a diamond the whole title lies inside the outline", "\(inscribed)")
+check(bool("__t.box('n9').h > 60 && __t.box('n8').h > 90"), "a long title makes a bigger ellipse and diamond (it wraps, it is not squeezed)", eval("JSON.stringify([__t.box('n9'), __t.box('n8')])"))
+let overlaps = json("""
+const ids = Array.from(document.querySelectorAll('.rm-node-wrap')).filter(function (w) { return !w.hidden; }).map(function (w) { return w.getAttribute('data-id'); });
+const boxes = ids.map(function (id) { return Object.assign({ id: id }, __t.box(id)); });
+const bad = [];
+for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+  const a = boxes[i], b = boxes[j];
+  if (a.l < b.r - 0.5 && b.l < a.r - 0.5 && a.t < b.b - 0.5 && b.t < a.b - 0.5) bad.push(a.id + '/' + b.id);
+}
+return JSON.stringify({ count: ids.length, bad: bad });
+""")
+check((overlaps["count"] as? Int) == 12 && ((overlaps["bad"] as? [String]) ?? ["?"]).isEmpty, "with ellipses, diamonds, pills and sized cards among them no two nodes overlap", "\(overlaps)")
+let tri = json("""
+const near = function (id, kind) {
+  const b = __t.btn(id).getBoundingClientRect(), t = __t.q('.rm-node-wrap[data-id="' + id + '"] .rm-tri').getBoundingClientRect();
+  const a = b.width / 2, c = b.height / 2, dx = Math.abs(t.left + t.width / 2 - (b.left + a)) / a, dy = Math.abs(t.top + t.height / 2 - (b.top + c)) / c;
+  return kind === 'ellipse' ? dx * dx + dy * dy : (kind === 'diamond' ? dx + dy : 0);
+};
+return JSON.stringify({ ellipse: near('n3', 'ellipse'), diamond: near('n2', 'diamond') });
+""")
+check(((tri["ellipse"] as? Double) ?? 9) <= 1.05 && ((tri["diamond"] as? Double) ?? 9) <= 1.05, "the ⋯ button of an ellipse and of a diamond sits on the shape, not in the empty corner of its box", "\(tri)")
+check(bool("(function () { const f = __t.fold('n2').getBoundingClientRect(), b = __t.btn('n2').getBoundingClientRect(); return !__t.fold('n2').hidden && Math.abs((f.left + f.width / 2) - (b.left + b.width / 2)) < 2 && f.top < b.bottom + 1 && f.bottom > b.bottom - 1; })()"), "the fold toggle sits on the bottom corner of a diamond")
+_ = js("__t.menu('n3'); return 'ok';")
+check(visible(".rm-actions") && bool("__t.qa('.rm-actions [data-act]').length > 5"), "the node menu opens from an ellipse")
+_ = js("__t.menu('n3'); return 'ok';")
+check(!visible(".rm-actions"), "…and closes again")
+// Handles.
+_ = js("__t.select('n3'); return 'ok';")
+check(number("document.querySelectorAll('.rm-handle:not([hidden])').length") == 8 && bool("__t.qa('.rm-handle:not([hidden])').every(function (h) { return h.parentNode === __t.wrap('n3'); })"), "the selected node shows eight resize handles and no other node does")
+check(bool("['nw','n','ne','e','se','s','sw','w'].every(function (d) { return !!__t.handle('n3', d); })"), "…at the four corners and the four edges")
+_ = js("__t.select('n4'); return 'ok';")
+check(number("document.querySelectorAll('.rm-handle:not([hidden])').length") == 8 && bool("__t.qa('.rm-handle:not([hidden])').every(function (h) { return h.parentNode === __t.wrap('n4'); })"), "selecting another node moves the handles to it")
+
+// Dragging a handle: live, around the centre, one update on release.
+func shapedLook(n3: String = "shape: 'ellipse', width: 260", n5: String = "shape: 'rectangle', height: 120", n6: String = "width: 300") -> String {
+    "{ nodes: __t.look({ n2: { shape: 'diamond' }, n3: { \(n3) }, n4: { shape: 'pill' }, n5: { \(n5) }, n6: { \(n6) } }).nodes }"
+}
+_ = js("__t.select('n3'); return 'ok';")
+newMark()
+let handleViewBefore = js("return JSON.stringify(__t.view());")
+_ = js("__t.resizeStart('n3', 'e'); __t.dragTo(40, 0); return 'ok';")
+check(bool("__t.box('n3').w === 340"), "dragging the east handle by 40 px makes the node 80 px wider (it grows around its centre)", eval("JSON.stringify(__t.box('n3'))"))
+check(eval("__t.q('.rm-readout').textContent").hasPrefix("w 340") && visible(".rm-readout"), "a readout shows the size while dragging", eval("__t.q('.rm-readout').textContent"))
+expectNone("nothing is sent while the handle moves", action: "update", wait: 0.3)
+_ = js("__t.dragEnd(40, 0); return 'ok';")
+expect("releasing sends one update with the width", ["action": "update", "id": "n3", "width": 340], doc: tabM)
+expectNone("a handle never moves the node", action: "moveVisual", wait: 0.2)
+check(js("return JSON.stringify(__t.view());") == handleViewBefore && !visible(".rm-readout"), "…nor pans the map; the readout is gone")
+check(bool("__t.box('n3').w === 340"), "until Swift answers the node keeps the new size")
+deliver(shapedLook(n3: "shape: 'ellipse', width: 340"))
+check(bool("__t.box('n3').w === 340") && eval("__t.q('[data-dim=width]').value") == "340", "…and the snapshot confirms it in the card and in the Width field")
+newMark()
+_ = js("__t.resizeStart('n3', 'w'); __t.dragTo(-30, 0); return 'ok';")
+check(bool("__t.box('n3').w === 400"), "dragging the west handle outwards grows the node too", eval("JSON.stringify(__t.box('n3'))"))
+_ = js("__t.dragEnd(-30, 0); return 'ok';")
+expect("…and sends the width", ["action": "update", "id": "n3", "width": 400], doc: tabM)
+deliver(shapedLook(n3: "shape: 'ellipse', width: 400"))
+newMark()
+_ = js("__t.resizeStart('n3', 'e'); __t.dragTo(5000, 0); return 'ok';")
+check(bool("__t.box('n3').w === 800"), "a width cannot go above the limit", eval("JSON.stringify(__t.box('n3'))"))
+_ = js("__t.dragTo(-5000, 0); return 'ok';")
+check(bool("__t.box('n3').w >= 60 && __t.box('n3').w < 100"), "…nor below the limit (the node is as narrow as its title allows)", eval("JSON.stringify(__t.box('n3'))"))
+_ = js("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); __t.dragEnd(-5000, 0); return 'ok';")
+check(bool("__t.box('n3').w === 400"), "Esc during the drag puts the size back")
+expectNone("…and sends nothing", action: "update", wait: 0.3)
+_ = js("__t.resizeStart('n3', 'e'); __t.dragEnd(1, 1); return 'ok';")
+expectNone("a click on a handle (no movement) sends nothing", action: "update", wait: 0.3)
+
+// Height: a floor, and a height at or below the title's is automatic.
+_ = js("__t.select('n5'); return 'ok';")
+newMark()
+_ = js("__t.resizeStart('n5', 's'); __t.dragTo(0, 40); return 'ok';")
+check(bool("__t.box('n5').h === 200"), "dragging the south handle by 40 px makes a node 80 px taller", eval("JSON.stringify(__t.box('n5'))"))
+_ = js("__t.dragEnd(0, 40); return 'ok';")
+expect("…and sends the height", ["action": "update", "id": "n5", "height": 200], doc: tabM)
+deliver(shapedLook(n3: "shape: 'ellipse', width: 400", n5: "shape: 'rectangle', height: 200"))
+newMark()
+_ = js("__t.resizeStart('n5', 'n'); __t.dragTo(0, 500); return 'ok';")
+check(bool("__t.box('n5').h < 60"), "dragging the north handle down shrinks the node to the height of its title, no further", eval("JSON.stringify(__t.box('n5'))"))
+_ = js("__t.dragEnd(0, 500); return 'ok';")
+expect("a height at or below the title's is sent as automatic (null)", ["action": "update", "id": "n5", "height": NSNull()], doc: tabM)
+deliver(shapedLook(n3: "shape: 'ellipse', width: 400", n5: "shape: 'rectangle'"))
+// A corner changes both.
+_ = js("__t.select('n6'); return 'ok';")
+newMark()
+let n6Before = json("return JSON.stringify(__t.box('n6'));")
+_ = js("__t.resizeStart('n6', 'se'); __t.dragTo(20, 30); __t.dragEnd(20, 30); return 'ok';")
+let expectedHeight = Int((n6Before["h"] as? Double) ?? 0) + 60
+expect("a corner handle sends the width and the height", ["action": "update", "id": "n6", "width": 340, "height": expectedHeight], doc: tabM)
+deliver(shapedLook(n3: "shape: 'ellipse', width: 400", n5: "shape: 'rectangle'", n6: "width: 340, height: \(expectedHeight)"))
+// A double click on a handle makes the size automatic.
+newMark()
+_ = js("__t.handle('n6', 'e').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); return 'ok';")
+expect("a double click on a handle sends automatic width and height", ["action": "update", "id": "n6", "width": NSNull(), "height": NSNull()], doc: tabM)
+check(bool("__t.box('n6').w < 200"), "…and the card is automatic at once")
+deliver()
+newMark()
+_ = js("__t.handle('n6', 'e').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); return 'ok';")
+expectNone("a double click on a node that is already automatic sends nothing", action: "update", wait: 0.3)
+// Zoom: the handles keep their size on the screen.
+_ = js("for (let i = 0; i < 3; i++) __t.q('[data-act=zoom-out]').click(); return 'ok';")
+check(bool("(function () { const s = window.MVResearchMap.viewState().scale, h = __t.handle('n6', 'se').getBoundingClientRect(); return s < 0.8 && Math.abs(h.width - 10) < 1.5; })()"), "the corner handles stay 10 px on the screen when the map is zoomed out")
+_ = js("__t.q('[data-act=centre]').click(); return 'ok';")
+// Light theme: the diamond follows the theme.
+deliver("{ nodes: __t.look({ n2: { shape: 'diamond' } }).nodes }")
+_ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
+check(eval("getComputedStyle(__t.btn('n2').querySelector('polygon')).fill") != "rgb(37, 37, 38)", "light theme: the diamond is not drawn in the dark card colour", eval("getComputedStyle(__t.btn('n2').querySelector('polygon')).fill"))
+_ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
+// A node can go back to the plain look.
+deliver()
+check(bool("!__t.btn('n2').querySelector('.rm-shape') && __t.qa('.rm-node-wrap').every(function (w) { return w.className.indexOf('shape-') < 0 && !w.style.width; }) && __t.qa('.rm-node').every(function (b) { return !b.style.minHeight; })"), "a snapshot without shapes and sizes restores the plain cards")
+deliver("{ nodes: __t.look({ n1: { shape: 'pill', width: 320 } }).nodes }")
+check(bool("__t.wrap('n1').classList.contains('shape-pill') && __t.btn('n1').classList.contains('root') && __t.box('n1').w === 320"), "the root can have a shape and a size too")
+deliver()
+_ = js("__t.select('n6'); return 'ok';")
 
 // ---- folding (BUG-092, DEC-010) ------------------------------------------------------------------------------------------------------
 newMark()
