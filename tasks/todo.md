@@ -14,9 +14,12 @@ Architecture (DEC-009): the map is an ordinary editor tab of a `type: research-m
       three live-run scripts — none touches this change)
       An independent review of the Swift glue found and I fixed: text blocks of the CLI glued node lines together (checked on the real stream),
       a map stuck on "researching" after a quit, a write over a newer disk version, a snapshot push per token, no main-frame guard
-- [ ] 7. Bump to 5.29.0, commit, push to `main`, `./release.sh --publish` from a clean worktree, verify version, signature and notarization
-- [ ] 8. Statuses: requirements' criteria, decisions, feature `implemented`, issue #293 commented and closed; wait for the `Build & Release` run of the pushed commit
-- Review: (to be filled in after the release)
+- [x] 7. Bump to 5.29.0, commit, push to `main`, `./release.sh --publish` from a clean worktree, verify version, signature and notarization
+      (v5.29.0 Latest, app 5.29.0, Developer ID signature valid, `spctl` accepts the DMG as Notarized Developer ID, stapled; `build/MarkView-5.29.0.dmg`, sha256 765c2c14…bab8bc6)
+- [x] 8. Statuses: requirements' criteria ticked, feature `implemented`, issue #293 commented and closed; `Build & Release` of 369d803 and 0661c8e succeeded; `Research Map Checks` failed once on a timing race in the page suite (fixed in 0661c8e) and then succeeded
+- [ ] Install 5.29.0 with Boris's go-ahead
+- Review: the stream protocol held on the real model (2 research runs, 36 nodes each, 2 develop runs, 11 nodes each; 0 malformed lines, no refused node). Not done by me: a live run of the map inside the app (the goal excluded it), so the first New Research from the sheet is the real test.
+  DEC-006…DEC-009 stay `proposed` and Q-007/Q-008 stay `open` (built as option A); they need Boris's decision. The Markdown source of a map edited while an AI job writes to the same map is not merged (DEC-009 Consequences).
 
 ## UI Studio finds every route handler and never holds the page for the assistant — release 5.28.0 (2026-11-04, BUG-088, BUG-089, BUG-090)
 
