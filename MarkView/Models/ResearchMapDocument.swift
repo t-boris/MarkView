@@ -36,6 +36,9 @@ struct ResearchMap: Equatable {
         var color = ""
         /// A built-in icon id (`ResearchMap.iconIDs`), one emoji, or empty (REQ-008, DEC-011).
         var icon = ""
+        /// A picture shown small beside the icon: a path inside the project (relative to the map file, no `..`) or an
+        /// `https` address; empty for none (REQ-017, DEC-018).
+        var image = ""
         /// The badge shown before the title, 1 to `numberLimit`: step order, phase number (REQ-008).
         var number: Int?
         /// A shape id from `ResearchMap.shapes`, or empty for the default rounded rectangle (REQ-009, DEC-012).
@@ -202,6 +205,29 @@ struct ResearchMap: Equatable {
         return isIcon(text) ? text : ""
     }
 
+    /// Longest stored picture address.
+    static let imageAddressLimit = 300
+
+    /// A picture address a node may carry: a relative path inside the project (no `..`, no scheme, no absolute or home
+    /// path, no backslash or control character) or an `https` address with a host (REQ-017, DEC-018).
+    static func isImageAddress(_ text: String) -> Bool {
+        guard !text.isEmpty, text.count <= imageAddressLimit,
+              !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control || $0 == "\\" }) else { return false }
+        if text.lowercased().hasPrefix("https://") {
+            guard let url = URL(string: text), let host = url.host, !host.isEmpty else { return false }
+            return true
+        }
+        guard !text.hasPrefix("/"), !text.hasPrefix("~"), !text.contains(":"), !text.contains("?"), !text.contains("#") else { return false }
+        let parts = text.split(separator: "/", omittingEmptySubsequences: false)
+        return !parts.contains { $0.isEmpty || $0 == ".." || $0 == "." }
+    }
+
+    /// The picture address as it is stored: valid or empty.
+    static func clean(image: String) -> String {
+        let text = image.trimmingCharacters(in: .whitespacesAndNewlines)
+        return isImageAddress(text) ? text : ""
+    }
+
     static func isNumber(_ value: Int) -> Bool { (1...numberLimit).contains(value) }
 
     static func isShape(_ id: String) -> Bool { shapes.contains { $0.id == id } }
@@ -306,14 +332,19 @@ struct ResearchMap: Equatable {
     }
 
     /// Changes the given properties of a node. Renaming the root renames the map.
-    /// `icon`: "" clears it. `number`: `.some(nil)` clears it, `.some(n)` sets it (1 to `numberLimit`).
+    /// `icon`: "" clears it. `image`: "" clears the picture, else a project path or an https address (REQ-017). `number`: `.some(nil)` clears it, `.some(n)` sets it (1 to `numberLimit`).
     /// `shape`: "" or the default shape's id restores the default look. `width`/`height`: `.some(nil)` makes it
     /// automatic, `.some(n)` sets the minimum (`widthRange`, `heightRange`). `visual`: "" makes the node a text node,
     /// "diagram" or "image" makes the card show its Mermaid block or picture (REQ-012).
     mutating func update(id: String, title: String? = nil, tags: [String]? = nil, color: String? = nil,
-                         description: String? = nil, icon: String? = nil, number: Int?? = nil,
+                         description: String? = nil, icon: String? = nil, image: String? = nil, number: Int?? = nil,
                          shape: String? = nil, width: Int?? = nil, height: Int?? = nil, visual: String? = nil) throws {
         guard let i = index(of: id) else { throw Rejection(message: "That node no longer exists.") }
+        // The picture is checked first, so a refused address changes nothing at all.
+        let pictureText = image?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let pictureText, !pictureText.isEmpty, !Self.isImageAddress(pictureText) {
+            throw Rejection(message: "A picture is a file inside the project or an https address.")
+        }
         if let title {
             let cleaned = Self.clean(title: title)
             guard !cleaned.isEmpty else { throw Rejection(message: "The name cannot be empty.") }
@@ -333,6 +364,7 @@ struct ResearchMap: Equatable {
             guard text.isEmpty || Self.isIcon(text) else { throw Rejection(message: "Choose an icon from the list, or paste one emoji.") }
             nodes[i].icon = text
         }
+        if let pictureText { nodes[i].image = pictureText }
         if let number {
             if let value = number {
                 guard Self.isNumber(value) else { throw Rejection(message: "A number is between 1 and \(Self.numberLimit).") }
@@ -388,6 +420,31 @@ struct ResearchMap: Equatable {
         nodes.removeAll { removed.contains($0.id) }
         links.removeAll { removed.contains($0.from) || removed.contains($0.to) }
         return removed.count
+    }
+
+    /// Moves a node with its whole subtree under another node, as that node's last child (REQ-015, DEC-016). The root, a move under
+    /// the node itself or one of its descendants (a cycle) and a move under the node that is already the parent are refused. The
+    /// hand-placed positions of the moved nodes are dropped, so that the layout of the new branch places them; every other property
+    /// and every logical connection stays.
+    mutating func move(id: String, to newParent: String) throws {
+        guard let i = index(of: id) else { throw Rejection(message: "That node no longer exists.") }
+        guard let target = index(of: newParent) else { throw Rejection(message: "The new parent no longer exists.") }
+        guard !nodes[i].parent.isEmpty else { throw Rejection(message: "The root node cannot be moved.") }
+        guard id != newParent else { throw Rejection(message: "A node cannot become its own child.") }
+        let below = descendants(of: id)
+        guard !below.contains(newParent) else { throw Rejection(message: "A node cannot be moved under one of its own descendants.") }
+        guard nodes[i].parent != newParent else { throw Rejection(message: "“\(nodes[target].title)” is already the parent of this node.") }
+        let moved = Set([id] + below)
+        var block = nodes.filter { moved.contains($0.id) }
+        nodes.removeAll { moved.contains($0.id) }
+        for j in block.indices {
+            block[j].x = nil
+            block[j].y = nil
+            if block[j].id == id { block[j].parent = newParent }
+        }
+        guard let parentIndex = index(of: newParent) else { throw Rejection(message: "The new parent no longer exists.") }
+        nodes.insert(contentsOf: block, at: parentIndex + 1 + descendants(of: newParent).count)
+        normaliseOrder()
     }
 
     /// Moves a node to a position on the canvas without changing its parent.
@@ -732,6 +789,7 @@ extension ResearchMap {
             case "tags": node.tags = clean(tags: value.components(separatedBy: ","))
             case "color": node.color = isColor(value) ? value.lowercased() : ""
             case "icon": node.icon = clean(icon: value)
+            case "image": node.image = clean(image: value)
             case "number": node.number = Int(value).flatMap { isNumber($0) ? $0 : nil }
             case "shape": node.shape = clean(shape: value)
             case "width": node.width = Int(value).flatMap { widthRange.contains($0) ? $0 : nil }
@@ -776,7 +834,7 @@ extension ResearchMap {
         let rest = line.dropFirst(2)
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let key = rest[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-        guard ["tags", "color", "icon", "number", "shape", "width", "height", "visual", "layout", "position"].contains(key) else { return nil }
+        guard ["tags", "color", "icon", "image", "number", "shape", "width", "height", "visual", "layout", "position"].contains(key) else { return nil }
         return (key, rest[rest.index(after: colon)...].trimmingCharacters(in: .whitespaces))
     }
 
@@ -894,6 +952,7 @@ extension ResearchMap {
             if !node.tags.isEmpty { props.append("- tags: " + node.tags.joined(separator: ", ")) }
             if !node.color.isEmpty { props.append("- color: " + node.color) }
             if !node.icon.isEmpty { props.append("- icon: " + node.icon) }
+            if !node.image.isEmpty { props.append("- image: " + node.image) }
             if let number = node.number { props.append("- number: \(number)") }
             if !node.shape.isEmpty { props.append("- shape: " + node.shape) }
             if let width = node.width { props.append("- width: \(width)") }
@@ -979,7 +1038,7 @@ extension ResearchMap {
             "nodes": nodes.map { node -> [String: Any] in
                 [
                     "id": node.id, "parent": node.parent, "title": node.title, "tags": node.tags, "color": node.color,
-                    "icon": node.icon, "number": node.number.map { $0 as Any } ?? NSNull(),
+                    "icon": node.icon, "image": node.image, "number": node.number.map { $0 as Any } ?? NSNull(),
                     "shape": node.shape, "width": node.width.map { $0 as Any } ?? NSNull(),
                     "height": node.height.map { $0 as Any } ?? NSNull(), "visual": node.visual,
                     "description": node.description, "layout": node.layout,

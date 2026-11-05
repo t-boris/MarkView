@@ -829,7 +829,14 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
 
     func bridge(_ bridge: WebViewBridge, didReceiveResearchMapAction action: String, payload: [String: Any], documentID: UUID?) {
         Task { @MainActor in
-            guard let reply = self.parent.workspaceManager.handleResearchMapAction(action, payload: payload, documentID: documentID),
+            // A picture for a node is written off the main thread first; the page then gets the map as it is.
+            var carried = ""
+            var handled = action
+            if action == "attachImage" {
+                carried = await self.parent.workspaceManager.attachResearchMapImage(payload, documentID: documentID)
+                handled = "snapshot"
+            }
+            guard let reply = self.parent.workspaceManager.handleResearchMapAction(handled, payload: payload, documentID: documentID, carriedNotice: carried),
                   let webView = self.webView else { return }
             // The tab now holds the new text: the page already has it, so the editor must not reload it (DEC-009).
             if let content = reply.content, EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {

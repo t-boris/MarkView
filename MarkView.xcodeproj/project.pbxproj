@@ -378,6 +378,7 @@
 		F324179022E7E9D377890F80 /* ProjectColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8F968A66CC85F478E65280 /* ProjectColor.swift */; };
 		F420E9EEED8296CC65C60219 /* markview-code.js in Resources */ = {isa = PBXBuildFile; fileRef = 3A6FFAB86BF5B4D5D9533CB1 /* markview-code.js */; };
 		F43E5960AFAD3590DE4669AA /* LinkedFolders.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */; };
+		F47ADC8FE5FF5F2CF43F842D /* ResearchMapImages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 621553CD6AE189CE8A403253 /* ResearchMapImages.swift */; };
 		F4E8E20ACAFF5B15F70E79AC /* AppFontScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B5A603D8B6885145771D0A /* AppFontScale.swift */; };
 		F51DCF6FC060B59DEC100AF0 /* DatabaseExplorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175983BAF7675BD2CB3EB938 /* DatabaseExplorer.swift */; };
 		F5A6B4994538AD8DB1534251 /* AgentBrowserRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DED21BC61360BE8D42222AB /* AgentBrowserRegistration.swift */; };
@@ -557,6 +558,7 @@
 		608FF3963B46C173B0F3410F /* KaTeX_Math-BoldItalic.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Math-BoldItalic.woff2"; sourceTree = "<group>"; };
 		60EBF634DBCC210E31CDDF84 /* XRayDigest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XRayDigest.swift; sourceTree = "<group>"; };
 		6200A280D4FA5E5A3C452E95 /* KaTeX_Size4-Regular.woff2 */ = {isa = PBXFileReference; path = "KaTeX_Size4-Regular.woff2"; sourceTree = "<group>"; };
+		621553CD6AE189CE8A403253 /* ResearchMapImages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapImages.swift; sourceTree = "<group>"; };
 		62268454385302347AE5A8F3 /* MarkViewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkViewApp.swift; sourceTree = "<group>"; };
 		629AC491A02BE9A042CEF3D2 /* prism-swift.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-swift.min.js"; sourceTree = "<group>"; };
 		62C261EE44FC1141644D95BE /* prism-c.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "prism-c.min.js"; sourceTree = "<group>"; };
@@ -1010,6 +1012,7 @@
 				13993FF35E01B9904DA7B594 /* ResearchJobs.swift */,
 				D590133E9C793517EB3B834E /* ResearchMapDocument.swift */,
 				2788EB7A36DDB6CABADB8642 /* ResearchMapExport.swift */,
+				621553CD6AE189CE8A403253 /* ResearchMapImages.swift */,
 				B487E652BEE66C9746620C91 /* ResearchMapJobs.swift */,
 				34785A26E643A090AE9B8A2F /* ResearchMapOutputJobs.swift */,
 				C8E8A27F4B312FDE7DAA2EE1 /* ResearchMapReport.swift */,
@@ -1724,6 +1727,7 @@
 				204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */,
 				4753F695D7A727D3153C6E24 /* ResearchMapDocument.swift in Sources */,
 				60125D29D78265A98CDC89FB /* ResearchMapExport.swift in Sources */,
+				F47ADC8FE5FF5F2CF43F842D /* ResearchMapImages.swift in Sources */,
 				EBBC3870E229854BEDFFFEAB /* ResearchMapJobs.swift in Sources */,
 				4AE4400BDBF0DB8A30AE6F6F /* ResearchMapOutputJobs.swift in Sources */,
 				1C69CDC01DA10FCF995EADE8 /* ResearchMapReport.swift in Sources */,
@@ -1837,7 +1841,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.33.0;
+				CURRENT_PROJECT_VERSION = 5.34.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1852,7 +1856,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.33.0;
+				MARKETING_VERSION = 5.34.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1916,7 +1920,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.33.0;
+				CURRENT_PROJECT_VERSION = 5.34.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1937,7 +1941,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.33.0;
+				MARKETING_VERSION = 5.34.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

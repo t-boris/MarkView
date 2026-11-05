@@ -339,8 +339,8 @@ check(!visible(".rm-popover"), "the popover closes")
 // ---- the node menu and its dialogs ---------------------------------------------------------------------------------------------------
 newMark()
 _ = js("__t.menu('n3'); return 'ok';")
-check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.dataset.act;}).join()") == "describe,develop,correct,investigate,draw,add,link,edit,icon,number-children,focus,arrange,delete", "the menu holds the four AI actions and Draw first, then add, connect, edit, icon, number children, focus, arrange and delete; there is no move to another branch (BUG-093)")
-check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Expand description|Expand topic…|Correct…|Research|Draw▾|Add child node…|Add logical connection…|Edit title…|Icon…|Number children 1, 2, 3…|Focus on this node|Arrange branch▾|Delete node…", "every action has a visible label (BUG-092/093: icons alone were not enough)")
+check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.dataset.act;}).join()") == "describe,develop,correct,investigate,draw,add,link,edit,icon,image,number-children,focus,arrange,delete", "the menu holds the four AI actions and Draw first, then add, connect, edit, icon, image, number children, focus, arrange and delete; there is no move to another branch (BUG-093)")
+check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Expand description|Expand topic…|Correct…|Research|Draw▾|Add child node…|Add logical connection…|Edit title…|Icon…|Image…|Number children 1, 2, 3…|Focus on this node|Arrange branch▾|Delete node…", "every action has a visible label (BUG-092/093: icons alone were not enough)")
 check(bool("__t.qa('.rm-actions [data-act]').every(function (b) { return !!b.querySelector('svg') && b.title && b.getAttribute('aria-label'); })"), "…and an icon and a tooltip")
 check(bool("!__t.q('.rm-actions').closest('.rm-world')"), "the menu is drawn at screen size, outside the zoomed map")
 check(bool("(function () { const m = __t.q('.rm-actions').getBoundingClientRect(), l = __t.q('.rm-left').getBoundingClientRect(); return m.left >= l.left && m.right <= l.right + 0.5 && m.top >= l.top && m.bottom <= l.bottom + 0.5; })()"), "the menu stays inside the map area")
@@ -1259,6 +1259,184 @@ check(eval("document.getElementById('status-mode').textContent") == "WYSIWYG", "
 // Other views take over.
 check(loadDocument(tabM, mapText) == "ok" && visible("#research-map-container"), "back on the map document")
 deliver()
+// ---- an arrow on each node moves it under another parent; a logical connection is removed from its line (REQ-015, DEC-016) --------
+_ = js("""
+const q = function (s) { return document.querySelector(s); };
+const fire = function (type, target, x, y) {
+  return target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, composed: true, pointerId: 9, pointerType: 'mouse', isPrimary: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y }));
+};
+const centre = function (e) { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+Object.assign(window.__t, {
+  arrow: function (id) { return q('.rm-node-wrap[data-id="' + id + '"] .rm-arrow'); },
+  connectStart: function (id) { const a = this.arrow(id), c = centre(a); window.__link = { el: a, x: c.x, y: c.y }; fire('pointerdown', a, c.x, c.y); },
+  connectTo: function (id) { const c = centre(this.btn(id)); fire('pointermove', this.btn(id), c.x, c.y); },
+  connectToEmpty: function () { const v = q('.rm-viewport'), r = v.getBoundingClientRect(); fire('pointermove', v, r.left + 6, r.bottom - 6); },
+  connectEnd: function (id) { const t = id ? this.btn(id) : q('.rm-viewport'), c = id ? centre(t) : { x: t.getBoundingClientRect().left + 6, y: t.getBoundingClientRect().bottom - 6 }; fire('pointerup', t, c.x, c.y); },
+  hit: function (from, to) { return q('path[data-line="link-hit"][data-from="' + from + '"][data-to="' + to + '"]'); },
+  hitClick: function (from, to) { const h = this.hit(from, to), c = centre(h); fire('pointerdown', h, c.x, c.y); fire('pointerup', h, c.x, c.y); }
+});
+return 'installed';
+""")
+deliver()
+// Every node shown, the map centred at 100%, so that every node can be reached by the pointer.
+_ = js("__t.q('[data-act=expand-all]').click(); __t.q('[data-act=centre]').click(); __t.select('n3'); __t.panning(-300, 0); return 'ok';")
+spin(0.3)
+check(number("document.querySelectorAll('.rm-arrow').length") == 12, "every node has an arrow")
+check(bool("__t.qa('.rm-node-wrap').every(function (w) { return w.querySelector('.rm-arrow').parentNode === w; })"), "…inside its own node")
+check(bool("__t.wrap('n3').classList.contains('arrow-left') === (__t.pos('n3').x < __t.pos('n1').x) && __t.wrap('n2').classList.contains('arrow-left') === (__t.pos('n2').x < __t.pos('n1').x)"), "the arrow sits on the outer edge: left for a node left of its parent, right otherwise")
+check(bool("__t.qa('.rm-node-wrap').some(function (w) { return w.classList.contains('arrow-left'); }) && __t.qa('.rm-node-wrap').some(function (w) { return !w.classList.contains('arrow-left'); })"), "…both kinds occur on a balanced map")
+check(bool("__t.wrap('n1').classList.contains('arrow-left') === false"), "the root's arrow is on the right")
+check(bool("(function(){ const a = __t.arrow('n2').getBoundingClientRect(), b = __t.btn('n2').getBoundingClientRect(); return a.left >= b.right || a.right <= b.left; })()"), "the arrow lies outside the node, clear of the menu button and the fold toggle")
+
+// A drag from the arrow of n2 over n4: the line follows the pointer and n4 is marked as a valid target.
+newMark()
+let mapViewBefore = js("return JSON.stringify(__t.view());")
+_ = js("__t.connectStart('n2'); __t.connectTo('n4'); return 'ok';")
+check(bool("document.querySelector('.rm-viewport').classList.contains('is-connecting')") && number("document.querySelectorAll('path[data-line=connect]').length") == 1, "dragging the arrow draws a line from the node to the pointer")
+check(bool("__t.wrap('n4').classList.contains('connect-ok')") && bool("__t.wrap('n2').classList.contains('connect-from')"), "…marks the node under the pointer as a valid target, and the node it starts from")
+_ = js("__t.connectTo('n6'); return 'ok';")
+check(bool("__t.wrap('n6').classList.contains('connect-no') && !__t.wrap('n4').classList.contains('connect-ok')"), "a node that is already a child of this one is marked as not allowed")
+_ = js("__t.connectTo('n2'); return 'ok';")
+check(bool("__t.wrap('n2').classList.contains('connect-no')"), "so is the node itself")
+_ = js("__t.connectTo('n1'); return 'ok';")
+check(bool("__t.wrap('n1').classList.contains('connect-no')"), "…and the root")
+expectNone("nothing is sent while the arrow moves", action: "move", wait: 0.3)
+_ = js("__t.connectTo('n4'); return 'ok';")
+_ = js("__t.connectEnd('n4'); return 'ok';")
+expect("releasing on n4 sends one move: n4 goes under n2", ["action": "move", "id": "n4", "parent": "n2"], doc: tabM)
+check(!bool("document.querySelector('.rm-viewport').classList.contains('is-connecting')") && number("document.querySelectorAll('path[data-line=connect]').length") == 0 && number("document.querySelectorAll('.connect-ok, .connect-no, .connect-from').length") == 0, "the line and the marks are gone afterwards")
+check(js("return JSON.stringify(__t.view());") == mapViewBefore, "…and the map did not pan")
+expectNone("the node itself is not moved on the canvas", action: "moveVisual", wait: 0.2)
+
+// Refusals: a toast and no message.
+func refused(_ name: String, from: String, to: String, toast text: String) {
+    newMark()
+    _ = js("__t.connectStart('\(from)'); __t.connectTo('\(to)'); __t.connectEnd('\(to)'); return 'ok';")
+    expectNone(name + ": nothing is sent", action: "move", wait: 0.3)
+    check(visible(".rm-toast") && eval("__t.q('.rm-toast').textContent").contains(text), name + ": a toast says why", eval("__t.q('.rm-toast').textContent"))
+}
+refused("onto its own child", from: "n2", to: "n6", toast: "already the parent")
+refused("onto itself", from: "n2", to: "n2", toast: "its own child")
+refused("onto the root", from: "n2", to: "n1", toast: "root")
+refused("onto an ancestor", from: "n6", to: "n2", toast: "descendants")
+
+// Cancel: Esc, empty canvas, a click without movement.
+newMark()
+_ = js("__t.connectStart('n2'); __t.connectTo('n4'); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); __t.connectEnd('n4'); return 'ok';")
+expectNone("Esc during the drag cancels it", action: "move", wait: 0.3)
+check(number("document.querySelectorAll('path[data-line=connect]').length") == 0 && number("document.querySelectorAll('.connect-ok, .connect-no, .connect-from').length") == 0, "…and clears the line and the marks")
+_ = js("__t.connectStart('n2'); __t.connectTo('n4'); __t.connectToEmpty(); __t.connectEnd(''); return 'ok';")
+expectNone("releasing on the empty canvas changes nothing", action: "move", wait: 0.3)
+_ = js("__t.connectStart('n2'); __t.connectEnd('n2'); return 'ok';")
+expectNone("a click on the arrow without movement changes nothing", action: "move", wait: 0.3)
+expectNone("…nor does any of it send anything else", action: "unlink", wait: 0.1)
+
+// Logical connections: a wide invisible line, selected by a click, removed by the cross or the Delete key.
+check(number("document.querySelectorAll('path[data-line=link-hit]').length") == 2 && number("document.querySelectorAll('path[data-line=link]').length") == 2, "every logical connection has an invisible hit line over it")
+check(number("document.querySelectorAll('path[data-line=link-hit]').length") == number("document.querySelectorAll('path[data-line=link]').length") && bool("getComputedStyle(__t.hit('n6', 'n8')).pointerEvents !== 'none' && parseFloat(getComputedStyle(__t.hit('n6', 'n8')).strokeWidth) >= 10"), "…at least ten pixels wide and able to take the pointer")
+check(bool("__t.qa('path[data-line=tree]').length === 11 && __t.qa('path[data-line=tree]').every(function (p) { return getComputedStyle(p).pointerEvents === 'none'; })"), "the hierarchy lines take no pointer at all: they cannot be selected or removed")
+check(number("document.querySelectorAll('.rm-linkx').length") == 0, "no cross before a connection is chosen")
+newMark()
+_ = js("__t.hitClick('n6', 'n8'); return 'ok';")
+check(number("document.querySelectorAll('.rm-linkx').length") == 1 && eval("__t.q('.rm-linkx').dataset.from + '>' + __t.q('.rm-linkx').dataset.to") == "n6>n8", "a click on the connection shows a cross on it")
+check(bool("(function(){ const x = __t.q('.rm-linkx'), a = __t.pos('n6'), b = __t.pos('n8'); return Math.abs(parseFloat(x.style.left) - (a.x + b.x) / 2) <= 1 && Math.abs(parseFloat(x.style.top) - (a.y + b.y) / 2) <= 1; })()"), "…in the middle of the line")
+check(bool("__t.q('path[data-line=link][stroke-width=\"2.5\"]') !== null") && number("document.querySelectorAll('.rm-node-wrap.selected').length") == 0, "the chosen line is drawn heavier, and no node stays selected")
+expectNone("choosing a connection sends nothing", action: "unlink", wait: 0.2)
+_ = js("__t.q('.rm-linkx').click(); return 'ok';")
+expect("the cross removes the connection", ["action": "unlink", "from": "n6", "to": "n8"], doc: tabM)
+deliver("{ links: [{ from: 'n2', to: 'n5' }] }")
+check(number("document.querySelectorAll('.rm-linkx').length") == 0 && number("document.querySelectorAll('path[data-line=link-hit]').length") == 1, "once the snapshot drops it, the line and the cross are gone")
+newMark()
+_ = js("__t.hitClick('n2', 'n5'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })); return 'ok';")
+expect("the Delete key removes the chosen connection", ["action": "unlink", "from": "n2", "to": "n5"], doc: tabM)
+deliver()
+newMark()
+_ = js("__t.hitClick('n6', 'n8'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); return 'ok';")
+check(number("document.querySelectorAll('.rm-linkx').length") == 0, "Esc lets go of the connection")
+_ = js("__t.hitClick('n6', 'n8'); __t.select('n3'); return 'ok';")
+check(number("document.querySelectorAll('.rm-linkx').length") == 0 && number("document.querySelectorAll('.rm-node-wrap.selected').length") == 1, "choosing a node lets go of the connection")
+_ = js("__t.hitClick('n6', 'n8'); __t.panning(0, 0); return 'ok';")
+check(number("document.querySelectorAll('.rm-linkx').length") == 0, "a click on the empty canvas lets go of it too")
+_ = js("__t.hitClick('n6', 'n8'); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })); return 'ok';")
+expect("Backspace removes it as well", ["action": "unlink", "from": "n6", "to": "n8"], doc: tabM)
+deliver()
+expectNone("none of this ever sends a delete of a node", action: "delete", wait: 0.2)
+check(js("return JSON.stringify(__t.view());") == mapViewBefore, "the map was not panned or zoomed by any of it")
+
+// ---- a picture on a node, beside its icon (REQ-017, DEC-018) ---------------------------------------------------------------------------------------
+let tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+_ = js("""
+Object.assign(window.__t, {
+  withPicture: function (id, extra) { const s = this.snap(); s.nodes.forEach(function (n) { if (n.id === id) Object.assign(n, extra); }); window.mvResearchMapSet(window.mvDocumentId, s); },
+  file: function (name, type, bytes) { const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(bytes)], name, { type: type })); return dt; },
+  choose: function (dt) { const input = document.querySelector('.rm-dropzone input[type=file]'); input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); },
+  dropOn: function (id, dt) { const target = id ? this.btn(id) : document.querySelector('.rm-viewport'); const e = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }); target.dispatchEvent(e); return e.defaultPrevented; },
+  overNode: function (id, dt) { const e = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }); this.btn(id).dispatchEvent(e); return e.defaultPrevented; }
+});
+return 'installed';
+""")
+_ = js("__t.withPicture('n2', { image: 'data:image/png;base64,\(tinyPNG)', icon: '🔥' }); return 'ok';")
+spin(0.4)
+check(bool("!__t.q('.rm-node-wrap[data-id=n2] .rm-thumb').hidden"), "a node with a picture shows a thumbnail on its card")
+check(bool("(function(){ const lead = __t.q('.rm-node-wrap[data-id=n2] .rm-lead'); return !lead.hidden && lead.contains(__t.q('.rm-node-wrap[data-id=n2] .rm-glyph')) && lead.contains(__t.q('.rm-node-wrap[data-id=n2] .rm-thumb')) && !__t.q('.rm-node-wrap[data-id=n2] .rm-glyph').hidden; })()"), "…beside its icon, which stays")
+check(bool("(function(){ const w = __t.q('.rm-node-wrap[data-id=n2] .rm-thumb').getBoundingClientRect(); return w.width >= 24 && w.width <= 40 && w.height >= 24 && w.height <= 40; })()"), "…small enough to sit before the title")
+check(bool("__t.q('.rm-node-wrap[data-id=n3] .rm-thumb').hidden && __t.q('.rm-node-wrap[data-id=n3] .rm-lead').hidden"), "a node without a picture shows none and keeps no gap")
+check(eval("__t.btn('n2').getAttribute('aria-label')").contains("With a picture."), "…and the picture is announced")
+_ = js("__t.select('n2'); return 'ok';")
+check(bool("!__t.q('.rm-picture-thumb').hidden && !__t.q('[data-act=image-clear]').hidden"), "the panel shows the picture of the selected node and a cross")
+newMark()
+_ = js("__t.q('[data-act=image-clear]').click(); return 'ok';")
+expect("the cross removes the picture with one update", ["action": "update", "id": "n2", "image": ""], doc: tabM)
+deliver()
+_ = js("__t.select('n3'); return 'ok';")
+check(bool("__t.q('.rm-picture-thumb').hidden && __t.q('[data-act=image-clear]').hidden") && eval("__t.q('[data-act=image] span').textContent") == "None", "a node without a picture says None and has no cross")
+
+// The dialog: choose, paste, drop; refusals stay in the dialog.
+_ = js("__t.menu('n3'); __t.act('image'); return 'ok';")
+check(visible(".rm-dialog") && eval("__t.q('.rm-dialog h2').textContent") == "Picture for “Compiler”" && number("document.querySelectorAll('.rm-dropzone').length") == 1, "Image… in the node menu opens the picture dialog")
+check(number("document.querySelectorAll('.rm-dialog-actions button').length") == 1, "…with no Remove button while the node has no picture")
+newMark()
+_ = js("__t.choose(__t.file('notes.txt', 'text/plain', [104, 105])); return 'ok';")
+check(visible(".rm-dialog") && eval("__t.q('.rm-dialog .rm-error').textContent") == "Use a PNG, JPEG, GIF or WebP picture.", "a file of another kind is refused in the dialog")
+_ = js("const big = new File([new Uint8Array(6000001)], 'big.png', { type: 'image/png' }); const dt = new DataTransfer(); dt.items.add(big); __t.choose(dt); return 'ok';")
+check(visible(".rm-dialog") && eval("__t.q('.rm-dialog .rm-error').textContent") == "The picture is larger than 6 MB.", "a picture over 6 MB is refused in the dialog")
+spin(0.3)
+let pngBytes: [UInt8] = [137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]
+let pngBase64 = Data(pngBytes).base64EncodedString()
+expectNone("nothing was sent for the refused files", action: "attachImage", wait: 0.2)
+_ = js("__t.choose(__t.file('shot.png', 'image/png', [137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4])); return 'ok';")
+expect("a chosen picture is sent whole, with its name, for this node", ["action": "attachImage", "id": "n3", "name": "shot.png", "data": pngBase64], doc: tabM)
+check(!visible(".rm-dialog"), "…and the dialog closes")
+newMark()
+_ = js("__t.menu('n3'); __t.act('image'); const dt = __t.file('pasted.png', 'image/png', [137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]); __t.q('.rm-dialog').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt })); return 'ok';")
+expect("a pasted picture is sent the same way", ["action": "attachImage", "id": "n3", "name": "pasted.png", "data": pngBase64], doc: tabM)
+newMark()
+_ = js("__t.menu('n3'); __t.act('image'); const z = __t.q('.rm-dropzone'); const dt = __t.file('dropped.png', 'image/png', [137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]); z.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })); return 'ok';")
+expect("a picture dropped in the dialog is sent too", ["action": "attachImage", "id": "n3", "name": "dropped.png", "data": pngBase64], doc: tabM)
+
+// Dropped on a node of the canvas.
+newMark()
+check(bool("__t.overNode('n4', __t.file('x.png', 'image/png', [1]))") && bool("__t.wrap('n4').classList.contains('picture-drop')"), "a file dragged over a node marks it as the target")
+check(bool("__t.dropOn('n4', __t.file('canvas.png', 'image/png', [137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]))"), "…and the drop is taken (the page does not navigate to the file)")
+expect("a picture dropped on a node is sent for that node", ["action": "attachImage", "id": "n4", "name": "canvas.png", "data": pngBase64], doc: tabM)
+check(!bool("__t.wrap('n4').classList.contains('picture-drop')"), "the mark is gone after the drop")
+newMark()
+_ = js("__t.dropOn('', __t.file('empty.png', 'image/png', [1, 2])); return 'ok';")
+expectNone("a drop on the empty canvas is left alone", action: "attachImage", wait: 0.3)
+_ = js("__t.dropOn('n4', __t.file('doc.txt', 'text/plain', [1, 2])); return 'ok';")
+expectNone("a file of another kind dropped on a node sends nothing", action: "attachImage", wait: 0.3)
+check(visible(".rm-toast") && eval("__t.q('.rm-toast').textContent") == "Use a PNG, JPEG, GIF or WebP picture.", "…and a toast says why")
+
+// A node that has a picture: the dialog previews it and offers Remove.
+_ = js("__t.withPicture('n3', { image: 'data:image/png;base64,\(tinyPNG)' }); __t.menu('n3'); __t.act('image'); return 'ok';")
+spin(0.3)
+check(bool("!__t.q('.rm-picture-preview').hidden") && number("document.querySelectorAll('.rm-dialog-actions button').length") == 2, "the dialog previews the current picture and offers Remove picture")
+newMark()
+_ = js("__t.dialogButton('Remove picture'); return 'ok';")
+expect("Remove picture sends the same update as the cross", ["action": "update", "id": "n3", "image": ""], doc: tabM)
+deliver()
+check(number("document.querySelectorAll('.rm-thumb:not([hidden])').length") == 0, "a snapshot without pictures leaves no thumbnail")
+
 _ = js("window.setStructuredContent('{\"a\": 1}', 'json'); return 'ok';")
 check(!visible("#research-map-container"), "structured content leaves the map")
 check(loadDocument(tabM, mapText) == "ok" && visible("#research-map-container"), "the map comes back with its document")

@@ -27,6 +27,7 @@
         minStepY: 112,    // the same for vertical trees
         siblingV: 40,     // space between stacked siblings of a horizontal tree
         siblingH: 36,     // space between side-by-side siblings of a vertical tree
+        sideSlack: 90,    // balanced layout: how much taller the alternate side may be before a branch goes to the lighter one
         rowGap: 14,       // outline row spacing
         indent: 40,       // outline indent per level
         ringGap: 28,      // free space between boxes on a radial layout
@@ -182,14 +183,31 @@
             if (mode === 'radial') box = arrangeRadial(item);
             else if (mode === 'outline') box = arrangeOutline(item);
             else if (mode === 'balanced') {
-                var right = [], left = [];
-                item.kids.forEach(function (kid, i) { (i % 2 === 0 ? right : left).push(kid); });
-                box = union(box, placeLinear(item, right, 'right'));
-                box = union(box, placeLinear(item, left, 'left'));
+                var sides = splitSides(item);
+                box = union(box, placeLinear(item, sides.right, 'right'));
+                box = union(box, placeLinear(item, sides.left, 'left'));
             } else box = union(box, placeLinear(item, item.kids, mode));
         }
         item.box = box;
         return box;
+    }
+
+    /** Balanced layout (REQ-016, DEC-017): the sides are worked out again on every layout run from what is visible, never stored.
+     *  Children alternate right, left, right, left, so equal branches give the familiar picture; a branch goes to the lighter
+     *  side instead when the side it would alternate to is already taller by more than `D.sideSlack`. Folding a branch,
+     *  unfolding it, adding a node or moving one under another parent therefore re-balances the map. */
+    function splitSides(item) {
+        var right = [], left = [], total = { right: 0, left: 0 }, previous = 'left';
+        item.kids.forEach(function (kid) {
+            var box = arrange(kid, kid.own || 'right');          // the height is the same whichever side the branch ends up on
+            var weight = (box.b - box.t) + D.siblingV;
+            var side = previous === 'left' ? 'right' : 'left', other = side === 'right' ? 'left' : 'right';
+            if (total[side] - total[other] > D.sideSlack) side = other;
+            (side === 'right' ? right : left).push(kid);
+            total[side] += weight;
+            previous = side;
+        });
+        return { right: right, left: left };
     }
 
     /** Children in one row or column on one side of `item`: right/left stack vertically, down/up side by side. */

@@ -77,6 +77,58 @@ check("delete removes the connections of removed nodes", cascade.links.isEmpty)
 check("root cannot be deleted", rejected { try map.delete(id: "n1") } != nil)
 check("delete keeps other connections", { var m = map; try! m.link(search, "n1"); try! m.delete(id: large); return m.links.count == 2 }())
 
+// MARK: Operations: move a node under another parent (REQ-015, DEC-016)
+
+var reparent = map
+let grandchild = try! reparent.addChild(parent: large, title: "Grandchild")          // n5 under n4 under n2
+let sibling2 = try! reparent.addChild(parent: search, title: "Sibling two")        // n6 under n3
+try! reparent.moveVisual(id: nav, x: 10, y: 20)
+try! reparent.moveVisual(id: large, x: 30, y: 40)
+try! reparent.moveVisual(id: search, x: 50, y: 60)
+try! reparent.update(id: nav, color: "#112233")
+reparent.nodes[reparent.index(of: nav)!].evidence = [M.Evidence(label: .projectFact, text: "A fact.", source: "docs/a.md:3")]
+let before = reparent
+try! reparent.link(grandchild, sibling2)
+let linksBefore = reparent.links
+try! reparent.move(id: nav, to: search)
+check("a moved branch becomes the last child of the new parent, with its subtree", reparent.nodes.map(\.id) == ["n1", "n3", "n6", "n2", "n4", "n5"] && reparent.node(nav)!.parent == search)
+check("the descendants keep their parents", reparent.node(large)!.parent == nav && reparent.node(grandchild)!.parent == large)
+check("the moved nodes lose their hand-placed positions and the others keep theirs", reparent.node(nav)!.x == nil && reparent.node(large)!.y == nil && reparent.node(search)!.x == 50 && reparent.node("n1")!.x == nil)
+check("the other properties and the evidence stay", reparent.node(nav)!.color == "#112233" && reparent.node(nav)!.evidence.count == 1 && reparent.node(nav)!.title == "Project navigation")
+check("the logical connections stay", reparent.links == linksBefore)
+check("depth follows the new place", reparent.depth(of: nav) == 2 && reparent.depth(of: grandchild) == 4)
+check("the old parent keeps its other children in order", { var m = before; let a = try! m.addChild(parent: "n1", title: "A"); try! m.move(id: search, to: a); return m.children(of: "n1").map(\.id) == ["n2", a] }())
+check("a moved node is the last child, after the children the parent already has", reparent.children(of: search).map(\.id) == [sibling2, nav])
+check("moving a leaf under a branch puts it after the branch's subtree", { var m = before; try! m.move(id: search, to: nav); return m.nodes.map(\.id) == ["n1", "n2", "n4", "n5", "n3", "n6"] }())
+
+let unchanged = reparent
+check("the root cannot be moved", rejected { var m = reparent; try m.move(id: "n1", to: search) } == "The root node cannot be moved.")
+check("a node cannot become its own child", rejected { var m = reparent; try m.move(id: nav, to: nav) } == "A node cannot become its own child.")
+check("a node cannot be moved under its own descendant", rejected { var m = reparent; try m.move(id: nav, to: grandchild) } == "A node cannot be moved under one of its own descendants.")
+check("moving under the current parent is refused", rejected { var m = reparent; try m.move(id: nav, to: search) }?.contains("already the parent") == true)
+check("an unknown node or parent is refused", rejected { var m = reparent; try m.move(id: "n99", to: search) } != nil && rejected { var m = reparent; try m.move(id: nav, to: "n99") } != nil)
+check("a refused move changes nothing", { var m = reparent; _ = rejected { try m.move(id: nav, to: grandchild) }; return m == unchanged }())
+check("the new parent survives a file round trip", { if case .success(let again) = M.parse(reparent.markdown()) { return again.nodes.map(\.id) == reparent.nodes.map(\.id) && again.nodes.map(\.parent) == reparent.nodes.map(\.parent) && again.links == reparent.links } else { return false } }())
+
+// MARK: A picture beside the icon (REQ-017, DEC-018)
+
+var pictured = map
+try! pictured.update(id: nav, icon: "🧭", image: "images/nav.png")
+check("a node keeps both its icon and its picture", pictured.node(nav)!.icon == "🧭" && pictured.node(nav)!.image == "images/nav.png")
+check("the picture is one property line", pictured.markdown().contains("- image: images/nav.png"))
+check("a map without pictures writes no image line", !map.markdown().contains("- image:"))
+check("the picture survives a file round trip with the icon", { if case .success(let again) = M.parse(pictured.markdown()) { return again.node(nav)!.image == "images/nav.png" && again.node(nav)!.icon == "🧭" && again == pictured } else { return false } }())
+check("the picture is in the snapshot for the page", ((pictured.snapshot()["nodes"] as? [[String: Any]])?.first { ($0["id"] as? String) == nav }?["image"] as? String) == "images/nav.png")
+check("an https address is accepted", { var m = pictured; try! m.update(id: nav, image: "https://example.com/a.png"); return m.node(nav)!.image == "https://example.com/a.png" }())
+check("an empty value clears the picture and keeps the icon", { var m = pictured; try! m.update(id: nav, image: ""); return m.node(nav)!.image.isEmpty && m.node(nav)!.icon == "🧭" }())
+check("an absent value leaves the picture alone", { var m = pictured; try! m.update(id: nav, title: "Renamed"); return m.node(nav)!.image == "images/nav.png" }())
+for bad in ["../secret.png", "images/../../secret.png", "/etc/passwd", "~/a.png", "file:///etc/passwd", "http://example.com/a.png", "javascript:alert(1)", "data:image/png;base64,AAAA", "images\\a.png", "images//a.png", "images/a.png?x=1", "https://", String(repeating: "a", count: 400)] {
+    check("a picture address is refused: \(bad.prefix(30))", rejected { var m = pictured; try m.update(id: nav, image: bad) } == "A picture is a file inside the project or an https address.")
+}
+check("a refused picture changes nothing", { var m = pictured; _ = rejected { try m.update(id: nav, title: "Changed", image: "../x.png") }; return m == pictured }())
+check("a hand-written bad address is dropped when the file is read", { let text = pictured.markdown().replacingOccurrences(of: "- image: images/nav.png", with: "- image: ../secret.png"); if case .success(let again) = M.parse(text) { return again.node(nav)!.image.isEmpty } else { return false } }())
+check("a path with a space is allowed", M.isImageAddress("images/my picture.png"))
+
 // MARK: Operations: layouts (DEC-005, DEC-007)
 
 var layouts = map

@@ -156,15 +156,38 @@ L.PRESETS.forEach(function (preset) {
 
     const balanced = pos('balanced');
     const tops = nodes.filter(function (n) { return n.parent === 'n1'; });
-    check('balanced: root children alternate right, left, right, left',
-          tops.every(function (n, i) { return i % 2 === 0 ? balanced[n.id].x > 0 : balanced[n.id].x < 0; }));
+    check('balanced: both sides are used, and the first branch goes right', tops.some(function (n) { return balanced[n.id].x > 0; }) && tops.some(function (n) { return balanced[n.id].x < 0; }) && balanced[tops[0].id].x > 0);
+    // REQ-016, DEC-017: equal branches alternate right, left, right, left; the sides are worked out again from what is visible.
+    const evenFan = fan(8).map(function (n) { return n.parent ? Object.assign({}, n, { title: 'Branch' }) : n; });
+    const evenPos = run(evenFan, sizers.estimate).positions;
+    check('balanced: equal branches alternate right, left, right, left',
+          evenFan.filter(function (n) { return n.parent === 'n1'; }).every(function (n, i) { return i % 2 === 0 ? evenPos[n.id].x > 0 : evenPos[n.id].x < 0; }));
     check('balanced: deeper levels continue away from the root on their side',
           nodes.filter(function (n) { return n.parent && n.parent !== 'n1'; }).every(function (n) {
               const side = Math.sign(balanced[topAncestor(nodes, n.id).id].x);
               return Math.sign(balanced[n.id].x - balanced[n.parent].x) === side;
           }));
-    const rightCount = tops.filter(function (n) { return balanced[n.id].x > 0; }).length;
-    check('balanced: both sides are used about equally', Math.abs(rightCount - (tops.length - rightCount)) <= 1);
+    const sideHeight = function (positions, list, sign) {
+        const ys = list.filter(function (n) { return Math.sign(positions[n.id].x) === sign; }).map(function (n) { return positions[n.id].y; });
+        return ys.length ? Math.max.apply(null, ys) - Math.min.apply(null, ys) : 0;
+    };
+    check('balanced: both sides are about as tall', Math.abs(sideHeight(balanced, nodes, 1) - sideHeight(balanced, nodes, -1)) < 700);
+
+    // One big branch among small ones: the small ones gather on the other side, and folding the big one re-balances (REQ-016).
+    const heavy = [node('r', '', 'Root')];
+    heavy.push(node('big', 'r', 'Big branch'));
+    for (let i = 0; i < 9; i++) heavy.push(node('big' + i, 'big', 'Leaf ' + i));
+    ['s1', 's2', 's3', 's4'].forEach(function (id) { heavy.push(node(id, 'r', 'Small ' + id)); });
+    const heavyPos = run(heavy, sizers.estimate).positions;
+    check('balanced: a big branch alone on one side, the small ones on the other', heavyPos.big.x > 0 && ['s1', 's2', 's3', 's4'].every(function (id) { return heavyPos[id].x < 0; }));
+    const folded = heavy.filter(function (n) { return n.parent !== 'big'; });
+    const foldedPos = run(folded, sizers.estimate).positions;
+    check('balanced: folding the big branch gives alternation again', ['big', 's1', 's2', 's3', 's4'].every(function (id, i) { return i % 2 === 0 ? foldedPos[id].x > 0 : foldedPos[id].x < 0; }));
+    check('balanced: unfolding it brings the first picture back (nothing is remembered)', JSON.stringify(run(heavy, sizers.estimate).positions) === JSON.stringify(heavyPos));
+    const oneLevel = heavy.concat([node('moved', 'r', 'Moved here')]);
+    check('balanced: a node added to a branch is placed by the same rule, without overlap', tightest(run(oneLevel, sizers.estimate).positions, oneLevel, sizers.estimate).gap >= MIN_GAP);
+    const own = heavy.map(function (n) { return n.id === 'big' ? Object.assign({}, n, { layout: 'down' }) : n; });
+    check('balanced: a branch with a layout of its own is still placed by it', run(own, sizers.estimate).positions.big0.y > run(own, sizers.estimate).positions.big.y);
 
     const radial = pos('radial');
     const dist = function (id) { return Math.hypot(radial[id].x, radial[id].y); };

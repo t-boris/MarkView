@@ -1,5 +1,19 @@
 # Lessons
 
+## Cleanup that compares with the state it just cleared, hidden-page geometry, and a picture is checked by its bytes (REQ-015…REQ-017, 5.34.0)
+
+- A drag helper reset `target = ''` and then called the cleanup, whose `mark('')` returns early when the id equals the current target:
+  after Esc the drop highlight stayed. The web test that counts `.connect-ok, .connect-no, .connect-from` after Esc found it. Do not
+  clear the value a cleanup function compares against; let the cleanup clear it, and read what you need into a constant before.
+- In the hidden WebKit page a node can lie under the properties panel or outside the 1280 px viewport, and `document.elementFromPoint`
+  then returns the panel or null. Before a pointer test: Expand all, Centre, pan the map clear of the panel. The page code uses
+  `elementFromPoint(...) || event.target` for the drop target (a touch pointer keeps its first target, so `event.target` alone is wrong).
+- A new file kind that the page may send (a picture) is checked in Swift by its first bytes, never by the name or the type the page gives;
+  SVG is refused because it can carry scripts. The stored value is one relative path (no `..`, no scheme), validated before anything else
+  in `update`, so a refused value changes nothing.
+- `balanced` used to alternate by index, so folding a branch never moved a side. Choosing sides from the visible weight needs a slack:
+  with no slack the sides flip whenever a title wraps into a second line.
+
 ## A resizable field in a flex column needs `flex: none`, and the editable preview cannot write a map file back (BUG-096, REQ-010, 5.33.0)
 
 - A textarea with `resize: vertical` inside a column-flex panel did not resize: `flex: 1 1 180px` has a non-auto flex-basis, which wins

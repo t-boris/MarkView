@@ -46,7 +46,8 @@
         play: 'M8 5l11 7-11 7z',
         close: 'M6 6l12 12M18 6L6 18',
         open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
-        diagram: 'M4 4h7v5H4zM13 15h7v5h-7zM7.5 9v3.5h9V15'
+        diagram: 'M4 4h7v5H4zM13 15h7v5h-7zM7.5 9v3.5h9V15',
+        photo: 'M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M9 9a.8.8 0 1 0 0 .01'
     };
 
     // The icons a node can carry (REQ-008). The ids are ResearchMap.iconIDs in Swift; a web test keeps both lists equal.
@@ -366,6 +367,28 @@
         else glyph.appendChild(document.createTextNode(value));
     }
 
+    /** Shows the picture of a node (REQ-017) in the thumbnail of its card; a picture that cannot be loaded leaves no gap. */
+    function setThumb(entry, id, address) {
+        const url = address ? imageURL(address) : null;
+        const key = url || '';
+        if (entry.thumb._key === key) return;
+        entry.thumb._key = key;
+        if (!url) {
+            entry.thumb.hidden = true;
+            entry.thumb.removeAttribute('src');
+            return;
+        }
+        entry.thumb.hidden = false;
+        entry.thumb.onload = function () { remeasure(id); };
+        entry.thumb.onerror = function () {
+            entry.thumb.hidden = true;
+            const node = nodeById(id);
+            entry.lead.hidden = !node || (node.number == null && !node.icon);
+            remeasure(id);
+        };
+        entry.thumb.src = url;
+    }
+
     // ---- view state ---------------------------------------------------------------------------------------------------
     const rm = {
         active: false,
@@ -388,6 +411,8 @@
         pending: {},          // property edits waiting to be sent: id -> {doc, fields, timer}
         els: new Map(),
         collapsed: new Set(), // ids of nodes whose children are folded away (view state, DEC-010)
+        selLink: '',          // "from|to" of the selected logical connection (REQ-015), '' for none
+        connect: null,        // {from, x, y, target} while an arrow is dragged (REQ-015)
         panelFor: null,
         menu: null,
         menuEl: null,
@@ -542,6 +567,9 @@
     .rm-badge { display: inline-grid; place-items: center; min-width: 1.5em; height: 1.5em; padding: 0 .4em; border-radius: .75em; background: var(--branch, var(--b0)); color: var(--badge-ink, var(--rm-badge-ink)); font-size: .85em; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
     .rm-glyph { display: inline-grid; place-items: center; width: 1.25em; height: 1.25em; color: var(--branch, var(--b0)); font-size: 1.05em; line-height: 1; }
     .rm-glyph svg { width: 100%; height: 100%; }
+    /* The picture of a node (REQ-017): small, beside the icon, before the title. */
+    .rm-thumb { display: block; width: 30px; height: 30px; object-fit: cover; border-radius: 5px; border: 1px solid var(--rm-line); background: var(--rm-page); }
+    .rm-thumb[hidden] { display: none; }
     .rm-body { position: relative; z-index: 1; display: block; min-width: 0; }
     /* A given width: the wrap is exactly that wide and the title wraps in it. A given height or a shape: the card is a column that centres its title. */
     .rm-node-wrap.has-w { max-width: none; }
@@ -576,6 +604,20 @@
     /* Resize handles of the selected node: knobs on the corners, invisible bars along the edges (so the fold toggle keeps the middle of the bottom edge). They keep their size on screen at any zoom. */
     .rm-handle { position: absolute; z-index: 3; touch-action: none; }
     .rm-handle[hidden] { display: none; }
+    /* The arrow on the outer edge of a node: drag it onto another node to make that node a child of this one (REQ-015). It keeps its size on screen at any zoom. */
+    .rm-arrow { position: absolute; top: 50%; right: calc(-25px * var(--rm-inv, 1)); z-index: 3; display: grid; place-items: center; width: calc(18px * var(--rm-inv, 1)); height: calc(18px * var(--rm-inv, 1)); margin-top: calc(-9px * var(--rm-inv, 1)); padding: 0; border: 1px solid var(--rm-line); border-radius: 50%; background: var(--rm-bar); color: var(--rm-muted); font-size: calc(11px * var(--rm-inv, 1)); line-height: 1; cursor: crosshair; opacity: 0; transition: opacity .12s, color .12s, border-color .12s; touch-action: none; }
+    .rm-arrow::before { content: ''; position: absolute; top: 0; bottom: 0; left: calc(-8px * var(--rm-inv, 1)); width: calc(8px * var(--rm-inv, 1)); } /* bridges the gap to the node, so the hover is not lost on the way */
+    .rm-node-wrap.arrow-left .rm-arrow { right: auto; left: calc(-25px * var(--rm-inv, 1)); transform: scaleX(-1); }
+    .rm-node-wrap:hover .rm-arrow, .rm-node-wrap.selected .rm-arrow, .rm-node-wrap.connect-from .rm-arrow { opacity: 1; }
+    .rm-arrow:hover, .rm-node-wrap.connect-from .rm-arrow { color: var(--accent-primary); border-color: var(--accent-primary); }
+    .rm-node-wrap.connect-ok .rm-node { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+    .rm-node-wrap.connect-no { opacity: .45; }
+    .rm-viewport.is-connecting, .rm-viewport.is-connecting .rm-node { cursor: crosshair; }
+    .rm-lines path[data-line="link-hit"] { fill: none; stroke: transparent; stroke-width: 14px; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
+    .rm-lines path[data-line="connect"] { stroke: var(--accent-primary); stroke-dasharray: 3 5; }
+    .rm-linkx { position: absolute; z-index: 4; transform: translate(-50%, -50%); display: grid; place-items: center; width: calc(20px * var(--rm-inv, 1)); height: calc(20px * var(--rm-inv, 1)); padding: 0; border: 1px solid var(--accent-primary); border-radius: 50%; background: var(--rm-bar); color: var(--rm-ink); cursor: pointer; box-shadow: var(--rm-pop); }
+    .rm-linkx:hover { background: var(--rm-hover); }
+    .rm-linkx svg { width: calc(10px * var(--rm-inv, 1)); height: calc(10px * var(--rm-inv, 1)); }
     .rm-handle[data-h="n"], .rm-handle[data-h="s"] { left: calc(10px * var(--rm-inv, 1)); right: calc(10px * var(--rm-inv, 1)); height: calc(8px * var(--rm-inv, 1)); cursor: ns-resize; }
     .rm-handle[data-h="n"] { top: calc(-4px * var(--rm-inv, 1)); }
     .rm-handle[data-h="s"] { bottom: calc(-4px * var(--rm-inv, 1)); }
@@ -648,8 +690,16 @@
     .rm-color-row, .rm-badge-row { display: flex; align-items: center; gap: 8px; color: var(--rm-muted); font-size: .95em; }
     .rm-badge-row { flex-wrap: wrap; gap: 8px 14px; }
     .rm-badge-row .rm-field { display: inline-flex; align-items: center; gap: 6px; }
-    .rm-icon-pick { display: inline-flex; align-items: center; gap: 6px; min-width: 56px; height: 26px; padding: 0 8px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); color: var(--rm-ink); cursor: pointer; }
-    .rm-icon-pick:hover { background: var(--rm-hover); }
+    .rm-icon-pick, .rm-picture-pick { display: inline-flex; align-items: center; gap: 6px; min-width: 56px; height: 26px; padding: 0 8px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); color: var(--rm-ink); cursor: pointer; }
+    .rm-icon-pick:hover, .rm-picture-pick:hover { background: var(--rm-hover); }
+    .rm-picture-pick span { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rm-picture-thumb { display: block; width: 20px; height: 20px; object-fit: cover; border-radius: 3px; border: 1px solid var(--rm-line); }
+    .rm-picture-thumb[hidden] { display: none; }
+    .rm-dropzone { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; border: 1px dashed var(--rm-line); border-radius: 6px; color: var(--rm-muted); text-align: center; outline: none; }
+    .rm-dropzone:focus, .rm-dropzone.over { border-color: var(--accent-primary); }
+    .rm-picture-preview { max-width: 100%; max-height: 160px; border-radius: 4px; border: 1px solid var(--rm-line); object-fit: contain; }
+    .rm-picture-preview[hidden] { display: none; }
+    .rm-node-wrap.picture-drop .rm-node { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
     .rm-icon-pick .rm-glyph { color: var(--rm-ink); }
     .rm-number-input { width: 64px; height: 26px; padding: 2px 6px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); font: inherit; color: var(--rm-ink); outline: none; }
     .rm-number-input:focus { border-color: var(--rm-focus); }
@@ -830,6 +880,10 @@
         el.iconPick.appendChild(el.iconGlyph);
         el.iconPick.appendChild(el.iconText);
         el.iconClear = h('button', { class: 'rm-x', type: 'button', 'data-act': 'icon-clear', title: 'Remove the icon', 'aria-label': 'Remove the icon' }, icon('close'));
+        el.imageThumb = h('img', { class: 'rm-picture-thumb', alt: '', hidden: true });
+        el.imageText = h('span', null, 'None');
+        el.imagePick = h('button', { class: 'rm-picture-pick', type: 'button', 'data-act': 'image', title: 'Choose a picture for this node, shown beside its icon', onClick: function () { pictureDialog(nodeById(rm.selected)); } }, el.imageThumb, el.imageText);
+        el.imageClear = h('button', { class: 'rm-x', type: 'button', 'data-act': 'image-clear', title: 'Remove the picture', 'aria-label': 'Remove the picture' }, icon('close'));
         el.numberInput = h('input', { class: 'rm-number-input', type: 'number', min: '1', max: String(MAX_NUMBER), step: '1', inputmode: 'numeric', 'aria-label': 'Number badge', title: 'A number shown before the title (1 to ' + MAX_NUMBER + '); leave it empty for none', placeholder: '—' });
         // Shape and size of the node (REQ-009): a shape picker, Auto/S/M/L and the exact width and height.
         el.shapeBtns = {};
@@ -894,6 +948,7 @@
             h('div', { class: 'rm-badge-row' },
                 h('div', { class: 'rm-field' }, h('span', null, 'Icon'), el.iconPick, el.iconClear),
                 h('div', { class: 'rm-field' }, h('span', null, 'Number'), el.numberInput)),
+            h('div', { class: 'rm-badge-row' }, h('div', { class: 'rm-field' }, h('span', null, 'Picture'), el.imagePick, el.imageClear)),
             el.shapeRow,
             h('div', { class: 'rm-look-row' }, h('span', null, 'Size'), el.sizeSeg),
             h('div', { class: 'rm-look-row' }, h('span', null),
@@ -950,6 +1005,7 @@
         el.color.addEventListener('change', function () { if (rm.selected) queueUpdate(rm.selected, { color: el.color.value.toLowerCase() }, true); });
         el.colorClear.addEventListener('click', function () { if (rm.selected) queueUpdate(rm.selected, { color: '' }, true); });
         el.iconClear.addEventListener('click', function () { if (rm.selected) queueUpdate(rm.selected, { icon: '' }, true); });
+        el.imageClear.addEventListener('click', function () { if (rm.selected) queueUpdate(rm.selected, { image: '' }, true); });
         // The number is confirmed on Enter or when the field is left; an empty field removes it.
         const sendNumber = function () {
             if (!rm.selected) return;
@@ -1042,6 +1098,7 @@
                 tags: (Array.isArray(n.tags) ? n.tags : []).map(text).filter(Boolean),
                 color: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color.toLowerCase() : '',
                 icon: text(n.icon),
+                image: text(n.image),
                 number: typeof n.number === 'number' && isFinite(n.number) && n.number >= 1 && n.number <= MAX_NUMBER && Math.floor(n.number) === n.number ? n.number : null,
                 shape: SHAPE_IDS.indexOf(text(n.shape)) > 0 ? n.shape : '',
                 visual: text(n.visual) === 'diagram' || text(n.visual) === 'image' ? n.visual : '',
@@ -1327,8 +1384,9 @@
             entry.badge.hidden = n.number == null;
             entry.badge.textContent = n.number == null ? '' : String(n.number);
             setGlyph(entry.glyph, n.icon);
-            entry.lead.hidden = n.number == null && !n.icon;
-            const spoken = (n.number == null ? '' : 'Number ' + n.number + '. ') + (n.icon && NODE_ICONS[n.icon] ? n.icon + ' icon. ' : '');
+            setThumb(entry, n.id, n.image);
+            entry.lead.hidden = n.number == null && !n.icon && entry.thumb.hidden;
+            const spoken = (n.number == null ? '' : 'Number ' + n.number + '. ') + (n.icon && NODE_ICONS[n.icon] ? n.icon + ' icon. ' : '') + (n.image ? 'With a picture. ' : '');
             entry.btn.setAttribute('aria-label', spoken + title + '. Select node; arrow keys move the node');
             entry.tri.setAttribute('aria-label', 'Actions for node “' + title + '”');
             // The wrap carries the colour: the node and its fold toggle both use it.
@@ -1540,13 +1598,16 @@
     function makeNode(id) {
         const badge = h('span', { class: 'rm-badge', hidden: true });
         const glyph = h('span', { class: 'rm-glyph', hidden: true, 'aria-hidden': 'true' });
-        const lead = h('span', { class: 'rm-lead', hidden: true }, badge, glyph);
+        const thumb = h('img', { class: 'rm-thumb', alt: '', hidden: true, draggable: 'false' });
+        const lead = h('span', { class: 'rm-lead', hidden: true }, badge, glyph, thumb);
         const label = h('span', { class: 'rm-label' });
         const visual = h('span', { class: 'rm-vis', hidden: true });
         const body = h('span', { class: 'rm-body' }, lead, label, visual);
         const btn = h('button', { class: 'rm-node', type: 'button', 'aria-pressed': 'false' }, body);
         const tri = h('button', { class: 'rm-tri', type: 'button', title: 'Node menu: AI actions, add, connect, arrange, delete', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, '⋯');
         const fold = h('button', { class: 'rm-fold', type: 'button', hidden: true, 'aria-expanded': 'true' });
+        // The arrow on the outer edge: dragged onto another node it makes that node a child of this one (REQ-015, DEC-016).
+        const arrow = h('button', { class: 'rm-arrow', type: 'button', tabindex: '-1', title: 'Drag onto another node to make it a child of this node', 'aria-label': 'Drag onto another node to make it a child of this node' }, '→');
         // Eight resize handles, shown on the selected node only (REQ-009). A double click on any of them makes the size automatic.
         const handles = HANDLES.map(function (dir) {
             const handle = h('span', { class: 'rm-handle', 'data-h': dir, 'aria-hidden': 'true', hidden: true });
@@ -1562,8 +1623,8 @@
             });
             return handle;
         });
-        const wrap = h('div', { class: 'rm-node-wrap', 'data-id': id }, btn, tri, fold, handles);
-        const entry = { wrap: wrap, btn: btn, body: body, tri: tri, fold: fold, lead: lead, badge: badge, glyph: glyph, label: label, vis: visual, handles: handles, shapeSvg: null, autoH: 0 };
+        const wrap = h('div', { class: 'rm-node-wrap', 'data-id': id }, btn, tri, fold, arrow, handles);
+        const entry = { wrap: wrap, btn: btn, body: body, tri: tri, fold: fold, arrow: arrow, lead: lead, badge: badge, glyph: glyph, thumb: thumb, label: label, vis: visual, handles: handles, shapeSvg: null, autoH: 0 };
         // A double click on a diagram or picture opens it full screen (REQ-012).
         btn.addEventListener('dblclick', function () {
             const node = nodeById(id);
@@ -1606,6 +1667,9 @@
             if (!p) return;
             entry.wrap.style.left = p.x + 'px';
             entry.wrap.style.top = p.y + 'px';
+            // The arrow sits on the outer edge: the left one for a node that lies to the left of its parent.
+            const own = nodeById(id), parentAt = own && own.parent ? rm.positions[own.parent] : null;
+            entry.wrap.classList.toggle('arrow-left', !!parentAt && p.x < parentAt.x - 1);
         });
         drawLines();
     }
@@ -1629,21 +1693,59 @@
         path.setAttribute('data-line', kind);
         if (dashed) path.setAttribute('stroke-dasharray', '6 6');
         el.svg.appendChild(path);
+        return path;
     }
     function drawLines() {
         while (el.svg.firstChild) el.svg.removeChild(el.svg.firstChild);
+        if (el.linkX && el.linkX.parentNode) el.linkX.parentNode.removeChild(el.linkX);
         const snap = rm.snap;
         snap.nodes.forEach(function (n) {
             const a = rm.positions[n.parent], b = rm.positions[n.id];
             if (a && b) addPath(curve(a, b), n.color || branchOf(n.id), false, 'tree');
         });
+        let chosen = null;
         snap.links.forEach(function (l) {
             const a = rm.positions[l.from], b = rm.positions[l.to];
-            if (a && b) addPath(curve(a, b), 'var(--rm-muted)', true, 'link');
+            if (!a || !b) return;
+            const picked = rm.selLink === l.from + '|' + l.to;
+            const line = addPath(curve(a, b), picked ? 'var(--accent-primary)' : 'var(--rm-muted)', true, 'link');
+            if (picked) { line.setAttribute('stroke-width', '2.5'); chosen = { l: l, a: a, b: b }; }
+            // A wide invisible line over it, so that a connection is easy to hit with the pointer (REQ-015).
+            const hit = addPath(curve(a, b), 'transparent', false, 'link-hit');
+            hit.setAttribute('data-from', l.from);
+            hit.setAttribute('data-to', l.to);
         });
+        if (rm.selLink && !chosen) rm.selLink = '';
+        if (chosen) {
+            el.linkX = h('button', { class: 'rm-linkx', type: 'button', title: 'Remove this connection', 'aria-label': 'Remove this connection', 'data-from': chosen.l.from, 'data-to': chosen.l.to,
+                style: 'left:' + (chosen.a.x + chosen.b.x) / 2 + 'px;top:' + (chosen.a.y + chosen.b.y) / 2 + 'px;',
+                onClick: function (event) { event.stopPropagation(); removeSelectedLink(); } }, icon('close'));
+            el.world.appendChild(el.linkX);
+        }
+        if (rm.connect) {
+            const from = rm.positions[rm.connect.from];
+            if (from) addPath('M ' + from.x + ' ' + from.y + ' L ' + rm.connect.x + ' ' + rm.connect.y, 'var(--accent-primary)', true, 'connect');
+        }
     }
-
-    // ---- toolbar status ------------------------------------------------------------------------------------------------------
+    /** Selects a logical connection (REQ-015): the line is highlighted and shows a cross in the middle. */
+    function selectLink(from, to) {
+        if (rm.selected) select('');
+        rm.selLink = from + '|' + to;
+        closeMenu();
+        drawLines();
+    }
+    function clearLink() {
+        if (!rm.selLink) return;
+        rm.selLink = '';
+        drawLines();
+    }
+    function removeSelectedLink() {
+        const parts = rm.selLink.split('|');
+        if (parts.length !== 2) return;
+        rm.selLink = '';
+        send('unlink', { from: parts[0], to: parts[1] });
+        drawLines();
+    }
     function elapsedText(job) {
         if (!job || !job.startedAt) return '';
         const total = Math.max(0, Math.floor(Date.now() / 1000 - job.startedAt));
@@ -1757,7 +1859,11 @@
         if (event.button !== 0) return;
         const handle = event.target.closest('.rm-handle');
         if (handle) { startResize(event, handle.parentNode.getAttribute('data-id'), handle.getAttribute('data-h')); return; }
-        if (event.target.closest('.rm-tri, .rm-fold, .rm-actions')) return;
+        const arrow = event.target.closest('.rm-arrow');
+        if (arrow) { startConnect(event, arrow.parentNode.getAttribute('data-id')); return; }
+        const hit = event.target.closest('[data-line="link-hit"]');
+        if (hit) { event.preventDefault(); selectLink(hit.getAttribute('data-from'), hit.getAttribute('data-to')); return; }
+        if (event.target.closest('.rm-tri, .rm-fold, .rm-actions, .rm-linkx')) return;
         const nodeEl = event.target.closest('.rm-node');
         if (nodeEl) startNodeDrag(event, nodeEl.parentNode.getAttribute('data-id'));
         else startPan(event);
@@ -1791,7 +1897,78 @@
             stop();
             el.viewport.classList.remove('is-panning');
             if (moved) saveSoon();
-            else { closeMenu(); closeQueries(); select(''); }
+            else { closeMenu(); closeQueries(); select(''); clearLink(); }
+        });
+    }
+
+    /** Why `from` cannot take `to` as a child (the same rules as `ResearchMap.move`), or '' when it can. */
+    function connectProblem(from, to) {
+        if (!rm.snap || !nodeById(from) || !nodeById(to)) return 'That node no longer exists.';
+        if (to === rm.snap.nodes[0].id) return 'The root node cannot be moved.';
+        if (to === from) return 'A node cannot become its own child.';
+        for (let cur = nodeById(from), guard = 0; cur && guard < 10000; cur = cur.parent ? nodeById(cur.parent) : null, guard++) {
+            if (cur.id === to) return 'A node cannot be moved under one of its own descendants.';
+        }
+        if (nodeById(to).parent === from) return '\u201c' + nodeById(from).title + '\u201d is already the parent of this node.';
+        return '';
+    }
+    /** Drags a line from the arrow of node `from`; releasing on node B makes B the last child of `from` (REQ-015, DEC-016). */
+    function startConnect(event, from) {
+        if (!rm.positions[from]) return;
+        event.preventDefault();
+        closeMenu();
+        const rect = el.viewport.getBoundingClientRect();
+        const world = function (e) { return { x: (e.clientX - rect.left - rm.view.x) / rm.view.scale, y: (e.clientY - rect.top - rm.view.y) / rm.view.scale }; };
+        const start = { x: event.clientX, y: event.clientY };
+        let active = false, target = '';
+        const mark = function (id) {
+            if (id === target) return;
+            const old = target && rm.els.get(target);
+            if (old) old.wrap.classList.remove('connect-ok', 'connect-no');
+            target = id;
+            const entry = id && rm.els.get(id);
+            if (entry) entry.wrap.classList.add(connectProblem(from, id) ? 'connect-no' : 'connect-ok');
+        };
+        const finish = function () {
+            stop();
+            window.removeEventListener('keydown', onEsc, true);
+            mark('');
+            const entry = rm.els.get(from);
+            if (entry) entry.wrap.classList.remove('connect-from');
+            el.viewport.classList.remove('is-connecting');
+            rm.connect = null;
+            rm.lastDragEnd = now();
+            drawLines();
+        };
+        const onEsc = function (e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(); } };
+        window.addEventListener('keydown', onEsc, true);
+        const stop = listen(function (e) {
+            if (!active) {
+                if (Math.hypot(e.clientX - start.x, e.clientY - start.y) <= 3) return;
+                active = true;
+                el.viewport.classList.add('is-connecting');
+                const entry = rm.els.get(from);
+                if (entry) entry.wrap.classList.add('connect-from');
+            }
+            const at = world(e);
+            rm.connect = { from: from, x: at.x, y: at.y };
+            // The node under the pointer (a touch pointer keeps its first target, so the event target alone is not enough).
+            const under = document.elementFromPoint(e.clientX, e.clientY) || e.target;
+            const over = under && under.closest ? under.closest('.rm-node-wrap') : null;
+            mark(over ? over.getAttribute('data-id') : '');
+            drawLines();
+        }, function (e) {
+            const chosen = e.type === 'pointercancel' ? '' : target;
+            const wasActive = active;
+            finish();
+            if (!wasActive || !chosen) return;
+            const problem = connectProblem(from, chosen);
+            if (problem) { toast(problem); return; }
+            // A folded parent would hide the moved node: show the children.
+            rm.collapsed.delete(from);
+            saveSoon();
+            select(chosen);
+            send('move', { id: chosen, parent: from });
         });
     }
 
@@ -1828,6 +2005,14 @@
         relayout();
         send('moveVisual', { id: id, x: x, y: y });
     }
+    /** Delete or Backspace removes the selected logical connection, Escape deselects it (REQ-015). */
+    document.addEventListener('keydown', function (event) {
+        if (!rm.active || rm.dialog || !rm.selLink || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+        const target = event.target;
+        if (target && target.closest && target.closest('input, textarea, select, [contenteditable], .rm-divider, .rm-popover, .rm-layouts, .rm-modal')) return;
+        if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); removeSelectedLink(); }
+        else if (event.key === 'Escape') { event.preventDefault(); clearLink(); }
+    });
     /** Arrow keys move the selected node (a click does not focus a button in WebKit, so this listens on the document). */
     document.addEventListener('keydown', function (event) {
         if (!rm.active || rm.dialog || !rm.selected || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
@@ -1877,6 +2062,7 @@
 
     // ---- selection and panel ---------------------------------------------------------------------------------------------------
     function select(id) {
+        if (id) clearLink();
         if (rm.selected === id) return;
         flushAll();
         closeMenu();
@@ -1949,6 +2135,11 @@
         setGlyph(el.iconGlyph, node.icon);
         el.iconText.textContent = node.icon ? (NODE_ICONS[node.icon] ? node.icon.charAt(0).toUpperCase() + node.icon.slice(1) : 'Emoji') : 'None';
         el.iconClear.hidden = !node.icon;
+        const pictureURL = node.image ? imageURL(node.image) : null;
+        el.imageThumb.hidden = !pictureURL;
+        if (pictureURL && el.imageThumb._key !== pictureURL) { el.imageThumb._key = pictureURL; el.imageThumb.src = pictureURL; }
+        el.imageText.textContent = node.image ? node.image.split('/').pop().slice(0, 28) : 'None';
+        el.imageClear.hidden = !node.image;
         if (forceNumber === true || document.activeElement !== el.numberInput) el.numberInput.value = node.number == null ? '' : String(node.number);
         // Shape and size: the buttons say what is set; the fields show the stored values (empty is automatic).
         const look = boxOf(node), shown = node.shape || 'rounded';
@@ -2071,6 +2262,7 @@
         addItem({ act: 'link', label: 'Add logical connection…', icon: 'link', off: snap.nodes.length < 2, run: function () { linkDialog(node); } });
         addItem({ act: 'edit', label: 'Edit title…', icon: 'edit', run: function () { editDialog(node); } });
         addItem({ act: 'icon', label: 'Icon…', icon: 'tag', hint: 'Choose an icon or an emoji for this node', run: function () { select(id); iconDialog(node); } });
+        addItem({ act: 'image', label: 'Image…', icon: 'photo', hint: 'Add a picture to this node, shown beside its icon', run: function () { select(id); pictureDialog(node); } });
         const kids = snap.nodes.filter(function (n) { return n.parent === id; });
         const numbered = kids.length > 0 && kids.every(function (n, i) { return n.number === i + 1; });
         addItem({ act: 'number-children', label: numbered ? 'Remove numbers from children' : 'Number children 1, 2, 3…', icon: 'text',
@@ -2250,6 +2442,95 @@
         } });
         dialog('Icon for “' + node.title + '”', [grid, h('label', null, 'Or any emoji', input), error], actions, 'Choose an icon');
     }
+    // ---- a picture on a node, beside its icon (REQ-017, DEC-018) -----------------------------------------------------------------
+    const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+    const PICTURE_LIMIT = 6000000;   // the same limit as ResearchMapImages.sizeLimit in Swift
+    function hasFiles(event) { return !!(event.dataTransfer && Array.prototype.indexOf.call(event.dataTransfer.types || [], 'Files') >= 0); }
+    function firstFile(transfer) { return transfer && transfer.files && transfer.files.length ? transfer.files[0] : null; }
+    /** Sends a picture that was chosen, dropped or pasted to Swift, which saves it in images/ beside the map and sets it on the node. Returns a one-line reason when it cannot. */
+    function attachPicture(id, file) {
+        if (!file || !nodeById(id)) return 'That node no longer exists.';
+        if (PICTURE_TYPES.indexOf(file.type) < 0) return 'Use a PNG, JPEG, GIF or WebP picture.';
+        if (file.size > PICTURE_LIMIT) return 'The picture is larger than 6 MB.';
+        const reader = new FileReader();
+        reader.onload = function () {
+            const result = String(reader.result || ''), comma = result.indexOf(',');
+            if (comma < 0) { toast('The picture could not be read.'); return; }
+            send('attachImage', { id: id, name: file.name || 'image', data: result.slice(comma + 1) });
+        };
+        reader.onerror = function () { toast('The picture could not be read.'); };
+        reader.readAsDataURL(file);
+        return '';
+    }
+    function pictureDialog(node) {
+        if (!node) return;
+        const id = node.id;
+        const input = h('input', { type: 'file', accept: PICTURE_TYPES.join(','), hidden: true, 'aria-label': 'Choose a picture file' });
+        const preview = h('img', { class: 'rm-picture-preview', alt: '', hidden: true });
+        const current = node.image ? imageURL(node.image) : null;
+        if (current) { preview.src = current; preview.hidden = false; }
+        const choose = h('button', { class: 'rm-btn', type: 'button', 'data-act': 'choose-picture', onClick: function () { input.click(); } }, 'Choose file…');
+        const zone = h('div', { class: 'rm-dropzone', role: 'group', 'aria-label': 'Picture for this node' }, preview,
+            h('span', null, 'Drop a picture here, paste it (⌘V), or choose a file. PNG, JPEG, GIF or WebP, up to 6 MB.'), choose, input);
+        const error = h('p', { class: 'rm-error', role: 'alert' });
+        const take = function (file) {
+            const problem = attachPicture(id, file);
+            if (problem) { error.textContent = problem; return; }
+            closeDialog();
+        };
+        input.addEventListener('change', function () { take(firstFile(input)); });
+        zone.addEventListener('dragover', function (event) { if (hasFiles(event)) { event.preventDefault(); zone.classList.add('over'); } });
+        zone.addEventListener('dragleave', function () { zone.classList.remove('over'); });
+        zone.addEventListener('drop', function (event) {
+            zone.classList.remove('over');
+            if (!hasFiles(event)) return;
+            event.preventDefault();
+            take(firstFile(event.dataTransfer));
+        });
+        const actions = [{ label: 'Cancel', kind: 'ghost' }];
+        if (node.image) actions.push({ label: 'Remove picture', kind: 'ghost', run: function () { queueUpdate(id, { image: '' }, true); } });
+        const overlay = dialog('Picture for “' + node.title + '”', [zone, error], actions, 'Choose a picture');
+        overlay.addEventListener('paste', function (event) {
+            const file = firstFile(event.clipboardData);
+            if (!file) return;
+            event.preventDefault();
+            take(file);
+        });
+    }
+    /** A picture dropped on a node of the canvas goes onto that node. */
+    (function () {
+        let over = '';
+        const mark = function (id) {
+            if (id === over) return;
+            const old = over && rm.els.get(over);
+            if (old) old.wrap.classList.remove('picture-drop');
+            over = id;
+            const entry = id && rm.els.get(id);
+            if (entry) entry.wrap.classList.add('picture-drop');
+        };
+        const nodeAt = function (event) {
+            const wrap = event.target && event.target.closest ? event.target.closest('.rm-node-wrap') : null;
+            return wrap ? wrap.getAttribute('data-id') : '';
+        };
+        el.viewport.addEventListener('dragover', function (event) {
+            const id = hasFiles(event) ? nodeAt(event) : '';
+            mark(id);
+            if (!id) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+        });
+        el.viewport.addEventListener('dragleave', function (event) { if (!event.relatedTarget || !el.viewport.contains(event.relatedTarget)) mark(''); });
+        el.viewport.addEventListener('drop', function (event) {
+            mark('');
+            const id = hasFiles(event) ? nodeAt(event) : '';
+            if (!id) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const problem = attachPicture(id, firstFile(event.dataTransfer));
+            if (problem) toast(problem); else select(id);
+        });
+    })();
+
     function addChildDialog(parent) {
         textDialog('Add child node', 'Parent node: ' + parent.title, 'Child node name', '', MAX_TITLE, 'Add', function (title) { send('addChild', { parent: parent.id, title: title }); }, 'Enter a node name.');
     }

@@ -9,14 +9,27 @@ Request (Boris, 2026-11-05): "how do I move a node from one parent to another?" 
 - The east resize handle of the selected node sits on the right edge, the fold button on the bottom edge, the "⋯" menu top right: the arrow goes just outside the right edge, vertically centred.
 
 ### Plan (default choices in brackets, Boris can change them)
-- [ ] 1. Swift: `ResearchMap.move(id:to:)` (the node and its subtree become the last children of the new parent; refuse the root, itself, a descendant, the current parent; drop the hand-placed `x`/`y` of the moved nodes), through `updateResearchMap`; message `move {id, parent}` in `WorkspaceManager`; tests in the document suite (including a file round trip and links kept).
-- [ ] 2. Page: arrow on each node (right edge; left edge in a left-growing branch) on hover and when selected, drag with a rubber-band line, drop target highlight, Esc cancels, refusal toast; tests in the WebKit suite (pointer drags, the exact `move` message, nothing sent on cancel or an invalid target).
-- [ ] 3. Page: wide invisible hit area on dashed lines, click selects the line and shows a cross in its middle, cross / Delete / Backspace send `unlink`; hierarchy lines stay inert [open point 1]; tests.
-- [ ] 4. Hidden renders in dark and light (arrow, highlight, selected line); web, document, layout, run and export suites; Debug build.
-- [ ] 5. Records: tick REQ-015, lesson; minor bump 5.34.0 straight to `main`, `./release.sh --publish`, reinstall with windows restored.
+- [x] 1. Swift: `ResearchMap.move(id:to:)` (the node and its subtree become the last children of the new parent; refuse the root, itself, a descendant, the current parent; drop the hand-placed `x`/`y` of the moved nodes) and the `move {id, parent}` action in `WorkspaceManager`; 16 new checks in `ResearchMapDocumentTests.swift`, all green.
+- [x] 2. Page: arrow on each node (right edge; left edge in a left-growing branch) on hover and when selected, drag with a rubber-band line, drop target highlight, Esc cancels, refusal toast; WebKit tests. (The Esc test found a real bug: the marks stayed after Esc.)
+- [x] 3. Page: wide invisible hit area on dashed lines, click selects the line and shows a cross in its middle, cross / Delete / Backspace send `unlink`; hierarchy lines are inert (Boris, 2026-11-05: "parent lines cannot be deleted, that makes no sense; logical links can"); tests.
+- [x] 4. Hidden renders in dark and light (node selected with arrow, thumbnail and icon; connect line to a valid target; selected connection with its cross); web (all checks, 0 failures), document, layout, run, export, report, translation, diagram, architecture and images suites; Debug build succeeded.
+- [x] 5a. Records: REQ-015 (criteria 2–7), REQ-016 (1–3, 5), REQ-017 (1, 2, 4, 6, 8) ticked; DEC-017, DEC-018 proposed; lesson.
+- [ ] 5b. Minor bump 5.34.0 straight to `main`, `./release.sh --publish`, reinstall with windows restored.
 
-### Open point
-1. Clicking a hierarchy (parent-child) line: [nothing — every node needs a parent, so the arrow is the way to change it]. The alternative is that deleting a hierarchy line hangs the node under the root.
+### Added to the same release (Boris, mid-turn, 2026-11-05)
+**REQ-016, DEC-017 — the balanced layout is worked out again from what is visible.** Boris: "when we close and open a node, and it has a balanced layout, we re-consider on which side it is calculated; it is not static unless we changed it ourselves." Before: the root's children alternated right, left, right, left by index, so folding or unfolding a branch never changed a side. Now `splitSides` in `markview-research-map-layout.js`: children alternate as before, but a branch goes to the lighter side when the alternate side is already taller by more than `sideSlack` (90 px). Nothing is stored (hand-placed `x`/`y` and an explicit layout of the node stay as they are). Checks in `research-map-layout.test.js` (equal branches still alternate; a big branch alone on one side; folding it restores alternation; unfolding gives the first picture back).
+- [x] 6. Layout change and its checks (layout suite green).
+
+**REQ-017, DEC-018 — a picture on a node, next to the icon.** Boris chose "a thumbnail next to the icon (Recommended)": any node can carry a picture shown small to the left of the title; the icon stays. Added from "Image…" in the node menu and in the panel: choose a file, drop it or paste it; the file is copied into `images/` next to the map file. Stored as one `- image: images/<name>` property line.
+- [x] 7. Swift: `Node.image` (parse, write, validation: relative path without `..` or an `https` address), `update(... image:)`, snapshot field; `attachImage {id, name, data}` action (size limit, type by the first bytes, written off the main thread into `images/`, unique name), `image {id, path}` to clear or set; document tests.
+- [x] 8. Page: thumbnail on the card, "Image…" in the node menu, the row in the panel, the dialog (choose, drop, paste, remove); WebKit tests with a real `File`.
+- [x] 9. Renders in both themes; all suites; Debug build.
+
+### Review of 5.34.0 (REQ-015, REQ-016, REQ-017)
+- Verified: real WebKit page tests for the arrow (position, drag, valid and refused targets, Esc, empty canvas, click without movement), the exact `move` message, the connection hit line, cross, Delete/Backspace/Esc, hierarchy lines inert, the picture thumbnail, dialog (choose, paste, drop, refusals), drop on a node and the exact `attachImage` message; document tests for `move` (subtree, refusals, round trip, links kept) and the `image` property; `ResearchMapImages` tests (bytes, limits, safe names, reuse, no escape from `images/`); layout tests for the weighted balanced split (fold / unfold restores the first picture).
+- Not verified in the running app: a real mouse drag of the arrow and a real hover (the hidden page freezes CSS transitions), the Swift path of `attachImage` end to end (WorkspaceManager → disk → snapshot; each part is tested, the wiring only compiles), Choose file… with the system picker, Cmd-V of a screenshot, a real file dropped from Finder.
+- Decisions left for Boris: DEC-016 (arrow semantics), DEC-017 (balanced by visible weight, 90 px slack), DEC-018 (picture saved in `images/` beside the map). The report and the PDF do not use node pictures yet.
+
 
 ## Research map: description resize, Map/View/Source, Focus, diagram and image nodes (2026-11-05, feature mind-map) — BUG-096, REQ-010…REQ-012, DEC-013 (proposed)
 

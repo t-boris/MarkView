@@ -5471,7 +5471,8 @@ extension WorkspaceManager {
     /// One action of the map view (bridge message "researchMap"). Validation of every field happens here, at
     /// the boundary; the rules of the map itself are in `ResearchMap`. Returns the answer for the page, or nil
     /// when the tab the page names is gone.
-    func handleResearchMapAction(_ action: String, payload: [String: Any], documentID: UUID?) -> ResearchMapReply? {
+    /// `carriedNotice`: a one-line message that is already known (the result of a picture saved off the main thread).
+    func handleResearchMapAction(_ action: String, payload: [String: Any], documentID: UUID?, carriedNotice: String = "") -> ResearchMapReply? {
         // The action name comes from the page: it is logged only as plain letters.
         let loggedAction = String(action.filter { $0.isLetter }.prefix(24))
         guard let index = editorTabIndex(documentID: documentID, event: "research map \(loggedAction)"),
@@ -5494,7 +5495,7 @@ extension WorkspaceManager {
             return .some(integer(key) ?? 0)
         }
         var created = ""
-        var notice = ""
+        var notice = carriedNotice
         var change: ResearchMapChange?
 
         switch action {
@@ -5512,6 +5513,7 @@ extension WorkspaceManager {
                                color: payload["color"] as? String,
                                description: payload["description"] as? String,
                                icon: payload["icon"] as? String,
+                               image: payload["image"] as? String,
                                number: number,
                                shape: payload["shape"] as? String,
                                width: width,
@@ -5523,6 +5525,9 @@ extension WorkspaceManager {
             change = updateResearchMap(file) { _ = try $0.numberChildren(of: string("id"), clear: clear) }
         case "delete":
             change = updateResearchMap(file) { _ = try $0.delete(id: string("id")) }
+        case "move":
+            // An arrow dragged from the new parent onto a node (REQ-015): the node and its subtree become the parent's last child.
+            change = updateResearchMap(file) { try $0.move(id: string("id"), to: string("parent")) }
         case "moveVisual":
             guard let x = integer("x"), let y = integer("y") else {
                 notice = "That position is not valid."
@@ -5578,6 +5583,33 @@ extension WorkspaceManager {
         }
         let text = researchMapText(file) ?? ""
         return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text)
+    }
+
+    /// A picture the page was given for a node (chosen, dropped or pasted, REQ-017): saved into `images/` beside the map
+    /// off the main thread, then set on the node through the map's single writer. Returns a one-line reason when it
+    /// fails, or an empty text.
+    func attachResearchMapImage(_ payload: [String: Any], documentID: UUID?) async -> String {
+        guard let index = editorTabIndex(documentID: documentID, event: "research map attachImage"),
+              openTabs[index].isFileBacked else { return "" }
+        let file = openTabs[index].url
+        let id = (payload["id"] as? String) ?? ""
+        let name = String(((payload["name"] as? String) ?? "").prefix(200))
+        let encoded = (payload["data"] as? String) ?? ""
+        guard !id.isEmpty else { return "That node no longer exists." }
+        let stored = await Task.detached(priority: .userInitiated) {
+            ResearchMapImages.store(base64: encoded, suggestedName: name, besideMap: file)
+        }.value
+        switch stored {
+        case .failure(let failure):
+            return failure.message
+        case .success(let path):
+            // The tab may have been closed while the file was written: then the picture stays in images/ and nothing else happens.
+            guard researchMapTab(file) != nil else { return "" }
+            switch updateResearchMap(file, { try $0.update(id: id, image: path) }) {
+            case .rejected(let reason), .unreadable(let reason): return reason
+            case .done: return ""
+            }
+        }
     }
 
     /// A map that says "researching" while no job of this window works on it was interrupted (the app quit
