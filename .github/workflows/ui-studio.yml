@@ -11,6 +11,7 @@ on:
       - 'MarkView/Resources/Editor/vendor/js/markview-ui-studio.js'
       - 'tools/tests/UIStudio*'
       - 'tools/tests/ui-studio*.sh'
+      - 'tools/tests/studio-python/**'
       - 'tools/tests/ImageAttachments*'
       - 'tools/tests/image-attachments-tests.sh'
       - '.github/workflows/ui-studio.yml'
