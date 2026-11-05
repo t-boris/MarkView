@@ -1390,3 +1390,22 @@ a language choice at export) and wanted a single release.
   shows half-way colours (grey toolbar). Switch transitions off in the probe before judging a screenshot.
 - The live check of an AI feature runs the module code itself (prompt, schema, parse, check, repair loop, apply) against the real
   CLI on a copy of the real data; a stub of the process layer is enough, and nothing shows a window.
+
+## 2026-11-05 — UI Studio "implementing" for a week, and Fix data (REQ-017)
+
+Boris asked why a feature was still `implementing` and said to close it if all was well. It was not well: REQ-017 was never
+built, the criteria of REQ-001 and REQ-010..016 were never ticked, and the status had silently flipped back to `implementing`
+in a later commit and stayed there.
+- A request to "just close it" is a request to check first: read the feature's requirements, criteria and status history
+  (`git log -p -- overview.md`) before touching the status. Close only what the evidence supports; say what is not done.
+- Every commit that adds a requirement to a feature already `implemented` moves it back to `implementing`. Put "set the status
+  back" on the plan of that release, and tick criteria in the same release that proves them (the check names carry the REQ id,
+  so `grep "ok  REQ-0NN"` on the suite logs is the evidence), not later in a batch.
+- `main.swift` top-level `let` globals initialise in execution order: constants declared after `Task { await run() }` are still
+  uninitialised when the task runs (segfault, exit 139). Declare them before it or keep them local to the function.
+- WebKit's `reason.stack` of an unhandled rejection has no message line (`@http://host/app.js:7:89`), unlike V8. Anything that
+  reads a rejection must add `name: message` itself; the pure checks passed, only a session run against a real page showed it.
+- A probe that shells out must not assume GNU tools: macOS has no `timeout`, so eight "live" runs failed in 0 s with an empty
+  answer. Read the first line of a stderr file before trusting a batch of runs.
+- A seed written back after an `await` must replace only what it changed (the corrected entities): a refill running meanwhile
+  would be overwritten by a whole-seed assignment.

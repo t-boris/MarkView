@@ -43,7 +43,12 @@ issues:
     summary: Capture before and after evidence from the same baseline scenario and restoration steps, recording rendering conditions and code revisions, and provide side-by-side and image-difference review. Integrate feature export with the existing feature-writing path to include the description, patch, baseline and final revisions, scenario, rendering metadata, captures and verification results. Retain historical captures while marking packages for revalidation when baseline code changes, exclude secrets and avoid automatically adding large images to Git. Verify package completeness, comparable capture conditions and stale-evidence marking.
     requirements: [REQ-005, REQ-006]
     decisions: []
-updated: 2026-11-04
+  - id: I-9
+    title: Keep the simulated environment true to the running application
+    summary: Everything added after the first release as the application met real projects. Server requests and environment (REQ-007), browser capabilities (REQ-008), the conversation thread with memory and voice input (REQ-009), mock-up sign-in and forms that always pass (REQ-010), the toolbar button and the log (REQ-011), tracking of every change as a requirement or a bug (REQ-012), context changes from the conversation (REQ-013), the artificial environment mapped from the code (REQ-014), WebSocket, server-sent events and GraphQL (REQ-015), the Electron preload bridge (REQ-016), and Fix data for page errors caused by simulated data (REQ-017). Verified by the UI Studio check suites and live runs of the project assistant.
+    requirements: [REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-013, REQ-014, REQ-015, REQ-016, REQ-017]
+    decisions: [DEC-006, DEC-007, DEC-008, DEC-009, DEC-010, DEC-011]
+updated: 2026-11-05
 ---
 
 # Implementation plan — MarkView UI Studio
@@ -102,3 +107,10 @@ Decisions: DEC-004
 Capture before and after evidence from the same baseline scenario and restoration steps, recording rendering conditions and code revisions, and provide side-by-side and image-difference review. Integrate feature export with the existing feature-writing path to include the description, patch, baseline and final revisions, scenario, rendering metadata, captures and verification results. Retain historical captures while marking packages for revalidation when baseline code changes, exclude secrets and avoid automatically adding large images to Git. Verify package completeness, comparable capture conditions and stale-evidence marking.
 
 Requirements: REQ-005, REQ-006
+
+## I-9: Keep the simulated environment true to the running application
+
+Everything added after the first release as the application met real projects. Server requests and environment (REQ-007), browser capabilities (REQ-008), the conversation thread with memory and voice input (REQ-009), mock-up sign-in and forms that always pass (REQ-010), the toolbar button and the log (REQ-011), tracking of every change as a requirement or a bug (REQ-012), context changes from the conversation (REQ-013), the artificial environment mapped from the code (REQ-014), WebSocket, server-sent events and GraphQL (REQ-015), the Electron preload bridge (REQ-016), and Fix data for page errors caused by simulated data (REQ-017). Verified by the UI Studio check suites and live runs of the project assistant.
+
+Requirements: REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-013, REQ-014, REQ-015, REQ-016, REQ-017
+Decisions: DEC-006, DEC-007, DEC-008, DEC-009, DEC-010, DEC-011
