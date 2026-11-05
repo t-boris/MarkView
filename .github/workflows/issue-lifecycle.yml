@@ -1,0 +1,93 @@
+# Checks the issue lifecycle (docs/features/issue-lifecycle-management): the transition policy and journal, delivery evidence, verified
+# completion, the GitHub sync planner, the AI context and the Lifecycle section's model, plus the suites of the code that now routes
+# its status changes through it. Runs on every push to main that touches that code, because work goes to main directly.
+name: Issue Lifecycle Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MarkView/Models/Issue*.swift'
+      - 'MarkView/Models/FeatureStore*.swift'
+      - 'MarkView/Models/FeatureModels.swift'
+      - 'MarkView/Models/ProjectToolRunner*.swift'
+      - 'MarkView/Models/ProjectAgentTools.swift'
+      - 'MarkView/Models/MarkdownIssueStatusStore.swift'
+      - 'MarkView/Models/BrowserControlServer.swift'
+      - 'MarkView/Models/BugBasket.swift'
+      - 'MarkView/Models/BugValidity.swift'
+      - 'MarkView/Models/SpecificationHandoff.swift'
+      - 'MarkView/Models/UIStudioSession*.swift'
+      - 'MarkView/Views/*Lifecycle*.swift'
+      - 'tools/tests/Issue*'
+      - 'tools/tests/issue-*.sh'
+      - 'tools/tests/ProjectAgentTools*'
+      - 'tools/tests/project-agent-tools-tests.sh'
+      - 'tools/tests/control-agent-tools-tests.sh'
+      - 'tools/tests/WorkspaceRedesign*'
+      - 'tools/tests/workspace-redesign-tests.sh'
+      - 'tools/tests/BugBasket*'
+      - 'tools/tests/RemoteBrowser*'
+      - 'tools/tests/UIStudioSession*'
+      - '.github/workflows/issue-lifecycle.yml'
+  pull_request:
+    paths:
+      - 'MarkView/Models/Issue*.swift'
+      - 'MarkView/Models/FeatureStore*.swift'
+      - 'MarkView/Models/FeatureModels.swift'
+      - 'MarkView/Models/ProjectToolRunner*.swift'
+      - 'MarkView/Models/ProjectAgentTools.swift'
+      - 'MarkView/Models/MarkdownIssueStatusStore.swift'
+      - 'MarkView/Models/BrowserControlServer.swift'
+      - 'MarkView/Models/BugBasket.swift'
+      - 'MarkView/Models/BugValidity.swift'
+      - 'MarkView/Models/SpecificationHandoff.swift'
+      - 'MarkView/Models/UIStudioSession*.swift'
+      - 'MarkView/Views/*Lifecycle*.swift'
+      - 'tools/tests/Issue*'
+      - 'tools/tests/issue-*.sh'
+      - 'tools/tests/ProjectAgentTools*'
+      - 'tools/tests/project-agent-tools-tests.sh'
+      - 'tools/tests/control-agent-tools-tests.sh'
+      - 'tools/tests/WorkspaceRedesign*'
+      - 'tools/tests/workspace-redesign-tests.sh'
+      - 'tools/tests/BugBasket*'
+      - 'tools/tests/RemoteBrowser*'
+      - 'tools/tests/UIStudioSession*'
+      - '.github/workflows/issue-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the policy, journal, evidence, completion, GitHub planner, AI context and display model
+        run: bash tools/tests/issue-lifecycle-tests.sh
+      - name: Check Sync and the issue listing
+        run: |
+          bash tools/tests/issue-sync-tests.sh
+          bash tools/tests/issue-listing-tests.sh
+      - name: Check the agent tools, the handoff prompts and the specification handoff
+        run: |
+          bash tools/tests/project-agent-tools-tests.sh
+          bash tools/tests/control-agent-tools-tests.sh
+          bash tools/tests/handoff-prompt-tests.sh
+          bash tools/tests/workspace-redesign-tests.sh
+      - name: Check the batch handoff, the validity check and the control server
+        run: |
+          bash tools/tests/bug-basket-tests.sh
+          bash tools/tests/bug-validity-tests.sh
+          bash tools/tests/remote-browser-tests.sh
+
+  ui-studio-session:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run a UI Studio session (its export and tracking go through the lifecycle)
+        run: bash tools/tests/ui-studio-session-tests.sh
