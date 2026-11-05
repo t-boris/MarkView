@@ -10,6 +10,13 @@ on:
       - '.github/workflows/build-release.yml'
   workflow_dispatch:
     inputs:
+      runner_image:
+        description: Standard macOS runner image
+        type: choice
+        options:
+          - macos-latest
+          - xcode-27
+        default: macos-latest
       verify_cache:
         description: Verify incremental compilation with a temporary Swift change
         type: boolean
@@ -20,7 +27,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner_image || 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
