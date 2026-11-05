@@ -1,3 +1,32 @@
+## Research map: shape and size of a node (2026-11-04, feature mind-map) — REQ-009, DEC-012 (proposed)
+
+Request (Boris): "in the mind map I want to be able to change the shape and the size of each node". Answers (2026-11-04): shapes = **base set of 5** (rounded rectangle = today's look and the default, rectangle, pill, ellipse, diamond); resize = **handles on the node + Width/Height fields + S/M/L presets**; a given size = **a minimum** (the text is never cut); scope = **the selected node only**.
+
+### Facts checked in code
+- The layout engine takes each node's box from `rm.sizes[id]` = the measured `offsetWidth/offsetHeight` of `.rm-node` (`markview-research-map.js` `syncNodes`, `relayout`), so a bigger node already pushes siblings and children away; no change in `markview-research-map-layout.js` except `estimateSize` (the fallback when a node cannot be measured).
+- The wrap is `width: max-content; max-width: 220px`, the node `min-width: 96px; max-width: 220px`: a manual width must lift both caps.
+- Lines are drawn centre to centre under the nodes (`drawLines`, `curve`), so any opaque shape hides the line inside it; no change to the lines.
+- Swift owns the file: `ResearchMap.Node`, `parse`/`write` property lines (`known keys` list), `update(...)`, `snapshot`; the page sends `update` through `WorkspaceManager.handleResearchMapAction`.
+- Optimistic position state (`rm.moves`, cleared when the snapshot has caught up) is the pattern to copy for a size that is being dragged.
+
+### Design (DEC-012)
+- File: optional `- shape: rectangle|pill|ellipse|diamond` (rounded = not written), `- width: 60…800`, `- height: 28…600`. Bad values are dropped on read, refused on write. Backward compatible → `minor` bump.
+- Page: rectangle/pill/ellipse by CSS radius; diamond by an SVG polygon layer (`vector-effect: non-scaling-stroke`) so the outline and the selection ring are not clipped. Rounded and rectangle keep the branch stripe; pill, ellipse and diamond use a branch-coloured outline. Ellipse and diamond keep the text in the inscribed rectangle (×1.42 and ×2): the page measures the label and pads the node. The `⋯` button and the fold toggle move to the edge of the shape.
+- Minimum semantics: width sets the wrap width; height is a `min-height`; a dragged height at or below the natural text height is stored as Auto.
+- Handles: eight on the selected node, symmetric around the centre (the layout decides where the centre is); live relayout while dragging; one `update` on release; double click on a handle = Auto.
+- Panel: Shape row (5 buttons with outlines) and Size row (Auto/S/M/L + Width + Height) under Icon/Number. S = 140×44, M = 220×64, L = 320×96.
+- The AI never sets shape or size; the report ignores both.
+
+### Plan
+- [ ] 0. Records: REQ-009, DEC-012 (done through MarkView); this plan.
+- [ ] 1. Swift model: `shape`, `width`, `height` on `Node`; `shapes` list and limits; parse/write; `update(shape:width:height:)` with validation; snapshot fields + `shapes`; bridge `update` payload; make sure no code path rebuilds a node and drops the new fields (AI modes, reparent-free copy paths).
+- [ ] 2. Page: CSS per shape, SVG diamond layer, text-area fit for ellipse/diamond, `applyBox` (width, min-height), tri/fold positions, `estimateSize` with width/height.
+- [ ] 3. Page: panel rows (Shape, Size), S/M/L/Auto, Width/Height fields with refusal messages.
+- [ ] 4. Page: eight resize handles, live drag with optimistic size (`rm.boxes`), release → `update`, double click → Auto, Esc cancels a drag.
+- [ ] 5. Tests: `research-map-document-tests.sh` (round trip, validation, update), `research-map-layout-tests.sh` (estimate with width/height, no overlap with big nodes), `research-map-web-tests.sh` (classes, handles, drag → update payload, presets, min semantics, shape ids equal to Swift's), existing suites stay green; Debug build.
+- [ ] 6. Look at hidden renders: five shapes in dark and light, selected with handles, a long title in a diamond, a big node among small ones.
+- [ ] 7. `./bump-version.sh minor` (5.32.0), straight to `main`, `./release.sh --publish`; REQ-009 criteria ticked; lesson if something non-obvious turns up. Offer the reinstall (not done without Boris's go-ahead).
+
 ## Research map: first-look feedback (2026-11-04, feature mind-map) — release 5.31.0 (BUG-091…BUG-094, REQ-006…REQ-008, DEC-010, DEC-011)
 
 Boris's report on the shipped map (5.29.0/5.30.0) and the facts behind each point, checked in code:
