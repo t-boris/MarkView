@@ -14,6 +14,10 @@ on:
         description: Verify incremental compilation with a temporary Swift change
         type: boolean
         default: false
+      cold_benchmark:
+        description: Benchmark three Swift batches without a build cache
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,6 +45,7 @@ jobs:
 
       - name: Restore build cache
         id: cache
+        if: ${{ !inputs.cold_benchmark }}
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MarkViewDerivedData
@@ -49,6 +54,7 @@ jobs:
             markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-
 
       - name: Restore unchanged build input timestamps
+        if: ${{ !inputs.cold_benchmark }}
         run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
 
       # Build each architecture on its own runner. Incremental compilation retains
@@ -62,17 +68,18 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/MarkViewDerivedData" \
             ARCHS=${{ matrix.arch }} \
             SWIFT_COMPILATION_MODE=incremental \
+            OTHER_SWIFT_FLAGS="${{ inputs.cold_benchmark && '-driver-batch-count 3' || '' }}" \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
             build
 
       - name: Record build input timestamps
-        if: ${{ !inputs.verify_cache }}
+        if: ${{ !inputs.verify_cache && !inputs.cold_benchmark }}
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
 
       # Never save the deliberately modified checkout used by the verification run.
       - name: Save build cache
-        if: ${{ !inputs.verify_cache && steps.cache.outputs.cache-hit != 'true' }}
+        if: ${{ !inputs.verify_cache && !inputs.cold_benchmark && steps.cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/MarkViewDerivedData
