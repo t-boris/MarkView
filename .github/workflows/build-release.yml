@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15-intel
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +36,7 @@ jobs:
             -configuration Release \
             ARCHS=${{ matrix.arch }} \
             SWIFT_COMPILATION_MODE=incremental \
+            OTHER_SWIFT_FLAGS='-j5' \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
             build
