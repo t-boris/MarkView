@@ -553,9 +553,11 @@ check(bool("__t.btn('n13') !== null && __t.btn('n13').getAttribute('aria-pressed
 
 // An unsolicited snapshot (an AI job adds nodes) keeps the view and what the person is typing.
 _ = js("__t.select('n2'); return 'ok';")
+// The mark goes before the typing: the page sends the typed text after its 300 ms pause, which on a slow machine can be
+// before the lines below have run.
+newMark()
 _ = js("__t.q('[data-act=zoom-in]').click(); const d = __t.q('.rm-desc'); d.focus(); d.value = 'typing in progress'; d.dispatchEvent(new Event('input', { bubbles: true })); d.setSelectionRange(3, 5); return 'ok';")
 let viewBefore = json("return JSON.stringify(Object.assign(__t.view(), { panel: __t.q('.rm-panel').getBoundingClientRect().width }));")
-newMark()
 deliver("{ status: 'researching', job: { kind: 'develop', label: 'Developing', step: 'Adding nodes', startedAt: \(Int(Date().timeIntervalSince1970)) }, nodes: (function () { const s = __t.snap(); s.nodes.find(function (n) { return n.id === 'n2'; }).description = 'changed by the AI'; s.nodes.push({ id: 'n14', parent: 'n2', title: 'Added while typing', tags: [], color: '', description: '', layout: '', x: null, y: null, evidence: [] }); return s.nodes; })() }")
 let keep = json("const d = __t.q('.rm-desc'); const v = __t.view(); return JSON.stringify({ active: document.activeElement === d, value: d.value, from: d.selectionStart, to: d.selectionEnd, selected: __t.btn('n2').getAttribute('aria-pressed'), nodes: document.querySelectorAll('.rm-node').length, scale: v.scale, vx: v.x, vy: v.y, panel: __t.q('.rm-panel').getBoundingClientRect().width });")
 check((keep["active"] as? Bool) == true && (keep["value"] as? String) == "typing in progress" && (keep["from"] as? Int) == 3 && (keep["to"] as? Int) == 5, "an unsolicited snapshot does not overwrite the field being typed in, nor its caret", "\(keep)")

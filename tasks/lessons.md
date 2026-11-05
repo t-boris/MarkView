@@ -1,5 +1,21 @@
 # Lessons
 
+## Real streams, real machines: check what the CLI sends and what a slow runner does (research map, 2026-11-04)
+
+Building the research map, an independent review and the first CI run found what the local unit tests could not.
+- The CLI hands over the next text block with nothing between it and the previous one: "First line." + "NODE {…}" arrives as
+  `First line.NODE {…}`, so a protocol that wants a node on its own line loses it. Checked on the real `stream-json`.
+  Rule: a line protocol over a model's stream gets its line breaks from the events that end a text block (tool calls,
+  thinking), never from the model's habits, and is tried on the real stream of every backend before it ships.
+- A status written at the start of a long run ("researching") needs a path back when the run dies with the app: the next
+  time the map is shown with no job running it is settled to "incomplete", and Stop works even without a job.
+- A change applied over a tab's text can overwrite a newer disk version (the watcher polls every 2 s): re-read the disk when the
+  tab has no unsaved edits, and never recreate a deleted file.
+- A page test that marks "messages since now" must mark before the action that sends them: a debounce fires after 300 ms,
+  which on a slow CI runner is before the next line of the test has run (the first CI run of the page suite failed on it).
+- The full sweep of `tools/tests/*.sh` has ten suites that already fail on a clean checkout (checked on `4187f60`); compare
+  with a clean worktree before blaming a change.
+
 ## Do not make a model find what the code already says, and never make the page wait for it (BUG-088, BUG-089, BUG-090, 2026-11-04)
 
 In vivaa-platform's Studio log the admin-panel had 63 route handlers and 56 of them had no rule: the list of the API was one
