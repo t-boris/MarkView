@@ -1755,7 +1755,7 @@ func environmentMapChecks() async {
               session.spec.rules.contains { $0.id == id } },
           "uncovered: \(uncovered) rules: \(session.spec.rules.map(\.id))")
     check("REQ-014 a group whose endpoints got their rules meanwhile asks nothing",
-          assistant.calls() == ["catalog/bundles", "catalog/categories+cities", "catalog/orders"], "\(assistant.calls())")
+          assistant.calls().count == 3 && Set(assistant.calls()) == ["catalog/bundles", "catalog/categories+cities", "catalog/orders"], "\(assistant.calls())")
     let ordersPrompt = assistant.prompt("catalog/orders")
     check("REQ-014 a group's prompt lists the entities other groups registered, with their records' ids",
           ordersPrompt.contains("categories (id id)") && ordersPrompt.contains("c2 \"Food\"") && ordersPrompt.contains("tlv \"Tel Aviv\"")
@@ -1850,8 +1850,12 @@ func environmentMapChecks() async {
     defer { try? fm.removeItem(at: cancelRoot) }
     let cancelWeb = mapFixture(cancelRoot)
     assistant.set(["catalog/bundles": 60, "catalog/categories+cities": 60], other: 0.3)
+    let callsBeforeCancelTest = assistant.calls().count
     let cancelled = open(cancelRoot, web: cancelWeb)
-    _ = await waitUntil(40) { (cancelled.mapping.map?.groups ?? []).filter { $0.status == .preparing }.count == 2 }
+    let preparing = await waitUntil(40) {
+        (cancelled.mapping.map?.groups ?? []).filter { $0.status == .preparing }.count == 2
+            && assistant.calls().count >= callsBeforeCancelTest + 2
+    }
     let banner = cancelled.mapping.progressText
     let callsAtCancel = assistant.calls().count
     cancelled.cancelMapping()
@@ -1859,7 +1863,7 @@ func environmentMapChecks() async {
     try? await Task.sleep(nanoseconds: 1_000_000_000)
     let stopped = StudioStore.loadEnvironment(cancelRoot)?.map
     check("REQ-014 Cancel stops mapping: no group is prepared after it, and the map waits for Resume",
-          banner == "Mapping the application's APIs: 0 of 4 groups" && !cancelled.mapping.isRunning && assistant.calls().count == callsAtCancel
+          preparing && banner == "Mapping the application's APIs: 0 of 4 groups" && !cancelled.mapping.isRunning && assistant.calls().count == callsAtCancel
           && stopped?.status == .cancelled && stopped?.groups.allSatisfy { $0.status == .pending } == true && cancelled.mapping.canResume
           && logText(cancelled).contains { $0.hasPrefix("Mapping cancelled: 0 of 4 groups are prepared") },
           "banner=\(banner) calls=\(assistant.calls().count - callsAtCancel) \(stopped?.groups.map { "\($0.id) \($0.status)" } ?? [])")

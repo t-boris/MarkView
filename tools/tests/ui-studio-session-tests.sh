@@ -6,6 +6,14 @@
 #   tools/tests/ui-studio-session-tests.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+# Record the unmodified lookup time so CI output distinguishes resolver delays from slow session behavior.
+if [ "${CI:-}" = "true" ]; then
+  python3 -c 'import socket,time; start=time.monotonic(); socket.getfqdn("127.0.0.1"); print("Loopback reverse lookup: %.2f s" % (time.monotonic()-start))'
+fi
+# Python's HTTPServer resolves the bind address with getfqdn during startup. Reverse DNS for loopback can take tens of
+# seconds on hosted macOS runners, even though these fixtures only serve local clients. Avoid that external dependency.
+export PYTHONPATH="$PWD/tools/tests/studio-python${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONDONTWRITEBYTECODE=1
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 cp tools/tests/UIStudioSessionHarness.swift "$out/main.swift"
