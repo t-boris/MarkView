@@ -154,6 +154,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     @Published private(set) var route = "/"
     @Published private(set) var rejectedMessages = 0
     @Published var comparison: Comparison?
+    /// Whether the comparison fills the whole tab instead of the narrow Evidence panel (BUG-094).
+    @Published var comparisonEnlarged = false
     /// Undo conflicts by operation: the merged text with conflict markers per file.
     @Published private(set) var undoConflicts: [String: [(path: String, merged: String)]] = [:]
     /// What the last "Keep" left out of the kept cookies and storage, and why (names only, never values).
@@ -2549,7 +2551,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     func url(of capture: StudioCapture) -> URL { root.appendingPathComponent(capture.file) }
 
     /// Side by side and the pixel difference of two captures (CAP-03, CAP-04); different conditions are named, not hidden.
-    func compare(_ beforeID: String, _ afterID: String) {
+    /// `enlarge` shows the result at the size of the whole tab (the chat's Compare button), otherwise in the Evidence panel.
+    func compare(_ beforeID: String, _ afterID: String, enlarge: Bool = false) {
         guard let before = captures.first(where: { $0.id == beforeID }), let after = captures.first(where: { $0.id == afterID }) else { return }
         let reasons = StudioImageDiff.incomparability(before, after)
         let a = url(of: before), b = url(of: after)
@@ -2561,6 +2564,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 return (StudioImageDiff.writePNG(diff.image, to: output) ? output : nil, diff.ratio, diff.bounds)
             }.value
             comparison = Comparison(before: before, after: after, diffFile: result.0, changedRatio: result.1, changedBounds: result.2, reasons: reasons)
+            comparisonEnlarged = enlarge
         }
     }
 

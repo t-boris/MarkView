@@ -154,5 +154,88 @@ let contTask = ResearchMapPrompt.continuation(map: thinMap, question: "Why?", sc
 check("continuation task lists nodes without children", contTask.contains("- \(thinID) \"Existing\""))
 check("continuation task forbids a new ROOT", contTask.contains("do not write a ROOT"))
 
+// MARK: Single-node runs (REQ-006): Expand description, Correct, Research
+
+func single(_ mode: Run.Mode, _ text: String, on target: M) -> (M, Run) {
+    var m = target
+    var r = Run(mode: mode)
+    let events = r.feed(text + "\n")
+    _ = r.apply(events, to: &m, pathExists: exists)
+    return (m, r)
+}
+var sm = map()
+let sNode = try! sm.addChild(parent: "n1", title: "Caching")
+let sKid = try! sm.addChild(parent: sNode, title: "Disk cache")
+try! sm.update(id: sNode, tags: ["perf"], color: "#aa0000", description: "Old text.")
+try! sm.moveVisual(id: sNode, x: 5, y: 6)
+sm.nodes[sm.index(of: sNode)!].evidence = [M.Evidence(label: .projectFact, text: "Old finding", source: "src/tree.swift:1")]
+
+check("single-node modes have no node budget", Run.limits(for: .describe(node: sNode)) == Run.Limits(nodes: 0, depth: 0, children: 0))
+check("singleNode names the target only for the single-node modes", Run.Mode.describe(node: "a").singleNode == "a" && Run.Mode.develop(node: "a").singleNode == nil && Run.Mode.research.singleNode == nil)
+
+let (described, dRun) = single(.describe(node: sNode),
+    #"UPDATE {"description":"New, longer text.","evidence":[{"label":"Project fact","text":"New finding","source":"src/tree.swift:3"},{"label":"Project fact","text":"Old finding","source":"src/tree.swift:1"}]}"#, on: sm)
+check("describe replaces the description", described.node(sNode)!.description == "New, longer text.")
+check("describe adds new findings and keeps the old ones without repeating them", described.node(sNode)!.evidence.map(\.text) == ["Old finding", "New finding"])
+check("describe keeps title, tags, colour, position and children", { let n = described.node(sNode)!; return n.title == "Caching" && n.tags == ["perf"] && n.color == "#aa0000" && n.x == 5 && n.y == 6 && described.node(sKid)?.parent == sNode }())
+check("describe adds no node", described.nodes.count == sm.nodes.count && dRun.added == 0 && dRun.updated == 1)
+check("describe ignores a title the agent also wrote", single(.describe(node: sNode), #"UPDATE {"title":"Other","description":"x"}"#, on: sm).0.node(sNode)!.title == "Caching")
+check("describe without a description changes nothing", single(.describe(node: sNode), #"UPDATE {"evidence":[{"label":"Project fact","text":"Only evidence","source":""}]}"#, on: sm).0 == sm)
+
+let (corrected, cRun) = single(.correct(node: sNode),
+    #"UPDATE {"title":"Caching layers","description":"Fixed.","evidence":[{"label":"AI inference","text":"Replaces the old list","source":""}]}"#, on: sm)
+check("correct rewrites title and description", corrected.node(sNode)!.title == "Caching layers" && corrected.node(sNode)!.description == "Fixed.")
+check("correct replaces the findings with the list it was given", corrected.node(sNode)!.evidence.map(\.text) == ["Replaces the old list"])
+check("correct keeps tags, colour, position and children", { let n = corrected.node(sNode)!; return n.tags == ["perf"] && n.color == "#aa0000" && n.x == 5 && corrected.node(sKid) != nil }())
+check("correct counts one update", cRun.updated == 1)
+check("correct keeps the findings when the list is empty or missing", single(.correct(node: sNode), #"UPDATE {"description":"Fixed.","evidence":[]}"#, on: sm).0.node(sNode)!.evidence.count == 1
+      && single(.correct(node: sNode), #"UPDATE {"description":"Fixed."}"#, on: sm).0.node(sNode)!.evidence.count == 1)
+check("correct keeps the title when the agent leaves it out or blank", single(.correct(node: sNode), #"UPDATE {"title":"  ","description":"Fixed."}"#, on: sm).0.node(sNode)!.title == "Caching")
+
+let (investigated, iRun) = single(.investigate(node: sNode),
+    #"UPDATE {"description":"Must not be written","title":"Nor this","evidence":[{"label":"External fact","text":"A source says so","source":"https://example.com/a"},{"label":"Project fact","text":"Invented","source":"src/missing.swift:9"}]}"#, on: sm)
+check("research adds findings only", investigated.node(sNode)!.description == "Old text." && investigated.node(sNode)!.title == "Caching")
+check("research keeps the old finding first and verifies new sources", investigated.node(sNode)!.evidence.count == 3
+      && investigated.node(sNode)!.evidence[0].text == "Old finding" && investigated.node(sNode)!.evidence[2].label == .aiInference)
+check("research counts one update", iRun.updated == 1)
+check("research with no new findings changes nothing", single(.investigate(node: sNode), #"UPDATE {"evidence":[{"label":"Project fact","text":"Old finding","source":"src/tree.swift:1"}]}"#, on: sm).0 == sm)
+
+let (twice, tRun) = single(.describe(node: sNode), "UPDATE {\"description\":\"First\"}\nUPDATE {\"description\":\"Second\"}", on: sm)
+check("only the first update of a run is applied", twice.node(sNode)!.description == "First" && tRun.updated == 1 && tRun.refused == 1)
+let (noNodes, nRun) = single(.describe(node: sNode), "NODE {\"ref\":\"x\",\"parent\":\"\(sNode)\",\"title\":\"Sneaky child\"}\nROOT {\"title\":\"Renamed\"}", on: sm)
+check("a single-node run adds no node and renames nothing", noNodes == sm && nRun.added == 0 && nRun.refused == 1)
+var plain = Run(mode: .research)
+check("an UPDATE line means nothing in a run that adds nodes", plain.feed("UPDATE {\"description\":\"x\"}\n").isEmpty && plain.malformedLines == 0)
+var bad = Run(mode: .correct(node: sNode))
+check("a broken or empty UPDATE line is counted, not applied", bad.feed("UPDATE {oops\nUPDATE {}\n").isEmpty && bad.malformedLines == 2)
+check("a node deleted during the run is not recreated", single(.describe(node: "n99"), #"UPDATE {"description":"x"}"#, on: sm).0 == sm)
+
+// Prompts of the single-node runs
+let sysSingle = ResearchMapPrompt.system(web: true, webRules: "WEB RULES HERE", languageLine: "LANG LINE", singleNode: true)
+check("single-node system prompt asks for one UPDATE line and no nodes", sysSingle.contains("UPDATE {") && sysSingle.contains("add no nodes") && !sysSingle.contains("NODE {\"ref\""))
+check("single-node system prompt keeps labels, web rules and language", sysSingle.contains("Project fact") && sysSingle.contains("WEB RULES HERE") && sysSingle.contains("LANG LINE"))
+let describeTask = ResearchMapPrompt.describe(map: sm, node: sm.node(sNode)!, scope: "SCOPE")
+check("describe task has the node, the old text and the scope", describeTask.contains("\(sNode), \"Caching\"") && describeTask.contains("Old text.") && describeTask.hasSuffix("SCOPE"))
+check("describe task keeps the title and the old findings out of the answer", describeTask.contains("Do not write \"title\"") && describeTask.contains("existing findings stay"))
+let correctTask = ResearchMapPrompt.correct(map: sm, node: sm.node(sNode)!, note: "The disk cache is not LRU", scope: "SCOPE")
+check("correct task carries the person's note and says evidence replaces", correctTask.contains("The disk cache is not LRU") && correctTask.contains("replaces the old list"))
+let researchTask = ResearchMapPrompt.investigate(map: sm, node: sm.node(sNode)!, scope: "SCOPE")
+check("research task asks for evidence only", researchTask.contains("only the key \"evidence\"") && researchTask.contains("Old finding"))
+let noDirection = ResearchMapPrompt.develop(map: sm, node: sm.node(sNode)!, direction: "", scope: "SCOPE", limits: Run.limits(for: .develop(node: sNode)))
+check("develop without a direction asks the agent to choose the sub-topics", noDirection.contains("gave no direction") && !noDirection.contains("in this direction"))
+
+// MARK: Numbers on AI nodes (REQ-008)
+
+var numbered = Run(mode: .research)
+var numberedMap = map()
+let numberedEvents = numbered.feed(line("a", "root", "Plan", extra: ",\"number\":1") + line("b", "root", "Build", extra: ",\"number\":\"2\"") + line("c", "root", "Ship", extra: ",\"number\":0")
+                                   + line("d", "root", "Review", extra: ",\"number\":5000") + line("e", "root", "Retro", extra: ",\"number\":2.5") + line("f", "root", "Close"))
+_ = numbered.apply(numberedEvents, to: &numberedMap, pathExists: exists)
+let byTitle = Dictionary(uniqueKeysWithValues: numberedMap.nodes.map { ($0.title, $0.number) })
+check("a NODE line may carry a number; text numbers count", byTitle["Plan"] == .some(1) && byTitle["Build"] == .some(2))
+check("zero, too large, fractional or missing numbers are ignored", byTitle["Ship"] == .some(nil) && byTitle["Review"] == .some(nil) && byTitle["Close"] == .some(nil))
+check("the node format tells the agent when to number", Run.limits(for: .research).nodes > 0 && ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: false).contains("\"number\":1") && ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: false).contains("order of sibling nodes matters"))
+check("the single-node format has no number", !ResearchMapPrompt.system(web: false, webRules: "", languageLine: "", singleNode: true).contains("\"number\""))
+
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
 print("all ok")

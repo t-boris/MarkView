@@ -54,6 +54,13 @@ struct UIStudioView: View {
             }
         }
         .background(VSDark.bg)
+        .overlay {
+            // The comparison of two captures at the size of the whole tab (BUG-094).
+            if session.comparisonEnlarged, let comparison = session.comparison {
+                StudioComparisonView(url: { session.url(of: $0) }, comparison: comparison) { session.comparisonEnlarged = false }
+                    .transition(.opacity)
+            }
+        }
     }
 
     private var resizeHandle: some View {
@@ -820,10 +827,10 @@ struct UIStudioOperationRow: View {
                     }
                     if let before = operation.beforeCapture, let after = operation.afterCapture {
                         Button("Compare") {
-                            session.compare(before, after)
+                            session.compare(before, after, enlarge: true)
                             showEvidence()
                         }
-                        .help("Before and after, side by side and as a difference")
+                        .help("Before and after at the size of the whole tab: side by side, as a difference, or one at a time")
                     }
                 }
                 .controlSize(.small).disabled(session.busy != nil)
@@ -1577,6 +1584,7 @@ struct UIStudioEvidencePanel: View {
                     session.compare(ordered[0], ordered[1])
                 }
                 .controlSize(.small).disabled(chosen.count != 2)
+                .help("Compare in this panel; the arrow in the comparison opens it at the size of the whole tab")
 
                 section("Export as a feature")
                 if session.exportableOperations.isEmpty {
@@ -1639,7 +1647,9 @@ struct UIStudioEvidencePanel: View {
                     Text("Difference").tag(true)
                 }
                 .pickerStyle(.segmented).labelsHidden().fixedSize().controlSize(.small)
-                Button { session.comparison = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
+                Button { session.comparisonEnlarged = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                    .buttonStyle(.plain).help("Open the comparison at the size of the whole tab")
+                Button { session.comparison = nil; session.comparisonEnlarged = false } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
             }
             if !comparison.reasons.isEmpty {
                 ForEach(comparison.reasons, id: \.self) { reason in

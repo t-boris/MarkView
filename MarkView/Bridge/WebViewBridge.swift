@@ -298,8 +298,9 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridge(self, didReceiveArchitectureAction: action, payload: payload)
             }
 
-        // Research map view: { action: "snapshot" | "addChild" | "update" | "delete" | "moveVisual" | "reparent" |
-        //                     "link" | "unlink" | "layout" | "develop" | "continue" | "cancel" | "open", …action fields }
+        // Research map view: { action: "snapshot" | "addChild" | "update" | "delete" | "moveVisual" |
+        //                     "link" | "unlink" | "layout" | "develop" | "describe" | "correct" | "investigate" |
+        //                     "export" | "continue" | "cancel" | "open", …action fields }
         // Swift owns the map file and answers with window.mvResearchMapSet (DEC-009).
         case "researchMap":
             if let payload = data, let action = payload["action"] as? String {

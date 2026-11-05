@@ -72,15 +72,22 @@ class PDFExporter {
                 return
             }
 
-            let savePanel = NSSavePanel()
-            savePanel.allowedContentTypes = [.pdf]
-            savePanel.nameFieldStringValue = fileName
-            savePanel.canCreateDirectories = true
+            exportPDF(html: renderedHTML, fileName: fileName, baseURL: webView.url, documentFiles: documentFiles)
+        }
+    }
 
-            savePanel.begin { response in
-                guard response == .OK, let url = savePanel.url else { return }
-                generatePDF(html: renderedHTML, to: url, baseURL: webView.url, documentFiles: documentFiles)
-            }
+    /// Asks where to save and makes the PDF from rendered HTML (the body of the print document). Used for the
+    /// active tab above and for documents the page renders on request, such as the report of a research map.
+    @MainActor
+    static func exportPDF(html: String, fileName: String, baseURL: URL?, documentFiles: DocumentFileSchemeHandler) {
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.pdf]
+        savePanel.nameFieldStringValue = fileName
+        savePanel.canCreateDirectories = true
+
+        savePanel.begin { response in
+            guard response == .OK, let url = savePanel.url else { return }
+            generatePDF(html: html, to: url, baseURL: baseURL, documentFiles: documentFiles)
         }
     }
 

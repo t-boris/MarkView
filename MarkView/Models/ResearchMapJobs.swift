@@ -2,7 +2,8 @@ import Foundation
 
 /// Research maps (feature mind-map, DEC-004, DEC-008): New Research creates a map file, opens its
 /// tab at once and runs one cancellable agent job that adds nodes to the open map as they are
-/// written; "Develop with AI" and "Continue" are jobs of the same kind on an existing map.
+/// written; Expand topic ("develop"), Continue and the three single-node actions (Expand description, Correct,
+/// Research; REQ-006) are jobs of the same kind on an existing map.
 extension ResearchJobs {
     // MARK: - New research
 
@@ -43,15 +44,15 @@ extension ResearchJobs {
 
     // MARK: - Develop a branch, continue
 
-    /// The AI develops `node` of the map in `file` in the direction the person gave. Returns a
-    /// one-line reason when it cannot start.
+    /// Expand topic: the AI develops `node` of the map in `file`, in the direction the person gave (empty: its own
+    /// choice). Returns a one-line reason when it cannot start.
     func developMap(file: URL, node: String, direction: String) -> String? {
         guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
         if isRunning(on: file) { return "An AI job is already working on this map; develop the branch when it has finished." }
         guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
             return "That node no longer exists."
         }
-        launchMapRun(file: file, root: root, kind: .mapDevelop, title: "Develop: " + Self.title(target.title), mode: .develop(node: node)) { job, _ in
+        launchMapRun(file: file, root: root, kind: .mapDevelop, title: "Expand topic: " + Self.title(target.title), mode: .develop(node: node)) { job, _ in
             job.update("Listing the repository")
             let scope = await Task.detached { ResearchScope.files(root: root, always: map.targets) }.value
             let limits = ResearchMapRun.limits(for: .develop(node: node))
@@ -63,6 +64,49 @@ extension ResearchJobs {
             let prompt = ResearchMapPrompt.develop(map: current, node: current.node(node) ?? target, direction: direction,
                                                    scope: ResearchPrompt.scopeText(scope), limits: limits)
             return MapTask(prompt: prompt, web: Self.web(root), noProjectFiles: scope.isEmpty)
+        }
+        return nil
+    }
+
+    /// Expand description (REQ-006): the AI rewrites and extends the description of `node`; nothing else changes.
+    func describeMap(file: URL, node: String) -> String? {
+        runOnNode(file: file, node: node, kind: .mapDescribe, label: "Expand description", mode: .describe(node: node)) { map, target, scope in
+            ResearchMapPrompt.describe(map: map, node: target, scope: scope)
+        }
+    }
+
+    /// Correct (REQ-006): the AI rewrites `node` after what the person says is wrong with it.
+    func correctMap(file: URL, node: String, note: String) -> String? {
+        runOnNode(file: file, node: node, kind: .mapCorrect, label: "Correct", mode: .correct(node: node)) { map, target, scope in
+            ResearchMapPrompt.correct(map: map, node: target, note: note, scope: scope)
+        }
+    }
+
+    /// Research (REQ-006): the AI adds findings and web searches for `node` only.
+    func investigateMap(file: URL, node: String) -> String? {
+        runOnNode(file: file, node: node, kind: .mapInvestigate, label: "Research node", mode: .investigate(node: node)) { map, target, scope in
+            ResearchMapPrompt.investigate(map: map, node: target, scope: scope)
+        }
+    }
+
+    /// Starts one of the single-node actions. Returns a one-line reason when it cannot start.
+    private func runOnNode(file: URL, node: String, kind: Job.Kind, label: String, mode: ResearchMapRun.Mode,
+                           prompt: @escaping (ResearchMap, ResearchMap.Node, String) -> String) -> String? {
+        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        if isRunning(on: file) { return "An AI job is already working on this map; run this action when it has finished." }
+        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
+            return "That node no longer exists."
+        }
+        launchMapRun(file: file, root: root, kind: kind, title: label + ": " + Self.title(target.title), mode: mode) { job, _ in
+            job.update("Listing the repository")
+            let scope = await Task.detached { ResearchScope.files(root: root, always: map.targets) }.value
+            // The map as it is now, not as it was when the action was chosen.
+            let current = workspace.researchMapText(file).flatMap { text -> ResearchMap? in
+                if case .success(let m) = ResearchMap.parse(text) { return m }
+                return nil
+            } ?? map
+            let text = prompt(current, current.node(node) ?? target, ResearchPrompt.scopeText(scope))
+            return MapTask(prompt: text, web: Self.web(root), noProjectFiles: scope.isEmpty)
         }
         return nil
     }
@@ -102,6 +146,9 @@ extension ResearchJobs {
         case .map, .research: kind = "research"
         case .mapDevelop: kind = "develop"
         case .mapContinue: kind = "continue"
+        case .mapDescribe: kind = "describe"
+        case .mapCorrect: kind = "correct"
+        case .mapInvestigate: kind = "investigate"
         case .followUp, .comment: kind = "other"
         }
         return ResearchMap.JobInfo(kind: kind, label: job.title, step: job.step, startedAt: job.started.timeIntervalSince1970)
@@ -124,9 +171,10 @@ extension ResearchJobs {
             guard let self, let workspace = self.workspace else { return nil }
             let driver = MapRunDriver(file: file, root: root, mode: mode, workspace: workspace)
             let task = await prepare(job, driver)
-            let system = ResearchMapPrompt.system(web: task.web.allowed, webRules: ResearchPrompt.webRules, languageLine: ResearchPrompt.languageLine)
+            let single = mode.singleNode != nil
+            let system = ResearchMapPrompt.system(web: task.web.allowed, webRules: ResearchPrompt.webRules, languageLine: ResearchPrompt.languageLine, singleNode: single)
             let stream = driver.stream
-            let outcome = await job.run(prompt: task.prompt, root: root, web: task.web.allowed, system: system, writing: "Building the map",
+            let outcome = await job.run(prompt: task.prompt, root: root, web: task.web.allowed, system: system, writing: single ? "Updating the node" : "Building the map",
                                         onText: { stream.feed($0) }, onQuery: { stream.query($0) })
             let summary = driver.finish(outcome: outcome)
             let reason = Self.incompleteReason(outcome, web: task.web)
@@ -143,7 +191,7 @@ extension ResearchJobs {
                 switch mode {
                 case .research, .continuation:
                     if let reason { map.markIncomplete(reason) } else { map.markComplete() }
-                case .develop:
+                case .develop, .describe, .correct, .investigate:
                     break
                 }
             }
@@ -160,6 +208,11 @@ extension ResearchJobs {
                     return "Developing the branch stopped: \(reason). The nodes received are kept."
                 }
                 if summary.added == 0 { return "The assistant added no nodes to this branch." }
+                return nil
+            }
+            if mode.singleNode != nil {
+                if let reason = reason ?? outcome.failure { return "The action stopped: \(reason). The node is unchanged." }
+                if summary.updated == 0 { return "The assistant changed nothing on this node." }
                 return nil
             }
             return reason.map { "Research saved as incomplete: \($0)" }
@@ -187,6 +240,7 @@ final class MapRunDriver {
     private var pendingEvents: [ResearchMapRun.Event] = []
     private var pendingQueries: [String] = []
     private(set) var added = 0
+    private(set) var updated = 0
 
     init(file: URL, root: URL, mode: ResearchMapRun.Mode, workspace: WorkspaceManager) {
         self.file = file
@@ -226,6 +280,7 @@ final class MapRunDriver {
         }
         guard case .done = result else { return }
         applier = attempt
+        updated = applier.updated
         added += createdCount
         pendingEvents = []
         pendingQueries = []
@@ -234,14 +289,14 @@ final class MapRunDriver {
 
     /// Applies the rest of the stream. Web queries the CLI refused leave the map's history. `lost` is the
     /// number of node lines the file never took.
-    func finish(outcome: JobOutcome) -> (added: Int, lost: Int) {
+    func finish(outcome: JobOutcome) -> (added: Int, updated: Int, lost: Int) {
         flush(final: true)
         let kept = Set(outcome.queries)
         let dropped = sentQueries.filter { !kept.contains($0) }
         if !dropped.isEmpty, let workspace {
             workspace.updateResearchMap(file) { map in map.webQueries.removeAll { dropped.contains($0) } }
         }
-        return (added, pendingEvents.count)
+        return (added, updated, pendingEvents.count)
     }
 }
 

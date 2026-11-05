@@ -148,6 +148,8 @@ window.__t = {
   pos: function (id) { const w = q('.rm-node-wrap[data-id="' + id + '"]'); return { x: parseFloat(w.style.left), y: parseFloat(w.style.top) }; },
   select: function (id) { q('.rm-node-wrap[data-id="' + id + '"] .rm-node').click(); },
   menu: function (id) { q('.rm-node-wrap[data-id="' + id + '"] .rm-tri').click(); },
+  fold: function (id) { return q('.rm-node-wrap[data-id="' + id + '"] .rm-fold'); },
+  shown: function (id) { const w = q('.rm-node-wrap[data-id="' + id + '"]'); return !w.hidden; },
   act: function (name) { q('.rm-actions [data-act="' + name + '"]').click(); },
   dialogButton: function (text) { const b = qa('.rm-dialog-actions button').find(function (x) { return x.textContent.trim() === text; }); if (!b) throw new Error('no dialog button ' + text); b.click(); },
   type: function (el, value) { el.focus(); el.value = value; el.dispatchEvent(new Event('input', { bubbles: true })); },
@@ -160,7 +162,7 @@ window.__t = {
   panning: function (dx, dy) { const v = q('.rm-viewport'), r = v.getBoundingClientRect(), x = r.left + 8, y = r.bottom - 8; fire('pointerdown', v, x, y); fire('pointermove', v, x + dx, y + dy); fire('pointerup', v, x + dx, y + dy); },
   deliver: function (snapshot) { window.mvResearchMapSet(window.mvDocumentId, snapshot); },
   snap: function (over) {
-    const node = function (id, parent, title, extra) { return Object.assign({ id: id, parent: parent, title: title, tags: [], color: '', description: '', layout: '', x: null, y: null, evidence: [] }, extra || {}); };
+    const node = function (id, parent, title, extra) { return Object.assign({ id: id, parent: parent, title: title, tags: [], color: '', icon: '', number: null, description: '', layout: '', x: null, y: null, evidence: [] }, extra || {}); };
     const nodes = [
       node('n1', '', 'Why do builds get slow?', { tags: ['question'], description: 'The central question.' }),
       node('n2', 'n1', 'Dependencies', { tags: ['deps', 'build'], description: 'Notes on the dependency graph.', evidence: [
@@ -213,28 +215,32 @@ check(nodeCount == 12, "the snapshot draws all 12 nodes", "\(nodeCount)")
 check(number("document.querySelectorAll('.rm-node.root').length") == 1 && bool("__t.btn('n1').classList.contains('root')"), "exactly one root node, the first")
 check(number("document.querySelectorAll('.rm-node.branch').length") == 4, "the root's direct children are branch nodes")
 check(number("document.querySelectorAll('path[data-line=tree]').length") == 11, "11 hierarchy lines")
-check(number("document.querySelectorAll('path[data-line=link]').length") == 2 && bool("__t.q('path[data-line=link]').getAttribute('stroke-dasharray') !== null && __t.q('path[data-line=link]').getAttribute('stroke') === '#849395'"),
-      "2 dashed logical connections in #849395")
+check(number("document.querySelectorAll('path[data-line=link]').length") == 2 && bool("__t.q('path[data-line=link]').getAttribute('stroke-dasharray') !== null && getComputedStyle(__t.q('path[data-line=link]')).stroke === 'rgb(128, 128, 128)'"),
+      "2 dashed logical connections in the application's secondary text colour")
 check(eval("__t.q('.rm-heading strong').textContent") == "Why do builds get slow?", "the toolbar shows the map title")
 check(eval("__t.q('.rm-zoom').textContent") == "100%", "the initial zoom is 100%")
 let rootBox = json("const r = __t.btn('n1').getBoundingClientRect(), v = __t.q('.rm-viewport').getBoundingClientRect(); return JSON.stringify({ dx: (r.left + r.width / 2) - (v.left + v.width / 2), dy: (r.top + r.height / 2) - (v.top + v.height / 2), w: v.width, h: v.height });")
 check(abs((rootBox["dx"] as? Double) ?? 999) < 3 && abs((rootBox["dy"] as? Double) ?? 999) < 3, "with no saved view the root sits at the centre of the canvas", "\(rootBox)")
 check(((rootBox["w"] as? Double) ?? 0) > 500, "the canvas has a real size in the hidden window", "\(rootBox)")
 
-// Node look: translucent triangle menu inside the node, in its top right corner.
+// Node look: translucent menu button (an ellipsis, not a fold arrow) inside the node, in its top right corner.
 let triangle = json("""
 const n = __t.btn('n3').getBoundingClientRect(), t = __t.q('.rm-node-wrap[data-id="n3"] .rm-tri').getBoundingClientRect(), s = getComputedStyle(__t.q('.rm-node-wrap[data-id="n3"] .rm-tri'));
 return JSON.stringify({ inside: t.left >= n.left && t.right <= n.right + 0.5 && t.top >= n.top && t.bottom <= n.bottom, topRight: (n.right - t.right) < 14 && (t.top - n.top) < 14, opacity: parseFloat(s.opacity), text: __t.q('.rm-node-wrap[data-id="n3"] .rm-tri').textContent });
 """)
 check((triangle["inside"] as? Bool) == true && (triangle["topRight"] as? Bool) == true, "the menu triangle sits inside the node, in its top right corner", "\(triangle)")
-check(((triangle["opacity"] as? Double) ?? 1) < 0.8, "the menu triangle is translucent", "\(triangle)")
+check(((triangle["opacity"] as? Double) ?? 1) < 0.8, "the menu button is translucent", "\(triangle)")
+check((triangle["text"] as? String) == "⋯", "the menu button is an ellipsis, so it cannot be mistaken for a fold toggle (BUG-092)", "\(triangle)")
 let looks = json("""
 const root = getComputedStyle(__t.btn('n1')), node = getComputedStyle(__t.btn('n3')), view = getComputedStyle(__t.q('.rm-viewport'));
 return JSON.stringify({ rootBg: root.backgroundColor, rootRadius: root.borderTopLeftRadius, nodeBorder: node.borderTopWidth, nodeRadius: node.borderTopLeftRadius, nodeBg: node.backgroundColor, viewBg: view.backgroundColor, dots: view.backgroundImage.indexOf('radial-gradient') >= 0, size: view.backgroundSize });
 """)
-check((looks["rootBg"] as? String) == "rgb(89, 73, 156)" && (looks["rootRadius"] as? String) == "20px", "dark theme: the root pill uses the prototype's colour and radius", "\(looks)")
-check((looks["nodeBg"] as? String) == "rgb(48, 46, 58)" && (looks["nodeRadius"] as? String) == "15px" && (looks["nodeBorder"] as? String) == "2px", "dark theme: nodes use the prototype's fill, radius and 2px border", "\(looks)")
-check((looks["viewBg"] as? String) == "rgb(29, 28, 37)" && (looks["dots"] as? Bool) == true && (looks["size"] as? String) == "24px 24px", "dark theme: dot-grid canvas", "\(looks)")
+check((looks["rootBg"] as? String) == "rgb(45, 45, 48)" && (looks["rootRadius"] as? String) == "8px", "dark theme: the root uses the application's --bg-tertiary (#2d2d30)", "\(looks)")
+check((looks["nodeBg"] as? String) == "rgb(37, 37, 38)" && (looks["nodeRadius"] as? String) == "6px" && (looks["nodeBorder"] as? String) == "1px", "dark theme: nodes use --bg-secondary (#252526), a 6px radius and a 1px border like the application's cards", "\(looks)")
+check((looks["viewBg"] as? String) == "rgb(30, 30, 30)" && (looks["dots"] as? Bool) == true && (looks["size"] as? String) == "24px 24px", "dark theme: the canvas is --bg-primary (#1e1e1e) with the application's dot grid (BUG-091)", "\(looks)")
+let noGlow = json("const n = getComputedStyle(__t.btn('n3')), r = getComputedStyle(__t.btn('n1')); return JSON.stringify({ node: n.boxShadow, root: r.boxShadow, accent: n.borderLeftColor });")
+check(!((noGlow["root"] as? String) ?? "").contains("rgb(62, 49, 120)") && !((noGlow["root"] as? String) ?? "").contains("0px 8px 0px"), "the prototype's 3D root shadow is gone", "\(noGlow)")
+check((noGlow["accent"] as? String) == "rgb(78, 201, 176)", "a branch node carries its branch accent (#4ec9b0, the application's teal) on its left edge", "\(noGlow)")
 
 // Selection and the properties panel.
 check(bool("__t.btn('n1').getAttribute('aria-pressed') === 'true'"), "the root is selected first")
@@ -255,10 +261,10 @@ check(Set((chipColours["colours"] as? [String]) ?? []).count == 4, "the four lab
 _ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
 let light = json("""
 const root = getComputedStyle(__t.btn('n1')), node = getComputedStyle(__t.btn('n3')), view = getComputedStyle(__t.q('.rm-viewport')), panel = getComputedStyle(__t.q('.rm-panel'));
-return JSON.stringify({ rootBg: root.backgroundColor, nodeBg: node.backgroundColor, nodeInk: node.color, viewBg: view.backgroundColor, panelBg: panel.backgroundColor });
+return JSON.stringify({ rootBg: root.backgroundColor, nodeBg: node.backgroundColor, nodeInk: node.color, nodeAccent: node.borderLeftColor, viewBg: view.backgroundColor, panelBg: panel.backgroundColor });
 """)
-check((light["rootBg"] as? String) == "rgb(81, 65, 150)" && (light["viewBg"] as? String) == "rgb(245, 243, 239)" && (light["panelBg"] as? String) == "rgb(255, 254, 250)", "light theme: root, canvas and panel use the prototype v9 colours", "\(light)")
-check((light["nodeBg"] as? String) == "rgb(251, 241, 235)", "light theme: a branch node is tinted with its branch colour (the second branch is warm)", "\(light)")
+check((light["rootBg"] as? String) == "rgb(232, 232, 232)" && (light["viewBg"] as? String) == "rgb(255, 255, 255)" && (light["panelBg"] as? String) == "rgb(243, 243, 243)", "light theme: root, canvas and panel use the application's light tokens", "\(light)")
+check((light["nodeBg"] as? String) == "rgb(243, 243, 243)" && (light["nodeAccent"] as? String) == "rgb(34, 134, 58)", "light theme: a branch node keeps the card fill and takes the darker branch accent", "\(light)")
 _ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
 let evidenceBelow = bool("__t.q('.rm-desc').getBoundingClientRect().bottom <= __t.q('.rm-ev-row').getBoundingClientRect().top + 1")
 check(evidenceBelow, "the evidence list sits under the description")
@@ -307,15 +313,18 @@ check(!visible(".rm-popover"), "the popover closes")
 // ---- the node menu and its dialogs ---------------------------------------------------------------------------------------------------
 newMark()
 _ = js("__t.menu('n3'); return 'ok';")
-check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.dataset.act;}).join()") == "add,develop,link,edit,move,arrange,delete", "the menu holds the seven icon actions in order")
-check(bool("__t.qa('.rm-actions button').every(function (b) { return !!b.querySelector('svg') && b.title && b.getAttribute('aria-label'); })"), "every action is an icon with a title")
+check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.dataset.act;}).join()") == "describe,develop,correct,investigate,add,link,edit,icon,number-children,arrange,delete", "the menu holds the four AI actions first, then add, connect, edit, icon, number children, arrange and delete; there is no move to another branch (BUG-093)")
+check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Expand description|Expand topic…|Correct…|Research|Add child node…|Add logical connection…|Edit title…|Icon…|Number children 1, 2, 3…|Arrange branch▾|Delete node…", "every action has a visible label (BUG-092/093: icons alone were not enough)")
+check(bool("__t.qa('.rm-actions [data-act]').every(function (b) { return !!b.querySelector('svg') && b.title && b.getAttribute('aria-label'); })"), "…and an icon and a tooltip")
+check(bool("!__t.q('.rm-actions').closest('.rm-world')"), "the menu is drawn at screen size, outside the zoomed map")
+check(bool("(function () { const m = __t.q('.rm-actions').getBoundingClientRect(), l = __t.q('.rm-left').getBoundingClientRect(); return m.left >= l.left && m.right <= l.right + 0.5 && m.top >= l.top && m.bottom <= l.bottom + 0.5; })()"), "the menu stays inside the map area")
 let ordinary = json("return JSON.stringify({ off: __t.qa('.rm-actions button').filter(function (b) { return b.disabled; }).map(function (b) { return b.dataset.act; }) });")
 check(((ordinary["off"] as? [String]) ?? ["x"]).isEmpty, "an ordinary node has every action enabled", "\(ordinary)")
 _ = js("__t.menu('n3'); return 'ok';")
 check(!visible(".rm-actions"), "the triangle closes its menu")
 _ = js("__t.menu('n1'); return 'ok';")
 let rootMenu = json("return JSON.stringify({ off: __t.qa('.rm-actions button').filter(function (b) { return b.disabled; }).map(function (b) { return b.dataset.act; }) });")
-check((rootMenu["off"] as? [String]) == ["move", "delete"], "the root cannot be moved or deleted", "\(rootMenu)")
+check((rootMenu["off"] as? [String]) == ["delete"], "the root cannot be deleted", "\(rootMenu)")
 _ = js("document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return 'ok';")
 check(!visible(".rm-actions"), "a click elsewhere closes the menu")
 
@@ -330,11 +339,12 @@ check(!visible(".rm-dialog"), "the dialog closes after Add")
 
 newMark()
 _ = js("__t.menu('n3'); __t.act('develop'); return 'ok';")
-check(eval("__t.q('.rm-dialog h2').textContent") == "Develop with AI", "the sparkle opens the develop dialog")
-_ = js("__t.dialogButton('Develop'); return 'ok';")
-check(eval("__t.q('.rm-dialog .rm-error').textContent") == "Enter a direction.", "an empty direction is refused")
-_ = js("__t.type(__t.q('.rm-dialog input'), 'compare the options'); __t.dialogButton('Develop'); return 'ok';")
-expect("Develop sends develop with the direction in words", ["action": "develop", "id": "n3", "direction": "compare the options"], doc: tabM)
+check(eval("__t.q('.rm-dialog h2').textContent") == "Expand topic", "Expand topic opens its dialog")
+_ = js("__t.dialogButton('Expand'); return 'ok';")
+expect("an empty direction is allowed: the AI chooses the sub-topics", ["action": "develop", "id": "n3", "direction": ""], doc: tabM)
+newMark()
+_ = js("__t.menu('n3'); __t.act('develop'); __t.type(__t.q('.rm-dialog input'), 'compare the options'); __t.dialogButton('Expand'); return 'ok';")
+expect("Expand topic sends the direction in words", ["action": "develop", "id": "n3", "direction": "compare the options"], doc: tabM)
 
 newMark()
 _ = js("__t.menu('n3'); __t.act('edit'); return 'ok';")
@@ -356,11 +366,190 @@ _ = js("__t.q('.rm-dialog select[aria-label=\"First node\"]').value = 'n4'; __t.
 expect("Add sends link with both ends", ["action": "link", "from": "n4", "to": "n5"], doc: tabM)
 
 newMark()
-_ = js("__t.menu('n2'); __t.act('move'); return 'ok';")
-let targets = json("return JSON.stringify({ options: Array.from(__t.q('.rm-dialog select').options).map(function (o) { return o.value; }) });")
-check((targets["options"] as? [String])?.sorted() == ["n10", "n11", "n12", "n3", "n4", "n5", "n8", "n9"], "Move offers only nodes that are not the node, its descendants or its current parent", "\(targets)")
-_ = js("__t.q('.rm-dialog select').value = 'n4'; __t.dialogButton('Move'); return 'ok';")
-expect("Move sends reparent", ["action": "reparent", "id": "n2", "parent": "n4"], doc: tabM)
+_ = js("__t.menu('n2'); return 'ok';")
+check(!bool("!!__t.q('.rm-actions [data-act=move]')"), "there is no Move to another branch action any more (DEC-010)")
+_ = js("__t.menu('n2'); return 'ok';")
+
+// ---- AI actions on a node (REQ-006) -------------------------------------------------------------------------------------------------
+newMark()
+_ = js("__t.menu('n3'); __t.act('describe'); return 'ok';")
+expect("Expand description sends describe at once, with the node", ["action": "describe", "id": "n3"], doc: tabM)
+newMark()
+_ = js("__t.menu('n3'); __t.act('investigate'); return 'ok';")
+expect("Research sends investigate at once, with the node", ["action": "investigate", "id": "n3"], doc: tabM)
+newMark()
+_ = js("__t.menu('n3'); __t.act('correct'); return 'ok';")
+check(eval("__t.q('.rm-dialog h2').textContent") == "Correct node" && bool("__t.q('.rm-dialog textarea') !== null"), "Correct opens a dialog with a text area for the person's note")
+_ = js("__t.dialogButton('Correct'); return 'ok';")
+check(eval("__t.q('.rm-dialog .rm-error').textContent") == "Say what is wrong with this node.", "an empty note is refused")
+expectNone("…and nothing is sent", action: "correct", wait: 0.3)
+_ = js("__t.type(__t.q('.rm-dialog textarea'), 'The cache is not LRU'); __t.dialogButton('Correct'); return 'ok';")
+expect("Correct sends the note", ["action": "correct", "id": "n3", "note": "The cache is not LRU"], doc: tabM)
+
+_ = js("__t.select('n2'); return 'ok';")
+check(eval("__t.qa('.rm-ai [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Expand description|Expand topic|Correct|Research", "the properties panel shows the four AI actions as labelled buttons")
+newMark()
+_ = js("__t.q('.rm-ai [data-act=describe]').click(); return 'ok';")
+expect("the panel's Expand description acts on the selected node", ["action": "describe", "id": "n2"], doc: tabM)
+newMark()
+_ = js("__t.q('.rm-ai [data-act=investigate]').click(); return 'ok';")
+expect("the panel's Research acts on the selected node", ["action": "investigate", "id": "n2"], doc: tabM)
+newMark()
+_ = js("__t.q('.rm-ai [data-act=develop]').click(); return 'ok';")
+check(eval("__t.q('.rm-dialog h2').textContent") == "Expand topic", "the panel's Expand topic opens the same dialog")
+_ = js("__t.dialogButton('Cancel'); return 'ok';")
+deliver("{ status: 'researching', job: { kind: 'describe', label: 'Expand description: Dependencies', step: 'Reading', startedAt: \(Int(Date().timeIntervalSince1970)) } }")
+check(bool("__t.qa('.rm-ai-btn').every(function (b) { return b.disabled; })") && eval("__t.q('.rm-ai-note').textContent").contains("already working"), "while a job runs, the AI buttons are off and say why")
+_ = js("__t.menu('n3'); return 'ok';")
+check(bool("__t.qa('.rm-actions .rm-item.ai').every(function (b) { return b.disabled; })"), "…and so are the AI items of the node menu")
+_ = js("__t.menu('n3'); return 'ok';")
+deliver()
+check(bool("__t.qa('.rm-ai-btn').every(function (b) { return !b.disabled; })"), "when the job is over the buttons are back")
+
+// ---- icons and numbers on a node (REQ-008, DEC-011) -------------------------------------------------------------------------------
+let swiftSource = (try? String(contentsOfFile: editor + "/../../Models/ResearchMapDocument.swift", encoding: .utf8)) ?? ""
+let swiftIcons: [String] = {
+    guard let start = swiftSource.range(of: "static let iconIDs = ["), let end = swiftSource.range(of: "]", range: start.upperBound..<swiftSource.endIndex) else { return [] }
+    return swiftSource[start.upperBound..<end.lowerBound].components(separatedBy: CharacterSet(charactersIn: ", \n\"")).filter { !$0.isEmpty }
+}()
+check(swiftIcons.count == 41, "the built-in icon ids were read from ResearchMapDocument.swift", "\(swiftIcons)")
+let pageIcons = (try? JSONSerialization.jsonObject(with: Data(eval("JSON.stringify(window.MVResearchMap.iconIDs())").utf8)) as? [String]) ?? []
+check(pageIcons == swiftIcons, "the page draws exactly the icons Swift accepts, in the same order", "swift \(swiftIcons) page \(pageIcons)")
+
+newMark()
+check(bool("__t.qa('.rm-lead').every(function (l) { return l.hidden; })") && bool("__t.qa('.rm-badge, .rm-glyph').every(function (e) { return e.hidden; })"), "a node without icon and number shows neither")
+deliver("{ nodes: (function () { const s = __t.snap(); const set = function (id, extra) { Object.assign(s.nodes.find(function (n) { return n.id === id; }), extra); }; set('n3', { number: 3, icon: 'bug' }); set('n4', { number: 12 }); set('n5', { icon: '🔥' }); set('n2', { number: 1, icon: 'rocket', color: '#ffee88' }); return s.nodes; })() }")
+func nodeLead(_ id: String) -> [String: Any] { json("const e = __t.btn('\(id)'); const l = e.querySelector('.rm-lead'), b = e.querySelector('.rm-badge'), g = e.querySelector('.rm-glyph'); return JSON.stringify({ lead: !l.hidden, badge: b.hidden ? '' : b.textContent, glyph: g.hidden ? '' : (g.querySelector('svg') ? 'svg' : g.textContent), label: e.querySelector('.rm-label').textContent, aria: e.getAttribute('aria-label') });") }
+let leadBoth = nodeLead("n3"), leadNumber = nodeLead("n4"), leadEmoji = nodeLead("n5")
+check((leadBoth["badge"] as? String) == "3" && (leadBoth["glyph"] as? String) == "svg" && (leadBoth["label"] as? String) == "Compiler", "a node shows its number badge and icon before the title", "\(leadBoth)")
+check((leadNumber["badge"] as? String) == "12" && (leadNumber["glyph"] as? String) == "", "a number alone shows only the badge", "\(leadNumber)")
+check((leadEmoji["badge"] as? String) == "" && (leadEmoji["glyph"] as? String) == "🔥", "an emoji icon is drawn as text", "\(leadEmoji)")
+check(((leadBoth["aria"] as? String) ?? "").hasPrefix("Number 3. bug icon. Compiler"), "a screen reader hears the number and the icon first", "\(leadBoth)")
+check(eval("__t.btn('n3').querySelector('.rm-glyph svg path').getAttribute('d')").hasPrefix("M9 7a3 3 0 0 1 6 0"), "a built-in icon is its own drawing")
+let badgeLook = json("const b = getComputedStyle(__t.btn('n3').querySelector('.rm-badge')), g = getComputedStyle(__t.btn('n3').querySelector('.rm-glyph')), c = getComputedStyle(__t.btn('n2').querySelector('.rm-badge')); return JSON.stringify({ bg: b.backgroundColor, ink: b.color, glyph: g.color, customBg: c.backgroundColor, customInk: c.color });")
+check((badgeLook["bg"] as? String) == "rgb(78, 201, 176)" && (badgeLook["ink"] as? String) == "rgb(30, 30, 30)" && (badgeLook["glyph"] as? String) == "rgb(78, 201, 176)", "the badge and the icon take the branch colour; the badge text is dark on it (dark theme)", "\(badgeLook)")
+check((badgeLook["customBg"] as? String) == "rgb(255, 238, 136)" && (badgeLook["customInk"] as? String) == "rgb(30, 30, 30)", "on a node with its own light colour the badge is that colour with dark text", "\(badgeLook)")
+_ = js("document.documentElement.setAttribute('data-theme', 'light'); return 'ok';")
+check(eval("getComputedStyle(__t.btn('n3').querySelector('.rm-badge')).color") == "rgb(255, 255, 255)", "light theme: white text on the darker branch colour")
+_ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
+check(bool("(function () { const b = __t.btn('n3'), l = b.querySelector('.rm-lead').getBoundingClientRect(), r = b.getBoundingClientRect(); return l.left >= r.left && l.right <= r.right && l.top >= r.top && l.bottom <= r.bottom; })()"), "the badge and icon sit inside the node card")
+check(bool("(function () { const b = __t.btn('n3'), t = b.querySelector('.rm-label').getBoundingClientRect(), l = b.querySelector('.rm-lead').getBoundingClientRect(); return l.right <= t.left + 1; })()"), "they come before the title, not over it")
+
+// The panel: icon button, number field.
+_ = js("__t.select('n3'); return 'ok';")
+check(eval("__t.q('.rm-icon-pick').textContent.trim()") == "Bug" && bool("!__t.q('[data-act=icon-clear]').hidden") && eval("__t.q('.rm-number-input').value") == "3", "the panel shows the node's icon name and number")
+_ = js("__t.select('n5'); return 'ok';")
+check(eval("__t.q('.rm-icon-pick').textContent.trim()").hasSuffix("Emoji") && eval("__t.q('.rm-number-input').value") == "", "an emoji icon shows as Emoji; no number shows an empty field")
+_ = js("__t.select('n6'); return 'ok';")
+check(eval("__t.q('.rm-icon-pick').textContent.trim()") == "None" && bool("__t.q('[data-act=icon-clear]').hidden"), "a node without an icon says None and offers no remove button")
+newMark()
+_ = js("__t.type(__t.q('.rm-number-input'), '5'); __t.q('.rm-number-input').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expect("typing a number sends update with the integer", ["action": "update", "id": "n6", "number": 5], doc: tabM)
+newMark()
+_ = js("__t.select('n3'); __t.type(__t.q('.rm-number-input'), ''); __t.q('.rm-number-input').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expect("emptying the field removes the number (null)", ["action": "update", "id": "n3", "number": NSNull()], doc: tabM)
+newMark()
+_ = js("__t.type(__t.q('.rm-number-input'), '0'); __t.q('.rm-number-input').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expectNone("0 is not sent", action: "update", wait: 0.5)
+check(visible(".rm-toast") && eval("__t.q('.rm-toast').textContent").contains("between 1 and 999") && eval("__t.q('.rm-number-input').value") == "3", "…the person is told, and the field shows the stored number again")
+newMark()
+_ = js("__t.type(__t.q('.rm-number-input'), '1000'); __t.q('.rm-number-input').dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
+expectNone("1000 is not sent either", action: "update", wait: 0.5)
+
+// The icon dialog.
+newMark()
+_ = js("__t.q('[data-act=icon]').click(); return 'ok';")
+check(eval("__t.q('.rm-dialog h2').textContent").hasPrefix("Icon for") && number("document.querySelectorAll('.rm-icongrid button').length") == 41, "the icon button opens a dialog with the 41 built-in icons")
+check(bool("__t.q('.rm-icongrid button[data-icon=bug]').getAttribute('aria-pressed') === 'true' && __t.qa('.rm-icongrid button[aria-pressed=true]').length === 1"), "the node's current icon is marked in the grid")
+check(bool("__t.qa('.rm-icongrid button').every(function (b) { return !!b.querySelector('svg path') && b.title && b.getAttribute('aria-label'); })"), "every icon has a drawing and a name")
+_ = js("__t.q('.rm-icongrid button[data-icon=lock]').click(); return 'ok';")
+expect("choosing an icon sends update with its id and closes the dialog", ["action": "update", "id": "n3", "icon": "lock"], doc: tabM)
+check(!visible(".rm-dialog"), "the dialog is closed")
+newMark()
+_ = js("__t.q('[data-act=icon]').click(); __t.type(__t.q('.rm-dialog input'), 'ab'); __t.dialogButton('Use emoji'); return 'ok';")
+check(eval("__t.q('.rm-dialog .rm-error').textContent").contains("one emoji"), "text that is not an emoji is refused in the dialog")
+expectNone("…and not sent", action: "update", wait: 0.4)
+_ = js("__t.type(__t.q('.rm-dialog input'), '🔥'); __t.dialogButton('Use emoji'); return 'ok';")
+expect("an emoji is sent as it is", ["action": "update", "id": "n3", "icon": "🔥"], doc: tabM)
+newMark()
+_ = js("__t.q('[data-act=icon]').click(); __t.dialogButton('Remove icon'); return 'ok';")
+expect("Remove icon in the dialog clears it", ["action": "update", "id": "n3", "icon": ""], doc: tabM)
+newMark()
+_ = js("__t.q('[data-act=icon-clear]').click(); return 'ok';")
+expect("the × beside the icon clears it too", ["action": "update", "id": "n3", "icon": ""], doc: tabM)
+
+// The node menu: Icon… and Number children.
+newMark()
+_ = js("__t.menu('n6'); return 'ok';")
+check(bool("__t.q('.rm-actions [data-act=number-children]').disabled"), "Number children is off for a node without children")
+_ = js("__t.menu('n6'); return 'ok';")
+newMark()
+_ = js("__t.menu('n1'); __t.act('number-children'); return 'ok';")
+expect("Number children sends numberChildren for the node", ["action": "numberChildren", "id": "n1", "clear": false], doc: tabM)
+deliver("{ nodes: (function () { const s = __t.snap(); ['n2', 'n3', 'n4', 'n5'].forEach(function (id, i) { s.nodes.find(function (n) { return n.id === id; }).number = i + 1; }); return s.nodes; })() }")
+_ = js("__t.menu('n1'); return 'ok';")
+check(eval("__t.q('.rm-actions [data-act=number-children]').textContent.trim()") == "Remove numbers from children", "when the children are numbered 1…n the action offers to remove the numbers")
+newMark()
+_ = js("__t.act('number-children'); return 'ok';")
+expect("…and sends clear", ["action": "numberChildren", "id": "n1", "clear": true], doc: tabM)
+newMark()
+_ = js("__t.menu('n6'); __t.act('icon'); return 'ok';")
+check(eval("__t.q('.rm-dialog h2').textContent").hasPrefix("Icon for") && bool("__t.btn('n6').getAttribute('aria-pressed') === 'true'"), "Icon… in the node menu selects the node and opens the dialog")
+_ = js("__t.dialogButton('Cancel'); return 'ok';")
+deliver()
+
+// ---- folding (BUG-092, DEC-010) ------------------------------------------------------------------------------------------------------
+newMark()
+check(bool("__t.fold('n1').hidden") && bool("__t.fold('n6').hidden") && !bool("__t.fold('n2').hidden"), "a node with children has a fold toggle; a leaf and the root have none")
+check(bool("__t.shown('n6') && __t.shown('n7')"), "everything is shown at first")
+_ = js("__t.fold('n2').click(); return 'ok';")
+check(bool("!__t.shown('n6') && !__t.shown('n7') && __t.shown('n2') && __t.shown('n3')"), "folding a node hides its children and nothing else")
+check(eval("__t.fold('n2').textContent") == "+2" && bool("__t.fold('n2').getAttribute('aria-expanded') === 'false'") && bool("__t.fold('n2').classList.contains('folded')"), "a folded node says how many nodes it hides")
+check(number("document.querySelectorAll('path[data-line=tree]').length") == 9, "the lines into hidden nodes are gone")
+check(number("document.querySelectorAll('path[data-line=link]').length") == 1, "a logical connection to a hidden node is hidden too; the other stays")
+check(bool("(function () { const a = __t.pos('n2'), b = __t.pos('n3'); return isFinite(a.x) && isFinite(b.x); })()"), "the remaining nodes are laid out")
+check(eval("JSON.stringify(window.MVResearchMap.collapsed())") == "[\"n2\"]", "the fold state is kept as view state")
+newMark()
+_ = js("__t.fold('n2').click(); return 'ok';")
+check(bool("__t.shown('n6') && __t.shown('n7')") && number("document.querySelectorAll('path[data-line=tree]').length") == 11 && number("document.querySelectorAll('path[data-line=link]').length") == 2, "folding again shows them")
+expectNone("folding sends nothing to Swift", action: "update", wait: 0.3)
+_ = js("__t.select('n8'); __t.fold('n3').click(); return 'ok';")
+check(bool("__t.btn('n3').getAttribute('aria-pressed') === 'true'") && eval("__t.q('.rm-title-input').value") == "Compiler", "folding the branch of the selected node selects the branch")
+_ = js("__t.fold('n3').click(); return 'ok';")
+_ = js("__t.q('[data-act=collapse-all]').click(); return 'ok';")
+check(bool("['n1', 'n2', 'n3', 'n4', 'n5'].every(function (id) { return __t.shown(id); }) && ['n6', 'n7', 'n8', 'n9', 'n10', 'n11', 'n12'].every(function (id) { return !__t.shown(id); })"), "Collapse all leaves the root and its main branches")
+check(eval("['n2', 'n3', 'n4', 'n5'].map(function (id) { return __t.fold(id).textContent; }).join()") == "+2,+2,+2,+1", "…each folded branch shows its hidden count")
+_ = js("__t.q('[data-act=expand-all]').click(); return 'ok';")
+check(bool("['n1','n2','n3','n4','n5','n6','n7','n8','n9','n10','n11','n12'].every(function (id) { return __t.shown(id); })") && eval("JSON.stringify(window.MVResearchMap.collapsed())") == "[]", "Expand all shows every node")
+// A node the person adds under a folded branch is shown (it is selected).
+_ = js("__t.fold('n3').click(); return 'ok';")
+deliver("{ created: 'n13', nodes: (function () { const s = __t.snap(); s.nodes.splice(8, 0, { id: 'n13', parent: 'n3', title: 'Fresh', tags: [], color: '', description: '', layout: '', x: null, y: null, evidence: [] }); return s.nodes; })() }")
+check(bool("__t.shown('n13') && __t.shown('n8')") && bool("__t.btn('n13').getAttribute('aria-pressed') === 'true'"), "a created node under a folded branch unfolds the branch and is selected")
+deliver()
+
+// A long title is never cut: the title field wraps.
+_ = js("__t.select('n2'); return 'ok';")
+deliver("{ nodes: (function () { const s = __t.snap(); s.nodes.find(function (n) { return n.id === 'n2'; }).title = 'Мне нужно сделать deep research, так сказать, узнать полностью всё о том, как происходят финансы в нашей системе внутри'; return s.nodes; })() }")
+let titleBox = json("const t = __t.q('.rm-title-input'); return JSON.stringify({ tag: t.tagName, offset: t.offsetHeight, scroll: t.scrollHeight, client: t.clientHeight, width: t.offsetWidth, value: t.value.length, style: t.style.height });")
+check((titleBox["tag"] as? String) == "TEXTAREA" && ((titleBox["offset"] as? Double) ?? 0) > 44 && ((titleBox["scroll"] as? Double) ?? 1) <= ((titleBox["client"] as? Double) ?? 0) + 1, "a long title wraps in the panel instead of being cut (BUG-091)", "\(titleBox)")
+deliver()
+
+// ---- export (REQ-007) ------------------------------------------------------------------------------------------------------------------
+newMark()
+check(!visible(".rm-exportmenu"), "the export menu is closed at first")
+_ = js("__t.q('[data-act=export]').click(); return 'ok';")
+check(visible(".rm-exportmenu") && eval("__t.qa('.rm-exportmenu [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Markdown report|PDF…", "Export opens a menu: Markdown report and PDF")
+_ = js("__t.q('[data-act=export-markdown]').click(); return 'ok';")
+expect("Markdown report sends export with kind markdown", ["action": "export", "kind": "markdown"], doc: tabM)
+check(!visible(".rm-exportmenu"), "the menu closes after choosing")
+newMark()
+_ = js("__t.q('[data-act=export]').click(); __t.q('[data-act=export-pdf]').click(); return 'ok';")
+expect("PDF sends export with kind pdf", ["action": "export", "kind": "pdf"], doc: tabM)
+_ = js("__t.q('[data-act=export]').click(); return 'ok';")
+_ = js("document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return 'ok';")
+check(!visible(".rm-exportmenu"), "a click elsewhere closes the export menu")
+let reportHTML = eval("window.MVResearchMap.reportHTML('# Title\\n\\n<script>alert(1)</script>\\n\\n- one')")
+check(reportHTML.contains("<h1>Title</h1>") && reportHTML.contains("<li>one</li>") && !reportHTML.contains("<script"), "the report is rendered to HTML for the PDF, raw HTML in it is not passed through")
 
 newMark()
 _ = js("__t.menu('n3'); __t.act('arrange'); return 'ok';")
@@ -421,11 +610,11 @@ newMark()
 _ = js("const c = __t.q('.rm-color-input'); c.value = '#aa5500'; c.dispatchEvent(new Event('change', { bubbles: true })); return 'ok';")
 expect("the colour input sends update with the colour", ["action": "update", "id": "n2", "color": "#aa5500"], doc: tabM)
 deliver("{ nodes: (function () { const s = __t.snap(); s.nodes.find(function (n) { return n.id === 'n2'; }).color = '#aa5500'; return s.nodes; })() }")
-let tinted = json("const s = getComputedStyle(__t.btn('n2')); return JSON.stringify({ border: s.borderTopColor, width: s.borderTopWidth });")
-check((tinted["border"] as? String) == "rgb(170, 85, 0)", "a node with its own colour takes it as its border", "\(tinted)")
-let lineColours = json("return JSON.stringify({ paths: __t.qa('path[data-line=tree]').map(function (p) { return p.getAttribute('stroke'); }) });")
-check(((lineColours["paths"] as? [String]) ?? []).contains("#aa5500"), "the line into a node with its own colour takes that colour (Q-007 A)", "\(lineColours)")
-check(((lineColours["paths"] as? [String]) ?? []).contains("#b08168"), "other lines keep their branch palette colour", "\(lineColours)")
+let tinted = json("const s = getComputedStyle(__t.btn('n2')); return JSON.stringify({ border: s.borderLeftColor, width: s.borderLeftWidth });")
+check((tinted["border"] as? String) == "rgb(170, 85, 0)", "a node with its own colour takes it as its accent edge", "\(tinted)")
+let lineColours = json("return JSON.stringify({ paths: __t.qa('path[data-line=tree]').map(function (p) { return getComputedStyle(p).stroke; }) });")
+check(((lineColours["paths"] as? [String]) ?? []).contains("rgb(170, 85, 0)"), "the line into a node with its own colour takes that colour (Q-007 A)", "\(lineColours)")
+check(((lineColours["paths"] as? [String]) ?? []).contains("rgb(78, 201, 176)"), "other lines keep their branch colour", "\(lineColours)")
 newMark()
 _ = js("__t.q('.rm-color-row .rm-x').click(); return 'ok';")
 expect("the reset button sends an empty colour", ["action": "update", "id": "n2", "color": ""], doc: tabM)

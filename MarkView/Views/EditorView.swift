@@ -834,6 +834,23 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             }
             self.bridge.setResearchMap(reply.json, documentID: documentID, in: webView)
             self.followResearchMapJobs()
+            if let report = reply.pdfReport { self.exportResearchMapPDF(report.markdown, fileName: report.fileName, in: webView) }
+        }
+    }
+
+    /// The page renders the report with its own Markdown renderer; the PDF pipeline of the editor makes the file.
+    @MainActor
+    private func exportResearchMapPDF(_ markdown: String, fileName: String, in webView: WKWebView) {
+        guard let data = try? JSONSerialization.data(withJSONObject: [markdown]), let args = String(data: data, encoding: .utf8) else { return }
+        let documentFiles = self.documentFiles
+        webView.evaluateJavaScript("window.MVResearchMap && window.MVResearchMap.reportHTML.apply(null, \(args))") { result, _ in
+            guard let html = result as? String, !html.isEmpty else {
+                webView.evaluateJavaScript("window.MVResearchMap && window.MVResearchMap.notice('The report could not be drawn for the PDF.')", completionHandler: nil)
+                return
+            }
+            Task { @MainActor in
+                PDFExporter.exportPDF(html: html, fileName: fileName, baseURL: webView.url, documentFiles: documentFiles)
+            }
         }
     }
 

@@ -2,7 +2,7 @@ import Foundation
 
 /// Research maps (feature mind-map, DEC-006, DEC-007, DEC-009): the Markdown format of a map, its
 /// parsing that tolerates edits made in a text editor, and every rule of the map (cascade delete,
-/// cycle check on moving a branch, duplicate connections, recursive layout). The map view in the
+/// duplicate connections, recursive layout). The map view in the
 /// editor page only draws a snapshot of this model and sends operations; nothing else implements
 /// the format. Pure (Foundation, FrontMatter and ResearchDocument), so `tools/tests` can compile it alone.
 ///
@@ -34,6 +34,10 @@ struct ResearchMap: Equatable {
         var tags: [String] = []
         /// `#rrggbb` or empty.
         var color = ""
+        /// A built-in icon id (`ResearchMap.iconIDs`), one emoji, or empty (REQ-008, DEC-011).
+        var icon = ""
+        /// The badge shown before the title, 1 to `numberLimit`: step order, phase number (REQ-008).
+        var number: Int?
         /// Markdown source of the description.
         var description = ""
         /// The node's own layout preset id, or empty (inherits).
@@ -60,6 +64,8 @@ struct ResearchMap: Equatable {
         var description = ""
         var tags: [String] = []
         var evidence: [Evidence] = []
+        /// Only set when the order of the nodes matters (steps, phases).
+        var number: Int?
     }
 
     // MARK: Fields
@@ -95,6 +101,18 @@ struct ResearchMap: Equatable {
     static let tagCount = 30
     static let descriptionLimit = 200_000
     static let coordinateLimit = 1_000_000
+    static let numberLimit = 999
+    /// An emoji is one character; this bounds the bytes of a sequence with modifiers and joiners.
+    static let emojiByteLimit = 40
+
+    /// The built-in node icons (DEC-011). The page draws each one by its id and shows the ids as names; a check in
+    /// `research-map-web-tests.sh` keeps this list and the page's drawings equal.
+    static let iconIDs = [
+        "check", "warning", "error", "info", "question", "bug", "lock", "key", "database", "server",
+        "cloud", "user", "users", "clock", "calendar", "flag", "star", "heart", "bulb", "target",
+        "rocket", "book", "file", "folder", "code", "terminal", "gear", "shield", "globe", "chain",
+        "mail", "chat", "money", "chart", "trend", "bolt", "pin", "tag", "bell", "eye", "package",
+    ]
 
     /// Layout presets in menu order (DEC-007). The page renders its menu from this list.
     static let layouts: [(id: String, name: String)] = [
@@ -103,6 +121,21 @@ struct ResearchMap: Equatable {
     ]
 
     static func isLayout(_ id: String) -> Bool { layouts.contains { $0.id == id } }
+
+    /// A built-in icon id, or one emoji (a single character that presents as an emoji, with its modifiers and joiners).
+    static func isIcon(_ text: String) -> Bool {
+        if iconIDs.contains(text) { return true }
+        guard text.count == 1, text.utf8.count <= emojiByteLimit, let character = text.first else { return false }
+        return character.unicodeScalars.contains { $0.properties.isEmojiPresentation || $0.value == 0xFE0F }
+    }
+
+    /// The icon as it is stored: valid or empty.
+    static func clean(icon: String) -> String {
+        let text = icon.trimmingCharacters(in: .whitespacesAndNewlines)
+        return isIcon(text) ? text : ""
+    }
+
+    static func isNumber(_ value: Int) -> Bool { (1...numberLimit).contains(value) }
 
     // MARK: Detection
 
@@ -186,6 +219,7 @@ struct ResearchMap: Equatable {
         node.tags = Self.clean(tags: draft.tags)
         node.description = Self.clean(description: draft.description)
         node.evidence = draft.evidence
+        if let number = draft.number, Self.isNumber(number) { node.number = number }
         let insertAt = parentIndex + 1 + descendants(of: parent).count
         nodes.insert(node, at: insertAt)
         return node.id
@@ -197,8 +231,9 @@ struct ResearchMap: Equatable {
     }
 
     /// Changes the given properties of a node. Renaming the root renames the map.
+    /// `icon`: "" clears it. `number`: `.some(nil)` clears it, `.some(n)` sets it (1 to `numberLimit`).
     mutating func update(id: String, title: String? = nil, tags: [String]? = nil, color: String? = nil,
-                         description: String? = nil) throws {
+                         description: String? = nil, icon: String? = nil, number: Int?? = nil) throws {
         guard let i = index(of: id) else { throw Rejection(message: "That node no longer exists.") }
         if let title {
             let cleaned = Self.clean(title: title)
@@ -214,6 +249,35 @@ struct ResearchMap: Equatable {
             guard description.count <= Self.descriptionLimit else { throw Rejection(message: "The description is too long.") }
             nodes[i].description = Self.clean(description: description)
         }
+        if let icon {
+            let text = icon.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.isEmpty || Self.isIcon(text) else { throw Rejection(message: "Choose an icon from the list, or paste one emoji.") }
+            nodes[i].icon = text
+        }
+        if let number {
+            if let value = number {
+                guard Self.isNumber(value) else { throw Rejection(message: "A number is between 1 and \(Self.numberLimit).") }
+                nodes[i].number = value
+            } else {
+                nodes[i].number = nil
+            }
+        }
+    }
+
+    /// Numbers the children of a node 1, 2, 3 … in map order (REQ-008), or removes their numbers when `clear` is set.
+    /// Returns how many children changed.
+    @discardableResult
+    mutating func numberChildren(of id: String, clear: Bool = false) throws -> Int {
+        guard index(of: id) != nil else { throw Rejection(message: "That node no longer exists.") }
+        var changed = 0
+        var next = 1
+        for i in nodes.indices where nodes[i].parent == id {
+            let wanted: Int? = clear ? nil : next
+            if next > Self.numberLimit && !clear { throw Rejection(message: "There are too many children to number.") }
+            if nodes[i].number != wanted { nodes[i].number = wanted; changed += 1 }
+            next += 1
+        }
+        return changed
     }
 
     /// Deletes a node with all its descendants and every connection that touches one of them.
@@ -234,25 +298,6 @@ struct ResearchMap: Equatable {
         guard abs(x) <= Self.coordinateLimit, abs(y) <= Self.coordinateLimit else { throw Rejection(message: "That position is outside the map.") }
         nodes[i].x = x
         nodes[i].y = y
-    }
-
-    /// Moves a node with its descendants under another parent, as its last child. The node loses
-    /// its manual position so the new branch's layout places it.
-    mutating func reparent(id: String, to parent: String) throws {
-        guard let i = index(of: id) else { throw Rejection(message: "That node no longer exists.") }
-        guard !nodes[i].parent.isEmpty else { throw Rejection(message: "The root node cannot be moved to another branch.") }
-        guard node(parent) != nil else { throw Rejection(message: "The target branch no longer exists.") }
-        guard !isInSubtree(parent, of: id) else { throw Rejection(message: "A node cannot be moved under itself or its own branch.") }
-        if nodes[i].parent == parent { return }
-        let block = [id] + descendants(of: id)
-        let moved = block.compactMap { node($0) }
-        nodes.removeAll { block.contains($0.id) }
-        guard let parentIndex = index(of: parent) else { return }
-        var first = moved
-        first[0].parent = parent
-        first[0].x = nil
-        first[0].y = nil
-        nodes.insert(contentsOf: first, at: parentIndex + 1 + descendants(of: parent).count)
     }
 
     mutating func link(_ from: String, _ to: String) throws {
@@ -588,6 +633,8 @@ extension ResearchMap {
             switch key {
             case "tags": node.tags = clean(tags: value.components(separatedBy: ","))
             case "color": node.color = isColor(value) ? value.lowercased() : ""
+            case "icon": node.icon = clean(icon: value)
+            case "number": node.number = Int(value).flatMap { isNumber($0) ? $0 : nil }
             case "layout": node.layout = isLayout(value) ? value : ""
             case "position":
                 let parts = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -627,7 +674,7 @@ extension ResearchMap {
         let rest = line.dropFirst(2)
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let key = rest[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-        guard ["tags", "color", "layout", "position"].contains(key) else { return nil }
+        guard ["tags", "color", "icon", "number", "layout", "position"].contains(key) else { return nil }
         return (key, rest[rest.index(after: colon)...].trimmingCharacters(in: .whitespaces))
     }
 
@@ -744,6 +791,8 @@ extension ResearchMap {
             var props: [String] = []
             if !node.tags.isEmpty { props.append("- tags: " + node.tags.joined(separator: ", ")) }
             if !node.color.isEmpty { props.append("- color: " + node.color) }
+            if !node.icon.isEmpty { props.append("- icon: " + node.icon) }
+            if let number = node.number { props.append("- number: \(number)") }
             if !node.layout.isEmpty { props.append("- layout: " + node.layout) }
             if let x = node.x, let y = node.y { props.append("- position: \(x), \(y)") }
             if !props.isEmpty {
@@ -824,6 +873,7 @@ extension ResearchMap {
             "nodes": nodes.map { node -> [String: Any] in
                 [
                     "id": node.id, "parent": node.parent, "title": node.title, "tags": node.tags, "color": node.color,
+                    "icon": node.icon, "number": node.number.map { $0 as Any } ?? NSNull(),
                     "description": node.description, "layout": node.layout,
                     "x": node.x.map { $0 as Any } ?? NSNull(), "y": node.y.map { $0 as Any } ?? NSNull(),
                     "evidence": node.evidence.map { ["label": $0.label.rawValue, "text": $0.text, "source": $0.source] },
@@ -831,6 +881,7 @@ extension ResearchMap {
             },
             "links": links.map { ["from": $0.from, "to": $0.to] },
             "layouts": Self.layouts.map { ["id": $0.id, "name": $0.name] },
+            "icons": Self.iconIDs,
             "created": createdID,
             "notice": notice,
         ]

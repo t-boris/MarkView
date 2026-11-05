@@ -51,23 +51,11 @@ check("empty title refused on update", rejected { try map.update(id: nav, title:
 check("root rename renames the map", { var m = map; try! m.update(id: "n1", title: "Docs"); return m.title == "Docs" }())
 check("oversized description refused", rejected { try map.update(id: nav, description: String(repeating: "x", count: M.descriptionLimit + 1)) } != nil)
 
-// MARK: Operations: moving
+// MARK: Operations: moving (a node moves visually only; there is no move to another branch, DEC-010)
 
 try! map.moveVisual(id: search, x: 120, y: -40)
 check("visual move keeps the parent", map.node(search)!.parent == "n1" && map.node(search)!.x == 120 && map.node(search)!.y == -40)
 check("visual move outside the map refused", rejected { try map.moveVisual(id: search, x: 5_000_000, y: 0) } != nil)
-
-var moved = map
-try! moved.reparent(id: nav, to: search)
-check("reparent moves the branch", moved.node(nav)!.parent == search && moved.node(large)!.parent == nav)
-check("reparent keeps the outline in order", moved.nodes.map(\.id) == ["n1", "n3", "n2", "n4"])
-check("reparent clears the manual position of the moved node", { var m = map; try! m.moveVisual(id: nav, x: 1, y: 2); try! m.reparent(id: nav, to: search); return m.node(nav)!.x == nil }())
-check("reparent keeps the descendants' positions", { var m = map; try! m.moveVisual(id: large, x: 7, y: 8); try! m.reparent(id: nav, to: search); return m.node(large)!.x == 7 }())
-check("cannot move a branch under itself", rejected { try map.reparent(id: nav, to: nav) } != nil)
-check("cannot move a branch under its own descendant", rejected { try map.reparent(id: nav, to: large) } != nil)
-check("root cannot move", rejected { try map.reparent(id: "n1", to: search) } != nil)
-check("reparent to the same parent is a no-op", { var m = map; try! m.reparent(id: nav, to: "n1"); return m == map }())
-check("reparent to a missing node refused", rejected { try map.reparent(id: nav, to: "n77") } != nil)
 
 // MARK: Operations: connections
 
@@ -273,6 +261,56 @@ status.markResearching()
 check("researching clears the reason", status.status == .researching && status.incompleteReason.isEmpty)
 status.markComplete()
 check("complete", status.status == .complete && parsed(status.markdown())?.status == .complete)
+
+// MARK: Icons and numbers (REQ-008, DEC-011)
+
+var badges = M.new(id: "b", question: "Q", created: "d", targets: [], attachments: [])
+let stepA = try! badges.addChild(parent: "n1", title: "Plan")
+let stepB = try! badges.addChild(parent: "n1", title: "Build")
+let stepC = try! badges.addChild(parent: "n1", title: "Ship")
+let deep = try! badges.addChild(parent: stepB, title: "Compile")
+check("a new node has no icon and no number", badges.node(stepA)!.icon.isEmpty && badges.node(stepA)!.number == nil)
+try! badges.update(id: stepA, icon: "bug", number: .some(1))
+check("a built-in icon and a number are set", badges.node(stepA)!.icon == "bug" && badges.node(stepA)!.number == 1)
+try! badges.update(id: stepB, icon: "🔥")
+check("one emoji is an icon", badges.node(stepB)!.icon == "🔥")
+for emoji in ["❤️", "👩‍💻", "🇩🇪", "1️⃣"] { check("\(emoji) is accepted as one emoji", M.isIcon(emoji)) }
+for bad in ["", "a", "1", "ab", "🔥🔥", "nonsense", "<b>", "🔥 x", "bug icon"] { check("'\(bad)' is not an icon", !M.isIcon(bad)) }
+check("an unknown icon is refused with a message", rejected { try badges.update(id: stepC, icon: "nonsense") } != nil && badges.node(stepC)!.icon.isEmpty)
+check("an icon is trimmed", { var m = badges; try! m.update(id: stepC, icon: "  star \n"); return m.node(stepC)!.icon == "star" }())
+try! badges.update(id: stepA, icon: "")
+check("an empty icon clears it", badges.node(stepA)!.icon.isEmpty && badges.node(stepA)!.number == 1)
+check("a number outside 1…999 is refused", rejected { try badges.update(id: stepA, number: .some(0)) } != nil && rejected { try badges.update(id: stepA, number: .some(1000)) } != nil && rejected { try badges.update(id: stepA, number: .some(-3)) } != nil && badges.node(stepA)!.number == 1)
+try! badges.update(id: stepA, number: .some(nil))
+check("a nil number clears it", badges.node(stepA)!.number == nil)
+try! badges.update(id: stepA, title: "Plan it")
+check("leaving icon and number out changes neither", badges.node(stepB)!.icon == "🔥" && { var m = badges; try! m.update(id: stepB, number: .some(7)); try! m.update(id: stepB, title: "Build it"); return m.node(stepB)!.number == 7 }())
+
+let changed = try! badges.numberChildren(of: "n1")
+check("Number children numbers the children 1, 2, 3 in map order and nothing deeper", changed == 3 && [stepA, stepB, stepC].map { badges.node($0)!.number } == [1, 2, 3] && badges.node(deep)!.number == nil && badges.node("n1")!.number == nil)
+check("numbering again changes nothing", try! badges.numberChildren(of: "n1") == 0)
+try! badges.update(id: stepC, number: .some(9))
+check("a hand-set number is renumbered by the action", try! badges.numberChildren(of: "n1") == 1 && badges.node(stepC)!.number == 3)
+check("Remove numbers clears only the children", try! badges.numberChildren(of: "n1", clear: true) == 3 && [stepA, stepB, stepC].allSatisfy { badges.node($0)!.number == nil })
+check("numbering a node that is gone is refused", rejected { _ = try badges.numberChildren(of: "zz") } != nil)
+
+try! badges.update(id: stepA, icon: "rocket", number: .some(1))
+try! badges.update(id: stepB, icon: "🔥", number: .some(2))
+let stored = badges.markdown()
+check("the file stores the icon and the number as properties", stored.contains("- icon: rocket") && stored.contains("- number: 1") && stored.contains("- icon: 🔥") && stored.contains("- number: 2"))
+let badgeBack = parsed(stored)
+check("icons and numbers survive a rewrite", badgeBack?.node(stepA)?.icon == "rocket" && badgeBack?.node(stepA)?.number == 1 && badgeBack?.node(stepB)?.icon == "🔥" && badgeBack?.node(stepB)?.number == 2 && badgeBack == badges)
+check("a node without them writes neither line", !stored.components(separatedBy: "\n").contains { $0.hasPrefix("- icon: ") && $0.contains("star") })
+let hostile = stored.replacingOccurrences(of: "- icon: rocket", with: "- icon: <script>").replacingOccurrences(of: "- number: 2", with: "- number: 99999")
+let sanitised = parsed(hostile)
+check("a bad icon or number in a hand-edited file is dropped on read, the rest is kept", sanitised?.node(stepA)?.icon == "" && sanitised?.node(stepB)?.number == nil && sanitised?.node(stepA)?.number == 1 && sanitised?.node(stepB)?.icon == "🔥")
+check("a map written before icons existed reads as it did", { var m = badges; for i in m.nodes.indices { m.nodes[i].icon = ""; m.nodes[i].number = nil }; let text = m.markdown(); return !text.contains("- icon:") && !text.contains("- number:") && parsed(text) == m }())
+let badgeSnap = badges.snapshot()
+let snapNodes = badgeSnap["nodes"] as? [[String: Any]] ?? []
+check("the snapshot carries icon and number (null when there is none)", snapNodes.first { ($0["id"] as? String) == stepA }?["number"] as? Int == 1 && snapNodes.first { ($0["id"] as? String) == stepA }?["icon"] as? String == "rocket" && snapNodes.first { ($0["id"] as? String) == "n1" }?["number"] is NSNull)
+check("the snapshot lists the built-in icon ids", (badgeSnap["icons"] as? [String]) == M.iconIDs && Set(M.iconIDs).count == M.iconIDs.count && M.iconIDs.count == 41)
+check("a draft with a number sets it; an invalid one is dropped", { var m = badges; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "A", number: 4)); let b = try! m.addNode(parent: "n1", draft: M.Draft(title: "B", number: 0)); return m.node(a)!.number == 4 && m.node(b)!.number == nil }())
+check("deleting a node takes its icon and number with it", { var m = badges; _ = try! m.delete(id: stepA); return m.node(stepA) == nil && m.nodes.count == badges.nodes.count - 1 }())
 
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
 print("all ok")

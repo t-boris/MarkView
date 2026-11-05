@@ -17,6 +17,22 @@ no Markdown/PDF export.
 - When a prototype simulates something (AI), list in the requirements what the real feature needs beyond the simulation
   (here: describe, expand, correct and research a node) and ask, instead of building only the simulated part.
 
+## A field's height is measured last, and a hidden page does not animate (research map, 5.31.0)
+
+- The map's title field (a textarea that grows with its text) was fitted to its content before the properties panel had its final
+  content. The panel then got a vertical scrollbar, the field became 17 px narrower and the text wrapped to a second line that was
+  cut off. A test with the node already selected passed, a screenshot of a fresh selection showed it. Fit such fields **at the end**
+  of the panel update (twice, so the second pass sees the final width) and again from a `ResizeObserver` for width changes.
+- A hidden WebKit window never runs CSS transitions: a theme switch screenshot showed half-faded toolbar buttons. Add
+  `* { transition: none !important }` to the page before such a screenshot.
+- A text field's height must include its border when it is border-box: `scrollHeight` alone is 2 px short.
+- A screenshot run on the real page found two defects (the cut title, the cramped "Expand description" button) that 228 passing
+  DOM checks had not. Keep rendering the real page after a UI change, in both themes, and look at the picture.
+- A SwiftUI view that depends on a big session object cannot be rendered alone. Pass it the one function it needs (here: capture →
+  file URL) and it can be drawn offscreen with generated captures.
+- Boris adds requests while a change is under way (here: enlarge the comparison, icons and numbers). Record each as a requirement as
+  it arrives, ask only the questions that change the file format or the look, then continue.
+
 ## Real streams, real machines: check what the CLI sends and what a slow runner does (research map, 2026-11-04)
 
 Building the research map, an independent review and the first CI run found what the local unit tests could not.

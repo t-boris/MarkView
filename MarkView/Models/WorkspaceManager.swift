@@ -5384,6 +5384,8 @@ extension WorkspaceManager {
     struct ResearchMapReply {
         var json: String
         var content: String?
+        /// The Markdown of a report the page is to render and save as a PDF (action "export", kind "pdf").
+        var pdfReport: (markdown: String, fileName: String)?
     }
 
     private func researchMapTab(_ file: URL) -> Int? {
@@ -5480,6 +5482,7 @@ extension WorkspaceManager {
         var created = ""
         var notice = ""
         var change: ResearchMapChange?
+        var pdfReport: (markdown: String, fileName: String)?
 
         switch action {
         case "snapshot":
@@ -5487,13 +5490,23 @@ extension WorkspaceManager {
         case "addChild":
             change = updateResearchMap(file) { created = try $0.addChild(parent: string("parent"), title: string("title")) }
         case "update":
-            change = updateResearchMap(file) { map in
+            // A number is set with an integer and cleared with null; an absent key leaves it alone.
+            var number: Int?? = nil
+            if let raw = payload["number"] {
+                if raw is NSNull { number = .some(nil) } else if let value = (raw as? NSNumber)?.intValue { number = .some(value) } else { number = .some(0) }
+            }
+            change = updateResearchMap(file) { [number] map in
                 try map.update(id: string("id"),
                                title: payload["title"] as? String,
                                tags: payload["tags"] as? [String],
                                color: payload["color"] as? String,
-                               description: payload["description"] as? String)
+                               description: payload["description"] as? String,
+                               icon: payload["icon"] as? String,
+                               number: number)
             }
+        case "numberChildren":
+            let clear = (payload["clear"] as? Bool) ?? false
+            change = updateResearchMap(file) { _ = try $0.numberChildren(of: string("id"), clear: clear) }
         case "delete":
             change = updateResearchMap(file) { _ = try $0.delete(id: string("id")) }
         case "moveVisual":
@@ -5502,8 +5515,6 @@ extension WorkspaceManager {
                 break
             }
             change = updateResearchMap(file) { try $0.moveVisual(id: string("id"), x: x, y: y) }
-        case "reparent":
-            change = updateResearchMap(file) { try $0.reparent(id: string("id"), to: string("parent")) }
         case "link":
             change = updateResearchMap(file) { try $0.link(string("from"), string("to")) }
         case "unlink":
@@ -5511,11 +5522,31 @@ extension WorkspaceManager {
         case "layout":
             change = updateResearchMap(file) { try $0.applyLayout(id: string("id"), layout: string("layout")) }
         case "develop":
+            // Expand topic: the direction is optional (empty: the assistant chooses the sub-topics).
             let direction = string("direction").trimmingCharacters(in: .whitespacesAndNewlines)
-            if direction.isEmpty {
-                notice = "Say in which direction to develop this node."
+            notice = research.developMap(file: file, node: string("id"), direction: String(direction.prefix(2000))) ?? ""
+        case "describe":
+            notice = research.describeMap(file: file, node: string("id")) ?? ""
+        case "correct":
+            let note = string("note").trimmingCharacters(in: .whitespacesAndNewlines)
+            if note.isEmpty {
+                notice = "Say what is wrong with this node."
             } else {
-                notice = research.developMap(file: file, node: string("id"), direction: String(direction.prefix(2000))) ?? ""
+                notice = research.correctMap(file: file, node: string("id"), note: String(note.prefix(2000))) ?? ""
+            }
+        case "investigate":
+            notice = research.investigateMap(file: file, node: string("id")) ?? ""
+        case "export":
+            let kind = string("kind")
+            guard kind == "markdown" || kind == "pdf" else {
+                notice = "Choose Markdown report or PDF."
+                break
+            }
+            switch exportResearchMap(file, kind: kind) {
+            case .failure(let reason): notice = reason.message
+            case .success(let done):
+                notice = done.notice
+                pdfReport = done.pdf
             }
         case "continue":
             notice = research.continueMap(file: file) ?? ""
@@ -5533,7 +5564,32 @@ extension WorkspaceManager {
         default: break
         }
         let text = researchMapText(file) ?? ""
-        return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text)
+        return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text, pdfReport: pdfReport)
+    }
+
+    /// Export (REQ-007): the Markdown report is written next to the map (a new export replaces the old one) and
+    /// opened; the PDF is made from the same report by the editor page and the PDF pipeline, which asks where to
+    /// save it. Neither changes the map file.
+    private func exportResearchMap(_ file: URL, kind: String) -> Result<(notice: String, pdf: (markdown: String, fileName: String)?), ResearchMap.Rejection> {
+        guard let text = researchMapText(file), case .success(let map) = ResearchMap.parse(text) else {
+            return .failure(ResearchMap.Rejection(message: "This file is not a readable research map."))
+        }
+        let markdown = map.report(mapName: file.lastPathComponent)
+        guard !markdown.isEmpty else { return .failure(ResearchMap.Rejection(message: "The map is empty.")) }
+        if kind == "pdf" {
+            let name = file.deletingPathExtension().lastPathComponent + ".pdf"
+            return .success(("Choose where to save the PDF.", (markdown, name)))
+        }
+        let reportFile = ResearchMap.reportURL(forMap: file)
+        do {
+            try Data(markdown.utf8).write(to: reportFile, options: .atomic)
+        } catch {
+            return .failure(ResearchMap.Rejection(message: "The report could not be saved: \(error.localizedDescription)"))
+        }
+        refreshFileTree()
+        openFile(reportFile)
+        let shown = rootNode.map { reportFile.path.hasPrefix($0.url.path + "/") ? String(reportFile.path.dropFirst($0.url.path.count + 1)) : reportFile.lastPathComponent } ?? reportFile.lastPathComponent
+        return .success(("Report saved to \(shown).", nil))
     }
 
     /// A map that says "researching" while no job of this window works on it was interrupted (the app quit
