@@ -1,4 +1,37 @@
-## Research map: shape and size of a node (2026-11-04, feature mind-map) — REQ-009, DEC-012 (proposed)
+## Research map: description resize, Map/View/Source, Focus, diagram and image nodes (2026-11-05, feature mind-map) — BUG-096, REQ-010…REQ-012, DEC-013 (proposed)
+
+Request (Boris, 2026-11-05), four points: (1) the Description field in the node panel cannot be resized; (2) the choice for a map file should be Map, View (ordinary Markdown) or Source; (3) "Focus" in the node menu; (4) a node can show an image or a diagram instead of text, and a node that describes a flow gets a Draw flow button that adds a child "visual" with a Mermaid sequence diagram, visible as soon as the node is selected, small but with a pop-up zoom.
+Answers (2026-11-05): Focus = **fold the rest** (siblings stay visible, folded; no new mode); View = **editable like ordinary Markdown**; switch = **three buttons, visible in every view**; visual = **on the card and in the panel**.
+
+### Facts checked in code
+- Description: `.rm-desc { flex: 1 1 180px; resize: vertical }` inside the column-flex `.rm-panel`. A non-auto flex-basis wins over the height the grip sets, so the grip does nothing. Hypothesis until a failing test shows it.
+- Modes: the map toolbar has `el.sourceBtn` → `goSource()`; the top bar `#mode-toggle` is one label (`toggleModeWrapper`), and the whole top bar is hidden while the map is shown (`enterMap` hides `#wysiwyg-toolbar`). `switchToPreview` is wrapped to leave the map and gives the ordinary WYSIWYG, which writes back through turndown.
+- Folding: `rm.collapsed` (view state saved per map), `hiddenIds`, `collapseAll`, `expandAll`, `reveal`, `refreshTree`. Focus is a new `collapsed` set built from the ancestors of the node.
+- Diagrams: Mermaid is bundled (`vendor/js/mermaid.min.js`); pages call `mermaid.render(id, src)` with `securityLevel: 'strict'` (book, discussion); `openDiagramViewer(svgEl)` (pan/zoom overlay) is private to `markview-diagram-viewer.js` and needs a small export.
+- AI: `AI_ACTIONS` (four), `ResearchMapRun.Mode`, job kinds in `ResearchMapJobs`, `ResearchMapPrompt` (NODE lines, one UPDATE line). Draw flow is a fifth action with its own line and guards.
+
+### Risk to settle first (go/no-go in step 3)
+View is the ordinary WYSIWYG, which converts the rendered page back to Markdown. A map file has `### Title {#id}` headings and `- key: value` property lines; if the round trip changes them, an edit in View could make the map unreadable. Step 3 measures it on a fixture with every node property. If it is lossy, I come back to Boris with two options (harden the converter, or make View read-only) instead of choosing.
+
+### Plan — release A: 5.33.0 (minor) — BUG-096, REQ-010, REQ-011
+- [ ] 0. Records: BUG-096, REQ-010, REQ-011, REQ-012, DEC-013 (done through MarkView); this plan.
+- [ ] 1. BUG-096: a failing hidden-WebKit check first (set the field's height as the grip does, read it back), then the CSS fix (a fixed default height, no flex-basis), the panel scrolls when the field is taller than the space.
+- [ ] 2. Focus (REQ-011): a pure function (ancestors + node unfolded, every other node with children folded), node-menu item, select and bring into view; checks for root, leaf, deepest node, siblings, selection never hidden, Expand all after it.
+- [ ] 3. Round-trip spike: fixture map → View → edit one description → back; compare the file. Report to Boris if lossy.
+- [ ] 4. Map | View | Source (REQ-010): one control in the map toolbar and in the top bar (the same component, the current view marked), the lone Source button and the Source/Map label go for map files, the shortcut cycles Map → View → Source → Map, folds/zoom/selection survive; ordinary documents unchanged.
+- [ ] 5. Tests and build: web suite extended, standalone suites stay green, Debug build; hidden renders of the control in both themes.
+- [ ] 6. `./bump-version.sh minor` (5.33.0), straight to `main`, `./release.sh --publish`; BUG-096 fixed, REQ-010/011 criteria ticked.
+
+### Plan — release B: 5.34.0 (minor) — REQ-012, DEC-013
+- [ ] 7. Swift model: node property `visual` (diagram | image), validation, parse/write/snapshot, update payload; the AI actions keep it; tests in the document suite.
+- [ ] 8. Page, diagram: render the first ```mermaid fence on the card and larger in the panel (cache by source and theme), error state with the source editable, export of the viewer for the pop-up (button and double click).
+- [ ] 9. Page, image: choose a project file or enter an address, same path rules as the Markdown preview (checked while building), card and panel, same pop-up.
+- [ ] 10. Draw flow: prompt, `ResearchMapRun` mode, job kind, guards in code (sequenceDiagram only, size limits, no HTML/links/click), panel button, new child selected and visible; checked against the app's own model with several runs.
+- [ ] 11. Tests, hidden renders (dark/light, small card, error state, pop-up), report and View show the diagram; bump 5.34.0, `main`, release.
+
+### Not decided yet (small, I will pick the default and say so)
+- Draw flow is offered on every text node (the page cannot tell which nodes "describe a flow" without asking a model).
+- Only sequence diagrams for now; other Mermaid types are a later step.
 
 Request (Boris): "in the mind map I want to be able to change the shape and the size of each node". Answers (2026-11-04): shapes = **base set of 5** (rounded rectangle = today's look and the default, rectangle, pill, ellipse, diamond); resize = **handles on the node + Width/Height fields + S/M/L presets**; a given size = **a minimum** (the text is never cut); scope = **the selected node only**.
 
