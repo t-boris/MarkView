@@ -24,7 +24,21 @@ jobs:
 
       # The image's default Xcode, as in the pull request checks; the log records which one built the app.
       - name: Show Xcode
-        run: xcodebuild -version
+        id: xcode
+        run: |
+          xcodebuild -version
+          echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/MarkViewDerivedData
+          key: markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkView.xcodeproj/**', 'project.yml') }}
+          restore-keys: |
+            markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-
+
+      - name: Restore unchanged build input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py restore "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
 
       # Build each architecture on its own runner. Incremental compilation retains
       # Release optimization while allowing Swift to compile files in parallel.
@@ -34,8 +48,12 @@ jobs:
           xcodebuild -scheme MarkView \
             -destination 'platform=macOS' \
             -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/MarkViewDerivedData" \
             ARCHS=${{ matrix.arch }} \
             SWIFT_COMPILATION_MODE=incremental \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION=YES \
             build
+
+      - name: Record build input timestamps
+        run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
