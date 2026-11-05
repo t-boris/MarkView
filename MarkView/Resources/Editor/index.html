@@ -1695,6 +1695,10 @@
     <script src="vendor/js/markview-d3-mermaid.js"></script>
     <!-- markview-data.js wraps setContent / setStructuredContent / setCodeContent: load after them. -->
     <script src="vendor/js/markview-data.js"></script>
+    <!-- The research map (type: research-map documents) also wraps setContent / the entry points of the other views and
+         switchToSource / switchToPreview / the mode toggles: load it after markview-data.js. The layout engine comes first. -->
+    <script src="vendor/js/markview-research-map-layout.js"></script>
+    <script src="vendor/js/markview-research-map.js"></script>
     <script src="vendor/js/markview-init.js"></script>
     <script>
         (function() {
