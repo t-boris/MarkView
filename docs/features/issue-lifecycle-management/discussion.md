@@ -75,3 +75,7 @@ An independent review of the app-side glue found 13 problems; the real ones are 
 Known limits, not fixed: the release check compares a pull request's head, so a squash-merged pull request is not recognised as released (this repository merges with --merge; the result is unknown, never complete); "handed over" means the prompt was queued in the terminal, not that the agent read it; the journal is parsed whole on every request (fine for hundreds of records); the SwiftUI Lifecycle section and the menus are compiled and their logic is checked, but no automated UI test renders them.
 
 Still `proposed`: DEC-011, DEC-012, DEC-013, DEC-014, DEC-015, DEC-016. They were implemented as written (DEC-012, DEC-013 amended as above) and wait for Boris to accept or change them.
+
+### Boris · 2026-11-05
+
+Asked to accept or change the still-proposed DEC-011, DEC-012, DEC-013, DEC-014, DEC-015 and DEC-016 (DEC-012 and DEC-013 as amended in the implementation), Boris answered "меняй, убедись что все в main" (2026-11-05): all six are accepted as written, and everything is to be in main. Recorded by setting the six decisions to accepted.
