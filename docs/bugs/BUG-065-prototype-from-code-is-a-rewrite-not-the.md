@@ -2,7 +2,7 @@
 type: bug
 id: BUG-065
 title: "Prototype from code is a rewrite, not the real result: OptionDesk loses its styles, fonts and layout (vertical tabs cut, buttons not stretched, no colours)"
-status: open
+status: closed
 severity: high
 reporter: Boris Tsekinovsky
 created: 2026-11-04
