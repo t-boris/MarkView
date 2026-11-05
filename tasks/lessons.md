@@ -1409,3 +1409,12 @@ in a later commit and stayed there.
   answer. Read the first line of a stderr file before trusting a batch of runs.
 - A seed written back after an `await` must replace only what it changed (the corrected entities): a refill running meanwhile
   would be overwritten by a whole-seed assignment.
+
+## 2026-11-05 — Documentation always goes to main, whoever left it (issue-lifecycle goal)
+
+Asked what to do with an uncommitted `docs/bugs/BUG-065-…` status change that belonged to none of my work, Boris answered:
+"docs go to main always; if you see docs you may pick them up from any place, on any branch."
+- Documentation (README, `docs/**`, `tasks/**`, records) is committed straight to `main` in a docs-only commit, including
+  documentation changes I did not write and those on other branches or in other worktrees. Check the diff is documentation only
+  (`git diff --stat`), name the file in the message, never force-push. Do not ask and do not leave the tree dirty because of it.
+- The question to ask before a final clean-up is only about files that are not documentation.
