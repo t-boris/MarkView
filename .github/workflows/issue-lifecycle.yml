@@ -1,6 +1,7 @@
 # Checks the issue lifecycle (docs/features/issue-lifecycle-management): the transition policy and journal, delivery evidence, verified
 # completion, the GitHub sync planner, the AI context and the Lifecycle section's model, plus the suites of the code that now routes
-# its status changes through it. Runs on every push to main that touches that code, because work goes to main directly.
+# its status changes through it (the UI Studio session suite belongs to ui-studio.yml). Runs on every push to main that touches
+# that code, because work goes to main directly.
 name: Issue Lifecycle Checks
 
 on:
@@ -17,7 +18,6 @@ on:
       - 'MarkView/Models/BugBasket.swift'
       - 'MarkView/Models/BugValidity.swift'
       - 'MarkView/Models/SpecificationHandoff.swift'
-      - 'MarkView/Models/UIStudioSession*.swift'
       - 'MarkView/Views/*Lifecycle*.swift'
       - 'tools/tests/Issue*'
       - 'tools/tests/issue-*.sh'
@@ -28,7 +28,6 @@ on:
       - 'tools/tests/workspace-redesign-tests.sh'
       - 'tools/tests/BugBasket*'
       - 'tools/tests/RemoteBrowser*'
-      - 'tools/tests/UIStudioSession*'
       - '.github/workflows/issue-lifecycle.yml'
   pull_request:
     paths:
@@ -42,7 +41,6 @@ on:
       - 'MarkView/Models/BugBasket.swift'
       - 'MarkView/Models/BugValidity.swift'
       - 'MarkView/Models/SpecificationHandoff.swift'
-      - 'MarkView/Models/UIStudioSession*.swift'
       - 'MarkView/Views/*Lifecycle*.swift'
       - 'tools/tests/Issue*'
       - 'tools/tests/issue-*.sh'
@@ -53,7 +51,6 @@ on:
       - 'tools/tests/workspace-redesign-tests.sh'
       - 'tools/tests/BugBasket*'
       - 'tools/tests/RemoteBrowser*'
-      - 'tools/tests/UIStudioSession*'
       - '.github/workflows/issue-lifecycle.yml'
   workflow_dispatch:
 
@@ -83,11 +80,3 @@ jobs:
           bash tools/tests/bug-basket-tests.sh
           bash tools/tests/bug-validity-tests.sh
           bash tools/tests/remote-browser-tests.sh
-
-  ui-studio-session:
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run a UI Studio session (its export and tracking go through the lifecycle)
-        run: bash tools/tests/ui-studio-session-tests.sh
