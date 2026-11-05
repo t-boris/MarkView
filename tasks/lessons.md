@@ -1,5 +1,22 @@
 # Lessons
 
+## A new view uses the app's own design tokens and is looked at in the real app before release (research map, 5.29.0)
+
+Boris's first look at the map (2026-11-04) found five problems: the UI does not follow the application's design, no collapse/expand,
+"Move to another branch" is useless, no way to expand a description or a topic, correct a node or research it, and (a request)
+no Markdown/PDF export.
+- Causes: the page copied the prototype's palette (`--rm-*`: purple/navy/green hex values, glow on nodes) and used none of the
+  app's tokens (`--bg-*`, `--text-*`, `--border-color`, `--accent-*` in `index.html` `:root`); nobody opened the map in the running
+  app (only hidden-WebKit tests with a stubbed bridge); the node actions are an icon-only bar behind a small ▼ that reads as a fold
+  toggle, with tooltips as the only labels; the prototype only simulated AI, so only "develop" (children from a typed direction)
+  was built.
+- An approved prototype fixes layout and behaviour, not colours: map its look onto the app's tokens (read `:root` first).
+- Before release render the view offscreen with the app's real CSS next to a neighbouring view (canvas, data) and look at the image;
+  a green test suite does not show that a screen looks like the app.
+- Primary actions need visible labels. ▼ means "fold", so a node menu uses "⋯". A title field must wrap, not cut a long title.
+- When a prototype simulates something (AI), list in the requirements what the real feature needs beyond the simulation
+  (here: describe, expand, correct and research a node) and ask, instead of building only the simulated part.
+
 ## Real streams, real machines: check what the CLI sends and what a slow runner does (research map, 2026-11-04)
 
 Building the research map, an independent review and the first CI run found what the local unit tests could not.

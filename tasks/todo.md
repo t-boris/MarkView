@@ -1,3 +1,24 @@
+## Research map: first-look feedback (2026-11-04, feature mind-map) — PLAN DRAFT, waiting for Boris's answers; nothing implemented
+
+Boris's report on the shipped map (5.29.0/5.30.0) and the facts behind each point, checked in code:
+1. **UI does not follow the application's design.** `markview-research-map.js` defines its own palette (`--rm-*`, prototype v10: `#17171e` page, `#59499c` root, green `#31483d` tool buttons, node glow) and uses none of the app's tokens (`--bg-primary/secondary/tertiary`, `--text-*`, `--border-color`, `--accent-*`: the grey `#1e1e1e/#252526` + blue `#569cd6` look). The panel title is a one-line input that cuts a long title ("Мне нужно сделать deep re").
+2. **No collapse/expand.** No `collapsed` anywhere (JS, Swift, format). The ▼ on a node is the actions menu, which reads as a fold toggle.
+3. **"Move to another branch"** is an icon-only button in that ▼ bar; it opens a `<select>` dialog. Drag only moves a node visually. (Boris chose "both" in Q-003, so the capability stays; the control is what is poor.)
+4. **No expand description / expand topic / correct / research.** The only AI action is "Develop with AI" (icon `sparkle`, requires a typed direction, adds children only). `ResearchMapRun.Event` knows only `root` and `node`: there is no way for the model to change an existing node.
+5. **New request: Markdown + PDF out of the map.** `PDFExporter.exportPDF` exports the active tab's rendered preview; for a map tab that is the map source, not a report.
+
+### Plan (proposed; choices marked ? wait for Boris)
+- [ ] 0. Records: one bug per defect 1–3 and the requirement(s) for 4–5 (`markview_create_bug`, `markview_add_requirement`); bugs set to `fixing` when work starts. Batch release: minor bump (5.31.0).
+- [ ] 1. Design: replace the `--rm-*` palette by the app's tokens (page `--bg-primary`, bars/panel `--bg-secondary`, nodes `--bg-tertiary`, lines `--border-color`, selection/primary `--accent-primary`, danger `--accent-danger`), drop the glow and the 3D root shadow, keep the six branch colours as muted accents, buttons like `.format-bar button`; light theme from the same tokens; wrapping title field. Check by rendering the map offscreen next to the canvas viewer and showing Boris the image.
+- [ ] 2. Collapse/expand: fold toggle on every node that has children (chevron + child count when folded), toolbar "Collapse all / Expand all", layout and lines skip hidden descendants, selecting a hidden node unfolds its path, nodes added by AI under a folded node stay folded and show a count. Menu button changes from ▼ to ⋯. ? where the state lives (view state vs map file).
+- [ ] 3. Move: ? replace the dialog by dragging a node onto another node (target highlights, cycle check stays in Swift) and drop the "Move to another branch" icon, or keep it with a label.
+- [ ] 4. Node AI actions, labelled buttons in the panel and in the ⋯ menu: Expand description, Expand topic (Develop, direction optional), Correct (needs the user's note), Research (web + project, adds evidence and queries). New run modes and an `UPDATE` line in `ResearchMapRun`, new job kinds in `ResearchMapJobs`, bridge actions in `WorkspaceManager`/`WebViewBridge`/page; guards (only the target node is changed, evidence verified, limits), standalone tests in `research-map-run-tests.sh`, verified on the app's own model and effort, several runs (see "Fix must not depend on the model"). ? exact meaning of the four actions.
+- [ ] 5. Export: `ResearchMapExport` in Swift renders a linear report (question, branches as headings, descriptions, evidence with labels and sources, connections as "See also", web queries, incomplete-run note); the toolbar "Export" menu writes the Markdown and produces the PDF through the existing `PDFExporter` pipeline. Export ignores fold state. ? where the files go.
+- [ ] 6. Tests: the existing `research-map-*` suites extended (fold, drag-reparent, new events, export snapshot), a Debug build, a hidden-WebKit screenshot pass; no windows on Boris's screen.
+- [ ] 7. Straight to `main` (Boris, 2026-11-04), `./bump-version.sh minor`, `./release.sh --publish`, no waiting for CI, no install over the running app, bugs to fixed with Cause/Resolution/Verification.
+
+Open decisions still on the list from 5.29.0: DEC-006…DEC-009 `proposed`, Q-007/Q-008 `open`.
+
 ## Long-running design agent — feature long-running-design-agent-planned-reviewed-tied-to (2026-11-05, REQ-001…REQ-005) — PLAN v4, APPROVED by Boris 2026-11-05 — CLOSED by Boris 2026-11-05: only step 1 (images) shipped, as 5.30.0; steps 2…11 not built
 
 Specification: `docs/features/long-running-design-agent-planned-reviewed-tied-to`. Q-001…Q-004 answered by Boris on 2026-11-05: **both studios at once**, **edits applied by MarkView**, **one feature per task**, **the person always approves the plan**. REQ-001, REQ-003, REQ-005 were amended after the second review (still `draft`; Boris approved them with the plan).
