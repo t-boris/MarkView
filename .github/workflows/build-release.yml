@@ -8,6 +8,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/build-release.yml'
+  workflow_dispatch:
+    inputs:
+      verify_cache:
+        description: Verify incremental compilation with a temporary Swift change
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -29,8 +35,13 @@ jobs:
           xcodebuild -version
           echo "version=$(xcodebuild -version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
+      - name: Change a Swift input for cache verification
+        if: ${{ inputs.verify_cache }}
+        run: printf '\n// CI incremental cache verification\n' >> MarkView/Models/WindowTitle.swift
+
       - name: Restore build cache
-        uses: actions/cache@v4
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/MarkViewDerivedData
           key: markview-${{ runner.os }}-${{ matrix.arch }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('MarkView/**', 'MarkView.xcodeproj/**', 'project.yml') }}
@@ -56,4 +67,13 @@ jobs:
             build
 
       - name: Record build input timestamps
+        if: ${{ !inputs.verify_cache }}
         run: python3 tools/ci/build-cache-mtimes.py save "$RUNNER_TEMP/MarkViewDerivedData/source-mtimes.json"
+
+      # Never save the deliberately modified checkout used by the verification run.
+      - name: Save build cache
+        if: ${{ !inputs.verify_cache && steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/MarkViewDerivedData
+          key: ${{ steps.cache.outputs.cache-primary-key }}
