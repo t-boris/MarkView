@@ -69,6 +69,15 @@ let site = targets.first { $0.label == "apps/site" }
 check("nested vite app", site?.command == "pnpm run dev" && site?.ports.first == 4100, "\(String(describing: site))")
 let web = targets.first { $0.label == "web" }
 check("next app", web?.command == "npm run dev" && web?.ports.contains(3000) == true, "\(String(describing: web))")
+if let web {
+    let fresh = WebAppPreview.missingDependencies(for: web, root: tmp)
+    check("fresh app without lockfile installs without writing a lockfile", fresh?.folder == web.folder && fresh?.command.contains("--package-lock=false") == true)
+    write("web/package-lock.json", "{}")
+    check("npm lockfile selects npm ci", WebAppPreview.missingDependencies(for: web, root: tmp)?.command == "npm ci --no-audit --no-fund")
+    try! fm.createDirectory(at: web.folder.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+    check("existing dependencies are left alone", WebAppPreview.missingDependencies(for: web, root: tmp) == nil)
+    check("failed install can be retried", WebAppPreview.missingDependencies(for: web, root: tmp, retry: true)?.command == "npm ci --no-audit --no-fund")
+}
 check("django app", targets.contains { $0.label == "server" && $0.command.contains("manage.py runserver") })
 
 // MARK: Electron apps run as web only
@@ -132,6 +141,12 @@ writeWorkspace("\(strike)/node_modules/.pnpm/vite-app/package.json", #"{"scripts
 let workspaceTargets = WebAppPreview.targets(root: tmpWorkspace)
 let labels = workspaceTargets.map(\.label)
 let shell = workspaceTargets.first { $0.label == "\(strike)/packages/shell (web only)" }
+if let shell {
+    // This fixture contains a workspace node_modules directory, so it must not be reinstalled.
+    check("workspace dependencies are shared", WebAppPreview.missingDependencies(for: shell, root: tmpWorkspace) == nil)
+    let retry = WebAppPreview.missingDependencies(for: shell, root: tmpWorkspace, retry: true)
+    check("workspace install uses its lockfile directory", retry?.folder == tmpWorkspace.appendingPathComponent(strike) && retry?.command == "pnpm install --frozen-lockfile")
+}
 check("Electron app in a workspace three levels down is found", shell != nil && shell?.isElectron == true, "\(labels)")
 check("its renderer script is used, with the package manager of the workspace root", shell?.command == "pnpm run dev:renderer", "\(String(describing: shell))")
 check("its port comes from the config file the script names", shell?.ports.first == 3010, "\(String(describing: shell?.ports))")

@@ -1476,11 +1476,35 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await authChecks()
             await ipcSessionChecks()
             await fixDataChecks()
+            await dependencyInstallChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
         exit(failures == 0 ? 0 : 1)
     }
+}
+
+/// A fresh checkout installs its local dependency before the actual development script starts.
+@MainActor
+func dependencyInstallChecks() async {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("studio-install-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root.appendingPathComponent("dep"), withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    let port = freePort()
+    let package = """
+    {"name":"studio-install-test","version":"1.0.0","scripts":{"dev":"node server.js"},"dependencies":{"local-dep":"file:dep"}}
+    """
+    try? package.write(to: root.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
+    try? "{\"name\":\"local-dep\",\"version\":\"1.0.0\"}".write(to: root.appendingPathComponent("dep/package.json"), atomically: true, encoding: .utf8)
+    try? "require('http').createServer((q,s)=>s.end('installed')).listen(\(port), '127.0.0.1')".write(to: root.appendingPathComponent("server.js"), atomically: true, encoding: .utf8)
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "fresh", command: "npm run dev", ports: [port]))
+    let finished = await waitUntil(90) { session.state == .ready || session.state == .failed }
+    check("fresh Node project installs dependencies and opens", finished && session.state == .ready
+          && fm.fileExists(atPath: root.appendingPathComponent("node_modules/local-dep/package.json").path),
+          "\(session.stateDetail) \(session.serverLog.suffix(400))")
+    await session.close()
 }
 
 // MARK: - Application map (REQ-014)
