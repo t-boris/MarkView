@@ -1,3 +1,45 @@
+# Issue lifecycle management (feature issue-lifecycle-management, GitHub #294) — goal session 2026-11-05
+
+Request (Boris, /goal): implement what `docs/features/issue-lifecycle-management` specifies (REQ-001…006, plan I-1…I-8, DEC-007…015,
+Q-001…009), verify against the specification, keep records and GitHub #294 current, run tests and build, commit everything,
+wait for CI, bump the version, release and confirm the deployed version. Not part of the goal: branch, pull request, merge,
+browser check, manual checklist. Work goes straight to `main` (Boris, 2026-11-04); documentation always to `main`.
+
+Answers recorded: Q-007 B (DEC-008 acceptance by a human or by AI with evidence), Q-008 A (DEC-009 regression by a human or a
+linked `regression_of` bug), Q-009 A (DEC-010 verified completion = evidence-backed implementation). Proposed by me, applied by
+default: DEC-011 actors/override/start evidence, DEC-012 delivery evidence, DEC-013 completion vs cancellation, DEC-014 history
+storage, DEC-015 external edits.
+
+## Design (one shared service; Foundation-only modules with standalone checks, then the wiring)
+- `IssueLifecycle.swift` (I-1) policy: actors human/ai/system, transition tables for the feature and bug vocabularies, conditions
+  (start, delivery, acceptance, regression, cancellation, reason), decision allowed / overridden(bypassed) / rejected(missing, why).
+- `IssueTransitionLog.swift` (I-2) records, `.dde/lifecycle/transitions.jsonl`, `IssueTransitionService`: command-id idempotency,
+  stale check, begin → compare-and-set status → applied, recovery of a half-done operation, folded history.
+- `IssueLifecycleEvidence.swift` (I-4) work units (PR / direct commit), association, checks, required release → delivery verdict
+  complete / incomplete / unknown; app-side collector (git + gh) in `IssueEvidenceCollector.swift`.
+- `IssueCompletion.swift` + `IssueReconciler.swift` (I-6, I-8) verified completion from history, external edits, baseline,
+  confirmation, regression reopening, discrepancies.
+- `IssueGitHubSync.swift` (I-8) close / reopen planner shared by the automatic run and manual Sync; outcome confirmed / failed /
+  unconfirmed.
+- `IssueLifecycleContext.swift` (I-5) context text and guidance; MCP `markview_issue_context`, `markview_attach_issue`, guide topic.
+- Wiring (I-3): `FeatureStore+Lifecycle.swift`; every status writer (UI, MCP, handoffs, basket, Studio, validity, Sync button,
+  restart, intake) goes through the service. UI (I-7): lifecycle section in the feature and bug views.
+
+## Plan
+- [x] 0. Read the whole folder; Boris's answers into Q-007…009, DEC-008…015, discussion; docs committed to main; memory + lesson on docs.
+- [ ] 1. I-1 policy + tests (`tools/tests/issue-lifecycle-tests.sh`).
+- [ ] 2. I-2 log + service + recovery + tests.
+- [ ] 3. I-4 evidence evaluator + collector + tests.
+- [ ] 4. I-6/I-8 completion, reconciler, GitHub planner + tests; manual Sync uses the same rule.
+- [ ] 5. I-5 context, MCP tools, guide, handoff prompts + tests.
+- [ ] 6. I-3 wiring of every status writer; failed handoff leaves nothing marked.
+- [ ] 7. I-7 UI.
+- [ ] 8. Verify against REQ-001…006 criterion by criterion; run every related harness; Debug build.
+- [ ] 9. Records current (criteria ticked where proven), #294 comment, bump version (minor), commit, push, wait for CI, release.sh --publish, verify.
+
+## Review
+(to be filled when done)
+
 ## UI Studio: Fix data (2026-11-05, feature markview-ui-studio) — REQ-017, release 5.35.0 planned
 
 Request (Boris, 2026-11-05): asked why the feature is still `implementing`; the answer was that REQ-017 (Fix data) is not built and the records lag behind the code; he chose "Fix Data" (build REQ-017, then close the feature). **Nothing is implemented yet; waiting for Boris to approve this plan.**
