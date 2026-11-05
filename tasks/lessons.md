@@ -1361,3 +1361,18 @@ the answer, with the saved default unchanged because the value was the one alrea
   Rules: verify on the tool, model and effort the app uses (`~/Library/Application Support/MarkView/ai-calls.jsonl`), with
   the real history, several runs. A fix must not depend on the model: show small data whole (fixed answers are a few KB),
   and add a deterministic guard. An `unsupported` note that gives up on a fixed-answer rule is sent back once (5.26.1).
+
+## One release for a growing request: keep the plan, the records and the tests in step (research map, 5.33.0)
+
+Boris asked for a bigger scope three times in one session (narrative report, diagram/image nodes with Draw, then translation and
+a language choice at export) and wanted a single release.
+- When the scope grows mid-release, stop the running build at once (a release build of the old scope is wasted work), write the
+  new requirement and decision records first, then extend `tasks/todo.md`; do not publish the old scope "meanwhile".
+- Independent pure modules (the report, the translation) go to separate agents with a written contract (public API, failure
+  classes, tests that must pass); the wiring that touches shared files (`WorkspaceManager`, the page script) stays with one author.
+- A new control must not reuse the class name that tests and code query for another control: the Mermaid source field copied
+  `rm-desc` and 15 checks failed at once. Give each control its own class before writing its CSS.
+- A hidden WebKit page has `visibilityState: hidden`, so CSS transitions do not advance: a screenshot taken after a theme change
+  shows half-way colours (grey toolbar). Switch transitions off in the probe before judging a screenshot.
+- The live check of an AI feature runs the module code itself (prompt, schema, parse, check, repair loop, apply) against the real
+  CLI on a copy of the real data; a stub of the process layer is enough, and nothing shows a window.

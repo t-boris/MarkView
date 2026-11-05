@@ -43,6 +43,9 @@ struct ResearchMap: Equatable {
         /// Minimum width and height in map pixels (`widthRange`, `heightRange`); nil means automatic (REQ-009, DEC-012).
         var width: Int?
         var height: Int?
+        /// "diagram" or "image": the card shows the first Mermaid block or Markdown image of the description instead of the
+        /// title; empty for a text node (REQ-012, DEC-013).
+        var visual = ""
         /// Markdown source of the description.
         var description = ""
         /// The node's own layout preset id, or empty (inherits).
@@ -126,6 +129,54 @@ struct ResearchMap: Equatable {
     static let shapes: [(id: String, name: String)] = [
         ("rounded", "Rounded"), ("rectangle", "Rectangle"), ("pill", "Pill"), ("ellipse", "Ellipse"), ("diamond", "Diamond"),
     ]
+    /// What a node can show instead of its title (DEC-013); a text node has no `visual` property.
+    static let visuals = ["diagram", "image"]
+    static func isVisual(_ id: String) -> Bool { visuals.contains(id) }
+    /// The visual as it is stored: a known kind, or empty (a text node).
+    static func clean(visual: String) -> String {
+        let id = visual.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return isVisual(id) ? id : ""
+    }
+    /// The Mermaid source of the first ```mermaid fence of a description (the diagram of a diagram node), or nil.
+    static func diagramSource(in description: String) -> String? {
+        var inside = false
+        var source: [String] = []
+        for line in description.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !inside {
+                if trimmed.hasPrefix("```") && trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased() == "mermaid" { inside = true }
+            } else if trimmed.hasPrefix("```") {
+                let text = source.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? nil : text
+            } else {
+                source.append(line)
+            }
+        }
+        return nil
+    }
+    /// The first Markdown image of a description (the picture of an image node): its alternative text and its address.
+    static func imageSource(in description: String) -> (alt: String, src: String)? {
+        guard let open = description.range(of: "!["), let mid = description.range(of: "](", range: open.upperBound..<description.endIndex),
+              let close = description.range(of: ")", range: mid.upperBound..<description.endIndex) else { return nil }
+        let alt = String(description[open.upperBound..<mid.lowerBound])
+        var src = String(description[mid.upperBound..<close.lowerBound]).trimmingCharacters(in: .whitespaces)
+        // `![alt](path "title")`: the address ends at the first space.
+        if let space = src.firstIndex(of: " ") { src = String(src[..<space]) }
+        return alt.contains("\n") || src.isEmpty ? nil : (alt, src)
+    }
+    /// The diagram types of the Draw action (REQ-012); the ids are `DiagramKind` raw values. The page renders its menu from this list.
+    static let drawKinds: [(id: String, name: String, hint: String)] = [
+        ("sequence", "Sequence", "Who calls whom, in time order"),
+        ("flowchart", "Flowchart", "Steps and decisions, with the conditions on the branches"),
+        ("dataflow", "Data flow", "Where data comes from, how it changes and where it ends"),
+        ("architecture", "Architecture", "The parts and how they depend on each other"),
+        ("er", "Entity-relationship", "Entities and how they relate"),
+        ("deployment", "Deployment", "The runtime pieces and how they are connected"),
+        ("pipeline", "Pipeline", "The stages work passes through, in order"),
+        ("custom", "Custom", "Say what the diagram should show"),
+    ]
+    /// The languages offered by Translate and Export (REQ-013, REQ-014); the person can type another one.
+    static let languages: [(code: String, name: String)] = [("en", "English"), ("ru", "Russian"), ("de", "German"), ("es", "Spanish"), ("fr", "French")]
     /// A node is at least as large as its text; these are the limits of the minimum that can be set (DEC-012).
     static let widthRange = 60...800
     static let heightRange = 28...600
@@ -257,10 +308,11 @@ struct ResearchMap: Equatable {
     /// Changes the given properties of a node. Renaming the root renames the map.
     /// `icon`: "" clears it. `number`: `.some(nil)` clears it, `.some(n)` sets it (1 to `numberLimit`).
     /// `shape`: "" or the default shape's id restores the default look. `width`/`height`: `.some(nil)` makes it
-    /// automatic, `.some(n)` sets the minimum (`widthRange`, `heightRange`).
+    /// automatic, `.some(n)` sets the minimum (`widthRange`, `heightRange`). `visual`: "" makes the node a text node,
+    /// "diagram" or "image" makes the card show its Mermaid block or picture (REQ-012).
     mutating func update(id: String, title: String? = nil, tags: [String]? = nil, color: String? = nil,
                          description: String? = nil, icon: String? = nil, number: Int?? = nil,
-                         shape: String? = nil, width: Int?? = nil, height: Int?? = nil) throws {
+                         shape: String? = nil, width: Int?? = nil, height: Int?? = nil, visual: String? = nil) throws {
         guard let i = index(of: id) else { throw Rejection(message: "That node no longer exists.") }
         if let title {
             let cleaned = Self.clean(title: title)
@@ -302,9 +354,12 @@ struct ResearchMap: Equatable {
                 throw Rejection(message: "A height is between \(Self.heightRange.lowerBound) and \(Self.heightRange.upperBound).")
             }
         }
+        let kind = visual?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let kind { guard kind.isEmpty || Self.isVisual(kind) else { throw Rejection(message: "Choose Text, Diagram or Image.") } }
         if let text { nodes[i].shape = Self.clean(shape: text) }
         if let width { nodes[i].width = width }
         if let height { nodes[i].height = height }
+        if let kind { nodes[i].visual = Self.clean(visual: kind) }
     }
 
     /// Numbers the children of a node 1, 2, 3 … in map order (REQ-008), or removes their numbers when `clear` is set.
@@ -681,6 +736,7 @@ extension ResearchMap {
             case "shape": node.shape = clean(shape: value)
             case "width": node.width = Int(value).flatMap { widthRange.contains($0) ? $0 : nil }
             case "height": node.height = Int(value).flatMap { heightRange.contains($0) ? $0 : nil }
+            case "visual": node.visual = clean(visual: value)
             case "layout": node.layout = isLayout(value) ? value : ""
             case "position":
                 let parts = value.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
@@ -720,7 +776,7 @@ extension ResearchMap {
         let rest = line.dropFirst(2)
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let key = rest[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-        guard ["tags", "color", "icon", "number", "shape", "width", "height", "layout", "position"].contains(key) else { return nil }
+        guard ["tags", "color", "icon", "number", "shape", "width", "height", "visual", "layout", "position"].contains(key) else { return nil }
         return (key, rest[rest.index(after: colon)...].trimmingCharacters(in: .whitespaces))
     }
 
@@ -842,6 +898,7 @@ extension ResearchMap {
             if !node.shape.isEmpty { props.append("- shape: " + node.shape) }
             if let width = node.width { props.append("- width: \(width)") }
             if let height = node.height { props.append("- height: \(height)") }
+            if !node.visual.isEmpty { props.append("- visual: " + node.visual) }
             if !node.layout.isEmpty { props.append("- layout: " + node.layout) }
             if let x = node.x, let y = node.y { props.append("- position: \(x), \(y)") }
             if !props.isEmpty {
@@ -924,7 +981,7 @@ extension ResearchMap {
                     "id": node.id, "parent": node.parent, "title": node.title, "tags": node.tags, "color": node.color,
                     "icon": node.icon, "number": node.number.map { $0 as Any } ?? NSNull(),
                     "shape": node.shape, "width": node.width.map { $0 as Any } ?? NSNull(),
-                    "height": node.height.map { $0 as Any } ?? NSNull(),
+                    "height": node.height.map { $0 as Any } ?? NSNull(), "visual": node.visual,
                     "description": node.description, "layout": node.layout,
                     "x": node.x.map { $0 as Any } ?? NSNull(), "y": node.y.map { $0 as Any } ?? NSNull(),
                     "evidence": node.evidence.map { ["label": $0.label.rawValue, "text": $0.text, "source": $0.source] },
@@ -934,6 +991,8 @@ extension ResearchMap {
             "layouts": Self.layouts.map { ["id": $0.id, "name": $0.name] },
             "icons": Self.iconIDs,
             "shapes": Self.shapes.map { ["id": $0.id, "name": $0.name] },
+            "drawKinds": Self.drawKinds.map { ["id": $0.id, "name": $0.name, "hint": $0.hint] },
+            "languages": Self.languages.map { ["code": $0.code, "name": $0.name] },
             "sizeLimits": ["width": [Self.widthRange.lowerBound, Self.widthRange.upperBound],
                            "height": [Self.heightRange.lowerBound, Self.heightRange.upperBound]],
             "created": createdID,

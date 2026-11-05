@@ -416,6 +416,12 @@ class WorkspaceManager: ObservableObject {
     }
 
     @Published var semanticDatabase: SemanticDatabase?
+    /// The id of the node an AI job just added to a map (by map path); the next snapshot of that map carries it to the page.
+    var researchMapJobCreated: [String: String] = [:]
+    /// What an AI job tells the person when it ends (by map path); the next snapshot of that map carries it to the page as a notice.
+    var researchMapJobNotice: [String: String] = [:]
+    /// Set by the editor view: makes the PDF of a report (Markdown, file name) with the editor page's renderer and asks where to save it.
+    var researchMapPDFExporter: ((String, String) -> Bool)?
     @Published var pdfBookSelection: BookPDFSelection?
 
     func presentPDFBook(_ urls: [URL]? = nil) {
@@ -5384,8 +5390,6 @@ extension WorkspaceManager {
     struct ResearchMapReply {
         var json: String
         var content: String?
-        /// The Markdown of a report the page is to render and save as a PDF (action "export", kind "pdf").
-        var pdfReport: (markdown: String, fileName: String)?
     }
 
     private func researchMapTab(_ file: URL) -> Int? {
@@ -5449,6 +5453,9 @@ extension WorkspaceManager {
 
     /// The snapshot the page draws for `text`, with the AI job working on `file`.
     func researchMapSnapshotJSON(text: String, file: URL, created: String = "", notice: String = "") -> String {
+        // A node an AI job added (Draw): the first snapshot after it tells the page to show and select the node.
+        let created = created.isEmpty ? (researchMapJobCreated.removeValue(forKey: file.standardizedFileURL.path) ?? "") : created
+        let notice = notice.isEmpty ? (researchMapJobNotice.removeValue(forKey: file.standardizedFileURL.path) ?? "") : notice
         // `markdown` is the text of the tab: the page shows it in the Source view of the map document.
         var snapshot: [String: Any]
         switch ResearchMap.parse(text) {
@@ -5489,7 +5496,6 @@ extension WorkspaceManager {
         var created = ""
         var notice = ""
         var change: ResearchMapChange?
-        var pdfReport: (markdown: String, fileName: String)?
 
         switch action {
         case "snapshot":
@@ -5509,7 +5515,8 @@ extension WorkspaceManager {
                                number: number,
                                shape: payload["shape"] as? String,
                                width: width,
-                               height: height)
+                               height: height,
+                               visual: payload["visual"] as? String)
             }
         case "numberChildren":
             let clear = (payload["clear"] as? Bool) ?? false
@@ -5543,18 +5550,17 @@ extension WorkspaceManager {
             }
         case "investigate":
             notice = research.investigateMap(file: file, node: string("id")) ?? ""
+        case "draw":
+            notice = research.drawMap(file: file, node: string("id"), kindID: string("kind"), instruction: string("instruction")) ?? ""
         case "export":
             let kind = string("kind")
             guard kind == "markdown" || kind == "pdf" else {
                 notice = "Choose Markdown report or PDF."
                 break
             }
-            switch exportResearchMap(file, kind: kind) {
-            case .failure(let reason): notice = reason.message
-            case .success(let done):
-                notice = done.notice
-                pdfReport = done.pdf
-            }
+            notice = research.reportMap(file: file, kind: kind, language: string("language")) ?? ""
+        case "translate":
+            notice = research.translateMap(file: file, language: string("language"), mode: string("mode")) ?? ""
         case "continue":
             notice = research.continueMap(file: file) ?? ""
         case "cancel":
@@ -5571,32 +5577,7 @@ extension WorkspaceManager {
         default: break
         }
         let text = researchMapText(file) ?? ""
-        return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text, pdfReport: pdfReport)
-    }
-
-    /// Export (REQ-007): the Markdown report is written next to the map (a new export replaces the old one) and
-    /// opened; the PDF is made from the same report by the editor page and the PDF pipeline, which asks where to
-    /// save it. Neither changes the map file.
-    private func exportResearchMap(_ file: URL, kind: String) -> Result<(notice: String, pdf: (markdown: String, fileName: String)?), ResearchMap.Rejection> {
-        guard let text = researchMapText(file), case .success(let map) = ResearchMap.parse(text) else {
-            return .failure(ResearchMap.Rejection(message: "This file is not a readable research map."))
-        }
-        let markdown = map.report(mapName: file.lastPathComponent)
-        guard !markdown.isEmpty else { return .failure(ResearchMap.Rejection(message: "The map is empty.")) }
-        if kind == "pdf" {
-            let name = file.deletingPathExtension().lastPathComponent + ".pdf"
-            return .success(("Choose where to save the PDF.", (markdown, name)))
-        }
-        let reportFile = ResearchMap.reportURL(forMap: file)
-        do {
-            try Data(markdown.utf8).write(to: reportFile, options: .atomic)
-        } catch {
-            return .failure(ResearchMap.Rejection(message: "The report could not be saved: \(error.localizedDescription)"))
-        }
-        refreshFileTree()
-        openFile(reportFile)
-        let shown = rootNode.map { reportFile.path.hasPrefix($0.url.path + "/") ? String(reportFile.path.dropFirst($0.url.path.count + 1)) : reportFile.lastPathComponent } ?? reportFile.lastPathComponent
-        return .success(("Report saved to \(shown).", nil))
+        return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text)
     }
 
     /// A map that says "researching" while no job of this window works on it was interrupted (the app quit

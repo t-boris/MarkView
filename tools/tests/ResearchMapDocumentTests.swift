@@ -357,5 +357,32 @@ check("a node the AI adds has the default look", { var m = boxes; let a = try! m
 check("an update that names no shape or size leaves a node's look alone", { var m = boxes; try! m.update(id: boxA, title: "Renamed", tags: ["x"], description: "d"); return m.node(boxA)!.shape == "diamond" && m.node(boxA)!.width == 240 && m.node(boxA)!.height == 120 }())
 check("deleting a node takes its shape and size with it", { var m = boxes; _ = try! m.delete(id: boxA); return m.node(boxA) == nil }())
 
+// ---- diagram and image nodes (REQ-012, DEC-013) -------------------------------------------------------------------------------------
+var vis = M.new(id: "v", question: "Q", created: "d", targets: [], attachments: [])
+let visA = try! vis.addChild(parent: "n1", title: "Login flow")
+let visB = try! vis.addChild(parent: "n1", title: "Screenshot")
+let flowText = "```mermaid\nsequenceDiagram\n  participant U as User\n  participant S as Server\n  U->>S: sign in\n  S-->>U: token\n```\n\nThe flow in short."
+check("a new node is a text node", vis.node(visA)!.visual.isEmpty)
+try! vis.update(id: visA, description: flowText, visual: "diagram")
+try! vis.update(id: visB, description: "![Login screen](images/login.png)", visual: " Image ")
+check("a diagram and an image node are set (trimmed, case-insensitive)", vis.node(visA)!.visual == "diagram" && vis.node(visB)!.visual == "image")
+check("an unknown visual is refused with a message and changes nothing", rejected { try vis.update(id: visA, visual: "video") } != nil && vis.node(visA)!.visual == "diagram")
+check("an empty visual turns the node back into a text node and keeps its description", { var m = vis; try! m.update(id: visA, visual: ""); return m.node(visA)!.visual.isEmpty && m.node(visA)!.description == vis.node(visA)!.description }())
+check("leaving visual out changes nothing", { var m = vis; try! m.update(id: visA, title: "Renamed"); return m.node(visA)!.visual == "diagram" }())
+let visText = vis.markdown()
+check("the file stores the property", visText.contains("- visual: diagram") && visText.contains("- visual: image"))
+let visBack = parsed(visText)
+check("the visual and the Mermaid fence survive a rewrite", visBack?.node(visA)?.visual == "diagram" && visBack?.node(visA)?.description == vis.node(visA)!.description && visBack == vis)
+check("a text node writes no visual line", { var m = vis; for i in m.nodes.indices { m.nodes[i].visual = "" }; return !m.markdown().contains("- visual:") }())
+check("a bad visual in a hand-edited file is dropped on read, the rest is kept", parsed(visText.replacingOccurrences(of: "- visual: diagram", with: "- visual: <b>"))?.node(visA)?.visual == "" && parsed(visText.replacingOccurrences(of: "- visual: diagram", with: "- visual: <b>"))?.node(visB)?.visual == "image")
+check("the diagram source is the first mermaid fence", M.diagramSource(in: flowText) == "sequenceDiagram\n  participant U as User\n  participant S as Server\n  U->>S: sign in\n  S-->>U: token")
+check("text without a mermaid fence has no diagram source, and neither has an unclosed or an empty one", M.diagramSource(in: "just text") == nil && M.diagramSource(in: "```mermaid\nflowchart LR") == nil && M.diagramSource(in: "```mermaid\n```") == nil && M.diagramSource(in: "```swift\nlet a = 1\n```") == nil)
+check("the image source is the first Markdown image: alt and address, a title is cut off", M.imageSource(in: "intro ![Login screen](images/login.png \"a title\") and ![second](b.png)")?.alt == "Login screen" && M.imageSource(in: "intro ![Login screen](images/login.png \"a title\")")?.src == "images/login.png")
+check("text without an image has no image source", M.imageSource(in: "no picture [link](x.png)") == nil && M.imageSource(in: "![](  )") == nil)
+let visNodes = vis.snapshot()["nodes"] as? [[String: Any]] ?? []
+check("the snapshot carries the visual", visNodes.first { ($0["id"] as? String) == visA }?["visual"] as? String == "diagram" && visNodes.first { ($0["id"] as? String) == "n1" }?["visual"] as? String == "")
+check("the AI describing a text node's description keeps a visual node's kind", { var m = vis; try! m.update(id: visA, description: "A new description."); return m.node(visA)!.visual == "diagram" }())
+check("a node the AI adds is a text node", { var m = vis; let a = try! m.addNode(parent: "n1", draft: M.Draft(title: "AI")); return m.node(a)!.visual.isEmpty }())
+
 if failures > 0 { print("\(failures) FAILED"); exit(1) }
 print("all ok")

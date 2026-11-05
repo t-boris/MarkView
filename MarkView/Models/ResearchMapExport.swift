@@ -5,13 +5,15 @@ import Foundation
 /// "See also", the web searches, and a note when the run is incomplete. Folded nodes are included: folding is view
 /// state and never reaches Swift. Pure (Foundation and ResearchMapDocument), so `tools/tests` can compile it alone.
 extension ResearchMap {
-    /// The report file of a map: `<map name>-report.md` in the folder of the map.
-    static func reportURL(forMap file: URL) -> URL {
+    /// The report file of a map: `<map name>-report.md` in the folder of the map (`<map name>-report-<code>.md` for a language chosen at export).
+    static func reportURL(forMap file: URL, languageCode: String = "") -> URL {
         let name = file.deletingPathExtension().lastPathComponent
-        return file.deletingLastPathComponent().appendingPathComponent(name + "-report.md")
+        return file.deletingLastPathComponent().appendingPathComponent(name + "-report" + (languageCode.isEmpty ? "" : "-" + languageCode) + ".md")
     }
 
-    /// The Markdown report. `mapName` is the file name of the map, named in the closing line.
+    /// The mechanical outline of the map (REQ-007): one numbered heading per node. The app no longer exports it (REQ-013, DEC-014:
+    /// the report goes through the assistant and is a narrative); `ResearchMapReport` and its tests keep it as the example of
+    /// an outline that the report checks must reject. `mapName` is the file name of the map, named in the closing line.
     func report(mapName: String) -> String {
         guard let root else { return "" }
         let numbers = outlineNumbers()

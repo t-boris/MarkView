@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// AI diagram generation that runs inside a headless agent (`CLICompletion`) instead of pasting a
 /// prompt into the interactive terminal. The agent reads the project with its own tools and answers
@@ -141,7 +142,32 @@ enum DiagramAI {
 
     // MARK: - Prompts
 
-    static let system = """
+    static let system = systemPrompt(grounding: groundedInSource)
+
+    /// Rule 4 for diagrams of a project's code.
+    private static let groundedInSource = """
+    4. GROUNDED IN THE SOURCE. You have Read, Grep and Glob. Before answering, open the files that \
+    define the nodes and confirm each edge with Grep. `source` is the project-relative path of the file \
+    that defines the node; `evidence` is 'path:line' where the relation is visible. Never invent a path, \
+    a component or a relation; when you are not sure, leave it out. A diagram that is smaller and true \
+    beats one that is bigger and guessed.
+    """
+
+    /// Rule 4 for a diagram of one node of a research map (REQ-012): the node's own text comes first, the project confirms it.
+    private static let groundedInNode = """
+    4. GROUNDED IN THE NODE. The node's description and evidence are your main source: draw what they say, \
+    nothing they do not support. You have Read, Grep and Glob: use them to confirm what concerns the code of \
+    the project. `source` is the project-relative path of the file that defines a node, only when a real file \
+    does; leave it empty for a step, rule, decision, person or external system. A path you give must exist. \
+    `evidence` is 'path:line' where a relation is visible in the code, or empty. Never invent a path, a \
+    component or a relation; when you are not sure, leave it out.
+    """
+
+    /// The system prompt of the Draw action of a research map node.
+    static let mapSystem = systemPrompt(grounding: groundedInNode, noteLanguage: "in the language the prompt asks for")
+
+    private static func systemPrompt(grounding: String, noteLanguage: String = "in the language of the documents") -> String {
+    """
     You draw diagrams that people use to understand a real system. A diagram is useful only when it \
     answers one question and can be trusted. Follow these rules without exception.
 
@@ -154,18 +180,15 @@ enum DiagramAI {
     3. EVERY EDGE MEANS SOMETHING. Each edge points from the caller, producer or dependent to the \
     callee, consumer or dependency, and carries a verb phrase of at most 4 words ('publishes order', \
     'reads config'). No unlabeled edges. No node without at least one edge.
-    4. GROUNDED IN THE SOURCE. You have Read, Grep and Glob. Before answering, open the files that \
-    define the nodes and confirm each edge with Grep. `source` is the project-relative path of the file \
-    that defines the node; `evidence` is 'path:line' where the relation is visible. Never invent a path, \
-    a component or a relation; when you are not sure, leave it out. A diagram that is smaller and true \
-    beats one that is bigger and guessed.
+    \(grounding)
     5. NAMES FROM THE CODE. Labels use the names the code and documents use, 1 to 4 words, no sentences. \
-    Put explanation in `note`, one sentence, in the language of the documents.
+    Put explanation in `note`, one sentence, \(noteLanguage).
     6. KIND IS WHAT IT IS. Pick the node kind that matches what the component does, not what its name \
     contains: \(DiagramSpec.nodeKinds.joined(separator: ", ")).
     7. NO NOISE. Skip tests, logging, generic utilities and configuration unless the question is about them.
     Answer only with the JSON object of the schema.
     """
+    }
 
     static func prompt(kind: DiagramKind, instruction: String, sources: [(path: String, text: String)],
                        root: URL) -> String {
@@ -188,6 +211,81 @@ enum DiagramAI {
             }
         }
         return text
+    }
+
+    /// The prompt of the Draw action of a research map node (REQ-012): the question of the map, the path from the root to the
+    /// node, the node's own text and evidence, and what this kind of diagram shows. `nodeText` is the node's description
+    /// without any diagram it already holds.
+    static func mapPrompt(kind: DiagramKind, instruction: String, question: String, path: [String], title: String,
+                          nodeText: String, evidence: [(label: String, text: String, source: String)], root: URL) -> String {
+        var text = """
+        Draw a "\(kind.title)" diagram of what one node of a research map describes. The project is at \(root.path); your tools read that folder.
+
+        What this kind of diagram shows: \(kind.guidance)
+        \(instruction.isEmpty ? "" : "\nThe user's instruction (it decides the question): \(instruction)\n")
+        The research question of the map: \(question)
+        The node sits at: \(path.joined(separator: " > "))
+
+        THE NODE: \(title)
+        """
+        if !nodeText.isEmpty { text += "\n\nDescription:\n\(String(nodeText.prefix(8_000)))" }
+        if !evidence.isEmpty {
+            text += "\n\nEvidence:\n"
+            for item in evidence.prefix(40) {
+                text += "- \(item.label): \(String(item.text.prefix(600)))\(item.source.isEmpty ? "" : " (\(item.source))")\n"
+            }
+        }
+        text += "\n\nThe diagram title is a short name for what is drawn (at most 6 words), not the node's title repeated."
+        if let language = mapLanguage(title: title, nodeText: nodeText, evidence: evidence) {
+            text += "\nWrite every label, note and the title in \(language.name), the language of the node. Names of files, code and products stay as they are."
+        } else {
+            text += "\nWrite every label, note and the title in the language of the node's title and description."
+        }
+        return text
+    }
+
+    // MARK: - Language of a map diagram
+
+    /// The language of one node of a research map: its title, description and evidence together.
+    static func mapLanguage(title: String, nodeText: String, evidence: [(label: String, text: String, source: String)]) -> (code: String, name: String)? {
+        language(of: ([title, nodeText] + evidence.map(\.text)).joined(separator: "\n"))
+    }
+
+    /// The dominant language of a text when the system is sure of it (a map diagram is drawn in the language of its node).
+    static func language(of text: String) -> (code: String, name: String)? {
+        let sample = String(text.prefix(4_000))
+        guard sample.count >= 40 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(sample)
+        guard let top = recognizer.languageHypotheses(withMaximum: 1).first, top.value >= 0.6 else { return nil }
+        let code = top.key.rawValue
+        let name = Locale(identifier: "en").localizedString(forLanguageCode: code) ?? code
+        return (code, name)
+    }
+
+    /// The language the labels, notes and title of a drawn diagram are written in, when it is not the expected one.
+    static func languageProblem(_ spec: DiagramSpec, expected code: String?) -> String? {
+        guard let code else { return nil }
+        let words = ([spec.title, spec.question, spec.takeaway] + spec.nodes.flatMap { [$0.label, $0.note ?? ""] } + spec.edges.map(\.label))
+            .filter { !$0.isEmpty }.joined(separator: ". ")
+        guard let found = language(of: words), found.code != code else { return nil }
+        let wanted = Locale(identifier: "en").localizedString(forLanguageCode: code) ?? code
+        return "the title, labels and notes are written in \(found.name) but must be written in \(wanted); rewrite every one of them in \(wanted) and keep the names of files and code"
+    }
+
+    /// The diagram as plain Mermaid for a node description: no editor markers and no comment lines, so that any Mermaid
+    /// renderer draws it. A `sequence` diagram is a real `sequenceDiagram`; the other kinds are flowcharts.
+    static func plainMermaid(_ spec: DiagramSpec, kind: DiagramKind) -> String {
+        if kind == .sequence { return CodeArchitecture.sequenceMermaid(spec) }
+        // The editor's own parser reads bare edge labels; the Mermaid library does not accept brackets in them, so they are quoted here.
+        let edge = try! NSRegularExpression(pattern: #"^(\S+) -->\|(.*)\| (\S+)$"#)
+        return mermaid(spec).components(separatedBy: "\n").filter { !$0.hasPrefix("%%") }.map { line -> String in
+            let range = NSRange(line.startIndex..., in: line)
+            guard let match = edge.firstMatch(in: line, range: range), let from = Range(match.range(at: 1), in: line),
+                  let label = Range(match.range(at: 2), in: line), let to = Range(match.range(at: 3), in: line) else { return line }
+            let text = line[label].replacingOccurrences(of: "\"", with: "'")
+            return "\(line[from]) -->|\"\(text)\"| \(line[to])"
+        }.joined(separator: "\n")
     }
 
     static func editPrompt(instruction: String, currentMermaid: String) -> String {
@@ -223,7 +321,8 @@ enum DiagramAI {
     /// Asks the agent for a diagram, validates it against the project and, when it has problems,
     /// asks again with the problems listed (twice at most). Returns the checked diagram.
     static func generate(prompt: String, root: URL, label: String,
-                         project: URL? = nil, model: String? = nil,
+                         project: URL? = nil, model: String? = nil, system: String = DiagramAI.system,
+                         expectedLanguage: String? = nil, maxNodes: Int? = nil,
                          onStage: @escaping @Sendable (String) -> Void,
                          record: @escaping @Sendable (CLICompletion.Result) -> Void) async throws -> DiagramSpec {
         var attempt = prompt
@@ -254,8 +353,15 @@ enum DiagramAI {
                 attempt = prompt + "\n\nYour previous answer was not the required JSON object. Answer with the JSON object only."
                 continue
             }
-            let (checked, problems) = validate(spec, root: root)
-            if problems.isEmpty { return checked }
+            var (checked, structural) = validate(spec, root: root)
+            // A diagram printed on a page next to its text: more nodes than fit shrink the text until it cannot be read.
+            if let maxNodes, checked.nodes.count > maxNodes {
+                structural.append("the diagram has \(checked.nodes.count) nodes but a page holds at most \(maxNodes): merge details into one representative node or leave them out, and say what you left out in `omitted`")
+            }
+            // A wrong language is asked to be fixed twice; the last round accepts it (a label made of code names can look foreign).
+            let wrongLanguage = structural.isEmpty ? languageProblem(checked, expected: expectedLanguage) : nil
+            if structural.isEmpty && (wrongLanguage == nil || round == 2) { return checked }
+            let problems = structural + (wrongLanguage.map { [$0] } ?? [])
             lastProblems = problems
             let previous = (try? String(data: JSONEncoder().encode(spec), encoding: .utf8)) ?? ""
             attempt = prompt + """

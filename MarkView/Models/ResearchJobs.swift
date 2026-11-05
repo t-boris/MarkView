@@ -26,7 +26,7 @@ enum ResearchSettings {
 @MainActor
 final class ResearchJobs: ObservableObject {
     struct Job: Identifiable {
-        enum Kind { case research, followUp, comment, map, mapDevelop, mapContinue, mapDescribe, mapCorrect, mapInvestigate }
+        enum Kind { case research, followUp, comment, map, mapDevelop, mapContinue, mapDescribe, mapCorrect, mapInvestigate, mapDraw, mapTranslate, mapReport }
         let id = UUID()
         let kind: Kind
         /// The research document the job writes.

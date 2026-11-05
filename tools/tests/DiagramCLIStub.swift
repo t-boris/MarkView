@@ -14,8 +14,12 @@ enum CLICompletion {
     }
     struct Result { let text: String; let structured: Any?; let inputTokens: Int; let outputTokens: Int }
     enum Activity { case read, search, run, thinking, writing, answerDelta, webSearch, webFetch }
-    /// Never called by the checks: they exercise validation and Mermaid output only.
+    /// The answers `run` gives in turn (the last one repeats) and the prompts it was asked, for the checks of `generate`.
+    nonisolated(unsafe) static var answers: [Result] = []
+    nonisolated(unsafe) static var prompts: [String] = []
     static func run(_ r: Request, onDelta: (@Sendable (String) -> Void)? = nil, onActivity: (@Sendable (Activity) -> Void)? = nil) async throws -> Result {
-        fatalError("not used by the checks")
+        prompts.append(r.prompt)
+        guard !answers.isEmpty else { fatalError("no scripted answer") }
+        return answers.count > 1 ? answers.removeFirst() : answers[0]
     }
 }

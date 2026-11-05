@@ -459,6 +459,9 @@ struct EditorView: NSViewRepresentable {
         /// Follows the job list while a research map is on screen: the step the assistant is on changes
         /// without the file changing, and the map view shows it.
         func followResearchMapJobs() {
+            parent.workspaceManager.researchMapPDFExporter = { [weak self] markdown, fileName in
+                self?.exportResearchMapPDF(markdown, fileName: fileName) ?? false
+            }
             guard researchMapJobsCancellable == nil else { return }
             researchMapJobsCancellable = parent.workspaceManager.research.$jobs
                 .throttle(for: .milliseconds(500), scheduler: DispatchQueue.main, latest: true)
@@ -834,17 +837,19 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             }
             self.bridge.setResearchMap(reply.json, documentID: documentID, in: webView)
             self.followResearchMapJobs()
-            if let report = reply.pdfReport { self.exportResearchMapPDF(report.markdown, fileName: report.fileName, in: webView) }
         }
     }
 
-    /// The page renders the report with its own Markdown renderer; the PDF pipeline of the editor makes the file.
+    /// The page renders the report with its own Markdown renderer and draws its Mermaid blocks; the PDF pipeline of the
+    /// editor makes the file. Returns false when there is no editor page to render with.
     @MainActor
-    private func exportResearchMapPDF(_ markdown: String, fileName: String, in webView: WKWebView) {
-        guard let data = try? JSONSerialization.data(withJSONObject: [markdown]), let args = String(data: data, encoding: .utf8) else { return }
+    func exportResearchMapPDF(_ markdown: String, fileName: String) -> Bool {
+        guard let webView = self.webView else { return false }
         let documentFiles = self.documentFiles
-        webView.evaluateJavaScript("window.MVResearchMap && window.MVResearchMap.reportHTML.apply(null, \(args))") { result, _ in
-            guard let html = result as? String, !html.isEmpty else {
+        webView.callAsyncJavaScript("return window.MVResearchMap ? await window.MVResearchMap.reportHTMLDrawn(markdown) : ''",
+                                    arguments: ["markdown": markdown], in: nil, in: .page) { outcome in
+            let html = (try? outcome.get()) as? String ?? ""
+            guard !html.isEmpty else {
                 webView.evaluateJavaScript("window.MVResearchMap && window.MVResearchMap.notice('The report could not be drawn for the PDF.')", completionHandler: nil)
                 return
             }
@@ -852,6 +857,7 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
                 PDFExporter.exportPDF(html: html, fileName: fileName, baseURL: webView.url, documentFiles: documentFiles)
             }
         }
+        return true
     }
 
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any]) {

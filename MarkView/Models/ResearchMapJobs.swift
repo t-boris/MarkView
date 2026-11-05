@@ -89,6 +89,77 @@ extension ResearchJobs {
         }
     }
 
+    // MARK: - Draw
+
+    /// Draw (REQ-012, DEC-013): the AI draws a diagram of `node` with the Graph Creator's generator and its checks, and adds it
+    /// as a child of that node: a diagram node whose description holds the Mermaid block, the question and the takeaway, and
+    /// whose evidence lists the files the diagram rests on. The node itself is unchanged. Returns a one-line reason when it
+    /// cannot start.
+    func drawMap(file: URL, node: String, kindID: String, instruction: String) -> String? {
+        guard let workspace, let root = workspace.rootNode?.url else { return "No project is open." }
+        guard let kind = DiagramKind(rawValue: kindID), ResearchMap.drawKinds.contains(where: { $0.id == kindID }) else {
+            return "Choose one of the diagram types."
+        }
+        let wanted = String(instruction.trimmingCharacters(in: .whitespacesAndNewlines).prefix(500))
+        if kind == .custom && wanted.isEmpty { return "Say what the diagram should show." }
+        if isRunning(on: file) { return "An AI job is already working on this map; draw when it has finished." }
+        guard case .success(let map)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }), let target = map.node(node) else {
+            return "That node no longer exists."
+        }
+        let name = kind == .custom ? "Diagram" : kind.title
+        launch(kind: .mapDraw, file: file, title: "Draw \(name.lowercased()): " + Self.title(target.title)) { [weak workspace] job in
+            guard let workspace else { return nil }
+            // The map as it is now, not as it was when the action was chosen.
+            guard case .success(let current)? = workspace.researchMapText(file).map({ ResearchMap.parse($0) }),
+                  let from = current.node(node) else { return "That node no longer exists." }
+            var path: [String] = []
+            var cursor: ResearchMap.Node? = from
+            while let item = cursor, path.count < 12 {
+                path.insert(item.title, at: 0)
+                cursor = item.parent.isEmpty ? nil : current.node(item.parent)
+            }
+            let evidence = from.evidence.map { (label: $0.label.rawValue, text: $0.text, source: $0.source) }
+            let prompt = DiagramAI.mapPrompt(kind: kind, instruction: wanted, question: current.question, path: path, title: from.title,
+                                             nodeText: from.description, evidence: evidence, root: root)
+            let language = DiagramAI.mapLanguage(title: from.title, nodeText: from.description, evidence: evidence)?.code
+            do {
+                let spec = try await DiagramAI.generate(prompt: prompt, root: root, label: "map-draw:\(kind.rawValue)", system: DiagramAI.mapSystem,
+                                                        expectedLanguage: language,
+                                                        onStage: { stage in Task { @MainActor in job.update(stage) } },
+                                                        record: { result in Task { @MainActor in result.record(in: workspace.semanticDatabase) } })
+                job.update("Adding the diagram to the map")
+                var description = "```mermaid\n\(DiagramAI.plainMermaid(spec, kind: kind))\n```"
+                if !spec.question.isEmpty { description += "\n\n**Question:** \(spec.question)" }
+                if !spec.takeaway.isEmpty { description += "\n\n**Takeaway:** \(spec.takeaway)" }
+                if let omitted = spec.omitted { description += "\n\n**Left out:** \(omitted)" }
+                let evidence = spec.nodes.compactMap { item -> ResearchMap.Evidence? in
+                    guard let source = item.source, !source.isEmpty else { return nil }
+                    return ResearchMap.Evidence(label: .projectFact, text: item.label + (item.note.map { ": " + $0 } ?? ""), source: source)
+                }
+                let key = file.standardizedFileURL.path
+                let result = workspace.updateResearchMap(file) { map in
+                    guard map.node(node) != nil else { throw ResearchMap.Rejection(message: "That node no longer exists.") }
+                    let id = try map.addNode(parent: node, draft: ResearchMap.Draft(title: spec.title.isEmpty ? name : spec.title, description: description, evidence: evidence))
+                    try map.update(id: id, visual: "diagram")
+                    // The next snapshot of this map tells the page to show and select the new child.
+                    workspace.researchMapJobCreated[key] = id
+                }
+                switch result {
+                case .rejected(let problem), .unreadable(let problem):
+                    workspace.researchMapJobCreated[key] = nil
+                    return "The diagram could not be added to the map: \(problem)"
+                case .done:
+                    return nil
+                }
+            } catch is CancellationError {
+                return "Drawing stopped. The map is unchanged."
+            } catch {
+                return "The diagram could not be drawn: \(error.localizedDescription)"
+            }
+        }
+        return nil
+    }
+
     /// Starts one of the single-node actions. Returns a one-line reason when it cannot start.
     private func runOnNode(file: URL, node: String, kind: Job.Kind, label: String, mode: ResearchMapRun.Mode,
                            prompt: @escaping (ResearchMap, ResearchMap.Node, String) -> String) -> String? {
@@ -149,6 +220,9 @@ extension ResearchJobs {
         case .mapDescribe: kind = "describe"
         case .mapCorrect: kind = "correct"
         case .mapInvestigate: kind = "investigate"
+        case .mapDraw: kind = "draw"
+        case .mapTranslate: kind = "translate"
+        case .mapReport: kind = "report"
         case .followUp, .comment: kind = "other"
         }
         return ResearchMap.JobInfo(kind: kind, label: job.title, step: job.step, startedAt: job.started.timeIntervalSince1970)

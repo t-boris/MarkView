@@ -45,7 +45,8 @@
         stop: 'M7 7h10v10H7z',
         play: 'M8 5l11 7-11 7z',
         close: 'M6 6l12 12M18 6L6 18',
-        open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5'
+        open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+        diagram: 'M4 4h7v5H4zM13 15h7v5h-7zM7.5 9v3.5h9V15'
     };
 
     // The icons a node can carry (REQ-008). The ids are ResearchMap.iconIDs in Swift; a web test keeps both lists equal.
@@ -157,6 +158,177 @@
     }
     function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
     function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
+
+    // ---- diagram and image nodes (REQ-012, DEC-013) --------------------------------------------------------------------------------
+    // A node with `visual` "diagram" or "image" shows the first ```mermaid fence or the first Markdown image of its description
+    // instead of its title. The content stays in the description (Markdown), so View, Source and the report show it too.
+    // diagramSourceOf / imageOf mirror ResearchMap.diagramSource / imageSource in Swift; a web test feeds both the same text.
+    const CARD_BOX = { w: 280, h: 190 }, PANEL_BOX = { w: 460, h: 300 };
+    const VISUAL_KINDS = [['text', 'Text'], ['diagram', 'Diagram'], ['image', 'Image']];
+    const vis = { cache: new Map(), queue: Promise.resolve(), counter: 0 };
+
+    function fenceOf(text) {
+        const lines = String(text || '').split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            const t = lines[i].trim();
+            if (t.indexOf('```') !== 0 || t.slice(3).trim().toLowerCase() !== 'mermaid') continue;
+            for (let j = i + 1; j < lines.length; j++) {
+                if (lines[j].trim().indexOf('```') === 0) return { from: i, to: j, lines: lines, source: lines.slice(i + 1, j).join('\n').trim() };
+            }
+            return null;
+        }
+        return null;
+    }
+    function diagramSourceOf(text) { const f = fenceOf(text); return f && f.source ? f.source : null; }
+    function imageOf(text) {
+        const s = String(text || '');
+        const open = s.indexOf('![');
+        if (open < 0) return null;
+        const mid = s.indexOf('](', open + 2);
+        if (mid < 0) return null;
+        const close = s.indexOf(')', mid + 2);
+        if (close < 0) return null;
+        const alt = s.slice(open + 2, mid);
+        let src = s.slice(mid + 2, close).trim();
+        const space = src.indexOf(' ');
+        if (space >= 0) src = src.slice(0, space);
+        if (alt.indexOf('\n') >= 0 || !src) return null;
+        return { alt: alt, src: src, from: open, to: close + 1 };
+    }
+    /** `text` with its first Mermaid fence replaced by `source` (an empty source removes the fence); with no fence, the new one goes first. */
+    function withDiagram(text, source) {
+        const body = String(source || '').split('\n').filter(function (line) { return line.trim().indexOf('```') !== 0; }).join('\n').replace(/\s+$/, '');
+        const fence = body ? ['```mermaid'].concat(body.split('\n'), ['```']) : [];
+        const f = fenceOf(text);
+        if (f) {
+            const lines = f.lines.slice();
+            lines.splice.apply(lines, [f.from, f.to - f.from + 1].concat(fence));
+            return lines.join('\n');
+        }
+        if (!fence.length) return String(text || '');
+        return fence.join('\n') + (String(text || '').trim() ? '\n\n' + text : '');
+    }
+    /** `text` with its first Markdown image replaced by one for `src` (an empty address removes it); with none, the new one goes first. */
+    function withImage(text, alt, src) {
+        const s = String(text || '');
+        const address = String(src || '').trim().replace(/ /g, '%20').replace(/\)/g, '%29');
+        const markdown = address ? '![' + String(alt || '').replace(/[\[\]\n]/g, ' ').trim() + '](' + address + ')' : '';
+        const found = imageOf(s);
+        if (found) return s.slice(0, found.from) + markdown + s.slice(found.to);
+        if (!markdown) return s;
+        return markdown + (s.trim() ? '\n\n' + s : '');
+    }
+    /** What a node shows in place of its title, or null (a text node, or a visual with nothing to show yet). */
+    function visualOf(node) {
+        if (!node || !node.visual) return null;
+        if (node.visual === 'diagram') {
+            const source = diagramSourceOf(node.description);
+            return source ? { kind: 'diagram', source: source } : null;
+        }
+        if (node.visual === 'image') {
+            const image = imageOf(node.description);
+            return image ? { kind: 'image', alt: image.alt, src: image.src } : null;
+        }
+        return null;
+    }
+    function darkTheme() { return document.documentElement.getAttribute('data-theme') !== 'light'; }
+    /** The address the page can load for a picture: web and data addresses as written, a project path through the document files. */
+    function imageURL(src) {
+        const written = String(src || '').trim();
+        if (!written) return null;
+        if (/^(https?:|data:image\/)/i.test(written)) return written;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(written)) return null;
+        const base = typeof state !== 'undefined' ? state.documentBaseURL : null;
+        return (window.MarkViewDocumentFiles && base && window.MarkViewDocumentFiles.pictureURL(written, base)) || null;
+    }
+    /** Draws Mermaid source to { svg, w, h } or { error }. Draws run one after another and are remembered per source and theme. */
+    function drawDiagram(key, source, forcedTheme) {
+        if (vis.cache.has(key)) return Promise.resolve(vis.cache.get(key));
+        const remember = function (result) {
+            vis.cache.set(key, result);
+            if (vis.cache.size > 80) vis.cache.delete(vis.cache.keys().next().value);
+            return result;
+        };
+        const run = function () {
+            if (typeof mermaid === 'undefined') return remember({ error: 'Mermaid is not available.' });
+            const id = 'rmv' + (++vis.counter);
+            try { mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: forcedTheme || (darkTheme() ? 'dark' : 'default') }); } catch (e) { /* keep the current setup */ }
+            return Promise.resolve().then(function () { return mermaid.render(id, source); }).then(function (drawn) {
+                const doc = new DOMParser().parseFromString(drawn.svg, 'image/svg+xml').documentElement;
+                const box = (doc.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+                const w = box.length === 4 && box[2] > 0 ? box[2] : 300, hgt = box.length === 4 && box[3] > 0 ? box[3] : 150;
+                return remember({ svg: drawn.svg, w: w, h: hgt });
+            }).catch(function (error) {
+                const junk = document.getElementById('d' + id);
+                if (junk) junk.remove();
+                return remember({ error: String((error && error.message) || error || 'The diagram could not be drawn.').slice(0, 300) });
+            });
+        };
+        const next = vis.queue.then(run, run);
+        vis.queue = next.then(function () {}, function () {});
+        return next;
+    }
+    function placeDiagram(box, result, limits) {
+        box.textContent = '';
+        box.classList.toggle('error', !!result.error);
+        if (result.error) {
+            box.appendChild(h('span', { class: 'rm-vis-note', title: result.error }, 'This diagram could not be drawn'));
+            return;
+        }
+        const holder = document.createElement('span');
+        holder.innerHTML = result.svg;
+        const svg = holder.querySelector('svg');
+        if (!svg) return;
+        const k = Math.min(1, limits.w / result.w, limits.h / result.h);
+        svg.setAttribute('width', String(Math.max(40, Math.round(result.w * k))));
+        svg.setAttribute('height', String(Math.max(24, Math.round(result.h * k))));
+        svg.style.maxWidth = '100%';
+        svg.style.height = 'auto';
+        box.appendChild(svg);
+    }
+    /**
+     * Shows a visual in `box` (the card or the panel preview). `done` runs when a drawing or a picture arrives later than this call
+     * (the card then measures itself again). The same visual in the same theme is not drawn twice.
+     */
+    function fillVisual(box, v, limits, label, done) {
+        const key = v.kind + '\n' + (v.kind === 'diagram' ? v.source : v.src) + '\n' + (darkTheme() ? 'd' : 'l');
+        if (box._vk === key) return;
+        box._vk = key;
+        box.setAttribute('role', 'img');
+        box.setAttribute('aria-label', label);
+        box.classList.remove('error');
+        if (v.kind === 'diagram') {
+            if (vis.cache.has(key)) { placeDiagram(box, vis.cache.get(key), limits); return; }
+            box.textContent = '';
+            box.appendChild(h('span', { class: 'rm-vis-note' }, 'Drawing…'));
+            drawDiagram(key, v.source).then(function (result) {
+                if (box._vk !== key) return;
+                placeDiagram(box, result, limits);
+                if (done) done();
+            });
+            return;
+        }
+        const url = imageURL(v.src);
+        box.textContent = '';
+        if (!url) {
+            box.classList.add('error');
+            box.appendChild(h('span', { class: 'rm-vis-note' }, 'This image address is not supported'));
+            return;
+        }
+        const img = h('img', { alt: v.alt || label, draggable: 'false' });
+        img.style.maxWidth = limits.w + 'px';
+        img.style.maxHeight = limits.h + 'px';
+        img.addEventListener('load', function () { if (box._vk === key && done) done(); });
+        img.addEventListener('error', function () {
+            if (box._vk !== key) return;
+            box.classList.add('error');
+            box.textContent = '';
+            box.appendChild(h('span', { class: 'rm-vis-note', title: v.src }, 'This image could not be loaded'));
+            if (done) done();
+        });
+        box.appendChild(img);
+        img.src = url;
+    }
     function reportError(where, error) {
         try { if (typeof sendToSwift === 'function') sendToSwift('jsError', { where: 'research-map ' + where, message: String(error && error.message || error), source: 'markview-research-map.js', lineno: 0, colno: 0, stack: String(error && error.stack || '') }); } catch (_) { /* never throw from the reporter */ }
     }
@@ -375,6 +547,15 @@
     .rm-node-wrap.has-w { max-width: none; }
     .rm-node-wrap.has-w .rm-node { width: 100%; min-width: 0; max-width: none; }
     .rm-node.boxed { display: flex; flex-direction: column; justify-content: center; }
+    .rm-node-wrap.visual { max-width: 320px; }
+    .rm-node.is-visual, .rm-node.root.is-visual { min-width: 150px; max-width: 320px; padding: 6px 26px 6px 8px; }
+    .rm-node.is-visual .rm-lead, .rm-node.is-visual .rm-label { display: none; }
+    .rm-vis { display: block; line-height: 0; }
+    .rm-vis[hidden] { display: none; }
+    .rm-vis svg, .rm-vis img { display: block; max-width: 100%; }
+    .rm-vis svg { height: auto; }
+    .rm-vis-note { display: block; padding: 6px 4px; line-height: 1.4; font-size: .85em; color: var(--rm-muted); }
+    .rm-vis.error .rm-vis-note { color: var(--rm-error); }
     /* Shapes (REQ-009, DEC-012). The rounded rectangle is the default look and has no class; the rectangle keeps the branch stripe. */
     .rm-node-wrap.shape-rectangle .rm-node { border-radius: 0; }
     .rm-node-wrap.shape-pill .rm-node, .rm-node-wrap.shape-ellipse .rm-node { border: 1.5px solid var(--branch, var(--b0)); }
@@ -495,6 +676,19 @@
     .rm-format .rm-icon { font-size: .95em; font-weight: 700; }
     .rm-desc { flex: none; width: 100%; height: 180px; min-height: 80px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); line-height: 1.55; resize: vertical; outline: none; }
     .rm-desc:focus { border-color: var(--rm-focus); }
+    .rm-visual-pane { display: flex; flex-direction: column; gap: 8px; }
+    .rm-visual-pane[hidden], .rm-visual-pane [hidden] { display: none; }
+    .rm-vis-panel { padding: 8px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); overflow: auto; max-height: 340px; }
+    .rm-vis-panel img { margin: 0 auto; }
+    .rm-visual-pane .rm-chip-btn { align-self: flex-start; border: 1px solid var(--rm-line); }
+    .rm-visual-pane .rm-vis-source { flex: none; width: 100%; height: 120px; min-height: 60px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; line-height: 1.45; resize: vertical; outline: none; }
+    .rm-visual-pane .rm-vis-source:focus { border-color: var(--rm-focus); }
+    .rm-visual-pane .rm-image-input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); outline: none; }
+    .rm-visual-pane .rm-image-input:focus { border-color: var(--rm-focus); }
+    .rm-draw-list { display: flex; flex-direction: column; gap: 2px; padding: 4px; border: 1px solid var(--rm-line); border-radius: 4px; }
+    .rm-draw-list[hidden] { display: none; }
+    .rm-draw-list button { padding: 4px 8px; border: 0; border-radius: 3px; background: transparent; color: var(--rm-ink); text-align: left; cursor: pointer; }
+    .rm-draw-list button:hover { background: var(--rm-hover); }
     .rm-icongrid button:focus-visible, .rm-icon-pick:focus-visible, .rm-tool:focus-visible, .rm-icon:focus-visible, .rm-tbtn:focus-visible, .rm-item:focus-visible, .rm-ai-btn:focus-visible, .rm-chip-btn:focus-visible, .rm-fold:focus-visible, .rm-tri:focus-visible, .rm-node:focus-visible { outline: 2px solid var(--rm-focus); outline-offset: 1px; }
     .rm-section { display: flex; flex: none; flex-direction: column; gap: 6px; }
     .rm-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
@@ -577,8 +771,10 @@
     el.exportBtn.setAttribute('aria-expanded', 'false');
     el.exportBtn.appendChild(icon('chevron'));
     el.exportMenu = h('div', { class: 'rm-exportmenu', role: 'menu', 'aria-label': 'Export', hidden: true },
-        h('button', { class: 'rm-item', type: 'button', role: 'menuitem', 'data-act': 'export-markdown', onClick: function (e) { e.stopPropagation(); closeExport(); send('export', { kind: 'markdown' }); } }, icon('text'), h('span', null, 'Markdown report')),
-        h('button', { class: 'rm-item', type: 'button', role: 'menuitem', 'data-act': 'export-pdf', onClick: function (e) { e.stopPropagation(); closeExport(); send('export', { kind: 'pdf' }); } }, icon('download'), h('span', null, 'PDF…')));
+        h('button', { class: 'rm-item', type: 'button', role: 'menuitem', 'data-act': 'export-markdown', title: 'The AI writes a report of the whole map as a document you can share, saved as Markdown', onClick: function (e) { e.stopPropagation(); closeExport(); exportDialog('markdown'); } }, icon('text'), h('span', null, 'Markdown report…')),
+        h('button', { class: 'rm-item', type: 'button', role: 'menuitem', 'data-act': 'export-pdf', title: 'The same report as a PDF', onClick: function (e) { e.stopPropagation(); closeExport(); exportDialog('pdf'); } }, icon('download'), h('span', null, 'PDF…')),
+        h('div', { class: 'rm-sep', role: 'separator' }),
+        h('button', { class: 'rm-item', type: 'button', role: 'menuitem', 'data-act': 'translate', title: 'The AI translates this map into another language', onClick: function (e) { e.stopPropagation(); closeExport(); translateDialog(); } }, icon('text'), h('span', null, 'Translate map…')));
     el.collapseBtn = tbtn('collapse-all', 'Collapse all', 'Fold every branch so that only the root and its main branches show', function () { collapseAll(); });
     el.expandBtn = tbtn('expand-all', 'Expand all', 'Show every node', function () { expandAll(); });
     el.toolbar = h('div', { class: 'rm-toolbar' },
@@ -656,6 +852,23 @@
         el.widthInput = h('input', { type: 'number', step: '1', inputmode: 'numeric', 'data-dim': 'width', 'aria-label': 'Node width', placeholder: 'Auto' });
         el.heightInput = h('input', { type: 'number', step: '1', inputmode: 'numeric', 'data-dim': 'height', 'aria-label': 'Node height', placeholder: 'Auto' });
         el.desc = h('textarea', { class: 'rm-desc', 'aria-label': 'Markdown description', placeholder: 'Add a Markdown description' });
+        // What the node shows: its title (Text), the first Mermaid block of the description (Diagram) or its first picture (Image).
+        el.visualBtns = {};
+        VISUAL_KINDS.forEach(function (kind) {
+            el.visualBtns[kind[0]] = h('button', { type: 'button', 'data-visual': kind[0], 'aria-pressed': 'false', onClick: function () {
+                if (rm.selected) queueUpdate(rm.selected, { visual: kind[0] === 'text' ? '' : kind[0] }, true);
+            } }, kind[1]);
+        });
+        el.visualSeg = h('div', { class: 'rm-seg', role: 'group', 'aria-label': 'What the node shows' }, VISUAL_KINDS.map(function (kind) { return el.visualBtns[kind[0]]; }));
+        el.visualPreview = h('div', { class: 'rm-vis rm-vis-panel' });
+        el.visualExpand = h('button', { class: 'rm-chip-btn', type: 'button', title: 'Open full screen: wheel to zoom, drag to move, Esc to close', onClick: function () { expandVisual(rm.selected); } }, icon('open'), 'Expand');
+        el.visualSource = h('textarea', { class: 'rm-vis-source', 'aria-label': 'Mermaid source', placeholder: 'Paste or type Mermaid, for example: sequenceDiagram', spellcheck: 'false' });
+        el.imageInput = h('input', { type: 'text', class: 'rm-image-input', 'aria-label': 'Image address or project path', placeholder: 'images/screen.png or https://…', spellcheck: 'false' });
+        el.visualPane = h('div', { class: 'rm-visual-pane', hidden: true }, el.visualPreview, el.visualExpand, el.visualSource, el.imageInput);
+        el.shapeRow = h('div', { class: 'rm-look-row' }, h('span', null, 'Shape'), el.shapeSeg);
+        el.drawBtn = h('button', { class: 'rm-ai-btn', type: 'button', 'data-act': 'draw', 'aria-expanded': 'false', title: 'The AI draws a diagram of this node as a child node', onClick: function () { toggleDrawList(); } },
+            icon('diagram'), h('span', { class: 'rm-ai-label' }, 'Draw'), h('span', { class: 'rm-more', 'aria-hidden': 'true' }, '▾'));
+        el.drawList = h('div', { class: 'rm-draw-list', role: 'menu', 'aria-label': 'Diagram types', hidden: true });
         const fmt = function (label, text, before, after, placeholder) {
             return h('button', { class: 'rm-icon', type: 'button', title: label, 'aria-label': label, 'data-fmt': label.toLowerCase(), onClick: function () { insertMarkdown(before, after, placeholder); } }, text);
         };
@@ -671,20 +884,22 @@
         el.aiButtons = AI_ACTIONS.map(function (action) {
             return h('button', { class: 'rm-ai-btn', type: 'button', 'data-act': action.act, title: action.hint, onClick: function () { runAI(action.act, nodeById(rm.selected)); } }, icon(action.icon), h('span', { class: 'rm-ai-label' }, action.label));
         });
+        el.aiButtons.push(el.drawBtn);
         el.aiNote = h('p', { class: 'rm-ai-note' });
         el.body = h('div', { class: 'rm-panel-body', hidden: true },
             el.titleInput, el.titleError,
-            h('h3', null, 'AI'), h('div', { class: 'rm-ai', role: 'group', 'aria-label': 'AI actions on this node' }, el.aiButtons), el.aiNote,
+            h('h3', null, 'AI'), h('div', { class: 'rm-ai', role: 'group', 'aria-label': 'AI actions on this node' }, el.aiButtons), el.drawList, el.aiNote,
             el.tags,
             h('div', { class: 'rm-color-row' }, h('span', null, 'Color'), el.color, el.colorClear),
             h('div', { class: 'rm-badge-row' },
                 h('div', { class: 'rm-field' }, h('span', null, 'Icon'), el.iconPick, el.iconClear),
                 h('div', { class: 'rm-field' }, h('span', null, 'Number'), el.numberInput)),
-            h('div', { class: 'rm-look-row' }, h('span', null, 'Shape'), el.shapeSeg),
+            el.shapeRow,
             h('div', { class: 'rm-look-row' }, h('span', null, 'Size'), el.sizeSeg),
             h('div', { class: 'rm-look-row' }, h('span', null),
                 h('label', { class: 'rm-dim', title: 'Width in pixels; empty is automatic. The title wraps inside it.' }, 'W', el.widthInput),
                 h('label', { class: 'rm-dim', title: 'Height in pixels; empty is automatic. The node never gets lower than its title.' }, 'H', el.heightInput)),
+            h('div', { class: 'rm-look-row' }, h('span', null, 'Content'), el.visualSeg), el.visualPane,
             h('h3', null, 'Description'), el.format, el.desc,
             el.evSection, el.connSection);
         el.panel.appendChild(el.empty);
@@ -764,6 +979,14 @@
         });
         el.desc.addEventListener('input', function () { if (rm.selected) queueUpdate(rm.selected, { description: el.desc.value }); });
         el.desc.addEventListener('blur', function () { if (rm.selected) flushUpdate(rm.selected); });
+        // The Mermaid source and the picture address edit the description's first fence or image (the description stays the one place).
+        el.visualSource.addEventListener('input', function () { if (rm.selected) queueUpdate(rm.selected, { description: withDiagram(currentDescription(rm.selected), el.visualSource.value) }); });
+        el.visualSource.addEventListener('blur', function () { if (rm.selected) flushUpdate(rm.selected); });
+        el.imageInput.addEventListener('input', function () {
+            const node = nodeById(rm.selected);
+            if (node) queueUpdate(node.id, { description: withImage(currentDescription(node.id), (imageOf(currentDescription(node.id)) || {}).alt || node.title, el.imageInput.value) });
+        });
+        el.imageInput.addEventListener('blur', function () { if (rm.selected) flushUpdate(rm.selected); });
     }
     /** The title field grows with its text, so a long title is never cut off. */
     function fitTitle() {
@@ -821,6 +1044,7 @@
                 icon: text(n.icon),
                 number: typeof n.number === 'number' && isFinite(n.number) && n.number >= 1 && n.number <= MAX_NUMBER && Math.floor(n.number) === n.number ? n.number : null,
                 shape: SHAPE_IDS.indexOf(text(n.shape)) > 0 ? n.shape : '',
+                visual: text(n.visual) === 'diagram' || text(n.visual) === 'image' ? n.visual : '',
                 width: limited(n.width, LIMITS.width),
                 height: limited(n.height, LIMITS.height),
                 description: text(n.description),
@@ -843,6 +1067,10 @@
         snap.byId = new Map(nodes.map(function (n) { return [n.id, n]; }));
         snap.links = (Array.isArray(raw.links) ? raw.links : []).filter(function (l) { return l && snap.byId.has(l.from) && snap.byId.has(l.to) && l.from !== l.to; }).map(function (l) { return { from: l.from, to: l.to }; });
         snap.layouts = (Array.isArray(raw.layouts) ? raw.layouts : []).filter(function (l) { return l && typeof l.id === 'string'; }).map(function (l) { return { id: l.id, name: text(l.name) || l.id }; });
+        snap.drawKinds = (Array.isArray(raw.drawKinds) ? raw.drawKinds : []).filter(function (k) { return k && typeof k.id === 'string' && k.id; })
+            .map(function (k) { return { id: k.id, name: text(k.name) || k.id, hint: text(k.hint) }; });
+        snap.languages = (Array.isArray(raw.languages) ? raw.languages : []).filter(function (l) { return l && typeof l.code === 'string' && l.code; })
+            .map(function (l) { return { code: l.code, name: text(l.name) || l.code }; });
         snap.shapeNames = {};
         (Array.isArray(raw.shapes) ? raw.shapes : []).forEach(function (s) { if (s && SHAPE_IDS.indexOf(s.id) >= 0) snap.shapeNames[s.id] = text(s.name) || SHAPE_NAMES[s.id]; });
         snap.created = text(raw.created);
@@ -1094,6 +1322,7 @@
             entry.btn.className = 'rm-node' + (isRoot ? ' root' : (isBranch ? ' branch' : '')) + (own ? ' has-color' : '');
             const title = (rm.pending[n.id] && rm.pending[n.id].fields.title) || n.title;
             if (entry.label.textContent !== title) entry.label.textContent = title;
+            syncVisual(entry, n, title);
             // Icon and number badge before the title (REQ-008).
             entry.badge.hidden = n.number == null;
             entry.badge.textContent = n.number == null ? '' : String(n.number);
@@ -1141,6 +1370,46 @@
         });
     }
 
+    // ---- diagram and image nodes on the card ----------------------------------------------------------------------------------------
+    function syncVisual(entry, node, title) {
+        const v = visualOf(node);
+        entry.btn.classList.toggle('is-visual', !!v);
+        entry.wrap.classList.toggle('visual', !!v);
+        if (!v) {
+            entry.vis.hidden = true;
+            if (entry.vis._vk) { entry.vis.textContent = ''; entry.vis._vk = ''; }
+            entry.btn.removeAttribute('title');
+            return;
+        }
+        entry.vis.hidden = false;
+        entry.btn.title = title;
+        fillVisual(entry.vis, v, CARD_BOX, title, function () { remeasure(node.id); });
+    }
+    /** Opens the diagram or picture of a node in the full-screen viewer of the Markdown preview (wheel zoom, drag, Fit, 100%, Esc). */
+    function expandVisual(id) {
+        const entry = rm.els.get(id), node = nodeById(id), v = visualOf(node);
+        if (!entry || !v) return;
+        if (typeof openDiagramViewer !== 'function') { toast('The full-screen viewer is not available.'); return; }
+        const holder = entry.vis;
+        if (v.kind === 'diagram') {
+            const svg = holder.querySelector('svg');
+            if (svg) openDiagramViewer(svg);
+            else toast(holder.classList.contains('error') ? 'This diagram could not be drawn.' : 'The diagram is still being drawn.');
+            return;
+        }
+        const img = holder.querySelector('img');
+        if (!img || !img.naturalWidth) { toast('The image is not loaded.'); return; }
+        // The viewer shows an SVG: the picture goes into one at its natural size.
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 ' + img.naturalWidth + ' ' + img.naturalHeight);
+        const image = document.createElementNS(NS, 'image');
+        image.setAttribute('href', img.currentSrc || img.src);
+        image.setAttribute('width', String(img.naturalWidth));
+        image.setAttribute('height', String(img.naturalHeight));
+        svg.appendChild(image);
+        openDiagramViewer(svg);
+    }
+
     // ---- shape and size of a node (REQ-009, DEC-012) ------------------------------------------------------------------------------
     /** The width and height that count now: the resize being dragged, else a size sent and not yet confirmed, else the stored one (null is automatic). */
     function boxOf(node) {
@@ -1155,7 +1424,8 @@
      */
     function applyBox(entry, node, box) {
         const wrap = entry.wrap, btn = entry.btn, body = entry.body;
-        const shape = node.shape, fit = SHAPE_FIT[shape];
+        // A card that shows a diagram or picture is always the rounded rectangle.
+        const shape = visualOf(node) ? '' : node.shape, fit = SHAPE_FIT[shape];
         SHAPE_IDS.forEach(function (id) { wrap.classList.toggle('shape-' + id, id !== 'rounded' && id === shape); });
         if (shape === 'diamond' && !entry.shapeSvg) {
             const svg = document.createElementNS(NS, 'svg');
@@ -1272,7 +1542,8 @@
         const glyph = h('span', { class: 'rm-glyph', hidden: true, 'aria-hidden': 'true' });
         const lead = h('span', { class: 'rm-lead', hidden: true }, badge, glyph);
         const label = h('span', { class: 'rm-label' });
-        const body = h('span', { class: 'rm-body' }, lead, label);
+        const visual = h('span', { class: 'rm-vis', hidden: true });
+        const body = h('span', { class: 'rm-body' }, lead, label, visual);
         const btn = h('button', { class: 'rm-node', type: 'button', 'aria-pressed': 'false' }, body);
         const tri = h('button', { class: 'rm-tri', type: 'button', title: 'Node menu: AI actions, add, connect, arrange, delete', 'aria-haspopup': 'true', 'aria-expanded': 'false' }, '⋯');
         const fold = h('button', { class: 'rm-fold', type: 'button', hidden: true, 'aria-expanded': 'true' });
@@ -1292,7 +1563,12 @@
             return handle;
         });
         const wrap = h('div', { class: 'rm-node-wrap', 'data-id': id }, btn, tri, fold, handles);
-        const entry = { wrap: wrap, btn: btn, body: body, tri: tri, fold: fold, lead: lead, badge: badge, glyph: glyph, label: label, handles: handles, shapeSvg: null, autoH: 0 };
+        const entry = { wrap: wrap, btn: btn, body: body, tri: tri, fold: fold, lead: lead, badge: badge, glyph: glyph, label: label, vis: visual, handles: handles, shapeSvg: null, autoH: 0 };
+        // A double click on a diagram or picture opens it full screen (REQ-012).
+        btn.addEventListener('dblclick', function () {
+            const node = nodeById(id);
+            if (node && visualOf(node)) expandVisual(id);
+        });
         fold.addEventListener('click', function (event) {
             event.stopPropagation();
             toggleFold(id);
@@ -1618,6 +1894,31 @@
         });
     }
 
+    /** The description as the page now holds it: an edit not sent yet wins over the snapshot. */
+    function currentDescription(id) {
+        const pending = rm.pending[id];
+        if (pending && Object.prototype.hasOwnProperty.call(pending.fields, 'description')) return pending.fields.description;
+        const node = nodeById(id);
+        return node ? node.description : '';
+    }
+    function syncVisualPanel(node) {
+        const kind = node.visual || 'text';
+        VISUAL_KINDS.forEach(function (k) { el.visualBtns[k[0]].setAttribute('aria-pressed', k[0] === kind ? 'true' : 'false'); });
+        el.visualPane.hidden = !node.visual;
+        const v = visualOf(node);
+        el.shapeRow.hidden = !!v;
+        if (!node.visual) { el.visualPreview._vk = ''; return; }
+        const diagram = node.visual === 'diagram';
+        el.visualSource.hidden = !diagram;
+        el.imageInput.hidden = diagram;
+        if (diagram) setField(el.visualSource, diagramSourceOf(node.description) || '', node.id, 'description');
+        else setField(el.imageInput, (imageOf(node.description) || {}).src || '', node.id, 'description');
+        el.visualPreview.hidden = !v;
+        el.visualExpand.hidden = !v;
+        if (v) fillVisual(el.visualPreview, v, PANEL_BOX, node.title, null);
+        else el.visualPreview._vk = '';
+    }
+
     function setField(field, value, id, key) {
         if (field.value === value) return;
         // Never overwrite what the person is typing, or an edit that has not been sent yet.
@@ -1641,6 +1942,7 @@
             if (!el.titleError.textContent) setField(el.titleInput, node.title, node.id, 'title');
             setField(el.desc, node.description, node.id, 'description');
         }
+        syncVisualPanel(node);
         const shownColor = node.color || branchHex(node.id);
         if (document.activeElement !== el.color) el.color.value = shownColor;
         el.colorClear.hidden = !node.color;
@@ -1752,6 +2054,7 @@
             button.addEventListener('click', function (event) {
                 event.stopPropagation();
                 if (item.act === 'arrange') { toggleLayouts(bar, node, button, entry); return; }
+                if (item.act === 'draw') { toggleDrawMenu(bar, node, button, entry); return; }
                 closeMenu();
                 item.run();
             });
@@ -1761,6 +2064,8 @@
             addItem({ act: action.act, label: action.label + (dialogs[action.act] ? '…' : ''), icon: action.icon, ai: true, hint: action.hint, off: busy, offHint: BUSY_HINT,
                 run: function () { runAI(action.act, node); } });
         });
+        addItem({ act: 'draw', label: 'Draw', icon: 'diagram', ai: true, more: true, hint: 'The AI draws a diagram of this node as a child node: sequence, flowchart, data flow and more',
+            off: busy, offHint: BUSY_HINT, run: null });
         bar.appendChild(h('div', { class: 'rm-sep', role: 'separator' }));
         addItem({ act: 'add', label: 'Add child node…', icon: 'plus', run: function () { addChildDialog(node); } });
         addItem({ act: 'link', label: 'Add logical connection…', icon: 'link', off: snap.nodes.length < 2, run: function () { linkDialog(node); } });
@@ -1803,6 +2108,46 @@
         placeMenu(bar, entry);
     }
 
+    // ---- Draw: a diagram of a node as a child node (REQ-012, DEC-013) -------------------------------------------------------------
+    function drawKinds() { return (rm.snap && rm.snap.drawKinds) || []; }
+    function drawButtons(node, after) {
+        return drawKinds().map(function (kind) {
+            const button = h('button', { type: 'button', role: 'menuitem', 'data-kind': kind.id, title: kind.hint || kind.name }, kind.name + (kind.id === 'custom' ? '…' : ''));
+            button.addEventListener('click', function (event) {
+                event.stopPropagation();
+                after();
+                runDraw(node, kind);
+            });
+            return button;
+        });
+    }
+    function toggleDrawMenu(bar, node, anchorButton, entry) {
+        const existing = bar.querySelector('.rm-draw-menu');
+        if (existing) { existing.remove(); placeMenu(bar, entry); return; }
+        const list = h('div', { class: 'rm-layouts rm-draw-menu', role: 'menu', 'aria-label': 'Diagram types' }, drawButtons(node, closeMenu));
+        anchorButton.insertAdjacentElement('afterend', list);
+        placeMenu(bar, entry);
+    }
+    function toggleDrawList() {
+        const node = nodeById(rm.selected);
+        if (!node) return;
+        const open = el.drawList.hidden;
+        el.drawList.textContent = '';
+        if (open) drawButtons(node, function () { toggleDrawList(); }).forEach(function (b) { el.drawList.appendChild(b); });
+        el.drawList.hidden = !open;
+        el.drawBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    function runDraw(node, kind) {
+        if (aiBusy()) { toast(BUSY_HINT); return; }
+        if (kind.id === 'custom') {
+            textDialog('Draw a diagram', 'The AI draws a diagram of “' + node.title + '” as a child node.', 'What should it show?', '', 500, 'Draw',
+                function (text) { send('draw', { id: node.id, kind: 'custom', instruction: text }); }, 'Say what the diagram should show.',
+                { multiline: true, placeholder: 'e.g. the retry rules as a decision flow' });
+            return;
+        }
+        send('draw', { id: node.id, kind: kind.id });
+    }
+
     // ---- AI actions on a node (REQ-006) ----------------------------------------------------------------------------------------------
     function runAI(act, node) {
         if (!node) return;
@@ -1815,6 +2160,7 @@
     function renderAI() {
         const busy = aiBusy();
         el.aiButtons.forEach(function (button) { button.disabled = busy; });
+        if (busy && !el.drawList.hidden) toggleDrawList();
         el.aiNote.textContent = busy ? BUSY_HINT : '';
     }
 
@@ -1918,6 +2264,62 @@
         textDialog('Correct node', 'The AI checks “' + node.title + '” against the project and the web and fixes only this node.', 'What is wrong with it?', '', 2000, 'Correct', function (note) { send('correct', { id: node.id, note: note }); }, 'Say what is wrong with this node.',
             { multiline: true, placeholder: 'e.g. the cache is not LRU, it evicts by size' });
     }
+    // ---- language of an export and of a translation (REQ-013, REQ-014) -------------------------------------------------------------
+    function savedLanguage(key) { try { return localStorage.getItem(key) || ''; } catch (e) { return ''; } }
+    function saveLanguage(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* the choice is only a convenience */ } }
+    /** A language picker: the languages of the snapshot, optionally "the map's own language" first, and Other… with a field to type one. */
+    function languagePicker(storageKey, withOwn) {
+        const languages = (rm.snap && rm.snap.languages && rm.snap.languages.length) ? rm.snap.languages : [{ code: 'en', name: 'English' }];
+        const select = h('select', { 'aria-label': 'Language' });
+        if (withOwn) select.appendChild(h('option', { value: '' }, 'The language of the map'));
+        languages.forEach(function (l) { select.appendChild(h('option', { value: l.name }, l.name)); });
+        select.appendChild(h('option', { value: '__other' }, 'Other…'));
+        const other = h('input', { type: 'text', maxlength: '40', 'aria-label': 'Language name', placeholder: 'e.g. Japanese', spellcheck: 'false', hidden: true });
+        const saved = savedLanguage(storageKey);
+        const known = Array.prototype.some.call(select.options, function (o) { return o.value === saved; });
+        if (saved && known) select.value = saved;
+        else if (saved) { select.value = '__other'; other.value = saved; other.hidden = false; }
+        else select.value = withOwn ? '' : languages[0].name;
+        select.addEventListener('change', function () { other.hidden = select.value !== '__other'; if (!other.hidden) other.focus(); });
+        return {
+            nodes: [h('label', null, 'Language', select), other],
+            /** The chosen language name, '' for the map's own, or null with a message when Other… is empty. */
+            value: function () { return select.value === '__other' ? other.value.trim().replace(/\s+/g, ' ') : select.value; },
+            needsName: function () { return select.value === '__other' && !other.value.trim(); },
+            remember: function () { saveLanguage(storageKey, select.value === '__other' ? other.value.trim() : select.value); },
+            focusOther: function () { other.focus(); }
+        };
+    }
+    function exportDialog(kind) {
+        if (aiBusy()) { toast(BUSY_HINT); return; }
+        const picker = languagePicker('mvMapLang:export', true);
+        const error = h('p', { class: 'rm-error', role: 'alert' });
+        const pdf = kind === 'pdf';
+        dialog(pdf ? 'Export as PDF' : 'Export as Markdown report',
+            [h('p', null, 'The AI writes a report of the whole map as a document to share: an introduction, the story of each branch, conclusions and open questions, with the map’s diagrams and pictures where they belong. It takes a few minutes.'), picker.nodes, error],
+            [{ label: 'Cancel', kind: 'ghost' },
+             { label: pdf ? 'Export…' : 'Export', kind: 'primary', run: function () {
+                 if (picker.needsName()) { error.textContent = 'Type the name of the language.'; picker.focusOther(); return false; }
+                 picker.remember();
+                 send('export', { kind: kind, language: picker.value() });
+             } }], pdf ? 'Export as PDF' : 'Export as Markdown report');
+    }
+    function translateDialog() {
+        if (aiBusy()) { toast(BUSY_HINT); return; }
+        const picker = languagePicker('mvMapLang:translate', false);
+        const mode = h('select', { 'aria-label': 'Result' },
+            h('option', { value: 'copy' }, 'A new map next to this one'),
+            h('option', { value: 'replace' }, 'Replace this map (a copy is saved first)'));
+        const error = h('p', { class: 'rm-error', role: 'alert' });
+        dialog('Translate map',
+            [h('p', null, 'The AI translates the question and the text of every node. The structure, the sources and the links stay exactly as they are.'), picker.nodes, h('label', null, 'Result', mode), error],
+            [{ label: 'Cancel', kind: 'ghost' },
+             { label: 'Translate', kind: 'primary', run: function () {
+                 if (picker.needsName() || !picker.value()) { error.textContent = 'Choose or type a language.'; picker.focusOther(); return false; }
+                 picker.remember();
+                 send('translate', { language: picker.value(), mode: mode.value });
+             } }], 'Translate map');
+    }
     function nodeOptions(nodes) {
         const depth = function (n) { let d = 0, cur = n, guard = 0; while (cur && cur.parent && guard++ < 100) { d++; cur = rm.snap.byId.get(cur.parent); } return d; };
         return nodes.map(function (n) { return h('option', { value: n.id }, ' '.repeat(Math.min(depth(n), 6)) + n.title); });
@@ -2015,8 +2417,22 @@
         rm.active = true;
         hideProblem();
         syncModes();
+        watchTheme();
         if (rm.snap) render();
         send('snapshot');
+    }
+    /** A diagram is drawn in the colours of the theme: when the theme changes the cards and the panel draw it again. */
+    function watchTheme() {
+        if (rm.themeWatch || typeof MutationObserver === 'undefined') return;
+        rm.themeWatch = new MutationObserver(function () {
+            if (!rm.active || !rm.snap) return;
+            rm.snap.nodes.forEach(function (n) {
+                const entry = rm.els.get(n.id);
+                if (entry) syncVisual(entry, n, n.title);
+            });
+            fillPanel();
+        });
+        rm.themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     }
 
     window.leaveResearchMap = function () {
@@ -2146,14 +2562,51 @@
         } catch (e) { reportError('reportHTML', e); return ''; }
     }
 
+    /**
+     * The report as HTML for the PDF, with every Mermaid block drawn (light theme, as printed) and the pictures of the report
+     * addressed the way the Markdown preview does. A diagram that cannot be drawn stays as its source.
+     */
+    async function reportHTMLDrawn(markdown) {
+        const html = reportHTML(markdown);
+        if (!html) return '';
+        const holder = document.createElement('div');
+        holder.innerHTML = html;
+        holder.querySelectorAll('img[src]').forEach(function (img) {
+            const url = imageURL(img.getAttribute('src'));
+            if (url) img.setAttribute('src', url);
+        });
+        const blocks = Array.prototype.slice.call(holder.querySelectorAll('pre > code.language-mermaid'));
+        for (let i = 0; i < blocks.length; i++) {
+            const source = blocks[i].textContent.trim();
+            const result = await drawDiagram('print\n' + source, source, 'default');
+            if (result.error) continue;
+            const figure = document.createElement('figure');
+            figure.className = 'mv-report-diagram';
+            figure.style.cssText = 'margin: 1em 0; text-align: center; page-break-inside: avoid;';
+            figure.innerHTML = result.svg;
+            const svg = figure.querySelector('svg');
+            if (svg) {
+                const k = Math.min(1, 640 / result.w);
+                svg.setAttribute('width', String(Math.round(result.w * k)));
+                svg.setAttribute('height', String(Math.round(result.h * k)));
+                svg.style.maxWidth = '100%';
+                svg.style.height = 'auto';
+            }
+            blocks[i].parentNode.replaceWith(figure);
+        }
+        return holder.innerHTML;
+    }
+
     window.MVResearchMap = {
         reportHTML: reportHTML,
+        reportHTMLDrawn: reportHTMLDrawn,
         iconIDs: function () { return NODE_ICON_IDS.slice(); },
         shapeIDs: function () { return SHAPE_IDS.slice(); },
         sizeLimits: function () { return { width: LIMITS.width.slice(), height: LIMITS.height.slice() }; },
         notice: function (message) { toast(String(message)); },
         collapsed: function () { return Array.from(rm.collapsed); },
         isResearchMapText: isResearchMapText,
+        visual: { diagramSourceOf: diagramSourceOf, imageOf: imageOf, withDiagram: withDiagram, withImage: withImage },
         viewState: function () { return { active: rm.active, x: rm.view.x, y: rm.view.y, scale: rm.view.scale, panel: rm.panelWidth, selected: rm.selected, key: rm.mapKey }; }
     };
 })();
