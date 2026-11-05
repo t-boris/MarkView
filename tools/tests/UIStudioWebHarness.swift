@@ -304,6 +304,20 @@ func run() async {
     check("BUG-079 an error of the page's handler of a simulated XHR keeps its message (it was \"Script error.\")",
           fromHandler.contains { $0.contains("strikedeskMissing.backend") }, fromHandler.joined(separator: " | "))
 
+    // REQ-017: WebKit's stack of a rejection has no message line, so Fix data would get "@http://host/app.js:7:89" alone.
+    errorMark = harness.events.count
+    _ = await harness.js("""
+        (async () => { const bundle = { status: 'draft' }; return ({ editable: 'E' })[bundle.status].toUpperCase(); })();
+        Promise.reject('a plain reason');
+        return 1;
+        """)
+    await harness.settle(1.2)
+    let rejections = harness.events.dropFirst(errorMark).filter { $0.kind == .runtimeError }.map(\.detail)
+    check("REQ-017 an unhandled rejection of an Error is reported with its name and message before its stack",
+          rejections.contains { $0.hasPrefix("Unhandled rejection: TypeError: ") && $0.contains("toUpperCase") }, rejections.joined(separator: " | "))
+    check("REQ-017 an unhandled rejection of a plain value is still reported", rejections.contains { $0 == "Unhandled rejection: a plain reason" },
+          rejections.joined(separator: " | "))
+
     // Reproducible conditions: seeded random numbers, the scenario's clock and locale.
     watchdog.reached("Reproducible conditions")
     let first = await harness.js("return [Math.random(), Math.random()].join(',');") as? String

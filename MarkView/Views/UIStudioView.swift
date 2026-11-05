@@ -46,7 +46,8 @@ struct UIStudioView: View {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     if showingLog {
                         Divider().background(VSDark.border)
-                        UIStudioLogDrawer(log: session.sessionLog) { showingLog = false }
+                        UIStudioLogDrawer(log: session.sessionLog, fixable: Set(session.fixableErrors.map(\.key)), busy: session.busy != nil,
+                                          fix: { session.fixData($0) }) { showingLog = false }
                     }
                 }
                 resizeHandle
@@ -227,6 +228,20 @@ struct UIStudioView: View {
             banner("Degraded: " + session.limitations.joined(separator: " · "), symbol: "exclamationmark.triangle", color: VSDark.orange) {
                 panel = .environment
             }
+        }
+        if let error = session.fixableErrors.first, session.busy == nil {
+            // REQ-017: nothing happens until the person clicks.
+            let others = session.fixableErrors.count - 1
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "wrench.and.screwdriver").uiFont(size: 10).foregroundColor(VSDark.orange)
+                Text("The page reported an error: " + String(error.key.prefix(160)) + (others > 0 ? " (and \(others) more)" : ""))
+                    .uiFont(size: 10).foregroundColor(VSDark.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Spacer()
+                Button("Fix data") { session.fixData(error.key) }.controlSize(.small)
+                    .help("The assistant reads the error and the code and corrects the simulated records that caused it, or says the error is not caused by data. Nothing changes until you click.")
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(VSDark.bgBanner)
         }
         if session.state == .preparing, session.busy == nil {
             HStack(spacing: 8) {
@@ -1724,6 +1739,10 @@ struct UIStudioLogButton: View {
 /// The log drawer under the preview (REQ-011): the session's entries, newest first, filtered, redacted, selectable.
 struct UIStudioLogDrawer: View {
     @ObservedObject var log: StudioLog
+    /// The page errors Fix data may be offered for now (REQ-017), whether the session is busy, and what the action does.
+    var fixable: Set<String> = []
+    var busy = false
+    var fix: (String) -> Void = { _ in }
     let close: () -> Void
     @State private var filter: Filter = .all
 
@@ -1786,7 +1805,8 @@ struct UIStudioLogDrawer: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(shown.reversed()) { entry in row(entry) }
+                        let newest = Dictionary(log.entries.compactMap { entry in entry.errorKey.map { ($0, entry.id) } }, uniquingKeysWith: max)
+                        ForEach(shown.reversed()) { entry in row(entry, offersFix: entry.errorKey.map { fixable.contains($0) && newest[$0] == entry.id } ?? false) }
                     }
                     .padding(.horizontal, 10).padding(.vertical, 4)
                 }
@@ -1796,12 +1816,17 @@ struct UIStudioLogDrawer: View {
         .background(VSDark.bg)
     }
 
-    private func row(_ entry: StudioLogEntry) -> some View {
+    /// `offersFix`: the page still reports this error, and this is its latest row (REQ-017).
+    private func row(_ entry: StudioLogEntry, offersFix: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(Self.time.string(from: entry.date)).foregroundColor(VSDark.textDim)
             Text(entry.kind.rawValue).foregroundColor(color(entry.kind)).frame(width: 72, alignment: .leading)
             Text(entry.text).foregroundColor(entry.problem ? VSDark.red : VSDark.text)
                 .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+            if offersFix, let key = entry.errorKey {
+                Button("Fix data") { fix(key) }.controlSize(.mini).disabled(busy)
+                    .help("The assistant reads this error and the code and corrects the simulated records that caused it. Nothing changes until you click.")
+            }
         }
         .uiFont(size: 9, design: .monospaced)
         .textSelection(.enabled)

@@ -24,6 +24,9 @@ struct StudioLogEntry: Identifiable, Equatable, Sendable {
     /// Something went wrong: an error, a failure, a request nothing could answer.
     var problem: Bool
     var text: String
+    /// For a page error Fix data may be offered for (REQ-017): the error's identity (`StudioDataFix.key(of:)`), so that its
+    /// row can carry the action. Nil for every other entry.
+    var errorKey: String? = nil
 }
 
 /// The newest entries of a log, oldest first, at most `capacity` of them, with the number of problems among them.
@@ -237,10 +240,10 @@ final class StudioLog: ObservableObject {
     var problems: Int { ring.problems }
     var fileURL: URL? { file?.url }
 
-    func add(_ kind: StudioLogEntry.Kind, problem: Bool = false, _ text: String) {
+    func add(_ kind: StudioLogEntry.Kind, problem: Bool = false, errorKey: String? = nil, _ text: String) {
         let shown = StudioLogFormat.clean(StudioLogFormat.redact(text, redactor: redactor, hashes: secretHashes))
         guard !shown.isEmpty else { return }
-        let entry = StudioLogEntry(id: next, date: Date(), kind: kind, problem: problem, text: shown)
+        let entry = StudioLogEntry(id: next, date: Date(), kind: kind, problem: problem, text: shown, errorKey: errorKey)
         next += 1
         ring.append(entry)
         guard let file else { return }

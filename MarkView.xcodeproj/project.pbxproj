@@ -269,6 +269,7 @@
 		AB32AC4AB441646866BB588B /* FilterSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A903B7EB574BDD8969788FE /* FilterSearch.swift */; };
 		AB772A1CF9E16E47D4B8E23B /* GitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC5CB38E9CF1EB846033B0A8 /* GitView.swift */; };
 		ACC4EC4EED2064E5A42D8B93 /* ArchitectureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4D926B6E77144DA360543F /* ArchitectureStore.swift */; };
+		AD14A1DE17208264B020F4DD /* UIStudioDataFix.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */; };
 		AD1A9D000AE91E8675089859 /* UIStudioEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83829D1752CE48AE3223142A /* UIStudioEvidence.swift */; };
 		AF237C9EA109027D03F491B9 /* MarkViewApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62268454385302347AE5A8F3 /* MarkViewApp.swift */; };
 		B1DB6307C7E77633B014B6EE /* markview-research-map.js in Resources */ = {isa = PBXBuildFile; fileRef = 0E76C72A6A93F68BADFA3EFE /* markview-research-map.js */; };
@@ -660,6 +661,7 @@
 		AA781698B8CEDAAB7EE8028A /* IntakeTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntakeTextEditor.swift; sourceTree = "<group>"; };
 		AAA5D1BB0D677AB3259D0471 /* LinkedFolders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkedFolders.swift; sourceTree = "<group>"; };
 		ACC3096F5958199C147B4B2C /* GraphCreatorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCreatorSheet.swift; sourceTree = "<group>"; };
+		AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioDataFix.swift; sourceTree = "<group>"; };
 		ADA371AF8ACDEABE2F93D359 /* markview-canvas.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "markview-canvas.css"; sourceTree = "<group>"; };
 		AE2D1E5946002DCAB54BA616 /* markview-pick-element.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-pick-element.js"; sourceTree = "<group>"; };
 		AE30F452BE6F56F06FCC972E /* UIStudioAuthMock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStudioAuthMock.swift; sourceTree = "<group>"; };
@@ -1038,6 +1040,7 @@
 				BFDE3E1FD4F69D4D75576057 /* UIStudioChannels.swift */,
 				3C1A7D7E3414B22FEF3836BD /* UIStudioConnections.swift */,
 				ED38A3D93E96C54E2A3BCD06 /* UIStudioContext.swift */,
+				AD11BE03C1B1516FA7E0C8E9 /* UIStudioDataFix.swift */,
 				FD36C8EC6805326FE6D91574 /* UIStudioEnvironmentMap.swift */,
 				FEE76C2ADB908748CA265A52 /* UIStudioEnvironmentMapper.swift */,
 				83829D1752CE48AE3223142A /* UIStudioEvidence.swift */,
@@ -1761,6 +1764,7 @@
 				B8D8E7BEF9B4E9A607267D32 /* UIStudioComparisonView.swift in Sources */,
 				9C3121F4B7629B8EBE5DE49D /* UIStudioConnections.swift in Sources */,
 				B7604ECF4767B530E6DA96E4 /* UIStudioContext.swift in Sources */,
+				AD14A1DE17208264B020F4DD /* UIStudioDataFix.swift in Sources */,
 				B442742D59A52CE38F5FC022 /* UIStudioEnvironmentMap.swift in Sources */,
 				21FF5F26DEDCF7BA72BC7314 /* UIStudioEnvironmentMapper.swift in Sources */,
 				AD1A9D000AE91E8675089859 /* UIStudioEvidence.swift in Sources */,
@@ -1841,7 +1845,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.34.0;
+				CURRENT_PROJECT_VERSION = 5.35.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1856,7 +1860,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.34.0;
+				MARKETING_VERSION = 5.35.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1920,7 +1924,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.34.0;
+				CURRENT_PROJECT_VERSION = 5.35.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1941,7 +1945,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.34.0;
+				MARKETING_VERSION = 5.35.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

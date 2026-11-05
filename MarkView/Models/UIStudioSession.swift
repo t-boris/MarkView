@@ -731,6 +731,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         mode = mode == .record ? .interact : mode
         pickTask?.cancel()
         simulator.reset()
+        servedAnswers = []
         // A preparation in flight is not cancelled: its rules belong to the environment, not to the scenario, and the minute the
         // assistant has spent on them is not thrown away by switching scenarios (BUG-089).
         selection = nil
@@ -1005,8 +1006,27 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         let before = http.isWrite ? simulator.state : nil
         let outcome = simulator.handle(http)
         if let before { channels.entitiesChanged(StudioEntityChange.diff(before: before, after: simulator.state, spec: simulator.spec)) }
-        if case .respond(_, let rule) = outcome { noteServed(rule) }
+        if case .respond(let response, let rule) = outcome {
+            noteServed(rule)
+            noteAnswer(response, rule: rule)
+        }
         return outcome
+    }
+
+    /// The latest answers the simulation gave the page since it was loaded, the most recent first, for Fix data (REQ-017):
+    /// the rule, the entities it reads and the body as sent, redacted and cut.
+    private(set) var servedAnswers: [StudioDataFix.Served] = []
+
+    private func noteAnswer(_ response: StudioSimResponse, rule id: String) {
+        guard let rule = simulator.spec.rules.first(where: { $0.id == id }) else { return }
+        // Cut first, so a large list costs nothing; redact a longer piece than is kept, so a secret cut at the edge is gone.
+        let piece = String((response.body ?? "").prefix(StudioDataFix.answerChars * 3))
+        let body = String(StudioLogFormat.redact(piece, redactor: redactor, hashes: secretHashes).prefix(StudioDataFix.answerChars))
+        let entities = [rule.entity].compactMap { $0 } + (rule.include ?? []).map(\.entity)
+        servedAnswers.insert(StudioDataFix.Served(ruleId: rule.id, method: rule.method.uppercased(), path: rule.path,
+                                                  operation: rule.operation.rawValue, entities: entities, status: response.status,
+                                                  body: body), at: 0)
+        if servedAnswers.count > StudioDataFix.servedKept { servedAnswers.removeLast() }
     }
 
     /// The rules that answered the page, the most recent first (BUG-084): a context change sees them, and the shape of
@@ -1021,6 +1041,131 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     static let servedRulesKept = 100
+
+    // MARK: - Fix data (REQ-017)
+
+    /// The page's errors Fix data may be offered for: one per message, the latest first, only those of the page as it is now.
+    /// A Reset or a fix starts a new page, so an error is offered again only when it comes back after the fix.
+    var fixableErrors: [StudioDataFix.PageError] {
+        StudioDataFix.fixable(events.map { StudioDataFix.Seen(kind: $0.kind, detail: $0.detail, generation: $0.generation, date: $0.date) },
+                              generation: simulator.generation)
+    }
+
+    /// Repairs the simulated data a page error came from (REQ-017), only when the person asks. The assistant reads the error,
+    /// what the page was answered with, the records and the code (read-only) and either corrects existing records or says
+    /// that data did not cause the error. MarkView checks every correction on a copy; nothing is saved unless all of them pass.
+    func fixData(_ key: String? = nil) {
+        guard let error = fixableErrors.first(where: { key == nil || $0.key == key }) else {
+            notice = "The page reports no error that data could have caused."
+            return
+        }
+        runWork("Fixing data") { session in await session.performDataFix(error) }
+    }
+
+    private func performDataFix(_ error: StudioDataFix.PageError) async {
+        let generation = simulator.generation, scenarioID = scenario.id
+        var retryProblems: [String] = []
+        sessionLog.add(.notice, "Fix data: asking the assistant about \"\(String(error.key.prefix(160)))\"")
+        for attempt in 1...2 {
+            busyDetail = attempt == 1 ? "The assistant is reading the error and the code" : "The assistant is correcting its answer"
+            var call = CLICompletion.Request(project: root,
+                                             prompt: StudioDataFix.prompt(error: error, route: route, served: servedAnswers, spec: spec,
+                                                                          records: scenario.data ?? spec.seed, scenario: scenario,
+                                                                          redactor: redactor, hashes: secretHashes, retryProblems: retryProblems),
+                                             systemPrompt: StudioDataFix.system, jsonSchema: StudioDataFix.schema, readableFolder: root)
+            call.timeout = StudioDataFix.timeout
+            call.effort = "medium"
+            call.label = "ui-studio:fix-data"
+            let plan: StudioDataFix.Plan
+            do {
+                let result = try await CLICompletion.run(call, onActivity: { [weak self] activity in
+                    Task { @MainActor in self?.progress(activity) }
+                })
+                recordUsage(result.inputTokens, result.outputTokens, result.costUSD ?? 0)
+                guard let parsed = StudioDataFix.plan(from: result.structured) else {
+                    notice = "Fix data: the assistant's answer was not a set of corrections. Nothing was changed."
+                    return
+                }
+                plan = parsed
+            } catch is CancellationError {
+                return
+            } catch {
+                notice = "Fix data failed: \(error.localizedDescription) Nothing was changed."
+                return
+            }
+            // The page the assistant looked at is gone (a Reset, another scenario): its corrections would be for other data.
+            guard !closed, simulator.generation == generation, scenario.id == scenarioID else {
+                notice = "Fix data was dropped: the scenario was reset while the assistant worked. Nothing was changed."
+                return
+            }
+            if plan.kind == .notData {
+                let where_ = plan.codePointer.isEmpty ? "" : " Look at \(plan.codePointer)."
+                notice = "Fix data: data did not cause this error. \(plan.summary)\(where_) Nothing was changed."
+                return
+            }
+            let outcome = StudioDataFix.apply(plan.changes, spec: spec, scenarioData: scenario.data, redactor: redactor)
+            let problems = plan.unreadable + outcome.problems
+            if problems.isEmpty, outcome.ok {
+                await commitDataFix(outcome, error: error)
+                return
+            }
+            if attempt == 1 {
+                retryProblems = problems
+                continue
+            }
+            for problem in problems.prefix(10) { sessionLog.add(.notice, problem: true, "Fix data refused a correction: " + problem) }
+            notice = "Fix data: the assistant's corrections were refused (\(problems.first ?? "no correction")). Nothing was changed."
+        }
+    }
+
+    /// Saves checked corrections and reloads the page on them: the scenario's own records first (a failure there changes
+    /// nothing), then the environment's seed, then a restore, which is a new page generation.
+    private func commitDataFix(_ outcome: StudioDataFix.Outcome, error: StudioDataFix.PageError) async {
+        busyDetail = "Saving the corrected data"
+        var changedScenario: StudioScenario?
+        if outcome.applied.contains(where: \.inScenario), let data = outcome.scenarioData {
+            var next = scenario
+            next.data = data
+            next.updated = Date()
+            next.revision += 1
+            if !next.id.hasPrefix("builtin-") {
+                let root = root, saving = next
+                do {
+                    savedScenarios = try await Task.detached { () throws -> [StudioScenario] in
+                        try StudioStore.saveScenario(saving, root: root)
+                        return StudioStore.loadScenarios(root)
+                    }.value
+                } catch {
+                    notice = "Fix data: the scenario could not be saved (\(error.localizedDescription)). Nothing was changed."
+                    return
+                }
+            }
+            changedScenario = next
+        }
+        var environment = simulator.spec
+        // Only the entities that were corrected: the map's refill or a preparation may have changed others while the scenario was saved.
+        let seeded = Set(outcome.applied.filter(\.inSeed).map(\.entity))
+        if !seeded.isEmpty {
+            for name in seeded { environment.seed[name] = outcome.seed[name] }
+            environment.updated = Date()
+        }
+        simulator.replaceSpec(environment)
+        spec = simulator.spec
+        persistEnvironment()
+        if let changedScenario {
+            scenario = changedScenario
+            simulator.activate(changedScenario)
+        }
+        notice = nil
+        notice = StudioDataFix.summary(outcome.applied)
+        for reason in StudioDataFix.reasons(outcome.applied) { sessionLog.add(.notice, reason) }
+        busyDetail = "Reloading the page on the corrected data"
+        let problem = await restore()
+        if let problem { sessionLog.add(.notice, problem: true, "After Fix data the page was not restored completely: " + problem) }
+        if fixableErrors.contains(where: { $0.key == error.key }) {
+            sessionLog.add(.notice, problem: true, "The page still reports \"\(String(error.key.prefix(160)))\" on the corrected data. Fix data can run again.")
+        }
+    }
 
     // MARK: - Channels (REQ-015)
 
@@ -1569,7 +1714,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         case .runtimeError, .logged, .buildError, .blocked, .unsupported, .electron: problem = true
         case .browser, .route, .idle, .recorded: problem = false
         }
-        sessionLog.add(.page, problem: problem, "\(kind.rawValue): \(detail)")
+        sessionLog.add(.page, problem: problem, errorKey: StudioDataFix.isFixable(kind: kind, detail: detail) ? StudioDataFix.key(of: detail) : nil,
+                       "\(kind.rawValue): \(detail)")
     }
 
     /// The development server's output, one entry per line (REQ-011); a line that reads like an error is a problem.

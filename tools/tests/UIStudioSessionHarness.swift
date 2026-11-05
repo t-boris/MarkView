@@ -1472,6 +1472,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await logChecks()
             await authChecks()
             await ipcSessionChecks()
+            await fixDataChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
@@ -2236,6 +2237,155 @@ func logChecks() async {
     check("REQ-011 the real secret the server printed reaches neither the log file nor the drawer", !everything.contains(fakeServerSecret)
           && lines.contains { $0.contains("loaded the key [redacted:API_SECRET] from .env.local") }
           && lines.contains { $0.contains("/rates?key=[redacted:API_SECRET]") }, lines.filter { $0.contains("key") }.joined(separator: "\n"))
+    await session.close()
+}
+
+// MARK: - Fix data (REQ-017)
+
+/// The answers the stand-in assistant gives Fix data, in order; none queued is a not-data answer.
+final class FixAnswers: @unchecked Sendable {
+    private let lock = NSLock()
+    private var queue: [[String: Any]] = []
+    func set(_ answers: [[String: Any]]) { lock.withLock { queue = answers } }
+    func next() -> [String: Any] {
+        lock.withLock {
+            queue.isEmpty ? ["kind": "not_data", "summary": "Nothing to correct.", "codePointer": "", "changes": []] : queue.removeFirst()
+        }
+    }
+}
+
+func fixAnswer(_ ids: [String], status: String = "editable", reason: String = "app.js reads LABELS[status]") -> [String: Any] {
+    ["kind": "data", "summary": "The code knows editable and locked.", "codePointer": "",
+     "changes": ids.map { ["entity": "bundles", "id": $0, "field": "status", "valueJSON": "\"\(status)\"", "reason": reason] }]
+}
+
+@MainActor
+func fixDataChecks() async {
+    watchdog.reached("REQ-017 Fix data repairs the simulated data a page error came from")
+    let fixPage = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Bundles</title></head><body>
+    <ul id="list"></ul>
+    <script>
+    const LABELS = { editable: 'Editable', locked: 'Locked' };
+    (async () => {
+      const bundles = await (await fetch('/api/bundles')).json();
+      document.getElementById('list').innerHTML = bundles.map(b => '<li>' + LABELS[b.status].toUpperCase() + '</li>').join('');
+    })();
+    </script></body></html>
+    """
+    // A page whose code knows two bundle statuses and fails on the simulated `draft` (the vivaa case, BUG-080). A top-level
+    // constant would not exist yet when run() starts (main.swift initializes globals in order).
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-ui-studio-fix-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    try? fixPage.write(to: root.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+    func bundle(_ id: Int, _ name: String, _ status: String = "draft") -> StudioJSON {
+        .object(["id": .number(Double(id)), "name": .string(name), "status": .string(status)])
+    }
+    var env = StudioEnvironmentSpec()
+    env.entities = [StudioEntity(name: "bundles", fields: [StudioField(name: "name", type: "string", required: true), StudioField(name: "status", type: "string")])]
+    env.rules = [StudioRule(id: "list-bundles", method: "GET", path: "/api/bundles", operation: .list, entity: "bundles")]
+    env.seed = ["bundles": [bundle(1, "One"), bundle(2, "Two"), bundle(3, "Three")]]
+    env.map = StudioEnvironmentMap(status: .complete, appFolder: ".", inventoried: true)
+    try? StudioStore.saveEnvironment(env, root: root)
+    var mine = StudioScenario(id: "mine", name: "Mine", kind: .custom)
+    mine.data = ["bundles": [bundle(1, "Mine one"), bundle(7, "Only mine")]]
+    mine.contractFingerprint = StudioScenarioCompatibility.fingerprint(mine, spec: env)
+    try? StudioStore.saveScenario(mine, root: root)
+
+    let answers = FixAnswers()
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:fix-data" {
+            return CLICompletion.Result(text: "", structured: answers.next(), inputTokens: 10, outputTokens: 5, costUSD: 0)
+        }
+        return CLICompletion.Result(text: "", structured: ["rules": [], "assumptions": []], inputTokens: 1, outputTokens: 1, costUSD: 0)
+    }
+    func fixRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:fix-data" } }
+    let port = freePort()
+    let session = StudioSession(root: root)
+    session.start(WebAppTarget(folder: root, label: "bundles", command: "python3 -m http.server \(port) --bind 127.0.0.1", ports: [port]))
+    _ = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) && session.busy == nil }
+    check("REQ-017 the session opens", session.appURL != nil, "\(session.state) \(session.stateDetail)")
+    func listText() async -> String {
+        ((try? await session.call("return Array.from(document.querySelectorAll('#list li')).map(l => l.textContent).join(',');")) as? String) ?? ""
+    }
+    func environmentFile() -> String { (try? String(contentsOf: StudioStore.environmentURL(root), encoding: .utf8)) ?? "" }
+
+    // AC1: the error is offered in the banner (fixableErrors) and on its row in the Log, and nothing runs without a click.
+    let offered = await waitUntil(30) { !session.fixableErrors.isEmpty }
+    let error = session.fixableErrors.first
+    check("REQ-017 a page error caused by the simulated data is offered Fix data", offered && error?.key.contains("LABELS") == true, "\(session.fixableErrors.map(\.key))")
+    check("REQ-017 its row in the Log carries the action", session.sessionLog.entries.contains { $0.errorKey == error?.key && $0.kind == .page && $0.problem })
+    try? await Task.sleep(nanoseconds: 1_000_000_000)
+    check("REQ-017 nothing is sent to the assistant without a click", fixRequests().isEmpty)
+
+    // AC3: an error that data did not cause changes nothing, and the same error is offered again.
+    let seedBefore = session.spec.seed
+    let fileBefore = environmentFile()
+    answers.set([["kind": "not_data", "summary": "The label table has no entry for the status.", "codePointer": "index.html:9", "changes": []]])
+    session.fixData()
+    _ = await waitUntil(120) { session.busy == nil }
+    check("REQ-017 one call is made per click", fixRequests().count == 1, "\(fixRequests().count)")
+    let first = fixRequests().first
+    let prompt = first?.prompt ?? ""
+    check("REQ-017 the assistant reads the project read-only, with a strict schema", first?.readableFolder?.standardizedFileURL.path == session.root.path
+          && first?.jsonSchema != nil && first?.systemPrompt?.contains("You are read-only") == true && first?.allowWeb == false)
+    check("REQ-017 the prompt has the error, the route, what the page was answered with and the records",
+          prompt.contains("LABELS") && prompt.contains("Route: /") && prompt.contains("GET /api/bundles (rule list-bundles, list) → 200")
+          && prompt.contains(#""status":"draft""#) && prompt.contains("- bundles (id field id, 3 records)") && prompt.contains(".markview/studio/environment.json"), prompt)
+    check("REQ-017 a not-data answer changes nothing and points at the code", session.spec.seed == seedBefore && environmentFile() == fileBefore
+          && session.notice?.contains("data did not cause this error") == true && session.notice?.contains("index.html:9") == true
+          && session.notice?.contains("Nothing was changed") == true, session.notice ?? "nil")
+    check("REQ-017 the error is still there, so Fix data is offered again", session.fixableErrors.contains { $0.key == error?.key })
+
+    // AC3 + guards: a refused answer is sent back once with its reasons; the corrected answer is applied.
+    answers.set([fixAnswer(["404"]), fixAnswer(["1", "2", "3"])])
+    session.fixData()
+    _ = await waitUntil(180) { session.busy == nil }
+    let requests = fixRequests()
+    check("REQ-017 a refused answer is asked for again once", requests.count == 3, "\(requests.count)")
+    let retried = requests.last?.prompt ?? ""
+    check("REQ-017 the second request names why the first was refused", retried.contains("Your previous corrections were refused") && retried.contains("id 404"), retried.suffix(400).description)
+
+    // AC4: validated, saved in environment.json, logged, and the page reloads on the corrected data.
+    check("REQ-017 the corrections are in the seed", session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true
+          && session.spec.seed["bundles"]?.map { $0["name"]?.stringValue ?? "" } == ["One", "Two", "Three"], "\(session.spec.seed)")
+    let saved = await waitUntil(15) { environmentFile().contains("editable") && !environmentFile().contains("draft") }
+    check("REQ-017 the corrected records are saved in .markview/studio/environment.json", saved, environmentFile().prefix(300).description)
+    let logged = session.sessionLog.entries.map(\.text)
+    check("REQ-017 the log says what was fixed and why", logged.contains("Fixed data: bundles.status draft → editable in 3 records")
+          && logged.contains { $0.hasPrefix("Reason: app.js reads LABELS[status]") }, logged.suffix(12).joined(separator: "\n"))
+    var shown = ""
+    for _ in 0..<100 where shown != "EDITABLE,EDITABLE,EDITABLE" {
+        shown = await listText()
+        if shown != "EDITABLE,EDITABLE,EDITABLE" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("REQ-017 the page reloads and shows the corrected data", shown == "EDITABLE,EDITABLE,EDITABLE", shown)
+    check("REQ-017 the fixed error is not offered again", session.fixableErrors.isEmpty, "\(session.fixableErrors.map(\.key))")
+    try? await Task.sleep(nanoseconds: 1_500_000_000)
+    check("REQ-017 nothing more is sent without another click", fixRequests().count == 3, "\(fixRequests().count)")
+
+    // A scenario with its own records: its record and the seed's are corrected, the scenario file is saved again.
+    session.activate(mine)
+    _ = await waitUntil(120) { session.busy == nil }
+    let again = await waitUntil(30) { !session.fixableErrors.isEmpty }
+    check("REQ-017 the same error on another scenario's data is offered again", again && session.fixableErrors.first?.key.contains("LABELS") == true)
+    answers.set([fixAnswer(["1", "7"])])
+    session.fixData()
+    _ = await waitUntil(180) { session.busy == nil }
+    check("REQ-017 the scenario's own records are corrected", session.scenario.data?["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true
+          && session.scenario.revision == 2, "\(String(describing: session.scenario.data)) \(session.scenario.revision)")
+    let file = StudioStore.loadScenarios(root).first { $0.id == "mine" }
+    check("REQ-017 the scenario file is saved with the corrected records", file?.data?["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true
+          && file?.data?["bundles"]?.count == 2 && file?.revision == 2, "\(String(describing: file?.data))")
+    shown = ""
+    for _ in 0..<100 where shown != "EDITABLE,EDITABLE" {
+        shown = await listText()
+        if shown != "EDITABLE,EDITABLE" { try? await Task.sleep(nanoseconds: 200_000_000) }
+    }
+    check("REQ-017 the page shows the scenario's corrected records", shown == "EDITABLE,EDITABLE", shown)
+    check("REQ-017 the seed of the other scenarios stays corrected too", session.spec.seed["bundles"]?.allSatisfy { $0["status"] == .string("editable") } == true)
     await session.close()
 }
 

@@ -20,6 +20,6 @@ swiftc -o "$out/ui-studio-session-harness" \
   MarkView/Models/ImageAttachments.swift \
   MarkView/Models/UIStudioEnvironmentMap.swift MarkView/Models/UIStudioEnvironmentMapper.swift \
   MarkView/Models/UIStudioGraphQL.swift MarkView/Models/UIStudioChannels.swift \
-  MarkView/Models/UIStudioGatewayStreams.swift MarkView/Models/UIStudioRealtimePrompts.swift \
+  MarkView/Models/UIStudioGatewayStreams.swift MarkView/Models/UIStudioRealtimePrompts.swift MarkView/Models/UIStudioDataFix.swift \
   MarkView/Views/UIStudioPreviewHost.swift tools/tests/UIStudioSessionStubs.swift tools/tests/UIStudioAuthHarness.swift "$out/main.swift"
 "$out/ui-studio-session-harness" MarkView/Resources/Editor/vendor/js/markview-ui-studio.js

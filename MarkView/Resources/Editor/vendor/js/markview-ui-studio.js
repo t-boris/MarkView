@@ -1223,7 +1223,9 @@
 
   window.addEventListener('unhandledrejection', function (event) {
     var reason = event.reason;
-    report('runtimeError', 'Unhandled rejection: ' + String((reason && (reason.stack || reason.message)) || reason).slice(0, 4000));
+    // WebKit's stack has no message line ("@http://host/app.js:7:89"), so an Error is described with its name and message first
+    // (REQ-017: Fix data reads the message).
+    report('runtimeError', 'Unhandled rejection: ' + (errorText(reason) || String((reason && (reason.stack || reason.message)) || reason).slice(0, 4000)));
   });
 
   var buildError = '';
