@@ -317,6 +317,17 @@
     .rm-tbtn[aria-expanded="true"] { background: var(--rm-hover); color: var(--rm-ink); }
     .rm-tbtn svg { width: 12px; height: 12px; }
     .rm-tsep { flex: none; width: 1px; height: 14px; margin: 0 3px; background: var(--rm-line); }
+    /* The Map | View | Source switch (REQ-010) sits in the map toolbar and in the top bar, so it uses the application's tokens only. */
+    .mv-modes { display: inline-flex; flex: none; overflow: hidden; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-primary); }
+    .mv-modes[hidden] { display: none; }
+    .mv-modes.mv-modes button { height: calc(22px * var(--ui-scale, 1)); width: auto; min-width: 0; padding: 0 10px; border: 0; border-left: 1px solid var(--border-color); border-radius: 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: calc(11px * var(--ui-scale, 1)); cursor: pointer; }
+    .mv-modes.mv-modes button:first-child { border-left: 0; }
+    .mv-modes.mv-modes button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .mv-modes.mv-modes button[aria-pressed="true"] { background: var(--accent-primary); color: #fff; }
+    .mv-modes.mv-modes button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+    .wysiwyg-toolbar > .mv-modes { margin-right: 6px; }
+    /* The View of a map is read only: the formatting buttons (all call fmt*) have nothing to act on. */
+    body.rm-view-readonly .wysiwyg-toolbar > button[onclick^="fmt"], body.rm-view-readonly .wysiwyg-toolbar > .sep { display: none; }
     .rm-heading { display: flex; flex-direction: column; flex: 1; min-width: 0; margin-left: 4px; line-height: 1.25; }
     .rm-heading strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1.05em; font-weight: 600; }
     .rm-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rm-muted); font-size: .9em; }
@@ -482,7 +493,7 @@
     .rm-panel h3 { margin: 6px 0 0; font-size: .82em; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--rm-muted); }
     .rm-format { display: flex; flex-wrap: wrap; gap: 2px; }
     .rm-format .rm-icon { font-size: .95em; font-weight: 700; }
-    .rm-desc { flex: 1 1 180px; width: 100%; min-height: 140px; padding: 8px 10px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); line-height: 1.55; resize: vertical; outline: none; }
+    .rm-desc { flex: none; width: 100%; height: 180px; min-height: 80px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--rm-line); border-radius: 4px; background: var(--rm-field); line-height: 1.55; resize: vertical; outline: none; }
     .rm-desc:focus { border-color: var(--rm-focus); }
     .rm-icongrid button:focus-visible, .rm-icon-pick:focus-visible, .rm-tool:focus-visible, .rm-icon:focus-visible, .rm-tbtn:focus-visible, .rm-item:focus-visible, .rm-ai-btn:focus-visible, .rm-chip-btn:focus-visible, .rm-fold:focus-visible, .rm-tri:focus-visible, .rm-node:focus-visible { outline: 2px solid var(--rm-focus); outline-offset: 1px; }
     .rm-section { display: flex; flex: none; flex-direction: column; gap: 6px; }
@@ -542,7 +553,14 @@
     function tool(act, label, content, handler) {
         return h('button', { class: 'rm-tool', type: 'button', 'data-act': act, title: label, 'aria-label': label, onClick: handler }, content);
     }
-    el.sourceBtn = tool('source', 'Show the Markdown source (the Map toggle in the top bar brings the map back)', icon('source'), function () { goSource(); });
+    const VIEWS = [['map', 'Map', 'The mind map'], ['view', 'View', 'The file as ordinary Markdown'], ['source', 'Source', 'The Markdown source']];
+    /** One Map | View | Source switch; there are two of them (map toolbar, top bar) and both follow the current view. */
+    function modeSwitch() {
+        return h('div', { class: 'mv-modes', role: 'group', 'aria-label': 'View of this map' }, VIEWS.map(function (v) {
+            return h('button', { type: 'button', 'data-view': v[0], 'aria-pressed': 'false', title: v[2], onClick: function () { showView(v[0]); } }, v[1]);
+        }));
+    }
+    el.modes = modeSwitch();
     el.title = h('strong');
     el.question = h('span');
     el.status = h('div', { class: 'rm-status', hidden: true, 'aria-live': 'polite' });
@@ -564,7 +582,7 @@
     el.collapseBtn = tbtn('collapse-all', 'Collapse all', 'Fold every branch so that only the root and its main branches show', function () { collapseAll(); });
     el.expandBtn = tbtn('expand-all', 'Expand all', 'Show every node', function () { expandAll(); });
     el.toolbar = h('div', { class: 'rm-toolbar' },
-        el.sourceBtn,
+        el.modes,
         h('div', { class: 'rm-heading' }, el.title, el.question),
         el.status,
         el.queriesBtn,
@@ -1021,6 +1039,27 @@
         rm.collapsed = new Set();
         closeMenu();
         refreshTree();
+        saveSoon();
+    }
+    /** Focus (REQ-011): the path from the root to the node and the node itself are unfolded, every other node that has children is
+     *  folded. So the node's children show one level deep, the siblings along the path stay on the map, and nothing is hidden except
+     *  by folding. View state only: the file is not touched. */
+    function focusNode(id) {
+        if (!rm.snap || !rm.snap.byId.has(id)) return;
+        const kids = childrenIndex(), rootId = rm.snap.nodes[0].id, open = new Set();
+        for (let cur = nodeById(id), guard = 0; cur && guard++ < 1000; cur = cur.parent ? nodeById(cur.parent) : null) open.add(cur.id);
+        rm.collapsed = new Set();
+        rm.snap.nodes.forEach(function (n) { if (n.id !== rootId && kids.has(n.id) && !open.has(n.id)) rm.collapsed.add(n.id); });
+        closeMenu();
+        select(id);
+        refreshTree();
+        const p = rm.positions[id];
+        if (p) {
+            const size = viewSize();
+            rm.view.x = size.w / 2 - p.x * rm.view.scale;
+            rm.view.y = size.h / 2 - p.y * rm.view.scale;
+            applyView();
+        }
         saveSoon();
     }
     /** Unfolds the ancestors of a node so that it is shown; true when something changed. */
@@ -1732,6 +1771,8 @@
         addItem({ act: 'number-children', label: numbered ? 'Remove numbers from children' : 'Number children 1, 2, 3…', icon: 'text',
             hint: numbered ? 'Take the number badges off the child nodes' : 'Give the child nodes the number badges 1, 2, 3 in map order',
             off: kids.length === 0, offHint: 'This node has no children', run: function () { send('numberChildren', { id: id, clear: numbered }); } });
+        addItem({ act: 'focus', label: 'Focus on this node', icon: 'centre', hint: 'Fold everything except the path from the root to this node and its children',
+            run: function () { focusNode(id); } });
         addItem({ act: 'arrange', label: 'Arrange branch', icon: 'grid', more: true, hint: 'Choose how this branch lays out its nodes', run: null });
         bar.appendChild(h('div', { class: 'rm-sep', role: 'separator' }));
         addItem({ act: 'delete', label: 'Delete node…', icon: 'trash', danger: true, off: isRoot, offHint: 'The root node cannot be deleted', run: function () { deleteDialog(node); } });
@@ -1973,6 +2014,7 @@
         el.root.classList.add('visible');
         rm.active = true;
         hideProblem();
+        syncModes();
         if (rm.snap) render();
         send('snapshot');
     }
@@ -1991,6 +2033,7 @@
         document.body.classList.remove('research-map-mode');
         const bar = document.getElementById('wysiwyg-toolbar');
         if (bar) bar.style.display = '';
+        syncModes();
     };
 
     function goSource() {
@@ -1998,15 +2041,48 @@
         window.switchToSource();
     }
 
-    /** From the Source view the top-bar toggle goes back to the map. */
-    function returnToMap() {
-        if (rm.active || state.mode !== 'source' || !isResearchMapText(DOM.editor.value)) return false;
-        enterMap();
-        return true;
+    // ---- Map | View | Source (REQ-010) ---------------------------------------------------------------------------------------------------
+    /** The view of a map document that is shown now: 'map', 'view' (ordinary Markdown) or 'source'; null for any other document. */
+    function currentView() {
+        if (rm.active) return 'map';
+        if (!isResearchMapText(DOM.editor.value)) return null;
+        if (state.mode === 'preview') return 'view';
+        if (state.mode === 'source') return 'source';
+        return null;
     }
-    function labelToggle() {
-        const toggle = document.getElementById('mode-toggle');
-        if (toggle && state.mode === 'source' && isResearchMapText(DOM.editor.value)) toggle.textContent = 'Map ↗';
+    const topBar = document.getElementById('wysiwyg-toolbar'), topLabel = document.getElementById('mode-toggle');
+    el.topModes = modeSwitch();
+    el.topModes.hidden = true;
+    if (topBar && topLabel && topLabel.parentNode === topBar) topBar.insertBefore(el.topModes, topLabel);
+    let viewLocked = false;
+    /** Marks the current view on both switches; a map document has the switch instead of the single mode label in the top bar. */
+    function syncModes() {
+        const view = currentView();
+        [el.modes, el.topModes].forEach(function (group) {
+            Array.prototype.forEach.call(group.querySelectorAll('button'), function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-view') === view ? 'true' : 'false'); });
+        });
+        el.topModes.hidden = view === null;
+        if (topLabel) topLabel.style.display = view === null ? '' : 'none';
+        // The View of a map shows the file as Markdown but is not edited: the page's converter cannot write a map file back (REQ-010).
+        const lock = view === 'view';
+        document.body.classList.toggle('rm-view-readonly', lock);
+        if (lock && DOM.rendered) { DOM.rendered.contentEditable = 'false'; viewLocked = true; }
+        else if (viewLocked && DOM.rendered) { DOM.rendered.contentEditable = 'true'; viewLocked = false; }
+    }
+    function showView(view) {
+        const now = currentView();
+        if (now === null || view === now) return;
+        if (view === 'map') enterMap();
+        else if (view === 'view') { window.leaveResearchMap(); window.switchToPreview(); }
+        else goSource();
+        syncModes();
+    }
+    /** The top-bar shortcut for a map document: Map, View, Source, Map. False for any other document. */
+    function cycleView() {
+        const view = currentView();
+        if (view === null) return false;
+        showView(view === 'map' ? 'view' : view === 'view' ? 'source' : 'map');
+        return true;
     }
 
     // ---- wrapping the page's entry points ---------------------------------------------------------------------------------------------------
@@ -2016,6 +2092,7 @@
         try {
             if (isResearchMapText(markdown)) { rm.sourceBase = markdown; enterMap(); }
             else { hideProblem(); window.leaveResearchMap(); }
+            syncModes();
         } catch (e) { reportError('setContent', e); }
         return result;
     };
@@ -2027,7 +2104,9 @@
         window[name] = function () {
             hideProblem();
             window.leaveResearchMap();
-            return original.apply(this, arguments);
+            const result = original.apply(this, arguments);
+            syncModes();
+            return result;
         };
     });
     ['switchToSource', 'switchToPreview'].forEach(function (name) {
@@ -2036,7 +2115,7 @@
         window[name] = function () {
             window.leaveResearchMap();
             const result = original.apply(this, arguments);
-            labelToggle();
+            syncModes();
             return result;
         };
     });
@@ -2044,7 +2123,7 @@
         const original = window[name];
         if (typeof original !== 'function') return;
         window[name] = function () {
-            if (returnToMap()) return undefined;
+            if (cycleView()) return undefined;
             return original.apply(this, arguments);
         };
     });

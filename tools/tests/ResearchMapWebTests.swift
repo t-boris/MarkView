@@ -279,6 +279,19 @@ check((light["nodeBg"] as? String) == "rgb(243, 243, 243)" && (light["nodeAccent
 _ = js("document.documentElement.removeAttribute('data-theme'); return 'ok';")
 let evidenceBelow = bool("__t.q('.rm-desc').getBoundingClientRect().bottom <= __t.q('.rm-ev-row').getBoundingClientRect().top + 1")
 check(evidenceBelow, "the evidence list sits under the description")
+// BUG-096: the resize grip of the description field sets an inline height; the field has to follow it.
+let descSizes = json("""
+const d = __t.q('.rm-desc'), height = function () { return Math.round(d.getBoundingClientRect().height); };
+const natural = height();
+d.style.height = '360px'; const tall = height();
+const below = d.getBoundingClientRect().bottom <= __t.q('.rm-ev-row').getBoundingClientRect().top + 1;
+const panel = __t.q('.rm-panel'), scrolls = panel.scrollHeight > panel.clientHeight;
+d.style.height = '170px'; const short = height();
+d.style.height = '';
+return JSON.stringify({ natural: natural, tall: tall, short: short, below: below, scrolls: scrolls });
+""")
+check((descSizes["tall"] as? Int) == 360 && (descSizes["short"] as? Int) == 170, "the description field follows the height its resize grip sets", "\(descSizes)")
+check((descSizes["below"] as? Bool) == true && (descSizes["scrolls"] as? Bool) == true, "a tall description pushes the evidence down and the panel scrolls", "\(descSizes)")
 check(number("document.querySelectorAll('.rm-conn-row').length") == 1 && eval("__t.q('.rm-conn-row .rm-conn-name').textContent").contains("Caching"), "the node's logical connection is listed")
 
 _ = js("__t.q('.rm-ev-source[data-source=\"Package.swift:12\"]').click(); return 'ok';")
@@ -324,8 +337,8 @@ check(!visible(".rm-popover"), "the popover closes")
 // ---- the node menu and its dialogs ---------------------------------------------------------------------------------------------------
 newMark()
 _ = js("__t.menu('n3'); return 'ok';")
-check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.dataset.act;}).join()") == "describe,develop,correct,investigate,add,link,edit,icon,number-children,arrange,delete", "the menu holds the four AI actions first, then add, connect, edit, icon, number children, arrange and delete; there is no move to another branch (BUG-093)")
-check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Expand description|Expand topic…|Correct…|Research|Add child node…|Add logical connection…|Edit title…|Icon…|Number children 1, 2, 3…|Arrange branch▾|Delete node…", "every action has a visible label (BUG-092/093: icons alone were not enough)")
+check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.dataset.act;}).join()") == "describe,develop,correct,investigate,add,link,edit,icon,number-children,focus,arrange,delete", "the menu holds the four AI actions first, then add, connect, edit, icon, number children, focus, arrange and delete; there is no move to another branch (BUG-093)")
+check(eval("__t.qa('.rm-actions [data-act]').map(function(b){return b.textContent.trim();}).join('|')") == "Expand description|Expand topic…|Correct…|Research|Add child node…|Add logical connection…|Edit title…|Icon…|Number children 1, 2, 3…|Focus on this node|Arrange branch▾|Delete node…", "every action has a visible label (BUG-092/093: icons alone were not enough)")
 check(bool("__t.qa('.rm-actions [data-act]').every(function (b) { return !!b.querySelector('svg') && b.title && b.getAttribute('aria-label'); })"), "…and an icon and a tooltip")
 check(bool("!__t.q('.rm-actions').closest('.rm-world')"), "the menu is drawn at screen size, outside the zoomed map")
 check(bool("(function () { const m = __t.q('.rm-actions').getBoundingClientRect(), l = __t.q('.rm-left').getBoundingClientRect(); return m.left >= l.left && m.right <= l.right + 0.5 && m.top >= l.top && m.bottom <= l.bottom + 0.5; })()"), "the menu stays inside the map area")
@@ -746,6 +759,35 @@ deliver("{ created: 'n13', nodes: (function () { const s = __t.snap(); s.nodes.s
 check(bool("__t.shown('n13') && __t.shown('n8')") && bool("__t.btn('n13').getAttribute('aria-pressed') === 'true'"), "a created node under a folded branch unfolds the branch and is selected")
 deliver()
 
+// ---- focus (REQ-011) -------------------------------------------------------------------------------------------------------------------
+// A third level (n14 under n8) shows that the children of a focused node's children stay folded.
+let deepNodes = "{ nodes: (function () { const s = __t.snap(); s.nodes.push({ id: 'n14', parent: 'n8', title: 'Cache keys', tags: [], color: '', description: '', layout: '', x: null, y: null, evidence: [] }); return s.nodes; })() }"
+deliver(deepNodes)
+_ = js("__t.q('[data-act=expand-all]').click(); __t.select('n12'); __t.menu('n3'); return 'ok';")
+check(bool("!!__t.q('.rm-actions [data-act=focus]')"), "the node menu offers Focus")
+newMark()
+_ = js("__t.act('focus'); return 'ok';")
+check(bool("['n1', 'n2', 'n3', 'n4', 'n5', 'n8', 'n9'].every(function (id) { return __t.shown(id); }) && ['n6', 'n7', 'n10', 'n11', 'n12', 'n14'].every(function (id) { return !__t.shown(id); })"),
+      "Focus shows the path from the root, the siblings along it and the node's children, and folds the rest")
+check(eval("JSON.stringify(window.MVResearchMap.collapsed())") == "[\"n2\",\"n4\",\"n5\",\"n8\"]", "…the other branches and the focused node's children are folded; the path and the node are not", eval("JSON.stringify(window.MVResearchMap.collapsed())"))
+check(eval("__t.fold('n8').textContent") == "+1" && bool("__t.fold('n3').getAttribute('aria-expanded') === 'true'"), "…a child of the focused node says what it hides; the focused node is open")
+check(bool("__t.btn('n3').getAttribute('aria-pressed') === 'true'") && eval("__t.q('.rm-title-input').value") == "Compiler", "the focused node is selected, even though the selection was on a node that is now hidden")
+let focusAt = json("const n = __t.btn('n3').getBoundingClientRect(), v = __t.q('.rm-viewport').getBoundingClientRect(); return JSON.stringify({ dx: Math.round((n.left + n.width / 2) - (v.left + v.width / 2)), dy: Math.round((n.top + n.height / 2) - (v.top + v.height / 2)) });")
+check(abs((focusAt["dx"] as? Int) ?? 999) <= 2 && abs((focusAt["dy"] as? Int) ?? 999) <= 2, "the focused node is brought to the middle of the map", "\(focusAt)")
+expectNone("Focus sends nothing to Swift: the file does not change", action: "update", wait: 0.3)
+// A leaf at the third level: its whole path is open.
+_ = js("__t.menu('n14'); __t.act('focus'); return 'ok';")
+check(bool("['n1', 'n2', 'n3', 'n4', 'n5', 'n8', 'n9', 'n14'].every(function (id) { return __t.shown(id); }) && ['n6', 'n7', 'n10', 'n11', 'n12'].every(function (id) { return !__t.shown(id); })") && eval("JSON.stringify(window.MVResearchMap.collapsed())") == "[\"n2\",\"n4\",\"n5\"]", "Focus on a leaf opens its path and folds the other branches")
+// The root: the same as Collapse all.
+_ = js("__t.menu('n1'); __t.act('focus'); return 'ok';")
+let focusRoot = eval("JSON.stringify(window.MVResearchMap.collapsed())")
+check(bool("__t.btn('n1').getAttribute('aria-pressed') === 'true'"), "Focus on the root selects the root")
+_ = js("__t.q('[data-act=expand-all]').click(); __t.q('[data-act=collapse-all]').click(); return 'ok';")
+check(focusRoot == eval("JSON.stringify(window.MVResearchMap.collapsed())"), "Focus on the root folds the map like Collapse all", focusRoot)
+_ = js("__t.q('[data-act=expand-all]').click(); return 'ok';")
+check(bool("['n1','n2','n3','n4','n5','n6','n7','n8','n9','n10','n11','n12','n14'].every(function (id) { return __t.shown(id); })"), "Expand all undoes a Focus")
+deliver()
+
 // A long title is never cut: the title field wraps.
 _ = js("__t.select('n2'); return 'ok';")
 deliver("{ nodes: (function () { const s = __t.snap(); s.nodes.find(function (n) { return n.id === 'n2'; }).title = 'Мне нужно сделать deep research, так сказать, узнать полностью всё о том, как происходят финансы в нашей системе внутри'; return s.nodes; })() }")
@@ -990,18 +1032,19 @@ let flushed = researchMessages().filter { ($0.payload["action"] as? String) == "
 check(flushed.count == 1 && flushed[0].doc == tabM && (flushed[0].payload["title"] as? String) == "Dependencies again", "leaving the map sends the waiting edit at once", describe(researchMessages()))
 deliver()
 
-// Source button: map -> source -> top-bar toggle -> map.
+// Map | View | Source (REQ-010): map -> Source (switch) -> top-bar toggle -> map.
 newMark()
 _ = js("window.setContent(text); return 'ok';", ["text": mapText])
 check(visible("#research-map-container"), "loading the same document again shows the map")
 check(number("document.querySelectorAll('.rm-node').length") == 12, "…with the nodes it had, at once (no blank map while Swift answers)", eval("document.querySelectorAll('.rm-node').length"))
 expect("…and asks Swift for a fresh snapshot", ["action": "snapshot"], doc: tabM)
 newMark()
-_ = js("__t.q('[data-act=source]').click(); return 'ok';")
-check(!visible("#research-map-container"), "the Source button leaves the map")
+_ = js("__t.q('.rm-toolbar [data-view=source]').click(); return 'ok';")
+check(!visible("#research-map-container"), "Source in the switch leaves the map")
 check(visible("#editor-pane") && !visible("#preview-pane"), "…and shows the Markdown source")
 check(eval("document.getElementById('status-mode').textContent") == "Source", "…with Source in the status bar", eval("document.getElementById('status-mode').textContent"))
-check(visible("#wysiwyg-toolbar") && eval("document.getElementById('mode-toggle').textContent").hasPrefix("Map"), "…and the top-bar toggle offers the map", eval("document.getElementById('mode-toggle').textContent"))
+check(visible("#wysiwyg-toolbar") && visible("#wysiwyg-toolbar .mv-modes") && !visible("#mode-toggle"), "…and the top bar has the switch instead of the single mode label")
+check(eval("__t.qa('#wysiwyg-toolbar [data-view]').map(function(b){return b.dataset.view + ':' + b.getAttribute('aria-pressed');}).join()") == "map:false,view:false,source:true", "…with Source marked", eval("__t.qa('#wysiwyg-toolbar [data-view]').map(function(b){return b.dataset.view + ':' + b.getAttribute('aria-pressed');}).join()"))
 check(eval("document.getElementById('editor-input').value").contains("type: research-map"), "…the source is the document's text")
 // In the Source view of the map document the text follows the file (an AI job adds nodes, another editor saves).
 deliver("{ markdown: '---\\ntype: research-map\\n---\\n\\n## Map\\n\\n- [Changed elsewhere](#n1)\\n' }")
@@ -1010,7 +1053,7 @@ _ = js("const e = document.getElementById('editor-input'); e.value = e.value + '
 deliver("{ markdown: '---\\ntype: research-map\\n---\\n\\n## Map\\n\\n- [Overwrites typing](#n1)\\n' }")
 check(!eval("document.getElementById('editor-input').value").contains("Overwrites typing"), "…but not while the person is typing in it")
 _ = js("window.toggleModeWrapper(); return 'ok';")
-check(visible("#research-map-container") && !visible("#editor-pane"), "the top-bar toggle returns to the map")
+check(visible("#research-map-container") && !visible("#editor-pane"), "the top-bar toggle (Source in the cycle) returns to the map")
 expect("…and asks for the current snapshot", ["action": "snapshot"], doc: tabM)
 check(eval("document.getElementById('status-mode').textContent") == "MAP", "…with MAP in the status bar")
 
@@ -1022,9 +1065,46 @@ check(visible("#editor-pane") && !visible("#research-map-container"), "Preview �
 _ = js("window.toggleModeWrapper(); return 'ok';")
 check(visible("#research-map-container"), "Source → toggle → back to the map")
 _ = js("window.toggleSourceMode(); return 'ok';")
-check(visible("#editor-pane") && !visible("#research-map-container"), "the map toggles to Source through Swift's toggleSourceMode too")
+check(visible("#preview-pane") && !visible("#editor-pane") && !visible("#research-map-container"), "the shortcut cycle goes from the map to View (Swift's toggleSourceMode too)")
 _ = js("window.toggleSourceMode(); return 'ok';")
-check(visible("#research-map-container"), "…and back")
+check(visible("#editor-pane") && !visible("#research-map-container"), "…then to Source")
+_ = js("window.toggleSourceMode(); return 'ok';")
+check(visible("#research-map-container"), "…and back to the map")
+
+// The switch itself (REQ-010).
+check(eval("__t.qa('.rm-toolbar [data-view]').map(function(b){return b.textContent + ':' + b.getAttribute('aria-pressed');}).join()") == "Map:true,View:false,Source:false", "the map toolbar has Map | View | Source with Map marked", eval("__t.qa('.rm-toolbar [data-view]').map(function(b){return b.textContent + ':' + b.getAttribute('aria-pressed');}).join()"))
+check(!visible("[data-act=source]"), "the lone Source button is gone")
+// A trip through View and Source and back keeps the map as it was and leaves the text alone.
+_ = js("window.setContent(text); return 'ok';", ["text": mapText])
+deliver()
+_ = js("__t.select('n3'); __t.fold('n2').click(); __t.q('[data-act=zoom-in]').click(); return 'ok';")
+let beforeTrip = json("const v = window.MVResearchMap.viewState(); return JSON.stringify({ scale: v.scale, x: v.x, y: v.y, selected: v.selected, collapsed: window.MVResearchMap.collapsed(), text: document.getElementById('editor-input').value });")
+check((beforeTrip["text"] as? String) == mapText, "the document text is the file's text while the map is shown", "\(beforeTrip["text"] ?? "")")
+newMark()
+_ = js("__t.q('.rm-toolbar [data-view=view]').click(); return 'ok';")
+check(visible("#preview-pane") && !visible("#editor-pane") && !visible("#research-map-container"), "View shows the file as ordinary Markdown")
+check(eval("document.getElementById('editor-rendered').innerText").contains("Why do builds get slow?"), "…the rendered page holds the map's text")
+check(eval("document.getElementById('editor-rendered').contentEditable") == "false", "…and is not edited (the page's converter cannot write a map file back)")
+check(visible("#wysiwyg-toolbar .mv-modes") && !visible("#mode-toggle") && eval("__t.qa('#wysiwyg-toolbar [data-view]').map(function(b){return b.getAttribute('aria-pressed');}).join()") == "false,true,false", "…the top bar has the switch with View marked")
+check(!visible("#wysiwyg-toolbar > button[onclick^=fmt]"), "…and no formatting buttons")
+_ = js("__t.q('#wysiwyg-toolbar [data-view=source]').click(); return 'ok';")
+check(visible("#editor-pane") && !visible("#preview-pane") && eval("document.getElementById('editor-input').value") == mapText, "Source from View shows the same text")
+check(eval("document.getElementById('editor-rendered').contentEditable") == "true", "…and ordinary editing is back")
+_ = js("__t.q('#wysiwyg-toolbar [data-view=map]').click(); return 'ok';")
+check(visible("#research-map-container") && !visible("#editor-pane"), "Map in the top bar returns to the map")
+expect("…and asks for the current snapshot", ["action": "snapshot"], doc: tabM)
+let afterTrip = json("const v = window.MVResearchMap.viewState(); return JSON.stringify({ scale: v.scale, x: v.x, y: v.y, selected: v.selected, collapsed: window.MVResearchMap.collapsed(), text: document.getElementById('editor-input').value });")
+check((afterTrip["scale"] as? Double) == (beforeTrip["scale"] as? Double) && (afterTrip["x"] as? Double) == (beforeTrip["x"] as? Double) && (afterTrip["y"] as? Double) == (beforeTrip["y"] as? Double) && (afterTrip["selected"] as? String) == (beforeTrip["selected"] as? String) && "\(afterTrip["collapsed"] ?? "")" == "\(beforeTrip["collapsed"] ?? "")",
+      "zoom, position, selection and folds survive the trip", "\(beforeTrip) -> \(afterTrip)")
+check((afterTrip["text"] as? String) == mapText, "…and the text is byte for byte the file's text")
+expectNone("…and nothing was written to the map", action: "update", wait: 0.3)
+// Another kind of document has no switch, only its own mode label.
+_ = js("window.mvSetDocument(id); window.setContent('# Plain notes'); return 'ok';", ["id": tabP])
+check(visible("#mode-toggle") && !visible("#wysiwyg-toolbar .mv-modes"), "an ordinary document keeps the single mode label and has no switch")
+_ = js("window.toggleModeWrapper(); return 'ok';")
+check(visible("#editor-pane") && !visible("#preview-pane"), "…and its toggle still flips Preview and Source")
+_ = js("window.mvSetDocument(id); window.setContent(text); return 'ok';", ["id": tabM, "text": mapText])
+deliver()
 
 // A text that is no longer a research map does not come back as one.
 _ = js("window.switchToSource(); document.getElementById('editor-input').value = '# Just notes'; window.toggleModeWrapper(); return 'ok';")
