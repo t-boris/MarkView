@@ -2,7 +2,7 @@
 type: feature
 id: issue-lifecycle-management
 title: Issue Lifecycle Management
-status: implementing
+status: implemented
 owner: Boris Tsekinovsky
 created: 2026-11-05
 provenance: Created from the feature intake

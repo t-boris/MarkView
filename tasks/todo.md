@@ -35,7 +35,7 @@ storage, DEC-015 external edits.
 - [x] 6. I-3 wiring of every status writer; a failed handoff leaves nothing marked.
 - [x] 7. I-7 UI (`IssueLifecycleSection`, `LifecycleStatusChange`, display model checks).
 - [x] 8. Verified against REQ-001…006 criterion by criterion; every related harness green; Debug build; independent review of the glue, its 13 findings triaged and the real ones fixed.
-- [ ] 9. Records current (REQ criteria ticked, DEC-016, discussion note), #294 comment, version 5.36.0, commits, push, CI, release.sh --publish, verify, feature status `implemented` by hand after the release.
+- [x] 9. Records current (REQ criteria ticked, DEC-016, discussion note), version 5.36.0, commits, push, CI green (`Build & Release`, `Issue Lifecycle Checks` on b721020), release v5.36.0 published (Latest, notarized, stapled, `spctl` accepted), #294 commented and closed, feature status `implemented` (edited by hand after the release, as Boris allowed on 2026-11-03).
 
 ## Review
 
@@ -54,6 +54,8 @@ work under way, DEC-016); evidence was cut off silently; features were rarely as
 evidence for hundreds of old items and wrote from a stale snapshot; "already fixed" counted as verified completion (now a cancellation, DEC-013);
 the Lifecycle section could show another issue's state; a written-but-unrecorded status was treated as failed and undone; restart could trash files
 before a refused move; the journal appended without `O_APPEND`.
+
+**Release:** https://github.com/t-boris/MarkView/releases/tag/v5.36.0 from b721020; local copy `build/MarkView-5.36.0.dmg`. Installing waits for Boris (he may be using the app). The CI job for the UI Studio session suite was dropped from the lifecycle workflow after it hit its own 480 s watchdog on the runner (BUG-102).
 
 **Not done / known limits:** squash-merged pull requests are not recognised by the release check (result: unknown, never complete); "handed over"
 means the prompt was queued in the terminal; no automated UI test renders the SwiftUI section; DEC-011…016 are still `proposed` and wait for Boris;
