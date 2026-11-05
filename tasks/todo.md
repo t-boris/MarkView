@@ -24,14 +24,18 @@ View is the ordinary WYSIWYG, which converts the rendered page back to Markdown.
 
 ### Plan — release B: 5.34.0 (minor) — REQ-012, DEC-013
 - [ ] 7. Swift model: node property `visual` (diagram | image), validation, parse/write/snapshot, update payload; the AI actions keep it; tests in the document suite.
-- [ ] 8. Page, diagram: render the first ```mermaid fence on the card and larger in the panel (cache by source and theme), error state with the source editable, export of the viewer for the pop-up (button and double click).
-- [ ] 9. Page, image: choose a project file or enter an address, same path rules as the Markdown preview (checked while building), card and panel, same pop-up.
-- [ ] 10. Draw flow: prompt, `ResearchMapRun` mode, job kind, guards in code (sequenceDiagram only, size limits, no HTML/links/click), panel button, new child selected and visible; checked against the app's own model with several runs.
-- [ ] 11. Tests, hidden renders (dark/light, small card, error state, pop-up), report and View show the diagram; bump 5.34.0, `main`, release.
+- [ ] 8. Page, diagram: render the first ```mermaid fence on the card and larger in the panel (cache by source and theme), error state with the source editable; export the full-screen viewer of the Markdown preview (`openDiagramViewer`, wheel zoom, Fit/100%/−/+, drag, Esc) so that the panel's Expand button and a double click on the card open it.
+- [ ] 9. Page, image: choose a project file or enter an address, same path rules as the Markdown preview (checked while building), card and panel, same viewer.
+- [ ] 10. Draw menu: reuse the Graph Creator's generator (`DiagramAI`: `DiagramKind`, prompt, schema, `validate`) from a map node — types Sequence, Flowchart, Data flow, Architecture, ER, Deployment, Pipeline, Custom (typed instruction); `validate` gets a switch that makes the source file optional (a given path must still exist); the Sequence kind gets a `sequenceDiagram` writer next to the flowchart writer (the Graph Creator keeps its output); a `ResearchMapRun` mode and job kind that add the result as a child node; checked against the app's own model with several runs.
+- [ ] 11. Tests, hidden renders (dark/light, small card, error state, expanded viewer on a diagram larger than the screen), the report and View show the diagram; bump 5.34.0, `main`, release.
 
-### Not decided yet (small, I will pick the default and say so)
-- Draw flow is offered on every text node (the page cannot tell which nodes "describe a flow" without asking a model).
-- Only sequence diagrams for now; other Mermaid types are a later step.
+### What already exists (checked in code, 2026-11-05)
+- Graph Creator (`GraphCreatorSheet`, `AIToolRuns.generateDiagram`, `DiagramAI`): kinds architecture, dataflow, pipeline, sequence, er, deployment, flowchart, custom (+ codemap from Architecture); a headless agent answers with a graph, `validate` checks it against the project (files exist, edges have evidence, at most 25 nodes), the result is a separate `graph-<kind>.md`. Its Sequence kind is a flowchart with numbered steps; a real `sequenceDiagram` exists only in the Architecture Code view (`CodeArchitecture.sequenceMermaid`). Nothing connects it to a map node.
+- The Markdown preview already has the full-screen diagram viewer (Fit, 100%, −, +, wheel zoom around the pointer, shift+wheel and drag to move, Esc) and the expand button on every Mermaid block, so View (REQ-010) gets Expand for free.
+
+### Defaults I picked (Boris can change them)
+- Draw is offered on every text node (the page cannot tell which nodes "describe a flow" without asking a model).
+- A diagram drawn for a map node may have nodes without a source file (rules and processes are not code); a source path that is given must exist.
 
 Request (Boris): "in the mind map I want to be able to change the shape and the size of each node". Answers (2026-11-04): shapes = **base set of 5** (rounded rectangle = today's look and the default, rectangle, pill, ellipse, diamond); resize = **handles on the node + Width/Height fields + S/M/L presets**; a given size = **a minimum** (the text is never cut); scope = **the selected node only**.
 
