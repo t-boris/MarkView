@@ -642,22 +642,7 @@ struct PrototypeStudioView: View {
             } else if session.pickMode {
                 Text("Click an element in the preview.").uiFont(size: 10).foregroundColor(VSDark.blue)
             }
-            if !session.attachments.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(session.attachments) { attachment in
-                            ZStack(alignment: .topTrailing) {
-                                Image(nsImage: attachment.image).resizable().scaledToFill().frame(width: 56, height: 56)
-                                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                                Button { session.removeAttachment(attachment.id) } label: {
-                                    Image(systemName: "xmark.circle.fill").foregroundColor(.white).shadow(radius: 1)
-                                }
-                                .buttonStyle(.plain).padding(2)
-                            }
-                        }
-                    }
-                }
-            }
+            ImageAttachmentStrip(attachments: $session.attachments)
             HStack(alignment: .top, spacing: 6) {
                 TextEditor(text: $draft)
                     .uiFont(size: 12)
@@ -666,28 +651,9 @@ struct PrototypeStudioView: View {
                     .focused($draftFocused)
                     .padding(4).background(RoundedRectangle(cornerRadius: 5).fill(VSDark.bgInput))
                     .disabled(!session.hasSite || session.isBusy)
-                    .onPasteCommand(of: [.image, .png, .tiff, .fileURL]) { _ in
-                        // Images on the pasteboard become attachments; a text paste has no image and is left alone.
-                        if !session.attachFromPasteboard() { pasteText() }
-                    }
-                    .onDrop(of: [.fileURL, .image], isTargeted: nil) { providers in
-                        for provider in providers where provider.canLoadObject(ofClass: NSImage.self) {
-                            _ = provider.loadObject(ofClass: NSImage.self) { object, _ in
-                                guard let image = object as? NSImage, let png = PrototypeImages.pngData(from: image) else { return }
-                                Task { @MainActor in session.attach([png]) }
-                            }
-                        }
-                        return true
-                    }
-                Menu {
-                    Button("Choose image…") { chooseImages() }
-                    Button("Paste image from clipboard") { session.attachFromPasteboard() }
-                } label: {
-                    Image(systemName: "paperclip").uiFont(size: 13).foregroundColor(VSDark.textDim)
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .disabled(!session.hasSite || session.isBusy)
-                .help("Send an image with your request: paste it (⌘V), drop it here, or choose a file")
+                    .takesImageAttachments($session.attachments, text: $draft)
+                ImageAttachmentMenu(attachments: $session.attachments)
+                    .disabled(!session.hasSite || session.isBusy)
                 DictationButton(dictation: dictation) { transcript, window in
                     DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
                 }
@@ -725,20 +691,6 @@ struct PrototypeStudioView: View {
     private func submit() {
         session.send(draft, withScreenshot: pickScreenshot)
         draft = ""
-    }
-
-    /// A paste with no image: put the clipboard's text into the draft, as the editor would have.
-    private func pasteText() {
-        if let text = NSPasteboard.general.string(forType: .string) { draft += text }
-    }
-
-    private func chooseImages() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Attach"
-        guard panel.runModal() == .OK else { return }
-        session.attach(panel.urls.compactMap { PrototypeImages.image(at: $0) })
     }
 }
 
@@ -1062,7 +1014,7 @@ private struct PrototypePreview: NSViewRepresentable {
                 guard config.rect.width > 1, config.rect.height > 1 else { return }
                 config.snapshotWidth = NSNumber(value: Double(min(config.rect.width * 2, 1600)))
                 webView.takeSnapshot(with: config) { image, _ in
-                    guard let image, let png = PrototypeImages.pngData(from: image) else { return }
+                    guard let image, let png = ImageAttachments.pngData(from: image) else { return }
                     Task { @MainActor in
                         if self.session.pick?.selector == pick.selector { self.session.pickShot = png }
                     }

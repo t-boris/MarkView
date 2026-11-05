@@ -650,6 +650,10 @@ struct StudioOperation: Codable, Hashable, Identifiable, Sendable {
     var afterCapture: String? = nil
     /// The scenarios and the changes of a context change (REQ-013). Optional, so that history saved before it still loads.
     var context: StudioContextChange? = nil
+    /// The images the person attached to the request, as project-relative paths in `.dde/studio/attachments/` (REQ-005).
+    /// Optional, so that history saved before them still loads; use `attachedImages`.
+    var attachments: [String]? = nil
+    var attachedImages: [String] { attachments ?? [] }
 }
 
 extension StudioOperation.Kind {

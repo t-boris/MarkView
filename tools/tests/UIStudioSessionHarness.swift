@@ -833,8 +833,171 @@ func run() async {
 
     await contextChecks(session, web: web, root: root, assistant: assistant, text: text, idle: idle)
     contextTrackingChecks(session, store: store)
+    await requestImageChecks(session, root: root, assistant: assistant, idle: idle)
     await browserChecks(session, web: web, root: root, text: text, idle: idle, clickElement: clickElement)
     finish(session, port: port)
+}
+
+/// REQ-005 in a real session: the images of the request box are saved under `.dde/studio/attachments/` (kept out of Git),
+/// recorded on the turn, shown on the pending turn, given to the assistant as files and named in its prompt; a request of
+/// images alone is allowed; an answered clarification keeps the images; a later turn only counts them; Clear leaves the
+/// files; and a request whose images cannot be saved is not sent.
+@MainActor
+func requestImageChecks(_ session: StudioSession, root: URL, assistant: Assistant, idle: () async -> Bool) async {
+    watchdog.reached("REQ-005 images in the request box")
+    let fm = FileManager.default
+    func makePNG(_ width: Int, _ height: Int, _ color: NSColor) -> Data {
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        image.unlockFocus()
+        return ImageAttachments.pngData(from: image) ?? Data()
+    }
+    func editRequests() -> [CLICompletion.Request] { CLICompletion.requests.filter { $0.label == "ui-studio:edit" } }
+    func file(_ path: String) -> URL { root.appendingPathComponent(path) }
+    func samePath(_ a: URL, _ b: URL) -> Bool { a.standardizedFileURL.path == b.standardizedFileURL.path }
+    let blue = makePNG(120, 80, .systemBlue), red = makePNG(60, 40, .systemRed), green = makePNG(30, 30, .systemGreen)
+    var box = ImageAttachmentList()
+    box.add([blue, red])
+    check("REQ-005 the request box holds the images", box.items.count == 2)
+
+    // A request with two images and a text: the pending turn shows them, they are saved, recorded, given and named.
+    session.clearConversation()
+    let previousAnswer = CLICompletion.answer
+    CLICompletion.answer = { request in
+        if request.label == "ui-studio:edit" { try await Task.sleep(nanoseconds: 1_500_000_000) }
+        return assistant.respond(request)
+    }
+    session.change("Make the page look like the mock-up", attachments: box.items)
+    let shown = await waitUntil(10) { session.pendingTurn?.attachments.count == 2 && session.busy != nil }
+    let pendingImages = session.pendingTurn?.attachments ?? []
+    check("REQ-005 the pending turn shows the images of the request", shown && pendingImages.allSatisfy { fm.fileExists(atPath: file($0).path) },
+          "\(pendingImages)")
+    _ = await idle()
+    CLICompletion.answer = previousAnswer
+    guard let sent = session.history.last, sent.request == "Make the page look like the mock-up" else {
+        check("REQ-005 the request with images is a turn", false, session.history.last?.request ?? "nil")
+        return
+    }
+    let paths = sent.attachedImages
+    check("REQ-005 the turn records the images as project-relative paths in .dde/studio/attachments",
+          paths.count == 2 && paths.allSatisfy { StudioStore.isAttachmentPath($0) } && Set(paths).count == 2 && paths == pendingImages, "\(paths)")
+    check("REQ-005 the images are written there as PNG files, as the box held them",
+          paths.count == 2 && (try? Data(contentsOf: file(paths[0]))) == blue && (try? Data(contentsOf: file(paths[1]))) == red)
+    check("REQ-005 the file names are eight hex digits", paths.allSatisfy { path in
+        let name = (path as NSString).deletingPathExtension.components(separatedBy: "/").last ?? ""
+        return name.count == 8 && name.allSatisfy { "0123456789abcdef".contains($0) }
+    }, "\(paths)")
+    check("REQ-005 the images stay out of Git", !shell("git status --porcelain", in: root).1.contains(".dde")
+          && paths.allSatisfy { shell("git check-ignore -q \($0)", in: root).0 == 0 }, shell("git status --porcelain", in: root).1)
+    let request = editRequests().last
+    let imagePaths = request?.images ?? []
+    check("REQ-005 the assistant gets the images with the request, after the page or element picture",
+          paths.count == 2 && imagePaths.contains { samePath($0, file(paths[0])) } && imagePaths.contains { samePath($0, file(paths[1])) }
+          && imagePaths.count >= 2 && samePath(imagePaths[imagePaths.count - 2], file(paths[0])) && samePath(imagePaths[imagePaths.count - 1], file(paths[1])),
+          imagePaths.map(\.path).joined(separator: ", "))
+    let prompt = request?.prompt ?? ""
+    check("REQ-005 the prompt names the images, so an engine without an image option can open them",
+          paths.count == 2 && prompt.contains("<attached_images>\n- \(paths[0])\n- \(paths[1])\n</attached_images>")
+          && prompt.contains("open each with your tools") && prompt.hasSuffix("Request: Make the page look like the mock-up"), String(prompt.suffix(500)))
+    check("REQ-005 the turn is answered and the pending turn is gone", sent.status == .answered && session.pendingTurn == nil)
+
+    // A later request without images: the earlier turn says how many it had, never where they are.
+    session.change("And what is the heading made of?")
+    _ = await idle()
+    let later = editRequests().last?.prompt ?? ""
+    check("REQ-005 a later turn carries the count of the earlier images, not their paths",
+          later.contains("2 images attached") && !later.contains(paths[0]) && !later.contains(paths[1]) && !later.contains("attached_images"),
+          String(later.suffix(600)))
+    check("REQ-005 a request without images has no attachments recorded", session.history.last?.attachments == nil)
+
+    // Images alone are a request.
+    let before = session.history.count
+    session.change("   ", attachments: [])
+    check("REQ-005 neither text nor images is no request", session.history.count == before && session.busy == nil && session.pendingTurn == nil)
+    box.removeAll()
+    box.add([green])
+    session.change("", attachments: box.items)
+    _ = await idle()
+    let imageOnly = session.history.last
+    check("REQ-005 a request of images alone is sent with the default text",
+          imageOnly?.request == StudioPrompts.imageOnlyRequest && imageOnly?.attachedImages.count == 1 && imageOnly?.status == .answered
+          && editRequests().last?.prompt.hasSuffix("Request: " + StudioPrompts.imageOnlyRequest) == true && editRequests().last?.images.contains {
+              $0.lastPathComponent == (imageOnly?.attachedImages.first as NSString?)?.lastPathComponent } == true,
+          "\(imageOnly?.request ?? "nil") \(imageOnly?.attachedImages ?? [])")
+
+    // The assistant asks first: answering keeps the request's images and takes the ones added to the answer.
+    box.removeAll()
+    box.add([blue])
+    assistant.lock.withLock {
+        assistant.edits = [["scope": "shared", "scopeNote": "", "needsClarification": true, "question": "The whole page or this section?",
+                            "options": ["The whole page", "This section"], "summary": "", "edits": []],
+                           answerPlan("Noted: this section."), answerPlan("Noted again.")]
+    }
+    session.change("Use the colours of the picture", attachments: box.items)
+    _ = await idle()
+    let asking = session.history.last
+    check("REQ-005 a request that is asked about keeps its images on the turn", asking?.status == .clarification && asking?.attachedImages.count == 1,
+          "\(asking?.status.rawValue ?? "nil") \(asking?.attachedImages ?? [])")
+    if let asking {
+        box.removeAll()
+        box.add([red])
+        session.answerClarification(asking, choice: "This section", attachments: box.items)
+        _ = await idle()
+        let answered = session.history.last
+        let answeredRequest = editRequests().last
+        let answeredPrompt = answeredRequest?.prompt ?? ""
+        let original = asking.attachedImages.first ?? "none"
+        check("REQ-005 the answered turn keeps the request's image and takes the one added to the answer",
+              answered?.id == asking.id && answered?.attachedImages.count == 2 && answered?.attachedImages.first == original
+              && answered?.attachedImages.last != original, "\(answered?.attachedImages ?? [])")
+        check("REQ-005 the answer sends the request's image again with the new one",
+              answeredPrompt.contains("- \(original)") && answeredPrompt.contains("- \(answered?.attachedImages.last ?? "none")")
+              && answeredPrompt.contains("This section") && answeredRequest?.images.count ?? 0 >= 2
+              && answeredRequest?.images.contains { samePath($0, file(original)) } == true, String(answeredPrompt.suffix(500)))
+        check("REQ-005 the answered question is not left open", !session.history.contains { $0.status == .clarification })
+        // An answer made of an image alone.
+        assistant.lock.withLock {
+            assistant.edits = [["scope": "shared", "scopeNote": "", "needsClarification": true, "question": "Which section?",
+                                "options": ["Top", "Bottom"], "summary": "", "edits": []], answerPlan("Done.")]
+        }
+        session.change("Match the colours", attachments: [])
+        _ = await idle()
+        if let second = session.history.last, second.status == .clarification {
+            box.removeAll()
+            box.add([green])
+            session.answerClarification(second, choice: "", attachments: box.items)
+            _ = await idle()
+            check("REQ-005 an answer of an image alone is sent", editRequests().last?.prompt.contains("The person answered your question: "
+                  + StudioPrompts.imageOnlyAnswer) == true && session.history.last?.attachedImages.count == 1)
+        } else {
+            check("REQ-005 an answer of an image alone is sent", false, session.history.last?.status.rawValue ?? "nil")
+        }
+    }
+
+    // The history file holds the images of a turn, so they are shown again when the session is reopened.
+    let stored = await waitUntil(5) { StudioStore.loadHistory(root).first { $0.id == sent.id }?.attachedImages == paths }
+    check("REQ-005 the saved history keeps the images of the turn", stored, "\(StudioStore.loadHistory(root).first { $0.id == sent.id }?.attachedImages ?? [])")
+
+    // Clear starts a new conversation and leaves the images where they are.
+    session.clearConversation()
+    check("REQ-005 Clear does not delete the images of the turns", session.conversation.isEmpty && paths.allSatisfy { fm.fileExists(atPath: file($0).path) })
+
+    // When the images cannot be saved, the request is not sent: the turn says so.
+    let folder = StudioStore.attachmentsFolder(root), aside = folder.deletingLastPathComponent().appendingPathComponent("attachments-aside")
+    try? fm.moveItem(at: folder, to: aside)
+    fm.createFile(atPath: folder.path, contents: Data("in the way".utf8))
+    let requestsBefore = editRequests().count
+    session.change("This one cannot be saved", attachments: [ImageAttachment(data: blue, image: NSImage(data: blue)!)])
+    _ = await idle()
+    let unsaved = session.history.last
+    check("REQ-005 images that cannot be saved fail the turn and nothing is sent", unsaved?.request == "This one cannot be saved" && unsaved?.status == .failed
+          && unsaved?.answer.contains("could not be saved") == true && unsaved?.attachments == nil && editRequests().count == requestsBefore
+          && session.pendingTurn == nil, "\(unsaved?.status.rawValue ?? "nil") \(unsaved?.answer ?? "")")
+    try? fm.removeItem(at: folder)
+    try? fm.moveItem(at: aside, to: folder)
+    check("REQ-005 the images saved before stay where they were", paths.allSatisfy { fm.fileExists(atPath: file($0).path) })
 }
 
 /// REQ-013 and DEC-010 in a real session: requests without a selection are about the page; a context change becomes a new

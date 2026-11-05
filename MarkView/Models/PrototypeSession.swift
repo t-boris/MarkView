@@ -29,13 +29,6 @@ final class PrototypeSession: ObservableObject, Identifiable {
         var target: PrototypeAI.Target?
     }
 
-    /// An image waiting to be sent with the next request.
-    struct Attachment: Identifiable {
-        let id = UUID()
-        let data: Data
-        let image: NSImage
-    }
-
     /// One screen of a build in progress.
     struct ScreenProgress: Identifiable, Equatable {
         let id: String
@@ -153,7 +146,8 @@ final class PrototypeSession: ObservableObject, Identifiable {
     @Published var shownPage: String?
     /// A screenshot of the pointed-at element, taken when it was clicked.
     @Published var pickShot: Data?
-    @Published private(set) var attachments: [Attachment] = []
+    /// The images waiting to be sent with the next request (REQ-005); the request box edits them through a binding.
+    @Published var attachments = ImageAttachmentList()
     @Published var pickMode = false
 
     /// Adds a finished run to the workspace's usage counter.
@@ -555,7 +549,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
         var files: [(url: URL, note: String)] = []
         var thumbnails: [NSImage] = []
         do {
-            for (index, attachment) in attachments.enumerated() {
+            for (index, attachment) in attachments.items.enumerated() {
                 files.append((try PrototypeImages.save(attachment.data, in: folder), "image \(index + 1) from the reviewer"))
                 thumbnails.append(attachment.image)
             }
@@ -572,7 +566,7 @@ final class PrototypeSession: ObservableObject, Identifiable {
                                 imageNames: files.map { $0.url.lastPathComponent }))
         self.pick = nil
         self.target = nil
-        attachments = []
+        attachments.removeAll()
         pickMode = false
         run(Request(instruction: instruction, pick: pick, files: files, target: target))
     }
@@ -679,24 +673,6 @@ final class PrototypeSession: ObservableObject, Identifiable {
     }
 
     func cancel() { task?.cancel() }
-
-    // MARK: - Images
-
-    func attach(_ images: [Data]) {
-        for data in images {
-            if let image = NSImage(data: data) { attachments.append(Attachment(data: data, image: image)) }
-        }
-    }
-
-    func removeAttachment(_ id: UUID) { attachments.removeAll { $0.id == id } }
-
-    /// Takes the images on the pasteboard; false when there were none (a text paste then goes on as usual).
-    @discardableResult
-    func attachFromPasteboard(_ pasteboard: NSPasteboard = .general) -> Bool {
-        let images = PrototypeImages.images(on: pasteboard)
-        attach(images)
-        return !images.isEmpty
-    }
 
     /// A prototype from code made before MarkView owned the page structure (BUG-060) has a page as tall as its content, so a widget that
     /// fills its box shows only its toolbar; one made from a Tailwind app before MarkView carried Tailwind (BUG-063) has utility classes

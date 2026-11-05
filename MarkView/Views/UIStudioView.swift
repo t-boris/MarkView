@@ -485,6 +485,7 @@ struct UIStudioView: View {
             if !turn.element.isEmpty {
                 Text(turn.element).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1).truncationMode(.middle)
             }
+            StudioAttachmentThumbnails(root: session.root, paths: turn.attachments)
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 14, height: 14)
                 TimelineView(.periodic(from: turn.started, by: 1)) { context in
@@ -561,10 +562,12 @@ struct UIStudioView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            ImageAttachmentStrip(attachments: $session.attachments)
             TextEditor(text: $draft)
                 .uiFont(size: 12).frame(height: 70)
                 .scrollContentBackground(.hidden).background(VSDark.bgInput).cornerRadius(4)
                 .focused($draftFocused)
+                .takesImageAttachments($session.attachments, text: $draft)
             DictationStatusView(dictation: dictation) { DDESettingsWindow.show(workspace: workspaceManager) }
             HStack {
                 Button("Clear") { session.clearConversation() }
@@ -575,24 +578,27 @@ struct UIStudioView: View {
                     .help("The assistant answers a question, makes a new scenario for a request about data or state, or edits the code, "
                           + "and the turn says which. A new scenario and a code change can both be undone.")
                 Spacer()
+                ImageAttachmentMenu(attachments: $session.attachments)
                 DictationButton(dictation: dictation) { transcript, window in
                     DictationInsertion.insert(transcript, window: window, fieldFocused: draftFocused, text: &draft)
                 }
                 Button("Send") {
                     // Only a question of this conversation is answered; one from before Clear is not. With one request box, only
                     // the latest turn's question is: a request sent after another turn is a request of its own (DEC-010).
+                    let images = session.attachments.items
                     if let pending = session.conversation.last, pending.status == .clarification {
-                        session.answerClarification(pending, choice: draft)
+                        session.answerClarification(pending, choice: draft, attachments: images)
                     } else {
-                        session.change(draft)
+                        session.change(draft, attachments: images)
                     }
                     draft = ""
+                    session.attachments.removeAll()
                 }
                 .keyboardShortcut(.return, modifiers: [.command])
                 .disabled(!canSend)
-                .help("Send the request (⌘↩). A question is answered and changes nothing; other data, a state, the route or the clock "
-                      + "become a new scenario in the Scenario menu; a change to the interface edits the sources and MarkView verifies "
-                      + "the rebuilt application")
+                .help("Send the request (⌘↩), with the images in the box. A question is answered and changes nothing; other data, a state, the "
+                      + "route or the clock become a new scenario in the Scenario menu; a change to the interface edits the sources and "
+                      + "MarkView verifies the rebuilt application")
             }
             .controlSize(.small)
         }
@@ -600,8 +606,10 @@ struct UIStudioView: View {
         .onDisappear { dictation.cancel() }
     }
 
+    /// A request needs a text or at least one image.
     private var canSend: Bool {
-        session.appURL != nil && session.busy == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        session.appURL != nil && session.busy == nil
+            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !session.attachments.isEmpty)
     }
 
     // MARK: Trust
@@ -675,6 +683,29 @@ struct StudioCaptureImage: View {
     }
 }
 
+/// The images attached to a request (REQ-005), as a row of small thumbnails; nothing when there are none.
+struct StudioAttachmentThumbnails: View {
+    let root: URL
+    let paths: [String]
+
+    var body: some View {
+        let shown = paths.filter(StudioStore.isAttachmentPath)
+        if !shown.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(shown, id: \.self) { path in
+                        StudioCaptureImage(url: root.appendingPathComponent(path))
+                            .frame(width: 44, height: 44)
+                            .background(VSDark.bgInput).clipShape(RoundedRectangle(cornerRadius: 3))
+                            .help("Attached image " + (path as NSString).lastPathComponent)
+                    }
+                }
+            }
+            .frame(height: 44)
+        }
+    }
+}
+
 // MARK: - History
 
 struct UIStudioHistoryPanel: View {
@@ -724,6 +755,7 @@ struct UIStudioOperationRow: View {
             if !operation.selection.isEmpty {
                 Text(operation.selection).uiFont(size: 9, design: .monospaced).foregroundColor(VSDark.textDim).lineLimit(1)
             }
+            StudioAttachmentThumbnails(root: session.root, paths: operation.attachedImages)
             Text(kindTitle + (operation.kind == .edit && operation.scope != .unknown
                               ? " · Scope: \(operation.scope.title)" + (operation.scopeNote.isEmpty ? "" : " — \(operation.scopeNote)") : ""))
                 .uiFont(size: 10).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)

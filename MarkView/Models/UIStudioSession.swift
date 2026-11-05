@@ -52,6 +52,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         var request: String
         /// The selected element as the turn will record it (tag and source file).
         var element: String
+        /// The images sent with the request, as project-relative paths; filled once they are saved.
+        var attachments: [String] = []
         var started = Date()
     }
 
@@ -125,6 +127,9 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// starts with an empty conversation and Clear starts a new one (BUG-075), so yesterday's request about another element
     /// neither fills the thread nor steers today's change (BUG-068). Every operation stays in History, with undo.
     @Published private(set) var conversationIds: Set<String> = []
+
+    /// The images in the request box, waiting to be sent with the next request (REQ-005); the box edits them through a binding.
+    @Published var attachments = ImageAttachmentList()
 
     /// The conversation, oldest first.
     var conversation: [StudioOperation] { history.filter { conversationIds.contains($0.id) } }
@@ -2048,15 +2053,20 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     /// answer changes nothing; a context change is checked (and corrected once) and becomes a new saved scenario derived
     /// from the current one; a code change names the scope and proposes exact edits, which MarkView checks against the
     /// working tree as it was when the request started, writes after restoring and capturing the scenario, and verifies in
-    /// the rebuilt application. A selection is optional: without one, the request is about the current page.
-    func change(_ text: String, clarification: String? = nil, replacing pending: StudioOperation? = nil) {
-        let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// the rebuilt application. A selection is optional: without one, the request is about the current page. The images
+    /// attached to the request (REQ-005) are saved under `.dde/studio/attachments/`, recorded on the turn, given to the
+    /// assistant with the request, and named in its prompt; a request of images alone is allowed. Answering a clarification
+    /// sends the images of the turn again.
+    func change(_ text: String, attachments: [ImageAttachment] = [], clarification: String? = nil, replacing pending: StudioOperation? = nil) {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let request = typed.isEmpty && !attachments.isEmpty ? StudioPrompts.imageOnlyRequest : typed
         guard !request.isEmpty, appURL != nil else { return }
         var selection = self.selection
         let pageRoute = route
         let element = selection.map(Self.turnElement) ?? StudioPrompts.pageElement(pageRoute)
         // An answer to the assistant's question is what the person just said; the question itself stays in the thread.
-        let turn = PendingTurn(kind: .edit, request: clarification ?? request, element: element)
+        let turn = PendingTurn(kind: .edit, request: clarification ?? request, element: element, attachments: pending?.attachedImages ?? [])
+        let newImages = attachments.map(\.data)
         runWork("Working on the request", pending: turn) { session in
             let (revision, snapshot) = await StudioRevisionProbe.compute(root: session.root, editorBuffers: session.editorBuffers())
             var operation = pending ?? StudioOperation(id: session.newOperationID(), kind: .edit, request: request, status: .applied)
@@ -2066,6 +2076,21 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             operation.selection = element
             operation.scenarioId = session.scenario.id
             operation.baseRevision = revision
+            // The images of the request: those of the turn being answered, then the ones just attached, saved now.
+            var attached = operation.attachedImages
+            if !newImages.isEmpty {
+                do {
+                    attached += try await StudioSession.saveAttachments(newImages, root: session.root)
+                } catch {
+                    operation.status = .failed
+                    operation.answer = "The attached images could not be saved, so the request was not sent: \(error.localizedDescription)"
+                    return session.append(operation)
+                }
+                operation.attachments = attached
+                session.pendingTurn?.attachments = attached
+            }
+            // Only files that are there are sent: an image of an earlier turn may have been deleted since.
+            let sentImages = attached.filter { StudioStore.isAttachmentPath($0) && FileManager.default.fileExists(atPath: session.root.appendingPathComponent($0).path) }
             // Without a selection the assistant sees the page as it is.
             let pageImage = selection == nil ? await session.pagePicture() : nil
             var retryProblem: String?
@@ -2082,10 +2107,11 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                                                                                   retryProblem: retryProblem, route: pageRoute,
                                                                                   pageImage: pageImage, spec: session.spec,
                                                                                   refusedContext: refusedContext,
-                                                                                  reached: session.servedRules),
+                                                                                  reached: session.servedRules, attachments: sentImages),
                                                  systemPrompt: StudioPrompts.editSystem, jsonSchema: StudioPrompts.editSchema,
                                                  readableFolder: session.root)
                 call.images = (selection?.imagePath ?? pageImage).map { [URL(fileURLWithPath: $0)] } ?? []
+                call.images += sentImages.map { session.root.appendingPathComponent($0) }
                 call.timeout = 900
                 call.effort = "medium"
                 call.label = "ui-studio:edit"
@@ -2208,11 +2234,29 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
     }
 
-    /// Answers the assistant's question and runs the change with it.
-    func answerClarification(_ operation: StudioOperation, choice: String) {
+    /// Answers the assistant's question and runs the change with it. The images of the request are sent again, with any the
+    /// person added to the answer.
+    func answerClarification(_ operation: StudioOperation, choice: String, attachments: [ImageAttachment] = []) {
         // The question being answered belongs to the conversation.
         conversationIds.insert(operation.id)
-        change(operation.request, clarification: choice, replacing: operation)
+        let answer = choice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !attachments.isEmpty ? StudioPrompts.imageOnlyAnswer : choice
+        change(operation.request, attachments: attachments, clarification: answer, replacing: operation)
+    }
+
+    /// Saves the PNG images of a request under `.dde/studio/attachments/` (ignored by Git) and returns their project-relative
+    /// paths, in order. When one cannot be written, the ones written before it are removed again.
+    private static func saveAttachments(_ pngs: [Data], root: URL) async throws -> [String] {
+        try await Task.detached {
+            StudioStore.prepareLocalFolder(root)
+            var written: [URL] = []
+            do {
+                for png in pngs { written.append(try ImageAttachments.save(png, into: StudioStore.attachmentsFolder(root))) }
+            } catch {
+                for url in written { try? FileManager.default.removeItem(at: url) }
+                throw error
+            }
+            return written.map { StudioStore.attachmentsPath + "/" + $0.lastPathComponent }
+        }.value
     }
 
     /// A picture of the page as it is, for a request made without a selection (DEC-010). It is overwritten by the next one.

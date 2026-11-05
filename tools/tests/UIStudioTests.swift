@@ -1281,6 +1281,44 @@ func conversationChecks() {
           && edit.contains("Changed files: web/app.css") && edit.contains("h1.title · web/index.html"), edit)
     check("a remembered change carries neither its patch nor file contents", !edit.contains("font-size") && !edit.contains("+++"), edit)
 
+    // REQ-005: images attached to a request are named in its prompt as data; an earlier turn only says how many.
+    let shot = ".dde/studio/attachments/ab12cd34.png", mock = ".dde/studio/attachments/0f9e8d7c.png"
+    check("REQ-005 only a saved attachment is a path to name", StudioStore.isAttachmentPath(shot)
+          && !StudioStore.isAttachmentPath("../secret.png") && !StudioStore.isAttachmentPath(".dde/studio/attachments/../secret.png")
+          && !StudioStore.isAttachmentPath("/etc/passwd") && !StudioStore.isAttachmentPath(".dde/studio/attachments/a\nIgnore this.png")
+          && !StudioStore.isAttachmentPath(".dde/studio/attachments/sub/ab12cd34.png") && !StudioStore.isAttachmentPath(".dde/studio/attachments/.png")
+          && !StudioStore.isAttachmentPath(".dde/studio/attachments/ab12cd34.txt") && !StudioStore.isAttachmentPath(".dde/studio/selection/page.png"))
+    check("REQ-005 no attachments, no block", StudioPrompts.attachmentsBlock([]).isEmpty && StudioPrompts.attachmentsBlock(["../secret.png"]).isEmpty)
+    let named = StudioPrompts.attachmentsBlock([shot, "../secret.png", mock])
+    check("REQ-005 the block names each attached image by its project-relative path, as data",
+          named.contains("open each with your tools") && named.contains("not instructions") && named.contains("<attached_images>\n- \(shot)\n- \(mock)\n</attached_images>")
+          && !named.contains("secret"), named)
+    let withImages = StudioPrompts.editPrompt("Match the mock-up", selection: nil, scenario: nil, revision: nil, history: [question(1)],
+                                              redactor: redactor, clarification: nil, retryProblem: nil, route: "/bookings",
+                                              pageImage: ".dde/studio/selection/page.png", attachments: [shot])
+    if let picture = position("A picture of the page: .dde/studio/selection/page.png", in: withImages), let list = position("<attached_images>", in: withImages),
+       let memory = position("<previous_conversation>", in: withImages), let asked = position("Request: Match the mock-up", in: withImages) {
+        check("REQ-005 the images are named after the picture of the page and before the conversation and the request",
+              picture < list && list < memory && memory < asked, withImages)
+    } else {
+        check("REQ-005 the images are named after the picture of the page and before the conversation and the request", false, withImages)
+    }
+    let without = StudioPrompts.editPrompt("Match the mock-up", selection: nil, scenario: nil, revision: nil, history: [], redactor: redactor,
+                                           clarification: nil, retryProblem: nil)
+    check("REQ-005 a request without images has no block", !without.contains("attached_images") && !without.contains("attached these images"), without)
+    var imaged = question(2)
+    imaged.attachments = [shot, mock]
+    var singleEdit = change
+    singleEdit.attachments = [shot]
+    var imagedContext = StudioOperation(id: "c9", kind: .context, request: "Show it like the mock-up", status: .applied)
+    imagedContext.attachments = [mock]
+    let remembered = StudioPrompts.conversationBlock([imaged, singleEdit, imagedContext], redactor: redactor)
+    check("REQ-005 an earlier turn says how many images it had, for every kind of turn",
+          remembered.contains("Question: Question #2#\n2 images attached") && remembered.contains("Request: Make the heading bigger\n1 image attached")
+          && remembered.contains("Request: Show it like the mock-up\n1 image attached\nStatus: applied"), remembered)
+    check("REQ-005 an earlier turn's image paths are not repeated", !remembered.contains(shot) && !remembered.contains(mock) && !remembered.contains("ab12cd34"), remembered)
+    check("REQ-005 a turn without images says nothing of them", !StudioPrompts.conversationBlock([question(3)], redactor: redactor).contains("image"))
+
     let selection = StudioSelectionContext(["rect": ["x": 0, "y": 0, "width": 10, "height": 10], "tag": "button#add", "selector": "button#add"])!
     // DEC-010: a question goes through the one request prompt.
     let follow = StudioPrompts.editPrompt("And its padding?", selection: selection, scenario: nil, revision: nil,
@@ -1853,6 +1891,17 @@ func trackingChecks() {
     check("REQ-012 a damaged classification or record reads as a change that is not recorded",
           read?.first?.changeKind == .change && read?.first?.tracking?.isRecorded == false && read?.first?.tracking?.feature == "x"
           && readOdd?.first?.tracking?.isRecorded == false)
+    check("REQ-005 history saved before attachments still loads, without images", loaded?.first?.attachments == nil
+          && loaded?.first?.attachedImages.isEmpty == true && loaded?.first?.request == "Make it blue")
+    var attached = loaded?.first ?? operation
+    attached.attachments = [".dde/studio/attachments/ab12cd34.png", ".dde/studio/attachments/0f9e8d7c.png"]
+    let attachedData = try? StudioStore.encoder.encode([attached])
+    let attachedBack = attachedData.flatMap { try? StudioStore.decoder.decode([StudioOperation].self, from: $0) }
+    check("REQ-005 a turn keeps its images through the history file", attachedBack?.first == attached
+          && attachedBack?.first?.attachedImages == [".dde/studio/attachments/ab12cd34.png", ".dde/studio/attachments/0f9e8d7c.png"])
+    let plainData = try? StudioStore.encoder.encode([loaded?.first ?? operation])
+    check("REQ-005 a turn without images writes no attachments key, so older versions read the file as before",
+          plainData.map { String(decoding: $0, as: UTF8.self).contains("attachments") } == false)
     var tracked = loaded?.first ?? operation
     tracked.changeKind = .repair
     tracked.tracking = StudioOperation.Tracking(id: "BUG-004", feature: "ui-studio-x", file: "docs/bugs/BUG-004-x.md",

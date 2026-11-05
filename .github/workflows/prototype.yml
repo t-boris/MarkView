@@ -3,12 +3,15 @@ on:
   pull_request:
     paths:
       - 'MarkView/Models/Prototype*.swift'
+      - 'MarkView/Models/ImageAttachments.swift'
       - 'MarkView/Models/CLICompletion.swift'
       - 'MarkView/Models/ACPAssistant.swift'
       - 'MarkView/Models/AgentProcesses.swift'
       - 'tools/tests/Prototype*'
       - 'tools/tests/CLICompletion*'
       - 'tools/tests/prototype*.sh'
+      - 'tools/tests/ImageAttachments*'
+      - 'tools/tests/image-attachments-tests.sh'
       - 'tools/tests/cli-completion-timeout-tests.sh'
       - 'tools/tests/ACPContinuationTests.swift'
       - 'tools/tests/acp-continuation-tests.sh'

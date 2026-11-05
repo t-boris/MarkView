@@ -15,6 +15,17 @@ enum StudioStore {
     static func capturesFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("captures", isDirectory: true) }
     static func capturesURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("captures.json") }
     static func selectionFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("selection", isDirectory: true) }
+    /// The images a person attached to requests (REQ-005): `<8 hex digits>.png`, kept with the turn that sent them.
+    static func attachmentsFolder(_ root: URL) -> URL { localFolder(root).appendingPathComponent("attachments", isDirectory: true) }
+    /// The project-relative form of `attachmentsFolder`, as a turn records and a prompt names an attached image.
+    static let attachmentsPath = ".dde/studio/attachments"
+    /// Whether `path` is a project-relative path of a saved attachment. A turn read from `history.json` may name anything, so
+    /// only these reach a prompt or the assistant's image list.
+    static func isAttachmentPath(_ path: String) -> Bool {
+        guard path.hasPrefix(attachmentsPath + "/"), path.hasSuffix(".png") else { return false }
+        let stem = path.dropFirst(attachmentsPath.count + 1).dropLast(4)
+        return !stem.isEmpty && stem.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }
+    }
     static func logURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("session.log") }
     static func activeScenarioURL(_ root: URL) -> URL { localFolder(root).appendingPathComponent("active-scenario.json") }
 

@@ -140,7 +140,7 @@ final class PrototypeScreenshots {
                 if let image { continuation.resume(returning: image) } else { continuation.resume(throwing: error ?? Failure.snapshotFailed) }
             }
         }
-        guard let png = PrototypeImages.pngData(from: image, maxSide: Self.maxSide) else { throw Failure.snapshotFailed }
+        guard let png = ImageAttachments.pngData(from: image, maxSide: Self.maxSide) else { throw Failure.snapshotFailed }
         return png
     }
 
