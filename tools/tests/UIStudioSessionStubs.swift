@@ -92,8 +92,39 @@ final class FeatureStore {
     let folder: URL
     private(set) var overviews: [String: (front: FrontMatter, body: String)] = [:]
     private(set) var objects: [Written] = []
+    /// Every status step and hand-off the session asked the lifecycle for, in order ("feature slug → draft by system UI Studio").
+    private(set) var moves: [String] = []
+    /// Bug statuses the lifecycle would have written.
+    private(set) var bugStatuses: [String: String] = [:]
 
     init(folder: URL) { self.folder = folder }
+
+    var lifecycleActor: String { "Tester" }
+
+    @discardableResult
+    func moveFeature(_ slug: String, to status: String, by actor: LifecycleActor, reason: String? = nil, surface: Bool = true) -> ApplyResult {
+        moves.append("feature \(slug) → \(status) by \(actor.kind.rawValue) \(actor.name)")
+        updateFeature(slug) { front, _ in front.set("status", status) }
+        return .unchanged
+    }
+
+    @discardableResult
+    func moveBug(_ key: String, to status: String, by actor: LifecycleActor, reason: String? = nil,
+                 evidence: LifecycleEvidence = .none, surface: Bool = true) -> ApplyResult {
+        moves.append("bug \(key) → \(status) by \(actor.kind.rawValue) \(actor.name)")
+        bugStatuses[key] = status
+        // The real service writes the status line of the report; so does this one.
+        guard let url = bugFiles.first(where: { $0.lastPathComponent.uppercased().hasPrefix(key.uppercased()) }) else {
+            return .failed("\(key) has no file.")
+        }
+        return updateBug(url) { front, _ in front.set("status", status) } ? .unchanged : .failed("\(key) could not be written.")
+    }
+
+    /// The hand-off is the start evidence: the feature goes to implementing.
+    func markImplementing(_ slug: String, handoff tool: String) {
+        moves.append("feature \(slug) → implementing by hand-off \(tool)")
+        updateFeature(slug) { front, _ in front.set("status", "implementing") }
+    }
 
     func createFeature(title: String, idea: String) -> String? {
         let slug = title.lowercased().replacingOccurrences(of: " ", with: "-")

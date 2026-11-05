@@ -61,75 +61,68 @@ struct BugBasket: Equatable {
     static let minimumBatch = 2
 }
 
-/// Starting a batch (REQ-004, DEC-006, BUG-032). Every bug is marked `fixing` before the prompt is
-/// sent: the AI writes `fixed` or `open` into each report afterwards, and a later write by the app
-/// would overwrite that. So when the prompt does not go out, the app has to undo its own marks.
-/// The status writes and the send are passed in, which keeps this sequence testable on its own.
+/// Starting a batch (REQ-004, DEC-006, BUG-032; issue-lifecycle-management REQ-003). The prompt goes out first, and only a prompt
+/// that went out marks bugs `fixing`: the hand-off is the start evidence, so a failed send leaves nothing marked and nothing has to
+/// be undone. Which bugs may be started is asked before the send (`canStart`), so the prompt names only those. The AI no longer
+/// writes statuses by editing the reports: it asks MarkView through the project tools, and MarkView completes `fixed` from evidence.
+/// The checks and the send are passed in, which keeps this sequence testable on its own.
 enum BatchStart {
     enum Outcome: Equatable {
-        /// The prompt went out. `leftOut` could not be marked `fixing`, so they are not in it.
-        case started(leftOut: [BasketBug])
-        /// Fewer than `BugBasket.minimumBatch` bugs could be marked: nothing was sent and the marks
-        /// were undone. `stuck` could not be set back and are still `fixing`.
-        case tooFewMarked(leftOut: [BasketBug], stuck: [BasketBug])
-        /// The prompt could not be sent: the marks were undone. `stuck` as above.
-        case notSent(leftOut: [BasketBug], stuck: [BasketBug])
+        /// The prompt went out. `leftOut` could not be started, so they are not in it. `unmarked` are in the prompt but
+        /// could not be marked `fixing` afterwards.
+        case started(leftOut: [BasketBug], unmarked: [BasketBug])
+        /// Fewer than `BugBasket.minimumBatch` bugs can be started: nothing was sent and nothing was marked.
+        case tooFewStartable(leftOut: [BasketBug])
+        /// The prompt could not be sent: nothing was marked.
+        case notSent(leftOut: [BasketBug])
     }
 
     /// `bugs`: what the batch would fix, at least `minimumBatch` of them, in basket order.
-    /// `setStatus` writes a status into a bug's report and says whether it was written.
-    /// `send` hands the prompt for the bugs that were marked to the assistant and says whether it went out.
+    /// `canStart` says whether the lifecycle lets a bug be started by a hand-off now.
+    /// `send` hands the prompt for the bugs that can be started to the assistant and says whether it went out.
+    /// `start` records the hand-off for one bug (status `fixing`) and says whether it was recorded.
     static func run(_ bugs: [BasketBug],
-                    setStatus: (BasketBug, String) -> Bool,
-                    send: ([BasketBug]) -> Bool) -> Outcome {
-        var marked: [BasketBug] = []
+                    canStart: (BasketBug) -> Bool,
+                    send: ([BasketBug]) -> Bool,
+                    start: (BasketBug) -> Bool) -> Outcome {
+        var startable: [BasketBug] = []
         var leftOut: [BasketBug] = []
         for bug in bugs {
-            if setStatus(bug, "fixing") { marked.append(bug) } else { leftOut.append(bug) }
+            if canStart(bug) { startable.append(bug) } else { leftOut.append(bug) }
         }
-        guard marked.count >= BugBasket.minimumBatch else {
-            return .tooFewMarked(leftOut: leftOut, stuck: restore(marked, setStatus))
-        }
-        guard send(marked) else {
-            return .notSent(leftOut: leftOut, stuck: restore(marked, setStatus))
-        }
-        return .started(leftOut: leftOut)
+        guard startable.count >= BugBasket.minimumBatch else { return .tooFewStartable(leftOut: leftOut) }
+        guard send(startable) else { return .notSent(leftOut: leftOut) }
+        let unmarked = startable.filter { !start($0) }
+        return .started(leftOut: leftOut, unmarked: unmarked)
     }
 
-    /// Put the bugs back to the status they had, as written. Returns the ones that could not be put back.
-    private static func restore(_ bugs: [BasketBug], _ setStatus: (BasketBug, String) -> Bool) -> [BasketBug] {
-        bugs.filter { !setStatus($0, $0.status) }
-    }
-
-    /// What the user should be told; nil when the batch started with every bug in it.
+    /// What the user should be told; nil when the batch started with every bug in it and marked.
     static func notice(_ outcome: Outcome) -> String? {
         switch outcome {
-        case .started(let leftOut):
-            guard !leftOut.isEmpty else { return nil }
-            let one = leftOut.count == 1
-            return "\(keys(leftOut)) \(one ? "was" : "were") left out of the batch: \(one ? "its report" : "their reports") "
-                + "could not be updated, so \(one ? "it is" : "they are") still open."
-        case .tooFewMarked(let leftOut, let stuck):
-            return "Nothing was sent: \(reports(leftOut)) could not be updated, and a batch needs at least "
-                + "\(BugBasket.minimumBatch) bugs that can be marked fixing. Any bug already marked was set back to open, "
-                + "and the basket is unchanged." + stuckSentence(stuck)
-        case .notSent(_, let stuck):
-            return "Nothing was sent: the AI terminal could not be opened. The bugs were set back to open "
-                + "and the basket is unchanged." + stuckSentence(stuck)
+        case .started(let leftOut, let unmarked):
+            var parts: [String] = []
+            if !leftOut.isEmpty {
+                let one = leftOut.count == 1
+                parts.append("\(keys(leftOut)) \(one ? "was" : "were") left out of the batch: \(one ? "it" : "they") cannot be started now "
+                    + "(\(one ? "its" : "their") status does not allow it).")
+            }
+            if !unmarked.isEmpty {
+                let one = unmarked.count == 1
+                parts.append("\(keys(unmarked)) \(one ? "is" : "are") in the prompt but could not be marked fixing; \(one ? "its" : "their") status is unchanged.")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        case .tooFewStartable(let leftOut):
+            return "Nothing was sent: \(reports(leftOut)) cannot be started now, and a batch needs at least "
+                + "\(BugBasket.minimumBatch) bugs that can be. No bug was marked and the basket is unchanged."
+        case .notSent:
+            return "Nothing was sent: the AI terminal could not be opened. No bug was marked and the basket is unchanged."
         }
     }
 
     private static func keys(_ bugs: [BasketBug]) -> String { bugs.map(\.key).joined(separator: ", ") }
 
     private static func reports(_ bugs: [BasketBug]) -> String {
-        (bugs.count == 1 ? "the report of " : "the reports of ") + keys(bugs)
-    }
-
-    private static func stuckSentence(_ stuck: [BasketBug]) -> String {
-        guard !stuck.isEmpty else { return "" }
-        let one = stuck.count == 1
-        return " However, \(keys(stuck)) could not be set back to open and \(one ? "is" : "are") still marked fixing: "
-            + "change \(one ? "its" : "their") status by hand."
+        bugs.isEmpty ? "the bugs in the basket" : (bugs.count == 1 ? "the report of " : "the reports of ") + keys(bugs)
     }
 }
 
@@ -147,18 +140,19 @@ enum BatchFixPrompt {
         let steps = [
             "Read every report first. Paths are relative to the workspace root. " + HandoffPrompt.bugRecords,
             "Before changing anything, run git status and choose a short descriptive branch name for this batch (e.g. fix/<topic>). "
-                + "The status edits to the reports listed above (their status is now fixing) and MarkView's own .dde/ folder are expected "
-                + "and do not count as uncommitted changes; leave them out of every commit. "
+                + "The status edits to the reports listed above (MarkView marks them fixing when this prompt is sent) and MarkView's own .dde/ folder "
+                + "are expected and do not count as uncommitted changes; leave them out of every commit. "
                 + "If there are any other uncommitted changes, or a branch with the planned name already exists, describe what you found, "
                 + "ask me how to proceed and change nothing until I answer.",
             "Create and check out the branch from the current commit, and tell me its name.",
             "For each bug in turn: reproduce it, find the root cause, fix it and verify the fix.",
             "For each bug you fixed, make exactly one commit on that branch with its fix; the commit message starts with the bug id. "
                 + "Do not commit anything for a bug you could not fix.",
-            "Only after a bug's commit exists, update its report's front matter: status: fixed, branch: <branch name>. "
-                + "For a bug you could not fix, set status: open and append a section \"## AI fix attempt\" to the report "
-                + "with the date, the branch and the reason.",
-            "Do not change the status of any bug report that is not in this list.",
+            "Only after a bug's commit exists, add the branch name to its report (front matter branch: <branch name>). Do not write status: fixed in the file; "
+                + "MarkView completes fixed itself once the fix is merged, its checks pass and the release the project requires exists "
+                + "(markview_issue_context shows what is still missing; you may also ask with markview_set_bug_status once it is all there). For a bug you could not fix, call markview_set_bug_status with status open "
+                + "and append a section \"## AI fix attempt\" to the report with the date, the branch and the reason.",
+            "Do not change the status of any bug report that is not in this list, and never edit a status in the Markdown files.",
             "Finish with a short outcome per bug: fixed (with the commit) or not fixed (with the reason).",
         ]
         if claude {

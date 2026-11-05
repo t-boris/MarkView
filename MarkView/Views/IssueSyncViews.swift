@@ -54,7 +54,7 @@ struct IssueSyncReportView: View {
                     Text(error).uiFont(size: 10).foregroundColor(VSDark.text)
                         .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 } else if expanded, !report.rows.isEmpty {
-                    Text("Sync closes a GitHub issue once every feature (implemented) and bug (fixed) linked to it is done. It never reopens an issue.")
+                    Text("Sync closes a GitHub issue once every feature (implemented) and bug (fixed) linked to it is done with verified completion (merge, checks and release). It reopens an issue only when a linked item was reopened after it was closed.")
                         .uiFont(size: 9).foregroundColor(VSDark.textDim).fixedSize(horizontal: false, vertical: true)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
@@ -117,7 +117,7 @@ struct IssueSyncReportView: View {
                 .help(row.outcome.detail)
             if row.outcome.kind == .skipped, !row.item.isDone {
                 actionLine(row.item, button: row.item.kind == .bug ? "Mark fixed" : "Mark implemented",
-                           help: "Set the status so the next Sync can close the issue") { markDone(row.item) }
+                           help: "Ask MarkView to record it as done. It is recorded when merge, checks and the release are evidenced; otherwise you can change it anyway with a reason, but Sync closes an issue only for verified completion") { markDone(row.item) }
             }
         }
         .padding(.vertical, 1)
@@ -176,13 +176,13 @@ struct IssueSyncReportView: View {
     /// Set the status that counts as done: a feature implemented, a bug fixed.
     private func markDone(_ item: IssueSyncItem) {
         let store = workspaceManager.features
-        switch item.kind {
-        case .feature: store.updateFeature(item.id) { front, _ in front.set("status", "implemented") }
-        case .bug:
-            guard let bug = store.bugs.first(where: { $0.key == item.id }) else { return }
-            store.updateBug(bug.url) { front, _ in front.set("status", "fixed") }
+        let target = item.kind == .feature ? "implemented" : "fixed"
+        // Through the lifecycle: evidence decides; without it the person is asked for a reason (Q-002 B).
+        Task {
+            if await LifecycleStatusChange.perform(store: store, kind: item.kind == .feature ? .feature : .bug, issue: item.id, to: target) {
+                changed.insert(item.id)
+            }
         }
-        changed.insert(item.id)
     }
 
     /// Ask for the GitHub issue (a number or its URL) and write it into the item's `issues`.

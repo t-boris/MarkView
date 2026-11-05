@@ -25,8 +25,7 @@ enum ProjectToolRunner {
             case "markview_add_decision": return try addDecision(store, args)
             case "markview_add_question": return try addQuestion(store, args)
             case "markview_create_bug": return try createBug(store, args)
-            case "markview_set_status": return try setStatus(store, args)
-            case "markview_set_bug_status": return try setBugStatus(store, args)
+            case "markview_set_status": return try setObjectStatus(store, args)
             case "markview_update_feature": return try updateFeature(store, args)
             case "markview_update_object": return try updateObject(store, args)
             case "markview_answer_question": return try answerQuestion(store, args)
@@ -289,12 +288,16 @@ enum ProjectToolRunner {
             }
         }
         let source = try ProjectAgentTools.text(args, "source")
+        let related = try issueReference(store, args, "related")
         guard let slug = store.createFeature(title: title, idea: idea) else {
             return .error(store.lastError ?? "The feature could not be created.")
         }
         store.updateFeature(slug) { front, _ in
-            front.set("status", status)
             front.set("provenance", provenance(source))
+            if let related, !related.isEmpty { front.set("related", related) }
+        }
+        if let created = store.feature(slug), created.status != status {
+            store.moveFeature(slug, to: status, by: .ai("AI agent"), surface: false)
         }
         if !states.isEmpty { store.setUnderstanding(slug, states) }
         return .init(text: "Created feature \(slug) (\(FeatureStore.folderName)/\(slug)/overview.md), status \(status). Add requirements with markview_add_requirement.")
@@ -388,8 +391,11 @@ enum ProjectToolRunner {
         let body = ProjectAgentTools.bugBody(title: title, summary: summary, steps: try ProjectAgentTools.list(args, "steps"),
                                              expected: try ProjectAgentTools.text(args, "expected"), actual: try ProjectAgentTools.text(args, "actual"),
                                              environment: try ProjectAgentTools.text(args, "environment"))
-        let draft = BugReportDraft(title: title, body: body, status: "open", severity: severity, reporter: store.defaultOwner,
+        var draft = BugReportDraft(title: title, body: body, status: "open", severity: severity, reporter: store.defaultOwner,
                                    provenance: provenance(""))
+        for key in ["regression_of", "related"] {
+            if let target = try issueReference(store, args, key), !target.isEmpty { draft.fields.append((key: key, value: target)) }
+        }
         let written: (id: String, url: URL)
         do {
             written = try store.createBug(draft)
@@ -399,39 +405,11 @@ enum ProjectToolRunner {
         return .init(text: "Created \(written.id) \"\(title)\" [\(severity)] at docs/bugs/\(written.url.lastPathComponent).")
     }
 
-    private static func setBugStatus(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
-        let id = try ProjectAgentTools.text(args, "id", required: true).uppercased()
-        guard let bug = store.bugs.first(where: { $0.key.uppercased() == id }) else {
-            throw ProjectAgentTools.Invalid(message: "No bug report \(id).")
-        }
-        let original = try ProjectAgentTools.text(args, "duplicate_of").uppercased()
-        if !original.isEmpty {
-            guard original != id else { throw ProjectAgentTools.Invalid(message: "A bug cannot be a duplicate of itself.") }
-            guard store.bugs.contains(where: { $0.key.uppercased() == original }) else {
-                throw ProjectAgentTools.Invalid(message: "No bug report \(original) to name as the original.")
-            }
-        }
-        let status = original.isEmpty ? try ProjectAgentTools.choice(args, "status", in: FeatureVocabulary.bugStatuses, default: "")
-                                      : "closed"
-        guard !status.isEmpty else { throw ProjectAgentTools.Invalid(message: "`status` is required: \(FeatureVocabulary.bugStatuses.joined(separator: ", ")).") }
-        guard store.updateBug(bug.url, { front, _ in
-            front.set("status", status)
-            if !original.isEmpty { front.set("duplicate_of", original) }
-        }) else { return .error(store.lastError ?? "The bug report could not be updated.") }
-        return .init(text: "\(id) is now \(status)" + (original.isEmpty ? "." : " (duplicate of \(original))."))
-    }
-
-    private static func setStatus(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
+    /// The status of one object of a feature. A feature's own status (no `id`) is the lifecycle's: LifecycleToolRunner.
+    private static func setObjectStatus(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
         let feature = try featureNamed(store, args)
         let status = try ProjectAgentTools.text(args, "status", required: true).lowercased()
-        let id = try ProjectAgentTools.text(args, "id")
-        if id.isEmpty {
-            guard ProjectAgentTools.agentFeatureSetStatuses.contains(status) else {
-                throw ProjectAgentTools.Invalid(message: "A feature's status can be set to: \(ProjectAgentTools.agentFeatureSetStatuses.joined(separator: ", ")). The implementation stages are recorded by MarkView.")
-            }
-            store.updateFeature(feature.slug) { front, _ in front.set("status", status) }
-            return .init(text: "\(feature.slug) is now \(status).")
-        }
+        let id = try ProjectAgentTools.text(args, "id", required: true)
         guard feature.object(id) != nil else { throw ProjectAgentTools.Invalid(message: "\(feature.slug) has no object \(id).") }
         guard let allowed = ProjectAgentTools.statuses(forObjectID: id), allowed.contains(status) else {
             throw ProjectAgentTools.Invalid(message: "\(id) can be set to: \((ProjectAgentTools.statuses(forObjectID: id) ?? []).joined(separator: ", ")).")

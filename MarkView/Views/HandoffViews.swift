@@ -183,8 +183,18 @@ struct HandoffPanelView: View {
         busy = true
         defer { busy = false }
         do {
+            let store = workspaceManager.features
+            let slug = feature.slug, person = store.lifecycleActor
+            let service = store.lifecycle.service
             _ = try await SpecificationHandoffStore.shared.markReady(
-                project: project, slug: feature.slug, actor: workspaceManager.features.lifecycleActor)
+                project: project, slug: slug, actor: person, commitStatus: { from in
+                    // The live status goes through the lifecycle service like every other status change.
+                    guard let service else { return false }
+                    let seen = from.isEmpty ? "idea" : from
+                    service.recordBaseline(.feature, slug, status: seen)
+                    let result = service.apply(TransitionRequest(kind: .feature, issue: slug, from: seen, to: "ready", actor: .human(person)))
+                    return result.reachedStatus
+                })
             workspaceManager.features.reloadSync(feature.slug)
             await refresh()
         } catch { self.error = error.localizedDescription }

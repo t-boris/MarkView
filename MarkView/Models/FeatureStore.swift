@@ -53,6 +53,8 @@ final class FeatureStore: ObservableObject {
     private var lastLifecycleSync: Date?
     /// The AI side of the workspaces (explore, review, actions…).
     private(set) lazy var assistant = FeatureAssistant(store: self)
+    /// Every status change of a feature or a bug goes through it (Models/FeatureStore+Lifecycle.swift).
+    private(set) lazy var lifecycle = IssueLifecycleCoordinator(store: self)
     /// Sync of documented status to GitHub issues and its last report (issue #36).
     let issueSync = IssueSyncRun()
 
@@ -130,6 +132,7 @@ final class FeatureStore: ObservableObject {
             features = loaded
             bugs = bugList
             updateFolderFlags()
+            lifecycle.reconcileLocal()
             fingerprint = print
             if let activeSlug, !loaded.contains(where: { $0.slug == activeSlug }) { self.activeSlug = loaded.first?.slug }
         }
@@ -267,6 +270,7 @@ final class FeatureStore: ObservableObject {
         }
         if let bugsFolder { bugs = Self.loadBugs(bugsFolder) }
         updateFolderFlags()
+        lifecycle.reconcileLocal()
         fingerprint = ""  // the poll re-reads the dates and settles
     }
 
@@ -443,6 +447,11 @@ final class FeatureStore: ObservableObject {
     @discardableResult
     func restartFeature(_ slug: String) -> Bool {
         guard let feature = feature(slug), feature.isStructured, !feature.isImplemented else { return false }
+        // Asked first: the files go to the Trash before the status moves, so a refused move must not leave a half-restart.
+        guard lifecycle.canMove(.feature, slug, to: "idea", actor: .human(lifecycleActor)) else {
+            lastError = "\(slug) is \(feature.status) and cannot go back to idea from there. Reopen it first."
+            return false
+        }
         let fm = FileManager.default
         let produced = FeatureObjectKind.allCases.filter { $0 != .source }.map { feature.folder.appendingPathComponent($0.folder) }
             + [feature.planURL.deletingLastPathComponent(), feature.discussionURL]
@@ -457,12 +466,12 @@ final class FeatureStore: ObservableObject {
             }
         }
         updateFeature(slug) { front, _ in
-            front.set("status", "idea")
             for key in ["understanding", "understanding_notes", "questions_left"] { front[key] = nil }
             front.set("restarted", Self.today)
         }
+        let moved = moveFeature(slug, to: "idea", by: .human(lifecycleActor))
         reloadSync(slug)
-        return true
+        return moved.reachedStatus
     }
 
     /// Change many objects with one reload at the end (consolidation touches hundreds).
@@ -491,7 +500,7 @@ final class FeatureStore: ObservableObject {
     func finishExplore(_ slug: String) {
         approveRequirements(slug)
         if let feature = feature(slug), !feature.isPastExplore {
-            updateFeature(slug) { front, _ in front.set("status", "review") }
+            moveFeature(slug, to: "review", by: .human(lifecycleActor))
         }
     }
 
@@ -700,12 +709,12 @@ final class FeatureStore: ObservableObject {
         recordLifecycle(.specReady, feature: slug, note: "Handed to implementation")
     }
 
-    /// The feature was handed to implementation: a status before it becomes `implementing`.
-    func markImplementing(_ slug: String) {
+    /// The feature was handed to implementation by `tool` (an AI assistant, Create issues, UI Studio): a status before
+    /// implementation becomes `implementing`, with the hand-off as the start evidence (DEC-011). Call it only after the
+    /// hand-off succeeded; a failed one leaves the status alone (REQ-003).
+    func markImplementing(_ slug: String, handoff tool: String) {
         guard let status = feature(slug)?.status, Feature.beforeImplementation.contains(status) else { return }
-        updateFeature(slug) { front, _ in
-            if Feature.beforeImplementation.contains(front.string("status") ?? "") { front.set("status", "implementing") }
-        }
+        lifecycle.startByHandoff(.feature, slug, tool: tool, actor: .human(lifecycleActor))
     }
 
     /// "Implement with AI" handed `slug` to `tool` running in `directory` (BUG-008): "implementation

@@ -278,7 +278,7 @@ struct IssuesListView: View {
     /// Every listed feature and bug, whatever the filter shows (issue #36).
     private func startSync() {
         guard let root = store.root else { return }
-        store.issueSync.start(root: root, features: store.features.map(\.folder), bugs: store.bugs.map(\.url))
+        store.issueSync.start(root: root, features: store.features.map(\.folder), bugs: store.bugs.map(\.url), lifecycle: store.lifecycle)
     }
 
     private func matches(_ text: String) -> Bool {
@@ -596,7 +596,7 @@ struct FeatureStatusMenu: View {
         Menu {
             ForEach(FeatureVocabulary.featureStatuses, id: \.self) { status in
                 Button((status == feature.status ? "✓ " : "") + FeatureVocabulary.label(status)) {
-                    store.updateFeature(feature.slug) { front, _ in front.set("status", status) }
+                    Task { await LifecycleStatusChange.perform(store: store, kind: .feature, issue: feature.slug, to: status) }
                 }
             }
         } label: {

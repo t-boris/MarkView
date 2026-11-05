@@ -70,6 +70,8 @@ struct FeaturePanelView: View {
                         case .review: ReviewStageView(store: store, feature: feature)
                         case .build: BuildStageView(store: store, feature: feature)
                         }
+                        IssueLifecycleSection(store: store, kind: .feature, issue: feature.slug, status: feature.status)
+                            .id("lifecycle-feature-\(feature.slug)")
                     }
                     .padding(10)
                 }
@@ -823,7 +825,7 @@ struct BugPanelView: View {
                     Menu {
                         ForEach(BugReport.statuses, id: \.self) { status in
                             Button((status == bug.status ? "✓ " : "") + status.capitalized) {
-                                store.updateBug(bug.url) { front, _ in front.set("status", status) }
+                                Task { await LifecycleStatusChange.perform(store: store, kind: .bug, issue: bug.key, to: status) }
                             }
                         }
                     } label: {
@@ -835,6 +837,8 @@ struct BugPanelView: View {
                 Text(bug.title).uiFont(size: 11, weight: .semibold).foregroundColor(VSDark.textBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            IssueLifecycleSection(store: store, kind: .bug, issue: bug.key, status: bug.status)
+                .id("lifecycle-bug-\(bug.key)")
             PanelSection(title: "Investigation") {
                 if busy {
                     Working(text: checking ? "Checking whether the bug still exists on main…"

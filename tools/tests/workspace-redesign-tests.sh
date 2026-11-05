@@ -21,6 +21,7 @@ swiftc -parse-as-library -o "$out/workspace-redesign-tests" \
     MarkView/Models/FrontMatter.swift \
     MarkView/Models/SpecificationHandoff.swift \
     MarkView/Models/ProjectSearch.swift \
+    MarkView/Models/ArchiveSupport.swift \
     MarkView/Models/LinkedFolders.swift \
     MarkView/Models/ProjectColor.swift \
     "$out/Stubs.swift" \

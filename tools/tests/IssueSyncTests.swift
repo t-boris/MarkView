@@ -92,15 +92,10 @@ check("feature statuses done", ["implemented", "verified", "archived", "done", "
 check("feature earlier statuses not done", ["", "idea", "ready", "implementing"].allSatisfy { !feature("f", $0).isDone })
 check("bug fixed/closed done", bug("b", "fixed").isDone && bug("b", "closed").isDone)
 check("bug open/fixing not done", !bug("b", "open").isDone && !bug("b", "fixing").isDone)
-check("shared issue with an unfinished item is not closed", {
-    if case .outcome(let o) = plan.decide(t(10), remote: .issue(open: true)) { return o.kind == .skipped && o.detail.contains("wip (implementing)") }
-    return false
-}())
-check("issue of a fixed bug closes", plan.decide(t(12), remote: .issue(open: true)) == .close)
-check("closed issue is unchanged, never reopened", plan.decide(t(12), remote: .issue(open: false)) == .outcome(.alreadyClosed))
-check("number that is a PR is skipped", plan.decide(t(12), remote: .pullRequest) == .outcome(.pullRequest))
-check("missing issue is skipped", plan.decide(t(12), remote: .notFound) == .outcome(.notFound))
-check("lookup failure is failed with message", plan.decide(t(12), remote: .failed("HTTP 403")) == .outcome(IssueSyncOutcome(kind: .failed, detail: "HTTP 403")))
+check("a number that is a PR settles as a pull request", IssueSyncRemote.pullRequest.settledOutcome == .pullRequest)
+check("a missing issue settles as not found", IssueSyncRemote.notFound.settledOutcome == .notFound)
+check("a lookup failure settles as failed with its message", IssueSyncRemote.failed("HTTP 403").settledOutcome == IssueSyncOutcome(kind: .failed, detail: "HTTP 403"))
+check("an answer about a real issue settles nothing: the lifecycle decides", IssueSyncRemote.issue(open: true).settledOutcome == nil && IssueSyncRemote.issue(open: false).settledOutcome == nil)
 
 // MARK: GitHub answers
 

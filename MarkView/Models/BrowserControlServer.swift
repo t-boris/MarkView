@@ -199,6 +199,7 @@ enum BrowserControlServer {
         }
         if isProjectTool {
             guard let store = window.features() else { return .error("This window has no project open.") }
+            if LifecycleToolRunner.handles(tool, args) { return await LifecycleToolRunner.run(tool, args, store: store) }
             return ProjectToolRunner.run(tool, args, store: store)
         }
         switch tool {

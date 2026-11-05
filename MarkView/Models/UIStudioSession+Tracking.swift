@@ -88,11 +88,12 @@ extension StudioSession {
         }
         store.updateFeature(slug) { front, body in
             front.set("provenance", StudioTrackingText.provenance)
-            front.set("status", "implementing")
             front.set("intake", "ui-studio")
             front.set("questions_left", "0")
             body = text.featureOverview(title: title, operation)
         }
+        store.moveFeature(slug, to: "draft", by: .system("UI Studio"))
+        store.markImplementing(slug, handoff: "UI Studio")
         return slug
     }
 
@@ -187,13 +188,16 @@ extension StudioSession {
             }
             return
         }
-        let marked = StudioChanges.validatedURL(tracking.file, root: root).map { url in
-            url.pathExtension == "md" && store.updateBug(url) { front, body in
-                front.set("status", status)
-                body += note
-            }
+        let written = StudioChanges.validatedURL(tracking.file, root: root).map { url in
+            url.pathExtension == "md" && store.updateBug(url) { _, body in body += note }
         } ?? false
-        if !marked { notice = "\(tracking.id) could not be marked \(status): " + (store.lastError ?? "its report is not in the project.") }
+        // The status goes through the lifecycle service (the person's Undo is a human step).
+        let moved = written ? store.moveBug(tracking.id, to: status, by: .human(store.lifecycleActor), surface: false) : nil
+        if let moved, !moved.reachedStatus {
+            notice = "\(tracking.id) could not be marked \(status): " + moved.explanation
+        } else if !written {
+            notice = "\(tracking.id) could not be marked \(status): " + (store.lastError ?? "its report is not in the project.")
+        }
     }
 
     /// `url` relative to the project root, or nil when it is outside it.

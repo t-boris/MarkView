@@ -332,7 +332,8 @@ enum BugValidity {
     }
 
     /// Saves the verdict in the report: the "Validity check" section is replaced by this check's record, and an already-fixed verdict
-    /// closes the report (status `closed`) and adds the reason to the discussion, where the reader of the conversation sees it.
+    /// adds the reason to the discussion, where the reader of the conversation sees it. Closing the report (status `closed`) is the
+    /// lifecycle service's step, taken by the caller before this record is written.
     static func record(_ verdict: Verdict, today: String, front: inout FrontMatter, body: inout String) {
         var sections = BugReportLayout.sections(body)
         let text = sectionText(verdict, today: today)
@@ -343,7 +344,8 @@ enum BugValidity {
             sections.insert((sectionName, text), at: at)
         }
         if verdict.outcome == .alreadyFixed {
-            front.set("status", "closed")
+            // The status itself is closed by the lifecycle service (FeatureStore+Lifecycle, cancellation evidence "already fixed"),
+            // not here: record() only writes the report's own text.
             front.set("ready_to_fix", nil)
             let evidence = verdict.evidence.map { "`\($0.path)`" }.joined(separator: ", ")
             BugReportLayout.appendDiscussion(&sections, speaker: "Validity check", date: today, message: flatten(

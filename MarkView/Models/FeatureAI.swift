@@ -529,7 +529,7 @@ final class FeatureAssistant: ObservableObject {
               let object = result.structured as? [String: Any] else { return false }
         applyDiscovery(object, to: slug)
         if !removed.isEmpty { store.updateFeature(slug) { front, _ in front["removed_since_explore"] = nil } }
-        if feature.status == "idea" { store.updateFeature(slug) { front, _ in front.set("status", "exploring") } }
+        if feature.status == "idea" { store.moveFeature(slug, to: "exploring", by: .system("Explore")) }
         let suggestions = object["suggestions"] as? [String] ?? []
         if !suggestions.isEmpty {
             results.insert(FeatureResult(title: "Suggestions", text: suggestions.map { "• " + $0 }.joined(separator: "\n"),
@@ -1136,7 +1136,7 @@ final class FeatureAssistant: ObservableObject {
                                          pending: false, feature: slug), at: 0)
         }
         if let feature = store.feature(slug), ["exploring", "draft", "idea"].contains(feature.status) {
-            store.updateFeature(slug) { front, _ in front.set("status", "review") }
+            store.moveFeature(slug, to: "review", by: .system("Review"))
         }
     }
 
@@ -1812,7 +1812,7 @@ final class FeatureAssistant: ObservableObject {
                 epic = Int(url.split(separator: "/").last ?? "")
             }
             store.savePlan(slug, title: title, issues: issues, epic: epic)
-            store.markImplementing(slug)
+            store.markImplementing(slug, handoff: "Create issues")
         } catch {
             store.savePlan(slug, title: title, issues: issues, epic: feature.epic)
             self.error = "Creating issues: \(error.localizedDescription)"

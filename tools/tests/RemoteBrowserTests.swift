@@ -23,6 +23,10 @@ enum ControlToolRunner {
 enum ProjectToolRunner {
     static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) -> BrowserAgentTools.Reply { .error("Unexpected project tool") }
 }
+enum LifecycleToolRunner {
+    static func handles(_ tool: String, _ args: [String: Any]) -> Bool { false }
+    static func run(_ tool: String, _ args: [String: Any], store: FeatureStore) async -> BrowserAgentTools.Reply { .error("Unexpected lifecycle tool") }
+}
 enum DeploymentToolRunner {
     static func run(_ tool: String, _ args: [String: Any], store: DeploymentStore) async -> BrowserAgentTools.Reply { .error("Unexpected deployment tool") }
 }

@@ -62,7 +62,8 @@ enum ProjectAgentTools {
              ["title": ["type": "string"], "idea": ["type": "string", "description": "The idea in a few sentences: problem, who needs it, scope"],
               "status": ["type": "string", "enum": ["idea", "exploring", "draft", "review", "ready"], "description": "Default: exploring (idea when there is no idea text)"],
               "understanding": ["type": "object", "description": "Dimension → known|partial|unknown|n/a, for what the sources already settle. Dimensions: \(FeatureVocabulary.understanding.joined(separator: ", "))"],
-              "source": ["type": "string", "description": "Where it comes from, e.g. \"prototype event-workspace v16\""]],
+              "source": ["type": "string", "description": "Where it comes from, e.g. \"prototype event-workspace v16\""],
+              "related": ["type": "string", "description": "Feature slug or BUG-007 whose finished work this one follows from: independent new work is a new feature linked this way, not a reopening of the finished one"]],
              required: ["title"]),
         tool("markview_add_requirement", "Add a requirement to a feature: one testable behaviour with acceptance criteria.",
              ["feature": feature, "title": ["type": "string"], "statement": ["type": "string", "description": "\"The system shall …\""],
@@ -85,15 +86,33 @@ enum ProjectAgentTools {
              required: ["feature", "question"]),
         tool("markview_create_bug", "Write a bug report (docs/bugs/BUG-nnn-….md).",
              ["title": ["type": "string"], "summary": ["type": "string"], "severity": ["type": "string", "enum": ["critical", "high", "medium", "low"]],
-              "steps": strings("Steps to reproduce"), "expected": ["type": "string"], "actual": ["type": "string"], "environment": ["type": "string"]],
+              "steps": strings("Steps to reproduce"), "expected": ["type": "string"], "actual": ["type": "string"], "environment": ["type": "string"],
+              "regression_of": ["type": "string", "description": "Feature slug or BUG-007 whose finished work this report says came back. It is the evidence that lets an AI reopen that work (a person reopens it in the app with a reason)"],
+              "related": ["type": "string", "description": "Feature slug or BUG-007 whose finished work this report follows from without being a regression of it: independent new work is a new issue linked this way, not a reopening"]],
              required: ["title", "summary"]),
-        tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind. approved, accepted and rejected need by_user: true (the person said so); a feature may also be archived.",
+        tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind. approved, accepted and rejected need by_user: true (the person said so). A feature's own status follows the lifecycle rules of MarkView: starting needs a hand-off or markview_attach_issue; implemented is recorded only when merge, checks and the required release are evidenced; verified needs `evidence` and every acceptance criterion ticked; reopening needs a regression bug report. A refused change says what is missing; read markview_issue_context first. by_user never overrides these rules.",
              ["feature": feature, "id": ["type": "string"], "status": ["type": "string"],
-              "by_user": ["type": "boolean", "description": "true when the person decided this in the conversation"]], required: ["feature", "status"]),
-        tool("markview_set_bug_status", "Change the status of a bug report (open, fixing, fixed, closed). A duplicate is closed with `duplicate_of`.",
+              "reason": ["type": "string", "description": "Why, for the history"],
+              "evidence": ["type": "string", "description": "For verified: what was checked and how"],
+              "session": ["type": "string", "description": "Your session label, as given to markview_attach_issue"],
+              "tool": ["type": "string", "description": "Your assistant's name, for the history"],
+              "by_user": ["type": "boolean", "description": "true when the person decided this in the conversation (objects only)"]], required: ["feature", "status"]),
+        tool("markview_set_bug_status", "Change the status of a bug report (open, fixing, fixed, closed) under the lifecycle rules of MarkView: fixing needs a hand-off or markview_attach_issue; fixed is recorded only when merge, checks and the required release are evidenced; closing a fixed bug needs `evidence`; closing an unfixed bug needs `duplicate_of` or `evidence` that it is invalid. Read markview_issue_context for what is missing.",
              ["id": ["type": "string", "description": "BUG-007"], "status": ["type": "string", "enum": FeatureVocabulary.bugStatuses],
-              "duplicate_of": ["type": "string", "description": "BUG-006; closes this bug as a duplicate of it"]],
+              "duplicate_of": ["type": "string", "description": "BUG-006; closes this bug as a duplicate of it"],
+              "reason": ["type": "string", "description": "Why, for the history"],
+              "evidence": ["type": "string", "description": "What was verified (closing after a fix) or why the report is invalid (closing without a fix)"],
+              "session": ["type": "string", "description": "Your session label, as given to markview_attach_issue"],
+              "tool": ["type": "string", "description": "Your assistant's name, for the history"]],
              required: ["id"]),
+        tool("markview_issue_context", "The lifecycle of one feature or bug: its status, what work and evidence MarkView has found, the next steps you may take and what each still needs, the recent history, blocked requests, discrepancies and attached sessions. Without `issue` it lists the issues in progress. Call it before changing a status.",
+             ["issue": ["type": "string", "description": "Feature slug or BUG-007"],
+              "session": ["type": "string", "description": "Your session label"], "tool": ["type": "string"]]),
+        tool("markview_attach_issue", "Tell MarkView that this session works on a feature or a bug. It is the start evidence for markview_set_status implementing / markview_set_bug_status fixing, and it lets MarkView show that the work is being done. Repeating it for the same session changes nothing.",
+             ["issue": ["type": "string", "description": "Feature slug or BUG-007"],
+              "session": ["type": "string", "description": "A label for this session; one is made up and returned when omitted"],
+              "tool": ["type": "string", "description": "Your assistant's name, e.g. Claude Code"]],
+             required: ["issue"]),
         tool("markview_update_feature", "Change a feature's title, its idea text or its understanding. Status goes through markview_set_status.",
              ["feature": feature, "title": ["type": "string"], "idea": ["type": "string", "description": "Replaces the Idea section of the overview"],
               "understanding": ["type": "object", "description": "Dimension → known|partial|unknown|n/a"]],
@@ -122,6 +141,7 @@ enum ProjectAgentTools {
               "severity": ["type": "string", "enum": ["critical", "high", "medium", "low"]],
               "feature": ["type": "string", "description": "Slug of the feature it belongs to; empty to detach"],
               "ready_to_fix": ["type": "boolean"],
+              "regression_of": ["type": "string", "description": "Feature slug or BUG-007 whose finished work this report says came back; empty to clear"],
               "sections": ["type": "object", "description": "Section name → new text"]],
              required: ["id"]),
         tool("markview_answer_bug_question", "Answer, or skip, a question MarkView's investigation asked about a bug (see markview_get_bug). Only with by_user: true, when the person gave the answer.",
@@ -143,7 +163,7 @@ enum ProjectAgentTools {
 
     // MARK: - Guide
 
-    static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "process", "deployments"]
+    static let guideTopics = ["overview", "feature", "requirement", "decision", "question", "bug", "prototype", "workflow", "process", "lifecycle", "deployments"]
 
     static func guide(_ topic: String?) -> String {
         switch topic ?? "overview" {
@@ -155,6 +175,7 @@ enum ProjectAgentTools {
         case "prototype": return prototypeGuide
         case "workflow": return workflowGuide
         case "process": return processGuide
+        case "lifecycle": return IssueLifecycleContext.guidance
         case "deployments": return deploymentsGuide
         default: return overviewGuide
         }
@@ -213,7 +234,7 @@ enum ProjectAgentTools {
     idea (problem, who needs it, scope). Set `understanding` for the dimensions your sources already settle \
     (\(FeatureVocabulary.understanding.joined(separator: ", "))): known, partial, unknown or n/a; the rest stays unknown and the \
     app's Explore asks about it. Then add requirements, decisions and questions. Status: leave "exploring" unless the \
-    requirements are complete, then "draft"; the app's Review moves it on. Never mark a feature implementing or later.
+    requirements are complete, then "draft"; the app's Review moves it on. Implementing and later statuses follow the lifecycle rules (topic "lifecycle").
     """
 
     static let requirementGuide = """
@@ -243,7 +264,8 @@ enum ProjectAgentTools {
     The app writes docs/bugs/BUG-nnn-<slug>.md and numbers it. markview_update_bug corrects its fields and sections, \
     markview_answer_bug_question records the person's answer to an investigation question, markview_link_issue links GitHub issues. \
     markview_set_bug_status changes a bug's status \
-    (open, fixing, fixed, closed); a duplicate is closed with duplicate_of set to the bug that stays.
+    (open, fixing, fixed, closed) under the lifecycle rules (topic "lifecycle"); a duplicate is closed with duplicate_of set to the bug that stays. \
+    A report that a finished piece of work came back carries `regression_of` (the feature slug or bug id).
     """
 
     static let prototypeGuide = """
@@ -285,8 +307,11 @@ enum ProjectAgentTools {
     4. Verify: build and run the project's checks and tests, then check each acceptance criterion of the requirements you implemented.
     5. Pull request: one per feature or bug, into main; describe the change, link the feature (slug and REQ ids), the version if the \
     project has one, and the test plan. Merge it after the checks pass if the project's rules say so.
-    6. Statuses: MarkView records implementing, implemented, review, CI, merged and verified from git and GitHub, so do not set them \
-    yourself (markview_set_status stops at ready on purpose). Mark requirements approved only when the user did.
+    6. Statuses: attach your session with markview_attach_issue before you start; MarkView completes implemented / fixed itself from \
+    merge, checks and release evidence, and you may ask for them with markview_set_status / markview_set_bug_status once \
+    markview_issue_context says the evidence is complete. Write "Feature: <slug>" on a line of its own in every commit message and \
+    pull request description of a feature (a bug's id at the start of the message) so MarkView finds the work. Never edit the \
+    status in the Markdown files. Mark requirements approved only when the user did.
     7. Report: say what you did, the pull request link, whether it is merged, and anything left open.
     """
 
@@ -375,6 +400,25 @@ enum ProjectAgentTools {
         !value.isEmpty && !value.contains("/") && !value.contains("\\") && !value.hasPrefix(".") && !value.contains("..")
     }
 
+    /// An issue named in `regression_of` or `related`: a feature slug or a bug key of the project.
+    enum IssueName: Equatable {
+        /// Empty: nothing named (clears the field when updating).
+        case empty
+        case feature(String)
+        case bug(String)
+        /// A bug naming itself.
+        case itself
+        case unknown(String)
+    }
+
+    static func issueName(_ raw: String, features: [String], bugs: [String], own: String? = nil) -> IssueName {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return .empty }
+        if isPlainName(name), features.contains(name) { return .feature(name) }
+        guard let key = bugs.first(where: { $0.uppercased() == name.uppercased() }) else { return .unknown(name) }
+        return key.uppercased() == own?.uppercased() ? .itself : .bug(key)
+    }
+
     /// Valid statuses for the object an id names ("REQ-003" → requirement statuses); nil for an unknown id.
     static func statuses(forObjectID id: String) -> [String]? {
         switch id.split(separator: "-").first.map(String.init) {
@@ -388,8 +432,6 @@ enum ProjectAgentTools {
 
     /// Statuses an agent may set on a feature: never the implementation stages, which the app records.
     static let agentFeatureStatuses = ["idea", "exploring", "draft", "review", "ready"]
-    /// A feature can also be shelved; it is reversible, unlike deleting it.
-    static let agentFeatureSetStatuses = agentFeatureStatuses + ["archived"]
     /// Statuses that record a decision of the person: an agent sets them only when told to.
     static let personsStatuses: Set<String> = ["approved", "accepted", "rejected", "answered", "superseded"]
     /// Front matter keys of an object that hold ids of the same feature.

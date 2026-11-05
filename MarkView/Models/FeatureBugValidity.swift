@@ -55,10 +55,22 @@ extension FeatureAssistant {
         }
         let previous = store.lastError
         store.lastError = nil
+        // The status first, through the lifecycle service: a verdict that the work is already on main closes the bug as a
+        // cancellation, never as verified completion (DEC-013). The report text follows, so it never says "closed" for a report
+        // that is still open.
+        if let key = store.bug(at: url)?.key {
+            let evidence = verdict.evidence.map(\.path).joined(separator: ", ")
+            let closing = LifecycleEvidence(cancellation: .alreadyFixed("already fixed on \(verdict.baseline?.label ?? "main"): \(evidence)"))
+            let moved = store.moveBug(key, to: "closed", by: .system("Validity check"), evidence: closing, surface: false)
+            guard moved.reachedStatus else {
+                store.lastError = "The check found this bug already fixed on \(verdict.baseline?.label ?? "main"), but closing the report was refused: \(moved.explanation) The report stays open."
+                return moved.explanation
+            }
+        }
         let written = store.updateBug(url) { front, body in BugValidity.record(verdict, today: today, front: &front, body: &body) }
         if written { store.lastError = previous; return nil }
         let reason = store.lastError ?? "The report could not be saved."
-        store.lastError = "The check found this bug already fixed on \(verdict.baseline?.label ?? "main"), but closing the report failed: \(reason) The report stays open."
+        store.lastError = "The check found this bug already fixed on \(verdict.baseline?.label ?? "main"), but saving the finding in the report failed: \(reason) The bug is closed; the report does not say why."
         return reason
     }
 }

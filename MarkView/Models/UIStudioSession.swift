@@ -3195,11 +3195,13 @@ enum StudioFeatureWriter {
         let provenance = "Exported from MarkView UI Studio"
         store.updateFeature(slug) { front, body in
             front.set("provenance", provenance)
-            front.set("status", "implementing")
             front.set("intake", "ui-studio")
             front.set("questions_left", "0")
             body = package.overview(redactor: redactor)
         }
+        // The package hands the work to implementation: a specification stage, then the hand-off as start evidence.
+        store.moveFeature(slug, to: "draft", by: .system("UI Studio"))
+        store.markImplementing(slug, handoff: "UI Studio")
         var sources: [String] = []
         for picture in package.pictures where picture.inFeature {
             guard let source = store.create(.source, in: slug, title: picture.label,

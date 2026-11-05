@@ -1245,6 +1245,9 @@ func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: As
           "\(first?.status.rawValue ?? "nil") \(feature) \(session.notice ?? "")")
     check("REQ-012 the feature is a UI Studio intake being implemented", overview?.front.string("intake") == "ui-studio"
           && overview?.front.string("status") == "implementing" && overview?.body.contains("## UI Studio conversation") == true)
+    let featureMoves = store.moves.filter { $0.hasPrefix("feature \(feature) ") }
+    check("lifecycle: the feature reaches implementing through the lifecycle: a specification stage, then the hand-off as start evidence",
+          featureMoves == ["feature \(feature) → draft by system UI Studio", "feature \(feature) → implementing by hand-off UI Studio"], "\(featureMoves)")
     let req1 = object(feature, first?.tracking?.id)
     check("REQ-012 a change is an approved requirement with its request, element, scope, files, checks and patch",
           first?.tracking?.id == "REQ-001" && req1?.front.string("status") == "approved"

@@ -338,7 +338,8 @@ extension ControlToolRunner {
             guard feature.isPastExplore, feature.openQuestions.isEmpty, openFindings(feature).isEmpty, !feature.activeRequirements.isEmpty else {
                 throw Invalid(message: "\(slug) is not ready: it needs Explore finished, no open question or finding, and requirements.\n\n" + describe(target, slug))
             }
-            store.updateFeature(slug) { front, _ in front.set("status", "ready") }
+            let moved = store.moveFeature(slug, to: "ready", by: .ai("AI agent"), surface: false)
+            guard moved.reachedStatus else { throw Invalid(message: moved.explanation) }
             return .init(text: "\(slug) is marked ready.\n\n" + describe(target, slug))
         case .plan:
             guard feature.isPastExplore else { throw Invalid(message: "Finish Explore first (\(feature.status)).") }
@@ -396,7 +397,7 @@ extension ControlToolRunner {
         let id = ControlAgentTools.shortID(session.id.uuidString)
         var text = "Gave \(feature.slug) to \(session.profile.title) in terminal \(id) as a goal with the project's definition of done; it is pasted once the agent is ready.\n"
         text += "Follow it: markview_agent_wait { terminal: \"\(id)\" } and markview_agent_read. A first run may ask to trust the folder (markview_agent_key enter). "
-        text += "MarkView records implemented and verified from git and GitHub."
+        text += "MarkView completes implemented from git and GitHub; verified is recorded by a person, or by an agent with evidence."
         return .init(text: text)
     }
 

@@ -4495,15 +4495,19 @@ class WorkspaceManager: ObservableObject {
     /// that got it.
     func startImplementation(_ url: URL, done: DefinitionOfDone, in terminal: TerminalSession? = nil) {
         let path = workspaceRelativePath(url)
+        let target = url.standardizedFileURL.path
+        let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
+            ?? features.locate(url)?.feature.slug
+        let block = slug.map { features.lifecycle.handoffBlock(.feature, [$0]) } ?? ""
         guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { session in
             guard let backend = HandoffPrompt.GoalBackend(rawValue: session.profile.rawValue) else { return nil }
-            return HandoffPrompt.feature(path, backend: backend, done: done)
+            let prompt = HandoffPrompt.feature(path, backend: backend, done: done)
+            return block.isEmpty ? prompt : prompt + "\n\n" + block
         }) else { return }
-        let target = url.standardizedFileURL.path
-        guard let slug = features.features.first(where: { $0.folder.standardizedFileURL.path == target })?.slug
-            ?? features.locate(url)?.feature.slug else { return }
-        // Handed to the assistant: the feature is being implemented (BUG-008).
-        features.markImplementing(slug)
+        guard let slug else { return }
+        // Handed to the assistant: the feature is being implemented (BUG-008). The hand-off that went out is the start
+        // evidence; a hand-off that failed above left the status alone.
+        features.markImplementing(slug, handoff: session.profile.tool?.displayName ?? "AI assistant")
         if let tool = session.profile.tool {
             features.recordImplementationStarted(slug, tool: tool, directory: session.directory, runningSince: session.runningSince)
         }
@@ -4525,27 +4529,44 @@ class WorkspaceManager: ObservableObject {
     /// Hand a bug report to the assistant in the Terminal tab to fix; the report is marked `fixing`.
     /// `terminal`: the one to fix it in (an agent driving the window names it); else the usual choice.
     func fixBugWithAI(_ url: URL, in terminal: TerminalSession? = nil) {
-        features.updateBug(url) { front, _ in front.set("status", "fixing") }
         let claude = terminal.map { $0.profile.tool == .claude } ?? (AIAssistantPreferences.backend(project: aiProject) == .claude)
-        let prompt = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
-        sendToAssistant(submit: true, to: terminal) { _ in prompt }
+        let key = features.bug(at: url)?.key
+        // A bug the lifecycle does not let start (already fixed or closed) is not handed over: nothing could mark it.
+        if let key, !features.lifecycle.canStartByHandoff(.bug, key) {
+            features.lastError = "\(key) is \(features.lifecycle.storedStatus(.bug, key) ?? "not open") and cannot be handed to the assistant to fix. Reopen it first."
+            return
+        }
+        let block = key.map { features.lifecycle.handoffBlock(.bug, [$0]) } ?? ""
+        let base = HandoffPrompt.bug(workspaceRelativePath(url), claude: claude)
+        let prompt = block.isEmpty ? base : base + "\n\n" + block
+        // The report is marked fixing only after the prompt went out: a hand-off that failed leaves it open (REQ-003).
+        guard let session = sendToAssistant(submit: true, to: terminal, promptFor: { _ in prompt }), let key else { return }
+        features.lifecycle.startByHandoff(.bug, key, tool: session.profile.tool?.displayName ?? "AI assistant", actor: .human(features.lifecycleActor))
     }
 
     /// Batch Fix with AI (issue #31): the basket's open bugs go to the assistant in one prompt —
-    /// one branch made by the AI, one commit and one outcome per bug. Each is marked `fixing`
-    /// before the prompt is sent (the AI writes `fixed` or `open` afterwards, and a later write
-    /// by the app would overwrite that) and the basket is emptied. A bug whose report cannot be
-    /// marked is left out; when too few remain, or the prompt cannot be sent, the marks are
-    /// undone and the basket is kept (BUG-032). The app runs no git itself (DEC-002).
+    /// one branch made by the AI, one commit and one outcome per bug. A bug the lifecycle does
+    /// not let start is left out of the prompt; once the prompt went out, each bug in it is marked
+    /// `fixing` (the hand-off is the start evidence) and the basket is emptied. When too few bugs
+    /// can start, or the prompt cannot be sent, nothing is marked and the basket is kept
+    /// (BUG-032). The app runs no git itself (DEC-002).
     func fixBasketWithAI() {
         bugBatch.reconcile()
         let bugs = bugBatch.eligible
-        guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, let root = features.root else { return }
+        guard bugs.count >= BugBasket.minimumBatch, !assistantIsBusy, features.root != nil else { return }
         let claude = AIAssistantPreferences.backend(project: aiProject) == .claude
-        let outcome = BatchStart.run(bugs, setStatus: { bug, status in
-            features.updateBug(root.appendingPathComponent(bug.path)) { front, _ in front.set("status", status) }
-        }, send: { marked in
-            sendToAssistant(BatchFixPrompt.make(marked, claude: claude), submit: true) != nil
+        var session: TerminalSession?
+        let outcome = BatchStart.run(bugs, canStart: { bug in
+            features.lifecycle.canStartByHandoff(.bug, bug.key)
+        }, send: { startable in
+            let base = BatchFixPrompt.make(startable, claude: claude)
+            let block = features.lifecycle.handoffBlock(.bug, startable.map(\.key))
+            session = sendToAssistant(block.isEmpty ? base : base + "\n\n" + block, submit: true)
+            return session != nil
+        }, start: { bug in
+            let tool = session?.profile.tool?.displayName ?? "AI assistant"
+            let result = features.lifecycle.startByHandoff(.bug, bug.key, tool: tool, actor: .human(features.lifecycleActor), surface: false)
+            return result.reachedStatus
         })
         if case .started = outcome { bugBatch.clear() }
         bugBatch.notice = BatchStart.notice(outcome)

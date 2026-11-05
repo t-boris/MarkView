@@ -161,8 +161,21 @@ extension ProjectToolRunner {
         return bug
     }
 
+    /// An issue named by `key` (`regression_of`, `related`): nil when not given, "" to clear, else the feature slug or bug key it
+    /// names (which must exist).
+    static func issueReference(_ store: FeatureStore, _ args: [String: Any], _ key: String, own: String? = nil) throws -> String? {
+        guard let raw = args[key] as? String else { return nil }
+        switch ProjectAgentTools.issueName(raw, features: store.features.map(\.slug), bugs: store.bugs.map(\.key), own: own) {
+        case .empty: return ""
+        case .feature(let name), .bug(let name): return name
+        case .itself: throw Invalid(message: "A bug cannot name itself in \(key).")
+        case .unknown(let name): throw Invalid(message: "No feature or bug \"\(name)\" to name in \(key).")
+        }
+    }
+
     static func updateBug(_ store: FeatureStore, _ args: [String: Any]) throws -> BrowserAgentTools.Reply {
         let bug = try bugNamed(store, args)
+        let regression = try issueReference(store, args, "regression_of", own: bug.key)
         let title = try ProjectAgentTools.text(args, "title")
         let severity = try ProjectAgentTools.choice(args, "severity", in: ["critical", "high", "medium", "low"], default: "")
         let sections = try texts(args, "sections")
@@ -171,8 +184,8 @@ extension ProjectToolRunner {
             throw Invalid(message: "No feature \"\(feature)\" in this project.")
         }
         let ready = args["ready_to_fix"] as? Bool
-        guard !title.isEmpty || !severity.isEmpty || !sections.isEmpty || feature != nil || ready != nil else {
-            throw Invalid(message: "Nothing to change: give `title`, `severity`, `feature`, `ready_to_fix` or `sections`.")
+        guard !title.isEmpty || !severity.isEmpty || !sections.isEmpty || feature != nil || ready != nil || regression != nil else {
+            throw Invalid(message: "Nothing to change: give `title`, `severity`, `feature`, `ready_to_fix`, `regression_of` or `sections`.")
         }
         guard store.updateBug(bug.url, { front, body in
             if !title.isEmpty {
@@ -183,6 +196,7 @@ extension ProjectToolRunner {
             if !severity.isEmpty { front.set("severity", severity) }
             if let feature { front.set("feature", feature.isEmpty ? nil : feature) }
             if let ready { front.set("ready_to_fix", ready ? "true" : "false") }
+            if let regression { front.set("regression_of", regression.isEmpty ? nil : regression) }
             for (name, text) in sections { body = FeatureObject.replacingSection(name, in: body, with: text) }
             front.set("updated", FeatureStore.today)
         }) else { return .error(store.lastError ?? "The bug report could not be updated.") }

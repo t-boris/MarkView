@@ -88,13 +88,13 @@ extension FeatureAssistant {
         let assumptions = (object["assumptions"] as? [String] ?? []).map { "- \($0)" }.joined(separator: "\n")
         store.updateFeature(slug) { front, body in
             front.set("provenance", "Created from the quick feature intake")
-            front.set("status", "ready")
             front.set("intake", "quick")
             front.set("questions_left", "0")
             body = "# \(object["title"] as? String ?? "Quick feature")\n\n## Idea\n\n\(object["idea"] as? String ?? dump)\n\n## Problem\n\n\(problem)\n\n## Scope\n\n\(scope)\n\n## Analysis\n\n\(analysis)\n"
             if !assumptions.isEmpty { body += "\n## Assumptions\n\nMade by the AI where the request left a choice open; correct them in the discussion.\n\n\(assumptions)\n" }
             body += "\n## Acceptance Criteria\n\n\(criteria)\n"
         }
+        store.moveFeature(slug, to: "ready", by: .system("Quick feature"))
         _ = await ingest(.text(title: "Original request", text: dump, kind: "intake"), into: slug)
         for url in attachments { await ingest(.file(url), into: slug) }
         var issueRef = linkedIssue.map { "#\($0)" }

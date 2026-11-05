@@ -1,8 +1,9 @@
 import Foundation
 
-/// The Sync action of the Issues list (issue #36): closes the GitHub issues whose linked
-/// Features and Bugs are all done, then keeps the report until the next run. One-way: GitHub is
-/// never read back into the docs, and no Markdown file is written (REQ-001).
+/// The Sync action of the Issues list (issue #36, issue-lifecycle-management REQ-006): closes the GitHub issues whose linked
+/// Features and Bugs all have verified completion, reopens one when linked work was reopened after it was closed, records how each
+/// write ended, then keeps the report until the next run. One-way: GitHub is never read back into the docs, and no Markdown
+/// file is written (REQ-001); a difference between GitHub and the local status is only reported (Q-004).
 @MainActor
 final class IssueSyncRun: ObservableObject {
     /// "Checking GitHub…", "Reading documents…", "Issue 3 of 12"; nil when no run is active.
@@ -18,7 +19,7 @@ final class IssueSyncRun: ObservableObject {
     private var generation = 0
 
     /// Start a run over the listed features and bugs; ignored while one runs for this project.
-    func start(root: URL, features: [URL], bugs: [URL]) {
+    func start(root: URL, features: [URL], bugs: [URL], lifecycle: IssueLifecycleCoordinator) {
         let project = root.standardizedFileURL.path
         guard GitHubSettings.enabled, !isRunning, !Self.activeProjects.contains(project) else { return }
         Self.activeProjects.insert(project)
@@ -26,7 +27,7 @@ final class IssueSyncRun: ObservableObject {
         phase = "Checking GitHub…"
         let started = generation
         Task {
-            let result = await run(root: root, features: features, bugs: bugs)
+            let result = await run(root: root, features: features, bugs: bugs, lifecycle: lifecycle)
             Self.activeProjects.remove(project)
             guard started == generation else { return }
             report = result
@@ -41,7 +42,7 @@ final class IssueSyncRun: ObservableObject {
         phase = nil
     }
 
-    private func run(root: URL, features: [URL], bugs: [URL]) async -> IssueSyncReport {
+    private func run(root: URL, features: [URL], bugs: [URL], lifecycle: IssueLifecycleCoordinator) async -> IssueSyncReport {
         let started = generation
         let client: GitHubClient
         switch await Self.preflight(root: root) {
@@ -53,25 +54,116 @@ final class IssueSyncRun: ObservableObject {
         let items = await Task.detached(priority: .userInitiated) {
             IssueSyncLoader.items(features: features, bugs: bugs)
         }.value
+
+        // GitHub is asked first: only the items linked to an issue that is open now can close anything, so only they are worth
+        // the evidence of git and GitHub (a project can hold hundreds of old done items).
         let plan = IssueSyncPlan(items: items, origin: origin)
-        var outcomes = plan.known
-        // One lookup and at most one change per issue (DEC-008); a failure does not stop the rest.
+        var remotes: [IssueSyncTarget: IssueSyncRemote] = [:]
+        var closedAt: [IssueSyncTarget: Date] = [:]
         for (index, target) in plan.lookups.enumerated() {
             if started == generation { phase = "Issue \(index + 1) of \(plan.lookups.count)" }
-            let remote = await Self.lookup(target, client: client)
-            switch plan.decide(target, remote: remote) {
-            case .outcome(let outcome):
+            let answer = await Self.lookup(target, client: client)
+            remotes[target] = answer.remote
+            if let date = answer.closedAt { closedAt[target] = date }
+        }
+
+        // An issue closes only for verified completion (DEC-010). Work under way whose evidence is now complete is completed
+        // first, and a done item that is not yet verified is checked against the evidence, so a completion that the evidence
+        // backs is confirmed (DEC-015).
+        var seen = Set<String>()
+        var underWay: [(kind: IssueKind, issue: String)] = []
+        var unverified: [(kind: IssueKind, issue: String)] = []
+        for target in plan.lookups where remotes[target] == .issue(open: true) {
+            for item in plan.linkedItems(target) {
+                let kind: IssueKind = item.kind == .feature ? .feature : .bug
+                guard seen.insert("\(kind.rawValue):\(item.id)").inserted else { continue }
+                if IssueReconciler.completionTarget(kind: kind, status: item.status) != nil {
+                    underWay.append((kind: kind, issue: item.id))
+                } else if item.isDone {
+                    switch lifecycle.completion(kind, item.id, status: item.status) {
+                    case .overridden, .unverifiedEdit: unverified.append((kind: kind, issue: item.id))
+                    default: break
+                    }
+                }
+            }
+        }
+        if !underWay.isEmpty || !unverified.isEmpty, started == generation {
+            let count = underWay.count + unverified.count
+            phase = "Checking the evidence of \(count) item\(count == 1 ? "" : "s")…"
+        }
+        if !underWay.isEmpty { await lifecycle.completeFinishedWork(only: underWay) }
+        if !unverified.isEmpty { await lifecycle.reconcileEvidence(only: unverified) }
+
+        // Completing or confirming changed statuses on disk: read the documents again for the plan.
+        let current = await Task.detached(priority: .userInitiated) { IssueSyncLoader.items(features: features, bugs: bugs) }.value
+        let linked = Self.linked(current, lifecycle: lifecycle)
+
+        // One lookup and at most one change per issue (DEC-008); a failure does not stop the rest. A change is read back
+        // afterwards, so a lost answer is told apart from a failure (REQ-004 criterion 4).
+        var outcomes = plan.known
+        for action in IssueGitHubPlanner.plan(items: linked, origin: origin, remotes: remotes, closedAt: closedAt) {
+            switch action {
+            case .leave(let target, let outcome):
                 outcomes[target] = outcome
-            case .close:
-                do {
-                    try await client.gh(["issue", "close", String(target.number), "-R", origin, "--reason", "completed"])
-                    outcomes[target] = .closed
-                } catch {
-                    outcomes[target] = IssueSyncOutcome(kind: .failed, detail: error.localizedDescription)
+            case .discrepancy(let target, let note):
+                let held = outcomes[target]
+                outcomes[target] = IssueSyncOutcome(kind: .skipped, detail: [held?.detail, note.message].compactMap { $0 }.joined(separator: " — "))
+            case .close(let target, _), .reopen(let target, _):
+                // Links, statuses and history are read once more just before the write (REQ-006 criterion 5): a change made
+                // while the evidence was read, or by another window, withdraws the write.
+                let fresh = await Task.detached(priority: .userInitiated) { IssueSyncLoader.items(features: features, bugs: bugs) }.value
+                let freshActions = IssueGitHubPlanner.plan(items: Self.linked(fresh, lifecycle: lifecycle), origin: origin, remotes: remotes, closedAt: closedAt)
+                guard freshActions.contains(action) else {
+                    outcomes[target] = IssueSyncOutcome(kind: .skipped, detail: "the linked items changed while Sync was running; run Sync again")
+                    continue
+                }
+                if case .close = action {
+                    outcomes[target] = await Self.write(.close, target, client: client, lifecycle: lifecycle, linked: linked, plan: plan)
+                } else if case .reopen(_, let because) = action {
+                    var outcome = await Self.write(.reopen, target, client: client, lifecycle: lifecycle, linked: linked, plan: plan)
+                    if outcome.kind == .updated { outcome = IssueSyncOutcome(kind: .updated, detail: "reopened: \(because)") }
+                    outcomes[target] = outcome
                 }
             }
         }
         return IssueSyncReport(plan: plan, outcomes: outcomes)
+    }
+
+    /// The items as the planner sees them: what is on disk, how far each completion is proven, each history.
+    private static func linked(_ items: [IssueSyncItem], lifecycle: IssueLifecycleCoordinator) -> [LinkedItem] {
+        items.map { item in
+            let kind: IssueKind = item.kind == .feature ? .feature : .bug
+            return LinkedItem(item: item, completion: lifecycle.completion(kind, item.id, status: item.status), history: lifecycle.history(kind, item.id))
+        }
+    }
+
+    private enum Write { case close, reopen }
+
+    /// Closes or reopens one issue, reads it back, and records the outcome in the history of every linked item.
+    private static func write(_ change: Write, _ target: IssueSyncTarget, client: GitHubClient, lifecycle: IssueLifecycleCoordinator,
+                              linked: [LinkedItem], plan: IssueSyncPlan) async -> IssueSyncOutcome {
+        let verb = change == .close ? "close" : "reopen"
+        var arguments = ["issue", verb, String(target.number), "-R", client.repo.slug]
+        if change == .close { arguments += ["--reason", "completed"] }
+        let result = await GitHubClient.execute(arguments, in: client.root, timeout: 30)
+        let after = await lookup(target, client: client).remote
+        let outcome = GitHubWriteClassifier.classify(writeSucceeded: result.status == 0, remoteAfter: after, expectedOpen: change == .reopen)
+        let items = plan.linkedItems(target)
+        let detail: String
+        switch outcome {
+        case .confirmed: detail = "\(verb == "close" ? "closed" : "reopened") on GitHub and confirmed"
+        case .failed: detail = "GitHub refused to \(verb) \(target.number): " + String(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+        case .unconfirmed: detail = "the \(verb) of \(target.number) did not answer and its state could not be read afterwards; run Sync again"
+        }
+        for item in items {
+            let kind: IssueKind = item.kind == .feature ? .feature : .bug
+            lifecycle.service?.recordGitHub(kind, item.id, target: "#\(target.number)", outcome: outcome, message: detail)
+        }
+        switch outcome {
+        case .confirmed: return change == .close ? .closed : IssueSyncOutcome(kind: .updated, detail: detail)
+        case .failed: return IssueSyncOutcome(kind: .failed, detail: detail)
+        case .unconfirmed: return IssueSyncOutcome(kind: .failed, detail: detail)
+        }
     }
 
     /// gh installed and signed in, a GitHub origin, and triage access or more; otherwise the
@@ -100,13 +192,13 @@ final class IssueSyncRun: ObservableObject {
         return .success(GitHubClient(root: root, repo: GitHubRepo(slug: slug, remote: "origin", isUpstream: false)))
     }
 
-    private static func lookup(_ target: IssueSyncTarget, client: GitHubClient) async -> IssueSyncRemote {
+    private static func lookup(_ target: IssueSyncTarget, client: GitHubClient) async -> (remote: IssueSyncRemote, closedAt: Date?) {
         let output = await GitHubClient.execute(["api", "repos/\(client.repo.slug)/issues/\(target.number)"], in: client.root, timeout: 30)
         guard output.status == 0 else {
             // gh's one-line summary ("gh: Not Found (HTTP 404)"); the API's JSON body on stdout is never shown.
-            return .failure(message: String(output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300)))
+            return (.failure(message: String(output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))), nil)
         }
-        return .parse(json: output.stdout)
+        return (.parse(json: output.stdout), IssueSyncRemote.closedAt(json: output.stdout))
     }
 }
 

@@ -29,12 +29,6 @@ struct IssueSyncItem: Equatable, Sendable {
         let value = IssueStatus.normalize(status)
         return kind == .feature ? Self.doneFeature.contains(value) : Self.doneBug.contains(value)
     }
-
-    /// "BUG-003 (fixing)", "my-feature (no status)".
-    var blockingLabel: String {
-        let value = IssueStatus.normalize(status)
-        return "\(id) (\(value.isEmpty ? "no status" : value))"
-    }
 }
 
 /// One GitHub issue or pull request, by repository ("owner/name", lower-case) and number.
@@ -166,6 +160,17 @@ enum IssueSyncRemote: Equatable, Sendable {
     case notFound
     case failed(String)
 
+    /// What the report says when GitHub's answer already settles the issue: a pull request, a missing issue or a failed lookup.
+    /// nil for an answer about a real issue, whose closing or reopening `IssueGitHubPlanner` decides.
+    var settledOutcome: IssueSyncOutcome? {
+        switch self {
+        case .pullRequest: return .pullRequest
+        case .notFound: return .notFound
+        case .failed(let message): return IssueSyncOutcome(kind: .failed, detail: message)
+        case .issue: return nil
+        }
+    }
+
     /// `gh api repos/{owner}/{name}/issues/{n}` output. The issues endpoint also answers for
     /// pull requests; they carry a `pull_request` key.
     static func parse(json: String) -> IssueSyncRemote {
@@ -175,6 +180,18 @@ enum IssueSyncRemote: Equatable, Sendable {
         }
         if object["pull_request"] != nil { return .pullRequest }
         return .issue(open: state.lowercased() == "open")
+    }
+
+    /// The time an issue was closed, from the same `gh api repos/{owner}/{name}/issues/{n}` output (`closed_at`,
+    /// ISO 8601 with or without fractional seconds). nil for an open issue or an unreadable answer.
+    static func closedAt(json: String) -> Date? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let text = object["closed_at"] as? String else { return nil }
+        let plain = ISO8601DateFormatter()
+        if let date = plain.date(from: text) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text)
     }
 
     /// A failed lookup: a missing, deleted or transferred issue is "not found"; anything else
@@ -236,32 +253,6 @@ struct IssueSyncPlan: Sendable {
     func linkedItems(_ target: IssueSyncTarget) -> [IssueSyncItem] {
         var seen = Set<Int>()
         return pairs.filter { $0.target == target && seen.insert($0.item).inserted }.map { items[$0.item] }
-    }
-
-    /// Items that keep `target` open: every linked item must be done (DEC-005).
-    func blockingItems(_ target: IssueSyncTarget) -> [IssueSyncItem] {
-        linkedItems(target).filter { !$0.isDone }
-    }
-
-    enum Decision: Equatable {
-        case close
-        case outcome(IssueSyncOutcome)
-    }
-
-    /// What to do with an issue, given what GitHub says about it. Closed issues are never
-    /// reopened; open ones close only when nothing linked to them is still in progress.
-    func decide(_ target: IssueSyncTarget, remote: IssueSyncRemote) -> Decision {
-        switch remote {
-        case .pullRequest: return .outcome(.pullRequest)
-        case .notFound: return .outcome(.notFound)
-        case .failed(let message): return .outcome(IssueSyncOutcome(kind: .failed, detail: message))
-        case .issue(open: false): return .outcome(.alreadyClosed)
-        case .issue(open: true):
-            let blocking = blockingItems(target)
-            if blocking.isEmpty { return .close }
-            return .outcome(IssueSyncOutcome(kind: .skipped,
-                                             detail: "not done yet: " + blocking.map(\.blockingLabel).joined(separator: ", ")))
-        }
     }
 }
 

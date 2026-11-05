@@ -275,7 +275,7 @@ enum ControlAgentTools {
             return "\(f.running.joined(separator: ", ")) is running: markview_flow_status { feature: \"\(f.slug)\", wait_s: 60 } waits for it."
         }
         if ["implementing", "implemented", "verified"].contains(f.status) {
-            return "Implementation is under way (\(f.status)): follow the agent with markview_agent_wait and markview_agent_read; MarkView records implemented and verified from git and GitHub."
+            return "Implementation is under way (\(f.status)): follow the agent with markview_agent_wait and markview_agent_read; MarkView completes implemented from git and GitHub; verified is recorded by a person, or by an agent with evidence."
         }
         if f.openQuestions > 0 {
             return "\(f.openQuestions) open question(s): ask the person, then markview_flow_answer { feature: \"\(f.slug)\", answers: […], by_user: true }; or all: \"recommended\" (by_user: true, when they said to accept the recommendations) or all: \"delegate\" (the AI decides, kept as proposed decisions)."
@@ -368,7 +368,8 @@ enum ControlAgentTools {
     4. markview_flow_run { step: "review" }, then "resolve" for the findings, then "plan", and "issues" to file them on GitHub \
     (when the project has GitHub on).
     5. markview_flow_implement { feature, tool? }: an agent gets the feature as a goal with the definition of done. \
-    MarkView records implementing, implemented and verified from git and GitHub.
+    MarkView records implementing when it hands the feature over and implemented once git and GitHub show the work merged, checked \
+    and released; verified is recorded by a person, or by an agent with evidence.
 
     Every AI step is started and returns after wait_s with its state; a step that takes longer keeps running, and \
     markview_flow_status { wait_s } waits for it. Only one run of a kind per feature goes at a time. markview_flow_stop \

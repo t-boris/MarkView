@@ -79,7 +79,10 @@ actor SpecificationHandoffStore {
                             currentHashes: current, changes: changes)
     }
 
-    func markReady(project: URL, slug: String, actor: String) throws -> HandoffRevision {
+    /// `commitStatus` writes the live `ready` status (the lifecycle service in the app, which checks the transition and records it),
+    /// is told the status it replaces and says whether it wrote it. It runs only when the handoff moves the specification to ready.
+    /// The revision is published first and removed again when the status could not be written.
+    func markReady(project: URL, slug: String, actor: String, commitStatus: @Sendable (_ from: String) -> Bool) throws -> HandoffRevision {
         let folder = try featureFolder(project: project, slug: slug)
         let overview = folder.appendingPathComponent("overview.md")
         guard let text = try? String(contentsOf: overview, encoding: .utf8) else { throw HandoffError.missingOverview }
@@ -125,7 +128,7 @@ actor SpecificationHandoffStore {
                 guard (try? String(contentsOf: overview, encoding: .utf8)) == text else {
                     throw HandoffError.changedDuringHandoff
                 }
-                try front.join(body: body).write(to: overview, atomically: true, encoding: .utf8)
+                guard commitStatus(currentStatus) else { throw HandoffError.changedDuringHandoff }
             } catch {
                 try? fm.removeItem(at: target)
                 throw error

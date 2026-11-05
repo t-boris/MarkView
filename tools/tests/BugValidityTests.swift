@@ -256,7 +256,7 @@ func recorded(_ verdict: BugValidity.Verdict, in text: String = reportText) -> (
 }
 
 let closed = recorded(good)
-check("an already-fixed verdict closes the local report", closed.front.string("status") == "closed")
+check("an already-fixed verdict does not write the status itself (the lifecycle service closes the report)", closed.front.string("status") == "open")
 check("the closure records the verification baseline (ref, commit, date)", closed.body.contains("`origin/main`") && closed.body.contains(String(mainTip.prefix(10))) && closed.body.contains("2026-11-03"))
 check("the closure records the evidence addressing the scenario", closed.body.contains("`Sources/Fixed.swift` — handle() checks isEmpty first."))
 check("the closure records why no further correction is needed", closed.body.contains("**Why no further correction is needed:** The empty list is now handled before the loop."))
@@ -272,7 +272,7 @@ check("the section sits before the discussion and the original description",
         && t.range(of: "## Discussion")!.lowerBound < t.range(of: "## Original description")!.lowerBound
         && t.range(of: "## Likely causes")!.lowerBound < t.range(of: "## Validity check")!.lowerBound }())
 let reread = FrontMatter.split(closed.text)
-check("the saved report reads back closed, with the section", reread.0.string("status") == "closed" && reread.0.isLossless
+check("the saved report reads back with the section", reread.0.string("status") == "open" && reread.0.isLossless
       && BugReportLayout.sections(reread.1).first { $0.heading == BugValidity.sectionName }?.text.contains("Sources/Fixed.swift") == true)
 check("closing makes no change to the GitHub link, so the manual Sync still finds it", reread.0.string("issue") == "#41")
 

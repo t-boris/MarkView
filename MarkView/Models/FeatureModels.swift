@@ -591,6 +591,8 @@ struct BugReport: Identifiable, Hashable {
     var readyToFix = false
     /// Front matter `duplicate_of`: the bug this one repeats.
     var duplicateOf = ""
+    /// Front matter `regression_of`: the feature or bug whose completed work this report says came back (issue lifecycle, DEC-009).
+    var regressionOf = ""
 
     var openQuestions: [BugQuestion] { questions.filter { $0.status == "open" } }
     var answeredQuestions: [BugQuestion] { questions.filter { $0.status != "open" } }
@@ -613,7 +615,8 @@ struct BugReport: Identifiable, Hashable {
                          feature: front.string("feature"),
                          discussion: FeatureAssistant.bugSections(body).first { $0.heading == "Discussion" }?.text ?? "",
                          validity: FeatureAssistant.bugSections(body).first { $0.heading == BugValidity.sectionName }?.text ?? "",
-                         readyToFix: front.string("ready_to_fix") == "true", duplicateOf: front.string("duplicate_of"))
+                         readyToFix: front.string("ready_to_fix") == "true", duplicateOf: front.string("duplicate_of"),
+                         regressionOf: front.string("regression_of"))
     }
 }
 
