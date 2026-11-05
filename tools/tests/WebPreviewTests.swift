@@ -158,6 +158,15 @@ check("npm workspaces: an excluded package is not", !labels.contains("tools/cons
 let rsbuildApp = workspaceTargets.first { $0.label == "tools/kit/ui/docs/site" }
 check("workspaces object form with ** and an rsbuild app", rsbuildApp?.ports.first == 3400 && rsbuildApp?.isElectron == false, "\(String(describing: rsbuildApp))")
 check("a workspace declared too deep is not searched", !labels.contains { $0.hasSuffix("/far") }, "\(labels)")
+writeWorkspace("nested/pnpm-lock.yaml", "")
+writeWorkspace("nested/node_modules/placeholder", "")
+writeWorkspace("nested/app/package.json", #"{"scripts":{"dev":"next dev"},"dependencies":{"next":"15"}}"#)
+writeWorkspace("nested/app/package-lock.json", "{}")
+if let nested = WebAppPreview.targets(root: tmpWorkspace).first(where: { $0.label == "nested/app" }) {
+    check("a nested npm lockfile wins over a parent pnpm workspace", nested.command == "npm run dev")
+    let install = WebAppPreview.missingDependencies(for: nested, root: tmpWorkspace)
+    check("a parent's unrelated node_modules does not hide a fresh locked app", install?.folder.standardizedFileURL.path == nested.folder.standardizedFileURL.path && install?.command == "npm ci --no-audit --no-fund")
+} else { check("a nested locked app is discovered", false) }
 check("node_modules never holds an app", !labels.contains { $0.contains("node_modules") }, "\(labels)")
 check("the closest lockfile wins, and none means npm", workspaceTargets.first { $0.label == "apps/bf-signal-worker" }?.command == "npm run dev")
 check("rspack and rsbuild dev servers serve the web only", WebAppPreview.servesWebOnly("rspack serve -c rspack.renderer.config.ts")

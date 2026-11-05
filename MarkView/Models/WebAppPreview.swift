@@ -299,6 +299,8 @@ enum WebAppPreview {
                     lock = (folder, match.1)
                 }
             }
+            // A lockfile defines this installation boundary; an unrelated parent project's packages do not satisfy it.
+            if lock != nil { break }
             if folder.path == top { break }
             folder.deleteLastPathComponent()
         }
@@ -315,6 +317,7 @@ enum WebAppPreview {
             if exists("pnpm-lock.yaml") { return "pnpm" }
             if exists("yarn.lock") { return "yarn" }
             if exists("bun.lockb") || exists("bun.lock") { return "bun" }
+            if exists("package-lock.json") || exists("npm-shrinkwrap.json") { return "npm" }
             guard current.path != top, current.path.hasPrefix(top + "/") else { return "npm" }
             current = current.deletingLastPathComponent()
         }
