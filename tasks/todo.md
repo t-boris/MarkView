@@ -1,4 +1,4 @@
-## Long-running design agent — feature long-running-design-agent-planned-reviewed-tied-to (2026-11-05, REQ-001…REQ-005) — PLAN v4, APPROVED by Boris 2026-11-05 (in progress)
+## Long-running design agent — feature long-running-design-agent-planned-reviewed-tied-to (2026-11-05, REQ-001…REQ-005) — PLAN v4, APPROVED by Boris 2026-11-05 — CLOSED by Boris 2026-11-05: only step 1 (images) shipped, as 5.30.0; steps 2…11 not built
 
 Specification: `docs/features/long-running-design-agent-planned-reviewed-tied-to`. Q-001…Q-004 answered by Boris on 2026-11-05: **both studios at once**, **edits applied by MarkView**, **one feature per task**, **the person always approves the plan**. REQ-001, REQ-003, REQ-005 were amended after the second review (still `draft`; Boris approved them with the plan).
 History: v1 reviewed (1 blocker, 13 findings) → v2; Q-001 answered → v3 (two hosts); v3 reviewed (1 blocker, 13 findings) → this v4. Nothing implemented. Boris's order is binding: plan, review of the plan, implementation, review of the implementation against the requirements; each step below also ends with its own implementation review against the requirements it serves.
