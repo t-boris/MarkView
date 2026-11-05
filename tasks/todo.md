@@ -27,18 +27,37 @@ storage, DEC-015 external edits.
 
 ## Plan
 - [x] 0. Read the whole folder; Boris's answers into Q-007…009, DEC-008…015, discussion; docs committed to main; memory + lesson on docs.
-- [ ] 1. I-1 policy + tests (`tools/tests/issue-lifecycle-tests.sh`).
-- [ ] 2. I-2 log + service + recovery + tests.
-- [ ] 3. I-4 evidence evaluator + collector + tests.
-- [ ] 4. I-6/I-8 completion, reconciler, GitHub planner + tests; manual Sync uses the same rule.
-- [ ] 5. I-5 context, MCP tools, guide, handoff prompts + tests.
-- [ ] 6. I-3 wiring of every status writer; failed handoff leaves nothing marked.
-- [ ] 7. I-7 UI.
-- [ ] 8. Verify against REQ-001…006 criterion by criterion; run every related harness; Debug build.
-- [ ] 9. Records current (criteria ticked where proven), #294 comment, bump version (minor), commit, push, wait for CI, release.sh --publish, verify.
+- [x] 1. I-1 policy + tests (`tools/tests/issue-lifecycle-tests.sh policy`).
+- [x] 2. I-2 log + service + recovery + tests (`log`, `store`: real files, concurrent appends).
+- [x] 3. I-4 evidence evaluator + collector + tests (`evidence`; collector `IssueEvidenceCollector.swift`).
+- [x] 4. I-6/I-8 completion, reconciler, GitHub planner + tests (`completion`, `github`); manual Sync uses the same rule.
+- [x] 5. I-5 context, MCP tools, guide, handoff prompts + tests (`context`, `project-agent-tools`).
+- [x] 6. I-3 wiring of every status writer; a failed handoff leaves nothing marked.
+- [x] 7. I-7 UI (`IssueLifecycleSection`, `LifecycleStatusChange`, display model checks).
+- [x] 8. Verified against REQ-001…006 criterion by criterion; every related harness green; Debug build; independent review of the glue, its 13 findings triaged and the real ones fixed.
+- [ ] 9. Records current (REQ criteria ticked, DEC-016, discussion note), #294 comment, version 5.36.0, commits, push, CI, release.sh --publish, verify, feature status `implemented` by hand after the release.
 
 ## Review
-(to be filled when done)
+
+**Built (5.36.0):** one policy (`IssueLifecycle`), one journal and service (`IssueTransitionLog`, `.dde/lifecycle/transitions.jsonl`), evidence
+(`IssueLifecycleEvidence`, `IssueEvidenceCollector`), completion and reconciler, the GitHub planner shared by the Sync button, context for AI
+(`IssueLifecycleContext`, MCP `markview_issue_context` / `markview_attach_issue`, guide topic `lifecycle`), the display model and the Lifecycle
+section, and the coordinator on `FeatureStore.lifecycle`, the only status writer. 763 standalone lifecycle checks plus the 12 existing suites
+that the rewiring touched are green; Debug build is green; new workflow `Issue Lifecycle Checks`.
+
+**Found by checks, not by reading:** the journal stored whole seconds, so an edit and the change before it could tie (fixed: milliseconds, and order
+in the journal decides); front matter with a comment is refused by the status store, not rewritten; a stale copy must not be recorded as a baseline
+or as an outside edit (the service now checks the file under its lock).
+
+**Found by an independent review of the glue:** the hand-off prompts promised automatic completion that no code performed (now MarkView completes
+work under way, DEC-016); evidence was cut off silently; features were rarely associated with their commits (`Feature: <slug>` trailer); Sync read
+evidence for hundreds of old items and wrote from a stale snapshot; "already fixed" counted as verified completion (now a cancellation, DEC-013);
+the Lifecycle section could show another issue's state; a written-but-unrecorded status was treated as failed and undone; restart could trash files
+before a refused move; the journal appended without `O_APPEND`.
+
+**Not done / known limits:** squash-merged pull requests are not recognised by the release check (result: unknown, never complete); "handed over"
+means the prompt was queued in the terminal; no automated UI test renders the SwiftUI section; DEC-011…016 are still `proposed` and wait for Boris;
+live behaviour of the app (menus, Accept, Reopen, Check evidence) was not clicked through, as agreed (no manual checklist in this goal).
 
 ## UI Studio: Fix data (2026-11-05, feature markview-ui-studio) — REQ-017, release 5.35.0 planned
 

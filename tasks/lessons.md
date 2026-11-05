@@ -1418,3 +1418,29 @@ Asked what to do with an uncommitted `docs/bugs/BUG-065-…` status change that 
   documentation changes I did not write and those on other branches or in other worktrees. Check the diff is documentation only
   (`git diff --stat`), name the file in the message, never force-push. Do not ask and do not leave the tree dirty because of it.
 - The question to ask before a final clean-up is only about files that are not documentation.
+
+## 2026-11-05 — A change removes the code it replaces (issue-lifecycle goal)
+
+While the lifecycle replaced the status writers, Boris said: "Don't leave old code. Any old code must be removed." I had kept
+compatibility paths next to the new ones: a manual-Sync closing rule beside the lifecycle planner, a `markReady` branch that wrote
+the status itself, guard stubs for tools that are routed elsewhere, a constant only a test read, and test doubles in the app target.
+- When a new path takes over a behaviour, delete the old path in the same change: its branches, flags that only kept the old
+  behaviour (`verifiedCompletion ?? true`), the tests that pinned it, and comments that describe it. Do not keep a fallback "for
+  callers that do not pass the new argument": change the callers.
+- Before calling a rewiring done, list the public declarations of the new files and of the files it touched, and count their
+  uses outside their own file (`grep -rw name MarkView`). One use that is only a test is dead production code, or a test double
+  that belongs under `tools/tests/`.
+- A replaced behaviour is re-expressed as a check of the new path (the planner's checks replaced the old `decide` checks); a
+  deleted check is not a lost check when the new suite already proves the same fact.
+
+## 2026-11-05 — Text that promises behaviour needs the code that performs it (issue-lifecycle goal)
+
+An independent review of the lifecycle glue found that the hand-off prompts, the MCP guide and the control tools told the agent "MarkView
+records implemented / fixed itself", while no code ever did: the pure rules had a `system` actor for it, but nothing called it, so a bug
+handed to the assistant would stay `fixing` for ever. Every check was green because the checks covered the rules, not the caller.
+- For each sentence in a prompt or a guide that says what the app does, name the function that does it and the place that calls it
+  (`grep` for the caller). A rule with no caller is a promise with no behaviour.
+- A pure module that is green on its own proves the rule, not the wiring. List the entry points of the feature (who calls the service,
+  when, from which thread) and make sure each one is exercised, or is named as unverified in the review.
+- A review by a reader who did not write the code, given the specification and the file list but not my conclusions, finds this kind of
+  gap; ask for it before the final verification, not after.
