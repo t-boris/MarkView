@@ -1,5 +1,20 @@
 # Lessons
 
+## A resizable field in a flex column needs `flex: none`, and the editable preview cannot write a map file back (BUG-096, REQ-010, 5.33.0)
+
+- A textarea with `resize: vertical` inside a column-flex panel did not resize: `flex: 1 1 180px` has a non-auto flex-basis, which wins
+  over the inline `height` the grip sets. Give a field the user can resize `flex: none` and a plain `height` (and `box-sizing:
+  border-box`). The regression check sets `style.height` the way the grip does and reads the box back; it failed (140 px for 360 and
+  170) before the CSS change, so it does prove the fix.
+- Before promising an "editable ordinary Markdown view" of a structured Markdown file, measure the round trip: switch to the preview,
+  fire `input` on `#editor-rendered` (that sets the page's dirty flag; without it nothing is converted back), switch to Source and diff.
+  On a real 1327-line research map the converter replaced the front matter by an HTML table (the file stopped being a map), re-indented
+  the outline and escaped `[Project fact]`. A spike harness is a copy of the first 118 lines of `ResearchMapWebTests.swift` plus a few
+  `js(...)` calls. Boris chose a read-only View after seeing the numbers.
+- The top bar (`#wysiwyg-toolbar`) is hidden while the map is shown, so anything that must be visible in every view needs a second
+  instance in the map toolbar; build it once as a function and style it with the application's tokens (the `--rm-*` tokens exist only
+  inside `.rm-root`).
+
 ## A node card is built from parts: never replace its children, and test every edit path with all parts present (BUG-095, 5.32.0)
 
 Found while adding shape and size to the research map card: typing in the panel's title field set `btn.textContent`, which wiped
