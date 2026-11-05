@@ -1,6 +1,6 @@
-## Long-running design agent — feature long-running-design-agent-planned-reviewed-tied-to (2026-11-05, REQ-001…REQ-005) — PLAN v4, NOT APPROVED
+## Long-running design agent — feature long-running-design-agent-planned-reviewed-tied-to (2026-11-05, REQ-001…REQ-005) — PLAN v4, APPROVED by Boris 2026-11-05 (in progress)
 
-Specification: `docs/features/long-running-design-agent-planned-reviewed-tied-to`. Q-001…Q-004 answered by Boris on 2026-11-05: **both studios at once**, **edits applied by MarkView**, **one feature per task**, **the person always approves the plan**. REQ-001, REQ-003, REQ-005 were amended after the second review (still `draft`; Boris approves them at step 0).
+Specification: `docs/features/long-running-design-agent-planned-reviewed-tied-to`. Q-001…Q-004 answered by Boris on 2026-11-05: **both studios at once**, **edits applied by MarkView**, **one feature per task**, **the person always approves the plan**. REQ-001, REQ-003, REQ-005 were amended after the second review (still `draft`; Boris approved them with the plan).
 History: v1 reviewed (1 blocker, 13 findings) → v2; Q-001 answered → v3 (two hosts); v3 reviewed (1 blocker, 13 findings) → this v4. Nothing implemented. Boris's order is binding: plan, review of the plan, implementation, review of the implementation against the requirements; each step below also ends with its own implementation review against the requirements it serves.
 
 ### Why the agents only make small changes (facts, checked in code)
@@ -55,7 +55,7 @@ Round 2 (plan v3): Prototype tab-bound verify → verify row; lock in Prototype 
 
 ### Steps (straight to `main`, Boris's 2026-11-04 instruction; every commit that changes the app carries a bump — intermediate dark-launched commits a patch each, behind a default-off `designRun` setting — and only the final one is released)
 - [x] 0a. Q-001…Q-004 answered and recorded; plan v4 written
-- [ ] 0b. Boris approves the plan and the amended requirements; proposal to confirm: build in the order below and release when the Prototype host works (release A) and again when the UI Studio host works (release B), or release once when both work — Boris decides
+- [x] 0b. Boris approved plan v4 and the amended requirements (REQ-001…REQ-005 `approved`, DEC-001…DEC-007 accepted) on 2026-11-05: **one release for both studios** (images still ship first and alone, DEC-005)
 - [ ] 1. Images (REQ-005): shared attachment type, UI Studio request box, caret paste in both, `clearConversation` keeps an active run's images; ships alone (minor)
 - [ ] 2. Engine core: `DesignRunHost`/`DesignRunContext`, `DesignRun` state and phase table, run file, in-process registry + lock file with heartbeat, journal, intent/resume, guards, `RunFeatureWriter`; `tools/tests/design-run-tests.sh` with a fake host and canned model answers; new workflow `.github/workflows/design-run.yml` (pull_request and push to main, path-filtered); Xcode registration by hand (4 entries per file, `plutil -lint`)
 - [ ] 3. Feature recording and the person-action path, redaction, run log file, link to the prototype hand-off feature
