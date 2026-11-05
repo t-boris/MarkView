@@ -1,0 +1,37 @@
+name: Research Map Checks
+on:
+  pull_request:
+    paths:
+      - 'MarkView/Models/ResearchMap*.swift'
+      - 'MarkView/Models/ResearchDocument.swift'
+      - 'MarkView/Models/FrontMatter.swift'
+      - 'MarkView/Resources/Editor/vendor/js/markview-research-map*.js'
+      - 'MarkView/Resources/Editor/index.html'
+      - 'tools/tests/ResearchMap*'
+      - 'tools/tests/research-map*'
+      - '.github/workflows/research-map.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'MarkView/Models/ResearchMap*.swift'
+      - 'MarkView/Resources/Editor/vendor/js/markview-research-map*.js'
+      - 'MarkView/Resources/Editor/index.html'
+      - 'tools/tests/ResearchMap*'
+      - 'tools/tests/research-map*'
+      - '.github/workflows/research-map.yml'
+permissions:
+  contents: read
+jobs:
+  research-map:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the research map file format and its rules
+        run: bash tools/tests/research-map-document-tests.sh
+      - name: Verify the AI side of research maps (stream parser, guards, prompts)
+        run: bash tools/tests/research-map-run-tests.sh
+      - name: Verify the map layout engine
+        run: bash tools/tests/research-map-layout-tests.sh
+      - name: Verify the map view in the shipped editor page (hidden WebKit, stubbed bridge)
+        run: bash tools/tests/research-map-web-tests.sh

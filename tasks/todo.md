@@ -3,12 +3,17 @@
 Specification: `docs/features/mind-map` (Q-001…Q-004 answered, DEC-001…DEC-005 accepted, F-001…F-003 resolved; DEC-006…DEC-009 and Q-007/Q-008 added while planning). Straight to `main`, no branch or PR (Boris, 2026-11-04). Release 5.29.0 (minor: new feature).
 Architecture (DEC-009): the map is an ordinary editor tab of a `type: research-map` Markdown file. Swift owns the format and every rule; the editor page only draws and sends `researchMap` operations over the existing bridge; no new library, no new tab kind.
 
-- [ ] 1. Specification housekeeping: prototype ZIP verified against v10, overview fixed, decisions DEC-006…DEC-009, questions Q-007/Q-008, spec and prototype committed to `main`
-- [ ] 2. `ResearchMapDocument.swift`: parse and write the format, tolerant of hand edits; operations (add, update, delete with connections, move visually, reparent with cycle check, connect and disconnect, recursive layout, evidence, status, web queries); standalone tests
-- [ ] 3. `ResearchMapPrompt.swift`: prompts for initial research, developing a branch and continuing; `NODE` line parser; limits and evidence verification; standalone tests with recorded and malformed streams
-- [ ] 4. Jobs and bridge: `ResearchJobs.start` creates and opens the map and streams nodes into it; develop, continue, cancel; `researchMap` message in `WebViewBridge`/`EditorView`/`WorkspaceManager`; open-file watcher for map tabs; intake sheet text
-- [ ] 5. Map view `markview-research-map.js` and `markview-research-map-layout.js`: prototype look and interactions, seven layouts, evidence list, status and Continue; layout unit tests (node) and a hidden-WKWebView page test
-- [ ] 6. Register the new files in `project.pbxproj`; Debug build; run every suite that compiles a changed module plus the new ones; CI workflow for the new suites
+- [x] 1. Specification housekeeping: prototype ZIP verified against v10, overview fixed, decisions DEC-006…DEC-009, questions Q-007/Q-008, spec and prototype committed to `main`
+- [x] 2. `ResearchMapDocument.swift`: parse and write the format, tolerant of hand edits; operations (add, update, delete with connections, move visually, reparent with cycle check, connect and disconnect, recursive layout, evidence, status, web queries); standalone tests
+- [x] 3. `ResearchMapRun.swift` (prompts for initial research, developing a branch and continuing; `NODE` line parser; limits and evidence verification) with standalone tests; protocol also checked on the real model, 2 research runs and 2 develop runs: 36 and 11 nodes, 0 malformed lines, limits held
+- [x] 4. Jobs and bridge: `ResearchJobs.start` (now in `ResearchMapJobs.swift`) creates and opens the map and streams nodes into it; develop, continue, cancel; `researchMap` message in `WebViewBridge`/`EditorView`/`WorkspaceManager`; open-file watcher for map tabs; intake sheet text
+- [x] 5. Map view `markview-research-map.js` and `markview-research-map-layout.js`: prototype look and interactions, seven layouts, evidence list, status and Continue; layout unit tests (node) and a hidden-WKWebView page test
+- [x] 6. Register the new files in `project.pbxproj`; Debug build; run every suite that compiles a changed module plus the new ones; CI workflow for the new suites
+      (model 107, run rules 49, layout 185, page 187 ok; all 114 suites swept: 104 pass, 10 fail identically on a clean checkout of `4187f60`
+      — bug-validity, database-explorer, deployment-store, prototype-runtime, terminal-link, workspace-redesign, project-operation-discovery,
+      three live-run scripts — none touches this change)
+      An independent review of the Swift glue found and I fixed: text blocks of the CLI glued node lines together (checked on the real stream),
+      a map stuck on "researching" after a quit, a write over a newer disk version, a snapshot push per token, no main-frame guard
 - [ ] 7. Bump to 5.29.0, commit, push to `main`, `./release.sh --publish` from a clean worktree, verify version, signature and notarization
 - [ ] 8. Statuses: requirements' criteria, decisions, feature `implemented`, issue #293 commented and closed; wait for the `Build & Release` run of the pushed commit
 - Review: (to be filled in after the release)

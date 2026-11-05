@@ -26,7 +26,7 @@ enum ResearchSettings {
 @MainActor
 final class ResearchJobs: ObservableObject {
     struct Job: Identifiable {
-        enum Kind { case research, followUp, comment }
+        enum Kind { case research, followUp, comment, map, mapDevelop, mapContinue }
         let id = UUID()
         let kind: Kind
         /// The research document the job writes.
@@ -59,55 +59,10 @@ final class ResearchJobs: ObservableObject {
         jobs.first { $0.id == id }?.task?.cancel()
     }
 
-    // MARK: - New research (I-3)
+    // MARK: - New research
 
-    /// Starts a research: copies attachments, lists the analysis scope, runs the agent and
-    /// writes `relativePath` (a free name is chosen if it was taken meanwhile), then opens it.
-    /// The document is titled by the AI (`## Title`), else by the question's first line;
-    /// `nameFromTitle` (the user kept the suggested path) also names the file after that title.
-    func start(question: String, relativePath: String, targets: [URL], attachments: [URL], nameFromTitle: Bool = false) {
-        guard let root = workspace?.rootNode?.url else { return }
-        let file = root.appendingPathComponent(relativePath)
-        let id = ResearchDocument.id(forPath: relativePath)
-        let questionTitle = Self.title(question)
-        launch(kind: .research, file: file, title: "Research: " + questionTitle) { job in
-            let targetPaths = await Task.detached { ResearchScope.targetFiles(root: root, targets: targets) }.value
-            job.update("Copying attachments")
-            let copied = Self.copyAttachments(attachments, root: root, id: id)
-            job.update("Listing the repository")
-            let scope = await Task.detached { ResearchScope.files(root: root, always: targetPaths + copied) }.value
-            let web = Self.web(root)
-            let prompt = ResearchPrompt.research(question: question, targets: targetPaths, attachments: copied, scope: scope, web: web.allowed)
-            let outcome = await job.run(prompt: prompt, root: root, web: web.allowed, titled: true)
-            var run = ResearchDocument.Run(question: question, answer: ResearchDocument.parseAnswer(outcome.text))
-            run.incomplete = Self.incompleteReason(outcome, web: web)
-            run.targets = targetPaths
-            run.attachments = copied
-            run.filesRead = outcome.filesRead(root: root)
-            run.urlsFetched = outcome.urls
-            run.webQueries = outcome.queries
-            run.notes = web.note.map { [$0] } ?? []
-            run.noProjectFiles = scope.isEmpty
-            let exists = Self.existsIn(root)
-            let title = run.answer.title.isEmpty ? questionTitle : run.answer.title
-            var named = file
-            if nameFromTitle, !run.answer.title.isEmpty {
-                named = root.appendingPathComponent(ResearchDocument.relativePath(question: title, date: FeatureStore.today, exists: exists))
-            }
-            let target = Self.freeFile(named, root: root)
-            let text = ResearchDocument.newDocument(id: ResearchDocument.id(forPath: target.path), title: title,
-                                                    created: FeatureStore.today, run: run, pathExists: exists)
-            do {
-                try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try Data(text.utf8).write(to: target, options: .withoutOverwriting)
-            } catch {
-                return "Could not save the research: \(error.localizedDescription)"
-            }
-            self.workspace?.refreshFileTree()
-            self.workspace?.openFile(target)
-            return run.incomplete.map { "Research saved as incomplete: \($0)" }
-        }
-    }
+    // A new research is a mind map (feature mind-map, DEC-001): `start` is in ResearchMapJobs.swift. The
+    // report format below stays for the follow-ups and comments of existing research documents.
 
     // MARK: - Continue / deepen, retry (I-5)
 
@@ -205,7 +160,7 @@ final class ResearchJobs: ObservableObject {
     // MARK: - Running
 
     /// Adds a job to the bar and runs `body`; its return value is the message to show (nil = none).
-    private func launch(kind: Job.Kind, file: URL, title: String, body: @escaping (JobHandle) async -> String?) {
+    func launch(kind: Job.Kind, file: URL, title: String, body: @escaping (JobHandle) async -> String?) {
         message = nil
         var job = Job(kind: kind, file: file, title: title)
         let handle = JobHandle(id: job.id, owner: self)
@@ -218,12 +173,13 @@ final class ResearchJobs: ObservableObject {
     }
 
     fileprivate func setStep(_ step: String, for id: UUID) {
-        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        // Every token of the answer reports the same step: publish only a change, or the views redraw per token.
+        guard let index = jobs.firstIndex(where: { $0.id == id }), jobs[index].step != step else { return }
         jobs[index].step = step
     }
 
     /// Web search for this run: allowed unless the repository opted out or the backend has none.
-    private static func web(_ root: URL) -> (allowed: Bool, unavailable: String?, note: String?) {
+    static func web(_ root: URL) -> (allowed: Bool, unavailable: String?, note: String?) {
         if ResearchSettings.isWebDisabled(root) {
             return (false, nil, "Web search: disabled for this repository, so the research is repository-only.")
         }
@@ -234,13 +190,13 @@ final class ResearchJobs: ObservableObject {
         return (true, nil, nil)
     }
 
-    private static func incompleteReason(_ outcome: JobOutcome, web: (allowed: Bool, unavailable: String?, note: String?)) -> String? {
+    static func incompleteReason(_ outcome: JobOutcome, web: (allowed: Bool, unavailable: String?, note: String?)) -> String? {
         let reasons = [outcome.failure, outcome.webRefused, web.unavailable].compactMap { $0 }
         return reasons.isEmpty ? nil : reasons.joined(separator: "; ")
     }
 
     /// The first line, cut at a word boundary after at most 90 characters.
-    private static func title(_ text: String) -> String {
+    static func title(_ text: String) -> String {
         let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.count > 90 else { return trimmed }
@@ -255,7 +211,7 @@ final class ResearchJobs: ObservableObject {
         return path.hasPrefix(base) ? String(path.dropFirst(base.count)) : nil
     }
 
-    private static func existsIn(_ root: URL) -> (String) -> Bool {
+    static func existsIn(_ root: URL) -> (String) -> Bool {
         { path in
             guard !path.hasPrefix("/"), !path.contains("..") else { return false }
             var isDir: ObjCBool = false
@@ -264,7 +220,7 @@ final class ResearchJobs: ObservableObject {
     }
 
     /// `file`, or the next `-2`, `-3`, … name when it exists by now.
-    private static func freeFile(_ file: URL, root: URL) -> URL {
+    static func freeFile(_ file: URL, root: URL) -> URL {
         guard FileManager.default.fileExists(atPath: file.path) else { return file }
         let base = file.deletingPathExtension().path
         var n = 2
@@ -273,7 +229,7 @@ final class ResearchJobs: ObservableObject {
     }
 
     /// Attachments go to docs/research/assets/<doc-id>/ (DEC-009); returns their workspace paths.
-    private static func copyAttachments(_ urls: [URL], root: URL, id: String) -> [String] {
+    static func copyAttachments(_ urls: [URL], root: URL, id: String) -> [String] {
         guard !urls.isEmpty else { return [] }
         let folder = root.appendingPathComponent("\(ResearchDocument.folder)/assets/\(id)", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -332,8 +288,9 @@ final class JobHandle {
 
     /// Runs the agent over `root` with the research system prompt. Cancel, errors and the
     /// timeout end it early; the text streamed so far is kept (DEC-004, DEC-012).
-    func run(prompt: String, root: URL, web: Bool, titled: Bool = false) async -> JobOutcome {
-        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: ResearchPrompt.system(web: web, titled: titled),
+    func run(prompt: String, root: URL, web: Bool, titled: Bool = false, system: String? = nil, writing: String = "Writing the report",
+             onText: (@Sendable (String) -> Void)? = nil, onQuery: (@Sendable (String) -> Void)? = nil) async -> JobOutcome {
+        var request = CLICompletion.Request(project: root, prompt: prompt, systemPrompt: system ?? ResearchPrompt.system(web: web, titled: titled),
                                             readableFolder: root)
         request.allowWeb = web
         let minutes = ResearchSettings.timeoutMinutes
@@ -342,8 +299,16 @@ final class JobHandle {
         let started = Date()
         update("Thinking")
         do {
-            let result = try await CLICompletion.run(request, onDelta: { log.append(text: $0) }, onActivity: { [weak self] activity in
-                guard let step = log.record(activity, root: root) else { return }
+            let result = try await CLICompletion.run(request, onDelta: { log.append(text: $0); onText?($0) }, onActivity: { [weak self] activity in
+                switch activity {
+                case .writing, .answerDelta: break
+                // A tool call or a pause ends the text block the agent was writing, and the CLI hands over the next block
+                // with nothing between them ("First line." + "NODE {…}"): the break keeps a node line on its own line.
+                default: onText?("\n")
+                }
+                if case .webSearch(let query) = activity { onQuery?(query) }
+                guard var step = log.record(activity, root: root) else { return }
+                if case .writing = activity { step = writing }
                 Task { @MainActor in self?.update(step) }
             })
             result.record(in: owner?.workspace?.semanticDatabase)

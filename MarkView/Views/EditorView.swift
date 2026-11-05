@@ -125,6 +125,10 @@ struct EditorView: NSViewRepresentable {
         private var architectureOperationsRoot: String?
         /// Pushes margin notes for the file in the code viewer.
         private var codeNotesCancellable: AnyCancellable?
+        /// Pushes the progress of the AI job working on the research map the page shows.
+        private var researchMapJobsCancellable: AnyCancellable?
+        /// The job progress last pushed for the map on screen, so an unchanged job is not pushed again.
+        private var lastPushedJob: (tab: UUID, info: ResearchMap.JobInfo?)?
         /// id (uuidString) of the insight session the coordinator is currently subscribed
         /// to. nil for `.file` tabs. Used to early-return on duplicate `loadContentIfNeeded`
         /// calls for the same insight session.
@@ -412,6 +416,17 @@ struct EditorView: NSViewRepresentable {
                 applyPendingCodeReveal()
                 return
             }
+            // A research map already on screen is not reloaded when its text changes (an AI job added nodes, the
+            // file changed on disk): the page gets a new snapshot and keeps its selection and view (DEC-009).
+            if fileType == .markdown, !asNotes, let tab, tab.id == lastLoadedTabID,
+               documentURL?.standardizedFileURL == lastLoadedDocumentURL,
+               ResearchMap.isMap(lastLoadedContent), ResearchMap.isMap(markdown) {
+                lastLoadedContent = loadKey
+                bridge.setResearchMap(parent.workspaceManager.researchMapSnapshotJSON(text: markdown, file: tab.url),
+                                      documentID: tab.id, in: webView)
+                followResearchMapJobs()
+                return
+            }
             lastLoadedContent = loadKey
             lastLoadedDocumentURL = documentURL?.standardizedFileURL
             lastLoadedTabID = tab?.id
@@ -439,6 +454,26 @@ struct EditorView: NSViewRepresentable {
             // served to the page by `documentFiles` (BUG-061); inlining them here made the tab look modified and a save wrote them into the file.
             bridge.loadContent(markdown, documentID: tab?.id, into: webView) {}
             applyPendingCodeReveal()
+        }
+
+        /// Follows the job list while a research map is on screen: the step the assistant is on changes
+        /// without the file changing, and the map view shows it.
+        func followResearchMapJobs() {
+            guard researchMapJobsCancellable == nil else { return }
+            researchMapJobsCancellable = parent.workspaceManager.research.$jobs
+                .throttle(for: .milliseconds(500), scheduler: DispatchQueue.main, latest: true)
+                .sink { [weak self] _ in
+                    guard let self, let webView = self.webView, let id = self.lastLoadedTabID,
+                          ResearchMap.isMap(self.lastLoadedContent),
+                          let current = self.parent.workspaceManager.openTabs.first(where: { $0.id == id }) else { return }
+                    // The text of the map reaches the page when the file changes; this push is for the job's own
+                    // progress (its step and start), so it is sent only when that changed.
+                    let info = self.parent.workspaceManager.research.mapJobInfo(for: current.url)
+                    guard self.lastPushedJob?.tab != id || self.lastPushedJob?.info != info else { return }
+                    self.lastPushedJob = (id, info)
+                    self.bridge.setResearchMap(self.parent.workspaceManager.researchMapSnapshotJSON(text: current.content, file: current.url),
+                                               documentID: id, in: webView)
+                }
         }
 
         /// Load cached notes for the code file and keep the margin panel in sync.
@@ -786,6 +821,19 @@ extension EditorView.Coordinator: WebViewBridgeDelegate {
             }
             guard let url = self.currentCodeURL else { return }
             self.parent.workspaceManager.handleCodeAction(action, payload: payload, url: url)
+        }
+    }
+
+    func bridge(_ bridge: WebViewBridge, didReceiveResearchMapAction action: String, payload: [String: Any], documentID: UUID?) {
+        Task { @MainActor in
+            guard let reply = self.parent.workspaceManager.handleResearchMapAction(action, payload: payload, documentID: documentID),
+                  let webView = self.webView else { return }
+            // The tab now holds the new text: the page already has it, so the editor must not reload it (DEC-009).
+            if let content = reply.content, EditorDocumentRouting.reportsShownDocument(documentID: documentID, shown: self.lastLoadedTabID) {
+                self.lastLoadedContent = content
+            }
+            self.bridge.setResearchMap(reply.json, documentID: documentID, in: webView)
+            self.followResearchMapJobs()
         }
     }
 

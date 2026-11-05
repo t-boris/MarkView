@@ -889,7 +889,7 @@ struct IntakeSheet: View {
         case .quickFeature: return "Creates a one-page feature specification with analysis and discussion, without question rounds" + (github ? " and a GitHub issue." : ".")
         case .bug: return "Writes docs/bugs/BUG-nnn-….md with reproduction steps and the suspected code" + (github ? ", and files it on GitHub." : ". Turn on the GitHub integration to also file it on GitHub.") + " What is still missing is asked in the Feature tab."
         case .understand: return "The answer opens at the top of the X-Ray right panel, with What, Why, How and Origin sections. Sources reveal the evidence in X-Ray or open it. Save as research keeps the answer in docs/research; nothing is saved automatically."
-        case .research: return "Runs in the background (progress and Cancel under the editor) and opens the report when it is done. Findings are labelled project fact, external fact, AI inference or open assumption, with file paths and URLs. Attachments are copied to docs/research/assets/."
+        case .research: return "Opens a mind map at once and fills it from the centre outwards while the assistant works in the background (progress and Cancel under the editor). Every finding on a node is labelled project fact, external fact, AI inference or open assumption, with file paths and URLs. The map is saved as a Markdown file; attachments are copied to docs/research/assets/."
         }
     }
 
@@ -932,7 +932,7 @@ struct IntakeSheet: View {
             }
             dismiss()
             workspaceManager.research.start(question: input, relativePath: outputPath.trimmingCharacters(in: .whitespaces),
-                                            targets: targets, attachments: attachments, nameFromTitle: !outputPathEdited)
+                                            targets: targets, attachments: attachments)
             return
         }
         working = true

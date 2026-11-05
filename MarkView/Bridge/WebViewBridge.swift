@@ -161,6 +161,9 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridgeRequestInsightRetrySection(self, sectionId: secId)
             }
             return
+        case "researchMap":
+            // Changes files and starts AI jobs: only the editor page itself may ask. The message is handled below.
+            guard message.frameInfo.isMainFrame else { return }
         case "jsError":
             // Diagnostic-only: route any JS-side window.onerror /
             // unhandledrejection to the diag log file so we can see what's
@@ -295,6 +298,14 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
                 delegate?.bridge(self, didReceiveArchitectureAction: action, payload: payload)
             }
 
+        // Research map view: { action: "snapshot" | "addChild" | "update" | "delete" | "moveVisual" | "reparent" |
+        //                     "link" | "unlink" | "layout" | "develop" | "continue" | "cancel" | "open", …action fields }
+        // Swift owns the map file and answers with window.mvResearchMapSet (DEC-009).
+        case "researchMap":
+            if let payload = data, let action = payload["action"] as? String {
+                delegate?.bridge(self, didReceiveResearchMapAction: action, payload: payload, documentID: documentID)
+            }
+
         case "canvasOpenFile":
             if let path = data?["path"] as? String, !path.isEmpty {
                 delegate?.bridge(self, didRequestCanvasOpenFile: path)
@@ -424,6 +435,14 @@ class WebViewBridge: NSObject, WKScriptMessageHandler {
     /// Project operations are updated independently of the much larger X-Ray snapshot.
     func setProjectOperations(_ json: String, in webView: WKWebView) {
         webView.evaluateJavaScript("window.setProjectOperations && window.setProjectOperations(\(json))")
+    }
+
+    /// The state of the research map the page shows (markview-research-map.js). `json` is an object literal.
+    func setResearchMap(_ json: String, documentID: UUID?, in webView: WKWebView) {
+        let id = documentID?.uuidString ?? ""
+        webView.evaluateJavaScript("window.mvResearchMapSet && window.mvResearchMapSet(\"\(id)\", \(json))") { _, error in
+            if let error { NSLog("Error sending the research map: \(error)") }
+        }
     }
 
     /// Show source code read-only in the code viewer (markview-code.js).
@@ -748,6 +767,7 @@ protocol WebViewBridgeDelegate: AnyObject {
     func bridge(_ bridge: WebViewBridge, didRequestCanvasOpenFile path: String)
     func bridge(_ bridge: WebViewBridge, didReceiveArchitectureAction action: String, payload: [String: Any])
     func bridge(_ bridge: WebViewBridge, didReceiveCodeAction action: String, payload: [String: Any])
+    func bridge(_ bridge: WebViewBridge, didReceiveResearchMapAction action: String, payload: [String: Any], documentID: UUID?)
 
     // MARK: Insight messages (Recursive Insight v2, Task 7)
     //

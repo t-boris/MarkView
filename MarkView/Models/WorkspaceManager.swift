@@ -5366,3 +5366,212 @@ class WorkspaceManager: ObservableObject {
         return nil
     }
 }
+
+// MARK: - Research maps (feature mind-map, DEC-006, DEC-009)
+
+/// What a change to a research map file came to.
+enum ResearchMapChange {
+    /// The file and the tab that holds it now have this text.
+    case done(String)
+    /// A rule refused the change (its reason is one line); nothing changed.
+    case rejected(String)
+    /// The file is not a readable research map (the reason is one line); nothing changed.
+    case unreadable(String)
+}
+
+extension WorkspaceManager {
+    /// The answer to a map action: the snapshot for the page and the text the tab holds now.
+    struct ResearchMapReply {
+        var json: String
+        var content: String?
+    }
+
+    private func researchMapTab(_ file: URL) -> Int? {
+        let path = file.standardizedFileURL.path
+        return openTabs.firstIndex { $0.isFileBacked && $0.url.standardizedFileURL.path == path }
+    }
+
+    /// The current text of a map file: the tab that holds it (unsaved edits included), else the disk.
+    func researchMapText(_ file: URL) -> String? {
+        if let index = researchMapTab(file) { return openTabs[index].content }
+        return try? String(contentsOf: file, encoding: .utf8)
+    }
+
+    /// Applies `change` to the map in `file` and writes the file at once, atomically. The tab that holds the
+    /// file takes the new text as saved, so a map is never shown as modified. A refused change leaves the
+    /// file and the tab as they were. The only writer of a map: the page's actions and the AI jobs go here.
+    @discardableResult
+    func updateResearchMap(_ file: URL, _ change: (inout ResearchMap) throws -> Void) -> ResearchMapChange {
+        guard FileManager.default.fileExists(atPath: file.path) else { return .unreadable("The map file no longer exists.") }
+        guard var text = researchMapText(file) else { return .unreadable("The file cannot be read.") }
+        // A tab without unsaved edits may be behind the disk (another editor or a terminal saved the map less than
+        // the watcher's two seconds ago): the change goes onto what is on disk, never over it.
+        if let index = researchMapTab(file), !openTabs[index].isModified,
+           let onDisk = try? String(contentsOf: file, encoding: .utf8), onDisk != text {
+            text = onDisk
+        }
+        var map: ResearchMap
+        switch ResearchMap.parse(text) {
+        case .success(let parsed): map = parsed
+        case .failure(let problem): return .unreadable(problem.message)
+        }
+        do {
+            try change(&map)
+        } catch let rejection as ResearchMap.Rejection {
+            return .rejected(rejection.message)
+        } catch {
+            return .rejected(error.localizedDescription)
+        }
+        let updated = map.markdown()
+        guard updated != text else {
+            // The tab may still show older text than the disk (see above): bring it up to date without a write.
+            if let index = researchMapTab(file), openTabs[index].content != text, !openTabs[index].isModified {
+                tabsStore.updateTab(at: index) { tab in tab.content = text; tab.originalContent = text }
+            }
+            return .done(text)
+        }
+        do {
+            try Data(updated.utf8).write(to: file, options: .atomic)
+        } catch {
+            return .rejected("The map could not be saved: \(error.localizedDescription)")
+        }
+        if let index = researchMapTab(file) {
+            tabsStore.updateTab(at: index) { tab in
+                tab.content = updated
+                tab.originalContent = updated
+                tab.isModified = false
+            }
+        }
+        return .done(updated)
+    }
+
+    /// The snapshot the page draws for `text`, with the AI job working on `file`.
+    func researchMapSnapshotJSON(text: String, file: URL, created: String = "", notice: String = "") -> String {
+        // `markdown` is the text of the tab: the page shows it in the Source view of the map document.
+        var snapshot: [String: Any]
+        switch ResearchMap.parse(text) {
+        case .success(let map):
+            snapshot = map.snapshot(job: research.mapJobInfo(for: file), created: created, notice: notice)
+        case .failure(let problem):
+            snapshot = ResearchMap.unreadableSnapshot(problem: problem.message)
+        }
+        snapshot["markdown"] = text
+        return ResearchMap.json(snapshot)
+    }
+
+    /// One action of the map view (bridge message "researchMap"). Validation of every field happens here, at
+    /// the boundary; the rules of the map itself are in `ResearchMap`. Returns the answer for the page, or nil
+    /// when the tab the page names is gone.
+    func handleResearchMapAction(_ action: String, payload: [String: Any], documentID: UUID?) -> ResearchMapReply? {
+        // The action name comes from the page: it is logged only as plain letters.
+        let loggedAction = String(action.filter { $0.isLetter }.prefix(24))
+        guard let index = editorTabIndex(documentID: documentID, event: "research map \(loggedAction)"),
+              openTabs[index].isFileBacked else { return nil }
+        let file = openTabs[index].url
+        // Edits saved in another editor appear in the map: the watcher reloads the tab (DEC-006).
+        startWatchingOpenFiles()
+        settleInterruptedResearchMap(file, stopping: action == "cancel")
+
+        func string(_ key: String) -> String { (payload[key] as? String) ?? "" }
+        func integer(_ key: String) -> Int? {
+            guard let value = (payload[key] as? NSNumber)?.doubleValue, value.isFinite, abs(value) < 1e9 else { return nil }
+            return Int(value.rounded())
+        }
+        var created = ""
+        var notice = ""
+        var change: ResearchMapChange?
+
+        switch action {
+        case "snapshot":
+            break
+        case "addChild":
+            change = updateResearchMap(file) { created = try $0.addChild(parent: string("parent"), title: string("title")) }
+        case "update":
+            change = updateResearchMap(file) { map in
+                try map.update(id: string("id"),
+                               title: payload["title"] as? String,
+                               tags: payload["tags"] as? [String],
+                               color: payload["color"] as? String,
+                               description: payload["description"] as? String)
+            }
+        case "delete":
+            change = updateResearchMap(file) { _ = try $0.delete(id: string("id")) }
+        case "moveVisual":
+            guard let x = integer("x"), let y = integer("y") else {
+                notice = "That position is not valid."
+                break
+            }
+            change = updateResearchMap(file) { try $0.moveVisual(id: string("id"), x: x, y: y) }
+        case "reparent":
+            change = updateResearchMap(file) { try $0.reparent(id: string("id"), to: string("parent")) }
+        case "link":
+            change = updateResearchMap(file) { try $0.link(string("from"), string("to")) }
+        case "unlink":
+            change = updateResearchMap(file) { $0.unlink(string("from"), string("to")) }
+        case "layout":
+            change = updateResearchMap(file) { try $0.applyLayout(id: string("id"), layout: string("layout")) }
+        case "develop":
+            let direction = string("direction").trimmingCharacters(in: .whitespacesAndNewlines)
+            if direction.isEmpty {
+                notice = "Say in which direction to develop this node."
+            } else {
+                notice = research.developMap(file: file, node: string("id"), direction: String(direction.prefix(2000))) ?? ""
+            }
+        case "continue":
+            notice = research.continueMap(file: file) ?? ""
+        case "cancel":
+            research.cancelJobs(on: file)   // the map of a job that no longer exists was settled above
+        case "open":
+            notice = openResearchSource(string("source")) ?? ""
+        default:
+            Self.debugLog("[ResearchMap] unknown action \(loggedAction)")
+            return nil
+        }
+
+        switch change {
+        case .rejected(let reason)?, .unreadable(let reason)?: notice = reason
+        default: break
+        }
+        let text = researchMapText(file) ?? ""
+        return ResearchMapReply(json: researchMapSnapshotJSON(text: text, file: file, created: created, notice: notice), content: text)
+    }
+
+    /// A map that says "researching" while no job of this window works on it was interrupted (the app quit
+    /// mid-run, or the last update of a run could not be written): it becomes incomplete, so Continue is offered
+    /// and Stop never does nothing.
+    private func settleInterruptedResearchMap(_ file: URL, stopping: Bool) {
+        guard !research.isRunning(on: file), let text = researchMapText(file),
+              case .success(let map) = ResearchMap.parse(text), map.status == .researching else { return }
+        updateResearchMap(file) { $0.markIncomplete(stopping ? "stopped" : "the research was interrupted") }
+    }
+
+    /// Opens the source of a finding: a web address in the browser, a project file (with an optional
+    /// `:line` or `:from-to` suffix) in a tab. Returns a one-line reason when it cannot.
+    private func openResearchSource(_ source: String) -> String? {
+        let text = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let lower = text.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            guard let url = URL(string: text) else { return "That web address is not valid." }
+            NSWorkspace.shared.open(url)
+            return nil
+        }
+        guard let root = rootNode?.url.standardizedFileURL else { return "No project is open." }
+        var path = text
+        var line: Int?
+        var endLine: Int?
+        if let match = text.range(of: #":(\d+)(?:-(\d+))?$"#, options: .regularExpression) {
+            let numbers = text[match].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            line = numbers.first
+            endLine = numbers.count > 1 ? numbers[1] : nil
+            path = String(text[..<match.lowerBound])
+        }
+        guard !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { return "Only files inside the project can be opened." }
+        let url = root.appendingPathComponent(path).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else { return "The file \(path) does not exist in the project." }
+        openFile(url, line: line, endLine: endLine)
+        return nil
+    }
+}

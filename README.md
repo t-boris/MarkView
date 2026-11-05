@@ -111,8 +111,8 @@ opened the project (including by agents), review a pull request in its architect
 run a security review or a codebase audit.
 → [Reviews of every kind](#reviews-of-every-kind)
 
-**6. Research.** A cited report with every finding labelled and every web query recorded,
-or a quick page clip from the built-in browser saved as Markdown.
+**6. Research.** A mind map of the question that grows from the centre outwards, with every
+finding labelled and every web query recorded, or a quick page clip from the built-in browser saved as Markdown.
 → [Understand and research](#from-idea-to-merged-code)
 
 **7. Turn an idea into a specification.** Guided questions, requirements and decisions as
@@ -183,7 +183,7 @@ flowchart LR
 |---|---|
 | Features, requirements, decisions, questions, findings, sources | `docs/features/<slug>/` in your project |
 | Bugs | `docs/bugs/` |
-| Research reports and web clips | `docs/research/` |
+| Research maps, older research reports and web clips | `docs/research/` |
 | Prototypes | `docs/prototypes/<name>/`; export ZIPs in `.dde/exports/prototypes/` |
 | Machine state: document search index, X-Ray caches, deployments, definition of done | `.dde/` in the project (regenerable) |
 | Shared operations (deploy, install…) | `.markview/operations.json` |
@@ -341,9 +341,15 @@ with the analysis.
 **Understand and research.** *I Need to Understand* (the ⚡ box in X-Ray, or **+ → I Need to
 Understand…**) answers a question about the project with **What, Why, How and Origin** and clickable
 evidence from code, documents, commits and pull requests; save an answer as research when it is worth
-keeping. *New Research* runs in the background (20 minutes by default; 5–120 in Settings) and writes a
-cited report to `docs/research/`, with every finding labelled and every web query recorded. *Stop* keeps
-a partial result, marked incomplete, and *Continue / Deepen Research* picks it up.
+keeping. *New Research* opens a **mind map** at once and runs in the background (20 minutes by default;
+5–120 in Settings): the assistant builds the map from the central subject outwards, main branches first,
+and each node carries findings labelled project fact, external fact, AI inference or open assumption with
+their sources; every web query is recorded. The map is a Markdown file in `docs/research/` that you can also
+edit as text. Review it in the map: add, edit, delete and drag nodes, move a branch to another parent,
+connect nodes, arrange a branch with one of seven layouts (applied to the whole branch), or ask the
+assistant to *Develop with AI* in a direction you give (options become separate branches). *Stop* keeps
+every node received, marked incomplete, and *Continue* picks the map up. Older Markdown research reports
+stay as they are, with *Continue / Deepen Research*.
 
 ---
 

@@ -45,7 +45,7 @@ enum ResearchPrompt {
         """
     }
 
-    private static let webRules = """
+    static let webRules = """
         Use web search when the repository alone cannot answer well. Search queries may contain only \
         generic concepts, public product or library names and the wording of the user's question. Never \
         put code, file contents, secrets, credentials, internal hostnames, internal project or module \
@@ -53,7 +53,7 @@ enum ResearchPrompt {
         the report.
         """
 
-    private static var languageLine: String {
+    static var languageLine: String {
         let language = ActionOutputLanguage.current
         return language == ActionOutputLanguage.documentLanguage
             ? "Write the report in the language of the question."
@@ -156,7 +156,7 @@ enum ResearchPrompt {
     }
 
     /// The analysis scope as the agent should see it (DEC-016).
-    private static func scopeText(_ scope: [String]) -> String {
+    static func scopeText(_ scope: [String]) -> String {
         guard !scope.isEmpty else {
             return "Analysis scope: the repository has no eligible files. There are no project facts; say so in the Summary and answer from external sources and inference."
         }

@@ -115,6 +115,8 @@
 		48C8A0FB9B44615A5EF7A5E6 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FB90DA3782A6E99BB4881B /* FileNode.swift */; };
 		49C2FB6AE1E125A5FAC4F5ED /* prism-bash.min.js in Resources */ = {isa = PBXBuildFile; fileRef = D02CB0618F58621DB3A2FC17 /* prism-bash.min.js */; };
 		49E9BFB3C3A7EBCD4FDDDC10 /* markview-data.js in Resources */ = {isa = PBXBuildFile; fileRef = 509C73ABFDAE9E3E388138C7 /* markview-data.js */; };
+		2860F1DB8476CBEAD2EA2526 /* markview-research-map.js in Resources */ = {isa = PBXBuildFile; fileRef = 0CC6D087EDCD99631299C7AC /* markview-research-map.js */; };
+		B8905BFC3BBEEA0C43C74C0A /* markview-research-map-layout.js in Resources */ = {isa = PBXBuildFile; fileRef = 0FCADE60B8A5BAF483AB9BBD /* markview-research-map-layout.js */; };
 		4AD85E6BE22486D88DBC235B /* BrowserPasswordsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12DA7BD1AEE0B21AE771C2E /* BrowserPasswordsView.swift */; };
 		4B1CC5B8D2EBA7F0ADEEFB47 /* prism-swift.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 629AC491A02BE9A042CEF3D2 /* prism-swift.min.js */; };
 		4B6563478345F3CDF9FCB956 /* DeploymentToolRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F1C10751459B0288159692 /* DeploymentToolRunner.swift */; };
@@ -252,6 +254,9 @@
 		9CE756F50996950EE520D986 /* RemoteTerminalConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173CDBCF76BA471F54B8A3A7 /* RemoteTerminalConnection.swift */; };
 		9E23615DDB835FE6E9DC2B37 /* ControlToolRunner+Agents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBD8CA222E37B957D752DD0 /* ControlToolRunner+Agents.swift */; };
 		9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */; };
+		86E11F0790D69B2F4BAFEDA7 /* ResearchMapJobs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 223E59FE48E2FB93AAEBE7F8 /* ResearchMapJobs.swift */; };
+		6EE1C72EEBAA995CF018DEC4 /* ResearchMapRun.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25E7B36205C39CCF23B80AD /* ResearchMapRun.swift */; };
+		F4F265A063783096E1D0072F /* ResearchMapDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2AE1595F8032392350969BD /* ResearchMapDocument.swift */; };
 		A0B252241524EFEFFEF486DD /* DefinitionOfDone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5854350E9786267B0E8656AF /* DefinitionOfDone.swift */; };
 		A15846166E19DEE9B466E1A6 /* katex.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 2D2ABE405832861ECB534048 /* katex.min.js */; };
 		A1B7BA49D15B3B5D1706D24B /* GraphCreatorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACC3096F5958199C147B4B2C /* GraphCreatorSheet.swift */; };
@@ -515,6 +520,8 @@
 		50690741D7CB7EF5A17A1949 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5099218B9F25E2085FEEA6D2 /* katex.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = katex.min.css; sourceTree = "<group>"; };
 		509C73ABFDAE9E3E388138C7 /* markview-data.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-data.js"; sourceTree = "<group>"; };
+		0CC6D087EDCD99631299C7AC /* markview-research-map.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map.js"; sourceTree = "<group>"; };
+		0FCADE60B8A5BAF483AB9BBD /* markview-research-map-layout.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-research-map-layout.js"; sourceTree = "<group>"; };
 		509E5F08CB6B710DC2F0A4B1 /* PrototypeScreenshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeScreenshots.swift; sourceTree = "<group>"; };
 		50B0AF0B20435C1D64C3CCC7 /* ProjectToolRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectToolRunner.swift; sourceTree = "<group>"; };
 		52ABB6A927274482AD06DBCC /* GitHubClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubClient.swift; sourceTree = "<group>"; };
@@ -711,6 +718,9 @@
 		D53AFBF3E8E1F4A3740CA6CB /* PrototypeHandoffDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrototypeHandoffDraft.swift; sourceTree = "<group>"; };
 		D58148304B78246A455B450C /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchPrompt.swift; sourceTree = "<group>"; };
+		223E59FE48E2FB93AAEBE7F8 /* ResearchMapJobs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapJobs.swift; sourceTree = "<group>"; };
+		A25E7B36205C39CCF23B80AD /* ResearchMapRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapRun.swift; sourceTree = "<group>"; };
+		A2AE1595F8032392350969BD /* ResearchMapDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResearchMapDocument.swift; sourceTree = "<group>"; };
 		D849A71C0303F4E3F0F8FFEC /* markview-document-files.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-document-files.js"; sourceTree = "<group>"; };
 		DB0A17F3FD3EA83387ABEEC4 /* markview-architecture.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "markview-architecture.js"; sourceTree = "<group>"; };
 		DC5CB38E9CF1EB846033B0A8 /* GitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitView.swift; sourceTree = "<group>"; };
@@ -984,6 +994,9 @@
 				6D6D9377AD0B59E94F3B37FF /* ResearchDocument.swift */,
 				13993FF35E01B9904DA7B594 /* ResearchJobs.swift */,
 				D69D1C231E9DC47C097CBBA6 /* ResearchPrompt.swift */,
+				223E59FE48E2FB93AAEBE7F8 /* ResearchMapJobs.swift */,
+				A25E7B36205C39CCF23B80AD /* ResearchMapRun.swift */,
+				A2AE1595F8032392350969BD /* ResearchMapDocument.swift */,
 				6D939016101CACDA109D5AD0 /* SemanticDatabase.swift */,
 				9E489E1DDD498F75FC258CB3 /* SemanticModel.swift */,
 				234669AA71D7061108B72B97 /* SemanticModels.swift */,
@@ -1195,6 +1208,8 @@
 				3A6FFAB86BF5B4D5D9533CB1 /* markview-code.js */,
 				A3A3FD874DBCB00BB44FECDD /* markview-d3-mermaid.js */,
 				509C73ABFDAE9E3E388138C7 /* markview-data.js */,
+				0CC6D087EDCD99631299C7AC /* markview-research-map.js */,
+				0FCADE60B8A5BAF483AB9BBD /* markview-research-map-layout.js */,
 				7D4807224B482E48E25EFFFA /* markview-diagram-viewer.js */,
 				A054546375B560E45B265A02 /* markview-discussion.js */,
 				D849A71C0303F4E3F0F8FFEC /* markview-document-files.js */,
@@ -1387,6 +1402,8 @@
 				F420E9EEED8296CC65C60219 /* markview-code.js in Resources */,
 				871E76F5861DBF78E9904804 /* markview-d3-mermaid.js in Resources */,
 				49E9BFB3C3A7EBCD4FDDDC10 /* markview-data.js in Resources */,
+				2860F1DB8476CBEAD2EA2526 /* markview-research-map.js in Resources */,
+				B8905BFC3BBEEA0C43C74C0A /* markview-research-map-layout.js in Resources */,
 				C171BB5EDDA73F9B5FBB160C /* markview-diagram-viewer.js in Resources */,
 				21C3DF680F0AC024445812FC /* markview-discussion.js in Resources */,
 				2537AE1B2AB21324B1BE0371 /* markview-document-files.js in Resources */,
@@ -1683,6 +1700,9 @@
 				8F2D2F323E878F0B3D73D1C7 /* ResearchDocument.swift in Sources */,
 				204BF1EB82821AFBE2E2ED48 /* ResearchJobs.swift in Sources */,
 				9EAA8A126FA8F27267BBA0B0 /* ResearchPrompt.swift in Sources */,
+				86E11F0790D69B2F4BAFEDA7 /* ResearchMapJobs.swift in Sources */,
+				6EE1C72EEBAA995CF018DEC4 /* ResearchMapRun.swift in Sources */,
+				F4F265A063783096E1D0072F /* ResearchMapDocument.swift in Sources */,
 				5C987E1F79D333237A661FE4 /* ResearchViews.swift in Sources */,
 				154E375918D7240F90F0B49F /* SearchPanelView.swift in Sources */,
 				E038D9416B2960E5EA79CC20 /* SelectionActionBar.swift in Sources */,
@@ -1789,7 +1809,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.28.0;
+				CURRENT_PROJECT_VERSION = 5.29.0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1804,7 +1824,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.28.0;
+				MARKETING_VERSION = 5.29.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = MarkView;
@@ -1868,7 +1888,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 5.28.0;
+				CURRENT_PROJECT_VERSION = 5.29.0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1889,7 +1909,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MarkView/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 5.28.0;
+				MARKETING_VERSION = 5.29.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
