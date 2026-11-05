@@ -1,3 +1,23 @@
+## Research map: an arrow on each node, move a node under a new parent, delete a connection by its line (2026-11-05, feature mind-map) — REQ-015, DEC-016 (proposed), release 5.34.0 planned
+
+Request (Boris, 2026-11-05): "how do I move a node from one parent to another?" then: "every node should have a small arrow on the right; I drag a connection from it to any other node; and connections can be deleted". Answers: dragging from A to B **makes B a child of A**; deleting is **a click on the line, then a cross**. Nothing is implemented yet; waiting for Boris to approve this plan and the one open point below.
+
+### Facts checked in code
+- The parent is the nesting of the `## Map` outline (`ResearchMapDocument.swift`, parse at the "The outline" block); `normaliseOrder()` puts nodes in outline pre-order. No Swift operation changes a parent today (`addNode`, `deleteNode`, `moveVisual` only).
+- Dragging a node moves it on the canvas only (`moveVisual`, `x`/`y`); "Move to another branch" was removed on 2026-11-04 (DEC-010, BUG-093) because of its form (unlabelled icon, long dropdown).
+- Logical connections: created by the "Add logical connection…" dialog, removed by the cross in the properties panel (Q-008, option A). Lines are drawn by `drawLines` / `addPath` in `markview-research-map.js` (`pointer-events: none` on the line layer, so a line cannot be clicked yet).
+- The east resize handle of the selected node sits on the right edge, the fold button on the bottom edge, the "⋯" menu top right: the arrow goes just outside the right edge, vertically centred.
+
+### Plan (default choices in brackets, Boris can change them)
+- [ ] 1. Swift: `ResearchMap.move(id:to:)` (the node and its subtree become the last children of the new parent; refuse the root, itself, a descendant, the current parent; drop the hand-placed `x`/`y` of the moved nodes), through `updateResearchMap`; message `move {id, parent}` in `WorkspaceManager`; tests in the document suite (including a file round trip and links kept).
+- [ ] 2. Page: arrow on each node (right edge; left edge in a left-growing branch) on hover and when selected, drag with a rubber-band line, drop target highlight, Esc cancels, refusal toast; tests in the WebKit suite (pointer drags, the exact `move` message, nothing sent on cancel or an invalid target).
+- [ ] 3. Page: wide invisible hit area on dashed lines, click selects the line and shows a cross in its middle, cross / Delete / Backspace send `unlink`; hierarchy lines stay inert [open point 1]; tests.
+- [ ] 4. Hidden renders in dark and light (arrow, highlight, selected line); web, document, layout, run and export suites; Debug build.
+- [ ] 5. Records: tick REQ-015, lesson; minor bump 5.34.0 straight to `main`, `./release.sh --publish`, reinstall with windows restored.
+
+### Open point
+1. Clicking a hierarchy (parent-child) line: [nothing — every node needs a parent, so the arrow is the way to change it]. The alternative is that deleting a hierarchy line hangs the node under the root.
+
 ## Research map: description resize, Map/View/Source, Focus, diagram and image nodes (2026-11-05, feature mind-map) — BUG-096, REQ-010…REQ-012, DEC-013 (proposed)
 
 Request (Boris, 2026-11-05), four points: (1) the Description field in the node panel cannot be resized; (2) the choice for a map file should be Map, View (ordinary Markdown) or Source; (3) "Focus" in the node menu; (4) a node can show an image or a diagram instead of text, and a node that describes a flow gets a Draw flow button that adds a child "visual" with a Mermaid sequence diagram, visible as soon as the node is selected, small but with a pop-up zoom.
