@@ -104,6 +104,24 @@ do {
     check("BUG-078 a 1-based page with per_page pages the list", page2?.map { $0["name"]?.stringValue ?? "" } == ["Mercury"], "\(page2 ?? [])")
 }
 
+
+// BUG-097: sort and search are applied to the filtered records before paging.
+do {
+    var searchSpec = spec
+    searchSpec.rules = [StudioRule(id: "search", method: "GET", path: "/api/projects/search", operation: .list,
+                                   entity: "projects", filters: ["status", "sort", "q", "search"])]
+    var searchSim = StudioSimulator(spec: searchSpec, scenario: base, appOrigin: app)
+    func names(_ query: String) -> [String] {
+        answer(searchSim.handle(request("GET", "/api/projects/search?" + query))).1?.arrayValue?.compactMap { $0["name"]?.stringValue } ?? []
+    }
+    check("BUG-097 descending numeric order precedes paging", names("sort=id&order=desc&limit=2") == ["Mercury", "Gemini"])
+    check("BUG-097 order_by dot direction and sort_by minus", names("order_by=name.desc") == ["Mercury", "Gemini", "Apollo"]
+          && names("sort_by=-id") == ["Mercury", "Gemini", "Apollo"])
+    check("BUG-097 search is case insensitive and combines with filters before paging", names("q=EMI&status=active&limit=1") == ["Gemini"]
+          && names("search=UR") == ["Mercury"])
+    check("BUG-097 unknown sort field keeps seed order", names("sort=unknown") == ["Apollo", "Gemini", "Mercury"])
+}
+
 let renamed = answer(sim.handle(request("PATCH", "/api/projects/2", body: #"{"name":"Gemini II"}"#)))
 check("AC-03 rename answers the record", renamed.0 == 200 && renamed.1?["name"]?.stringValue == "Gemini II" && renamed.1?["status"]?.stringValue == "active")
 check("AC-03 later list reads the rename", answer(sim.handle(request("GET", "/api/projects"))).1?.arrayValue?.contains { $0["name"]?.stringValue == "Gemini II" } == true)

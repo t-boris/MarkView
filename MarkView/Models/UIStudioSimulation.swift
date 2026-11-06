@@ -315,6 +315,7 @@ struct StudioSimulator {
                 guard let wanted = query[name] else { continue }
                 list = list.filter { $0[name]?.identityKey == wanted }
             }
+            list = StudioPaging.searchAndSort(list, query: query)
             list = StudioPaging.page(list, query: query)
             list = list.map { attach(rule.include, to: $0, idField: idField, state: state, spec: spec) }
             return .json(rule.status ?? 200, rule.envelope.map { .object([$0: .array(list)]) } ?? .array(list))
@@ -574,7 +575,41 @@ enum StudioPaging {
     static let sizes = ["limit", "per_page", "perpage", "page_size", "pagesize", "size", "take", "first"]
     static let offsets = ["offset", "skip", "start"]
     static let pages = ["page", "page_number", "pagenumber"]
-    static let parameters = Set(sizes + offsets + pages + ["cursor", "after", "before", "sort", "order", "order_by", "orderby", "sort_by"])
+    static let parameters = Set(sizes + offsets + pages + ["cursor", "after", "before", "sort", "order", "order_by", "orderby", "sort_by", "q", "search"])
+
+    /// Search text fields and sort scalar fields before slicing the result. Equal and missing values keep their seed order.
+    static func searchAndSort(_ list: [StudioJSON], query: [String: String]) -> [StudioJSON] {
+        let query = Dictionary(query.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
+        let term = (query["q"] ?? query["search"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let found = term.isEmpty ? list : list.filter { record in
+            (record.objectValue ?? [:]).values.contains { value in
+                guard case .string(let text) = value else { return false }
+                return text.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+        }
+        guard var field = query["sort"] ?? query["sort_by"] ?? query["order_by"] ?? query["orderby"], !field.isEmpty else { return found }
+        var descending = query["order"]?.lowercased() == "desc"
+        if field.hasPrefix("-") { descending = true; field.removeFirst() }
+        if field.lowercased().hasSuffix(".desc") { descending = true; field = String(field.dropLast(5)) }
+        else if field.lowercased().hasSuffix(".asc") { descending = false; field = String(field.dropLast(4)) }
+        guard !field.isEmpty, found.contains(where: { $0[field] != nil }) else { return found }
+        return found.enumerated().sorted { left, right in
+            let a = left.element[field], b = right.element[field]
+            let comparison: ComparisonResult
+            func rank(_ value: StudioJSON?) -> Int {
+                switch value { case .some(.number): return 0; case .some(.string): return 1; default: return 2 }
+            }
+            switch (a, b) {
+            case (.some(.number(let x)), .some(.number(let y))): comparison = x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
+            case (.some(.string(let x)), .some(.string(let y))): comparison = x.localizedStandardCompare(y)
+            default:
+                let x = rank(a), y = rank(b)
+                comparison = x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
+            }
+            if comparison == .orderedSame { return left.offset < right.offset }
+            return descending ? comparison == .orderedDescending : comparison == .orderedAscending
+        }.map(\.element)
+    }
 
     static func page(_ list: [StudioJSON], query: [String: String]) -> [StudioJSON] {
         let lowered = Dictionary(query.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
