@@ -42,9 +42,17 @@ do {
     check("it names the actor and the time", history.lastChange?.actor == markview && history.lastChange?.at != nil)
     check("it keeps the supporting evidence", history.lastChange?.evidence.contains("start: handed to Claude Code") == true)
     check("it is a start", history.lastChange?.transitionKind == .start)
+    check("first start does not exclude an earlier fix", history.deliveryRoundStart == nil)
     check("it is not an override", history.lastChange?.override == false)
     check("the history ends in the new status", history.expectedStatus == "implementing")
     check("no operation is pending", history.pending.isEmpty)
+}
+
+do {
+    let reopenedAt = Date(timeIntervalSince1970: 100)
+    let records = [TransitionRecord(phase: .applied, kind: .bug, issue: "BUG-012", actor: boris, at: reopenedAt, transitionKind: .reopen),
+                   TransitionRecord(phase: .applied, kind: .bug, issue: "BUG-012", actor: markview, at: reopenedAt.addingTimeInterval(10), transitionKind: .start)]
+    check("a later start preserves the reopening boundary", IssueHistory(kind: .bug, issue: "BUG-012", all: records).deliveryRoundStart == reopenedAt)
 }
 
 // MARK: A rejection changes nothing and is inspectable (REQ-001 criterion 3, REQ-004 criterion 3)

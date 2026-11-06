@@ -296,8 +296,8 @@ enum IssueLifecycleContext {
     call does not make a request the person's. Never claim to be the person, to speak for them or to have their approval.
     2. Start: implementing / fixing needs start evidence: MarkView handed the issue to you (Implement with AI, Fix with AI) or \
     you called markview_attach_issue. Working from your own terminal, attach first.
-    3. Completion: implemented / fixed is recorded by MarkView from evidence: every associated pull request merged, the \
-    required checks passed and the release the project requires published. Your request succeeds only when that evidence is \
+    3. Completion: implemented is recorded when associated implementation lands on the default branch. Fixed also needs the \
+    required checks and release. Your request succeeds only when that evidence is \
     complete. Missing, unavailable, stale or ambiguous evidence is never completion: unknown is not done.
     4. Acceptance: verified (feature) or closed after a fix (bug) needs your evidence text, what you verified and how, and for a \
     feature every acceptance criterion of its active requirements ticked. The work must already be implemented / fixed.
@@ -555,7 +555,7 @@ enum IssueLifecycleContext {
         lines.append("MarkView issue lifecycle for \(kind.rawValue) \(issue) (status: \(current.isEmpty ? "(none)" : current)):")
         lines.append("- Read where it stands with markview_issue_context(issue: \"\(issue)\") and again after a merge, a CI run or a release. This handoff is your start evidence.")
         lines.append("- Change statuses only through MarkView (\(tool)), never by editing the Markdown files: an outside edit is recorded as unverified and never counts as completion.")
-        lines.append("- MarkView completes implemented / fixed itself, while the project is open, once the work is merged, its required checks passed and the release the project requires exists; you may also ask with \(tool), and a request made before that evidence is complete is refused with what is missing.")
+        lines.append("- MarkView records implemented when associated implementation lands on the default branch. Fixed also needs required checks and release; you may ask with \(tool), and a request made before the evidence is complete is refused with what is missing.")
         if kind == .feature {
             lines.append("- MarkView finds the work of this feature by a trailer line in each commit message and pull request description: write \"Feature: \(issue)\" on a line of its own (or name docs/features/\(issue)).")
         }

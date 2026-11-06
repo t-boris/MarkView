@@ -207,6 +207,9 @@ struct IssueHistory: Equatable, Sendable {
     /// Records that set the status, oldest first.
     var changes: [TransitionRecord] { records.filter(\.setsStatus) }
 
+    /// Starting an issue may follow an existing fix; only reopening starts a new delivery round.
+    var deliveryRoundStart: Date? { changes.last { $0.phase != .baseline && $0.transitionKind == .reopen }?.at }
+
     /// The status the history says the issue has now; nil with no history.
     var expectedStatus: String? { changes.last?.to }
 

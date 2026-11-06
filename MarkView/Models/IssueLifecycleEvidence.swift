@@ -141,7 +141,7 @@ struct DeliveryInput: Sendable {
     var pullRequestRequired: Bool
     var checksRequired: Bool
     var releases: [WorkRef: ReleaseState]
-    /// When the issue was last started or reopened: implementation work for a started or reopened issue is work merged
+    /// When the issue was last reopened: implementation work for a reopened issue is work merged
     /// after that time, so that a reopened issue does not complete again on the work that was already there.
     var since: Date?
 
@@ -236,14 +236,23 @@ enum DeliveryEvaluator {
 
 /// How a commit message or a pull request text names an issue (DEC-012).
 enum WorkAssociationRules {
-    /// A feature: its folder `docs/features/<slug>` as a whole path segment, a `Feature: <slug>` trailer line (what the hand-off
-    /// asks the agent to write), or `#n` of one of its linked GitHub issues.
+    /// A PR can explicitly mention earlier work while disclaiming that it fixes it. Such a line is not a delivery link.
+    static func deliveryDescription(_ text: String) -> String {
+        text.components(separatedBy: .newlines).filter { line in
+            let lower = line.lowercased()
+            return !lower.contains("previously addressed") && !lower.contains("does not claim new fixes")
+        }.joined(separator: "\n")
+    }
+
+    /// A feature: its folder, a `Feature: <slug>` trailer, a backtick-quoted slug, or a linked GitHub issue number.
     static func mentionsFeature(_ text: String, slug: String, issues: Set<Int>) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: slug)
         let folder = NSRegularExpression.escapedPattern(for: "docs/features/") + escaped + "(?![A-Za-z0-9_-])"
         let trailer = "(?m)^[ \\t]*Feature:[ \\t]*" + escaped + "[ \\t]*$"
+        let quoted = "`" + escaped + "`"
         if text.range(of: folder, options: .regularExpression) != nil { return true }
         if text.range(of: trailer, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        if text.range(of: quoted, options: [.regularExpression, .caseInsensitive]) != nil { return true }
         return mentionsIssueNumber(text, in: issues)
     }
 
@@ -251,6 +260,16 @@ enum WorkAssociationRules {
     static func mentionsBug(_ text: String, key: String, issues: Set<Int>) -> Bool {
         let pattern = "(?<![A-Za-z0-9-])" + NSRegularExpression.escapedPattern(for: key) + "(?![A-Za-z0-9])"
         if text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil { return true }
+        // A batch may abbreviate repeated keys as BUG-012/013/014.
+        if key.uppercased().hasPrefix("BUG-"),
+           let regex = try? NSRegularExpression(pattern: #"(?i)(?<![A-Za-z0-9-])BUG-(\d+(?:/\d+)+)(?![A-Za-z0-9])"#) {
+            let wanted = String(key.dropFirst(4))
+            let range = NSRange(text.startIndex..., in: text)
+            if regex.matches(in: text, range: range).contains(where: { match in
+                guard let group = Range(match.range(at: 1), in: text) else { return false }
+                return text[group].split(separator: "/").contains(Substring(wanted))
+            }) { return true }
+        }
         return mentionsIssueNumber(text, in: issues)
     }
 
