@@ -482,12 +482,26 @@ sequenceDiagram
 
 **View → UI Studio (⌘7)**, **AI Tools → UI Studio (Existing Code)**, or **New Prototype from Code…**
 opens the project's own web interface in a tab: the same launch discovery as *Preview Web App*
-(Vite, webpack, Next, Angular, Svelte, Astro, Django, Rails, a static `index.html`…; an Electron app
+(Vite, webpack, Next, Angular, Svelte, Astro, Django, FastAPI, Starlette, Flask, Rails, Laravel, ASP.NET, a static `index.html`…; an Electron app
 runs its renderer as a web page). One session per window. A dev server that is already running is
 used and left running; one UI Studio starts runs in its own process group and stops with the tab,
 the folder or the window.
 
-- **Test data, not your backend.** `fetch` and `XMLHttpRequest` calls that ask for JSON are answered by
+- **Other servers.** Put `.markview/preview.json` in the application folder, for example
+  `{"command":"go run ./cmd/web --port 8085","ports":[8085]}`. The command runs in that folder;
+  list its loopback HTTP ports in order. Set `"reuseRunningServer":false` to always start a new server;
+  configured ports must then be free before launch. With that option, `"ports":[]` is allowed when the
+  process prints a local URL or a JSON readiness
+  line containing `ready: true` and `port`. This also overrides automatic discovery. Use a command that
+  binds to loopback and serves the browser interface. UI Studio executes it with your permissions.
+  Server databases, background jobs, and calls within non-Node servers are not isolated by browser
+  simulation; configure a separate test database in the command or the application's configuration.
+  Titanium Color Engraving Platform is detected automatically when its `.venv` is installed: it starts
+  on a free port with a separate persistent workshop in `.dde/studio/titanium-data`, never the operator's
+  default workshop. Same-origin API calls go to that separate real database, so the built-in simulated
+  scenarios and Reset do not reset its contents; edits persist between sessions. Its first startup may take
+  longer while it creates that workshop.
+- **Test data.** Except for the isolated Titanium workshop described above, `fetch` and `XMLHttpRequest` calls that ask for JSON are answered by
   a simulation with shared records: a rename shows in the list and the detail, a delete is gone
   everywhere, a repeated write with the same key happens once. A request the simulation does not know
   is prepared once by the assistant (read-only, no web), checked, and then served without it; anything

@@ -312,7 +312,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             self.targets = found
             guard let target = chosen ?? (found.count == 1 ? found[0] : nil) else {
                 if found.isEmpty {
-                    self.set(.failed, "No web application with a development server was found in this project.")
+                    self.set(.failed, "No web application with a development server was found. Add .markview/preview.json with its command and port, then try again.")
                 } else {
                     self.set(.analyzing, "Choose the application to open.")
                 }
@@ -334,7 +334,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
         set(.starting, "Looking for a running development server")
         // Listening is enough: a GET of a server-rendered page waits for its data calls (BUG-076).
-        var url = await WebAppPreview.firstListening(target.ports)
+        var url = target.reuseRunningServer ? await WebAppPreview.firstListening(target.ports) : nil
         if url == nil {
             set(.starting, "Starting `\(target.command)` in \(target.label)")
             url = await startServer(target)
@@ -357,6 +357,12 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
     }
 
     private func startServer(_ target: WebAppTarget) async -> URL? {
+        let occupied = target.reuseRunningServer ? nil : await WebAppPreview.firstListening(target.ports)
+        guard !closed, !Task.isCancelled else { return nil }
+        if let occupied {
+            set(.failed, "The configured port \(occupied.port ?? 0) is already in use. Stop that server or choose a free port.")
+            return nil
+        }
         let root = self.root, retry = failedInstallFolder == target.folder
         let install = await Task.detached { WebAppPreview.missingDependencies(for: target, root: root, retry: retry) }.value
         guard !closed, !Task.isCancelled else { return nil }
@@ -1408,7 +1414,8 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
             return reply(.pass(adding: StudioConnectionPolicy.frameworkRequestHeaders))
         }
         // The server's connections are switched by the person (Simulated or Real), not by the page's allowed addresses.
-        if (sameServer && StudioConnectionPolicy.isDevelopmentResource(http.url, appFolder: appFolder))
+        if (sameServer && ownsServer && target?.usesIsolatedBackend == true)
+            || (sameServer && StudioConnectionPolicy.isDevelopmentResource(http.url, appFolder: appFolder))
             || (source == .page && !ipc && spec.allowedRequests.contains(where: { StudioRoute.allows($0, url: http.url, appOrigin: appOrigin?.text) })) {
             if !sameServer { noteDependency(StudioDependency(id: contract, mode: .allowed, note: "Allowed by the connection policy.")) }
             log(RequestRecord(method: http.method, url: shown, contract: contract, outcome: "allowed", status: nil, transport: transport))
@@ -1825,7 +1832,10 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         if isPreparing {
             set(.preparing, "Preparing simulation rules for new requests")
         } else if reasons.isEmpty {
-            set(.ready, "The scenario is loaded and every request it made is simulated.")
+            let detail = target?.usesIsolatedBackend == true && ownsServer
+                ? "The scenario is loaded. The application uses its separate local test database."
+                : "The scenario is loaded and every request it made is simulated."
+            set(.ready, detail)
         } else {
             set(.degraded, reasons.joined(separator: "; "))
         }

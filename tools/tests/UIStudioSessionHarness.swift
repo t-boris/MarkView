@@ -1493,6 +1493,7 @@ func finish(_ session: StudioSession, port: Int? = nil) {
             await ipcSessionChecks()
             await fixDataChecks()
             await dependencyInstallChecks()
+            await dynamicServerChecks()
         }
         targetChecks()
         print(failures == 0 ? "All UI Studio session checks passed." : "\(failures) UI Studio session check(s) failed.")
@@ -2627,4 +2628,57 @@ func routeMapChecks() async {
     check("BUG-090 the log says the list was read from the code", session.sessionLog.entries.contains { $0.text.contains("route handlers from its code") }
           && session.sessionLog.entries.contains { $0.text.contains("endpoints read from the code") })
     await session.close()
+}
+
+
+/// A configured server with an ephemeral port reports JSON readiness, and the session owns and stops it.
+@MainActor
+func dynamicServerChecks() async {
+    watchdog.reached("A configured server with an ephemeral port")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("markview-studio-dynamic-\(UUID().uuidString)").resolvingSymlinksInPath()
+    try? fm.createDirectory(at: root.appendingPathComponent(".markview"), withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    let config = #"{"command":"python3 server.py","ports":[],"reuseRunningServer":false}"#
+    try? config.write(to: root.appendingPathComponent(".markview/preview.json"), atomically: true, encoding: .utf8)
+    let python = """
+    import http.server, json
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            is_api = self.path == '/api/value'
+            body = b'{"value":"separate database"}' if is_api else b'<html><body><h1>Dynamic server</h1></body></html>'
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json' if is_api else 'text/html')
+            self.end_headers()
+            self.wfile.write(body)
+    server = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+    print(json.dumps({'ready': True, 'port': server.server_port}), flush=True)
+    server.serve_forever()
+    """
+    try? python.write(to: root.appendingPathComponent("server.py"), atomically: true, encoding: .utf8)
+    let session = StudioSession(root: root)
+    guard var target = WebAppPreview.targets(root: root).first else { check("dynamic server is discovered", false); return }
+    target.usesIsolatedBackend = true
+    session.start(target)
+    let ready = await waitUntil(90) { [.ready, .degraded, .failed].contains(session.state) }
+    let text = (try? await session.call("return document.querySelector('h1')?.textContent;")) as? String
+    let value = (try? await session.call("return (await (await fetch('/api/value')).json()).value;")) as? String
+    let port = session.appURL?.port
+    check("an owned isolated backend serves its API", value == "separate database" && session.requests.contains { $0.contract == "GET /api/value" && $0.outcome == "allowed" })
+    check("a discovered dynamic server opens its page", ready && session.state != .failed && session.ownsServer && text == "Dynamic server",
+          "\(session.state) \(session.stateDetail) \(text ?? "nil")")
+    if let port {
+        let second = StudioSession(root: root)
+        var busy = target
+        busy.ports = [port]
+        second.start(busy)
+        let failed = await waitUntil(10) { second.state == .failed }
+        check("a non-reusing target refuses an occupied port", failed && !second.ownsServer && second.stateDetail.contains("already in use"))
+        await second.close()
+    }
+    await session.close()
+    if let port {
+        let listening = await WebAppPreview.isListening(port)
+        check("the dynamic server stops when the session closes", !listening)
+    } else { check("the dynamic server reported its port", false) }
 }
