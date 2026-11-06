@@ -40,7 +40,8 @@ enum ProjectOperationDiscovery {
     /// files are clipped sooner, since a cut-off target list left operations undetermined.
     static func isBuildDefinition(_ location: String) -> Bool {
         let name = (location as NSString).lastPathComponent.lowercased()
-        return ["makefile", "justfile", "package.json", "taskfile.yml", "taskfile.yaml", "procfile"].contains(name)
+        return ["makefile", "justfile", "package.json", "taskfile.yml", "taskfile.yaml", "procfile", "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "cargo.toml", "pyproject.toml", "package.swift", "gemfile", "rakefile", "go.mod", "composer.json", "deno.json", "deno.jsonc", "bun.lock", "cmakelists.txt", "meson.build", "build.xml", "build.toml", "build.zig", "mix.exs", "pubspec.yaml", "flake.nix", "shell.nix", "earthfile"].contains(name)
+            || ["csproj", "fsproj", "sln", "slnx"].contains((name as NSString).pathExtension)
             || location.contains(".github/workflows/")
     }
 
@@ -191,7 +192,7 @@ enum ProjectOperationDiscovery {
     }
 
     private static func isProjectInput(_ path: String) -> Bool {
-        if ArchitectureScanner.isDeploymentHint(path) { return true }
+        if ArchitectureScanner.isDeploymentHint(path) || isBuildDefinition(path) { return true }
         let name = (path as NSString).lastPathComponent.lowercased()
         if name == "package.json" || name == "justfile" || name == "taskfile.yml" || name == "taskfile.yaml"
             || name == "fastfile" || name.hasPrefix("readme") { return true }

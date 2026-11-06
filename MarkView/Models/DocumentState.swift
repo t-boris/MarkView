@@ -311,7 +311,7 @@ struct OpenTab: Identifiable {
     /// The display name for the tab (file name)
     var displayName: String {
         if case .terminal = kind { return "Terminal: " + url.deletingLastPathComponent().lastPathComponent }
-        if case .deployments = kind { return "Deployments" }
+        if case .deployments = kind { return "Build & Deployment" }
         if case .discussions = kind { return "Discussions" }
         if case .github(let item) = kind { return item.title }
         // The page title lives on the main actor; the tab bar shows it with `BrowserTabTitle`.

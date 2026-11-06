@@ -141,7 +141,7 @@ struct ProjectOperation: Codable, Identifiable {
         }
     }
 
-    static let kinds: Set<String> = ["deploy", "install", "build", "clean", "restart", "other"]
+    static let kinds: Set<String> = ["deploy", "install", "build", "test", "run", "clean", "restart", "other"]
 
     func validate() throws {
         let slug = id.range(of: "^[a-z0-9]+(?:-[a-z0-9]+)*$", options: .regularExpression) != nil
@@ -304,7 +304,7 @@ extension ProjectOperation {
     /// Operations shown up front; the rest are found by search.
     static let primaryLimit = 5
     /// Kinds in the order they matter for a primary slot.
-    static let primaryKindOrder = ["deploy", "install", "build", "restart", "clean", "other"]
+    static let primaryKindOrder = ["deploy", "build", "test", "run", "install", "clean", "restart", "other"]
 
     /// The few operations worth a button: running ones first, then the most recently started,
     /// then by kind (`primaryKindOrder`) and label. Pure, so tools/tests can check it alone.

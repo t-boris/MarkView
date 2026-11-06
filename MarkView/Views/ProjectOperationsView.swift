@@ -212,7 +212,7 @@ struct ProjectOperationEditor: View {
             Form {
                 TextField("Label", text: $label)
                 Picker("Kind", selection: $kind) {
-                    ForEach(["deploy", "install", "build", "clean", "restart", "other"], id: \.self) { Text($0.capitalized).tag($0) }
+                    ForEach(["deploy", "build", "test", "run", "install", "clean", "restart", "other"], id: \.self) { Text($0.capitalized).tag($0) }
                 }
                 TextField("Environment (optional)", text: $environment)
                 TextField("Target (optional)", text: $target)

@@ -8,6 +8,9 @@ trap 'rm -rf "$test_root"' EXIT
 mkdir -p "$test_root/project" "$test_root/infra/scripts"
 print '../infra contains the install procedure.' > "$test_root/project/README.md"
 print '{"scripts":{"build":"echo build"}}' > "$test_root/project/package.json"
+mkdir -p "$test_root/project/server"
+print '[project]' > "$test_root/project/server/pyproject.toml"
+print 'plugins {}' > "$test_root/project/server/build.gradle.kts"
 print 'echo install' > "$test_root/infra/scripts/install.sh"
 print 'SECRET=do-not-read' > "$test_root/infra/.env"
 ln -s "$test_root/infra/.env" "$test_root/infra/scripts/linked.env"
@@ -24,6 +27,8 @@ struct ArchitectureScanner {
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
         let first = ProjectOperationDiscovery.scan(root: root)
         precondition(first.files.contains { $0.location == "package.json" })
+        precondition(first.files.contains { $0.location == "server/pyproject.toml" })
+        precondition(first.files.contains { $0.location == "server/build.gradle.kts" })
         precondition(first.grantedFolders.count == 1)
         precondition(first.files.contains { $0.location.hasSuffix("install.sh") && $0.external })
         precondition(!first.files.contains { $0.location.hasSuffix(".env") || $0.location.hasSuffix("linked.env") })
