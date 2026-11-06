@@ -384,9 +384,10 @@ enum BugValidity {
 
     /// The check as a step in front of an analysis. `verify` runs the verification (nil when the user stopped it); `save` records the
     /// verdict in the report and returns the error text when that failed.
+    @MainActor
     struct Gate {
-        var verify: () async -> Verdict?
-        var save: (Verdict) -> String?
+        var verify: @MainActor () async -> Verdict?
+        var save: @MainActor (Verdict) -> String?
 
         enum Result {
             /// The analysis goes on.
@@ -409,21 +410,22 @@ enum BugValidity {
 
     /// The three ways into an analysis of an existing report. Each passes through the gate before any analytical assistant call, and the
     /// user's own input is saved first (REQ-001).
+    @MainActor
     enum Entry {
         /// The Investigate action.
-        static func investigate(gate: Gate, analyze: (Passed) async -> Void) async {
+        static func investigate(gate: Gate, analyze: @MainActor (Passed) async -> Void) async {
             guard case .proceed(let passed) = await gate.run() else { return }
             await analyze(passed)
         }
 
         /// An answer to a question: saved, checked, then the analysis.
-        static func answer(record: () -> Bool, gate: Gate, analyze: (Passed) async -> Void) async {
+        static func answer(record: @MainActor () -> Bool, gate: Gate, analyze: @MainActor (Passed) async -> Void) async {
             guard record() else { return }
             await investigate(gate: gate, analyze: analyze)
         }
 
         /// A discussion message: saved, checked, then the reply to it, then the analysis (which does not check again).
-        static func discuss(record: () async -> Bool, gate: Gate, reply: (Passed) async -> Bool, analyze: (Passed) async -> Void) async {
+        static func discuss(record: @MainActor () async -> Bool, gate: Gate, reply: @MainActor (Passed) async -> Bool, analyze: @MainActor (Passed) async -> Void) async {
             guard await record() else { return }
             guard case .proceed(let passed) = await gate.run() else { return }
             guard await reply(passed) else { return }
