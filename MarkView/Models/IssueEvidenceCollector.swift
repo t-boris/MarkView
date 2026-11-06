@@ -251,7 +251,7 @@ enum IssueEvidenceCollector {
                 judged = landed
             }
             return WorkUnit(ref: .pullRequest(number), headSHA: judged, mergedAt: commit.date, changedPaths: commit.paths, checks: state,
-                            association: match.association)
+                            association: match.association, landedSHA: landed)
         }
         return WorkUnit(ref: .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date, changedPaths: commit.paths,
                         checks: await checks(of: commit.sha, client: client), association: match.association)
@@ -290,7 +290,7 @@ enum IssueEvidenceCollector {
         let landed = unit.mergedAt ?? .distantFuture
         let candidates = releases.filter { $0.publishedAt >= landed }.prefix(releaseChecks)
         if candidates.isEmpty { return .pending }
-        let sha = unit.ref.commitSHA ?? unit.headSHA
+        let sha = unit.landedSHA ?? unit.ref.commitSHA ?? unit.headSHA
         var unreadable = false
         for candidate in candidates {
             let compare = await GitHubClient.execute(["api", "repos/\(client.repo.slug)/compare/\(sha)...\(candidate.tag)", "--jq", ".status"],

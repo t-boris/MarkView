@@ -28,12 +28,19 @@ struct GitHubClient: Sendable {
             return Output(status: 0, stdout: String(decoding: data, as: UTF8.self), stderr: "")
         }
         if args.prefix(2) == ["pr", "view"] {
-            return Output(status: 0, stdout: #"{"headRefOid":"abc","mergeCommit":{"oid":"abc"}}"#, stderr: "")
+            return Output(status: 0, stdout: #"{"headRefOid":"pr-head","mergeCommit":{"oid":"squash-commit"}}"#, stderr: "")
         }
         if args.prefix(2) == ["run", "list"] {
             let failed = FileManager.default.fileExists(atPath: root.appendingPathComponent(".failed-check").path)
             let result = failed ? #"[{"status":"completed","conclusion":"failure"}]"# : #"[{"status":"completed","conclusion":"success"}]"#
             return Output(status: 0, stdout: result, stderr: "")
+        }
+        if args.prefix(2) == ["release", "list"] {
+            return Output(status: 0, stdout: #"[{"tagName":"v1","publishedAt":"2099-01-01T00:00:00Z","isDraft":false}]"#, stderr: "")
+        }
+        if args.first == "api", args.count > 1, args[1].contains("/compare/") {
+            let containsSquash = args[1].contains("/compare/squash-commit...v1")
+            return Output(status: 0, stdout: containsSquash ? "ahead" : "diverged", stderr: "")
         }
         return Output(status: 1, stdout: "", stderr: "")
     }
@@ -87,6 +94,11 @@ struct GitHubClient: Sendable {
         check("unrelated merges do not complete another issue", !missing.isComplete)
         let docsOnly = await IssueEvidenceCollector.collect(subject(.feature, "docs-only"), root: root, githubEnabled: true)
         check("a documentation commit is not attributed to the next unrelated merge", !docsOnly.isComplete)
+        try! fm.createDirectory(at: root.appendingPathComponent(".dde"), withIntermediateDirectories: true)
+        try! #"{"items":[{"id":"deploy","mode":"require"}]}"#.write(to: root.appendingPathComponent(".dde/definition-of-done.json"), atomically: true, encoding: .utf8)
+        let released = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: true)
+        check("a release contains the landed squash commit, not the PR branch head", released.isComplete && released.lines.contains { $0.contains("v1") })
+        try! fm.removeItem(at: root.appendingPathComponent(".dde"))
         let unavailable = await IssueEvidenceCollector.collect(subject(.feature, "ci"), root: root, githubEnabled: false)
         check("a merged commit does not bypass unavailable checks", !unavailable.isComplete)
         let shared = IssueEvidenceCollector.Subject(kind: .feature, issue: "not-ci", exclusiveNumbers: [], sharedNumbers: [77], since: nil)

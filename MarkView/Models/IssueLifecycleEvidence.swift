@@ -54,6 +54,8 @@ struct WorkUnit: Equatable, Sendable {
     var ref: WorkRef
     /// The commit the checks are judged on: the head of a pull request, the commit itself otherwise.
     var headSHA: String
+    /// The commit on the default branch containing this work; it may differ from the PR head after a squash merge.
+    var landedSHA: String?
     /// When it entered the default branch; nil while it has not.
     var mergedAt: Date?
     /// A pull request closed without merging counts for nothing.
@@ -64,9 +66,10 @@ struct WorkUnit: Equatable, Sendable {
     var association: WorkAssociation
 
     init(ref: WorkRef, headSHA: String, mergedAt: Date?, closedUnmerged: Bool = false, changedPaths: [String]?,
-         checks: CheckState, association: WorkAssociation = .explicit) {
+         checks: CheckState, association: WorkAssociation = .explicit, landedSHA: String? = nil) {
         self.ref = ref
         self.headSHA = headSHA
+        self.landedSHA = landedSHA
         self.mergedAt = mergedAt
         self.closedUnmerged = closedUnmerged
         self.changedPaths = changedPaths
