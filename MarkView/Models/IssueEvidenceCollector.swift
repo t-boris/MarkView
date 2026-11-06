@@ -55,8 +55,11 @@ enum IssueEvidenceCollector {
         }
         let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
         let required = ReleaseRequirement.isRequired(definitionOfDoneJSON: definition)
-        let guide = try? String(contentsOf: root.appendingPathComponent("CLAUDE.md"), encoding: .utf8)
-        let policy = ProjectDeliveryPolicy.read(definition: definition, guide: guide)
+        let guides = ["AGENTS.md", "CLAUDE.md"].compactMap { name -> String? in
+            guard let text = try? String(contentsOf: root.appendingPathComponent(name), encoding: .utf8), text.utf8.count <= 1_000_000 else { return nil }
+            return text
+        }.joined(separator: "\n")
+        let policy = ProjectDeliveryPolicy.read(definition: definition, guide: guides)
 
         let needsGitHub = policy.checksRequired || policy.pullRequestRequired || required
         var client: GitHubClient?

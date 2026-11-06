@@ -110,11 +110,14 @@ struct ProjectDeliveryPolicy {
         // not a casual mention of direct commits or disabled CI.
         if let guide {
             let requiresPR = #"(?im)^[-*]?[ \t]*Never commit to main directly[^\n]*"#
-            if guide.range(of: requiresPR, options: .regularExpression) != nil,
-               guide.range(of: #"(?i)open a pull request"#, options: .regularExpression) != nil { pr = true }
+            let explicitPR = #"(?i)\bevery feature and bug fix goes through a pull request\b"#
+            let mandatory = (guide.range(of: requiresPR, options: .regularExpression) != nil
+                && guide.range(of: #"(?i)open a pull request"#, options: .regularExpression) != nil)
+                || guide.range(of: explicitPR, options: .regularExpression) != nil
             let direct = #"(?ims)^##[ \t]+Commits? go straight to main[^\n]*\n(?:(?!^##[ \t]).)*commit directly to `?main`?"#
             let disabled = #"(?ims)^##[ \t]+CI is switched off[^\n]*\n(?:(?!^##[ \t]).)*do not wait for CI"#
-            if guide.range(of: direct, options: .regularExpression) != nil { pr = false }
+            if mandatory { pr = true }
+            else if guide.range(of: direct, options: .regularExpression) != nil { pr = false }
             if guide.range(of: disabled, options: .regularExpression) != nil { ci = false }
         }
         return ProjectDeliveryPolicy(pullRequestRequired: pr, checksRequired: ci)

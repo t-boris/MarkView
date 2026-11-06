@@ -115,6 +115,7 @@ check("explicit operator rules override outdated PR and CI settings", !directPol
 let skipPR = Data(#"{"items":[{"id":"pr","mode":"skip"}]}"#.utf8)
 let requiredGuide = "## Git Workflow\n- Never commit to main directly for anything else.\n- Open a pull request into main."
 check("an explicit project rule requiring PR overrides a skipped checklist item", ProjectDeliveryPolicy.read(definition: skipPR, guide: requiredGuide).pullRequestRequired)
+check("an AGENTS.md rule requiring a PR is respected", ProjectDeliveryPolicy.read(definition: skipPR, guide: "The most important rule: every feature and bug fix goes through a pull request.").pullRequestRequired)
 let unconfirmedPR = WorkUnit(ref: .pullRequest(41), headSHA: "sha", mergedAt: minutes(10), changedPaths: ["app.swift"],
                              checks: .passed(sha: "sha"), pullRequestVerified: false)
 let unresolvedPR = DeliveryEvaluator.evaluate(DeliveryInput(sources: sources, work: [unconfirmedPR], releaseRequired: false, pullRequestRequired: true))
