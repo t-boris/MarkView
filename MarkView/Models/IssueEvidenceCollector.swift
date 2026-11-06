@@ -40,13 +40,15 @@ enum IssueEvidenceCollector {
         // of them cannot push the real work out of view. Work from before the item was last started or reopened is another round.
         // Git dates have whole seconds, so the start is compared to the second.
         let start = subject.since.map { Date(timeIntervalSince1970: $0.timeIntervalSince1970.rounded(.down)) }
-        let matches = matching(history, subject).filter { match in start.map { match.commit.date >= $0 } ?? true }
+        let candidates = history.filter { commit in
+            (start.map { commit.date >= $0 } ?? true)
+                && (commit.paths.isEmpty || !commit.paths.allSatisfy(DocumentationPaths.isDocumentation))
+        }
+        var matches = matching(candidates, subject)
         // The log is a window: when it ends after the work started, work in between cannot be seen.
         let reachedStart = start.map { start in history.count < logLimit || history.last.map { $0.date <= start } ?? true } ?? true
         if !reachedStart {
             sources.append(.unavailable("git", "the last \(logLimit) commits of \(ref) do not reach back to when the work started"))
-        } else if matches.count > unitLimit {
-            sources.append(.unavailable("git", "\(matches.count) commits name this item; only the newest \(unitLimit) can be read"))
         } else {
             sources.append(.available("git"))
         }
@@ -64,6 +66,21 @@ enum IssueEvidenceCollector {
             }
         } else {
             sources.append(.unavailable("GitHub", "the GitHub integration is off, so checks and releases cannot be read"))
+        }
+
+        // Merge commits normally contain only the PR title, not its body or the messages of the commits merged.
+        // Read both sources before deciding that no implementation exists. Associate the evidence with the first-parent
+        // commit, which is the work that actually landed, rather than treating an unmerged branch as delivered.
+        let side = await sideBranchMatches(candidates, subject: subject, ref: ref, root: root)
+        matches = mergeMatches(matches, side.matches, order: candidates)
+        if let reason = side.error { sources.append(.unavailable("git branch history", reason)) }
+        if let client {
+            let prBodies = await pullRequestMatches(candidates, subject: subject, client: client)
+            matches = mergeMatches(matches, prBodies.matches, order: candidates)
+            if let reason = prBodies.error { sources.append(.unavailable("GitHub pull requests", reason)) }
+        }
+        if matches.count > unitLimit {
+            sources.append(.unavailable("git", "\(matches.count) commits name this item; only the newest \(unitLimit) can be read"))
         }
 
         var work: [WorkUnit] = []
@@ -97,25 +114,103 @@ enum IssueEvidenceCollector {
         var pullRequest: Int?
     }
 
-    private static func matching(_ commits: [GitWorkLog.Commit], _ subject: Subject) -> [Match] {
-        var matches: [Match] = []
-        for commit in commits {
-            if !commit.paths.isEmpty, commit.paths.allSatisfy(DocumentationPaths.isDocumentation) { continue }
-            let explicit: Bool
-            switch subject.kind {
-            case .feature:
-                explicit = WorkAssociationRules.mentionsFeature(commit.message, slug: subject.issue, issues: subject.exclusiveNumbers)
-            case .bug:
-                explicit = WorkAssociationRules.mentionsBug(commit.message, key: subject.issue, issues: subject.exclusiveNumbers)
-            }
-            var association: WorkAssociation = .explicit
-            if !explicit {
-                guard WorkAssociationRules.mentionsIssueNumber(commit.message, in: subject.sharedNumbers) else { continue }
-                association = .ambiguous("it names only a GitHub issue that more than one feature or bug links")
-            }
-            matches.append(Match(commit: commit, association: association, pullRequest: pullRequest(in: commit.message)))
+    private static func association(in text: String, subject: Subject) -> WorkAssociation? {
+        let explicit: Bool
+        switch subject.kind {
+        case .feature:
+            explicit = WorkAssociationRules.mentionsFeature(text, slug: subject.issue, issues: subject.exclusiveNumbers)
+        case .bug:
+            explicit = WorkAssociationRules.mentionsBug(text, key: subject.issue, issues: subject.exclusiveNumbers)
         }
-        return matches
+        if explicit { return .explicit }
+        if WorkAssociationRules.mentionsIssueNumber(text, in: subject.sharedNumbers) {
+            return .ambiguous("it names only a GitHub issue that more than one feature or bug links")
+        }
+        return nil
+    }
+
+    private static func matching(_ commits: [GitWorkLog.Commit], _ subject: Subject) -> [Match] {
+        commits.compactMap { commit in
+            association(in: commit.message, subject: subject).map {
+                Match(commit: commit, association: $0, pullRequest: pullRequest(in: commit.message))
+            }
+        }
+    }
+
+    /// Merge several independent links without double-counting the same landed change. An explicit link wins over a shared number.
+    private static func mergeMatches(_ left: [Match], _ right: [Match], order: [GitWorkLog.Commit]) -> [Match] {
+        var bySHA: [String: Match] = [:]
+        for match in left + right {
+            if let previous = bySHA[match.commit.sha], previous.association == .explicit { continue }
+            bySHA[match.commit.sha] = match
+        }
+        return order.compactMap { bySHA[$0.sha] }
+    }
+
+    /// Read messages in merged branches, then locate the first mainline commit containing each one. A bounded scan or a
+    /// failed ancestry lookup is reported, never silently interpreted as absence of work.
+    private static func sideBranchMatches(_ mainline: [GitWorkLog.Commit], subject: Subject, ref: String, root: URL)
+        async -> (matches: [Match], error: String?) {
+        guard !mainline.isEmpty else { return ([], nil) }
+        let limit = 20_000
+        let format = "--format=\(GitWorkLog.separator)%H%x1f%cI%x1f%B%x1f"
+        let output = await GitHubClient.execute(["log", ref, "-n", String(limit), "--no-merges", format], in: root, git: true, timeout: 30)
+        guard output.status == 0 else { return ([], "the merged commit messages could not be read") }
+        let commits = GitWorkLog.commits(from: output.stdout)
+        let firstParents = await GitHubClient.execute(["log", ref, "--first-parent", "--format=%H"],
+                                                      in: root, git: true, timeout: 30)
+        guard firstParents.status == 0 else { return ([], "the mainline commits could not be read") }
+        let primary = Set(firstParents.stdout.split(whereSeparator: \.isNewline).map(String.init))
+        let merges = await GitHubClient.execute(["log", ref, "-n", String(logLimit), "--first-parent", "--merges", "--format=%H"],
+                                                in: root, git: true, timeout: 30)
+        guard merges.status == 0 else { return ([], "the mainline merges could not be read") }
+        let mergeSHAs = Set(merges.stdout.split(whereSeparator: \.isNewline).map(String.init))
+        let related = matching(commits.filter { !primary.contains($0.sha) }, subject)
+        guard related.count <= 300 else { return ([], "more than 300 commits name this item; their merges could not be located safely") }
+        var found: [Match] = []
+        for match in related {
+            let ancestry = await GitHubClient.execute(["log", "--first-parent", "--ancestry-path", "--reverse", "--format=%H",
+                                                        match.commit.sha + ".." + ref], in: root, git: true, timeout: 30)
+            guard ancestry.status == 0 else { return (found, "a merged commit's mainline ancestry could not be read") }
+            guard let landed = ancestry.stdout.split(whereSeparator: \.isNewline).first.map(String.init),
+                  mergeSHAs.contains(landed), let commit = mainline.first(where: { $0.sha == landed }) else { continue }
+            found.append(Match(commit: commit, association: match.association, pullRequest: pullRequest(in: commit.message)))
+        }
+        if commits.count == limit, let oldest = mainline.last?.date, let last = commits.last?.date, last > oldest {
+            return (found, "the merged commit message scan did not reach the oldest mainline work")
+        }
+        return (found, nil)
+    }
+
+    /// Read PR descriptions in bounded batches: a merge commit drops the description even when it has the association.
+    private static func pullRequestMatches(_ mainline: [GitWorkLog.Commit], subject: Subject, client: GitHubClient)
+        async -> (matches: [Match], error: String?) {
+        let pieces = client.repo.slug.split(separator: "/")
+        guard pieces.count == 2, pieces.allSatisfy({ $0.range(of: #"^[A-Za-z0-9_.-]+$"#, options: .regularExpression) != nil }) else {
+            return ([], "the GitHub repository name is invalid")
+        }
+        let candidates = mainline.compactMap { commit -> (GitWorkLog.Commit, Int)? in
+            pullRequest(in: commit.message).map { (commit, $0) }
+        }
+        var found: [Match] = []
+        for start in stride(from: 0, to: candidates.count, by: 40) {
+            let batch = Array(candidates[start..<min(start + 40, candidates.count)])
+            let fields = batch.map { "p\($0.1): pullRequest(number: \($0.1)) { body }" }.joined(separator: " ")
+            let query = "query { repository(owner: \"\(pieces[0])\", name: \"\(pieces[1])\") { \(fields) } }"
+            let result = await GitHubClient.execute(["api", "graphql", "-f", "query=" + query], in: client.root, timeout: 30)
+            guard result.status == 0, let object = json(result.stdout), object["errors"] == nil,
+                  let data = object["data"] as? [String: Any], let repo = data["repository"] as? [String: Any] else {
+                return (found, "pull request descriptions could not be read")
+            }
+            for (commit, number) in batch {
+                // A squash title can end in an issue number rather than a pull request number.
+                guard let pr = repo["p\(number)"] as? [String: Any], let body = pr["body"] as? String else { continue }
+                if let association = association(in: body, subject: subject) {
+                    found.append(Match(commit: commit, association: association, pullRequest: number))
+                }
+            }
+        }
+        return (found, nil)
     }
 
     /// "Merge pull request #12 from …" (merge commit) or "title (#12)" (squash).
@@ -156,7 +251,7 @@ enum IssueEvidenceCollector {
                 judged = landed
             }
             return WorkUnit(ref: .pullRequest(number), headSHA: judged, mergedAt: commit.date, changedPaths: commit.paths, checks: state,
-                            association: match.association)
+                            association: match.association, landedSHA: landed)
         }
         return WorkUnit(ref: .commit(commit.sha), headSHA: commit.sha, mergedAt: commit.date, changedPaths: commit.paths,
                         checks: await checks(of: commit.sha, client: client), association: match.association)
@@ -195,7 +290,7 @@ enum IssueEvidenceCollector {
         let landed = unit.mergedAt ?? .distantFuture
         let candidates = releases.filter { $0.publishedAt >= landed }.prefix(releaseChecks)
         if candidates.isEmpty { return .pending }
-        let sha = unit.ref.commitSHA ?? unit.headSHA
+        let sha = unit.landedSHA ?? unit.ref.commitSHA ?? unit.headSHA
         var unreadable = false
         for candidate in candidates {
             let compare = await GitHubClient.execute(["api", "repos/\(client.repo.slug)/compare/\(sha)...\(candidate.tag)", "--jq", ".status"],

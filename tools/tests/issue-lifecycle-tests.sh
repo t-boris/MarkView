@@ -3,7 +3,7 @@
 # service, the delivery evidence, verified completion and reconciliation, the GitHub sync planner, the AI context and the
 # Lifecycle section's display model.
 # The app has no XCTest target: each suite is compiled on its own with a test main and run.
-#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: policy log evidence completion github context display store
+#   tools/tests/issue-lifecycle-tests.sh [suite ...]      suites: policy log evidence collector completion github context display store
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 out=$(mktemp -d)
@@ -19,12 +19,13 @@ run() {  # name, checks file, extra sources...
     "$out/$name"
 }
 
-want=("$@"); [ ${#want[@]} -eq 0 ] && want=(policy log evidence completion github context display store)
+want=("$@"); [ ${#want[@]} -eq 0 ] && want=(policy log evidence collector completion github context display store)
 for suite in "${want[@]}"; do
     case $suite in
         policy)     run policy IssueLifecyclePolicyChecks.swift ;;
         log)        run log IssueTransitionLogChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift ;;
         evidence)   run evidence IssueEvidenceChecks.swift "$M/IssueLifecycleEvidence.swift" ;;
+        collector) swiftc -parse-as-library -O -o "$out/collector" "${base[@]}" "$M/IssueLifecycleEvidence.swift" "$M/IssueEvidenceCollector.swift" tools/tests/IssueCollectorChecks.swift; "$out/collector" ;;
         completion) run completion IssueCompletionChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/IssueCompletion.swift" "$M/IssueReconciler.swift" ;;
         github)     run github IssueGitHubSyncChecks.swift "$M/IssueTransitionLog.swift" tools/tests/IssueLogSupport.swift "$M/IssueCompletion.swift" "$M/IssueSync.swift" "$M/IssueGitHubSync.swift" ;;
         context)    run context IssueContextChecks.swift "$M/IssueTransitionLog.swift" "$M/IssueCompletion.swift" "$M/IssueLifecycleContext.swift" ;;
