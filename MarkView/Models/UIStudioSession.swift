@@ -1248,6 +1248,18 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
         }
     }
 
+    /// Tell the person about a page-initiated protocol that cannot be simulated without disturbing a pending turn.
+    private func noteUnsupportedChannel(contract: String, reason: String) {
+        let request = redactor.redact(text: "Unsupported connection: " + contract)
+        let answer = redactor.redact(text: "MarkView UI Studio does not simulate \(contract): \(reason)")
+        guard !conversation.contains(where: { $0.request == request && $0.answer == answer }) else { return }
+        var operation = StudioOperation(id: newOperationID(), kind: .question, request: request, status: .answered)
+        operation.answer = answer
+        history.append(operation)
+        conversationIds.insert(operation.id)
+        persistHistory()
+    }
+
     /// Frames for page connection `pageID`, delivered in order to the page of the current generation.
     private func pageSink(_ pageID: String) -> StudioChannelHub.Sink {
         { [weak self] frames in
@@ -1294,6 +1306,7 @@ final class StudioSession: NSObject, ObservableObject, Identifiable, WKNavigatio
                 if case .unknown = again { reason = "the rules registered for it do not answer this connection." } else { done(again) }
             case .unsupported(let why):
                 self.noteDependency(StudioDependency(id: contract, mode: .unsupported, note: why))
+                self.noteUnsupportedChannel(contract: contract, reason: why)
                 self.sessionLog.add(.request, problem: true, "\(kind) \(shown) · \(source.transport) · unsupported: \(why)")
                 done(.refused("MarkView UI Studio does not simulate \(contract): \(why)"))
             case .stale:

@@ -651,6 +651,22 @@ func run() async {
     check("REQ-015 the preparation asks for a channel by its contract", channelPrompt?.prompt.contains("WS /ws/live") == true
           && channelPrompt?.prompt.contains("real-time connection") == true, channelPrompt.map { String($0.prompt.prefix(300)) } ?? "no prompt")
     check("REQ-015 the prepared channel is kept for later sessions", StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true)
+    // BUG-100: a page-initiated unsupported protocol is visible in the conversation as well as the log and environment.
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [], "assumptions": [], "graphql": "[]", "channels": "[]",
+                              "unsupported": true, "reason": "custom binary framing"]
+    }
+    let closed = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('/ws/binary');
+          ws.onclose = () => resolve('closed');
+          setTimeout(() => resolve('timeout'), 30000);
+        });
+        """)
+    check("BUG-100 an unsupported page channel is named in the turn, log and environment", closed == "closed"
+          && session.conversation.contains { $0.answer.contains("WS /ws/binary") && $0.answer.contains("custom binary framing") }
+          && session.sessionLog.entries.contains { $0.text.contains("/ws/binary") && $0.text.contains("custom binary framing") }
+          && session.dependencies.contains { $0.id.contains("/ws/binary") && $0.mode == .unsupported && $0.note.contains("custom binary framing") })
     assistant.lock.withLock {
         assistant.proposal = ["rules": [], "assumptions": ["The page shows its team."], "channels": "[]",
                               "graphql": #"[{"id":"q-team","kind":"query","field":"team","action":"respond","response":{"name":"Core","size":3}}]"#]
