@@ -90,7 +90,7 @@ enum ProjectAgentTools {
               "regression_of": ["type": "string", "description": "Feature slug or BUG-007 whose finished work this report says came back. It is the evidence that lets an AI reopen that work (a person reopens it in the app with a reason)"],
               "related": ["type": "string", "description": "Feature slug or BUG-007 whose finished work this report follows from without being a regression of it: independent new work is a new issue linked this way, not a reopening"]],
              required: ["title", "summary"]),
-        tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind. approved, accepted and rejected need by_user: true (the person said so). A feature's own status follows the lifecycle rules of MarkView: starting needs a hand-off or markview_attach_issue; implemented is recorded only when merge, checks and the required release are evidenced; verified needs `evidence` and every acceptance criterion ticked; reopening needs a regression bug report. A refused change says what is missing; read markview_issue_context first. by_user never overrides these rules.",
+        tool("markview_set_status", "Change the status of a feature, or of one of its objects when `id` is given. Statuses are checked against the object's kind. approved, accepted and rejected need by_user: true (the person said so). A feature's own status follows the lifecycle rules of MarkView: starting needs a hand-off or markview_attach_issue; implemented needs associated implementation on the default branch; verified needs `evidence` and every acceptance criterion ticked; reopening needs a regression bug report. A refused change says what is missing; read markview_issue_context first. by_user never overrides these rules.",
              ["feature": feature, "id": ["type": "string"], "status": ["type": "string"],
               "reason": ["type": "string", "description": "Why, for the history"],
               "evidence": ["type": "string", "description": "For verified: what was checked and how"],
@@ -308,7 +308,7 @@ enum ProjectAgentTools {
     5. Pull request: one per feature or bug, into main; describe the change, link the feature (slug and REQ ids), the version if the \
     project has one, and the test plan. Merge it after the checks pass if the project's rules say so.
     6. Statuses: attach your session with markview_attach_issue before you start; MarkView completes implemented / fixed itself from \
-    merge, checks and release evidence, and you may ask for them with markview_set_status / markview_set_bug_status once \
+    delivery evidence, and you may ask for them with markview_set_status / markview_set_bug_status once \
     markview_issue_context says the evidence is complete. Write "Feature: <slug>" on a line of its own in every commit message and \
     pull request description of a feature (a bug's id at the start of the message) so MarkView finds the work. Never edit the \
     status in the Markdown files. Mark requirements approved only when the user did.

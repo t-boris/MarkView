@@ -236,6 +236,14 @@ enum DeliveryEvaluator {
 
 /// How a commit message or a pull request text names an issue (DEC-012).
 enum WorkAssociationRules {
+    /// A PR can explicitly mention earlier work while disclaiming that it fixes it. Such a line is not a delivery link.
+    static func deliveryDescription(_ text: String) -> String {
+        text.components(separatedBy: .newlines).filter { line in
+            let lower = line.lowercased()
+            return !lower.contains("previously addressed") && !lower.contains("does not claim new fixes")
+        }.joined(separator: "\n")
+    }
+
     /// A feature: its folder, a `Feature: <slug>` trailer, a backtick-quoted slug, or a linked GitHub issue number.
     static func mentionsFeature(_ text: String, slug: String, issues: Set<Int>) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: slug)

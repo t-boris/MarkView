@@ -54,12 +54,17 @@ enum IssueEvidenceCollector {
             sources.append(.available("git"))
         }
         let definition = try? Data(contentsOf: root.appendingPathComponent(".dde/definition-of-done.json"))
-        let required = ReleaseRequirement.isRequired(definitionOfDoneJSON: definition)
+        let required = subject.kind == .bug && ReleaseRequirement.isRequired(definitionOfDoneJSON: definition)
         let guides = ["AGENTS.md", "CLAUDE.md"].compactMap { name -> String? in
             guard let text = try? String(contentsOf: root.appendingPathComponent(name), encoding: .utf8), text.utf8.count <= 1_000_000 else { return nil }
             return text
         }.joined(separator: "\n")
-        let policy = ProjectDeliveryPolicy.read(definition: definition, guide: guides)
+        var policy = ProjectDeliveryPolicy.read(definition: definition, guide: guides)
+        // A feature is implemented as soon as its associated code lands on the default branch.
+        if subject.kind == .feature {
+            policy.checksRequired = false
+            policy.pullRequestRequired = false
+        }
 
         let needsGitHub = policy.checksRequired || policy.pullRequestRequired || required
         var client: GitHubClient?
@@ -239,7 +244,7 @@ enum IssueEvidenceCollector {
             for (commit, number) in batch {
                 // A squash title can end in an issue number rather than a pull request number.
                 guard let pr = repo["p\(number)"] as? [String: Any], let body = pr["body"] as? String else { continue }
-                if let association = association(in: body, subject: subject) {
+                if let association = association(in: WorkAssociationRules.deliveryDescription(body), subject: subject) {
                     found.append(Match(commit: commit, association: association, pullRequest: number))
                 }
             }
