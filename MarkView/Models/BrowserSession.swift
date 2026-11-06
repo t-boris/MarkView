@@ -54,6 +54,7 @@ enum WebPreviewState: Equatable {
     /// Waiting for the app's server; `started` once MarkView ran its dev script.
     case starting(WebAppTarget, started: Bool)
     case timedOut(WebAppTarget)
+    case portInUse(WebAppTarget, Int)
     case noApp
 }
 

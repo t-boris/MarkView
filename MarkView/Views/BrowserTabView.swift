@@ -363,10 +363,16 @@ struct BrowserTabView: View {
                 Button("Show Terminal") { session.showTerminal?() }
                 Button("Try Again") { session.startWebApp?(target) }
             }
+        case .portInUse(let target, let port):
+            Image(systemName: "exclamationmark.triangle").uiFont(size: 24).foregroundColor(VSDark.orange)
+            Text("Port \(port) is already in use").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
+            Text("Stop the other server or choose a free port, then try again.")
+                .uiFont(size: 11).foregroundColor(VSDark.textDim)
+            Button("Try Again") { session.startWebApp?(target) }
         case .noApp:
             Image(systemName: "globe").uiFont(size: 26).foregroundColor(VSDark.textDim)
             Text("No web app found in this project").uiFont(size: 13, weight: .semibold).foregroundColor(VSDark.text)
-            Text("No package.json dev script, Electron renderer, Django or Rails app, and nothing answers on the usual ports.\nType the address of your server above, e.g. localhost:3000.")
+            Text("No supported web app was found. Add .markview/preview.json with its command and port,\nor type the address of your server above, e.g. localhost:3000.")
                 .uiFont(size: 11).foregroundColor(VSDark.textDim).multilineTextAlignment(.center)
         }
     }

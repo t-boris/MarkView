@@ -14,6 +14,10 @@ struct WebAppTarget: Equatable {
     /// An Electron app run as a web page only: Electron is never started, and the browser tab
     /// stands in for its preload APIs (`window.electron`, `window.api`, …).
     var isElectron = false
+    /// Isolated servers must be started by this session, never attached to another process.
+    var reuseRunningServer = true
+    /// The target owns a separate test database and its same-origin API may use it.
+    var usesIsolatedBackend = false
 }
 
 /// Finds the project's web apps and their development servers (Preview Web App).
@@ -159,14 +163,20 @@ enum WebAppPreview {
         let relative = folder.standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let label = relative.isEmpty ? root.lastPathComponent : relative
+        if let configured = configuredTarget(in: folder, label: label) { return configured }
         if let package = readJSON(folder.appendingPathComponent("package.json")),
            let target = nodeTarget(package, folder: folder, root: root, label: label, fileManager: fileManager) {
             return target
         }
         let exists = { (name: String) in fileManager.fileExists(atPath: folder.appendingPathComponent(name).path) }
         if exists("manage.py") {
-            return WebAppTarget(folder: folder, label: label, command: "python3 manage.py runserver", ports: [8000])
+            return WebAppTarget(folder: folder, label: label, command: python(folder, fileManager) + " manage.py runserver", ports: [8000])
         }
+        if let target = pythonTarget(in: folder, label: label, fileManager: fileManager) { return target }
+        if exists("artisan") {
+            return WebAppTarget(folder: folder, label: label, command: "php artisan serve --host=127.0.0.1 --port=8000", ports: [8000])
+        }
+        if let target = dotnetTarget(in: folder, label: label, fileManager: fileManager) { return target }
         if exists("bin/rails") {
             return WebAppTarget(folder: folder, label: label, command: "bin/rails server", ports: [3000])
         }
@@ -175,6 +185,70 @@ enum WebAppPreview {
             return WebAppTarget(folder: folder, label: label, command: "python3 -m http.server 8000", ports: [8000])
         }
         return nil
+    }
+
+    /// An explicit project-local command makes other servers available without guessing how to start them.
+    /// The command is trusted project code, just like a package.json development script.
+    private static func configuredTarget(in folder: URL, label: String) -> WebAppTarget? {
+        guard let config = readJSON(folder.appendingPathComponent(".markview/preview.json")),
+              let command = config["command"] as? String,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              command.utf8.count <= 4096,
+              let values = config["ports"] as? [Int], values.count <= 20,
+              values.allSatisfy({ (1...65535).contains($0) }) else { return nil }
+        let reuse = config["reuseRunningServer"] as? Bool ?? true
+        guard !values.isEmpty || !reuse else { return nil }
+        return WebAppTarget(folder: folder, label: label, command: command, ports: unique(values), reuseRunningServer: reuse)
+    }
+
+    private static func python(_ folder: URL, _ fileManager: FileManager) -> String {
+        for path in [".venv/bin/python", "venv/bin/python"] where fileManager.isExecutableFile(atPath: folder.appendingPathComponent(path).path) {
+            return "./" + path
+        }
+        return "python3"
+    }
+
+    /// Recognise common Python entry points only when their source declares an application instance. A project that
+    /// needs a factory, nonstandard module, or extra arguments can declare its command in .markview/preview.json.
+    private static func pythonTarget(in folder: URL, label: String, fileManager: FileManager) -> WebAppTarget? {
+        let interpreter = python(folder, fileManager)
+        // Titanium's console command opens the operator's real database by default and starts background jobs. Give
+        // this particular application its own persisted workshop and an OS-assigned port, never attach to the real one.
+        let manifest = (try? String(contentsOf: folder.appendingPathComponent("pyproject.toml"), encoding: .utf8)) ?? ""
+        let titanium = folder.appendingPathComponent(".venv/bin/titanium-platform")
+        if manifest.range(of: #"(?m)^\s*name\s*=\s*["']titanium-color-engraving-platform["']\s*$"#, options: .regularExpression) != nil,
+           fileManager.isExecutableFile(atPath: titanium.path) {
+            return WebAppTarget(folder: folder, label: label,
+                                command: "./.venv/bin/titanium-platform --data-dir .dde/studio/titanium-data --port 0",
+                                ports: [], reuseRunningServer: false, usesIsolatedBackend: true)
+        }
+        for module in ["app", "main", "server", "wsgi"] {
+            let url = folder.appendingPathComponent(module + ".py")
+            guard let text = try? String(contentsOf: url, encoding: .utf8), text.utf8.count <= 1_000_000 else { continue }
+            if text.range(of: #"(?m)^app\s*(?::[^=\n]+)?=\s*(?:\w+\.)?(?:FastAPI|Starlette)\s*\("#, options: .regularExpression) != nil {
+                return WebAppTarget(folder: folder, label: label,
+                                    command: interpreter + " -m uvicorn " + module + ":app --host 127.0.0.1 --port 8000", ports: [8000])
+            }
+            if text.range(of: #"(?m)^app\s*(?::[^=\n]+)?=\s*(?:\w+\.)?Flask\s*\("#, options: .regularExpression) != nil {
+                return WebAppTarget(folder: folder, label: label,
+                                    command: interpreter + " -m flask --app " + module + " run --host 127.0.0.1 --port 5000", ports: [5000])
+            }
+        }
+        return nil
+    }
+
+    /// A single ASP.NET Web SDK project is unambiguous. Multiple projects need an explicit command.
+    private static func dotnetTarget(in folder: URL, label: String, fileManager: FileManager) -> WebAppTarget? {
+        let files = ((try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension.lowercased() == "csproj" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let projects = files.filter { url in
+            guard let text = try? String(contentsOf: url, encoding: .utf8), text.utf8.count <= 1_000_000 else { return false }
+            return text.contains("Microsoft.NET.Sdk.Web")
+        }
+        guard projects.count == 1, let project = projects.first else { return nil }
+        let command = "dotnet run --project " + shellQuoted(project.lastPathComponent)
+            + " --no-launch-profile --urls http://127.0.0.1:5000"
+        return WebAppTarget(folder: folder, label: label, command: command, ports: [5000])
     }
 
     private static func nodeTarget(_ package: [String: Any], folder: URL, root: URL, label: String,
@@ -381,6 +455,14 @@ enum WebAppPreview {
     /// ("Local:   http://localhost:5173/"); terminal colour codes are ignored and 0.0.0.0
     /// becomes localhost.
     static func firstLocalURL(in output: String) -> URL? {
+        // Some servers report an ephemeral port as a complete JSON readiness line rather than a URL.
+        for line in output.components(separatedBy: .newlines) where line.hasPrefix("{") && line.hasSuffix("}") {
+            guard let data = line.data(using: .utf8), data.count <= 16_384,
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  object["ready"] as? Bool == true, let port = object["port"] as? Int,
+                  (1...65535).contains(port) else { continue }
+            return URL(string: "http://127.0.0.1:\(port)/")
+        }
         let plain = output.replacingOccurrences(of: #"\x{1B}\[[0-9;?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
         let pattern = #"https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d{2,5})?(?:/[^\s'"<>)\]]*)?"#
         guard let range = plain.range(of: pattern, options: .regularExpression) else { return nil }

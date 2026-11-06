@@ -80,6 +80,38 @@ if let web {
 }
 check("django app", targets.contains { $0.label == "server" && $0.command.contains("manage.py runserver") })
 
+// Other servers and explicit commands
+write("python-fast/main.py", "from fastapi import FastAPI\napp = FastAPI()\n")
+write("python-flask/app.py", "from flask import Flask\napp = Flask(__name__)\n")
+write("python-library/main.py", "from fastapi import FastAPI\ndef make_app():\n    app = FastAPI()\n    return app\n")
+write("python-starlette/app.py", "from starlette.applications import Starlette\napp: Starlette = Starlette()\n")
+write("custom-dynamic/.markview/preview.json", #"{"command":"my-server","ports":[],"reuseRunningServer":false}"#)
+write("laravel/artisan", "#!/usr/bin/env php\n")
+write("dotnet/My App.csproj", #"<Project Sdk="Microsoft.NET.Sdk.Web"></Project>"#)
+write("dotnet-ambiguous/a.csproj", #"<Project Sdk="Microsoft.NET.Sdk.Web"></Project>"#)
+write("dotnet-ambiguous/b.csproj", #"<Project Sdk="Microsoft.NET.Sdk.Web"></Project>"#)
+write("custom/.markview/preview.json", #"{"command":"go run ./cmd/web --port 4322","ports":[4322]}"#)
+write("custom/package.json", #"{"scripts":{"dev":"vite"},"devDependencies":{"vite":"5"}}"#)
+write("invalid/.markview/preview.json", #"{"command":"echo test","ports":[0,70000]}"#)
+write("titanium/pyproject.toml", "[project]\nname = \"titanium-color-engraving-platform\"\n")
+write("titanium/.venv/bin/titanium-platform", "#!/bin/sh\n")
+try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.appendingPathComponent("titanium/.venv/bin/titanium-platform").path)
+let other = WebAppPreview.targets(root: tmp)
+check("FastAPI is started with uvicorn", other.first { $0.label == "python-fast" }?.command == "python3 -m uvicorn main:app --host 127.0.0.1 --port 8000")
+check("Starlette is started with uvicorn", other.first { $0.label == "python-starlette" }?.command.contains("-m uvicorn app:app") == true)
+check("a custom dynamic server is started without reusing a port", other.first { $0.label == "custom-dynamic" }?.reuseRunningServer == false && other.first { $0.label == "custom-dynamic" }?.ports == [])
+check("Flask is started with its CLI", other.first { $0.label == "python-flask" }?.command == "python3 -m flask --app app run --host 127.0.0.1 --port 5000")
+check("a factory is not guessed", !other.contains { $0.label == "python-library" })
+check("ASP.NET Web SDK starts its single project on loopback", other.first { $0.label == "dotnet" }?.command == "dotnet run --project 'My App.csproj' --no-launch-profile --urls http://127.0.0.1:5000")
+check("multiple ASP.NET web projects need configuration", !other.contains { $0.label == "dotnet-ambiguous" })
+check("Laravel is started on loopback", other.first { $0.label == "laravel" }?.command == "php artisan serve --host=127.0.0.1 --port=8000")
+check("explicit command takes precedence", other.first { $0.label == "custom" }?.command == "go run ./cmd/web --port 4322" && other.first { $0.label == "custom" }?.ports == [4322])
+check("invalid explicit ports are rejected", !other.contains { $0.label == "invalid" })
+let titanium = other.first { $0.label == "titanium" }
+check("Titanium uses a separate data directory and an ephemeral port", titanium?.command == "./.venv/bin/titanium-platform --data-dir .dde/studio/titanium-data --port 0" && titanium?.ports == [] && titanium?.reuseRunningServer == false && titanium?.usesIsolatedBackend == true)
+check("JSON ready line identifies ephemeral port", WebAppPreview.firstLocalURL(in: "starting\n{\"ready\":true,\"port\":43210,\"pid\":123}\n")?.absoluteString == "http://127.0.0.1:43210/")
+check("incomplete and false ready lines ignored", WebAppPreview.firstLocalURL(in: "{\"ready\":false,\"port\":43210}\n{\"ready\":true,\"port\":0}") == nil)
+
 // MARK: Electron apps run as web only
 
 WebAppPreview.webOnlyLauncher = URL(fileURLWithPath: "/Applications/Mark View.app/Contents/Resources/Editor/vendor/js/markview-web-only.mjs")

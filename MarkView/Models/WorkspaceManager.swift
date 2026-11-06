@@ -5217,18 +5217,22 @@ class WorkspaceManager: ObservableObject {
         session.preview = .starting(target, started: false)
         if target.isElectron { session.standInForElectron() }
         Task { @MainActor in
-            if let url = await WebAppPreview.firstAnswering(target.ports) {
+            if !target.reuseRunningServer, let occupied = await WebAppPreview.firstListening(target.ports) {
+                session.preview = .portInUse(target, occupied.port ?? 0)
+                return
+            }
+            if target.reuseRunningServer, let url = await WebAppPreview.firstAnswering(target.ports) {
                 session.showPreview(url)
                 return
             }
             let key = target.folder.standardizedFileURL.path
             let terminal: TerminalSession
-            if let id = previewTerminals[key], let existing = terminalTabs[id] {
+            if target.reuseRunningServer, let id = previewTerminals[key], let existing = terminalTabs[id] {
                 terminal = existing
             } else {
                 terminal = openTerminal(in: target.folder, startupCommand: target.command,
                                         title: "Dev server", activate: false)
-                previewTerminals[key] = terminal.id
+                if target.reuseRunningServer { previewTerminals[key] = terminal.id }
                 // A terminal tab starts its shell when its page is shown; this one starts now and
                 // keeps the output until the tab is opened.
                 terminal.start()

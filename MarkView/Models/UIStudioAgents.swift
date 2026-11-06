@@ -51,6 +51,13 @@ enum StudioTargetLimits {
             notes.append("Server-rendered pages: when MarkView starts the server, its requests to the service addresses in its "
                          + "environment are simulated; its database is not, and only Node servers follow the scenario's clock.")
         }
+        if target.usesIsolatedBackend {
+            notes.append("Titanium runs in a separate workshop under .dde/studio/titanium-data, not the operator's workshop. "
+                         + "Same-origin API calls use this real separate workshop, not simulated records; changes persist between sessions. Reset does not clear it.")
+        } else if target.command.contains("uvicorn") || target.command.contains(" -m flask") || target.command.contains("artisan serve") || target.command.contains("dotnet run") {
+            notes.append("The server runs with your permissions; its database and background tasks are real. Browser API simulation "
+                         + "does not isolate server-side activity.")
+        }
         if target.isElectron {
             notes.append("Electron: the renderer runs as a web page; the main process, preload scripts and native modules do not run. "
                          + "The preload's bridge (the globals it exposes) is simulated like any other API: each call is a request to "
