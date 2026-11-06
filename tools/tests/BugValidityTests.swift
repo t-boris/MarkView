@@ -331,11 +331,32 @@ check("the note for a present bug says so", BugValidity.note(for: BugValidity.Ve
 
 final class Trace { var events: [String] = []; var notes: [String] = [] }
 
-func gate(_ trace: Trace, verdict: BugValidity.Verdict?, saveError: String? = nil) -> BugValidity.Gate {
+@MainActor func gate(_ trace: Trace, verdict: BugValidity.Verdict?, saveError: String? = nil) -> BugValidity.Gate {
     BugValidity.Gate(verify: { trace.events.append("verify"); return verdict },
                      save: { v in trace.events.append("save:\(v.outcome.rawValue)"); return saveError })
 }
 let present1 = BugValidity.Verdict(outcome: .stillPresent, reason: "crash", baseline: base)
+
+// The gate may be entered from a background task and verification may suspend.
+// Every callback that touches app state must still run on the main actor.
+let actorCheck = await Task.detached {
+    let gate = await BugValidity.Gate(verify: {
+        await Task.yield()
+        precondition(Thread.isMainThread)
+        return present1
+    }, save: { _ in
+        precondition(Thread.isMainThread)
+        return nil
+    })
+    await BugValidity.Entry.answer(record: {
+        precondition(Thread.isMainThread)
+        return true
+    }, gate: gate, analyze: { _ in
+        precondition(Thread.isMainThread)
+    })
+    return true
+}.value
+check("entry callbacks stay on the main actor after suspension", actorCheck)
 
 // Investigate.
 var t = Trace()
