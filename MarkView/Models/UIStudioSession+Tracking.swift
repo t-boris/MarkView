@@ -148,7 +148,7 @@ extension StudioSession {
         let facts = trackingFacts(operation, tracking, movedFrom: movedFrom)
         guard let object = store.create(.requirement, in: tracking.feature,
                                         title: context ? text.contextTitle(operation) : text.requirementTitle(operation),
-                                        fields: [("status", .string("approved")), ("req_type", .string("ux")),
+                                        fields: [("status", .string("implemented")), ("req_type", .string("ux")),
                                                  ("depends_on", .list([])), ("decisions", .list([])),
                                                  ("sources", .list(tracking.sources.map { .string($0) })), ("issues", .list([]))],
                                         body: context ? text.contextBody(operation, facts: facts) : text.requirementBody(operation, facts: facts),

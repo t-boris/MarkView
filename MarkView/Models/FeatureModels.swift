@@ -139,7 +139,7 @@ struct FeatureObject: Identifiable, Hashable {
         case .question: return status == "answered" || status == "deferred"
         case .finding: return ["resolved", "accepted-risk", "dismissed"].contains(status)
         case .decision: return status != "proposed"
-        case .requirement: return ["approved", "rejected", "superseded"].contains(status)
+        case .requirement: return ["approved", "implemented", "rejected", "superseded"].contains(status)
         default: return false
         }
     }
@@ -454,7 +454,7 @@ struct Feature: Identifiable {
 
     var readinessConditions: [ReadinessCondition] {
         let requirements = activeRequirements
-        let approved = requirements.filter { $0.status == "approved" }
+        let approved = requirements.filter { ["approved", "implemented"].contains($0.status) }
         let blocking = list(.question).filter(\.isBlocking)
         let seriousFindings = list(.finding).filter { ["blocker", "high"].contains($0.front.string("severity")) }
         let contradictions = list(.finding).filter { $0.front.string("category") == "contradiction" }

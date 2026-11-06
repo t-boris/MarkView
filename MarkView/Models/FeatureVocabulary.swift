@@ -4,7 +4,7 @@ import Foundation
 enum FeatureVocabulary {
     static let featureStatuses = ["idea", "exploring", "draft", "review", "resolving", "ready",
                                   "implementing", "implemented", "verified", "archived"]
-    static let requirementStatuses = ["draft", "review", "approved", "rejected", "superseded"]
+    static let requirementStatuses = ["draft", "review", "approved", "implemented", "rejected", "superseded"]
     static let requirementTypes = ["functional", "non-functional", "ux", "security", "performance",
                                    "reliability", "privacy", "analytics", "operational", "compliance"]
     static let questionStatuses = ["open", "answered", "deferred"]

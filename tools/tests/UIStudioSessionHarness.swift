@@ -651,6 +651,22 @@ func run() async {
     check("REQ-015 the preparation asks for a channel by its contract", channelPrompt?.prompt.contains("WS /ws/live") == true
           && channelPrompt?.prompt.contains("real-time connection") == true, channelPrompt.map { String($0.prompt.prefix(300)) } ?? "no prompt")
     check("REQ-015 the prepared channel is kept for later sessions", StudioStore.loadEnvironment(root)?.channels?.contains { $0.id == "live" } == true)
+    // BUG-100: a page-initiated unsupported protocol is visible in the conversation as well as the log and environment.
+    assistant.lock.withLock {
+        assistant.proposal = ["rules": [], "assumptions": [], "graphql": "[]", "channels": "[]",
+                              "unsupported": true, "reason": "custom binary framing"]
+    }
+    let closed = await text("""
+        return await new Promise(resolve => {
+          const ws = new WebSocket('/ws/binary');
+          ws.onclose = () => resolve('closed');
+          setTimeout(() => resolve('timeout'), 30000);
+        });
+        """)
+    check("BUG-100 an unsupported page channel is named in the turn, log and environment", closed == "closed"
+          && session.conversation.contains { $0.answer.contains("WS /ws/binary") && $0.answer.contains("custom binary framing") }
+          && session.sessionLog.entries.contains { $0.text.contains("/ws/binary") && $0.text.contains("custom binary framing") }
+          && session.dependencies.contains { $0.id.contains("/ws/binary") && $0.mode == .unsupported && $0.note.contains("custom binary framing") })
     assistant.lock.withLock {
         assistant.proposal = ["rules": [], "assumptions": ["The page shows its team."], "channels": "[]",
                               "graphql": #"[{"id":"q-team","kind":"query","field":"team","action":"respond","response":{"name":"Core","size":3}}]"#]
@@ -1187,7 +1203,7 @@ func contextTrackingChecks(_ session: StudioSession, store: FeatureStore) {
     let filledRecord = object(filled?.tracking), dialogRecord = object(dialog?.tracking)
     check("REQ-012 an applied context change is a requirement of the conversation's feature", dialog?.tracking?.isRecorded == true
           && dialog?.tracking?.isBug == false && dialog?.tracking?.feature == filled?.tracking?.feature && dialog?.changeKind == nil
-          && dialogRecord?.title == "Scenario: Show me the booking dialog" && dialogRecord?.front.string("status") == "approved"
+          && dialogRecord?.title == "Scenario: Show me the booking dialog" && dialogRecord?.front.string("status") == "implemented"
           && dialogRecord?.body.contains("- New scenario: Booking dialog, made from Random numbers") == true
           && dialogRecord?.body.contains("- Steps: click [data-testid=open-booking]") == true
           && dialogRecord?.front.strings("sources").isEmpty == false, dialogRecord?.body ?? "\(dialog?.tracking.map { "\($0.id) \($0.feature)" } ?? "nil")")
@@ -1249,8 +1265,8 @@ func trackingChecks(_ session: StudioSession, store: FeatureStore, assistant: As
     check("lifecycle: the feature reaches implementing through the lifecycle: a specification stage, then the hand-off as start evidence",
           featureMoves == ["feature \(feature) → draft by system UI Studio", "feature \(feature) → implementing by hand-off UI Studio"], "\(featureMoves)")
     let req1 = object(feature, first?.tracking?.id)
-    check("REQ-012 a change is an approved requirement with its request, element, scope, files, checks and patch",
-          first?.tracking?.id == "REQ-001" && req1?.front.string("status") == "approved"
+    check("REQ-012 a change is an implemented requirement with its request, element, scope, files, checks and patch",
+          first?.tracking?.id == "REQ-001" && req1?.front.string("status") == "implemented"
           && ["- [x] Application rebuilt and reloaded", "- Request: Make the first rule darker", "- Element: `button.cta",
               "- Scope: Shared theme", "- Files: `web/track.css`", "```diff", "+.a { color: darkred; }"].allSatisfy { req1?.body.contains($0) == true },
           req1?.body ?? "nil")
