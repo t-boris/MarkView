@@ -350,7 +350,7 @@ struct MarkViewApp: App {
                 }
                 .keyboardShortcut("3", modifiers: [.command])
 
-                Button("Deployments") {
+                Button("Build & Deployment") {
                     activeWorkspace?.openDeployments()
                 }
                 .keyboardShortcut("d", modifiers: [.command, .control])

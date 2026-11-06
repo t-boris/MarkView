@@ -6,12 +6,18 @@ struct DeploymentsView: View {
     @ObservedObject var store: DeploymentStore
     @State private var editing: DeploymentEnvironment?
     @State private var adding = false
+    @State private var showAllOperations = false
 
     var body: some View {
         HStack(spacing: 0) {
             sidebar.frame(width: 214)
             Divider().background(VSDark.border)
-            Group {
+            VStack(spacing: 0) {
+                if let operations = workspaceManager.projectOperations {
+                    operationBar(operations)
+                    Divider().background(VSDark.border)
+                }
+                Group {
                 if let id = store.selected, let env = store.environment(id) {
                     EnvironmentDetail(store: store, env: env, edit: { editing = env })
                         .id(id)
@@ -19,7 +25,8 @@ struct DeploymentsView: View {
                     emptyState
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .background(VSDark.bg)
         .sheet(item: $editing) { env in EnvironmentEditor(store: store, original: env, isNew: false) { editing = nil } }
@@ -27,7 +34,103 @@ struct DeploymentsView: View {
             EnvironmentEditor(store: store, original: DeploymentEnvironment(id: "", name: "", kind: .ssh), isNew: true) { adding = false }
         }
         .sheet(item: $store.approval) { request in ApprovalSheet(store: store, request: request) }
-        .onAppear { if !store.hasScanned { store.scan() } }
+        .onAppear { if !store.hasScanned { scan() } }
+    }
+
+    private func scan() {
+        store.scan()
+        let nodes = workspaceManager.architecture.snapshot?.view("deployment")?.nodes
+            .filter { $0.kind != "root" && $0.kind != "moduleRef" }
+            .map { ProjectOperation.Node(id: $0.id, name: $0.name) } ?? []
+        workspaceManager.projectOperations?.discover(nodes: nodes)
+    }
+
+    @ViewBuilder private func operationBar(_ operations: ProjectOperationsStore) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("BUILD & DEPLOYMENT COMMANDS").uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+                Spacer()
+                if let phase = operations.discoveryPhase {
+                    Text("Scanning · " + phase).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                    ProgressView().controlSize(.small)
+                    Button("Cancel") { operations.cancelDiscovery() }
+                } else {
+                    Button("Scan commands") { scan() }.disabled(operations.readOnly)
+                }
+                Button("Add") { operations.edit(id: nil) }.disabled(operations.readOnly)
+            }
+            if let error = operations.fileError ?? operations.message {
+                Text(error).uiFont(size: 10).foregroundColor(VSDark.orange).textSelection(.enabled)
+            }
+            if operations.sourcesChanged {
+                Text("Project sources changed. Scan again to update commands.").uiFont(size: 10).foregroundColor(VSDark.orange)
+            }
+            let primary = operations.primaryOperations
+            if primary.isEmpty && operations.discoveryPhase == nil {
+                Text("Scan the project to find build, test, run, clean and deployment commands.")
+                    .uiFont(size: 10).foregroundColor(VSDark.textDim)
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(primary) { operation in operationButton(operation, store: operations) }
+                    if operations.operations.count > primary.count {
+                        Button(showAllOperations ? "Hide all" : "All \(operations.operations.count) commands") {
+                            showAllOperations.toggle()
+                        }
+                    }
+                }
+            }
+            if showAllOperations {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(ProjectOperation.primaryKindOrder, id: \.self) { kind in
+                            let items = operations.operations.filter { $0.kind == kind }
+                                .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+                            if !items.isEmpty {
+                                Text(kind.capitalized).uiFont(size: 10, weight: .semibold).foregroundColor(VSDark.textDim)
+                                ForEach(items) { operation in
+                                    HStack {
+                                        operationButton(operation, store: operations)
+                                        Text(operation.command).uiFont(size: 10).foregroundColor(VSDark.textDim).textSelection(.enabled)
+                                        Spacer()
+                                        Button("Edit") { operations.edit(id: operation.id) }.disabled(operations.readOnly)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }.frame(maxHeight: 220)
+            }
+            if let report = operations.discoveryReport {
+                Text(report.message).uiFont(size: 10).foregroundColor(VSDark.textDim)
+                ForEach(Array(report.proposals.enumerated()), id: \.offset) { index, proposal in
+                    HStack {
+                        Text("Proposal: \(proposal.label) · \(proposal.command)").uiFont(size: 10).textSelection(.enabled)
+                        Button("Accept") { operations.acceptProposal(index: index) }
+                        Button("Dismiss") { operations.rejectProposal(index: index) }
+                    }
+                }
+                ForEach(Array(report.notDetermined.enumerated()), id: \.offset) { index, item in
+                    HStack {
+                        Text("\(item.label): \(item.reason)").uiFont(size: 10).foregroundColor(VSDark.orange)
+                        Button("Add manually") { operations.addUnknown(index: index) }
+                    }
+                }
+            }
+        }
+        .buttonStyle(.bordered).controlSize(.small).padding(10)
+    }
+
+    private func operationButton(_ operation: ProjectOperation, store: ProjectOperationsStore) -> some View {
+        let running = store.runs[operation.id]?.isActive == true
+        return Button {
+            if running { store.openPanel(id: operation.id) } else { store.run(id: operation.id) }
+        } label: {
+            Text(operation.label + (operation.environment.map { " · " + $0 } ?? "")
+                + (store.state(id: operation.id).map { " · " + $0.capitalized } ?? ""))
+        }
+        .disabled(store.unavailability(for: operation) != nil && !running)
+        .help(store.unavailability(for: operation) ?? "\(operation.command) · \(operation.cwd)")
     }
 
     // MARK: Sidebar
@@ -101,7 +204,7 @@ struct DeploymentsView: View {
             Text("FOUND IN THE PROJECT").uiFont(size: 9, weight: .semibold).foregroundColor(VSDark.textDim)
             Spacer()
             if store.scanning { ProgressView().controlSize(.small).scaleEffect(0.6) }
-            else { Button("Scan again") { store.scan() }.buttonStyle(.plain).uiFont(size: 9).foregroundColor(VSDark.blue) }
+            else { Button("Scan again") { scan() }.buttonStyle(.plain).uiFont(size: 9).foregroundColor(VSDark.blue) }
         }.padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 4)
         if store.suggestions.isEmpty && !store.scanning {
             Text("Nothing found in the workflows, platform files, docs and ~/.ssh/config. Add one by hand, or ask the assistant.")

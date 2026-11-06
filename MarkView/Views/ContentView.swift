@@ -440,7 +440,7 @@ struct ContentView: View {
                     }
                 }
                 if workspaceManager.rootNode != nil {
-                    headerButton("server.rack", help: "Deployments (⌃⌘D): where the project runs, its state, logs and the AI", width: controlWidth,
+                    headerButton("server.rack", help: "Build & Deployment (⌃⌘D): commands, environments, state and logs", width: controlWidth,
                                  selected: { if case .deployments? = workspaceManager.activeTab?.kind { return true } else { return false } }()) {
                         workspaceManager.openDeployments()
                     }

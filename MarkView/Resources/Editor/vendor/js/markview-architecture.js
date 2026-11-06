@@ -1686,7 +1686,7 @@
                 }
                 // Every other operation, grouped by kind (REQ-010, DEC-009): none is hidden or kept behind a toggle.
                 // Known kinds come first in a fixed order, then any other kind by name; operations inside a group by label.
-                const kinds = ['deploy', 'install', 'build', 'restart', 'clean', 'other'];
+                const kinds = ['deploy', 'build', 'test', 'run', 'install', 'clean', 'restart', 'other'];
                 const groups = new Map();
                 all.filter(function(o) { return related.indexOf(o) < 0; }).forEach(function(o) {
                     const kind = o.kind || 'other';

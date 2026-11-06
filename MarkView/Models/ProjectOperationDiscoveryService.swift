@@ -124,10 +124,7 @@ enum ProjectOperationDiscoveryService {
             let cwd = ProjectOperationsStore.storedPath(cwdURL, root: root)
             let environment = candidate.environment.trimmingCharacters(in: .whitespacesAndNewlines)
             let target = candidate.target.trimmingCharacters(in: .whitespacesAndNewlines)
-            let tupleMatches = existing.filter { $0.kind == candidate.kind && ($0.environment ?? "") == environment
-                && ($0.target ?? "") == target }
             let matching = existing.first { !candidate.id.isEmpty && $0.id == candidate.id }
-                ?? (tupleMatches.count == 1 ? tupleMatches.first : nil)
                 ?? existing.first { $0.command == candidate.command && $0.cwd == cwd }
             if matching?.deleted == true { continue }
             let id: String
@@ -199,7 +196,7 @@ enum ProjectOperationDiscoveryService {
             "type": "object", "properties": [
                 "operations": ["type": "array", "items": ["type": "object", "properties": [
                     "id": ["type": "string"], "label": ["type": "string"],
-                    "kind": ["type": "string", "enum": ["deploy", "install", "build", "clean", "restart", "other"]],
+                    "kind": ["type": "string", "enum": ["deploy", "install", "build", "test", "run", "clean", "restart", "other"]],
                     "environment": ["type": "string"], "target": ["type": "string"],
                     "command": ["type": "string"], "cwd": ["type": "string"],
                     "nodeNames": ["type": "array", "items": ["type": "string"]],
@@ -227,7 +224,7 @@ enum ProjectOperationDiscoveryService {
             \(inputs.prompt(limit: 60_000))
             """ : """
             Discover every runnable operational command supported by this project: deploy for each environment and target,
-            install, build, clean, restart, and other procedures such as migrations. Inspect the provided file excerpts only.
+            install, build, test, run/start/dev, clean, restart, and other procedures such as lint, format and migrations. Include each useful named target or script, including variants, with its correct working directory and package manager. Inspect the provided file excerpts only.
             Do not run commands, invent commands, or infer a command without evidence. For an unknown tool or procedure,
             return a notDetermined item, which may be investigated on the web in a second pass. A workflow_dispatch
             workflow is a remote trigger: propose a gh workflow run command, one per fixed environment choice, and
